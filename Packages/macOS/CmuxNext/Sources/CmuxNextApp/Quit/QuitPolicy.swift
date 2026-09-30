@@ -41,8 +41,10 @@ enum QuitPolicy {
         let hasTerminals = facts.terminals > 0
         let incognito = !facts.incognitoPrograms.isEmpty
         guard hasTerminals || incognito else { return .quit(remembered ?? .keep) }
-        // A remembered choice skips the sheet unless incognito windows would
-        // end running programs (that confirmation is not remembered).
+        // A remembered choice skips the alert unless incognito windows would
+        // end running programs (that confirmation is not remembered); the
+        // alert then only confirms the incognito close, and Quit applies the
+        // remembered choice.
         if let remembered, !incognito { return .quit(remembered) }
         return .ask(QuitPrompt(
             terminals: facts.terminals,
@@ -50,7 +52,7 @@ enum QuitPolicy {
             busiest: busiest(facts.programs),
             incognitoPrograms: facts.incognitoPrograms,
             remoteSessions: facts.remoteSessions,
-            offersSessionChoice: hasTerminals,
+            offersSessionChoice: hasTerminals && remembered == nil,
             defaultChoice: remembered ?? .keep
         ))
     }

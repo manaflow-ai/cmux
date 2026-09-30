@@ -93,7 +93,7 @@ struct QuitPolicyTests {
             Issue.record("expected the sheet"); return
         }
         #expect(prompt.incognitoPrograms == ["npm"])
-        #expect(prompt.offersSessionChoice)
+        #expect(!prompt.offersSessionChoice, "a remembered end is not asked again")
         #expect(prompt.defaultChoice == .endEverything)
     }
 

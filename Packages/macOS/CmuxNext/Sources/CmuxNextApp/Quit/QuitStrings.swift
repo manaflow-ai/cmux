@@ -1,32 +1,27 @@
 import Foundation
 
-/// Quit sheet text (Resources/Quit.xcstrings).
+/// Quit alert text (Resources/Quit.xcstrings).
 enum QuitStrings {
     static var title: String {
         String(localized: "quit.title", defaultValue: "Quit cmux?", table: "Quit", bundle: .module)
     }
 
-    static var body: String {
-        String(localized: "quit.body",
-               defaultValue: "Your terminals run in the background in cmux-tui, so they keep running after cmux quits. Keep them to reopen cmux and continue where you left off, or end them all now.",
+    static func terminalsKeepRunning(_ count: Int) -> String {
+        String(localized: "quit.terminalsKeepRunning", defaultValue: "Your \(count) terminals keep running in the background.",
                table: "Quit", bundle: .module)
     }
 
-    static var terminals: String {
-        String(localized: "quit.stat.terminals", defaultValue: "Terminals", table: "Quit", bundle: .module)
+    static func programsRunning(_ count: Int) -> String {
+        String(localized: "quit.programsRunning", defaultValue: "\(count) programs are running.", table: "Quit", bundle: .module)
     }
 
-    static var runningPrograms: String {
-        String(localized: "quit.stat.running", defaultValue: "Running programs", table: "Quit", bundle: .module)
+    static var incognitoCloses: String {
+        String(localized: "quit.incognitoCloses", defaultValue: "Incognito windows close, and their programs end.",
+               table: "Quit", bundle: .module)
     }
 
-    static func busiest(_ programs: String) -> String {
-        String(localized: "quit.busiest", defaultValue: "Busiest: \(programs)", table: "Quit", bundle: .module)
-    }
-
-    static func incognito(_ programs: String) -> String {
-        String(localized: "quit.incognito.body",
-               defaultValue: "Incognito windows close either way: \(programs) end and their browser data is deleted.",
+    static var incognitoOnly: String {
+        String(localized: "quit.incognitoOnly", defaultValue: "Their running programs end, and their browser data is deleted.",
                table: "Quit", bundle: .module)
     }
 
@@ -38,12 +33,16 @@ enum QuitStrings {
         String(localized: "quit.dontAskAgain", defaultValue: "Don’t ask again", table: "Quit", bundle: .module)
     }
 
-    static var dontAskAgainHelp: String {
-        String(localized: "quit.dontAskAgain.help", defaultValue: "Change this later in Settings > General.", table: "Quit", bundle: .module)
+    static var endSessions: String {
+        String(localized: "quit.button.endSessions", defaultValue: "End Sessions…", table: "Quit", bundle: .module)
     }
 
-    static var keep: String {
-        String(localized: "quit.button.keep", defaultValue: "Keep Sessions Running", table: "Quit", bundle: .module)
+    static var endTitle: String {
+        String(localized: "quit.end.title", defaultValue: "End all terminals?", table: "Quit", bundle: .module)
+    }
+
+    static var endEverythingDeletes: String {
+        String(localized: "quit.end.body", defaultValue: "End Everything also deletes your workspaces.", table: "Quit", bundle: .module)
     }
 
     static var endKeepLayout: String {
@@ -52,11 +51,5 @@ enum QuitStrings {
 
     static var endEverything: String {
         String(localized: "quit.button.endEverything", defaultValue: "End Everything", table: "Quit", bundle: .module)
-    }
-
-    static var endChoices: String {
-        String(localized: "quit.endChoices",
-               defaultValue: "End Sessions, Keep Layout reopens your workspaces and splits with fresh shells. End Everything also deletes the workspaces.",
-               table: "Quit", bundle: .module)
     }
 }

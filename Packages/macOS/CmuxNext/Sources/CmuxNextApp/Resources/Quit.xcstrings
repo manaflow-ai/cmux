@@ -132,661 +132,6 @@
         }
       }
     },
-    "quit.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your terminals run in the background in cmux-tui, so they keep running after cmux quits. Keep them to reopen cmux and continue where you left off, or end them all now."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعمل طرفياتك في الخلفية داخل cmux-tui، لذا تستمر بعد إنهاء cmux. أبقِها لتعيد فتح cmux وتتابع من حيث توقفت، أو أنهِها كلها الآن."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vaši terminali rade u pozadini u cmux-tui, pa nastavljaju raditi nakon izlaska iz cmux. Zadržite ih da ponovo otvorite cmux i nastavite gdje ste stali, ili ih sve završite sada."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dine terminaler kører i baggrunden i cmux-tui, så de fortsætter, når cmux afsluttes. Behold dem for at åbne cmux igen og fortsætte, hvor du slap, eller afslut dem alle nu."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Deine Terminals laufen im Hintergrund in cmux-tui und laufen daher nach dem Beenden von cmux weiter. Behalte sie, um cmux wieder zu öffnen und dort weiterzumachen, wo du aufgehört hast, oder beende jetzt alle."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tus terminales se ejecutan en segundo plano en cmux-tui, así que siguen en marcha al salir de cmux. Mantenlos para volver a abrir cmux y continuar donde lo dejaste, o finalízalos todos ahora."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vos terminaux s'exécutent en arrière-plan dans cmux-tui et continuent donc après la fermeture de cmux. Conservez-les pour rouvrir cmux et reprendre là où vous en étiez, ou terminez-les tous maintenant."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "I tuoi terminali girano in background in cmux-tui, quindi continuano dopo l'uscita da cmux. Mantienili per riaprire cmux e riprendere da dove eri rimasto, oppure terminali tutti ora."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ターミナルは cmux-tui でバックグラウンド実行されているため、cmux を終了しても動き続けます。維持すれば cmux を開き直して続きから作業できます。今すべて終了することもできます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ទែមីណាល់របស់អ្នកដំណើរការនៅផ្ទៃខាងក្រោយក្នុង cmux-tui ដូច្នេះវាបន្តដំណើរការបន្ទាប់ពី cmux ចាកចេញ។ រក្សាវាទុក ដើម្បីបើក cmux ម្ដងទៀត ហើយបន្តពីកន្លែងដែលអ្នកឈប់ ឬបញ្ចប់វាទាំងអស់ឥឡូវនេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "터미널은 cmux-tui에서 백그라운드로 실행되므로 cmux를 종료해도 계속 실행됩니다. 유지하면 cmux를 다시 열어 이어서 작업할 수 있고, 지금 모두 끝낼 수도 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminalene dine kjører i bakgrunnen i cmux-tui, så de fortsetter etter at cmux avsluttes. Behold dem for å åpne cmux igjen og fortsette der du slapp, eller avslutt alle nå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Twoje terminale działają w tle w cmux-tui, więc działają dalej po zamknięciu cmux. Zachowaj je, aby ponownie otworzyć cmux i kontynuować od miejsca, w którym skończyłeś, albo zamknij je wszystkie teraz."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Seus terminais rodam em segundo plano no cmux-tui, então continuam após sair do cmux. Mantenha-os para reabrir o cmux e continuar de onde parou, ou encerre todos agora."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ваши терминалы работают в фоне в cmux-tui, поэтому продолжают работать после выхода из cmux. Сохраните их, чтобы снова открыть cmux и продолжить с того же места, или завершите все сейчас."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เทอร์มินัลของคุณทำงานเบื้องหลังใน cmux-tui จึงทำงานต่อหลังจากออกจาก cmux เก็บไว้เพื่อเปิด cmux อีกครั้งและทำต่อจากที่ค้างไว้ หรือจบทั้งหมดตอนนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminalleriniz cmux-tui içinde arka planda çalışır, bu yüzden cmux kapandıktan sonra da çalışmaya devam eder. cmux'u yeniden açıp kaldığınız yerden devam etmek için onları koruyun ya da hepsini şimdi sonlandırın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ваші термінали працюють у фоні в cmux-tui, тому працюють далі після виходу з cmux. Збережіть їх, щоб знову відкрити cmux і продовжити з того самого місця, або завершіть усі зараз."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Các terminal của bạn chạy nền trong cmux-tui nên vẫn chạy sau khi thoát cmux. Giữ lại để mở lại cmux và tiếp tục từ chỗ đã dừng, hoặc kết thúc tất cả ngay bây giờ."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "你的终端在 cmux-tui 中后台运行，因此退出 cmux 后仍会继续运行。保留它们，就能重新打开 cmux 从中断处继续；也可以现在全部结束。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "你的終端機在 cmux-tui 中於背景執行，因此結束 cmux 後仍會繼續執行。保留它們，就能重新開啟 cmux 從中斷處繼續；也可以現在全部終止。"
-          }
-        }
-      }
-    },
-    "quit.stat.terminals": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminals"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الطرفيات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminali"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminaler"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminals"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminales"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminaux"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminali"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ターミナル"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ទែមីណាល់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "터미널"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminaler"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminale"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminais"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Терминалы"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เทอร์มินัล"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminaller"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Термінали"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminal"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "终端"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "終端機"
-          }
-        }
-      }
-    },
-    "quit.stat.running": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Running programs"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "البرامج قيد التشغيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokrenuti programi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kørende programmer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Laufende Programme"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Programas en ejecución"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Programmes en cours"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Programmi in esecuzione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "実行中のプログラム"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កម្មវិធីកំពុងដំណើរការ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "실행 중인 프로그램"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kjørende programmer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uruchomione programy"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Programas em execução"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Запущенные программы"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "โปรแกรมที่กำลังทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Çalışan programlar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Запущені програми"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chương trình đang chạy"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "正在运行的程序"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "執行中的程式"
-          }
-        }
-      }
-    },
-    "quit.busiest": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Busiest: %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الأكثر نشاطًا: %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Najzaposleniji: %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mest aktive: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Am aktivsten: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Más activos: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les plus actifs : %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Più attivi: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "負荷が高い順: %@"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "សកម្មបំផុត៖ %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "가장 바쁜 프로그램: %@"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mest aktive: %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Najbardziej aktywne: %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mais ativos: %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Самые активные: %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ทำงานหนักที่สุด: %@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En yoğun: %@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Найактивніші: %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bận nhất: %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "最繁忙：%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "最忙碌：%@"
-          }
-        }
-      }
-    },
-    "quit.incognito.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Incognito windows close either way: %@ end and their browser data is deleted."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تُغلق نوافذ التصفح المتخفي في الحالتين: ينتهي %@ وتُحذف بيانات المتصفح الخاصة بها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anonimni prozori se zatvaraju u svakom slučaju: %@ se završava i njihovi podaci preglednika se brišu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Inkognitovinduer lukkes under alle omstændigheder: %@ afsluttes, og deres browserdata slettes."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Inkognitofenster werden in jedem Fall geschlossen: %@ endet und ihre Browserdaten werden gelöscht."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Las ventanas de incógnito se cierran en cualquier caso: %@ finaliza y se eliminan sus datos del navegador."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les fenêtres de navigation privée se ferment dans tous les cas : %@ s'arrête et leurs données de navigation sont supprimées."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le finestre in incognito si chiudono comunque: %@ termina e i loro dati del browser vengono eliminati."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "シークレット ウィンドウはどちらの場合も閉じます: %@ は終了し、ブラウザ データは削除されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្អួចអនាមិកបិទទោះយ៉ាងណាក៏ដោយ៖ %@ បញ្ចប់ ហើយទិន្នន័យកម្មវិធីរុករករបស់វាត្រូវបានលុប។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "시크릿 창은 어느 쪽이든 닫힙니다: %@이(가) 끝나고 브라우저 데이터가 삭제됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Inkognitovinduer lukkes uansett: %@ avsluttes og nettleserdataene deres slettes."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Okna incognito zamykają się w każdym przypadku: %@ kończy działanie, a ich dane przeglądarki są usuwane."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "As janelas anônimas fecham de qualquer forma: %@ é encerrado e os dados de navegação são apagados."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Окна инкогнито закрываются в любом случае: %@ завершается, а данные браузера удаляются."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "หน้าต่างไม่ระบุตัวตนจะปิดไม่ว่าอย่างไร: %@ จะจบลงและข้อมูลเบราว์เซอร์จะถูกลบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gizli pencereler her durumda kapanır: %@ sonlanır ve tarayıcı verileri silinir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вікна інкогніто закриваються в будь-якому разі: %@ завершується, а дані браузера видаляються."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cửa sổ ẩn danh luôn đóng: %@ kết thúc và dữ liệu trình duyệt của chúng bị xóa."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无痕窗口无论如何都会关闭：%@ 将结束，其浏览器数据会被删除。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無痕視窗無論如何都會關閉：%@ 將終止，其瀏覽器資料會被刪除。"
-          }
-        }
-      }
-    },
     "quit.remote": {
       "extractionState": "manual",
       "localizations": {
@@ -1045,268 +390,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "不再詢問"
-          }
-        }
-      }
-    },
-    "quit.dontAskAgain.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Change this later in Settings > General."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يمكنك تغيير ذلك لاحقًا في الإعدادات > عام."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ovo možete kasnije promijeniti u Postavke > Općenito."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Du kan ændre det senere under Indstillinger > Generelt."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Du kannst das später unter Einstellungen > Allgemein ändern."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Puedes cambiarlo más tarde en Ajustes > General."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vous pourrez le modifier plus tard dans Réglages > Général."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Puoi cambiarlo più tardi in Impostazioni > Generali."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "あとで設定 > 一般 で変更できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្លាស់ប្ដូរនេះពេលក្រោយក្នុង ការកំណត់ > ទូទៅ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "나중에 설정 > 일반에서 변경할 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Du kan endre dette senere i Innstillinger > Generelt."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Możesz to później zmienić w Ustawienia > Ogólne."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Você pode mudar isso depois em Ajustes > Geral."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Это можно изменить позже в Настройки > Основные."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เปลี่ยนภายหลังได้ใน การตั้งค่า > ทั่วไป"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bunu daha sonra Ayarlar > Genel'den değiştirebilirsiniz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Це можна змінити пізніше в Налаштування > Загальні."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bạn có thể đổi sau trong Cài đặt > Chung."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "稍后可在“设置 > 通用”中更改。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "稍後可在「設定 > 一般」中更改。"
-          }
-        }
-      }
-    },
-    "quit.button.keep": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keep Sessions Running"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إبقاء الجلسات قيد التشغيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ostavi sesije pokrenute"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lad sessioner køre"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sitzungen weiterlaufen lassen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mantener las sesiones en ejecución"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Laisser les sessions actives"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mantieni attive le sessioni"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "セッションを実行したままにする"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ទុកវគ្គឱ្យដំណើរការ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "세션 계속 실행"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La økter kjøre"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pozostaw sesje uruchomione"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Manter sessões em execução"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Оставить сеансы работающими"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ให้เซสชันทำงานต่อ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oturumları çalışır bırak"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Залишити сеанси запущеними"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Giữ phiên đang chạy"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "保持会话运行"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "讓工作階段繼續執行"
           }
         }
       }
@@ -1573,133 +656,1567 @@
         }
       }
     },
-    "quit.endChoices": {
+    "quit.terminalsKeepRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Your %lld terminal keeps running in the background."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Your %lld terminals keep running in the background."
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "لا توجد طرفيات قيد التشغيل في الخلفية (%lld)."
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تستمر طرفيتك (%lld) في العمل في الخلفية."
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تستمر طرفيتاك (%lld) في العمل في الخلفية."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تستمر طرفياتك الـ %lld في العمل في الخلفية."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تستمر طرفياتك الـ %lld في العمل في الخلفية."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تستمر طرفياتك الـ %lld في العمل في الخلفية."
+                }
+              }
+            }
+          }
+        },
+        "bs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Vaš %lld terminal nastavlja raditi u pozadini."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Vaša %lld terminala nastavljaju raditi u pozadini."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Vaših %lld terminala nastavlja raditi u pozadini."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Vaših %lld terminala nastavlja raditi u pozadini."
+                }
+              }
+            }
+          }
+        },
+        "da": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Din %lld terminal kører videre i baggrunden."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Dine %lld terminaler kører videre i baggrunden."
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Dein %lld Terminal läuft im Hintergrund weiter."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Deine %lld Terminals laufen im Hintergrund weiter."
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Tu %lld terminal sigue ejecutándose en segundo plano."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Tus %lld terminales siguen ejecutándose en segundo plano."
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Votre %lld terminal continue en arrière-plan."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Vos %lld terminaux continuent en arrière-plan."
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Il tuo %lld terminale continua in background."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "I tuoi %lld terminali continuano in background."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 個のターミナルはバックグラウンドで動き続けます。"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 個のターミナルはバックグラウンドで動き続けます。"
+                }
+              }
+            }
+          }
+        },
+        "km": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ទែមីណាល់ %lld របស់អ្នកបន្តដំណើរការនៅផ្ទៃខាងក្រោយ។"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ទែមីណាល់ %lld របស់អ្នកបន្តដំណើរការនៅផ្ទៃខាងក្រោយ។"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "터미널 %lld개가 백그라운드에서 계속 실행됩니다."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "터미널 %lld개가 백그라운드에서 계속 실행됩니다."
+                }
+              }
+            }
+          }
+        },
+        "nb": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Din %lld terminal fortsetter å kjøre i bakgrunnen."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Dine %lld terminaler fortsetter å kjøre i bakgrunnen."
+                }
+              }
+            }
+          }
+        },
+        "pl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Twój %lld terminal nadal działa w tle."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Twoje %lld terminale nadal działają w tle."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Twoich %lld terminali nadal działa w tle."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Twoich %lld terminala nadal działa w tle."
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Seu %lld terminal continua rodando em segundo plano."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Seus %lld terminais continuam rodando em segundo plano."
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ваш %lld терминал продолжает работать в фоне."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ваши %lld терминала продолжают работать в фоне."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ваши %lld терминалов продолжают работать в фоне."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ваши %lld терминала продолжают работать в фоне."
+                }
+              }
+            }
+          }
+        },
+        "th": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "เทอร์มินัล %lld รายการของคุณยังทำงานต่อเบื้องหลัง"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "เทอร์มินัล %lld รายการของคุณยังทำงานต่อเบื้องหลัง"
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld terminaliniz arka planda çalışmaya devam eder."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld terminaliniz arka planda çalışmaya devam eder."
+                }
+              }
+            }
+          }
+        },
+        "uk": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ваш %lld термінал працює далі у фоні."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ваші %lld термінали працюють далі у фоні."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ваші %lld терміналів працюють далі у фоні."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ваші %lld термінала працюють далі у фоні."
+                }
+              }
+            }
+          }
+        },
+        "vi": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld terminal của bạn vẫn chạy trong nền."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld terminal của bạn vẫn chạy trong nền."
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "你的 %lld 个终端会在后台继续运行。"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "你的 %lld 个终端会在后台继续运行。"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "你的 %lld 個終端機會在背景繼續執行。"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "你的 %lld 個終端機會在背景繼續執行。"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "quit.programsRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld program is running."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld programs are running."
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "لا توجد برامج قيد التشغيل (%lld)."
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "برنامج واحد قيد التشغيل (%lld)."
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "برنامجان قيد التشغيل (%lld)."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld برامج قيد التشغيل."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld برنامجًا قيد التشغيل."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld برنامج قيد التشغيل."
+                }
+              }
+            }
+          }
+        },
+        "bs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld program je pokrenut."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld programa su pokrenuta."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld programa je pokrenuto."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld programa je pokrenuto."
+                }
+              }
+            }
+          }
+        },
+        "da": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld program kører."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld programmer kører."
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld Programm läuft."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld Programme laufen."
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Hay %lld programa en ejecución."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Hay %lld programas en ejecución."
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld programme est en cours d’exécution."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld programmes sont en cours d’exécution."
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld programma è in esecuzione."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld programmi sono in esecuzione."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 個のプログラムが実行中です。"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 個のプログラムが実行中です。"
+                }
+              }
+            }
+          }
+        },
+        "km": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "កម្មវិធី %lld កំពុងដំណើរការ។"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "កម្មវិធី %lld កំពុងដំណើរការ។"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "프로그램 %lld개가 실행 중입니다."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "프로그램 %lld개가 실행 중입니다."
+                }
+              }
+            }
+          }
+        },
+        "nb": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld program kjører."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld programmer kjører."
+                }
+              }
+            }
+          }
+        },
+        "pl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Działa %lld program."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Działają %lld programy."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Działa %lld programów."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Działa %lld programu."
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld programa está em execução."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld programas estão em execução."
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Запущена %lld программа."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Запущены %lld программы."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Запущено %lld программ."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Запущено %lld программы."
+                }
+              }
+            }
+          }
+        },
+        "th": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "มี %lld โปรแกรมกำลังทำงาน"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "มี %lld โปรแกรมกำลังทำงาน"
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld program çalışıyor."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld program çalışıyor."
+                }
+              }
+            }
+          }
+        },
+        "uk": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Запущено %lld програму."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Запущено %lld програми."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Запущено %lld програм."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Запущено %lld програми."
+                }
+              }
+            }
+          }
+        },
+        "vi": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld chương trình đang chạy."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld chương trình đang chạy."
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 个程序正在运行。"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 个程序正在运行。"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 個程式正在執行。"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 個程式正在執行。"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "quit.incognitoCloses": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "End Sessions, Keep Layout reopens your workspaces and splits with fresh shells. End Everything also deletes the workspaces."
+            "value": "Incognito windows close, and their programs end."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "خيار «إنهاء الجلسات مع إبقاء التخطيط» يعيد فتح مساحات العمل والتقسيمات بواجهات أوامر جديدة. أما «إنهاء كل شيء» فيحذف مساحات العمل أيضًا."
+            "value": "تُغلق نوافذ التصفح المتخفي وتنتهي برامجها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Završi sesije, zadrži raspored ponovo otvara vaše radne prostore i podjele s novim ljuskama. Završi sve briše i radne prostore."
+            "value": "Anonimni prozori se zatvaraju i njihovi programi se završavaju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afslut sessioner, behold layout genåbner dine arbejdsområder og opdelinger med nye shells. Afslut alt sletter også arbejdsområderne."
+            "value": "Inkognitovinduer lukkes, og deres programmer afsluttes."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "„Sitzungen beenden, Layout behalten“ öffnet deine Arbeitsbereiche und Teilungen mit neuen Shells wieder. „Alles beenden“ löscht auch die Arbeitsbereiche."
+            "value": "Inkognitofenster werden geschlossen und ihre Programme beendet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Finalizar sesiones y mantener el diseño vuelve a abrir tus espacios de trabajo y divisiones con shells nuevos. Finalizar todo también elimina los espacios de trabajo."
+            "value": "Las ventanas de incógnito se cierran y sus programas terminan."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Terminer les sessions, garder la disposition rouvre vos espaces de travail et divisions avec de nouveaux shells. Tout terminer supprime aussi les espaces de travail."
+            "value": "Les fenêtres de navigation privée se ferment et leurs programmes s’arrêtent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Termina le sessioni, mantieni il layout riapre spazi di lavoro e divisioni con nuove shell. Termina tutto elimina anche gli spazi di lavoro."
+            "value": "Le finestre in incognito si chiudono e i loro programmi terminano."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「セッションを終了してレイアウトを維持」はワークスペースと分割を新しいシェルで開き直します。「すべて終了」はワークスペースも削除します。"
+            "value": "シークレット ウィンドウは閉じ、そのプログラムは終了します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«បញ្ចប់វគ្គ ហើយរក្សាប្លង់» បើកកន្លែងធ្វើការ និងការបំបែករបស់អ្នកឡើងវិញជាមួយសែលថ្មី។ «បញ្ចប់ទាំងអស់» លុបកន្លែងធ្វើការផងដែរ។"
+            "value": "បង្អួចអនាមិកបិទ ហើយកម្មវិធីរបស់វាបញ្ចប់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "‘세션 끝내고 레이아웃 유지’는 워크스페이스와 분할을 새 셸로 다시 엽니다. ‘모두 끝내기’는 워크스페이스도 삭제합니다."
+            "value": "시크릿 창이 닫히고 그 안의 프로그램이 끝납니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avslutt økter, behold oppsett åpner arbeidsområdene og delingene dine igjen med nye skall. Avslutt alt sletter også arbeidsområdene."
+            "value": "Inkognitovinduer lukkes, og programmene deres avsluttes."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zamknij sesje, zachowaj układ ponownie otwiera obszary robocze i podziały z nowymi powłokami. Zamknij wszystko usuwa też obszary robocze."
+            "value": "Okna incognito zostaną zamknięte, a ich programy zakończone."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Encerrar sessões e manter o layout reabre seus espaços de trabalho e divisões com shells novos. Encerrar tudo também apaga os espaços de trabalho."
+            "value": "As janelas anônimas fecham e seus programas são encerrados."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«Завершить сеансы, сохранить макет» снова откроет рабочие области и разделения с новыми оболочками. «Завершить всё» также удалит рабочие области."
+            "value": "Окна инкогнито закроются, их программы завершатся."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“จบเซสชัน คงเลย์เอาต์ไว้” จะเปิดเวิร์กสเปซและการแบ่งหน้าต่างอีกครั้งด้วยเชลล์ใหม่ “จบทั้งหมด” จะลบเวิร์กสเปซด้วย"
+            "value": "หน้าต่างไม่ระบุตัวตนจะปิดและโปรแกรมในนั้นจะจบลง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oturumları sonlandır, düzeni koru çalışma alanlarınızı ve bölmelerinizi yeni kabuklarla yeniden açar. Her şeyi sonlandır çalışma alanlarını da siler."
+            "value": "Gizli pencereler kapanır ve programları sonlanır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«Завершити сеанси, зберегти макет» знову відкриє робочі області й поділи з новими оболонками. «Завершити все» також видалить робочі області."
+            "value": "Вікна інкогніто закриються, їхні програми завершаться."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kết thúc phiên, giữ bố cục sẽ mở lại không gian làm việc và các vùng chia với shell mới. Kết thúc tất cả cũng xóa các không gian làm việc."
+            "value": "Cửa sổ ẩn danh sẽ đóng và các chương trình trong đó kết thúc."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“结束会话，保留布局”会用新的 shell 重新打开你的工作区和分屏。“全部结束”还会删除这些工作区。"
+            "value": "无痕窗口会关闭，其中的程序会结束。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「終止工作階段，保留版面」會以新的 shell 重新開啟你的工作區與分割畫面。「全部終止」還會刪除這些工作區。"
+            "value": "無痕視窗會關閉，其中的程式會終止。"
+          }
+        }
+      }
+    },
+    "quit.incognitoOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Their running programs end, and their browser data is deleted."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تنتهي برامجها قيد التشغيل وتُحذف بيانات المتصفح الخاصة بها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Njihovi pokrenuti programi se završavaju, a podaci preglednika se brišu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deres kørende programmer afsluttes, og deres browserdata slettes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ihre laufenden Programme werden beendet und ihre Browserdaten gelöscht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sus programas en ejecución terminan y se eliminan sus datos del navegador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leurs programmes en cours s’arrêtent et leurs données de navigation sont supprimées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I loro programmi in esecuzione terminano e i dati del browser vengono eliminati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "実行中のプログラムは終了し、ブラウザ データは削除されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការបញ្ចប់ ហើយទិន្នន័យកម្មវិធីរុករកត្រូវបានលុប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실행 중인 프로그램이 끝나고 브라우저 데이터가 삭제됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Programmene som kjører avsluttes, og nettleserdataene slettes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ich uruchomione programy zostaną zakończone, a dane przeglądarki usunięte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os programas em execução são encerrados e os dados de navegação são apagados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущенные программы завершатся, а данные браузера будут удалены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่กำลังทำงานจะจบลงและข้อมูลเบราว์เซอร์จะถูกลบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışan programlar sonlanır ve tarayıcı verileri silinir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущені програми завершаться, а дані браузера буде видалено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các chương trình đang chạy sẽ kết thúc và dữ liệu trình duyệt bị xóa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在运行的程序会结束，浏览器数据会被删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "執行中的程式會終止，瀏覽器資料會被刪除。"
+          }
+        }
+      }
+    },
+    "quit.button.endSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End Sessions…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إنهاء الجلسات…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Završi sesije…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afslut sessioner…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sitzungen beenden …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finalizar sesiones…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminer les sessions…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Termina sessioni…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セッションを終了…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ចប់វគ្គ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "세션 끝내기…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avslutt økter …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknij sesje…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encerrar sessões…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завершить сеансы…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จบเซสชัน…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturumları sonlandır…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завершити сеанси…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết thúc phiên…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "结束会话…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終止工作階段…"
+          }
+        }
+      }
+    },
+    "quit.end.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End all terminals?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد إنهاء كل الطرفيات؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Završiti sve terminale?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vil du afslutte alle terminaler?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle Terminals beenden?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Finalizar todos los terminales?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminer tous les terminaux ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminare tutti i terminali?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべてのターミナルを終了しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ចប់ទែមីណាល់ទាំងអស់ឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 터미널을 끝낼까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vil du avslutte alle terminaler?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknąć wszystkie terminale?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encerrar todos os terminais?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завершить все терминалы?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จบเทอร์มินัลทั้งหมดหรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm terminaller sonlandırılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завершити всі термінали?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết thúc tất cả terminal?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要结束所有终端吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要終止所有終端機嗎？"
+          }
+        }
+      }
+    },
+    "quit.end.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End Everything also deletes your workspaces."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خيار «إنهاء كل شيء» يحذف مساحات العمل أيضًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Završi sve briše i vaše radne prostore."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afslut alt sletter også dine arbejdsområder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Alles beenden“ löscht auch deine Arbeitsbereiche."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finalizar todo también elimina tus espacios de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tout terminer supprime aussi vos espaces de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Termina tutto elimina anche i tuoi spazi di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「すべて終了」はワークスペースも削除します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«បញ្ចប់ទាំងអស់» លុបកន្លែងធ្វើការរបស់អ្នកផងដែរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "‘모두 끝내기’는 워크스페이스도 삭제합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avslutt alt sletter også arbeidsområdene dine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknij wszystko usuwa też Twoje obszary robocze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encerrar tudo também apaga seus espaços de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Завершить всё» также удалит ваши рабочие области."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“จบทั้งหมด” จะลบเวิร์กสเปซของคุณด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her şeyi sonlandır, çalışma alanlarınızı da siler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Завершити все» також видалить ваші робочі області."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết thúc tất cả cũng xóa các không gian làm việc của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“全部结束”还会删除你的工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「全部終止」還會刪除你的工作區。"
           }
         }
       }
