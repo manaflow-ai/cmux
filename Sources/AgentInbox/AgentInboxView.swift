@@ -89,6 +89,12 @@ struct AgentInboxView: View {
             default: break
             }
         }
+        .onChange(of: isReplyFieldFocused) { _, focused in
+            notifyReplyFieldFocus(focused)
+        }
+        .onDisappear {
+            notifyReplyFieldFocus(false)
+        }
     }
 
     private var header: some View {
@@ -248,7 +254,6 @@ struct AgentInboxView: View {
             decisionButtons(
                 title: String(localized: "agentInbox.question.title", defaultValue: "Choose an answer"),
                 labels: item.questionOptions.enumerated().map { "\($0.offset + 1). \($0.element.label)" },
-                allowDigitShortcut: true,
                 action: { index in
                     questionSelection = item.questionOptions[index].id
                     actions.replyQuestion(itemID(for: item), [item.questionOptions[index].label])
@@ -261,7 +266,6 @@ struct AgentInboxView: View {
     private func decisionButtons(
         title: String,
         labels: [String],
-        allowDigitShortcut: Bool = false,
         action: @escaping (Int) -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -271,15 +275,17 @@ struct AgentInboxView: View {
                 ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
                     Button(label) { action(index) }
                         .buttonStyle(.borderedProminent)
-                        .keyboardShortcut(
-                            allowDigitShortcut && index < 9
-                                ? KeyEquivalent(Character(String(index + 1)))
-                                : KeyEquivalent("\0"),
-                            modifiers: allowDigitShortcut ? [.command, .option] : []
-                        )
                 }
             }
         }
+    }
+
+    private func notifyReplyFieldFocus(_ focused: Bool) {
+        NotificationCenter.default.post(
+            name: .agentInboxReplyFieldFocusChanged,
+            object: NSApp.keyWindow,
+            userInfo: ["focused": focused]
+        )
     }
 
     private func replyComposer(for item: AgentInboxItem) -> some View {

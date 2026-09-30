@@ -869,6 +869,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
+    private weak var agentInboxReplyFieldWindow: NSWindow?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
     /// Applies MDM managed-policy transitions (browser/remote-control) while
@@ -1761,6 +1762,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self,
             selector: #selector(handleFeedRequestSendText(_:)),
             name: .feedRequestSendText,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAgentInboxReplyFieldFocusChanged(_:)),
+            name: .agentInboxReplyFieldFocusChanged,
             object: nil
         )
 
@@ -11315,6 +11322,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ])
     }
 
+    @objc private func handleAgentInboxReplyFieldFocusChanged(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        let isFocused = notification.userInfo?["focused"] as? Bool ?? false
+        if isFocused {
+            agentInboxReplyFieldWindow = window
+        } else if agentInboxReplyFieldWindow === window {
+            agentInboxReplyFieldWindow = nil
+        }
+    }
+
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {
         let browserPanelId = notification.userInfo?[ReactGrabPastebackNotificationKey.browserPanelId] as? UUID
         guard let workspaceId = notification.userInfo?[ReactGrabPastebackNotificationKey.workspaceId] as? UUID,
@@ -15002,13 +15019,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let paletteUsesInlineTextHandling = commandPaletteShortcutWindow.map { isCommandPaletteMultilineTextResponderActive(in: $0) } ?? false
+        let isAgentInboxReplyFieldFocused = commandPaletteShortcutWindow.map {
+            agentInboxReplyFieldWindow === $0
+        } ?? false
 
         let paletteSelectionDelta = contextAwareCommandPaletteSelectionDelta(for: event)
 
         if shouldRouteCommandPaletteSelectionNavigation(
             delta: paletteSelectionDelta,
             isInteractive: commandPaletteInteractiveInTargetWindow,
-            usesInlineTextHandling: paletteUsesInlineTextHandling
+            usesInlineTextHandling: paletteUsesInlineTextHandling,
+            isAgentInboxReplyFieldFocused: isAgentInboxReplyFieldFocused
         ),
            let delta = paletteSelectionDelta,
            let paletteWindow = commandPaletteShortcutWindow {
@@ -15016,7 +15037,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        let shouldRouteConfiguredPaletteSelection = commandPaletteShortcutWindow != nil && shouldRouteCommandPaletteSelectionNavigation(delta: 1, isInteractive: commandPaletteInteractiveInTargetWindow, usesInlineTextHandling: paletteUsesInlineTextHandling)
+        let shouldRouteConfiguredPaletteSelection = commandPaletteShortcutWindow != nil && shouldRouteCommandPaletteSelectionNavigation(
+            delta: 1,
+            isInteractive: commandPaletteInteractiveInTargetWindow,
+            usesInlineTextHandling: paletteUsesInlineTextHandling,
+            isAgentInboxReplyFieldFocused: isAgentInboxReplyFieldFocused
+        )
 
         if shouldRouteConfiguredPaletteSelection, let paletteWindow = commandPaletteShortcutWindow {
             for (action, delta) in [(KeyboardShortcutSettings.Action.commandPaletteNext, 1), (.commandPalettePrevious, -1)] {

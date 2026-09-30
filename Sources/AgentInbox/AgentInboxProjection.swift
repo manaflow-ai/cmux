@@ -30,12 +30,6 @@ enum AgentInboxInteractionPolicy {
     }
 }
 
-enum AgentInboxQuestionShortcutPolicy {
-    static func accepts(command: Bool, option: Bool, control: Bool, shift: Bool) -> Bool {
-        command && option && !control && !shift
-    }
-}
-
 struct AgentInboxOpenRequest: Equatable, Sendable {
     let generation: Int
 
@@ -60,6 +54,7 @@ struct AgentInboxReplySubmissionGate: Equatable, Sendable {
 
 struct AgentInboxReadStateStore {
     private static let finishedTurnIDsKey = "agentInbox.finishedTurnIDs"
+    static let maxFinishedTurnIDs = 256
 
     let defaults: UserDefaults
 
@@ -76,9 +71,20 @@ struct AgentInboxReadStateStore {
     }
 
     func markFinishedTurnRead(_ id: String) {
-        var ids = finishedTurnIDs
-        ids.insert(id)
-        guard let data = try? JSONEncoder().encode(ids.sorted()) else { return }
+        guard !id.isEmpty else { return }
+        var ids: [String]
+        if let data = defaults.data(forKey: Self.finishedTurnIDsKey),
+           let persistedIDs = try? JSONDecoder().decode([String].self, from: data) {
+            ids = persistedIDs
+        } else {
+            ids = []
+        }
+        ids.removeAll { $0 == id }
+        ids.append(id)
+        if ids.count > Self.maxFinishedTurnIDs {
+            ids.removeFirst(ids.count - Self.maxFinishedTurnIDs)
+        }
+        guard let data = try? JSONEncoder().encode(ids) else { return }
         defaults.set(data, forKey: Self.finishedTurnIDsKey)
     }
 }
