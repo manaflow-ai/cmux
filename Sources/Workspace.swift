@@ -197,8 +197,11 @@ extension Workspace {
             progress: progressSnapshot,
             gitBranch: gitBranchSnapshot,
             remote: remoteConfiguration?.sessionSnapshot(),
-            cloudVM: cloudVMBinding.map { SessionCloudVMBindingSnapshot(vmID: $0.vmID, isBase: $0.isBase, remoteWorkspaceID: $0.remoteWorkspaceID) },
+            cloudVM: cloudVMBinding.map {
+                SessionCloudVMBindingSnapshot(vmID: $0.vmID, isBase: $0.isBase, remoteWorkspaceID: $0.remoteWorkspaceID, teamID: $0.teamID)
+            },
             surfaceProjections: surfaceProjectionRecordsForSession,
+            cloudMachineTeams: cloudMachineTeamsForSession,
             environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
         snapshot.captureTodoState(from: self)
@@ -286,7 +289,12 @@ extension Workspace {
         }
         // The binding survives restore so the machine's workspace is found again; its pane's
         // link was a process and is not reconnected here (a fresh open re-attaches).
-        cloudVMBinding = Self.restoredCloudVMBinding(from: snapshot.cloudVM)
+        // Owning teams go to the registry before any pane restores, so a pane
+        // of a team other than the selected one reconnects with its own team.
+        adoptRestoredCloudMachineTeams(snapshot)
+        // A legacy binding without a team adopts the selected team and is
+        // persisted with it from then on.
+        cloudVMBinding = Self.restoredCloudVMBinding(from: snapshot.cloudVM)?.adoptingOwningTeam()
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -746,6 +754,7 @@ extension Workspace {
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
+                hasReceivedExplicitInput: terminalPanel.hasReceivedExplicitInput,
                 resumeWithContinuation: localTmuxStartCommand == nil
                     ? UpdateRelaunchContinuationNudges.shared.marksPanel(panelId)
                     : nil
@@ -775,7 +784,8 @@ extension Workspace {
                     forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
                     transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
                     diffViewerToken: diffViewerComponents?.token,
-                    diffViewerRequestPath: diffViewerComponents?.requestPath, cloudResource: browserPanel.cloudResourceForSession
+                    diffViewerRequestPath: diffViewerComponents?.requestPath, cloudResource: browserPanel.cloudResourceForSession,
+                    cloudTeamID: browserPanel.cloudTeamIDForSession
                 )
             } else if let deferredPanel = panel as? DeferredBrowserPanel {
                 // A deferred panel already owns the exact persisted browser DTO;
@@ -2204,6 +2214,7 @@ extension Workspace {
                 }
             }
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
+            terminalPanel.restoreExplicitInputState(snapshot.terminal?.hasReceivedExplicitInput ?? true)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             armRestoredPanelTitleBoundary(
                 panelId: terminalPanel.id,
@@ -4508,6 +4519,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
         globalConfigPath: String,
+        settingPresets: [String: CmuxSettingValue] = [:],
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
@@ -4515,6 +4527,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             buttons: buttons,
             sourcePath: sourcePath,
             globalConfigPath: globalConfigPath,
+            settingPresets: settingPresets,
             terminalCommandSourcePaths: terminalCommandSourcePaths,
             workspaceCommands: workspaceCommands
         )
@@ -4546,7 +4559,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         )
                     )
                 }
-                if button.action.inlineWorkspace != nil {
+                if button.action.inlineWorkspace != nil || button.action.isSettingChange {
                     return (
                         button.id,
                         SurfaceTabBarExecutableButton(
@@ -4605,6 +4618,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configuration.buttons,
             sourcePath: configuration.sourcePath,
             globalConfigPath: configuration.globalConfigPath,
+            settingPresets: configuration.settingPresets,
             terminalCommandSourcePaths: configuration.terminalCommandSourcePaths,
             workspaceCommands: configuration.workspaceCommands
         )
@@ -6948,18 +6962,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteSessionController?.kickRemotePortScan(panelId: panelId, reason: reason)
     }
 
-    /// Whether remote listening-port discovery may run, derived from the global
-    /// sidebar ports-visibility settings. Mirrors the sidebar's own precedence
-    /// (`sidebar.hideAllDetails` wins over `sidebar.showPorts`, see
-    /// `SidebarWorkspaceAuxiliaryDetailVisibility.resolved`): when the ports
-    /// detail is not displayed there is nothing for the remote scans to
-    /// populate, so the backend ssh port-scan loop is suspended (issue #6123).
+    /// Whether remote listening-port discovery may run. Local and remote scans
+    /// share one rule, so both stop when the ports detail is hidden
+    /// (issue #6123).
     static func remotePortScanningEnabledFromSettings(defaults: UserDefaults = .standard) -> Bool {
-        let settings = UserDefaultsSettingsClient(defaults: defaults)
-        let catalog = SettingCatalog()
-        let showsPorts = settings.value(for: catalog.sidebar.showPorts)
-        let hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
-        return showsPorts && !hidesAllDetails
+        SidebarWorkspaceDetailDefaults.portScanningEnabled(defaults: defaults)
     }
 
     /// Pushes the current remote port-scanning enablement to this workspace's
@@ -9568,7 +9575,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// background, focus overlay, dividers).
     func makeRemoteTmuxPanePanel(
         id panelID: UUID = UUID(), onInput: @escaping @Sendable (TerminalManualInput) -> Void,
-        keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil
+        keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
+        allowsRemoteClipboardWrites: Bool = false
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let surface = TerminalSurface(
@@ -9576,6 +9584,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedTerminalFontSizeConfig(),
             ioMode: .manualMirror,
+            allowsRemoteClipboardWrites: allowsRemoteClipboardWrites,
             manualInputHandler: onInput,
             manualInputKeyNameResolver: keyNameResolver
         )
@@ -9657,9 +9666,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// down. The pane is removed by the resulting `%layout-change` (or
     /// `%window-close` for the window's last pane), never locally.
     func requestRemoteTmuxPaneClose(windowMirror: RemoteTmuxWindowMirror, tmuxPaneId: Int) {
-        // Close warnings disabled → even an active command wouldn't confirm;
-        // kill with no added round trip.
-        guard CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+        guard CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
             requiresConfirmation: true, source: .tabCloseButton
         ) else {
             windowMirror.requestKillPane(tmuxPaneId)
@@ -9675,7 +9682,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 defer { self.pendingRemoteTmuxPaneCloseIds.remove(tmuxPaneId) }
                 guard let windowMirror else { return }
                 let state = states?[tmuxPaneId] ?? windowMirror.paneForegroundState(tmuxPaneId)
-                let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
+                let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
                     requiresConfirmation: state?.hasActiveCommand ?? false,
                     source: .tabCloseButton
                 )
@@ -11938,6 +11945,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         var shortcuts: [TabContextAction: KeyboardShortcut] = [:]
         let mappings: [(TabContextAction, KeyboardShortcutSettings.Action)] = [
             (.rename, .renameTab),
+            (.close, .closeTab),
             (.toggleZoom, .toggleSplitZoom),
             (.newTerminalToRight, .newSurface),
             (.sizeToMyWindow, .sizeTerminalToMyWindow),
@@ -14098,7 +14106,7 @@ extension Workspace: BonsplitDelegate {
            remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil {
             let confirmationSource: CloseTabCloseSource =
                 tabCloseButtonClose == true ? .tabCloseButton : .shortcut
-            let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
+            let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
                 requiresConfirmation: true, source: confirmationSource
             )
             if warningKinds.isEmpty {
@@ -14158,11 +14166,11 @@ extension Workspace: BonsplitDelegate {
                 // The X-button warning asks even when nothing is running; the
                 // cached activity adds the running-process warning when busy.
                 let cached = remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId)
-                let unconditionalWarningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
+                let unconditionalWarningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
                     requiresConfirmation: false, source: confirmationSource
                 )
                 if !unconditionalWarningKinds.isEmpty {
-                    let promptWarningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
+                    let promptWarningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
                         requiresConfirmation: cached?.hasActiveCommand ?? false, source: confirmationSource
                     )
                     presentConfirmation(cached?.activeCommandName, promptWarningKinds)
@@ -14245,7 +14253,7 @@ extension Workspace: BonsplitDelegate {
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
         let confirmationSource: CloseTabCloseSource = tabCloseButtonClose == true ? .tabCloseButton : .shortcut
-        let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
+        let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
             requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
             source: confirmationSource
         )
@@ -14653,19 +14661,33 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
-        // Check if any panel in this pane needs close confirmation
         let tabs = controller.tabs(inPane: pane)
+        var promptTitles: [String] = []
+        var needsPrompt = false
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
-            if let panelId = panelIdFromSurfaceId(tab.id),
-               CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
-                   requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
-                   source: .shortcut
-               ) {
-                pendingPaneClosePanelIds.removeValue(forKey: pane.id)
-                pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
-                return false
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
+            promptTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(panelTitle(panelId: panelId)))
+            if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
+                requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+                source: .shortcut
+            ) {
+                needsPrompt = true
             }
+        }
+        if needsPrompt {
+            let manager = owningTabManager
+                ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+                ?? AppDelegate.shared?.tabManager
+            guard let manager,
+                  !manager.isCloseConfirmationInFlight else { return false }
+            let prompt = DockPaneCloseConfirmationPrompt(titles: promptTitles)
+            guard manager.confirmClose(
+                title: prompt.title,
+                message: prompt.message,
+                scrollableDetails: prompt.details,
+                acceptCmdD: false
+            ) else { return false }
         }
         let panelIds = tabs.compactMap { panelIdFromSurfaceId($0.id) }
         pendingPaneClosePanelIds[pane.id] = panelIds
@@ -14910,6 +14932,19 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
+        if case .setting(let change) = executable.button.action {
+            CmuxSettingActionRunner.run(
+                change,
+                actionSourcePath: executable.button.actionSourcePath,
+                globalConfigPath: globalConfigPath,
+                settingPresets: surfaceTabBarButtonConfiguration?.settingPresets ?? [:],
+                confirm: executable.button.confirm ?? false,
+                title: executable.button.title,
+                presentingWindow: presentingWindow
+            )
+            return
+        }
+
         let inlineWorkspaceCommand = executable.button.inlineWorkspaceSyntheticCommand
         if executable.workspaceCommand != nil || inlineWorkspaceCommand != nil {
             bonsplitController.focusPane(pane)
@@ -15020,6 +15055,8 @@ extension Workspace: BonsplitDelegate {
         case .copyIdentifiers:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             copyIdentifiersToPasteboard(surfaceId: panelId)
+        case .close:
+            closeTabsFromContextMenu([tab.id])
         case .closeToLeft:
             closeTabs(tabIdsToLeft(of: tab.id, inPane: pane))
         case .closeToRight:

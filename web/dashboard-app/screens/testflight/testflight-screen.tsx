@@ -1,11 +1,14 @@
 "use client";
 
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { useLocale, useTranslations } from "next-intl";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { useTranslations } from "next-intl";
 
 import { DashboardSectionSkeleton } from "../../components/dashboard-skeleton";
 import { QuerySection } from "../../components/page-states";
-import { localeHref } from "../../lib/locale-href";
+import { RequiresPro } from "../../components/requires-pro";
+import { settingsButtonClass } from "../../components/settings-ui/styles";
+import { planQuery } from "../../queries/billing";
 import { testflightQuery } from "../../queries/testflight";
 
 type Translator = ReturnType<typeof useTranslations>;
@@ -32,6 +35,7 @@ export function TestflightScreen({ testflight }: { testflight?: string }) {
         <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
       </div>
+      <RequiresPro feature="testflight" />
       <QuerySection name="dashboard-testflight" section={t("title")} skeleton={<DashboardSectionSkeleton variant="panel" />}>
         <TestflightContent testflight={testflight} />
       </QuerySection>
@@ -68,18 +72,20 @@ function TestflightState({ t, eligible, email, status }: {
   return <Join t={t} email={email} />;
 }
 
+/**
+ * A Free viewer already sees the "Requires Pro" panel above; this explains
+ * the other cases (a paid plan that does not include TestFlight).
+ */
 function NotEligible({ t }: { t: Translator }) {
-  const locale = useLocale();
+  const plan = useQuery(planQuery);
+  if (plan.data && !plan.data.isPro) return null;
   return (
     <section className="border border-border p-3">
       <h2 className="text-sm font-medium">{t("notEligible.title")}</h2>
       <p className="mt-2 max-w-2xl text-muted">{t("notEligible.body")}</p>
-      <a
-        href={localeHref(locale, "/pricing")}
-        className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
-      >
+      <Link to="/dashboard/billing" className={`${settingsButtonClass("secondary", "sm")} mt-3`}>
         {t("actions.viewPricing")}
-      </a>
+      </Link>
     </section>
   );
 }

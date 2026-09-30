@@ -633,7 +633,7 @@ class GuardLegBalanceTests(unittest.TestCase):
     def test_the_ci_leg_does_not_rerun_what_its_profile_runs(self):
         profile = self.profile_paths()
         for name, step in self.steps_by_name().items():
-            if step.get("if") != "${{ matrix.group == 'ci' }}":
+            if "matrix.group == 'ci'" not in step.get("if", ""):
                 continue
             if "cmux_workload_profile.py run cmux.ci.guard" in step.get("run", ""):
                 continue

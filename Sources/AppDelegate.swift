@@ -1662,8 +1662,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             CloudWorkspaceRenameService(environment: cloudRenameEnvironment)
         )
         TerminalPredictionCenter.shared.bindEnabledSetting(
-            userDefaultsKey: SettingCatalog().betaFeatures.predictedEcho.userDefaultsKey,
-            defaultValue: SettingCatalog().betaFeatures.predictedEcho.defaultValue
+            userDefaultsKey: SettingCatalog().terminal.predictiveLocalEcho.userDefaultsKey,
+            defaultValue: SettingCatalog().terminal.predictiveLocalEcho.defaultValue
         )
         SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
         SurfaceCatalog.shared.focusProjection = { projection in
@@ -6802,8 +6802,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func confirmCloseMainWindow(_ window: NSWindow, warningDefaults: UserDefaults) -> Bool {
-        let dontAskAgain: CloseWarningKinds = .window
+    private func confirmCloseMainWindow(
+        _ window: NSWindow,
+        warningDefaults: UserDefaults,
+        dontAskAgain: CloseWarningKinds
+    ) -> Bool {
 #if DEBUG
         if let debugCloseMainWindowConfirmationHandler {
             let accepted = debugCloseMainWindowConfirmationHandler(window)
@@ -6850,12 +6853,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // preconfirmed, so the last-window quit policy still applies. Without a
         // context there is no way to tell, so only the setting decides.
         let shouldConfirm: Bool
+        var dontAskAgain: CloseWarningKinds = .window
         let warningDefaults: UserDefaults
         if let context = mainWindowContext(forExactWindowIdentity: window) {
             warningDefaults = context.tabManager.closeTabWarningDefaults
+            let windowDockNeedsConfirmation = context.existingWindowDock()?.needsConfirmClose() == true
             shouldConfirm = context.tabManager.shouldConfirmWindowClose(
-                windowDockNeedsConfirmation: context.existingWindowDock()?.needsConfirmClose() == true
+                windowDockNeedsConfirmation: windowDockNeedsConfirmation
             )
+            if windowDockNeedsConfirmation
+                || context.tabManager.tabs.contains(where: {
+                    context.tabManager.workspaceNeedsConfirmClose($0)
+                }) {
+                dontAskAgain.insert(.safety)
+            }
         } else {
             warningDefaults = .standard
             shouldConfirm = CloseTabWarningStore(defaults: warningDefaults).warnsBeforeClosingWindow
@@ -6864,7 +6875,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.performClose(nil)
             return true
         }
-        guard confirmCloseMainWindow(window, warningDefaults: warningDefaults) else { return true }
+        guard confirmCloseMainWindow(
+            window,
+            warningDefaults: warningDefaults,
+            dontAskAgain: dontAskAgain
+        ) else { return true }
         performPreconfirmedMainWindowClose(window)
         return true
     }
@@ -18034,7 +18049,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted?()
                 return true
             }
-        case .command, .agent, .workspaceCommand, .workspace:
+        case .command, .agent, .workspaceCommand, .workspace, .setting:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
                 return false
             }
@@ -18048,6 +18063,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: context.tabManager,
                 baseCwd: baseCwd,
                 globalConfigPath: cmuxConfigStore.globalConfigPath,
+                settingPresets: cmuxConfigStore.settingPresets,
                 presentingWindow: preferredWindow,
                 onExecuted: onExecuted
             )
