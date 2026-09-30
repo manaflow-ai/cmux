@@ -62,6 +62,8 @@ import Testing
             messageLine(role: "user", content: "<Button> does not render in dark mode"),
             messageLine(role: "user", content: "</div> is unbalanced in this file"),
             messageLine(role: "user", content: "<permissions-panel> is misaligned"),
+            messageLine(role: "user", content: "<permissions> is misaligned"),
+            messageLine(role: "user", content: "# AGENTS.md instructions are missing"),
             messageLine(role: "assistant", content: "<environment_context> is the wrapper I found")
         ]
         let messages = engine.extractCodexMessages(fromRolloutLines: lines)
@@ -70,6 +72,8 @@ import Testing
             AutoNamingTranscriptMessage(role: "user", text: "<Button> does not render in dark mode"),
             AutoNamingTranscriptMessage(role: "user", text: "</div> is unbalanced in this file"),
             AutoNamingTranscriptMessage(role: "user", text: "<permissions-panel> is misaligned"),
+            AutoNamingTranscriptMessage(role: "user", text: "<permissions> is misaligned"),
+            AutoNamingTranscriptMessage(role: "user", text: "# AGENTS.md instructions are missing"),
             AutoNamingTranscriptMessage(role: "assistant", text: "<environment_context> is the wrapper I found")
         ])
     }
