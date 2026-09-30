@@ -62,6 +62,10 @@ public actor CloudMachineLinkManager {
     /// reconnects with this local fact and does not call the attach endpoint.
     private var privateRoutes: [String: String] = [:]
     private var privateAddressCandidates: [String: [String]] = [:]
+    /// The team that owns each machine, captured when its provider was
+    /// registered. Control-plane calls a link makes name this team, so a link
+    /// to another team's machine keeps working after the selected team changes.
+    private var ownerTeams: [String: String] = [:]
     private var links: [String: CloudMachineLink] = [:]
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
     private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
@@ -155,6 +159,16 @@ public actor CloudMachineLinkManager {
         privateRoutes[machineID] = "ws://\(host):1337/v1/link"
     }
 
+    /// Records the team that owns `machineID`; nil clears it (selected team).
+    public func setOwnerTeam(_ teamID: String?, for machineID: String) {
+        ownerTeams[machineID] = teamID.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The owning team recorded for `machineID`, if any.
+    public func ownerTeam(for machineID: String) -> String? {
+        ownerTeams[machineID]
+    }
+
     public func privateAddresses(for machineID: String) -> [String] {
         privateAddressCandidates[machineID] ?? []
     }
@@ -236,7 +250,8 @@ public actor CloudMachineLinkManager {
                 let endpoint = try await client.openCmuxRemote(
                     id: machineID,
                     deviceFingerprint: nil,
-                    clientCapabilities: capabilities
+                    clientCapabilities: capabilities,
+                    teamID: self.ownerTeam(for: machineID)
                 )
                 session = endpoint.session
                 guard endpoint.trustedCarrier else {
@@ -373,7 +388,8 @@ public actor CloudMachineLinkManager {
                 let endpoint = try await client.openCmuxRemote(
                     id: machineID,
                     deviceFingerprint: nil,
-                    clientCapabilities: self.resolvedClientCapabilities(clientURL: clientURL)
+                    clientCapabilities: self.resolvedClientCapabilities(clientURL: clientURL),
+                    teamID: self.ownerTeam(for: machineID)
                 )
                 guard endpoint.trustedCarrier else {
                     throw ManagerError.retryLater(String(
@@ -509,6 +525,7 @@ public actor CloudMachineLinkManager {
     public func retainAddresses(machineIDs: Set<String>) {
         privateRoutes = privateRoutes.filter { machineIDs.contains($0.key) }
         privateAddressCandidates = privateAddressCandidates.filter { machineIDs.contains($0.key) }
+        ownerTeams = ownerTeams.filter { machineIDs.contains($0.key) }
     }
 
     /// Re-sends this Mac's theme to every connected machine (a Ghostty config reload

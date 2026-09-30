@@ -1720,6 +1720,9 @@ struct SessionCloudVMBindingSnapshot: Codable, Sendable, Equatable {
     /// The machine's cmux-tui workspace this local workspace stands for; absent in
     /// legacy snapshots and for machine-only bindings (`vm shell`).
     var remoteWorkspaceID: String? = nil
+    /// The team that owns the machine. Absent in snapshots written before
+    /// multi-team Cloud; restore then adopts the selected team.
+    var teamID: String? = nil
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
@@ -1771,6 +1774,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Remote surfaces this workspace's panes projected (`SurfaceCatalog`); absent for
     /// workspaces that only ever showed local panes, so older manifests decode unchanged.
     var surfaceProjections: [SurfaceProjectionRecord]? = nil
+    /// The team that owns each Cloud machine this workspace shows, by machine
+    /// id. Restore reconnects those panes with that team even when another
+    /// team is selected. Absent in manifests written before multi-team Cloud.
+    var cloudMachineTeams: [String: String]? = nil
     /// Optional so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
     /// Manual task-status override raw values and the persisted checklist. Optional-with-nil-default
