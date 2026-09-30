@@ -172,6 +172,11 @@ pub struct TabView {
     pub kind: SurfaceKind,
     pub browser_source: Option<BrowserSource>,
     pub browser_frames_stalled: bool,
+    /// A remote-terminal tab (`remote-terminal-tabs-v1`): a reference to a
+    /// terminal on another session that only the cmux app renders. Its
+    /// `kind` is `Browser` so nothing attaches it as a PTY; the pane shows a
+    /// labeled placeholder.
+    pub remote_terminal: bool,
     pub supports_clear_history_key_fallback: bool,
     pub notification: Option<TabNotificationView>,
 }
@@ -655,6 +660,11 @@ pub fn tree_from_state_with_notifications(
                     title: state.surfaces.get(sid).map(|s| s.title()).unwrap_or_default(),
                     kind: state.surfaces.get(sid).map(|s| s.kind()).unwrap_or(SurfaceKind::Pty),
                     browser_source: state.surfaces.get(sid).and_then(|s| s.browser_source()),
+                    remote_terminal: state.surfaces.get(sid).is_some_and(|s| {
+                        s.browser_url().is_some_and(|url| {
+                            url.starts_with(cmux_tui_core::REMOTE_TERMINAL_URL_PREFIX)
+                        })
+                    }),
                     browser_frames_stalled: state
                         .surfaces
                         .get(sid)
@@ -801,9 +811,11 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .unwrap_or_default()
                                 .to_string(),
                             kind: match tab.get("kind").and_then(|v| v.as_str()) {
-                                Some("browser") => SurfaceKind::Browser,
+                                Some("browser" | "remote-terminal") => SurfaceKind::Browser,
                                 _ => SurfaceKind::Pty,
                             },
+                            remote_terminal: tab.get("kind").and_then(Value::as_str)
+                                == Some("remote-terminal"),
                             browser_source: match tab.get("browser_source").and_then(|v| v.as_str())
                             {
                                 Some("external") => Some(BrowserSource::External),
