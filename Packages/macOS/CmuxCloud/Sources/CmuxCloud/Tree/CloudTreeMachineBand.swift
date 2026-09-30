@@ -29,7 +29,7 @@ public struct CloudTreeMachineBand<Content: View>: View {
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(Color.primary.opacity(0.06))
                 )
-                .padding(.trailing, max(0, style.rowGrid.trailingPadding - 2))
+                .padding(.trailing, style.rowGrid.trailingPadding - 2)
         } else {
             content()
                 .padding(.trailing, style.rowGrid.trailingPadding)

@@ -65,8 +65,8 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 - Check executed tests on the current SHA; green skipped jobs do not establish coverage.
   Add `full-ci` only for a user-requested or agreed broad validation plan,
   naming the extra lanes and why ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)).
-- Keep branches current locally with `scripts/merge-main.sh`; follow
-  [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
+- Let PR catch-up handle main. When needed locally, use `scripts/merge-main.sh`;
+  never overwrite a catch-up merge with a force-push ([branch updates](docs/ci/merge-main.md)).
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness

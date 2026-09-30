@@ -47,9 +47,7 @@ struct CloudTreeMachineRowContent: View {
                     .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                    // Generated names use adjective-colour-noun, so the tail is the
-                    // word that distinguishes machines. Keep both ends when space is tight.
-                    .truncationMode(.middle)
+                    .truncationMode(.tail)
                     .layoutPriority(1)
             }
             Spacer(minLength: 0)

@@ -713,14 +713,6 @@ path = "tests/test_lint_feature_flags_scope.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_feature_flag_review_lead_time.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_feature_flag_review_drift_issue.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_lint_errno_in_test_assertions.py"
 lane = "linux-guard"
 
@@ -782,10 +774,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_run_e2e.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_e2e_backend_scripts.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1410,6 +1398,14 @@ path = "tests/test_ci_admission_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_catch_up_pr.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_auto_catch_up_select.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_run_guards.py"
 lane = "linux-guard"
 
@@ -1496,8 +1492,4 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_iroh_drift_issue.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_submodule_forward_only.py"
 lane = "linux-guard"

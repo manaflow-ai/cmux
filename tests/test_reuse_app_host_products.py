@@ -1920,9 +1920,8 @@ class ContractParity(unittest.TestCase):
                           miss_reasons="" if hit else "no_matching_contract_artifact")
             return hit
 
-        def fake_switch(root, **kwargs):
+        def fake_switch(root):
             moves.append(root)
-            self.assertEqual(kwargs.get("wait_seconds"), 0)
             return root / "derived-data-compile-admission"
 
         output = tmp / "out"
@@ -2001,7 +2000,7 @@ class ContractParity(unittest.TestCase):
                 mock.patch.object(sys, "argv", ["reuse", "restore", str(derived)]), \
                 mock.patch.object(reuse, "ROOT_HELPER", helper), \
                 mock.patch.object(reuse, "canonical_roots", return_value=[first, second]), \
-                mock.patch.object(reuse, "switch_root", side_effect=lambda root, **_: root / "derived-data-compile-admission"), \
+                mock.patch.object(reuse, "switch_root", side_effect=lambda root: root / "derived-data-compile-admission"), \
                 mock.patch.object(reuse, "contract", return_value=own), \
                 mock.patch.object(reuse.products, "identity", return_value={}), \
                 mock.patch.object(reuse, "restore", side_effect=restore_then_fail):

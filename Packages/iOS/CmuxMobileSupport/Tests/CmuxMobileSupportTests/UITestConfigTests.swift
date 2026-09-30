@@ -61,47 +61,6 @@ import Testing
         #expect(UITestConfig.value(for: "CMUX_UITEST_ADD_DEVICE_HOST", env: env) == nil)
     }
 
-    @Test func whatsNewLaunchSuppressionUsesEnvironmentOrArgument() {
-        #if DEBUG
-        #expect(
-            UITestConfig.suppressWhatsNewLaunch(
-                from: ["CMUX_UITEST_SUPPRESS_WHATS_NEW": "1"]
-            )
-        )
-        #expect(
-            UITestConfig.suppressWhatsNewLaunch(
-                from: [:],
-                arguments: ["CMUX_UITEST_SUPPRESS_WHATS_NEW=1"]
-            )
-        )
-        #expect(
-            UITestConfig.suppressWhatsNewLaunch(
-                from: ["CMUX_UITEST_SUPPRESS_WHATS_NEW": "0"],
-                arguments: ["CMUX_UITEST_SUPPRESS_WHATS_NEW=1"]
-            )
-        )
-        #else
-        #expect(
-            UITestConfig.suppressWhatsNewLaunch(
-                from: ["CMUX_UITEST_SUPPRESS_WHATS_NEW": "1"]
-            ) == false
-        )
-        #endif
-        #expect(UITestConfig.suppressWhatsNewLaunch(from: [:]) == false)
-        #expect(
-            UITestConfig.suppressWhatsNewLaunch(
-                from: ["CMUX_UITEST_SUPPRESS_WHATS_NEW": "0"],
-                arguments: ["CMUX_UITEST_SUPPRESS_WHATS_NEW=0"]
-            ) == false
-        )
-        #expect(
-            UITestConfig.suppressWhatsNewLaunch(
-                from: ["CMUX_UITEST_SUPPRESS_WHATS_NEW": "true"],
-                arguments: ["CMUX_UITEST_SUPPRESS_WHATS_NEW=10"]
-            ) == false
-        )
-    }
-
     #if DEBUG
     @Test(arguments: ["eligible", "ineligible"])
     func autoConnectMigrationFixtureRequiresMockDataAndParsesEligibility(_ raw: String) {

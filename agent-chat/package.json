@@ -5,7 +5,7 @@
   "scripts": {
     "start": "bun server.ts",
     "build": "bun run build.ts",
-    "check": "./node_modules/.bin/tsc --noEmit && bun run test",
+    "check": "bun x tsc --noEmit && bun run test",
     "test": "bun run-tests.ts"
   },
   "dependencies": {
@@ -22,9 +22,6 @@
   "devDependencies": {
     "@types/bun": "^1.3.14",
     "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "@types/react-test-renderer": "19.1.0",
-    "react-test-renderer": "19.2.3",
-    "typescript": "5.9.2"
+    "@types/react-dom": "^19"
   }
 }

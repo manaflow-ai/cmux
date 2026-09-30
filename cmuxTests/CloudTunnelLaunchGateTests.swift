@@ -344,7 +344,7 @@ struct CloudTunnelLaunchGateTests {
         #expect(await coordinator.state == .off)
     }
 
-    @Test("the production opt-out (bring the tunnel down, then refuse) while the install waits for approval removes the late-saved configuration", .timeLimit(.minutes(1)))
+    @Test("the production opt-out (bring the tunnel down, then refuse) while the install waits for approval removes the late-saved configuration")
     @MainActor
     func optOutDuringInstallRemovesLateSavedConfiguration() async throws {
         let controller = FakeTunnelController()
@@ -362,12 +362,12 @@ struct CloudTunnelLaunchGateTests {
         await coordinator.requestDown()
         #expect(await coordinator.state == .off)
 
-        // The user's approval arrives late: the retired start saves the
-        // configuration, then removes it and discards the enrollment after
-        // `start` has already thrown, so wait for that last step.
+        // The user's approval arrives late; the install has saved the
+        // configuration by the time the cancelled start notices.
         controller.approve()
-        await #expect(throws: CloudTunnelError.self) { try await start.value }
-        #expect(await enroller.discarded.result == true)
+        await #expect(throws: CloudTunnelError.self) {
+            try await start.value
+        }
         #expect(controller.calls == ["install", "stop", "remove"])
         #expect(controller.installedConfigurations.isEmpty)
         #expect(enroller.discardCount == 1)

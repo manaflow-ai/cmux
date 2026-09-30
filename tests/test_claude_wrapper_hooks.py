@@ -130,54 +130,9 @@ def generated_claude_hook_settings() -> str:
     )
 
 
-# Fixtures exit at once while this is set, so priming runs none of their logic.
-PRIME_ENVIRONMENT_KEY = "CMUX_TEST_PRIME_EXEC"
-
-
-def prime_first_exec(path: Path, *args: str, env: dict[str, str] | None = None) -> None:
-    """Pay macOS's first-exec assessment for a new executable before timing it.
-
-    The first exec of every newly written file, a copy included, blocks in
-    syspolicyd (Gatekeeper scan, notarization lookup, XProtect scan): 0.15-0.4 s
-    on an idle Mac and seconds on a loaded shared mini. The wrapper bounds
-    `cmux hooks claude inject-settings` to 1 s and `claude --help` to 0.75 s.
-    Installed binaries were executed before, so only a fixture pays this, and
-    it must not pay it inside those budgets.
-    """
-    if env is None:
-        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), PRIME_ENVIRONMENT_KEY: "1"}
-    subprocess.run(
-        [str(path), *args],
-        env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=120,
-        check=False,
-    )
-
-
 def make_executable(path: Path, content: str) -> None:
-    """Write a fixture that exits at once while primed, then prime it."""
-    shebang, newline, body = content.partition("\n")
-    if "node" in shebang:
-        guard = f"if (process.env.{PRIME_ENVIRONMENT_KEY}) process.exit(0);\n"
-    else:
-        guard = f'if [ -n "${{{PRIME_ENVIRONMENT_KEY}:-}}" ]; then exit 0; fi\n'
-    path.write_text(f"{shebang}{newline}{guard}{body}", encoding="utf-8")
+    path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
-    prime_first_exec(path)
-
-
-def install_wrapper_copy(path: Path) -> None:
-    """Copy the wrapper and pay its first exec before any timed run.
-
-    The wrapper has no priming guard. With only PATH=/usr/bin:/bin it finds no
-    claude and exits 127 before it writes anything.
-    """
-    shutil.copy2(SOURCE_WRAPPER, path)
-    path.chmod(0o755)
-    prime_first_exec(path, env={"PATH": "/usr/bin:/bin"})
 
 
 def write_helper_info(path: Path, bundle_identifier: str) -> None:
@@ -235,7 +190,8 @@ def run_wrapper(
         bundled_dir.mkdir(parents=True, exist_ok=True)
 
         wrapper = wrapper_dir / "cmux-claude-wrapper"
-        install_wrapper_copy(wrapper)
+        shutil.copy2(SOURCE_WRAPPER, wrapper)
+        wrapper.chmod(0o755)
 
         real_args_log = tmp / "real-args.log"
         real_claudecode_log = tmp / "real-claudecode.log"
@@ -471,7 +427,8 @@ def run_wrapper_terminal_env_probe(
         real_dir.mkdir(parents=True, exist_ok=True)
 
         wrapper = wrapper_dir / "cmux-claude-wrapper"
-        install_wrapper_copy(wrapper)
+        shutil.copy2(SOURCE_WRAPPER, wrapper)
+        wrapper.chmod(0o755)
 
         env_log = tmp / "real-env.log"
         args_log = tmp / "real-args.log"
@@ -602,7 +559,8 @@ def run_wrapper_auth_env(
         real_dir.mkdir(parents=True, exist_ok=True)
 
         wrapper = wrapper_dir / "cmux-claude-wrapper"
-        install_wrapper_copy(wrapper)
+        shutil.copy2(SOURCE_WRAPPER, wrapper)
+        wrapper.chmod(0o755)
 
         auth_env_log = tmp / "auth-env.log"
         args_log = tmp / "args.log"
@@ -1619,7 +1577,6 @@ def test_subcommand_discovery_cache_and_binary_identity(failures: list[str]) -> 
                 else:
                     replacement = tmp / "replacement-claude"
                     shutil.copy2(real, replacement)
-                    prime_first_exec(replacement)
                     if change == "symlink":
                         link.unlink()
                         link.symlink_to(replacement)
@@ -1755,25 +1712,13 @@ def test_subcommand_help_cancellation_cleans_up_children(failures: list[str]) ->
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     start_new_session=True)
             pids: list[int] = []
-
-            def reported_pids() -> list[int]:
-                # The shell creates the log before printf writes both lines.
-                text = pid_log.read_text(encoding="utf-8") if pid_log.exists() else ""
-                return [int(pid) for pid in text.splitlines()] if text.count("\n") >= 2 else []
-
             try:
                 deadline = time.monotonic() + 15
-                while not reported_pids() and proc.poll() is None and time.monotonic() < deadline:
+                while not pid_log.exists() and proc.poll() is None and time.monotonic() < deadline:
                     time.sleep(0.01)
-                pids = reported_pids()
-                if len(pids) != 2:
-                    failures.append(f"cancellation {interrupt}: help process was not reached")
-                    return
-                try:
-                    os.killpg(proc.pid, interrupt)
-                except ProcessLookupError:
-                    failures.append(f"cancellation {interrupt}: wrapper exited before the interrupt")
-                    return
+                pids = [int(pid) for pid in read_lines(pid_log)]
+                expect(len(pids) == 2, "cancellation: help process was not reached", failures)
+                os.killpg(proc.pid, interrupt)
                 proc.communicate(timeout=15)
                 expect(read_lines(Path(env["FAKE_REAL_ARGS_LOG"])) == ["--help"],
                        f"cancellation {interrupt}: interrupted discovery launched a prompt", failures)
@@ -3253,7 +3198,6 @@ def install_native_fake_claude(tmp: Path, env: dict[str, str]) -> None:
     compiled = subprocess.run(["cc", "-o", str(target), str(source)], capture_output=True, text=True)
     if compiled.returncode != 0:
         raise RuntimeError(f"cc failed to build the native fake claude: {compiled.stderr}")
-    prime_first_exec(target, "--help")
 
 
 def install_native_fake_claude_with(extra_env: dict[str, str]):

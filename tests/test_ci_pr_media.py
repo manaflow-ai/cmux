@@ -37,18 +37,13 @@ class SelectToursTests(unittest.TestCase):
         picked, reason = media.select_tours(
             tours, ["Sources/Panels/BrowserPanel.swift", "Sources/BrowserOmnibar.swift", "Sources/Sidebar/Row.swift"],
             body="")
-        self.assertEqual(picked, ["browser-tour"])
+        self.assertEqual(picked, ["browser-tour", "sidebar-and-chrome-tour"])
         self.assertIn("matched", reason)
 
     def test_no_match_takes_the_default_tour(self) -> None:
         tours = scenarios(browser_tour=["Sources/*Browser*"], sidebar_and_chrome_tour=["Sources/*Sidebar*"])
         picked, _ = media.select_tours(tours, ["Sources/TerminalController.swift"], body=None)
         self.assertEqual(picked, [media.DEFAULT_TOUR])
-
-    def test_ui_surface_requires_a_scenario_path_match(self) -> None:
-        tours = scenarios(browser_tour=["Sources/*Browser*"], sidebar_and_chrome_tour=["Sources/*Sidebar*"])
-        self.assertTrue(media.has_ui_surface(tours, ["Sources/BrowserPanel.swift"]))
-        self.assertFalse(media.has_ui_surface(tours, ["Sources/Model.swift"]))
 
     def test_editing_a_tour_shows_that_tour(self) -> None:
         tours = scenarios(browser_tour=[], sidebar_and_chrome_tour=[])
@@ -329,14 +324,6 @@ class PlanTests(StubbedTest):
                 {"name": "Fast static checks", "status": "completed", "conclusion": "success"}]},
             "repos/o/r/actions/runs/9": run}, {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
         self.assertEqual(outputs["build_sha"], self.EARLIER)
-
-    def test_a_ci_retry_does_not_dispatch_duplicate_media(self) -> None:
-        run = {"id": 9, "run_attempt": 2, "head_sha": HEAD, "event": "pull_request",
-               "path": media.CI_WORKFLOW_PATH, "head_repository": {"full_name": "o/r"},
-               "pull_requests": [{"number": 42}], "status": "completed"}
-        outputs = self.plan({"repos/o/r/actions/runs/9": run},
-                            {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "2"})
-        self.assertEqual(json.loads(outputs["run"]), [])
 
     def test_a_pull_request_on_mains_build_adopts_mains_build(self) -> None:
         merge = "c" * 40

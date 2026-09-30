@@ -72,39 +72,36 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
     }
 
     @MainActor
-    func testSuggestionRefreshSchedulerInvalidatesQueuedRefreshOnCancel() async throws {
+    func testSuggestionRefreshSchedulerInvalidatesQueuedRefreshOnCancel() async {
         let clock = ManualOmnibarSuggestionRefreshClock()
         let scheduler = OmnibarSuggestionRefreshScheduler(
             debounceDelay: .milliseconds(40),
             clock: clock
         )
-        let queuedRefresh = expectation(description: "debounced refresh emitted")
-        var queuedGeneration: UInt64?
-        // Wait for the emission itself: two Task.yield() calls cannot order the
-        // refresh task's hop from the clock actor back to the main actor before
-        // cancelPendingRefresh(), and losing that race emits nothing.
-        let listener = Task { @MainActor in
-            var iterator = scheduler.refreshStream.makeAsyncIterator()
-            queuedGeneration = await iterator.next()
-            queuedRefresh.fulfill()
-        }
+        let staleRefresh = expectation(description: "queued refresh emitted")
+        var shouldProcessQueuedRefresh: Bool?
 
         scheduler.scheduleRefresh()
         await waitForPendingSleep(on: clock)
         await clock.advance()
-        await fulfillment(of: [queuedRefresh], timeout: 1)
-        listener.cancel()
-        let generation = try XCTUnwrap(queuedGeneration)
-        XCTAssertTrue(
-            scheduler.shouldProcessRefresh(generation),
-            "An emitted refresh should run while nothing has cancelled it."
-        )
+        await Task.yield()
+        await Task.yield()
 
-        // The consumer asks shouldProcessRefresh when it handles a generation, so
-        // cancelling after emission models a refresh queued behind Escape.
         scheduler.cancelPendingRefresh()
-        XCTAssertFalse(
-            scheduler.shouldProcessRefresh(generation),
+
+        let listener = Task { @MainActor in
+            var iterator = scheduler.refreshStream.makeAsyncIterator()
+            guard let generation = await iterator.next() else { return }
+            shouldProcessQueuedRefresh = scheduler.shouldProcessRefresh(generation)
+            staleRefresh.fulfill()
+        }
+
+        await fulfillment(of: [staleRefresh], timeout: 1)
+        listener.cancel()
+
+        XCTAssertEqual(
+            shouldProcessQueuedRefresh,
+            false,
             "A refresh already queued before cancellation should not run after Escape, hide, or focus loss."
         )
     }

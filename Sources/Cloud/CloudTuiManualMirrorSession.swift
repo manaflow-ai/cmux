@@ -729,8 +729,8 @@ final class CloudTuiManualMirrorSession {
     }
 
     private func transitionToDisconnected(reason: CloudTerminalAttachmentInterruption) {
-        guard phase != .stopped, phase != .disconnected else { return }
         tearDownConnection()
+        guard phase != .stopped else { return }
         let diagnosticError: CloudDiagnosticFailure
         switch reason {
         case .handshakeTimedOut, .livenessTimedOut: diagnosticError = .timeout
@@ -744,8 +744,8 @@ final class CloudTuiManualMirrorSession {
     }
 
     private func transitionToDisconnected(error: Error? = CloudDiagnosticFailure.network) {
-        guard phase != .stopped, phase != .disconnected else { return }
         tearDownConnection()
+        guard phase != .stopped else { return }
         finishDiagnostics(error: error ?? CancellationError())
         transition(to: .disconnected, reason: .transportClosed)
         onNeedsReconnect()

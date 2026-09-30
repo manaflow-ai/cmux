@@ -39,8 +39,8 @@ struct MachinesFreeAccessBanner: View {
             .layoutPriority(1)
             CloudBannerDismissButton(action: onDismiss)
         }
-        .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
-        .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundColor(isExpired ? Color.orange : .secondary)
         .contentShape(Rectangle())

@@ -32,10 +32,7 @@ struct CloudOperationActivityView: View {
                 .cloudErrorCopyMenu(operation.needsAttention ? operation.copyableError : nil)
             }
         }
-        .padding(.horizontal, CloudSidebarChromeMetrics.sidebar.barHorizontalPadding)
-        // Deliberately taller than `barVerticalPadding`: this row carries a
-        // progress indicator, not a line of text. Left alone here because
-        // halving it is a look, not a mismatch with the sidebar's chrome.
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .accessibilityIdentifier("CloudOperationActivity")
     }

@@ -10,10 +10,7 @@ public struct CloudTreeRowGrid: Equatable, Sendable {
     public var detailGap: CGFloat = 5
     public var trailingGap: CGFloat = 10
     var trailingSlot: CGFloat = 16
-    /// The chrome bar's trailing inset, so a row's accessories stop where the
-    /// Cloud header's own controls do. The header sits on a plain
-    /// `rightSidebarChromeBar()`, which takes this inset on both edges.
-    public var trailingPadding: CGFloat = CloudSidebarChromeMetrics.sidebar.barHorizontalPadding
+    public var trailingPadding: CGFloat = 12
     public var machineLineSpacing: CGFloat = 1
 
     public init(
@@ -24,7 +21,7 @@ public struct CloudTreeRowGrid: Equatable, Sendable {
         detailGap: CGFloat = 5,
         trailingGap: CGFloat = 10,
         trailingSlot: CGFloat = 16,
-        trailingPadding: CGFloat = CloudSidebarChromeMetrics.sidebar.barHorizontalPadding,
+        trailingPadding: CGFloat = 12,
         machineLineSpacing: CGFloat = 1
     ) {
         self.disclosureSlot = disclosureSlot

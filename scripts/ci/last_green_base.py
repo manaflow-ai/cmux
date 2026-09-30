@@ -28,7 +28,7 @@ count: the workflow also runs on pull requests, and a fork's pull request from
 its own `main` reports head_branch `main`, which would both crowd main's runs
 out of the one page and attach a pull request's verdict to a sha.
 
-Stdlib only, so trusted merge-main tooling can run it with `python3 -I`.
+Stdlib only, so pr-catch-up.yml can run the trusted copy with `python3 -I`.
 
 Usage:
   last_green_base.py --repo DIR --ref origin/main [--head HEAD] [--limit 40] [--json]

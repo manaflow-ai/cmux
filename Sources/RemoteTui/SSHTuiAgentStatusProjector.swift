@@ -30,11 +30,6 @@ final class SSHTuiAgentStatusProjector {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.reconcile() }
         }
-        // The catalog may already contain SSH projections before this projector
-        // is constructed (restore/startup ordering). NotificationCenter only
-        // delivers future changes, so reconcile the current graph once to
-        // avoid a permanently stale sidebar until the next catalog mutation.
-        reconcile()
     }
 
     func reconcile() {

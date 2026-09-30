@@ -276,28 +276,9 @@ cmux_app_host_primary_executable() {
   CMUX_APP_HOST_PRIMARY_EXECUTABLE="${first_executable% (deleted)}"
 }
 
-# lsof exits 1 both for a search that found nothing and for an error, so an
-# empty filtered query proves nothing on its own. Positive evidence that a
-# live PID does not hold the receipt: lsof lists that PID's open files, at
-# least one of them, and none is the receipt file on any descriptor.
-cmux_app_host_pid_lists_without_receipt() {
-  local pid="$1" receipt_file="$2" output line listed=0 files=0
-  output="$(cmux_run_app_host_lsof -a -p "$pid" -Ffn)" || return 1
-  while IFS= read -r line; do
-    case "$line" in
-      "p$pid") listed=1 ;;
-      p*) return 1 ;;
-      f*) files=$((files + 1)) ;;
-      n*) [ "${line#n}" != "$receipt_file" ] || return 1 ;;
-    esac
-  done < <(printf '%s\n' "$output")
-  [ "$listed" -eq 1 ] && [ "$files" -gt 0 ]
-}
-
 # Prove that this process incarnation still owns the exact receipt it authored.
-# Return 0 when PID holds the receipt descriptor, 2 when PID has exited, 3
-# when lsof lists the live PID's open files without the receipt, and 1 when
-# the descriptor could not be inspected or did not match.
+# Return 2 if the PID disappeared during verification and 1 for a live process
+# without the recorded descriptor or for malformed lsof output.
 cmux_app_host_receipt_descriptor_is_open() {
   local pid="$1"
   local receipt_fd="$2"
@@ -315,16 +296,7 @@ cmux_app_host_receipt_descriptor_is_open() {
     if [ "$status" -eq 1 ] && ! /bin/kill -0 "$pid" 2>/dev/null; then
       return 2
     fi
-    if [ "$status" -eq 1 ] \
-      && cmux_app_host_pid_lists_without_receipt "$pid" "$receipt_file"; then
-      echo "FAIL: live app-host PID $pid does not hold its process receipt" >&2
-      return 3
-    fi
-    # The PID can exit between the two queries; that is an exit, not a failure.
-    if [ "$status" -eq 1 ] && ! /bin/kill -0 "$pid" 2>/dev/null; then
-      return 2
-    fi
-    echo "FAIL: lsof could not inspect the process receipt of app-host PID $pid (exit $status)" >&2
+    echo "FAIL: live app-host PID $pid does not hold its process receipt" >&2
     return 1
   fi
 
@@ -386,33 +358,6 @@ cmux_app_host_receipt_descriptor_is_open() {
   fi
 }
 
-# Receipts outlive their app host, and a shared runner can reuse its PID within
-# minutes (one shard saw the PID space wrap twice during a single job). The
-# receipt descriptor is O_CLOEXEC, so no exec keeps it: a PID that runs another
-# executable and confirmably does not hold the receipt is a new process, and
-# the receipt is stale. Return 1 when that PID holds the receipt, which no
-# reuse can explain, or when lsof could not tell.
-cmux_app_host_receipt_pid_was_reused() {
-  local status detail
-  if detail="$(cmux_app_host_receipt_descriptor_is_open "$1" "$2" "$3" 2>&1 >/dev/null)"; then
-    return 1
-  else
-    status=$?
-  fi
-  case "$status" in
-    3)
-      echo "App-host receipt PID $1 now runs another executable without the receipt; skipping the stale receipt" >&2
-      return 0
-      ;;
-    2)
-      echo "App-host receipt PID $1 exited during verification; skipping the stale receipt" >&2
-      return 0
-      ;;
-  esac
-  [ -z "$detail" ] || printf '%s\n' "$detail" >&2
-  return 1
-}
-
 # Return 0 for an exact live identity, 2 for a stale receipt, and 1 for any
 # mismatch. Callers must never signal a PID after a 1 or 2 result.
 cmux_verify_app_host_receipt() {
@@ -440,8 +385,6 @@ cmux_verify_app_host_receipt() {
     return 1
   fi
   if [ "$CMUX_APP_HOST_PRIMARY_EXECUTABLE" != "$receipt_executable" ]; then
-    cmux_app_host_receipt_pid_was_reused \
-      "$receipt_pid" "$receipt_fd" "$receipt_file" && return 2
     echo "FAIL: app-host receipt does not match the PID executable vnode" >&2
     return 1
   fi
@@ -796,8 +739,6 @@ cmux_verify_stale_app_host_receipt() {
     return 1
   fi
   if [ "$CMUX_APP_HOST_PRIMARY_EXECUTABLE" != "$receipt_executable" ]; then
-    cmux_app_host_receipt_pid_was_reused \
-      "$receipt_pid" "$receipt_fd" "$receipt_file" && return 2
     echo "FAIL: stale app-host receipt does not match the PID executable vnode" >&2
     return 1
   fi

@@ -8,10 +8,11 @@ that each add a different file therefore append to the same four regions and
 collide positionally, even though the entries are disjoint. That is the single
 most common conflict in this repository and never a semantic disagreement.
 
-The three-way union this performs is shared with the trusted local
-merge-main resolver, rather than being reimplemented here. Exposing it as a
-merge driver makes it available to everyone else: a local `git merge main`, a
-rebase, and pull requests from forks.
+The three-way union this performs is the one scripts/ci/catch_up_pr.py already
+applies during PR catch-up, reused here rather than reimplemented. Exposing it
+as a merge driver is what makes it available to everyone else: a local `git
+merge main`, a rebase, and pull requests from forks, which catch-up refuses by
+design and which consequently re-conflict on this file every time main moves.
 
 It is deliberately conservative. A hunk is merged only when both sides purely
 added distinct lines; if either side changed or removed a line the merge is
@@ -33,7 +34,7 @@ import tempfile
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-MERGE_RESOLVER = SCRIPT_DIR / "ci" / "merge_main_resolver.py"
+CATCH_UP = SCRIPT_DIR / "ci" / "catch_up_pr.py"
 NORMALIZER = SCRIPT_DIR / "normalize-pbxproj.py"
 SECTION_BEGIN_RE = re.compile(r"/\* Begin ([A-Za-z0-9]+) section \*/")
 SECTION_END_RE = re.compile(r"/\* End ([A-Za-z0-9]+) section \*/")
@@ -53,14 +54,14 @@ PBX_COMMENT_RE = re.compile(r"^\s*[0-9A-Za-z]+ /\* (.*?) \*/")
 
 
 def load_mergers():
-    """Load the trusted merge-main helpers."""
-    spec = importlib.util.spec_from_file_location("merge_main_resolver", MERGE_RESOLVER)
+    """The trusted merge helpers used by PR catch-up."""
+    spec = importlib.util.spec_from_file_location("merge_pbxproj_catch_up", CATCH_UP)
     if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load {MERGE_RESOLVER}")
+        raise ImportError(f"cannot load {CATCH_UP}")
     module = importlib.util.module_from_spec(spec)
-    # The resolver declares dataclasses, and @dataclass resolves a field's
-    # type through sys.modules[cls.__module__], so register it before
-    # execution or the decorator raises.
+    # catch_up_pr.py declares dataclasses, and @dataclass resolves a field's
+    # type through sys.modules[cls.__module__], so the module has to be
+    # registered before it is executed or the decorator raises.
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module

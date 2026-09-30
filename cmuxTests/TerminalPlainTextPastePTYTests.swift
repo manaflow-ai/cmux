@@ -20,11 +20,10 @@ extension TerminalPlainTextPasteStartupTests {
         let fixture = try PlainPastePTYFixture(optimized: true, workerStartupDelay: 0.3)
         defer { fixture.close() }
         try await fixture.waitUntilReady()
-        // Dictation needs the prewarmed reader at its request wait; a fixed
-        // 600 ms sleep lost that race to a slow wrapper launch on a loaded runner.
-        try await fixture.waitUntilStandbyReaderServes()
         let savedText = "previous clipboard contents"
         for trial in 0..<3 {
+            // Allow a standby helper to reach its request wait before dictation.
+            try await Task.sleep(for: .milliseconds(600))
             let transcription = "dictation-\(trial) 日本語 🦀\nsecond line\n"
             NSPasteboard.general.clearContents()
             try #require(NSPasteboard.general.setString(transcription, forType: .string))

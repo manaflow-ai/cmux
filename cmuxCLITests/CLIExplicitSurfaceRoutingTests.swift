@@ -43,34 +43,6 @@ struct CLIExplicitSurfaceRoutingTests {
         )
     }
 
-    @Test func sendKeyCommandsRejectExtraArgumentsWithoutSocketRequest() throws {
-        let cases: [[String]] = [
-            ["send-key", "--surface", Self.targetSurfaceRef, "ctrl+c", "enter"],
-            ["send-key-panel", "--panel", Self.targetSurfaceRef, "ctrl+c", "enter"],
-        ]
-
-        for (index, arguments) in cases.enumerated() {
-            let execution = try runMockCommand(
-                arguments: arguments,
-                socketName: "key-arity-\(index)"
-            ) { line in
-                Self.malformedRequestResponse(raw: line)
-            }
-
-            let requests = try execution.state.requestObjects()
-            #expect(requests.isEmpty, Comment(rawValue: String(describing: requests)))
-            #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
-            #expect(
-                execution.result.status != 0,
-                Comment(rawValue: execution.result.stderr + execution.result.stdout)
-            )
-            #expect(
-                execution.result.stderr.contains("unexpected arguments"),
-                Comment(rawValue: execution.result.stderr)
-            )
-        }
-    }
-
     @Test func numericSurfaceHandleStillInheritsCallerWorkspaceForIndexResolution() throws {
         let socketPath = Self.makeSocketPath("numeric")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)

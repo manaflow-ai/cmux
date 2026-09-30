@@ -27,20 +27,6 @@ if [ "$(basename "$0")" = "fake-lsof" ]; then
     esac
   done
 
-  if [ -n "$path_filter" ] && [ -n "${CMUX_FAKE_LSOF_RECEIPT_EXIT:-}" ]; then
-    exit "$CMUX_FAKE_LSOF_RECEIPT_EXIT"
-  fi
-  if [ -z "$path_filter" ] && [ -z "$fd_filter" ] && [ -n "${CMUX_FAKE_LSOF_LIST_EXIT:-}" ]; then
-    if [ -n "${CMUX_FAKE_LSOF_LIST_KILLS_PID:-}" ]; then
-      # The PID exits between the receipt query and this listing.
-      /bin/kill -KILL "$CMUX_FAKE_LSOF_LIST_KILLS_PID" 2>/dev/null || true
-      for _ in $(seq 1 100); do
-        /bin/kill -0 "$CMUX_FAKE_LSOF_LIST_KILLS_PID" 2>/dev/null || break
-        /bin/sleep 0.05
-      done
-    fi
-    exit "$CMUX_FAKE_LSOF_LIST_EXIT"
-  fi
   found=0
   while IFS='|' read -r state_pid state_executable; do
     [ -n "$state_pid" ] || continue
@@ -60,14 +46,9 @@ if [ "$(basename "$0")" = "fake-lsof" ]; then
         "${CMUX_FAKE_LSOF_RECEIPT_FD_FIELD:-f9}" \
         "${CMUX_FAKE_LSOF_RECEIPT_ACCESS_FIELD:-aw}" \
         "$path_filter"
-    elif [ -z "$fd_filter" ] && [ "${CMUX_FAKE_LSOF_LIST_NO_FILES:-0}" = "1" ]; then
-      printf 'p%s\n' "$state_pid"
     else
       printf 'p%s\nftxt\nn%s\nftxt\nn/usr/lib/dyld\n' \
         "$state_pid" "$state_executable"
-      if [ -z "$fd_filter" ] && [ -n "${CMUX_FAKE_LSOF_LIST_RECEIPT_ON_FD10:-}" ]; then
-        printf 'f10\nn%s\n' "$CMUX_FAKE_LSOF_LIST_RECEIPT_ON_FD10"
-      fi
     fi
     found=1
   done < "$CMUX_FAKE_LSOF_STATE"
@@ -399,123 +380,6 @@ if cmux_app_host_verified_pids \
   fail "a receipt whose PID had another executable vnode was accepted"
 fi
 
-# The app host exited and another executable now has its PID. The receipt is
-# stale: cleanup succeeds, authorizes nothing, and signals nothing.
-make_scope reused-pid
-spawn_process
-reused_pid="$CMUX_TEST_SPAWNED_PID"
-printf '%s|%s\n' "$reused_pid" /bin/sleep > "$CMUX_FAKE_LSOF_STATE"
-write_receipt "$TEST_RECEIPT_DIR" "$KEY" "$reused_pid" "$TEST_EXECUTABLE"
-export CMUX_FAKE_LSOF_MISSING_RECEIPT_PID="$reused_pid"
-cmux_app_host_verified_pids \
-  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
-  > "$TMP_DIR/reused-pid.out" 2> "$TMP_DIR/reused-pid.err" \
-  || fail "a receipt whose PID was reused by another executable failed cleanup: $(cat "$TMP_DIR/reused-pid.err")"
-[ ! -s "$TMP_DIR/reused-pid.out" ] \
-  || fail "a reused PID was authorized by a stale receipt"
-cmux_terminate_verified_app_hosts \
-  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
-  || fail "a stale receipt for a reused PID failed termination"
-unset CMUX_FAKE_LSOF_MISSING_RECEIPT_PID
-/bin/kill -0 "$reused_pid" 2>/dev/null \
-  || fail "stale receipt verification signaled the reused PID"
-
-# lsof failing on the receipt query proves nothing about the reused PID, so
-# the mismatched executable still fails cleanup instead of reading as stale.
-make_scope uninspectable-pid
-spawn_process
-uninspectable_pid="$CMUX_TEST_SPAWNED_PID"
-printf '%s|%s\n' "$uninspectable_pid" /bin/sleep > "$CMUX_FAKE_LSOF_STATE"
-write_receipt "$TEST_RECEIPT_DIR" "$KEY" "$uninspectable_pid" "$TEST_EXECUTABLE"
-export CMUX_FAKE_LSOF_RECEIPT_EXIT=2
-if cmux_app_host_verified_pids \
-  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
-  > "$TMP_DIR/uninspectable-pid.out" 2> "$TMP_DIR/uninspectable-pid.err"; then
-  fail "a receipt whose descriptor lsof could not inspect was treated as stale"
-fi
-grep -q "does not match the PID executable vnode" "$TMP_DIR/uninspectable-pid.err" \
-  || fail "an uninspectable receipt failed for the wrong reason: $(cat "$TMP_DIR/uninspectable-pid.err")"
-unset CMUX_FAKE_LSOF_RECEIPT_EXIT
-/bin/kill -0 "$uninspectable_pid" 2>/dev/null \
-  || fail "uninspectable receipt verification signaled its PID"
-
-# lsof also exits 1 for an error. When it cannot list the PID's files either,
-# nothing shows the receipt is gone, so cleanup still fails.
-make_scope unlisted-pid
-spawn_process
-unlisted_pid="$CMUX_TEST_SPAWNED_PID"
-printf '%s|%s\n' "$unlisted_pid" /bin/sleep > "$CMUX_FAKE_LSOF_STATE"
-write_receipt "$TEST_RECEIPT_DIR" "$KEY" "$unlisted_pid" "$TEST_EXECUTABLE"
-export CMUX_FAKE_LSOF_RECEIPT_EXIT=1 CMUX_FAKE_LSOF_LIST_EXIT=1
-if cmux_app_host_verified_pids \
-  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
-  > "$TMP_DIR/unlisted-pid.out" 2> "$TMP_DIR/unlisted-pid.err"; then
-  fail "an lsof exit 1 without a listing of the PID was treated as a stale receipt"
-fi
-unset CMUX_FAKE_LSOF_RECEIPT_EXIT CMUX_FAKE_LSOF_LIST_EXIT
-/bin/kill -0 "$unlisted_pid" 2>/dev/null \
-  || fail "unlisted receipt verification signaled its PID"
-
-# A listing that names the PID but no open file shows nothing either.
-make_scope fileless-pid
-spawn_process
-fileless_pid="$CMUX_TEST_SPAWNED_PID"
-printf '%s|%s\n' "$fileless_pid" /bin/sleep > "$CMUX_FAKE_LSOF_STATE"
-write_receipt "$TEST_RECEIPT_DIR" "$KEY" "$fileless_pid" "$TEST_EXECUTABLE"
-export CMUX_FAKE_LSOF_MISSING_RECEIPT_PID="$fileless_pid" CMUX_FAKE_LSOF_LIST_NO_FILES=1
-if cmux_app_host_verified_pids \
-  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
-  > "$TMP_DIR/fileless-pid.out" 2> "$TMP_DIR/fileless-pid.err"; then
-  fail "a listing without open files was treated as a stale receipt"
-fi
-grep -q "could not inspect the process receipt of app-host PID $fileless_pid" "$TMP_DIR/fileless-pid.err" \
-  || fail "a listing without open files failed for the wrong reason: $(cat "$TMP_DIR/fileless-pid.err")"
-unset CMUX_FAKE_LSOF_MISSING_RECEIPT_PID CMUX_FAKE_LSOF_LIST_NO_FILES
-/bin/kill -0 "$fileless_pid" 2>/dev/null \
-  || fail "fileless receipt verification signaled its PID"
-
-# Another executable holding the receipt on a different descriptor still holds
-# it, which no PID reuse explains.
-make_scope moved-receipt-fd
-spawn_process
-moved_fd_pid="$CMUX_TEST_SPAWNED_PID"
-printf '%s|%s\n' "$moved_fd_pid" /bin/sleep > "$CMUX_FAKE_LSOF_STATE"
-write_receipt "$TEST_RECEIPT_DIR" "$KEY" "$moved_fd_pid" "$TEST_EXECUTABLE"
-export CMUX_FAKE_LSOF_MISSING_RECEIPT_PID="$moved_fd_pid"
-export CMUX_FAKE_LSOF_LIST_RECEIPT_ON_FD10="$TEST_RECEIPT_DIR/app-host-$moved_fd_pid.receipt"
-if cmux_app_host_verified_pids \
-  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
-  > "$TMP_DIR/moved-fd.out" 2> "$TMP_DIR/moved-fd.err"; then
-  fail "a receipt held on another descriptor was treated as stale"
-fi
-grep -q "could not inspect the process receipt of app-host PID $moved_fd_pid" "$TMP_DIR/moved-fd.err" \
-  && grep -q "does not match the PID executable vnode" "$TMP_DIR/moved-fd.err" \
-  || fail "a receipt held on another descriptor failed for the wrong reason: $(cat "$TMP_DIR/moved-fd.err")"
-unset CMUX_FAKE_LSOF_MISSING_RECEIPT_PID CMUX_FAKE_LSOF_LIST_RECEIPT_ON_FD10
-/bin/kill -0 "$moved_fd_pid" 2>/dev/null \
-  || fail "moved-descriptor receipt verification signaled its PID"
-
-# A reused PID that exits between the receipt query and the listing has
-# exited, which is a stale receipt, not an inspection failure.
-make_scope exiting-reused-pid
-spawn_process
-exiting_pid="$CMUX_TEST_SPAWNED_PID"
-printf '%s|%s\n' "$exiting_pid" /bin/sleep > "$CMUX_FAKE_LSOF_STATE"
-write_receipt "$TEST_RECEIPT_DIR" "$KEY" "$exiting_pid" "$TEST_EXECUTABLE"
-export CMUX_FAKE_LSOF_MISSING_RECEIPT_PID="$exiting_pid"
-export CMUX_FAKE_LSOF_LIST_EXIT=1 CMUX_FAKE_LSOF_LIST_KILLS_PID="$exiting_pid"
-cmux_app_host_verified_pids \
-  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
-  > "$TMP_DIR/exiting-pid.out" 2> "$TMP_DIR/exiting-pid.err" \
-  || fail "a reused PID that exited during verification failed cleanup: $(cat "$TMP_DIR/exiting-pid.err")"
-[ ! -s "$TMP_DIR/exiting-pid.out" ] \
-  || fail "a PID that exited during verification was authorized"
-grep -q "exited during verification" "$TMP_DIR/exiting-pid.err" \
-  || fail "an exited reused PID was not reported: $(cat "$TMP_DIR/exiting-pid.err")"
-unset CMUX_FAKE_LSOF_MISSING_RECEIPT_PID CMUX_FAKE_LSOF_LIST_EXIT CMUX_FAKE_LSOF_LIST_KILLS_PID
-wait "$exiting_pid" 2>/dev/null || true
-untrack_pid "$exiting_pid"
-
 make_scope missing-receipt
 spawn_process
 unreceipted_pid="$CMUX_TEST_SPAWNED_PID"
@@ -605,31 +469,6 @@ wait "$deleted_stale_pid" 2>/dev/null || true
 untrack_pid "$deleted_stale_pid"
 [ ! -e "$deleted_derived_data" ] \
   || fail "deleted stale verification recreated the missing DerivedData root"
-
-# Recovery verifies receipts an earlier job left, where PID reuse is likeliest:
-# a reused PID reads as a stale receipt there too, and is not signaled.
-reused_runner_root="$TMP_DIR/reused-runner-work"
-reused_receipt_dir="$TMP_DIR/reused-receipts/cmux-ah-$deleted_key-receipts"
-reused_derived_data="$reused_runner_root/old-job/derived-data"
-reused_executable="$reused_derived_data/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
-mkdir -p "$reused_runner_root" "$reused_receipt_dir"
-spawn_process
-recovery_reused_pid="$CMUX_TEST_SPAWNED_PID"
-printf '%s|%s\n' "$recovery_reused_pid" /bin/sleep > "$CMUX_FAKE_LSOF_STATE"
-write_receipt \
-  "$reused_receipt_dir" "$deleted_key" \
-  "$recovery_reused_pid" "$reused_executable"
-export CMUX_FAKE_LSOF_MISSING_RECEIPT_PID="$recovery_reused_pid"
-cmux_terminate_one_verified_app_host \
-  "$reused_receipt_dir/app-host-$recovery_reused_pid.receipt" \
-  "$deleted_key" "$reused_derived_data" "$reused_runner_root" \
-  2> "$TMP_DIR/recovery-reused.err" \
-  || fail "recovery failed on an earlier job's receipt whose PID was reused: $(cat "$TMP_DIR/recovery-reused.err")"
-grep -q "skipping the stale receipt" "$TMP_DIR/recovery-reused.err" \
-  || fail "recovery did not report the reused receipt PID: $(cat "$TMP_DIR/recovery-reused.err")"
-unset CMUX_FAKE_LSOF_MISSING_RECEIPT_PID
-/bin/kill -0 "$recovery_reused_pid" 2>/dev/null \
-  || fail "recovery signaled a reused receipt PID"
 
 make_durable_scope() {
   local scope_name="$1"

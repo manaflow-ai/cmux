@@ -133,10 +133,6 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
 
     func close() {
         lock.lock()
-        if closed {
-            lock.unlock()
-            return
-        }
         closed = true
         for fd in connectionFDs {
             shutdown(fd, SHUT_RDWR)

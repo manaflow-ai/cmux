@@ -11,12 +11,8 @@ public struct CloudTreeLayoutMetrics: Equatable, Sendable {
     /// The horizontal inset reserved for row accessories at the trailing edge.
     public let referenceInset: CGFloat
 
-    /// Creates Cloud tree geometry for the given content inset, defaulting to
-    /// the row grid's trailing padding. `titleWidth` has no caller in the app
-    /// yet, so this default is a statement of intent rather than something a
-    /// row renders from: whoever wires it up gets the column the rows already
-    /// reserve, instead of a second number that truncates titles early.
-    public init(referenceInset: CGFloat = CloudTreeRowGrid().trailingPadding) {
+    /// Creates Cloud tree geometry for the given content inset.
+    public init(referenceInset: CGFloat = 12) {
         self.referenceInset = max(0, referenceInset)
     }
 

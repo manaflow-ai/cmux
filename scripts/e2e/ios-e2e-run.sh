@@ -24,9 +24,9 @@
 # never fixed sleeps standing in for synchronization. Failures name the step.
 set -euo pipefail
 
-TAG=""
-SIM_UDID=""
-EVIDENCE_DIR=""
+TAG="${CMUX_E2E_TAG:-}"
+SIM_UDID="${CMUX_E2E_SIM_UDID:-}"
+EVIDENCE_DIR="${CMUX_E2E_EVIDENCE_DIR:-}"
 BUNDLE_ID=""
 STEP_TIMEOUT=45
 
@@ -64,10 +64,8 @@ TIMINGS_FILE="$EVIDENCE_DIR/steps.jsonl"
 : > "$TIMINGS_FILE"
 
 fail() {
-  echo "E2E FAIL step=$STEP_NAME: $*" >&2
   shot "failure"
-  # Keep a stable final line for CI result parsers and failure attribution.
-  echo "E2E FAIL step=$STEP_NAME" >&2
+  echo "E2E FAIL step=${STEP_NAME}: $*" >&2
   exit 1
 }
 
@@ -201,7 +199,7 @@ step_done
 # --- 1: echo marker round trip ------------------------------------------------
 
 MARK1="E2ERTT$(date +%s)"
-step "echo-round-trip"
+step "marker-1"
 type_line "echo $MARK1"
 wait_mac_output "$MARK1"   # the command RAN on the real Mac shell
 wait_phone "$MARK1"    # output streamed back and RENDERED on the phone

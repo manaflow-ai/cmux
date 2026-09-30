@@ -37,33 +37,6 @@ struct SSHTuiMigrationTests {
                 ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -l"])
     }
 
-    @MainActor
-    @Test("SSH agent sidebar status reconciles the graph present at projector startup")
-    func agentSidebarStatusReconcilesExistingCatalogGraph() throws {
-        let workspace = Workspace()
-        defer { workspace.teardownAllPanels() }
-        let panelID = try #require(workspace.focusedPanelId)
-        let machine = SurfaceMachineID.ssh("ssh-existing-status")
-        let catalog = SurfaceCatalog()
-        let provider = CloudPlacementTestProvider(machine: machine)
-        catalog.register(provider)
-        let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal-1")
-        catalog.upsert(SurfaceResource(
-            id: resourceID,
-            title: "terminal",
-            lifecycle: .running,
-            agent: SurfaceAgentBadge(state: "working", source: "hook", agent: "codex")
-        ))
-        catalog.record(SurfaceProjection(resource: resourceID, workspaceID: workspace.id, panelID: panelID))
-
-        _ = SSHTuiAgentStatusProjector(catalog: catalog, workspaceLookup: { id in
-            id == workspace.id ? workspace : nil
-        })
-
-        #expect(workspace.statusEntries["cmux.remote.agent:codex"]?.value == "Running")
-        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["cmux.remote.agent:codex"] == .running)
-    }
-
     @Test("OpenSSH resolves the cmux-tui carrier as a non-PTY exec channel")
     func carrierOverridesInteractiveHostDefaults() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

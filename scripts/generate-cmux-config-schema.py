@@ -68,8 +68,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
     # Read the schema from, and write the Swift into, another checkout. PR
-# The trusted merge-main resolver runs this copy against a branch's tree, so
-# the generator never comes from an untrusted tree.
+    # catch-up runs this trusted copy against a pull request's tree
+    # (scripts/ci/catch_up_pr.py), so the generator never comes from that tree.
     parser.add_argument("--root", type=Path, default=ROOT)
     args = parser.parse_args()
     root = args.root.resolve()
