@@ -37,6 +37,33 @@ struct CloudRestoreReplayGridTests {
         #expect(after.terminalBackground == before.terminalBackground)
     }
 
+    /// The daemon snapshots while its parser is inside a sequence (here an SGR
+    /// that has not reached its final byte). The replay ends at a boundary and
+    /// the incomplete bytes arrive as `pending`, which the pane must write
+    /// after its own color sidecar so the live output completes the sequence.
+    @Test(arguments: ["vt-state", "resized"])
+    func replayResumesTheSequenceTheDaemonParserIsInside(event: String) async throws {
+        let fixture = try CloudRestoreReplayFixture()
+        defer { fixture.close() }
+        try await fixture.setGrid(columns: 80, rows: 24)
+        try await fixture.attach(replay: Data("STATUS_READY".utf8))
+        try await fixture.deliver(
+            Data("BEFORE ".utf8), event: event, marker: "BEFORE",
+            colors: ["overrides": ["fg": "#123456"]],
+            pending: Data("\u{1B}[1;3".utf8)
+        )
+        try await fixture.deliver(Data("1mRED\u{1B}[0m AFTER".utf8), event: "output", marker: "AFTER")
+
+        let screen = try #require(fixture.surface.readText(region: .screen))
+        #expect(screen.contains("BEFORE RED AFTER"), "screen=\(screen)")
+        #expect(!screen.contains("1mRED"), "the sequence tail printed as text: \(screen)")
+        try await fixture.expectInputAfterPendingResponses(marker: "RESUMED")
+        let frame = try #require(fixture.surface.mobileRenderGridFrame(
+            stateSeq: 0, scrollbackLines: 0, includeTheme: true
+        )?.frame)
+        #expect(frame.terminalForeground == "#123456")
+    }
+
     @Test
     func restoredSnapshotReplacesStaleLocalCells() async throws {
         let fixture = try CloudRestoreReplayFixture()
@@ -77,6 +104,57 @@ struct CloudRestoreReplayGridTests {
         )
         #expect(claim.cmd == "set-client-sizing")
         #expect(claim.surface == 17)
+    }
+
+    @Test
+    func replayParsedAtAHiddenGridIsRefetchedOnceTheGridsMatch() async throws {
+        let fixture = try CloudRestoreReplayFixture()
+        defer { fixture.close() }
+        try await fixture.setGrid(columns: 99, rows: 35)
+        fixture.setVisible(true)
+        fixture.setVisible(false)
+        // A restored pane is laid out in a small bootstrap grid while hidden,
+        // so the full-screen replay of the remote TUI lands on the wrong grid.
+        try await fixture.setGrid(columns: 60, rows: 6)
+        let authored = Self.fullScreenRows(status: "STATUS_READY")
+        try await fixture.attach(replay: Self.cursorAddressedReplay(authored), columns: 99, rows: 35)
+        try await fixture.setGrid(columns: 99, rows: 35)
+        #expect(Array(fixture.screenRows().prefix(authored.count)) != authored)
+        fixture.setVisible(true)
+
+        // The remote PTY already has this grid, so the daemon acknowledges the
+        // report without a `resized` replay. Nothing else repaints the pane.
+        let report = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(report.cmd == "resize-surface")
+        #expect(report.columns == 99)
+        #expect(report.rows == 35)
+        fixture.socket.send(["id": report.id, "ok": true, "data": ["accepted": true, "outcome": "applied"]])
+        let claim = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(claim.cmd == "set-client-sizing")
+        fixture.socket.send(["id": claim.id, "ok": true, "data": [:]])
+
+        let reattach = try await fixture.answerHandshake()
+        #expect(reattach.columns == 99)
+        #expect(reattach.rows == 35)
+        fixture.socket.send(["id": reattach.id, "ok": true, "data": [:]])
+        let repaired = Self.fullScreenRows(status: "STATUS_REPAIRED")
+        try await fixture.deliver(
+            Self.cursorAddressedReplay(repaired), event: "vt-state", marker: "STATUS_REPAIRED",
+            columns: 99, rows: 35
+        )
+        #expect(Array(fixture.screenRows().prefix(repaired.count)) == repaired)
+        #expect(fixture.socket.connectionCount() == 2)
+    }
+
+    /// Thirty-five rows the way a full-screen TUI paints them: each one placed
+    /// by absolute cursor address, so a shorter grid clamps and overwrites.
+    private static func fullScreenRows(status: String) -> [String] {
+        (1...34).map { String(format: "ROW%02d ", $0) + String(repeating: "abcdefghij", count: 4) }
+            + [status.padding(toLength: 46, withPad: ".", startingAt: 0)]
+    }
+
+    private static func cursorAddressedReplay(_ rows: [String]) -> Data {
+        Data(rows.enumerated().map { "\u{1B}[\($0.offset + 1);1H\($0.element)" }.joined().utf8)
     }
 
     @Test
