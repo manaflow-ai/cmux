@@ -83,6 +83,16 @@ public final class ResourceCardSampler {
     }
 
     private func take(_ generation: UInt64) async {
-        // Not implemented yet.
+        guard generation == self.generation, let target, let source else { return }
+        let set = await source.sample(target)
+        guard generation == self.generation else { return }
+        let report = ResourceAggregator.report(current: set, previous: latest)
+        latest = set
+        sampleCount += 1
+        self.report = report
+        onUpdate?(report)
+        timer.schedule(after: interval) { @MainActor [weak self] in
+            await self?.take(generation)
+        }
     }
 }

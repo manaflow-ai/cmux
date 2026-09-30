@@ -76,7 +76,38 @@ public struct ResourceReport: Sendable, Equatable {
 ///   value is nil when there is no previous sample set.
 public enum ResourceAggregator {
     public static func report(current: ResourceSampleSet, previous: ResourceSampleSet?) -> ResourceReport {
-        .empty  // Not implemented yet.
+        let sharedKeys = Set(current.shared.map(\.key))
+        let previousSamples = previous?.samples
+        var owners: [ProcessKey: Int] = [:]
+        let tabKeys: [Set<ProcessKey>] = current.tabs.map { tab in
+            Set(tab.processes).subtracting(sharedKeys).filter { current.samples[$0] != nil }
+        }
+        for keys in tabKeys {
+            for key in keys { owners[key, default: 0] += 1 }
+        }
+        var tabs: [TabResourceReport] = []
+        var union = Set<ProcessKey>()
+        var estimates: UInt64 = 0
+        for (index, tab) in current.tabs.enumerated() {
+            let keys = tabKeys[index]
+            union.formUnion(keys)
+            estimates &+= tab.estimatedAppBytes
+            var usage = self.usage(of: keys, current: current.samples, previous: previousSamples)
+            usage.memoryBytes &+= tab.estimatedAppBytes
+            let sharedWith = current.tabs.indices.filter { other in
+                other != index && !tabKeys[other].isDisjoint(with: keys)
+            }.count
+            tabs.append(TabResourceReport(
+                id: tab.tabID, title: tab.title, kind: tab.kind, usage: usage,
+                processCount: keys.count, sharedWithTabs: sharedWith, available: tab.available
+            ))
+        }
+        var total = usage(of: union, current: current.samples, previous: previousSamples)
+        total.memoryBytes &+= estimates
+        let liveShared = current.shared.filter { current.samples[$0.key] != nil }
+        let shared = usage(of: Set(liveShared.map(\.key)), current: current.samples, previous: previousSamples)
+        let roles = Array(Set(liveShared.map(\.role))).sorted()
+        return ResourceReport(tabs: tabs, total: total, shared: shared, sharedRoles: roles, processCount: union.count)
     }
 
     /// Memory and CPU of `keys`, each process once.
