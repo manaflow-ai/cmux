@@ -463,4 +463,63 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
             "Direct attached open must adopt the attached presentation classification"
         )
     }
+
+    func testLegacyClosedBrowserFallbackRestoresInteractionState() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let expectedURL = try XCTUnwrap(URL(string: "https://example.com/legacy-interaction-state"))
+        let backURL = "https://example.com/legacy-back"
+        let forwardURL = "https://example.com/legacy-forward"
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, url: expectedURL),
+              let browserPanel = workspace.panels[browserPanelId] as? BrowserPanel else {
+            XCTFail("Expected browser panel setup")
+            return
+        }
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+
+        XCTAssertTrue(browserPanel.setPageZoomFactor(1.4))
+        guard browserPanel.setMuted(true) else {
+            throw XCTSkip("WKWebView page-audio mute selector is unavailable")
+        }
+        XCTAssertTrue(browserPanel.setChromeVisibility(.hidden))
+        browserPanel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [backURL],
+            forwardHistoryURLStrings: [forwardURL],
+            currentURLString: expectedURL.absoluteString
+        )
+        XCTAssertTrue(browserPanel.canGoBack)
+        XCTAssertTrue(browserPanel.canGoForward)
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
+
+        browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
+        drainMainQueue()
+
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+        XCTAssertTrue(appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: manager))
+        drainMainQueue()
+
+        guard let reopenedPanel = workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
+            XCTFail("Expected restored browser panel")
+            return
+        }
+        XCTAssertEqual(reopenedPanel.currentURL, expectedURL)
+        XCTAssertEqual(Double(reopenedPanel.currentPageZoomFactor()), 1.4, accuracy: 0.000_001)
+        XCTAssertTrue(reopenedPanel.isMuted)
+        XCTAssertEqual(reopenedPanel.chromeVisibility, .hidden)
+        XCTAssertFalse(reopenedPanel.isOmnibarVisible)
+        XCTAssertTrue(reopenedPanel.canGoBack)
+        XCTAssertTrue(reopenedPanel.canGoForward)
+        XCTAssertTrue(reopenedPanel.preferredDeveloperToolsVisible)
+    }
 }
