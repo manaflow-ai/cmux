@@ -141,8 +141,10 @@
       "screen": true
     }
   ],
-  "launchArguments": [
-    "-appearanceMode",
-    "light"
-  ]
+  "launch": {
+    "args": [
+      "-appearanceMode",
+      "light"
+    ]
+  }
 }

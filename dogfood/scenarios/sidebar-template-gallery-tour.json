@@ -141,8 +141,10 @@
       "screen": true
     }
   ],
-  "launchArguments": [
-    "-appearanceMode",
-    "dark"
-  ]
+  "launch": {
+    "args": [
+      "-appearanceMode",
+      "dark"
+    ]
+  }
 }
