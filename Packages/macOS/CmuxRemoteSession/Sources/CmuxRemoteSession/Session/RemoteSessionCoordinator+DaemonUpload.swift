@@ -54,7 +54,7 @@ extension RemoteSessionCoordinator {
         let mkdirResult: RemoteCommandResult
         do {
             mkdirResult = try sshExec(
-                arguments: daemonBootstrapSSHArguments() + [configuration.destination, mkdirCommand],
+                arguments: daemonBootstrapSSHArguments() + ["--", configuration.destination, mkdirCommand],
                 timeout: 12
             )
         } catch {
@@ -164,7 +164,7 @@ extension RemoteSessionCoordinator {
         let uploadResult: RemoteCommandResult
         do {
             uploadResult = try sshExec(
-                arguments: daemonBootstrapSSHArguments() + [configuration.destination, uploadCommand],
+                arguments: daemonBootstrapSSHArguments() + ["--", configuration.destination, uploadCommand],
                 stdinFile: localBinary,
                 timeout: Self.daemonUploadTimeout(forByteCount: artifact.byteCount)
             )
@@ -210,7 +210,7 @@ extension RemoteSessionCoordinator {
         let finalizeResult: RemoteCommandResult
         do {
             finalizeResult = try sshExec(
-                arguments: daemonBootstrapSSHArguments() + [configuration.destination, finalizeCommand],
+                arguments: daemonBootstrapSSHArguments() + ["--", configuration.destination, finalizeCommand],
                 timeout: 12
             )
         } catch {
@@ -368,7 +368,7 @@ extension RemoteSessionCoordinator {
         let cleanupCommand = "sh -c \(cleanupScript.shellSingleQuoted)"
         do {
             let result = try sshExec(
-                arguments: daemonBootstrapSSHArguments() + [configuration.destination, cleanupCommand],
+                arguments: daemonBootstrapSSHArguments() + ["--", configuration.destination, cleanupCommand],
                 timeout: 8
             )
             guard result.status == 0 else {

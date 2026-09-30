@@ -159,7 +159,7 @@ struct MachineRowActions {
         successTitle: String? = nil,
         presentOutputOnSuccess: Bool = false,
         onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil,
-        onSuccess: (@MainActor () -> Void)? = nil,
+        onExit: (@MainActor () -> Void)? = nil,
         onDidMutate: @escaping @MainActor () -> Void
     ) -> Bool {
         let socketPath = TerminalController.shared.activeSocketPath(
@@ -172,10 +172,8 @@ struct MachineRowActions {
             successTitle: successTitle,
             presentOutputOnSuccess: presentOutputOnSuccess,
             onCancellationReady: onCancellationReady,
-            onCompletion: { completion in
-                if completion.terminationStatus == 0 {
-                    onSuccess?()
-                }
+            onCompletion: { _ in
+                onExit?()
                 onDidMutate()
             }
         )
@@ -245,16 +243,14 @@ struct MachineRowActions {
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         alert.buttons.first?.hasDestructiveAction = true
         let respond: (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .alertFirstButtonReturn else { return }
+            // A second confirm while the first delete runs is a no-op, never a second `vm rm`.
+            guard response == .alertFirstButtonReturn, MachineDeleteCoordinator.shared.canBegin(id) else { return }
             onWillMutate(operationLabel(verb: ["rm"], id: id))
-            if !launch(
-                arguments: ["vm", "rm", id],
-                onSuccess: {
-                    // The machine is gone; its workspaces would only sit there "Connected".
-                    AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: id)
-                },
-                onDidMutate: onDidMutate
-            ) {
+            let deletions = MachineDeleteCoordinator.shared
+            // Hide the machine only once the CLI started: a signed-out launch opens sign-in instead.
+            if launch(arguments: ["vm", "rm", id], onExit: { deletions.launchEnded(id) }, onDidMutate: onDidMutate) {
+                deletions.begin(id)
+            } else {
                 onDidMutate()
             }
         }

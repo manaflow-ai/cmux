@@ -62,7 +62,6 @@ MACOS_JOBS = (
     "release-admission",
     "release-build",
 )
-CI_STATUS_FALLBACK_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-fallback.yml"
 PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
 
 spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
@@ -1998,9 +1997,6 @@ def test_ci_label_only_reruns_preserve_inflight_compile() -> None:
     )
     assert expected in workflow
 
-    fallback = CI_STATUS_FALLBACK_WORKFLOW.read_text(encoding="utf-8")
-    assert "  workflow_dispatch: {}" in fallback
-    assert "  pull_request:" not in fallback
 
 
 def detect_step_script(workflow_path: Path = CI_WORKFLOW) -> str:
@@ -3571,13 +3567,14 @@ FAST_LINUX_GATE = ROOT / "scripts" / "ci" / "fast_linux_gate.py"
 def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> None:
     admission = workflow_job_block("macos-compile-admission", MACOS_WORKFLOW)
     step = workflow_step_block_in(MACOS_WORKFLOW, "macos-compile-admission", CONSUMER_GATE_STEP)
-    # It reads the job the caller names, once: no loop and no sleep.
+    # It reads the job the caller names without polling or sleeping. Pagination
+    # over the bounded Actions response is allowed so late jobs cannot be missed.
     assert 'GATE_JOB: "macOS admission gate"' in step
     assert "name: macOS admission gate" in workflow_job_block("macos-admission-gate")
     assert "python3 scripts/ci/fast_linux_gate.py consumers" in step
     script = FAST_LINUX_GATE.read_text(encoding="utf-8")
-    for polling in ("sleep", "while ", "for attempt", "range("):
-        assert polling not in script
+    assert "sleep" + "(" not in script
+    assert "time." not in script
     # The gate only judges a pull request's first attempt; a re-run is asking
     # for the Mac results.
     assert "github.event_name == 'pull_request' && github.run_attempt == 1" in step
@@ -3642,11 +3639,19 @@ def workflow_step_block_in(workflow_path: Path, job_name: str, step_name: str) -
     return "\n".join(body)
 
 
-def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSUMER_GATE_STEP) -> subprocess.CompletedProcess:
+def run_consumer_gate(
+    jobs: object,
+    *,
+    status: int = 200,
+    step_name: str = CONSUMER_GATE_STEP,
+    next_page: object | None = None,
+) -> subprocess.CompletedProcess:
     import http.server
     import threading
 
-    body = json.dumps(jobs).encode()
+    bodies = [json.dumps(jobs).encode()]
+    if next_page is not None:
+        bodies.append(json.dumps(next_page).encode())
     requests: list[str] = []
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -3654,8 +3659,13 @@ def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSU
             requests.append(self.path)
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
+            if next_page is not None and len(requests) == 1:
+                self.send_header(
+                    "Link",
+                    f'<http://127.0.0.1:{server.server_port}/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100&page=2>; rel="next"',
+                )
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(bodies[min(len(requests) - 1, len(bodies) - 1)])
 
         def log_message(self, *args: object) -> None:
             pass
@@ -3684,7 +3694,10 @@ def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSU
     finally:
         server.shutdown()
         server.server_close()
-    assert requests == ["/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100"]
+    expected = ["/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100"]
+    if next_page is not None:
+        expected.append("/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100&page=2")
+    assert requests == expected
     return result
 
 
@@ -3697,6 +3710,15 @@ def _gate_job(status: str, conclusion: object) -> dict:
 
 def test_consumer_gate_fails_admission_when_the_gate_declined() -> None:
     result = run_consumer_gate(_gate_job("completed", "failure"))
+    assert result.returncode == 1
+    assert "Not admitting macOS consumers" in result.stdout
+
+
+def test_consumer_gate_follows_pagination_before_admitting() -> None:
+    result = run_consumer_gate(
+        {"jobs": [{"name": "changes", "status": "completed", "conclusion": "success"}]},
+        next_page={"jobs": [{"name": "macOS admission gate", "status": "completed", "conclusion": "failure"}]},
+    )
     assert result.returncode == 1
     assert "Not admitting macOS consumers" in result.stdout
 
@@ -4451,6 +4473,75 @@ def test_a_cmux_ui_tests_diff_runs_its_classes_without_a_label() -> None:
         assert coverage_gap("pull_request", True, ui_diff, [], ui_suite=True) is False
 
 
+def test_a_diff_the_fuzz_repros_exercise_asks_for_their_replays() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import changed_ui_selectors, fuzz_regression_selectors
+    from ui_tests_dispatch import FUZZ_REGRESSIONS_SELECTOR
+
+    assert fuzz_regression_selectors(["Sources/Sidebar/SidebarState.swift"]) == [FUZZ_REGRESSIONS_SELECTOR]
+    assert fuzz_regression_selectors(["dogfood/fuzz/regressions/x.json", "README.md"]) == [FUZZ_REGRESSIONS_SELECTOR]
+    assert fuzz_regression_selectors(["Sources/Workspace.swift", "README.md"]) == []
+    assert fuzz_regression_selectors(None) == []
+
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        event = Path(directory) / "event.json"
+
+        def outputs(files: str, head: str = "manaflow-ai/cmux", labels: tuple[str, ...] = ()) -> dict[str, str]:
+            changed.write_text(files)
+            event.write_text(json.dumps({
+                "repository": {"full_name": "manaflow-ai/cmux"},
+                "pull_request": {"head": {"repo": {"full_name": head}},
+                                 "labels": [{"name": label} for label in labels]},
+            }))
+            run = subprocess.run(
+                [sys.executable, str(script), "--event-name", "pull_request",
+                 "--pull-request-policy", "compile-only", "--event-path", str(event),
+                 "--files-from", str(changed), "--root", str(ROOT)],
+                capture_output=True, text=True, check=True,
+            )
+            return dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+
+        values = outputs("Sources/Sidebar/SidebarState.swift\n")
+        assert values["ui_selectors"] == FUZZ_REGRESSIONS_SELECTOR
+        assert values["coverage_gap"] == "false"
+        assert outputs("Sources/Workspace.swift\n")["ui_selectors"] == ""
+        # A fork's ui-tests job refuses to run anything, and no-full-ci opts out.
+        assert outputs("Sources/Sidebar/SidebarState.swift\n", head="someone/cmux")["ui_selectors"] == ""
+        assert outputs("Sources/Sidebar/SidebarState.swift\n", labels=("no-full-ci",))["ui_selectors"] == ""
+        # Next to a changed class, after it; a helper change stays a gap the replays do not close.
+        classes = changed_ui_selectors(ROOT, ["cmuxUITests/BonsplitTabDragUITests.swift"])
+        assert classes
+        values = outputs("cmuxUITests/BonsplitTabDragUITests.swift\nvendor/bonsplit\n")
+        assert values["ui_selectors"] == " ".join([*classes, FUZZ_REGRESSIONS_SELECTOR])
+        assert values["coverage_gap"] == "false"
+        helper = next(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "cmuxUITests").rglob("*"))
+                      if path.is_file() and changed_ui_selectors(ROOT, [path.relative_to(ROOT).as_posix()]) is None)
+        values = outputs(f"{helper}\nSources/Sidebar/SidebarState.swift\n")
+        assert values["ui_selectors"] == FUZZ_REGRESSIONS_SELECTOR
+        assert values["coverage_gap"] == "true"
+
+    # Classes that fill one focused run keep it: the replay gives way, and no gap opens.
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        (root / "cmuxUITests").mkdir()
+        names = [f"SidebarWorkspaceReorderRows{index}UITests" for index in range(6)]  # 287 characters; 315 with the replay
+        (root / "cmuxUITests/Many.swift").write_text("".join(f"class {name}: XCTestCase {{}}\n" for name in names))
+        changed = root / "changed.txt"
+        changed.write_text("cmuxUITests/Many.swift\nSources/Sidebar/SidebarState.swift\n")
+        event = root / "event.json"
+        event.write_text(json.dumps({"repository": {"full_name": "manaflow-ai/cmux"},
+                                     "pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}, "labels": []}}))
+        run = subprocess.run(
+            [sys.executable, str(script), "--event-name", "pull_request", "--pull-request-policy", "compile-only",
+             "--event-path", str(event), "--files-from", str(changed), "--root", str(root)],
+            capture_output=True, text=True, check=True)
+        values = dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+        assert values["ui_selectors"] == " ".join(f"cmuxUITests/{name}" for name in names)
+        assert values["coverage_gap"] == "false"
+
+
 def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import changed_unit_selectors, strict_steps
@@ -4637,25 +4728,28 @@ def product_runner_output(key: str) -> str:
     # pr_runner_pool.gui_label() of the same owned pick, so the same Xcode.
     shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
     gui = "inputs.pr_gui_runner || "
-    return ("${{ (github.run_attempt > 1 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
+    return ("${{ (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + shard + gui + "needs.macos-compile-admission.outputs.runner }}")
 
 
 PRODUCT_RUNNER_OUTPUT = product_runner_output(PRODUCT_RUNNER_KEYS["app-host-unit-tests"])
-# Attempt 1 of compile admission may take the pinned labels admission-placement
-# outputs (scripts/ci/admission_placement.py, spread-first) or
-# pr_admission_runner carries (pr_runner_pool.py, warm affinity), a JSON array
-# whose first label is always pr_root_runner; CMUX_PRODUCT_RUNNER restates it,
-# the root label, which the consumers take.
-PINNED_ADMISSION = "(needs.admission-placement.outputs.runner || inputs.pr_admission_runner)"
-WARM_ADMISSION = f"github.run_attempt == 1 && {PINNED_ADMISSION} && fromJSON{PINNED_ADMISSION}"
+# Compile admission may take the pinned labels admission-placement outputs in
+# this attempt (scripts/ci/admission_placement.py, spread-first) or, on attempt
+# 1, those pr_admission_runner carries (pr_runner_pool.py, warm affinity), a
+# JSON array whose first label is always pr_root_runner; CMUX_PRODUCT_RUNNER
+# restates it, the root label, which the consumers take.
+WARM_ADMISSION = ("needs.admission-placement.outputs.attempt == github.run_attempt && "
+                  "needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner) || "
+                  "github.run_attempt == 1 && inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner)")
+WARM_ADMISSION_FIRST = WARM_ADMISSION.replace("fromJSON(needs.admission-placement.outputs.runner)",
+                                              "fromJSON(needs.admission-placement.outputs.runner)[0]") + "[0]"
 
 
 def admission_route(runs_on: str) -> str:
     """Compile admission's runs-on without its warm labels: the route its consumers restate."""
     return runs_on.replace(WARM_ADMISSION + " || ", "")
 PRODUCT_XCODE_OUTPUT = "${{ needs.macos-compile-admission.outputs.xcode_app }}"
-# Attempt 1 may take the root label late-placement chose once admission
+# A consumer may take the label late-placement chose in this attempt once admission
 # finished (scripts/ci/late_placement.py). That label is derived from the
 # admission's own xcode_app output, so it keeps the consumer on the producer's
 # Xcode; late_placement_route strips it only while that stays true.
@@ -4672,7 +4766,8 @@ def late_placement_route(workflow: dict, name: str, runs_on: str) -> str:
     steps = [step for step in late.get("steps", []) if step.get("id") == "place"]
     if not steps or (steps[0].get("env") or {}).get("ADMISSION_XCODE_APP") != PRODUCT_XCODE_OUTPUT:
         return runs_on
-    prefix = ("${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')["
+    prefix = ("${{ needs.late-placement.outputs.attempt == github.run_attempt && "
+              "fromJSON(needs.late-placement.outputs.runners || '{}')["
               + LATE_KEYS.get(name, "") + "] || ")
     return runs_on.replace(prefix.removeprefix("${{ "), "", 1)
 
@@ -4687,7 +4782,7 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     """
     producer = workflow["jobs"]["macos-compile-admission"]
     violations = []
-    if (producer["env"].get("CMUX_PRODUCT_RUNNER") or "").replace(WARM_ADMISSION + "[0]", WARM_ADMISSION) \
+    if (producer["env"].get("CMUX_PRODUCT_RUNNER") or "").replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
             != producer["runs-on"]:
         violations.append("macos-compile-admission: CMUX_PRODUCT_RUNNER does not restate runs-on")
     outputs = producer.get("outputs", {})
@@ -4757,7 +4852,7 @@ def test_product_consumer_guard_follows_a_new_admission_route() -> None:
     for key in ("CMUX_PRODUCT_RUNNER", "CMUX_CI_XCODE_APP"):
         assert pull_request in producer["env"][key], key
         producer["env"][key] = producer["env"][key].replace(pull_request, new_route, 1)
-    producer["runs-on"] = producer["env"]["CMUX_PRODUCT_RUNNER"].replace(WARM_ADMISSION + "[0]", WARM_ADMISSION)
+    producer["runs-on"] = producer["env"]["CMUX_PRODUCT_RUNNER"].replace(WARM_ADMISSION_FIRST, WARM_ADMISSION)
     violations = product_consumer_route_violations(workflow)
     assert [line.split(":", 1)[0] for line in violations] == ["tests-build-and-lag"], violations
 
@@ -5545,29 +5640,17 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
-    # ci.yml holds no actions: write but for ui-tests, which dispatches
-    # test-e2e.yml for a same-repository pull request's changed UI test
-    # classes: the owned-pool rescue sweeper finds CI runs by marker
-    # (ci-owned-pool-rescue.yml).
+    # ci.yml holds no actions: write at all: a pull_request run takes it from
+    # the pull request. ui-tests only requests the UI test run, which
+    # ci-ui-tests.yml dispatches from the default branch
+    # (tests/test_ci_ui_tests_dispatch.py).
     jobs = _ci_jobs()
     writers = sorted(key for key, job in jobs.items() if (job.get("permissions") or {}).get("actions") == "write")
-    assert writers == ["ui-tests"], writers
+    assert writers == [], writers
     assert (yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8")).get("permissions") or {}).get("actions") != "write"
     fork_guard = jobs["ui-tests"]["steps"][0]
     assert fork_guard["if"] == "github.event.pull_request.head.repo.full_name != github.repository"
     assert "exit 1" in fork_guard["run"]
-    # The token-holding dispatcher is the default branch's code, never the pull
-    # request's, and every step that runs a repository script follows that
-    # checkout.
-    steps = jobs["ui-tests"]["steps"]
-    checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
-    assert len(checkouts) == 1, checkouts
-    assert checkouts[0]["with"]["ref"] == "${{ github.event.repository.default_branch }}"
-    assert checkouts[0]["with"]["persist-credentials"] is False
-    dispatch = next(step for step in steps if step.get("name") == "Run the changed UI test classes")
-    assert steps.index(checkouts[0]) < steps.index(dispatch)
-    assert '"${selectors[@]}"' in dispatch["run"] and "$SELECTORS --ref" not in dispatch["run"]
-    assert "^cmuxUITests/" in dispatch["run"]
 
 
 def test_macos_compile_admission_precedes_expensive_shards() -> None:
@@ -6292,10 +6375,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     package_block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
     assert "vars.MACOS_RUNNER_PR" not in package_block
     assert (
-        "CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && "
-        "github.event.pull_request.head.repo.full_name == github.repository && "
-        "contains(inputs.pr_owned_jobs, ' swift-package ') && "
-        "((github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && (inputs.pr_side_runner || inputs.pr_runner)) && "
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
+        "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+        "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && "
+        "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
     ) in package_block
     assert (
@@ -6305,7 +6388,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in package_block
 
     release_block = workflow_job_block("release-build", MACOS_WORKFLOW)
-    assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}" in release_block
+    assert (
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
+        "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}"
+    ) in release_block
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block
 
 

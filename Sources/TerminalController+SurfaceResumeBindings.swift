@@ -176,20 +176,28 @@ extension TerminalController {
         } else {
             compatibleAgent = nil
         }
+        let continuationCheckpointID = compatibleAgent?.snapshot.sessionId
+            ?? binding?.checkpointId
+        let continuationPrompt = UpdateRelaunchContinuationNudges.shared.prompt(
+            forPanel: target.surfaceID,
+            checkpointID: continuationCheckpointID
+        )
         if let compatibleAgent {
             return controlSurfaceAgentContinuationRecord(
                 agent: compatibleAgent.snapshot,
                 source: compatibleAgent.source,
                 restoredWorkingDirectory: compatibleAgent.restoredWorkingDirectory,
                 binding: binding,
-                compatibilityBinding: compatibilityBinding
+                compatibilityBinding: compatibilityBinding,
+                continuationPrompt: continuationPrompt
             )
         }
         guard let binding else { return nil }
         return controlSurfaceBindingContinuationRecord(
             binding: binding,
             compatibilityBinding: compatibilityBinding,
-            restoredAgentExists: restoredAgent != nil && binding.isAgentHookBinding
+            restoredAgentExists: restoredAgent != nil && binding.isAgentHookBinding,
+            continuationPrompt: continuationPrompt
         )
     }
 
@@ -216,7 +224,8 @@ extension TerminalController {
             environment: environment,
             verificationHome: command.verificationHome,
             capturedAt: command.capturedAt,
-            source: command.source
+            source: command.source,
+            launcherPrefix: command.launcherPrefix
         )
     }
 
@@ -265,7 +274,8 @@ extension TerminalController {
                     environment: $0.environment,
                     verificationHome: $0.verificationHome,
                     capturedAt: $0.capturedAt,
-                    source: $0.source
+                    source: $0.source,
+                    launcherPrefix: $0.launcherPrefix
                 )
             },
             permissionMode: inputs.permissionMode,
@@ -407,17 +417,29 @@ extension TerminalController {
             expectedSource: expectedSource,
             agentSessionEnded: agentSessionEnded
         )
-        if let expectedCheckpointID, bindingForClear?.checkpointId != expectedCheckpointID {
+        let canClearSnapshotOnlyRestore = agentSessionEnded
+            && expectedSource == "agent-hook"
+            && bindingForClear == nil
+            && expectedCheckpointID.map(target.hasRestorableAgentSession) == true
+        if let expectedCheckpointID,
+           bindingForClear?.checkpointId != expectedCheckpointID,
+           !canClearSnapshotOnlyRestore {
             return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
         }
-        if let expectedSource, bindingForClear?.source != expectedSource {
+        if let expectedSource,
+           bindingForClear?.source != expectedSource,
+           !canClearSnapshotOnlyRestore {
             return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
         }
         if let expectedUpdatedAt,
            !expectedUpdatedAt.isFinite || bindingForClear?.updatedAt != expectedUpdatedAt {
             return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
         }
-        target.clearBinding(bindingForClear, agentSessionEnded: agentSessionEnded)
+        target.clearBinding(
+            bindingForClear,
+            agentSessionEnded: agentSessionEnded,
+            expectedCheckpointID: canClearSnapshotOnlyRestore ? expectedCheckpointID : nil
+        )
         return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: true))
     }
 }

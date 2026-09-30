@@ -5,6 +5,7 @@ import { Callout } from "@/app/[locale]/components/callout";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
+import { docsChannel } from "@/app/lib/docs-channel";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -25,13 +26,15 @@ export default async function CloudOverviewPage({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.cloudOverview" });
+  // Nightly docs run ahead of the Cloud rollout, so only release docs show the beta opt-in.
+  const showBetaNote = docsChannel() === "release";
 
   return (
     <>
       <DocsSchema namespace="docs.cloudOverview" path="/docs/cloud" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
-      <Callout>{t("betaNote")}</Callout>
+      {showBetaNote && <Callout>{t("betaNote")}</Callout>}
 
       <DocsHeading level={2} id="what-is-a-machine">{t("whatTitle")}</DocsHeading>
       <p>{t("whatDesc")}</p>
@@ -43,7 +46,7 @@ export default async function CloudOverviewPage({
       <ul>
         <li>{t("reqMac")}</li>
         <li>{t("reqPlan")} <Link href="/pricing" className={linkClass}>cmux.com/pricing</Link></li>
-        <li>{t("reqBeta")}</li>
+        {showBetaNote && <li>{t("reqBeta")}</li>}
         <li>{t("reqNoVpn")}</li>
       </ul>
 

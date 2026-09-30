@@ -81,6 +81,15 @@ extension CloudVMState {
     /// Identity, launch fields, and unknown fields remain strict. Only PTY
     /// title, dimensions, and output stream revision are live; unchanged rows
     /// use their byte cache.
+    ///
+    /// A terminal row's `tab_id` and `tab_ids` are the reverse edge of the tab
+    /// rows, which the daemon derives from topology when it builds a snapshot.
+    /// That edge is compared once, on the typed graph (`revisionedTerminals`),
+    /// where a delta that deletes or moves a tab has already detached it. The
+    /// raw row can still carry the edge as it was when the terminal row was
+    /// written: an exiting terminal's upsert is built before the same batch
+    /// deletes its tab. Comparing that stale copy made every later snapshot at
+    /// the same cursor a conflict, so the graph could never become current.
     private func hasSameTerminalDocument(as other: CloudVMState) -> Bool {
         guard let left = document.collections["terminals"] else {
             return other.document.collections["terminals"] == nil
@@ -91,7 +100,7 @@ extension CloudVMState {
             if a == b { continue }
             guard var lhs = try? JSONSerialization.jsonObject(with: a) as? [String: Any],
                   var rhs = try? JSONSerialization.jsonObject(with: b) as? [String: Any] else { return false }
-            for key in ["title", "cols", "rows", "stream_revision"] {
+            for key in ["title", "cols", "rows", "stream_revision", "tab_id", "tab_ids"] {
                 lhs[key] = nil
                 rhs[key] = nil
             }

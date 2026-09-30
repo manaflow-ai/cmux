@@ -461,6 +461,39 @@ enum AgentResumeCommandBuilder {
         )
     }
 
+    /// Resume command for crash recovery through a recorded outer launcher
+    /// (`launcherArguments` is the launcher argv followed by the agent's own
+    /// resume arguments). Applies the same launch environment replay and
+    /// wrapper-shim routing as ``resumeShellCommand(kind:sessionId:launchCommand:workingDirectory:registrationOverride:includeWorkingDirectoryPrefix:observedPermissionMode:)``,
+    /// so the launcher re-execs the agent with the recorded config and cmux hooks.
+    static func launcherResumeShellCommand(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        launcherArguments: [String]
+    ) -> String? {
+        guard !launcherArguments.isEmpty else { return nil }
+        var parts: [String] = []
+        let environmentParts = launchEnvironmentParts(
+            kind: kind,
+            launchCommand: launchCommand,
+            customRegistration: nil
+        )
+        if !environmentParts.isEmpty {
+            parts.append("env")
+            parts.append(contentsOf: environmentParts)
+        }
+        parts.append(contentsOf: launcherArguments)
+        let command = parts.map(TerminalStartupShellQuoting.singleQuoted).joined(separator: " ")
+        guard let shimKey = AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?.wrapperShimEnvironmentKey else {
+            return command
+        }
+        return AgentExternalLauncherRegistry.portableShellCommandRoutingWrappedAgentThroughShim(
+            posixCommand: command,
+            shimEnvironmentKey: shimKey
+        )
+    }
+
     static func forkShellCommand(
         kind: RestorableAgentKind,
         sessionId: String,
@@ -713,7 +746,7 @@ enum AgentResumeCommandBuilder {
     /// so the binding's typed `prepared_arguments` stay the agent's own argv. `AgentRestorePlanner`
     /// applies the prefix itself when it replays those, and wrapping them here as well would stack
     /// the prefix twice. #10494
-    private static func externalLauncher(
+    static func externalLauncher(
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
