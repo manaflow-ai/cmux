@@ -1010,6 +1010,7 @@ struct ContentView: View {
     @State private var commandPaletteResultsRevision: UInt64 = 0
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @State private var isFeedbackComposerPresented = false
+    @State private var isKeymapChooserPresented = false
     @AppStorage(AppCatalogSection().renameSelectsExistingName.userDefaultsKey)
     private var commandPaletteRenameSelectAllOnFocus = AppCatalogSection().renameSelectsExistingName.defaultValue
     @AppStorage(AppCatalogSection().commandPaletteSearchesAllSurfaces.userDefaultsKey)
@@ -3542,7 +3543,41 @@ struct ContentView: View {
             SidebarFeedbackComposerSheet()
         })
 
+        // A fresh install is asked once which shortcut style it wants, the way
+        // a game asks WASD or arrow keys. Everyone else reaches the same
+        // chooser from Settings or the Command Palette.
+        // onDismiss covers Escape, which closes the sheet through SwiftUI
+        // without running either button's closure. Being shown the chooser at
+        // all is what counts as being asked.
+        view = AnyView(view.sheet(
+            isPresented: $isKeymapChooserPresented,
+            onDismiss: { Self.recordKeymapChooserAnswered() }
+        ) {
+            ShortcutKeymapChooserView(
+                onApply: { preset in
+                    let didApply = await Self.applyKeymapChooserChoice(preset)
+                    if didApply {
+                        isKeymapChooserPresented = false
+                    }
+                    return didApply
+                },
+                onKeepCurrent: {
+                    isKeymapChooserPresented = false
+                },
+                // The app's own factory defaults, so the preview shows the keys
+                // this build ships for the actions a preset leaves alone.
+                defaultShortcutResolver: AppDelegate.shared?.settingsRuntime?
+                    .shortcutDefaultResolver ?? .builtIn
+            )
+        })
+
+        view = AnyView(view.onAppear {
+            guard Self.claimKeymapChooserPresentation(for: windowId) else { return }
+            isKeymapChooserPresented = true
+        })
+
         view = AnyView(view.onDisappear {
+            Self.releaseKeymapChooserPresentation(for: windowId)
             sidebarState.removeVisibilityWillChangeHandler(ownerId: windowId)
             workspaceSwitchPortalSignalRouter.clearSources()
             if isResizerDragging {

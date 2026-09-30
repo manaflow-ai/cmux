@@ -13,6 +13,8 @@ extension ShortcutKeymapPreset {
             return String(localized: "shortcut.keymap.preset.terminal", defaultValue: "Terminal.app")
         case .tmux:
             return String(localized: "shortcut.keymap.preset.tmux", defaultValue: "tmux-style (Ctrl-B Prefix)")
+        case .browser:
+            return String(localized: "shortcut.keymap.preset.browser", defaultValue: "Browser-style (Ctrl-Tab)")
         }
     }
 }
@@ -97,10 +99,18 @@ extension ShortcutKeymapPlan {
             defaultValue: "Kept your own shortcut for %@."
         )
         var lines: [String] = []
-        if preset == .iTerm2, changes.contains(where: { $0.action == .selectSurfaceByNumber }) {
+        // Both presets move the number row the same way, so both warn about it.
+        if preset == .iTerm2 || preset == .browser,
+           changes.contains(where: { $0.action == .selectSurfaceByNumber }) {
             lines.append(String(
                 localized: "shortcut.keymap.summary.iterm2Numbers",
                 defaultValue: "⌘1…9 will select tabs in the focused pane instead of workspaces. Workspaces move to ⌥⌘1…9."
+            ))
+        }
+        if preset == .browser, changes.contains(where: { $0.action == .nextSurface }) {
+            lines.append(String(
+                localized: "shortcut.keymap.summary.browserTabs",
+                defaultValue: "⌃Tab and ⌃⇧Tab already cycle tabs. Binding them here makes them visible and rebindable in Settings and works with Caps Lock on; ⌘⇧[ and ⌘⇧] go unbound in the trade. ⌘T, ⌘W, ⌘L, ⌘R, ⌘F and ⌘[ / ⌘] already match a browser and are left alone, as does ⌘⇧T, which reopens a closed browser panel."
             ))
         }
         lines += changes.map { change in

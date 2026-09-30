@@ -1,0 +1,147 @@
+{
+  "paths": [
+    "Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/ShortcutKeymapPresetRow*",
+    "Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/ShortcutKeymapPresetText*",
+    "Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/ShortcutKeymapChooserView*",
+    "Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutKeymapPreset*",
+    "Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutKeymapChooser*",
+    "Sources/ContentView+KeymapPresetCommands*"
+  ],
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Keymap",
+        "focus": true
+      }
+    },
+    {
+      "wait": 2.5
+    },
+    {
+      "key": "p",
+      "modifiers": [
+        "command",
+        "shift"
+      ]
+    },
+    {
+      "wait": 1
+    },
+    {
+      "type": "base keymap"
+    },
+    {
+      "wait": 1
+    },
+    {
+      "shot": "01-palette-lists-every-style"
+    },
+    {
+      "tree": "01-palette-lists-every-style"
+    },
+    {
+      "click": {
+        "labelContains": "Browser-style"
+      }
+    },
+    {
+      "wait": 2.5
+    },
+    {
+      "expect": {
+        "id": "SettingsKeyboardShortcutsBaseKeymapPreview"
+      }
+    },
+    {
+      "shot": "02-settings-preview-states-the-trade",
+      "screen": true
+    },
+    {
+      "tree": "02-settings-preview-states-the-trade"
+    },
+    {
+      "click": {
+        "id": "SettingsKeyboardShortcutsBaseKeymapCompare",
+        "type": "button"
+      }
+    },
+    {
+      "wait": 2
+    },
+    {
+      "expect": {
+        "id": "KeymapChooser"
+      }
+    },
+    {
+      "click": {
+        "id": "KeymapChooserPreset-cmux",
+        "type": "button"
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "shot": "03-compare-cmux-next-tab-is-cmd-shift-bracket",
+      "screen": true
+    },
+    {
+      "tree": "03-compare-cmux-next-tab-is-cmd-shift-bracket"
+    },
+    {
+      "click": {
+        "id": "KeymapChooserPreset-browser",
+        "type": "button"
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "shot": "04-compare-browser-same-row-is-ctrl-tab",
+      "screen": true
+    },
+    {
+      "tree": "04-compare-browser-same-row-is-ctrl-tab"
+    },
+    {
+      "click": {
+        "id": "KeymapChooserKeepCurrent",
+        "type": "button"
+      }
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "expect": {
+        "id": "KeymapChooser"
+      },
+      "exists": false
+    },
+    {
+      "click": {
+        "id": "SettingsKeyboardShortcutsBaseKeymapCancel",
+        "type": "button"
+      }
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "expect": {
+        "id": "SettingsKeyboardShortcutsBaseKeymapPreview"
+      },
+      "exists": false
+    },
+    {
+      "shot": "05-cancelled-nothing-written",
+      "screen": true
+    },
+    {
+      "tree": "05-cancelled-nothing-written"
+    }
+  ]
+}
