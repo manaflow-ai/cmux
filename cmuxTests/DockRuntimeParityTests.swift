@@ -96,7 +96,7 @@ struct DockRuntimeParityTests {
             let sessionID = UUID().uuidString
             dock.restoredAgentLifecycle.setSnapshot(
                 SessionRestorableAgentSnapshot(
-                    kind: .claude, sessionId: sessionID, workingDirectory: "/tmp"
+                    kind: .claude, sessionId: sessionID, workingDirectory: "/tmp", launchCommand: nil
                 ),
                 panelId: terminal.id
             )

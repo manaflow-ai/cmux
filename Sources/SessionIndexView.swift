@@ -58,6 +58,23 @@ enum SessionEntryResumeCoordinator {
             }
         }
 
+        // Dock terminals keep the same restore snapshot and shell activity
+        // state, but do not appear in the workspace panel dictionaries.
+        for dock in DockSplitStore.liveStores {
+            if let panel = dock.restoredAgentLifecycle.snapshotsByPanelId.first(where: { panelID, snapshot in
+                dock.panels[panelID] != nil
+                    && (dock.panels[panelID] as? TerminalPanel)?.shellActivity.state == .commandRunning
+                    && snapshot.kind.rawValue == entry.agent.rawValue
+                    && ManagedAgentSessionIdentity.sessionIDsMatch(
+                        kind: entry.agent.rawValue,
+                        lhs: snapshot.sessionId,
+                        rhs: entry.sessionId
+                    )
+            }) {
+                return .dock(panelID: panel.key)
+            }
+        }
+
         // Process-detected sessions can still be present in the live index
         // before their snapshot has been projected into the tab manager.
         let liveIndex = schedulingIndexRefresh
