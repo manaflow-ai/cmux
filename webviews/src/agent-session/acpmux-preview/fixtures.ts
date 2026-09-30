@@ -21,10 +21,11 @@ function recordingRows(raw: string, title: string, harness: string): { snapshot:
     if (!line.trim()) continue;
     let event: Record<string, unknown>;
     try { event = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
-    const eventKind = String(event.kind ?? (event.update as Record<string, unknown> | undefined)?.sessionUpdate ?? "");
-    const msg = (event.msg ?? event.update ?? {}) as Record<string, unknown>;
-    const content = (msg.content ?? {}) as Record<string, unknown>;
-    const text = String(msg.text ?? content.text ?? "");
+    const msg = (event.msg ?? {}) as Record<string, unknown>;
+    const nestedUpdate = ((msg.params as Record<string, unknown> | undefined)?.update ?? event.update ?? msg) as Record<string, unknown>;
+    const eventKind = String(nestedUpdate.sessionUpdate ?? event.kind ?? "");
+    const content = (nestedUpdate.content ?? msg.content ?? {}) as Record<string, unknown>;
+    const text = String(nestedUpdate.text ?? msg.text ?? content.text ?? "");
     if (eventKind === "user_message" || eventKind === "session/prompt") {
       assistant = undefined;
       append({ id: `user-${sequence++}`, version: 1, at: Number(event.at ?? Date.now()), kind: "user", text: String(msg.text ?? msg.prompt ?? "") });

@@ -82,7 +82,8 @@ class MockBridge {
       previousText.set(row.id, text);
       if (delta || row.kind !== "assistant") this.socket?.deliver(this.eventMessage(row, delta));
       index += 1;
-      this.replayTimer = window.setTimeout(tick, Math.min(500, index < 3 ? 140 : 70));
+      const nextAt = events[index]?.at ?? row.at;
+      this.replayTimer = window.setTimeout(tick, Math.max(0, nextAt - row.at));
     };
     tick();
   }
@@ -157,10 +158,9 @@ class MockBridge {
   }
 }
 
-function PreviewControls({ bridge, onFixture }: { bridge: MockBridge; onFixture: (fixture: PreviewFixture) => void }) {
+function PreviewControls({ bridge, onFixture, width, onWidth }: { bridge: MockBridge; onFixture: (fixture: PreviewFixture) => void; width: number; onWidth: (width: number) => void }) {
   const [fixtureId, setFixtureId] = useState(previewFixtures[0].id);
   const [dark, setDark] = useState(true);
-  const [width, setWidth] = useState(900);
   const [fps, setFps] = useState("—");
   const frameTimes = useRef<number[]>([]);
   const previousFrame = useRef(performance.now());
@@ -176,7 +176,7 @@ function PreviewControls({ bridge, onFixture }: { bridge: MockBridge; onFixture:
     <strong>React pane preview</strong>
     <label>Fixture<select value={fixtureId} onChange={(event) => { const next = previewFixtures.find((candidate) => candidate.id === event.target.value) ?? previewFixtures[0]; setFixtureId(next.id); onFixture(next); }}>{previewFixtures.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}</select></label>
     <button type="button" onClick={() => bridge.replay()}>Replay stream</button>
-    <label>Width <input type="range" aria-label="Preview width" min="420" max="1280" value={width} onChange={(event) => setWidth(Number(event.target.value))} /> {width}px</label>
+    <label>Width <input type="range" aria-label="Preview width" min="420" max="1280" value={width} onChange={(event) => onWidth(Number(event.target.value))} /> {width}px</label>
     <button type="button" onClick={() => { const next = !dark; setDark(next); applyAgentTheme({ isDark: next, pageBackground: next ? "#171717" : "#f6f6f6", surfaceBackground: next ? "#202020" : "#fff", surfaceElevatedBackground: next ? "#292929" : "#fff", inputBackground: next ? "#111" : "#fafafa", border: next ? "#3a3a3a" : "#ddd", borderStrong: next ? "#555" : "#bbb", text: next ? "#f2f2f2" : "#202020", mutedText: next ? "#a1a1a1" : "#6b6b6b", softText: next ? "#c4c4c4" : "#484848", accent: next ? "#7c9cff" : "#315dcc", accentSoft: next ? "#263866" : "#e8efff", danger: "#d55", shadow: next ? "#0008" : "#0002" }); }}>Toggle {dark ? "light" : "dark"}</button>
     <label>theme.css <input type="file" aria-label="Load theme.css" accept=".css,text/css" onChange={async (event) => { const file = event.target.files?.[0]; if (file) applyThemeFile(await file.text()); }} /></label>
     <label>or paste CSS<textarea rows={3} aria-label="Paste theme CSS" placeholder=":root { --agent-accent: #e05; }" onChange={(event) => applyThemeFile(event.target.value)} /></label>
@@ -189,9 +189,10 @@ function PreviewControls({ bridge, onFixture }: { bridge: MockBridge; onFixture:
 export function PreviewApp() {
   const bridge = useMemo(() => { const next = new MockBridge(previewFixtures[0]); next.install(); return next; }, []);
   const [fixture, setFixture] = useState(previewFixtures[0]);
+  const [width, setWidth] = useState(900);
   useEffect(() => { applyAgentTheme({ isDark: true, pageBackground: "#171717", surfaceBackground: "#202020", surfaceElevatedBackground: "#292929", inputBackground: "#111", border: "#3a3a3a", borderStrong: "#555", text: "#f2f2f2", mutedText: "#a1a1a1", softText: "#c4c4c4", accent: "#7c9cff", accentSoft: "#263866", danger: "#d55", shadow: "#0008" }); }, [bridge]);
   void fixture;
-  return <main className="acpmux-preview-page"><PreviewControls bridge={bridge} onFixture={(next) => { setFixture(next); bridge.select(next); }} /><div className="acpmux-preview-frame"><AcpmuxApp /></div></main>;
+  return <main className="acpmux-preview-page"><PreviewControls bridge={bridge} width={width} onWidth={setWidth} onFixture={(next) => { setFixture(next); bridge.select(next); }} /><div className="acpmux-preview-frame" style={{ width: `${width}px` }}><AcpmuxApp /></div></main>;
 }
 
 export function mountPreview() { createRoot(document.getElementById("root")!).render(<PreviewApp />); }
