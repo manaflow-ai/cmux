@@ -10,6 +10,11 @@ import CmuxTerminal
 @testable import cmux
 #endif
 
+/// A @MainActor Swift Testing body already runs inside a main queue block, so
+/// the main queue cannot drain until the test returns and every
+/// `drainMainQueue` call spins the run loop until its timeout. Spin briefly.
+private let mainActorTestMainQueueSpin: TimeInterval = 0.1
+
 @MainActor
 @Suite(.serialized)
 struct WorkspaceCloseTabsContextMenuTests {
@@ -178,7 +183,7 @@ struct WorkspaceCloseTabsContextMenuTests {
             let tabId = fixture.tabIds[2]
 
             #expect(fixture.workspace.requestCloseTabRecordingHistory(tabId, force: true))
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             let entry = try #require(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
             #expect(entry.title == "Tab 3")
@@ -200,9 +205,9 @@ struct WorkspaceCloseTabsContextMenuTests {
 
                 workspace.markTabCloseButtonClose(surfaceId: surfaceId)
                 _ = workspace.closePanel(panelId)
-                drainMainQueue()
-                drainMainQueue()
-                drainMainQueue()
+                drainMainQueue(timeout: mainActorTestMainQueueSpin)
+                drainMainQueue(timeout: mainActorTestMainQueueSpin)
+                drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
                 #expect(workspace.panels[panelId] == nil)
                 #expect(workspace.panels.count == 1)
@@ -317,8 +322,8 @@ struct WorkspaceCloseTabsContextMenuTests {
             for: anchorTab,
             inPane: fixture.paneId
         )
-        drainMainQueue()
-        drainMainQueue()
+        drainMainQueue(timeout: mainActorTestMainQueueSpin)
+        drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
         #expect(promptCount == 1, "Expected one confirmation prompt for \(action)")
     }
@@ -353,7 +358,7 @@ struct WorkspaceCloseTabsContextMenuTests {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             if condition() { return }
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         } while Date() < deadline
     }
