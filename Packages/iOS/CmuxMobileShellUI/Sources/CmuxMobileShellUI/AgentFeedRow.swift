@@ -892,7 +892,7 @@ private struct AgentFeedQuestionControls: View {
     private var questionPager: some View {
         GeometryReader { geometry in
             ScrollView(.horizontal) {
-                HStack(spacing: 0) {
+                HStack(alignment: .top, spacing: 0) {
                     ForEach(Array(questions.enumerated()), id: \.element.id) { index, question in
                         questionPage(question, index: index)
                             .frame(width: geometry.size.width, alignment: .top)
