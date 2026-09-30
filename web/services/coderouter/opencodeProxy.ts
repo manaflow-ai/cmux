@@ -3,7 +3,8 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
-import { Readable } from "node:stream";
+import { Readable, pipeline } from "node:stream";
+import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 
 import { authenticateRouteToken, selectAccountForRequest } from "./repository";
 import { freshCredential } from "./refresh";
@@ -796,7 +797,10 @@ function pinnedFetch(pin: ProviderPin): typeof fetch {
         }
         const status = incoming.statusCode ?? 502;
         const nullBody = status === 204 || status === 304 || init.method === "HEAD";
-        resolve(new Response(nullBody ? null : (Readable.toWeb(incoming) as ReadableStream<Uint8Array>), {
+        // Decode the body as fetch does, so usage accounting and the client
+        // see plain bytes whatever encoding the provider chose.
+        const decoded = decodedBody(incoming, responseHeaders);
+        resolve(new Response(nullBody ? null : (Readable.toWeb(decoded) as ReadableStream<Uint8Array>), {
           status,
           statusText: incoming.statusMessage,
           headers: responseHeaders,
@@ -804,12 +808,38 @@ function pinnedFetch(pin: ProviderPin): typeof fetch {
       });
       outgoing.on("error", reject);
       if (body) {
-        Readable.fromWeb(body as import("node:stream/web").ReadableStream).on("error", reject).pipe(outgoing);
+        // pipeline destroys the request when the client body fails.
+        pipeline(Readable.fromWeb(body as import("node:stream/web").ReadableStream), outgoing, (error) => {
+          if (error) reject(error);
+        });
       } else {
         outgoing.end();
       }
     });
   }) as typeof fetch;
+}
+
+const BODY_DECODERS: Record<string, () => NodeJS.ReadWriteStream> = {
+  gzip: createGunzip,
+  "x-gzip": createGunzip,
+  deflate: createInflate,
+  br: createBrotliDecompress,
+};
+
+/** The response body with its content-encoding removed, as fetch returns it.
+ * An unknown encoding passes through with its header intact. */
+function decodedBody(incoming: IncomingMessage, headers: Headers): Readable {
+  const encodings = (headers.get("content-encoding") ?? "")
+    .split(",").map((item) => item.trim().toLowerCase()).filter((item) => item && item !== "identity");
+  if (encodings.length === 0 || encodings.some((item) => !(item in BODY_DECODERS))) return incoming;
+  headers.delete("content-encoding");
+  headers.delete("content-length");
+  let stream: Readable = incoming;
+  for (const encoding of encodings.reverse()) {
+    const decoder = BODY_DECODERS[encoding]();
+    stream = pipeline(stream, decoder, () => {}) as unknown as Readable;
+  }
+  return stream;
 }
 
 async function defaultProviderLookup(hostname: string): Promise<readonly ProviderLookupAddress[]> {
