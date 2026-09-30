@@ -155,6 +155,32 @@ struct SidebarWorkspaceDragDelegateTests {
         #expect(remote.supportsNonDestructivePaneProjection)
     }
 
+    @Test
+    func localWorkspaceWriterPublishesOnlySidebarReorderPayload() {
+        let registry = TabDragTransferRegistry()
+        let table = SidebarWorkspaceTableViewImpl()
+        let controller = SidebarWorkspaceTableController()
+        let group = SurfaceResourceGroup(
+            title: "local",
+            resources: [SurfaceResourceID(machine: .local, kind: .terminal, key: UUID().uuidString)],
+            representsWorkspace: true
+        )
+        let writer = SidebarWorkspaceDragPasteboardWriter(
+            workspaceId: UUID(),
+            sessionId: nil,
+            sourceView: table,
+            controller: controller,
+            provisionalToken: ProvisionalDragWriterOwnershipToken(onDeallocated: { _ in }),
+            surfaceResourceGroup: group,
+            transferRegistry: registry
+        )
+        let types = writer.writableTypes(
+            for: NSPasteboard(name: NSPasteboard.Name("local-only-\(UUID())"))
+        )
+        #expect(!types.contains(TabDragTransferRegistry.pasteboardType))
+        writer.releaseSourceGraph()
+    }
+
     private func makeWriter(
         table: SidebarWorkspaceTableViewImpl,
         controller: SidebarWorkspaceTableController
