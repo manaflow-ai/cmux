@@ -46,6 +46,19 @@ final class AgentFanOutOperationTests: XCTestCase {
         XCTAssertEqual(operation.settledCount, 1)
     }
 
+    func testNonzeroChildExitIsRepresentedAsFailure() {
+        let now = Date(timeIntervalSince1970: 1)
+        var operation = AgentFanOutOperation(
+            id: "f_test", machineID: "vm", scope: "scope", remoteWorkspaceID: "ws",
+            agent: "codex", argvDigest: "digest", requestedCount: 1,
+            createdAt: now, updatedAt: now, state: .running,
+            children: [AgentFanOutChild(index: 0, terminalID: "term_1", state: .failed, exitCode: 2, errorCode: "agent_exit_nonzero", startedAt: now, endedAt: now)]
+        )
+        operation.recomputeState(now: now)
+        XCTAssertEqual(operation.state, .failed)
+        XCTAssertEqual(operation.children[0].errorCode, "agent_exit_nonzero")
+    }
+
     func testFoundationObjectDoesNotExposeArgvOrPrompt() {
         let operation = operation()
         XCTAssertNil(operation.foundationObject["argv"])

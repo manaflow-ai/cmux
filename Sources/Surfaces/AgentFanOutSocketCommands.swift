@@ -209,12 +209,24 @@ extension TerminalController {
         var operation = operation
         let provider = try await cloudTuiProvider(machineID: operation.machineID, catalog: await SurfaceCatalog.shared)
         for index in operation.children.indices where operation.children[index].state == .running {
-            guard let terminalID = operation.children[index].terminalID else { continue }
+            guard let terminalID = operation.children[index].terminalID else {
+                operation.children[index].state = .failed
+                operation.children[index].errorCode = "missing_terminal_id"
+                operation.children[index].endedAt = Date()
+                continue
+            }
             let result = try await provider.waitForExit(terminalID: terminalID, timeoutMs: 1)
             guard (result["state"] as? String) == "exited" else { continue }
-            operation.children[index].state = .exited
+            var exitCode: Int?
             if let outcome = result["outcome"] as? [String: Any] {
-                operation.children[index].exitCode = outcome["code"] as? Int
+                exitCode = outcome["code"] as? Int
+            }
+            operation.children[index].exitCode = exitCode
+            if let exitCode, exitCode != 0 {
+                operation.children[index].state = .failed
+                operation.children[index].errorCode = "agent_exit_nonzero"
+            } else {
+                operation.children[index].state = .exited
             }
             operation.children[index].endedAt = Date()
         }
