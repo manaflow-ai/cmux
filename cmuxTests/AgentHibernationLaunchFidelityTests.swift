@@ -59,7 +59,7 @@ struct AgentHibernationLaunchFidelityTests {
 
     @Test
     func provenSubrouterLaunchWithoutArgvIsEligible() throws {
-        let marker = "sr claude proxy"
+        let marker = "sr claude proxy --resume"
         let launch = AgentLaunchCommandSnapshot(
             launcher: "claude",
             executablePath: "/usr/local/bin/claude",
