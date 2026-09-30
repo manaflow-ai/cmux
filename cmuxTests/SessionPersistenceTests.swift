@@ -754,6 +754,22 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(truncated.contains("window title"))
     }
 
+    func testTruncatedScrollbackAvoidsLeadingPartialSOSSequence() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let sequence = "\u{001B}Xprivate status payload\u{001B}\\"
+        let cutOffset = 8
+        let tailCount = maxChars - (sequence.count - cutOffset)
+        let source = sequence + String(repeating: "Z", count: tailCount)
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("Z"))
+        XCTAssertFalse(truncated.contains("private status payload"))
+    }
+
     func testNormalizedExportedScreenPathAcceptsAbsoluteAndFileURL() {
         XCTAssertEqual(
             TerminalController.normalizedExportedScreenPath("/tmp/cmux-screen.txt"),
