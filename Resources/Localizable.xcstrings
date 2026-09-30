@@ -600408,19 +600408,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: %@; text may already be submitted; do not paste it again without checking the target"
+            "value": "%@: %@; text was pasted, do not resend it without checking the target"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@: %2$@؛ قد يكون النص قد أُرسل بالفعل؛ لا تلصقه مرة أخرى قبل التحقق من الهدف"
+            "value": "%1$@: %2$@؛ تم لصق النص؛ لا ترسله مرة أخرى قبل التحقق من الهدف"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: %@; der Text wurde möglicherweise bereits gesendet; fügen Sie ihn nicht erneut ein, ohne das Ziel zu prüfen"
+            "value": "%@: %@; der Text wurde eingefügt; senden Sie ihn nicht erneut, ohne das Ziel zu prüfen"
           }
         },
         "es": {

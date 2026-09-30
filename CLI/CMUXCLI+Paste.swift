@@ -212,8 +212,10 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
+        let text = text.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
         try Self.ensureTextFitsSocketRequest(text, command: command)
-        let target = try terminalTargetParams(
+        var target = try terminalTargetParams(
             workspace: workspace,
             surface: surface,
             windowRaw: windowRaw,
@@ -232,6 +234,9 @@ extension CMUXCLI {
             // --force skips refusal, but still needs live agent metadata to
             // choose the correct submit key.
             state = try? client.sendV2(method: "surface.input_state", params: target)
+        }
+        if let surfaceID = state?["surface_id"] as? String {
+            target["surface_id"] = surfaceID
         }
         var screen: String?
         if let payload = try? client.sendV2(method: "surface.read_text", params: target) {
@@ -534,7 +539,7 @@ extension CMUXCLI {
         throw CLIError(message: String(
             format: String(
                 localized: "cli.send.error.submitUnconfirmed",
-                defaultValue: "%@: %@; text may already be submitted, do not paste it again without checking the target"
+                defaultValue: "%@: %@; text was pasted, do not resend it without checking the target"
             ),
             command,
             reason

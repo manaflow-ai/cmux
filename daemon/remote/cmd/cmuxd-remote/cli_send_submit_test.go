@@ -221,12 +221,12 @@ func TestSendSubmitRefusesDraftAndDialog(t *testing.T) {
 func TestSendSubmitRetriesAndFailsWhenComposerNeverSubmits(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("hello"), "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("hello"), "blocks_typing": true, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("hello"), "blocks_typing": true, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("hello"), "blocks_typing": true, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("hello"), "blocks_typing": true, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("hello"), "blocks_typing": true, "agent_kind": "claude"},
 	}, []string{"Claude Code\n❯ ", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello"})
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
 		t.Fatal("expected bounded retry failure")
@@ -260,9 +260,9 @@ func TestSendSubmitShellUsesReturnWithoutComposerCheck(t *testing.T) {
 func TestSendSubmitSlashPopupSendsExtraSubmit(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "slash_command_popup": true, "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "slash_command_popup": true, "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "slash_command_popup": true, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("/goal resume"), "slash_command_popup": true, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("/goal resume"), "slash_command_popup": true, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("/goal resume"), "slash_command_popup": true, "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 	}, []string{"❯\n", "❯ /goal\n/goal resume\n", "❯ /goal resume\n", "❯ /goal resume\n", "❯\n"})
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "/goal resume"}); code != 0 {
@@ -419,9 +419,9 @@ func TestSendSubmitSlashClearDoesNotSendExtraKey(t *testing.T) {
 func TestSendSubmitRetryRefreshesBusyCodex(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "codex"},
-		{"agent": true, "state": "draft", "agent_kind": "codex"},
-		{"agent": true, "state": "draft", "agent_kind": "codex", "busy": true},
-		{"agent": true, "state": "draft", "agent_kind": "codex", "busy": true},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("hello"), "agent_kind": "codex"},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("hello"), "agent_kind": "codex", "busy": true},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("hello"), "agent_kind": "codex", "busy": true},
 		{"agent": true, "state": "queued", "agent_kind": "codex", "queued": true},
 	}, []string{"OpenAI Codex\n› ", "OpenAI Codex\n› hello", "OpenAI Codex\n› hello", "OpenAI Codex\n› hello", "OpenAI Codex\nQueued messages: 1\n› "})
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
@@ -500,7 +500,7 @@ func TestSendSubmitHumanEditPreventsRetry(t *testing.T) {
 func TestSendSubmitFinalReadConfirmsSlowRenderer(t *testing.T) {
 	states := []map[string]any{{"agent": true, "agent_kind": "claude", "state": "empty"}}
 	for i := 0; i < 6; i++ {
-		states = append(states, map[string]any{"agent": true, "agent_kind": "claude", "state": "draft"})
+		states = append(states, map[string]any{"agent": true, "agent_kind": "claude", "state": "draft", "composer_fingerprint": sendTestFingerprint("hello")})
 	}
 	states = append(states, map[string]any{"agent": true, "agent_kind": "claude", "state": "empty"})
 	screens := []string{"Claude Code\n❯ "}
@@ -542,9 +542,9 @@ func TestSendSubmitRequiresHostAgentFlagForCodexQueue(t *testing.T) {
 func TestSendSubmitUsesHostInputStateWithoutScreenHeuristics(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "draft_length": 5, "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "draft_length": 5, "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "draft_length": 5, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("hello"), "draft_length": 5, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("hello"), "draft_length": 5, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "composer_fingerprint": sendTestFingerprint("hello"), "draft_length": 5, "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 	}, nil)
 	output := captureStdout(t, func() {

@@ -1,10 +1,11 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -27,6 +28,9 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 		return 2
 	}
 	text := strings.Join(parsed.positional, " ")
+	if submit {
+		text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+	}
 	if encoded, marshalErr := json.Marshal([]string{text}); marshalErr != nil || len(encoded) > sendMaximumEncodedTextBytes {
 		fmt.Fprintf(os.Stderr, "cmux send: text is too large; the limit is %d MiB after JSON escaping\n", sendMaximumEncodedTextBytes/(1024*1024))
 		return 2
@@ -41,9 +45,8 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 	applySurfaceEnvFallback(target)
 
 	var state map[string]any
-	var screen string
-	if !force {
-		state, screen, err = inspectSendTarget(socketPath, target, refreshAddr)
+	if submit || !force {
+		state, err = readSendInputState(socketPath, target, refreshAddr)
 		if err != nil {
 			if !submit {
 				fmt.Fprintf(os.Stderr, "cmux send: refusing to send: %v\n", err)
@@ -51,13 +54,14 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 			}
 			// An older relay may not expose input_state. Submit with Return
 			// and report sent; no screen heuristic can safely claim delivery.
-			state, screen = nil, ""
+			state = nil
 		}
-		if err == nil && sendStateBlocksText(state) {
+		if err == nil && !force && sendStateBlocksText(state) {
 			fmt.Fprintln(os.Stderr, "cmux send: refusing to send: target has a human draft or open dialog (use --force to override)")
 			return 1
 		}
 	}
+	pinSendTarget(target, state)
 
 	if !submit {
 		params := cloneParams(target)
@@ -77,9 +81,6 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 
 	// --force still uses host input_state when available. If it is unavailable,
 	// use Return and report sent because the relay cannot identify an agent.
-	if state == nil {
-		state, screen, _ = inspectSendTarget(socketPath, target, refreshAddr)
-	}
 	params := cloneParams(target)
 	params["text"] = text
 	params["submit_key"] = "none"
@@ -90,12 +91,23 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 	agent := sendStateAgent(state)
 	knownAgent := agent && (stateString(state, "agent_kind") == "claude" || stateString(state, "agent_kind") == "codex")
 	queuedBeforePaste := sendStateQueued(state)
+	expectedComposerFingerprint := sendComposerFingerprint(text)
+	expectedDraftLength := len([]rune(strings.TrimSpace(text)))
+	if force && stateString(state, "state") == "draft" {
+		// The host exposes a fingerprint, never the old draft. Its appended
+		// content cannot be reconstructed, so forced drafts get no key retry.
+		expectedComposerFingerprint = ""
+	}
 	ownSlashCommand := strings.HasPrefix(strings.TrimSpace(text), "/")
 	if knownAgent {
 		visible := false
 		for probe := 0; probe < sendSubmitAttempts; probe++ {
 			time.Sleep(time.Duration(100*(probe+1)) * time.Millisecond)
-			state, screen = readSendState(socketPath, target, refreshAddr)
+			observed, readErr := readSendInputState(socketPath, target, refreshAddr)
+			if readErr != nil {
+				return sendSubmitUnconfirmed("host input state became unavailable after the paste", jsonOutput)
+			}
+			state = observed
 			if sendStateDialog(state) && !sendStateSlashPopup(state) {
 				fmt.Fprintln(os.Stderr, "cmux send: text was pasted but the target opened a dialog; nothing was confirmed as submitted")
 				return 1
@@ -104,7 +116,7 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 				visible = true
 				break
 			}
-			if sendStateQueued(state) && (!queuedBeforePaste || sendComposerMatches(screen, text)) {
+			if sendStateQueued(state) && !queuedBeforePaste {
 				visible = true
 				break
 			}
@@ -119,17 +131,22 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 	var lastState map[string]any
 	for attempt := 0; attempt < sendSubmitAttempts; attempt++ {
 		if attempt > 0 {
-			state, screen = readSendState(socketPath, target, refreshAddr)
-			if sendStateConfirmed(state, screen, queuedBeforePaste, text) {
+			var readErr error
+			state, readErr = readSendInputState(socketPath, target, refreshAddr)
+			if readErr != nil {
+				return sendSubmitUnconfirmed("host input state became unavailable before retry; text was pasted and the retry was refused", jsonOutput)
+			}
+			if sendStateConfirmed(state, queuedBeforePaste) {
 				return printSendSubmitResult(sendConfirmedStatus(state), jsonOutput)
 			}
 			if sendStateDialog(state) && !sendStateSlashPopup(state) {
 				return sendSubmitUnconfirmed("target opened a dialog; retry was refused", jsonOutput)
 			}
-			if !sendComposerMatches(screen, text) {
+			if !sendStateDraftStillOurs(state, expectedComposerFingerprint, expectedDraftLength) {
 				return sendSubmitUnconfirmed("composer changed or could not be identified; retry was refused to preserve human input", jsonOutput)
 			}
 		}
+		slashPopupBeforeKey := sendStateSlashPopup(state)
 		key := sendSubmitKey(state)
 		keyParams := cloneParams(target)
 		keyParams["key"] = key
@@ -143,19 +160,23 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 			}
 			return printSendSubmitResult("submitted", jsonOutput)
 		}
-		lastState, screen = readSendState(socketPath, target, refreshAddr)
+		var readErr error
+		lastState, readErr = readSendInputState(socketPath, target, refreshAddr)
+		if readErr != nil {
+			return printSendSubmitResult("sent", jsonOutput)
+		}
 		if sendStateDialog(lastState) {
-			if screen == "" {
-				screen, _ = readSendScreen(socketPath, target, refreshAddr)
+			if sendStateSlashPopup(lastState) && ownSlashCommand {
+				return printSendSubmitResult("submitted", jsonOutput)
 			}
 			if !sendStateSlashPopup(lastState) {
-				if ownSlashCommand {
+				if ownSlashCommand && slashPopupBeforeKey {
 					return printSendSubmitResult("submitted", jsonOutput)
 				}
 				return sendSubmitUnconfirmed("target opened a dialog while submitting", jsonOutput)
 			}
 		}
-		if sendStateConfirmed(lastState, screen, queuedBeforePaste, text) {
+		if sendStateConfirmed(lastState, queuedBeforePaste) {
 			status := "submitted"
 			if sendStateQueued(lastState) {
 				status = "queued"
@@ -168,8 +189,8 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 	// One final bounded read lets slow renderers show a clear or queued prompt
 	// without sending another key.
 	time.Sleep(200 * time.Millisecond)
-	lastState, screen = readSendState(socketPath, target, refreshAddr)
-	if sendStateConfirmed(lastState, screen, queuedBeforePaste, text) {
+	lastState, err = readSendInputState(socketPath, target, refreshAddr)
+	if err == nil && sendStateConfirmed(lastState, queuedBeforePaste) {
 		return printSendSubmitResult(sendConfirmedStatus(lastState), jsonOutput)
 	}
 	return sendSubmitUnconfirmed("submit key was sent but submission was not confirmed after bounded retries", jsonOutput)
@@ -208,15 +229,6 @@ func splitLeadingSendFlags(args []string) (submit, force bool, remaining []strin
 	return submit, force, prefix
 }
 
-func inspectSendTarget(socketPath string, target map[string]any, refreshAddr func() string) (map[string]any, string, error) {
-	state, err := readSendInputState(socketPath, target, refreshAddr)
-	if err != nil {
-		return nil, "", err
-	}
-	screen, _ := readSendScreen(socketPath, target, refreshAddr)
-	return state, screen, nil
-}
-
 func readSendInputState(socketPath string, target map[string]any, refreshAddr func() string) (map[string]any, error) {
 	resp, err := socketRoundTripV2(socketPath, "surface.input_state", target, refreshAddr)
 	if err != nil {
@@ -229,23 +241,10 @@ func readSendInputState(socketPath string, target map[string]any, refreshAddr fu
 	return state, nil
 }
 
-func readSendScreen(socketPath string, target map[string]any, refreshAddr func() string) (string, error) {
-	resp, err := socketRoundTripV2(socketPath, "surface.read_text", target, refreshAddr)
-	if err != nil {
-		return "", err
+func pinSendTarget(target map[string]any, state map[string]any) {
+	if surfaceID, ok := state["surface_id"].(string); ok && surfaceID != "" {
+		target["surface_id"] = surfaceID
 	}
-	var payload struct {
-		Text string `json:"text"`
-	}
-	if err := json.Unmarshal([]byte(resp), &payload); err != nil {
-		return "", err
-	}
-	return payload.Text, nil
-}
-
-func readSendState(socketPath string, target map[string]any, refreshAddr func() string) (map[string]any, string) {
-	state, screen, _ := inspectSendTarget(socketPath, target, refreshAddr)
-	return state, screen
 }
 
 func sendSubmitKey(state map[string]any) string {
@@ -264,23 +263,8 @@ func sendConfirmedStatus(state map[string]any) string {
 
 func sendSubmitUnconfirmed(reason string, jsonOutput bool) int {
 	_ = printSendSubmitResult("unconfirmed", jsonOutput)
-	fmt.Fprintf(os.Stderr, "cmux send: %s; text may already be submitted, do not paste it again without checking the target\n", reason)
+	fmt.Fprintf(os.Stderr, "cmux send: %s; text was pasted, do not resend it without checking the target\n", reason)
 	return 1
-}
-
-func sendComposerMatches(screen, text string) bool {
-	lines := strings.Split(sendANSISequence.ReplaceAllString(screen, ""), "\n")
-	body := ""
-	found := false
-	for _, line := range lines {
-		trimmed := trimSendBox(line)
-		if strings.HasPrefix(trimmed, "❯") || strings.HasPrefix(trimmed, "›") {
-			body, found = promptBody(trimmed), true
-		} else if found && strings.HasPrefix(strings.TrimSpace(line), "│") {
-			body += " " + trimmed
-		}
-	}
-	return found && strings.Join(strings.Fields(body), " ") == strings.Join(strings.Fields(text), " ")
 }
 
 func sendStateBlocksText(state map[string]any) bool {
@@ -306,7 +290,7 @@ func sendStateQueued(state map[string]any) bool {
 	return stateString(state, "state") == "queued" || boolValue(state, "queued")
 }
 
-func sendStateConfirmed(state map[string]any, screen string, queuedBeforePaste bool, text string) bool {
+func sendStateConfirmed(state map[string]any, queuedBeforePaste bool) bool {
 	if sendStateSlashPopup(state) || !sendStateAgent(state) {
 		return false
 	}
@@ -316,27 +300,34 @@ func sendStateConfirmed(state map[string]any, screen string, queuedBeforePaste b
 	if !sendStateQueued(state) {
 		return false
 	}
-	return !queuedBeforePaste || sendComposerMatches(screen, text)
+	return !queuedBeforePaste
+}
+
+func sendComposerFingerprint(text string) string {
+	normalized := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"))
+	digest := sha256.Sum256([]byte(normalized))
+	return hex.EncodeToString(digest[:])
+}
+
+func sendStateDraftStillOurs(state map[string]any, expectedFingerprint string, expectedLength int) bool {
+	if stateString(state, "state") != "draft" && !sendStateSlashPopup(state) {
+		return false
+	}
+	if fingerprint := stateString(state, "composer_fingerprint"); fingerprint != "" {
+		return fingerprint == expectedFingerprint
+	}
+	if length, ok := state["draft_length"].(float64); ok {
+		return int(length) == expectedLength
+	}
+	if length, ok := state["draft_length"].(int); ok {
+		return length == expectedLength
+	}
+	return true
 }
 
 func sendStateLooksLikeBusyCodex(state map[string]any) bool {
 	return sendStateAgent(state) && stateString(state, "agent_kind") == "codex" &&
 		(stateString(state, "lifecycle") == "running" || boolValue(state, "busy"))
-}
-
-var sendANSISequence = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)`)
-
-func trimSendBox(line string) string {
-	return strings.TrimSpace(strings.Trim(strings.TrimSpace(line), "│"))
-}
-
-func promptBody(line string) string {
-	for _, glyph := range []string{"❯", "›", ">"} {
-		if strings.HasPrefix(line, glyph) {
-			return strings.TrimSpace(strings.TrimPrefix(line, glyph))
-		}
-	}
-	return strings.TrimSpace(line)
 }
 
 func stateString(state map[string]any, key string) string {
