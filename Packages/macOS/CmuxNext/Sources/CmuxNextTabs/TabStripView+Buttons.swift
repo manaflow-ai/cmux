@@ -24,6 +24,7 @@ extension TabStripView {
         let frame = CGRect(x: max(0, bounds.width - padding - width), y: 0, width: width, height: bounds.height)
         if buttonGroup.frame != frame { buttonGroup.frame = frame }
         buttonGroup.layoutSubtreeIfNeeded()
+        updateDragBlockers()
         removeAllToolTips()
         for (button, rect) in zip(buttonGroup.buttons, buttonGroup.buttonFrames()) where !button.toolTip.isEmpty {
             addToolTip(buttonGroup.convert(rect, to: self), owner: button.toolTip as NSString, userData: nil)

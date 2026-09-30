@@ -72,6 +72,40 @@ import Testing
         #expect(buttons.minX - plus.maxX > 40)
         #expect(!region.blocksWindowDrag(at: h.windowPoint(stripX: empty)))
     }
+
+    @Test func theDecisionIsPerPoint() {
+        let rects = [CGRect(x: 80, y: 0, width: 300, height: 28), CGRect(x: 700, y: 0, width: 60, height: 28)]
+        #expect(TabStripView.titlebarHit(at: CGPoint(x: 10, y: 14), mouseRects: rects) == .empty)
+        #expect(TabStripView.titlebarHit(at: CGPoint(x: 80, y: 14), mouseRects: rects) == .strip)
+        #expect(TabStripView.titlebarHit(at: CGPoint(x: 379.5, y: 14), mouseRects: rects) == .strip)
+        #expect(TabStripView.titlebarHit(at: CGPoint(x: 380, y: 14), mouseRects: rects) == .empty)
+        #expect(TabStripView.titlebarHit(at: CGPoint(x: 720, y: 2), mouseRects: rects) == .strip)
+        #expect(TabStripView.titlebarHit(at: CGPoint(x: 760, y: 14), mouseRects: [ ]) == .empty)
+    }
+
+    @Test func theStripAndAppKitAgreeAtEveryPoint() throws {
+        let h = Harness(titles: ["One", "Two"])
+        defer { h.close() }
+        let region = try #require(AppKitTitlebarDragRegion(window: h.window))
+        // Every 4 pt across the strip; the strip's own rule and AppKit's region match.
+        for x in stride(from: CGFloat(1), to: h.strip.bounds.width, by: 4) {
+            let hit = h.strip.titlebarHit(at: CGPoint(x: x, y: h.strip.bounds.midY))
+            #expect(region.blocksWindowDrag(at: h.windowPoint(stripX: x)) == (hit == .strip), "x \(x): \(hit)")
+        }
+    }
+
+    @Test func blockersFollowTabsAddedAndRemoved() throws {
+        let h = Harness(titles: ["One"])
+        defer { h.close() }
+        let before = h.strip.contentView.convert(h.strip.newTabButton.frame, to: h.strip).maxX
+        h.model.tabs.append(TabItem(id: TabID("t1"), title: "Two"))
+        h.strip.sync(fromModel: true)
+        h.strip.layoutSubtreeIfNeeded()
+        h.strip.relayout(animated: false)
+        let region = try #require(AppKitTitlebarDragRegion(window: h.window))
+        #expect(region.blocksWindowDrag(at: h.windowPoint(stripX: h.tabCenterX(1))))
+        #expect(h.strip.contentView.convert(h.strip.newTabButton.frame, to: h.strip).maxX > before)
+    }
 }
 
 /// AppKit's titlebar drag decision for a full-size-content window: the theme

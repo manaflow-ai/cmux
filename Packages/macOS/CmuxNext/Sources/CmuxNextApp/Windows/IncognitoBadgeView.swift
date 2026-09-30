@@ -20,6 +20,10 @@ final class IncognitoBadgeView: NSView {
         stack.spacing = Metrics.space1
         stack.edgeInsets = NSEdgeInsets(top: 2, left: Metrics.space2, bottom: 2, right: Metrics.space2)
         stack.translatesAutoresizingMaskIntoConstraints = false
+        // In the top row the badge is not titlebar: pressing it never moves the window.
+        let blocker = TitlebarDragBlocker(frame: bounds)
+        blocker.autoresizingMask = [.width, .height]
+        addSubview(blocker)
         addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),

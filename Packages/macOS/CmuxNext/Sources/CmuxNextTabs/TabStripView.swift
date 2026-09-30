@@ -45,6 +45,8 @@ public final class TabStripView: NSView {
     /// Empty strip space in the window's top row acts as a titlebar (`actsAsTitlebar`).
     public var dragsWindowFromEmptySpace = true
     var windowControlsInset: CGFloat = 0
+    /// Keep tabs and buttons in the titlebar band from moving the window (`TabStripView+TitlebarDrag`).
+    var dragBlockers: [TitlebarDragBlocker] = []
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
@@ -52,7 +54,6 @@ public final class TabStripView: NSView {
     public var contextMenuProvider: TabContextMenuProvider?
     /// Inline rename state (`TabStripView+InlineRename.swift`).
     let inlineRename = TabInlineRename()
-
     // MARK: Views
 
     var glassView: NSGlassEffectView?
@@ -168,7 +169,6 @@ public final class TabStripView: NSView {
     /// Group the phantom gap belongs to (a dropped tab would join it).
     var dropPlaceholderGroup: TabGroupID?
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
-
     // MARK: - Init
 
     public init(model: TabStripModel, background: Background = .none) {

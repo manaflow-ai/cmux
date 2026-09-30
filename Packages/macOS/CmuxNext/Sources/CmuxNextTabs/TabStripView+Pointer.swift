@@ -146,6 +146,8 @@ extension TabStripView {
             press = Press(id: id, start: point)
             return
         }
+        // Between tabs or trailing buttons: the strip's, never the window's.
+        guard titlebarHit(at: point) == .empty else { return }
         // In the window's top row empty space is the titlebar: it moves
         // the window, and a double-click zooms or minimizes (the user's
         // macOS setting). Elsewhere a double-click opens a tab.
