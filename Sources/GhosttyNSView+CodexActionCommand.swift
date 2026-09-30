@@ -51,19 +51,19 @@ extension GhosttyNSView {
         let surfaceID = terminalSurface.id
         let runtimeGeneration = terminalSurface.runtimeSurfaceGeneration
         let frameSequence = renderedFrameSequence
+        guard isLiveCodexPanel(panel) else {
+            codexActionCacheRows = nil
+            return false
+        }
         if surfaceID == codexActionCacheSurfaceID,
            runtimeGeneration == codexActionCacheRuntimeGeneration,
-           frameSequence == codexActionCacheFrameSequence {
-            return codexActionCacheIsLiveCodexPanel
+           frameSequence == codexActionCacheFrameSequence,
+           codexActionCacheRows != nil {
+            return true
         }
         codexActionCacheSurfaceID = surfaceID
         codexActionCacheRuntimeGeneration = runtimeGeneration
         codexActionCacheFrameSequence = frameSequence
-        codexActionCacheIsLiveCodexPanel = isLiveCodexPanel(panel)
-        guard codexActionCacheIsLiveCodexPanel else {
-            codexActionCacheRows = nil
-            return false
-        }
         codexActionCacheRows = terminalSurface.mobileRenderGridFrame(
             stateSeq: 0,
             includeTheme: false,

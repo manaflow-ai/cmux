@@ -3832,7 +3832,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var codexActionCacheSurfaceID: UUID?
     var codexActionCacheRuntimeGeneration: UInt64 = .max
     var codexActionCacheFrameSequence: UInt64 = .max
-    var codexActionCacheIsLiveCodexPanel = false
     var codexActionCacheRows: [String]?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
