@@ -1954,18 +1954,33 @@ mod tests {
         let scope = ClientScope::local();
         let workspace = open_watch_workspace(&service, &scope, directory.path()).await;
         let watch = start_watch(&service, &scope, &workspace, &[""]).await.unwrap();
+        // FSEvents (macOS) can report the temp directory's own creation after the
+        // watch starts; absorb it so the quiet poll below measures a quiet tree.
+        let WorkspaceResponse::WatchChanges { sequence: settled, .. } =
+            service.handle_request(watch_poll(&watch, 0, 300)).await.unwrap()
+        else {
+            panic!("expected watch changes");
+        };
 
         let started = std::time::Instant::now();
-        let response = service.handle_request(watch_poll(&watch, 0, 150)).await.unwrap();
+        let response = service.handle_request(watch_poll(&watch, settled, 150)).await.unwrap();
         assert!(started.elapsed() >= std::time::Duration::from_millis(140));
         assert_eq!(
             response,
-            WorkspaceResponse::WatchChanges { sequence: 0, paths: Vec::new(), overflow: false }
+            WorkspaceResponse::WatchChanges {
+                sequence: settled,
+                paths: Vec::new(),
+                overflow: false
+            }
         );
-        let immediate = service.handle_request(watch_poll(&watch, 0, 0)).await.unwrap();
+        let immediate = service.handle_request(watch_poll(&watch, settled, 0)).await.unwrap();
         assert_eq!(
             immediate,
-            WorkspaceResponse::WatchChanges { sequence: 0, paths: Vec::new(), overflow: false }
+            WorkspaceResponse::WatchChanges {
+                sequence: settled,
+                paths: Vec::new(),
+                overflow: false
+            }
         );
     }
 
