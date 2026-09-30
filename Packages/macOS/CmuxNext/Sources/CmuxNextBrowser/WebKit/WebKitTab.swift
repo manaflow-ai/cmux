@@ -221,10 +221,6 @@ public final class WebKitTab: NSObject, BrowserTab {
         }
     }
 
-    func routeKeyEquivalent(_ event: NSEvent) -> BrowserKeyDisposition {
-        keyRouter?.browserTab(self, keyEquivalent: event) ?? .passToPage
-    }
-
     func navigationID(for navigation: WKNavigation?, creating: Bool) -> BrowserNavigationID? {
         guard let navigation else {
             return creating ? allocateNavigationID() : state.activeNavigation

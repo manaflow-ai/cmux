@@ -33,6 +33,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugFocus.report(services: services))
             },
+            // App overlays vs content child windows (Chromium pages).
+            .mainActor("debug.layers") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugLayers.report(services: services))
+            },
             .mainActor("debug.surfaces") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(SurfaceDiagnosticsReport.make(services))
@@ -49,6 +54,14 @@ final class AppControl {
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
+            },
+            .mainActor("debug.window_frame") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugLayers.setWindowFrame(call.params, services: services))
+            },
+            .mainActor("debug.drop_highlight") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugLayers.dropHighlight(call.params, services: services))
             },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }

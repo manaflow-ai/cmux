@@ -38,6 +38,8 @@ final class LayoutViewContext {
     /// Panes present in any screen of the current snapshot.
     var livePanes: Set<PaneID> = []
     var requestFrames: () -> Void = {}
+    /// Pane hosts or dividers moved: the overlay plane follows them.
+    var overlayNeedsSync: () -> Void = {}
 
     init(model: LayoutModel, provider: any LayoutPaneContentProvider) {
         self.model = model
@@ -59,6 +61,7 @@ final class LayoutViewContext {
     func release(_ pane: PaneID) {
         guard let host = hosts.removeValue(forKey: pane) else { return }
         host.removeFromSuperview()
+        host.chrome.removeFromSuperview()
         provider?.releaseContentView(host.content, for: pane)
     }
 }

@@ -64,6 +64,9 @@ final class AppServices {
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
+        (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
+            self?.keyRouter.interceptKeyDown(event, in: window) ?? false
+        }
         surfaceInvariant.services = self
         cache.onPresentationChange = { [weak self] in self?.surfaceInvariant.noteChange() }
         windows = WindowManager(services: self)

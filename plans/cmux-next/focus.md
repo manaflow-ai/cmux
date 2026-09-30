@@ -235,11 +235,19 @@ Every action has a key tier (`ActionKeyTier`), default from the catalog, overrid
 | 2 content | Runs only when its content has the keyboard; never in a text field | actions that require a content context (`terminalFocused`, `browserFocused`, viewer contexts): Copy, Paste, reload, back/forward, zoom |
 | 3 raw | Not a registry action | the focused view: Ghostty keybinds and input, the page, the text field |
 
-Order in `ShellWindow.performKeyEquivalent` (and in the CEF pre-key hook, which now has
-the same router):
+Order (steps 1-3 run app-wide in `CmuxApplication.sendEvent`, before any window or
+responder sees the key, for every window of the process: the cmux window, a WebKit
+page, the address bar, or a Chromium page window that is key itself; panels and
+sheets keep their keys. Step 5 runs in `ShellWindow.performKeyEquivalent` and in the
+CEF pre-key hook, which run tier 2 only, so nothing runs twice. Only Command or
+Control chords are candidates, so typing, Option characters and IME input pass):
 1. Tier 0 registry actions.
 2. Browser focus mode on the focused page: stop, the page gets the key (then AppKit menus).
-3. Tier 1 registry actions.
+3. Tier 1 registry actions. When the registry has no action for the chord and no
+   terminal has the keyboard, the user's Ghostty keybinds for window, tab and split
+   actions (`cmd+ctrl+h=goto_split:left`, read with `ghostty_config_trigger`, one chord
+   per action) run the registry action the terminal path maps them to
+   (`TerminalHostActionRoute`); a focused terminal runs its own Ghostty keybinds.
 4. A text input has the keyboard (address bar, find bar, sidebar search or rename, sheet
    field): stop; the field and the Edit menu get editing chords.
 5. Tier 2 registry actions whose context matches.
@@ -265,8 +273,9 @@ Closing the find bar or ending address bar editing also goes through the coordin
 field editor keeps a caret in the parent window while the page window has the keys.
 
 DEBUG builds add `debug.key` (a key-down dispatched into one of the app's own windows
-like `NSApplication.sendEvent`: window key equivalents, then the main menu, then the
-responder chain) and `debug.sidebar_rename`, for verification on windows that are
+like `NSApplication.sendEvent`: the app-wide interceptor, window key equivalents, then
+the main menu, then the responder chain; `"target": "page"` sends it to a pane's
+Chromium page window) and `debug.sidebar_rename`, for verification on windows that are
 never key. The palette panel and
 sheets are other windows: their own key handling runs, and the published context has no
 content bits while they are open.

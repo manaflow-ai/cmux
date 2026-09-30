@@ -1,19 +1,11 @@
 import AppKit
 import WebKit
 
-/// `WKWebView` with cmux key routing and context menu wording.
+/// `WKWebView` with cmux context menu wording. App shortcuts reach the host
+/// before the page: the host routes system and navigation keys app-wide and
+/// content keys in its window, before any view (the page is in-window).
 final class WebKitWebView: WKWebView {
     weak var owner: WebKitTab?
-
-    /// App shortcuts run before the page sees the key equivalent. The check is
-    /// limited to a focused web view, because AppKit offers key equivalents
-    /// to every view in the window.
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if hasKeyboardFocus, let owner, owner.routeKeyEquivalent(event) == .handledByHost {
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
 
     /// "Open Link in New Window" opens a cmux tab (the request arrives at
     /// `createWebViewWith`), so it is renamed to match.

@@ -3,7 +3,8 @@ import AppKit
 /// The parent view of a pane's Chromium window. The fork's
 /// `CmuxParentViewTracker` keeps the page window over this view, clips it to
 /// the visible rect, and punches holes where `cmuxOcclusionRects` says native
-/// UI must show above the page (glass overlays, find bar, prompt bar).
+/// UI must show above the page (find bar, prompt bar) or must get the mouse
+/// (the window's dividers and switcher, `BrowserWindowOcclusionProviding`).
 final class CEFHostView: NSView {
     /// Rects in this view's coordinates where native UI covers the page.
     var occlusionRects: [CGRect] = [] {
@@ -12,6 +13,7 @@ final class CEFHostView: NSView {
             postGeometryChange()
         }
     }
+    private var windowObserver: (any NSObjectProtocol)?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -21,9 +23,38 @@ final class CEFHostView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Read by the fork (`-cmuxOcclusionRects`, NSArray of NSValue NSRect).
+    isolated deinit {
+        if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
+    }
+
+    /// Read by the fork (`-cmuxOcclusionRects`, NSArray of NSValue NSRect)
+    /// on every geometry update, so window rects convert at the current
+    /// position.
     @objc func cmuxOcclusionRects() -> NSArray {
-        occlusionRects.map { NSValue(rect: $0) } as NSArray
+        allOcclusionRects.map { NSValue(rect: $0) } as NSArray
+    }
+
+    /// The chrome's rects plus the window's interactive overlays over this
+    /// view, in this view's coordinates.
+    var allOcclusionRects: [CGRect] {
+        var rects = occlusionRects
+        if let provider = window as? any BrowserWindowOcclusionProviding {
+            for rect in provider.browserOcclusionRectsInWindow {
+                let local = convert(rect, from: nil).intersection(bounds)
+                if !local.isNull, !local.isEmpty { rects.append(local) }
+            }
+        }
+        return rects
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
+        windowObserver = nil
+        guard let window else { return }
+        windowObserver = NotificationCenter.default.addObserver(forName: BrowserChildWindowPages.needsUpdate, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.postGeometryChange() }
+        }
     }
 
     /// Tells the tracker about moves AppKit does not report (layer

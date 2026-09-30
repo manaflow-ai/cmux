@@ -227,6 +227,25 @@ final class ScreenContentView: NSView {
             view.frame = frame.rect.offsetBy(dx: dx, dy: 0)
             view.alphaValue = frame.alpha.value
         }
+        context.overlayNeedsSync()
+    }
+
+    /// Hosts this screen displays now (including panes animating out).
+    var displayedHosts: [PaneHostView] {
+        (Array(paneFrames.keys) + Array(removingPanes.keys)).compactMap { pane in
+            context.hosts[pane].flatMap { $0.superview === self ? $0 : nil }
+        }
+    }
+
+    /// Divider hit areas that are on screen, in this view's coordinates.
+    /// They take the mouse, so content drawn above the window (a Chromium
+    /// page) must leave them uncovered.
+    var interactiveRects: [CGRect] {
+        dividerViews.values.compactMap { view in
+            guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
+            let rect = view.frame.intersection(bounds)
+            return rect.isNull || rect.isEmpty ? nil : rect
+        }
     }
 
     // MARK: Chrome

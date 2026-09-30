@@ -2,12 +2,14 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Wraps one App-provided pane view and draws the focus ring and inactive dim
-/// above it without taking hits.
+/// Wraps one App-provided pane view. Its focus ring and inactive dim
+/// (`chrome`) live in the layout's `OverlayPlane`, not in this view, so they
+/// draw above content that is a child window (Chromium pages); the root
+/// keeps them on this view's displayed frame.
 final class PaneHostView: NSView {
     let pane: PaneID
     let content: NSView
-    private let overlay = PaneOverlayView()
+    let chrome = PaneOverlayView()
 
     init(pane: PaneID, content: NSView) {
         self.pane = pane
@@ -19,9 +21,6 @@ final class PaneHostView: NSView {
         content.autoresizingMask = [.width, .height]
         content.frame = bounds
         addSubview(content)
-        overlay.autoresizingMask = [.width, .height]
-        overlay.frame = bounds
-        addSubview(overlay)
     }
 
     @available(*, unavailable)
@@ -32,12 +31,12 @@ final class PaneHostView: NSView {
     override var isFlipped: Bool { true }
 
     func setChrome(showsRing: Bool, dim: CGFloat, ringWidth: CGFloat) {
-        overlay.update(showsRing: showsRing, dim: dim, ringWidth: ringWidth)
+        chrome.update(showsRing: showsRing, dim: dim, ringWidth: ringWidth)
     }
 }
 
 /// Non-interactive overlay: subtle gray ring (never blue) and a dim layer.
-private final class PaneOverlayView: NSView {
+final class PaneOverlayView: NSView {
     private let ring = CALayer()
     private let dimLayer = CALayer()
 
@@ -57,6 +56,9 @@ private final class PaneOverlayView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Whether the ring is showing (for `debug.layers`).
+    var showsRing: Bool { ring.opacity > 0 }
 
     override func layout() {
         super.layout()

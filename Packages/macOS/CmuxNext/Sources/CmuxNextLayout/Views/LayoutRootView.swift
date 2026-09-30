@@ -15,7 +15,12 @@ public final class LayoutRootView: NSView {
     var screenViews: [ScreenID: ScreenContentView] = [:]
     var screenFrames: [ScreenID: AnimatedFrame] = [:]
     let highlight = DropHighlightView()
-    private let switcher = ScreenSwitcherView()
+    /// Non-interactive overlays (rings, dims, drop highlight). See
+    /// `OverlayPlane`: the window may lift it above content child windows.
+    public private(set) lazy var overlayPlane = OverlayPlane(home: self)
+    weak var planeHost: (any OverlayPlaneHosting)?
+    var reportedInteractiveRects: [CGRect] = []
+    let switcher = ScreenSwitcherView()
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
     private var eventMonitor: Any?
@@ -47,7 +52,9 @@ public final class LayoutRootView: NSView {
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.frame(dt) ?? false }
-        addSubview(highlight)
+        context.overlayNeedsSync = { [weak self] in self?.syncOverlay() }
+        overlayPlane.addSubview(highlight)
+        addSubview(overlayPlane)
         addSubview(switcher)
         NSLayoutConstraint.activate([
             switcher.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.space4),
@@ -164,7 +171,7 @@ public final class LayoutRootView: NSView {
                 view = ScreenContentView(screenID: screen.id, layout: screen.layout, context: context)
                 view.frame = bounds
                 view.isHidden = !isActive
-                addSubview(view, positioned: .below, relativeTo: highlight)
+                addSubview(view, positioned: .below, relativeTo: overlayPlane.isHome ? overlayPlane : switcher)
                 screenViews[screen.id] = view
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
@@ -194,6 +201,7 @@ public final class LayoutRootView: NSView {
             switcher.update(screens: snapshot.screens, active: snapshot.activeScreen)
         }
         updateVisibility()
+        syncOverlay()
         if needsFrames || snapshot.gestureActive { driver.start() }
     }
 
@@ -211,6 +219,7 @@ public final class LayoutRootView: NSView {
         applyScreenFrames()
         if highlight.step(dt) { moving = true }
         updateVisibility()
+        syncOverlay()
         return moving || model.isGestureActive || model.hasPendingGestureIntents
     }
 
@@ -253,10 +262,31 @@ public final class LayoutRootView: NSView {
         }
         applyScreenFrames()
         updateVisibility()
+        overlayPlane.syncFrame()
+        syncOverlay()
+        planeHost?.planeDidLayout(overlayPlane)
+    }
+
+    override public func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        overlayPlane.syncFrame()
+        syncOverlay()
+    }
+
+    override public func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        guard let planeHost, newWindow !== window else { return }
+        planeHost.releasePlane(overlayPlane)
+        self.planeHost = nil
+        returnPlaneHome()
     }
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let host = window as? any OverlayPlaneHosting, planeHost !== host {
+            planeHost = host
+            host.adoptPlane(overlayPlane)
+        }
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
             self.eventMonitor = nil

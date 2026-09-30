@@ -37,6 +37,7 @@ public final class GhosttyRuntime {
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
 
     private let context = RuntimeCallbackContext()
+    let hostKeybindCache = HostKeybindCache()
     private var observers: [any NSObjectProtocol] = []
     private var appearanceObservation: NSKeyValueObservation?
 
@@ -94,6 +95,7 @@ public final class GhosttyRuntime {
     private func replaceConfig(_ fresh: ghostty_config_t?) {
         if let config { ghostty_config_free(config) }
         config = fresh
+        hostKeybindCache.binds = nil
         onConfigChange?()
     }
 

@@ -22,6 +22,10 @@ import os
 /// - CEF: Chromium must know when an event is being dispatched through
 ///   `sendEvent:` (nested run loops, menu tracking), so this class tracks it
 ///   and conforms to `CefAppProtocol` before `CefInitialize`.
+/// - Keys: every key-down of the process passes ``keyDownInterceptor`` (the
+///   `KeyRouter`) before any window or responder, including Chromium page
+///   windows that are key themselves, so system and navigation shortcuts
+///   work whatever has focus (plans/cmux-next/focus.md section 5).
 /// - `CMUX_NEXT_NO_ACTIVATE=1` (``refusesActivation``): every activation
 ///   request, from AppKit, CEF/Chromium, or app code, is dropped, so an agent
 ///   run never takes focus from the user's frontmost app.
@@ -29,6 +33,9 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     private var handlingSendEvent = false
     /// Set once in `CmuxNextApp.main` before `run()`.
     var refusesActivation = false
+    /// Set once by `AppServices`. Gets the key-down and the window it goes
+    /// to; returns true when it consumed the key.
+    var keyDownInterceptor: ((NSEvent, NSWindow?) -> Bool)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     @objc(isHandlingSendEvent)
@@ -41,6 +48,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         let previous = handlingSendEvent
         handlingSendEvent = true
         defer { handlingSendEvent = previous }
+        if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         super.sendEvent(event)
     }
 

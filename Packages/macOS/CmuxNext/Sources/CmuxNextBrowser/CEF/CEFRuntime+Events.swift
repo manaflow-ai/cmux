@@ -57,7 +57,7 @@ extension CEFRuntime {
     }
 
     func routeKey(_ event: NSEvent, browser: Int32) -> Bool {
-        guard event.type == .keyDown, event.modifierFlags.contains(.command),
+        guard event.type == .keyDown, !event.modifierFlags.isDisjoint(with: [.command, .control]),
               let tab = tabsByBrowser[browser], let router = tab.keyRouter else { return false }
         return router.browserTab(tab, keyEquivalent: event) == .handledByHost
     }

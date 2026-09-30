@@ -104,9 +104,9 @@ struct FocusCoordinatorTests {
         let focus = FocusReducer.reduce(FocusReducerTests.loaded(), .responder(.sidebarField, source: .mouse)).0
         let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 1, windowNumber: 0,
                                                   context: nil, characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8))
-        #expect(!services.keyRouter.routeKeyEquivalent(event, focus: focus))
+        #expect(!services.keyRouter.routeContentKeyEquivalent(event, focus: focus))
         #expect(ran.isEmpty)
-        #expect(services.keyRouter.routeKeyEquivalent(event, focus: FocusReducerTests.loaded()))
+        #expect(services.keyRouter.routeContentKeyEquivalent(event, focus: FocusReducerTests.loaded()))
         #expect(ran == ["terminalCopy"])
     }
 }

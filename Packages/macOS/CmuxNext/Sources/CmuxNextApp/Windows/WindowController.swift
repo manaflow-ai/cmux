@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 import Observation
 
 /// One window: sidebar, titlebar, and the content of the workspace it shows.
@@ -60,6 +62,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func teardown() {
+        (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
         workspaceObservation?.cancel()
         titleObservation?.cancel()
@@ -202,17 +205,31 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
-/// Routes key equivalents through the one `KeyRouter` (focus.md section 5)
-/// and reports every first-responder change to the window's focus
-/// coordinator, which classifies it (`FocusResponderClassifier`).
-final class ShellWindow: NSWindow {
+/// Runs tier 2 (content) shortcuts before the window's views (tiers 0 and 1
+/// already ran app-wide in `CmuxApplication.sendEvent`, focus.md section 5),
+/// reports every first-responder change to the window's focus coordinator
+/// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
+/// windows (`WindowOverlayLayer`).
+final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding {
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
+    private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if let keyRouter, let focus, keyRouter.routeKeyEquivalent(event, focus: focus.state) { return true }
+        if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }
         return super.performKeyEquivalent(with: event)
     }
+
+    // MARK: OverlayPlaneHosting
+
+    func adoptPlane(_ plane: OverlayPlane) { overlayLayer.adopt(plane) }
+    func releasePlane(_ plane: OverlayPlane) { overlayLayer.release(plane) }
+    func interactiveOverlayRectsDidChange(_ plane: OverlayPlane) { overlayLayer.interactiveRectsDidChange() }
+    func planeDidLayout(_ plane: OverlayPlane) { overlayLayer.planeDidLayout() }
+
+    // MARK: BrowserWindowOcclusionProviding
+
+    var browserOcclusionRectsInWindow: [CGRect] { overlayLayer.interactiveRects }
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         let accepted = super.makeFirstResponder(responder)

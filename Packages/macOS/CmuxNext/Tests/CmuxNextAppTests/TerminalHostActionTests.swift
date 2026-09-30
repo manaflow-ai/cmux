@@ -64,7 +64,10 @@ struct TerminalHostActionTests {
         #expect(recorder.runs.first?.1 == ActionTargetRef(kind: .tab, id: tab.id))
     }
 
-    @Test func windowRoutesSplitShortcutsToTheRegistry() throws {
+    /// Split shortcuts are tier 1: the app-wide interceptor
+    /// (`CmuxApplication.sendEvent`) runs them before any window, and the
+    /// window's own key equivalent hook (tier 2 only) never runs them again.
+    @Test func splitShortcutsRouteAppWideNotInTheWindow() throws {
         let (services, _, recorder) = try Self.services(recording: ["splitRight", "splitDown"])
         let window = ShellWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled],
                                  backing: .buffered, defer: true)
@@ -72,13 +75,18 @@ struct TerminalHostActionTests {
         let focus = FocusCoordinator()
         window.keyRouter = services.keyRouter
         window.focus = focus
+        var resolved: [ActionID] = []
         for (characters, flags) in [("d", NSEvent.ModifierFlags.command), ("D", [.command, .shift])] {
             let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 1,
                                                       windowNumber: window.windowNumber, context: nil, characters: characters,
                                                       charactersIgnoringModifiers: characters, isARepeat: false, keyCode: 2))
-            #expect(window.performKeyEquivalent(with: event))
+            let candidate = try #require(services.keyRouter.candidate(for: event, focus: FocusReducerTests.loaded()))
+            #expect(KeyRouter.intercepts(candidate, focus: FocusReducerTests.loaded(), keyWindow: .content))
+            resolved.append(candidate.id)
+            #expect(!services.keyRouter.routeContentKeyEquivalent(event, focus: FocusReducerTests.loaded()))
         }
-        #expect(recorder.runs.map(\.0) == ["splitRight", "splitDown"])
+        #expect(resolved == ["splitRight", "splitDown"])
+        #expect(recorder.runs.isEmpty)
         withExtendedLifetime(focus) {}
     }
 
