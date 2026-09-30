@@ -1440,6 +1440,9 @@ extension CMUXCLI {
             throw error
         }
         guard let id = response["id"] as? String, !id.isEmpty else {
+            // The provider may have created the machine despite the missing id.
+            // Keep the key reusable even while this process is still alive.
+            markVMRunCreateIdempotencyUncertain(idempotency)
             throw CLIError(message: "vm run: create returned no machine id")
         }
         // Membership is recorded before anything else can fail: this is what
