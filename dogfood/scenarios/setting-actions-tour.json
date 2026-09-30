@@ -12,7 +12,7 @@
       "socket": "workspace.create",
       "params": {
         "title": "Setting Actions",
-        "initial_input": "mkdir -p ~/.config/cmux; if [ -f ~/.config/cmux/cmux.json ]; then cp ~/.config/cmux/cmux.json ~/.config/cmux/setting-actions-tour.backup; fi; printf '%s\\n' '{\"app\":{\"appearance\":\"light\",\"minimalMode\":false},\"actions\":{\"tour.appearance.dark\":{\"type\":\"setting\",\"path\":\"app.appearance\",\"set\":\"dark\",\"title\":\"Tour: Dark Appearance\",\"palette\":true},\"tour.presentation.minimal\":{\"type\":\"settingPreset\",\"preset\":\"tour.minimal\",\"title\":\"Tour: Minimal Presentation\",\"palette\":true}},\"settingPresets\":{\"tour.minimal\":{\"app\":{\"minimalMode\":true,\"appearance\":\"light\"}}}}' > ~/.config/cmux/cmux.json; clear; printf \"Setting actions and presets loaded from cmux.json\\n\"\n",
+        "initial_input": "mkdir -p ~/.config/cmux; printf '%s\\n' '{\"app\":{\"appearance\":\"light\",\"minimalMode\":false},\"actions\":{\"tour.appearance.dark\":{\"type\":\"setting\",\"path\":\"app.appearance\",\"set\":\"dark\",\"title\":\"Tour: Dark Appearance\",\"palette\":true},\"tour.presentation.minimal\":{\"type\":\"settingPreset\",\"preset\":\"tour.minimal\",\"title\":\"Tour: Minimal Presentation\",\"palette\":true}},\"settingPresets\":{\"tour.minimal\":{\"app\":{\"minimalMode\":true,\"appearance\":\"light\"}}}}' > ~/.config/cmux/cmux.json; cmux reload-config; clear; printf \"Setting actions and presets loaded from cmux.json\\n\"\n",
         "focus": true
       },
       "save": "setup"
@@ -128,7 +128,7 @@
       "tree": "cli-config-get-and-set-output"
     },
     {
-      "type": "if [ -f ~/.config/cmux/setting-actions-tour.backup ]; then mv ~/.config/cmux/setting-actions-tour.backup ~/.config/cmux/cmux.json; else rm ~/.config/cmux/cmux.json; fi\n"
+      "type": "rm -f ~/.config/cmux/cmux.json; cmux reload-config; printf \"config restored\\n\"\n"
     },
     {
       "wait": 1.0
