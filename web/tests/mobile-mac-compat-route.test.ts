@@ -133,9 +133,6 @@ describe("mobile-mac-compat route", () => {
       nightly: { minBaseVersion: "0.64.25", minBuild: "3522337919701" },
     });
     expect(next.buildKinds?.internal).toEqual(next.buildKinds?.beta);
-    // The 1.0.6 tier is intentionally open-ended. Until a protocol-breaking
-    // iOS release needs a new floor, 1.0.7 and later inherit these exact
-    // stable and nightly requirements.
     expect(next.maxIOSVersion).toBeUndefined();
     expect(next.buildKinds?.beta).toEqual({
       stableMinVersion: "0.64.25",
