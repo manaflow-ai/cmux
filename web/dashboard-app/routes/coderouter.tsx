@@ -1,11 +1,10 @@
 import { createRoute, lazyRouteComponent, redirect } from "@tanstack/react-router";
 import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
-import { RouteSectionError } from "../components/route-section-error";
 import { isRefusal, refusalReason } from "../lib/refusal";
 import { cloudDevicesQuery } from "../queries/cloud";
 import { coderouterOverviewQuery } from "../queries/coderouter";
-import { CloudPageFrame } from "../screens/cloud/cloud-frame";
-import { CoderouterPageFrame } from "../screens/coderouter/coderouter-frame";
+import { CloudPageFrame, CloudRouteError } from "../screens/cloud/cloud-frame";
+import { CoderouterPageFrame, CoderouterRouteError } from "../screens/coderouter/coderouter-frame";
 import { shellRoute } from "./root";
 
 /** `?team=` comes from the shell; absent, the server uses the Stack-selected team. */
@@ -30,11 +29,7 @@ const coderouterRoute = createRoute({
       <DashboardSectionSkeleton variant="panel" />
     </CoderouterPageFrame>
   ),
-  errorComponent: (props) => (
-    <CoderouterPageFrame>
-      <RouteSectionError {...props} />
-    </CoderouterPageFrame>
-  ),
+  errorComponent: CoderouterRouteError,
   component: lazyRouteComponent(() => import("../screens/coderouter/coderouter-screen"), "CoderouterScreen"),
 });
 
@@ -49,11 +44,7 @@ const cloudRoute = createRoute({
   ),
   // A 503 here is the device list failing, not the session: it shows in the
   // page like any other data failure, never as sign-in recovery.
-  errorComponent: (props) => (
-    <CloudPageFrame>
-      <RouteSectionError {...props} />
-    </CloudPageFrame>
-  ),
+  errorComponent: CloudRouteError,
   component: lazyRouteComponent(() => import("../screens/cloud/cloud-screen"), "CloudScreen"),
 });
 

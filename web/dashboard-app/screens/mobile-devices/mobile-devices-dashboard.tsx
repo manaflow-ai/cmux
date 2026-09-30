@@ -82,7 +82,7 @@ function ConnectedDevices({ teamId, userId, stack }: { readonly teamId: string; 
   };
   const managedDeviceIds = new Set(directory?.managedDeviceIds ?? []);
   return <>
-    {error ? <ConnectionError message={error} onRetry={() => { setDirectory(null); setError(null); setRetryNonce(value => value + 1); }} /> : null}
+    {error ? <ConnectionError onRetry={() => { setDirectory(null); setError(null); setRetryNonce(value => value + 1); }} /> : null}
     {!directory && !error ? <LoadingState label={t("loading")} /> : null}
     {directory ? <>
       {directory.devices.length === 0 ? <EmptyDevices /> : <div className="divide-y divide-border border-y border-border">
@@ -136,9 +136,11 @@ export function LoadingState({ label }: { readonly label: string }) {
   </div>;
 }
 
-export function ConnectionError({ message, onRetry }: { readonly message: string; readonly onRetry: () => void }) {
+/** The device directory connection failed; Try again reconnects it. */
+export function ConnectionError({ onRetry }: { readonly onRetry: () => void }) {
   const t = useTranslations("dashboard.mobileDevices");
-  return <SectionError error={null} section={t("title")} reason={message} onRetry={onRetry} />;
+  const states = useTranslations("dashboard.states");
+  return <SectionError error={null} section={t("title")} reason={states("reason.unavailable")} onRetry={onRetry} />;
 }
 
 export function RelaySettings({ relayURLs, controllerRef }: {

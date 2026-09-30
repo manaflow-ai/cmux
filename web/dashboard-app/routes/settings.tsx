@@ -1,7 +1,6 @@
 import { createRoute, type ErrorComponentProps, lazyRouteComponent } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
-import { RouteSectionError } from "../components/route-section-error";
 import {
   settingsApiKeysQuery,
   settingsNotificationsQuery,
@@ -9,7 +8,7 @@ import {
   settingsOverviewQuery,
   settingsSessionsQuery,
 } from "../queries/settings";
-import { SettingsHeader, type SettingsHeaderSection } from "../screens/settings/settings-header";
+import { SettingsHeader, type SettingsHeaderSection, SettingsRouteError } from "../screens/settings/settings-header";
 import { shellRoute } from "./root";
 
 const pages = () => import("../screens/settings/settings-pages");
@@ -26,12 +25,7 @@ function sectionStates(section: SettingsHeaderSection, skeleton: ReactNode) {
         {skeleton}
       </>
     ),
-    errorComponent: (props: ErrorComponentProps) => (
-      <>
-        <SettingsHeader section={section} />
-        <RouteSectionError {...props} />
-      </>
-    ),
+    errorComponent: (props: ErrorComponentProps) => <SettingsRouteError {...props} section={section} />,
   };
 }
 

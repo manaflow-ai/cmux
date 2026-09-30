@@ -1,8 +1,10 @@
 "use client";
 
+import type { ErrorComponentProps } from "@tanstack/react-router";
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { DashboardSectionSkeleton } from "@/dashboard-app/components/dashboard-skeleton";
+import { RouteSectionError } from "@/dashboard-app/components/route-section-error";
 
 /** Page frame shared by `/dashboard/teams` and `/dashboard/teams/new`. */
 export function TeamsPageFrame({
@@ -48,4 +50,20 @@ export function TeamShellPending() {
       <DashboardSectionSkeleton variant="settings" />
     </div>
   );
+}
+
+/** `/dashboard/teams` failed to load the catalog. */
+export function TeamsRouteError(props: ErrorComponentProps) {
+  const t = useTranslations("dashboard.teams.list");
+  return (
+    <TeamsPageFrame namespace="dashboard.teams.list">
+      <RouteSectionError {...props} section={t("title")} />
+    </TeamsPageFrame>
+  );
+}
+
+/** The team billing tab failed; the team header and tabs stay above it. */
+export function TeamBillingRouteError(props: ErrorComponentProps) {
+  const t = useTranslations("dashboard.teams.shell.tabs");
+  return <RouteSectionError {...props} section={t("billing")} />;
 }

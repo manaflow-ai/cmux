@@ -62,7 +62,7 @@ describe("mobile devices dashboard", () => {
 
     expect(render(<EmptyDevices />)).toContain("No connected devices yet");
     expect(render(<LoadingState label="Loading devices…" />)).toContain('role="status"');
-    expect(render(<ConnectionError message="Could not load your devices." onRetry={() => {}} />)).toContain("Try again");
+    expect(render(<ConnectionError onRetry={() => {}} />)).toContain("Try again");
     const relay = render(<RelaySettings relayURLs={["https://relay.example"]} controllerRef={{ current: null }} />);
     expect(relay).toContain("<details");
     expect(relay).toContain("Relay settings");

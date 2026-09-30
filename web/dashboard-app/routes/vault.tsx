@@ -1,7 +1,6 @@
 import { createRoute, lazyRouteComponent, notFound } from "@tanstack/react-router";
 import { z } from "zod";
 import { DashboardSectionSkeleton, DashboardSkeleton } from "../components/dashboard-skeleton";
-import { RouteSectionError } from "../components/route-section-error";
 import { isRefusal } from "../lib/refusal";
 import type { DashboardSessionResponse } from "../lib/session-types";
 import {
@@ -12,7 +11,7 @@ import {
   vaultSummaryQuery,
   vaultTranscriptHeadQuery,
 } from "../queries/vault";
-import { VaultOverviewFrame } from "../screens/vault/vault-frame";
+import { VaultOverviewFrame, VaultOverviewRouteError } from "../screens/vault/vault-frame";
 import { shellRoute } from "./root";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -39,11 +38,7 @@ const vaultRoute = createRoute({
       <DashboardSectionSkeleton variant="table" columns={4} rows={1} />
     </VaultOverviewFrame>
   ),
-  errorComponent: (props) => (
-    <VaultOverviewFrame>
-      <RouteSectionError {...props} />
-    </VaultOverviewFrame>
-  ),
+  errorComponent: VaultOverviewRouteError,
   component: lazyRouteComponent(() => import("../screens/vault/vault-overview"), "VaultOverview"),
 });
 

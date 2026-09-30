@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { DashboardSectionSkeleton } from "@/dashboard-app/components/dashboard-skeleton";
 import { QuerySection } from "@/dashboard-app/components/page-states";
@@ -17,10 +18,11 @@ import { SettingsHeader, type SettingsHeaderSection } from "./settings-header";
  * failing section leaves the navigation usable.
  */
 function SettingsPage({ section, children }: { readonly section: SettingsHeaderSection; readonly children: ReactNode }) {
+  const t = useTranslations(`dashboard.settings.${section}`);
   return (
     <>
       <SettingsHeader section={section} />
-      <QuerySection name={`dashboard-settings-${section}`} skeleton={<DashboardSectionSkeleton variant="settings" />}>
+      <QuerySection name={`dashboard-settings-${section}`} section={t("title")} skeleton={<DashboardSectionSkeleton variant="settings" />}>
         {children}
       </QuerySection>
     </>
