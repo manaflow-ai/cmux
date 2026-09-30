@@ -145,3 +145,33 @@ test("a new ACP turn after Stop still reaches the agent", async () => {
     }
   });
 });
+
+test("Stop during ACP startup settles the status before startup finishes", async () => {
+  await withFake("startup-status", async (paths) => {
+    const adapter = makeAdapter(paths);
+    const events: AgentEvent[] = [];
+    const sess = makeSession("startup-stop-status", events);
+    try {
+      const turn = adapter.send(sess, "startup");
+      await waitFor(paths.startupReady, (value) => value.includes("ready\n"), "startup");
+      expect(sess.status).toBe("running");
+
+      // The startup gate stays closed across the assertion below. The cancelled
+      // turn cannot report itself idle until session/new answers, so Stop has to
+      // settle the status itself or the session looks busy until startup times out.
+      adapter.stop(sess);
+      expect(sess.status).toBe("idle");
+
+      await writeFile(paths.startupGate, "release\n");
+      await writeFile(paths.promptGate, "release\n");
+      await turn;
+
+      expect(await lines(paths.promptLog)).toEqual([]);
+      const done = events.filter((event) => event.kind === "done");
+      expect(done).toHaveLength(1);
+      expect((done[0] as { stats?: string }).stats).toBe("stop: cancelled");
+    } finally {
+      adapter.dispose(sess);
+    }
+  });
+});
