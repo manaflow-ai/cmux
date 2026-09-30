@@ -65,9 +65,9 @@ nonisolated enum FocusReducer {
             }
         case .beginIntent:
             bump(&next)
-        case .expect(let key, let target, let generation):
+        case .expect(let key, let target, let awayFrom, let generation):
             guard generation == next.generation else { break }
-            next.expectation = FocusState.Expectation(key: key, target: target, generation: generation)
+            next.expectation = FocusState.Expectation(key: key, target: target, awayFrom: awayFrom, generation: generation)
             land(&next, effects: &effects)
         case .dragBegan(let tabs, let pane):
             next.drag = FocusState.DragRestore(tabs: tabs, sourcePane: pane, pane: next.pane, target: next.target,

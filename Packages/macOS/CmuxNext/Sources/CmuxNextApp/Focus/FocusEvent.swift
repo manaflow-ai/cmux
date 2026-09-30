@@ -53,8 +53,9 @@ nonisolated enum FocusEvent: Hashable, Sendable, Codable {
     /// Starts a user intent that lands later (bumps the generation).
     case beginIntent
     /// Focus `key` once it exists, if no newer intent happened since
-    /// `generation`.
-    case expect(FocusState.Expectation.Key, target: FocusState.Target, generation: UInt64)
+    /// `generation`. `awayFrom`: land only once the tab is in another pane
+    /// (a tab opened in one pane and then moved into a new split).
+    case expect(FocusState.Expectation.Key, target: FocusState.Target, awayFrom: String? = nil, generation: UInt64)
     case dragBegan(tabs: [String], pane: String)
     case dragEnded(DragOutcome)
     /// A pane's selected content view now exists (frame-deferred show).

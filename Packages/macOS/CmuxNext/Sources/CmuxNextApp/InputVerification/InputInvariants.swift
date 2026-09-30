@@ -59,7 +59,7 @@ nonisolated enum InputInvariants {
         }
         let moved = old.pane != new.pane || old.target != new.target
         switch event {
-        case .expect(_, _, let generation) where generation != old.generation:
+        case .expect(_, _, _, let generation) where generation != old.generation:
             if moved || new.expectation != old.expectation { fail(.noSteal, "stale expect (\(generation) at \(old.generation)) changed focus") }
         case .windowKey, .appActive, .overlayOpened, .overlayClosed, .contentPresented:
             if moved { fail(.passiveEvents, "\(event) moved focus \(old.pane ?? "nil")/\(old.target) -> \(new.pane ?? "nil")/\(new.target)") }

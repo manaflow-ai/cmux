@@ -249,9 +249,10 @@ struct FocusReducerTests {
     /// surface. The daemon reports the tab in the source pane before the
     /// move, so the expectation landed there, and the move then reset the
     /// target to the source pane's content: the new pane never got the
-    /// omnibar. `splitBrowserEvents` mirrors `BrowserHandlers.bindSplits`.
+    /// omnibar. `splitBrowserEvents` mirrors `BrowserHandlers.bindSplits`,
+    /// which now expects the surface away from the source pane.
     static func splitBrowserEvents(generation: UInt64) -> [FocusEvent] {
-        [.expect(.surface("s-web"), target: .addressBar, generation: generation)]
+        [.expect(.surface("s-web"), target: .addressBar, awayFrom: "a", generation: generation)]
     }
 
     @Test func splitBrowserFocusesTheNewPanesOmnibarAfterTheMove() {
