@@ -1,6 +1,7 @@
 public import CmuxTerminalClientModel
 internal import CmuxTerminalClientFFI
 public import Foundation
+import Dispatch
 
 public enum TerminalClientError: Error, Sendable, CustomStringConvertible {
     case failed(String)
@@ -42,6 +43,7 @@ public final class TerminalClient: @unchecked Sendable {
     /// request is applied after the drain returns.
     private var requestedOutputBox: OutputBox?
     private var outputCallbackUpdateInFlight = false
+    private var outputCallbackDepth = 0
     /// Held so the tunnel outlives this client.
     private let wireGuard: WireGuardNet?
     private let lock = NSLock()
@@ -102,16 +104,37 @@ public final class TerminalClient: @unchecked Sendable {
     /// Install before `attach`. Runs on library worker threads; hop to the
     /// main actor before touching UI.
     public func setOutputHandler(_ handler: (@Sendable (TerminalOutputEvent) -> Void)?) {
-        let requested = handler.map(OutputBox.init(handler:))
+        let requested = handler.map { OutputBox(handler: $0, owner: self) }
         lock.lock()
         requestedOutputBox = requested
-        guard !outputCallbackUpdateInFlight else {
+        if outputCallbackUpdateInFlight {
             lock.unlock()
             return
         }
         outputCallbackUpdateInFlight = true
+        let deferUntilCallbackReturns = outputCallbackDepth > 0
         lock.unlock()
-        applyOutputHandlerUpdates()
+        if deferUntilCallbackReturns {
+            // The FFI waits for the active callback to return. Applying from
+            // this callback would deadlock if the handler replaces itself.
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                self?.applyOutputHandlerUpdates()
+            }
+        } else {
+            applyOutputHandlerUpdates()
+        }
+    }
+
+    fileprivate func beginOutputCallback() {
+        lock.lock()
+        outputCallbackDepth += 1
+        lock.unlock()
+    }
+
+    fileprivate func endOutputCallback() {
+        lock.lock()
+        outputCallbackDepth = max(0, outputCallbackDepth - 1)
+        lock.unlock()
     }
 
     private func applyOutputHandlerUpdates() {
@@ -275,8 +298,14 @@ public final class TerminalClient: @unchecked Sendable {
 
 final class OutputBox: @unchecked Sendable {
     let handler: @Sendable (TerminalOutputEvent) -> Void
-    init(handler: @Sendable @escaping (TerminalOutputEvent) -> Void) {
+    weak var owner: TerminalClient?
+
+    init(
+        handler: @Sendable @escaping (TerminalOutputEvent) -> Void,
+        owner: TerminalClient
+    ) {
         self.handler = handler
+        self.owner = owner
     }
 }
 
@@ -292,6 +321,9 @@ private typealias OutputCallback = @convention(c) (
 private let outputTrampoline: OutputCallback = { context, kind, bytes, length, cols, rows in
     guard let context else { return }
     let box = Unmanaged<OutputBox>.fromOpaque(context).takeUnretainedValue()
+    let owner = box.owner
+    owner?.beginOutputCallback()
+    defer { owner?.endOutputCallback() }
     let data = (bytes != nil && length > 0) ? Data(bytes: bytes!, count: length) : Data()
     guard let event = TerminalOutputEvent(kind: kind, bytes: data, cols: cols, rows: rows) else { return }
     box.handler(event)
