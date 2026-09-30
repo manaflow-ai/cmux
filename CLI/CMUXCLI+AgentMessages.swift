@@ -327,6 +327,7 @@ extension CMUXCLI {
                         via: "claude.wake",
                         markDeliveredRead: false,
                         deferDelivery: true,
+                        pollerKey: pollerKey,
                         client: client
                     )
                     if !text.isEmpty {
@@ -353,16 +354,21 @@ extension CMUXCLI {
         via: String,
         markDeliveredRead: Bool,
         deferDelivery: Bool = false,
+        pollerKey: String? = nil,
         client: SocketClient
     ) -> String {
+        var params: [String: Any] = [
+            "surface_id": surfaceId,
+            "via": via,
+            "mark_delivered_read": markDeliveredRead,
+            "defer_delivery": deferDelivery,
+        ]
+        if let pollerKey {
+            params["poller_key"] = pollerKey
+        }
         guard let payload = try? client.sendV2(
             method: "agent.message.claim",
-            params: [
-                "surface_id": surfaceId,
-                "via": via,
-                "mark_delivered_read": markDeliveredRead,
-                "defer_delivery": deferDelivery,
-            ],
+            params: params,
             responseTimeout: 3
         ) else { return "" }
         return payload["text"] as? String ?? ""

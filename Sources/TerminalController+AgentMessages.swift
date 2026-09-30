@@ -277,11 +277,15 @@ extension TerminalController {
         let via = Self.agentMessageTrimmed(params["via"]) ?? "hook"
         let messages: [AgentMessage]
         if params["defer_delivery"] as? Bool == true {
-            messages = Array(store.messages(
-                surfaceId: surfaceId,
-                states: [.queued],
-                limit: .max
-            ).reversed())
+            guard let pollerKey = Self.agentMessageTrimmed(params["poller_key"]),
+                  let deferred = store.deferredMessages(
+                      recipientSurfaceId: surfaceId,
+                      pollerKey: pollerKey,
+                      limit: .max
+                  ) else {
+                return .ok(["status": "superseded", "messages": [], "text": ""])
+            }
+            messages = deferred
         } else {
             messages = store.claimQueued(recipientSurfaceId: surfaceId, via: via)
         }

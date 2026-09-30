@@ -53,7 +53,7 @@ The terminal's chat view (Open terminal as chat) shows each delivered message as
 | --- | --- | --- |
 | `agent.message.send` | `target` or `reply_to`, `body`, optional `from`, `thread_id`, `sender_surface_id`, `sender_workspace_id` | The stored message, plus `recipient_surface_ref`, `recipient_workspace_ref`, `recipient_workspace_title`, `recipient_has_agent` |
 | `agent.message.list` | optional `surface` (target), `state` (string or array), `limit` | `messages`, newest first |
-| `agent.message.claim` | `surface_id`, `via`, optional `mark_delivered_read` and `defer_delivery` | `messages` handed over and marked delivered, and the rendered `text`; deferred wakes leave messages queued until a prompt hook claims them |
+| `agent.message.claim` | `surface_id`, `via`, optional `mark_delivered_read` and `defer_delivery`; deferred claims also require `poller_key` | `messages` handed over and marked delivered, and the rendered `text`; deferred wakes leave messages queued until a prompt hook claims them, and a superseded poller gets `status: superseded` |
 | `agent.message.mark_read` | `ids`, `id` or `surface_id` | `read`: the ids marked read |
 | `agent.message.poll` | `surface_id`, `poller_key`, optional `register` and `mark_delivered_read` | `status`: `current` (with `queued` and `held`) or `superseded`. Claims nothing. |
 

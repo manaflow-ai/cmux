@@ -227,6 +227,28 @@ public final class AgentMessageStore: @unchecked Sendable {
         return result
     }
 
+    /// Returns queued messages for the recipient when the poller still owns it.
+    /// A superseded poller gets `nil` so it cannot wake the same surface after
+    /// a newer hook has taken over.
+    public func deferredMessages(
+        recipientSurfaceId: String,
+        pollerKey: String,
+        limit: Int = 100
+    ) -> [AgentMessage]? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard pollerBySurface[recipientSurfaceId] == pollerKey else { return nil }
+        var result: [AgentMessage] = []
+        for id in order {
+            guard result.count < max(limit, 0) else { break }
+            guard let message = messagesById[id],
+                  message.recipientSurfaceId == recipientSurfaceId,
+                  message.state == .queued else { continue }
+            result.append(message)
+        }
+        return result
+    }
+
     // MARK: - Polling
 
     /// A hook's inbox check. `register` makes `pollerKey` the surface's owner,
