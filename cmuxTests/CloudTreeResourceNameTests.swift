@@ -38,27 +38,27 @@ struct CloudTreeResourceNameTests {
     @Test("a typed name outranks a page title that moves on its own")
     func chosenNameBeatsGeneratedTitle() {
         let browser = resource(kind: .browser, key: "browser-1", title: "Example Domain")
-        #expect(CloudTreeResourceName.browser(resource: browser, remoteView: view(name: "Docs")) == "Docs")
+        #expect(CloudTreeResourceName(resource: browser, remoteView: view(name: "Docs")).browserName == "Docs")
         // Without a tab name the page title is all there is, and it is better
         // than the placeholder.
-        #expect(CloudTreeResourceName.browser(resource: browser, remoteView: view(name: nil)) == "Example Domain")
-        #expect(CloudTreeResourceName.browser(resource: browser, remoteView: nil) == "Example Domain")
+        #expect(CloudTreeResourceName(resource: browser, remoteView: view(name: nil)).browserName == "Example Domain")
+        #expect(CloudTreeResourceName(resource: browser, remoteView: nil).browserName == "Example Domain")
     }
 
     @Test("a browser with no name of any kind still has something to show")
     func untitledBrowserFallsBack() {
         let untitled = resource(kind: .browser, key: "browser-1", title: "")
-        #expect(CloudTreeResourceName.browser(resource: untitled, remoteView: nil) == "browser")
+        #expect(CloudTreeResourceName(resource: untitled, remoteView: nil).browserName == "browser")
         // Whitespace is not a name. A row that renders as blank is worse than
         // one that admits it is unnamed.
-        #expect(CloudTreeResourceName.browser(resource: untitled, remoteView: view(name: "   ")) == "browser")
+        #expect(CloudTreeResourceName(resource: untitled, remoteView: view(name: "   ")).browserName == "browser")
     }
 
     @Test("displays resolve the same way")
     func displayFollowsTheSameRule() {
         let desktop = resource(kind: .display, key: "screen-1", title: "")
-        #expect(CloudTreeResourceName.display(resource: desktop, remoteView: view(name: "Big screen")) == "Big screen")
-        #expect(CloudTreeResourceName.display(resource: desktop, remoteView: nil) == "Desktop")
+        #expect(CloudTreeResourceName(resource: desktop, remoteView: view(name: "Big screen")).displayName == "Big screen")
+        #expect(CloudTreeResourceName(resource: desktop, remoteView: nil).displayName == "Desktop")
     }
 
     /// Typing a browser's name has to find it. Before this the browser case
@@ -161,9 +161,9 @@ struct CloudTreeResourceNameTests {
     @Test("a reader with only a resource gets the row's own name")
     func labelFollowsTheRowByKind() {
         let untitledBrowser = resource(kind: .browser, key: "browser-1", title: "")
-        #expect(CloudTreeResourceName.label(resource: untitledBrowser, remoteView: nil) == "browser")
+        #expect(CloudTreeResourceName(resource: untitledBrowser, remoteView: nil).label == "browser")
         let untitledDisplay = resource(kind: .display, key: "screen-1", title: "")
-        #expect(CloudTreeResourceName.label(resource: untitledDisplay, remoteView: nil) == "Desktop")
-        #expect(CloudTreeResourceName.label(resource: untitledBrowser, remoteView: view(name: "Docs")) == "Docs")
+        #expect(CloudTreeResourceName(resource: untitledDisplay, remoteView: nil).label == "Desktop")
+        #expect(CloudTreeResourceName(resource: untitledBrowser, remoteView: view(name: "Docs")).label == "Docs")
     }
 }

@@ -17,8 +17,16 @@ import Foundation
 /// needed it and each had its own version, which is how the browser row ended
 /// up with no fallback at all: an untitled browser's searchable title was the
 /// empty string, so no amount of typing would find it.
-enum CloudTreeResourceName {
-    static func trimmedNonEmpty(_ value: String?) -> String? {
+struct CloudTreeResourceName {
+    let resource: SurfaceResource
+    let remoteView: SurfaceRemoteView?
+
+    init(resource: SurfaceResource, remoteView: SurfaceRemoteView?) {
+        self.resource = resource
+        self.remoteView = remoteView
+    }
+
+    private static func trimmedNonEmpty(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty
         else { return nil }
@@ -27,14 +35,14 @@ enum CloudTreeResourceName {
 
     /// The user's name for this row, when there is one. Nil means the row is
     /// showing a generated name and a rename has something to offer.
-    static func chosenName(remoteView: SurfaceRemoteView?) -> String? {
-        trimmedNonEmpty(remoteView?.name)
+    var chosenName: String? {
+        Self.trimmedNonEmpty(remoteView?.name)
     }
 
-    static func display(resource: SurfaceResource, remoteView: SurfaceRemoteView?) -> String {
-        chosenName(remoteView: remoteView)
-            ?? generatedDisplayTitle(resource)
-            ?? trimmedNonEmpty(resource.title)
+    var displayName: String {
+        chosenName
+            ?? Self.generatedDisplayTitle(resource)
+            ?? Self.trimmedNonEmpty(resource.title)
             ?? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop")
     }
 
@@ -46,9 +54,9 @@ enum CloudTreeResourceName {
         return CloudGuestDisplay.title(for: number)
     }
 
-    static func browser(resource: SurfaceResource, remoteView: SurfaceRemoteView?) -> String {
-        chosenName(remoteView: remoteView)
-            ?? trimmedNonEmpty(resource.title)
+    var browserName: String {
+        chosenName
+            ?? Self.trimmedNonEmpty(resource.title)
             ?? String(localized: "cloudTree.browser.untitled", defaultValue: "browser")
     }
 
@@ -60,12 +68,12 @@ enum CloudTreeResourceName {
     /// rule rather than an exhaustive switch because `SurfaceResourceKind` is
     /// wire-tolerant and a kind added to the wire should not fail to build here;
     /// a terminal has its own name rule and does not call this.
-    static func label(resource: SurfaceResource, remoteView: SurfaceRemoteView?) -> String {
+    var label: String {
         switch resource.id.kind {
         case .display:
-            return display(resource: resource, remoteView: remoteView)
+            return displayName
         default:
-            return browser(resource: resource, remoteView: remoteView)
+            return browserName
         }
     }
 }

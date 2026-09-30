@@ -188,9 +188,9 @@ final class CloudTreeNode: NSObject {
         case .localWorkspace(let row): return row.title
         case .terminal(let row): return row.displayTitle
         case .display(let resource, _, let remoteView):
-            return CloudTreeResourceName.display(resource: resource, remoteView: remoteView)
+            return CloudTreeResourceName(resource: resource, remoteView: remoteView).displayName
         case .browsersGroup: return String(localized: "cloudTree.group.browsers", defaultValue: "Browsers")
-        case .browser(let row): return CloudTreeResourceName.browser(resource: row.resource, remoteView: row.remoteView)
+        case .browser(let row): return CloudTreeResourceName(resource: row.resource, remoteView: row.remoteView).browserName
         case .portsGroup: return String(localized: "cloudTree.group.ports", defaultValue: "Ports")
         case .resourcesPool: return String(localized: "cloudTree.group.resources", defaultValue: "Resources")
         case .resource(_, let row): return row.title
@@ -235,8 +235,9 @@ final class CloudTreeNode: NSObject {
             // landed under its bare resource title instead. An empty title was
             // never nameless — `localWorkspaceTitle(hostName:)` falls back to
             // the machine — it just lost the name the user typed.
+            let name = CloudTreeResourceName(resource: resource, remoteView: view)
             return SurfaceResourceGroup(
-                title: CloudTreeResourceName.display(resource: resource, remoteView: view),
+                title: name.displayName,
                 placements: [SurfaceResourcePlacement(resource: resource.id, remoteView: view)],
                 remoteWorkspaceID: view.workspace.id
             )

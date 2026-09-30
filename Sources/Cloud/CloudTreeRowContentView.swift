@@ -85,7 +85,7 @@ struct CloudTreeRowContentView: View {
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row, style: style)
         case .display(let resource, _, let remoteView):
-            let title = CloudTreeResourceName.display(resource: resource, remoteView: remoteView)
+            let title = CloudTreeResourceName(resource: resource, remoteView: remoteView).displayName
             CloudTreeLeafRow(
                 style: style,
                 icon: "display",
@@ -98,11 +98,12 @@ struct CloudTreeRowContentView: View {
         case .browsersGroup:
             groupRow(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"))
         case .browser(let row):
+            let title = CloudTreeResourceName(resource: row.resource, remoteView: row.remoteView).browserName
             CloudTreeLeafRow(
                 style: style,
                 icon: "globe",
                 tint: CloudTreeIconPalette.browser,
-                title: CloudTreeResourceName.browser(resource: row.resource, remoteView: row.remoteView),
+                title: title,
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:

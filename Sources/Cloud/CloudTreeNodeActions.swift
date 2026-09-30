@@ -474,14 +474,15 @@ struct CloudTreeNodeActions {
                 }
             },
             renameRemoteView: { resource, view in
-                let chosen = CloudTreeResourceName.chosenName(remoteView: view)
+                let resourceName = CloudTreeResourceName(resource: resource, remoteView: view)
+                let chosen = resourceName.chosenName
                 // Titled through the same helper the row renders, so the prompt
                 // names what the person clicked: an untitled browser says
                 // "browser" here too, not its daemon key. The field, separately,
                 // holds only a name someone typed: pre-filling a browser's live
                 // page title would pin it the moment they hit Return, which is
                 // the opposite of what a prompt opened by accident should do.
-                let current = CloudTreeResourceName.label(resource: resource, remoteView: view)
+                let current = resourceName.label
                 guard let name = promptForName(
                     title: String(format: String(localized: "cloudTree.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
                     current: chosen ?? "",
