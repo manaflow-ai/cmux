@@ -107,6 +107,24 @@ impl Hub {
         summary
     }
 
+    /// Tell watching clients that a peer session appeared, changed or left.
+    fn announce_remote(&self, peer: &str, summary: Value, kind: &str) {
+        let Some(id) = summary.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
+            return;
+        };
+        let _ = self.events.send(HubEvent {
+            session_id: id,
+            record: EventRecord {
+                seq: 0,
+                at: now_ms(),
+                dir: "peer".into(),
+                kind: kind.into(),
+                msg: Value::Null,
+            },
+            remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
+        });
+    }
+
     pub(super) async fn peer_notice_loop(self: Arc<Self>) {
         let Some(mut rx) = self.peer_notices_rx.lock().await.take() else { return };
         use crate::peer::PeerNotice;
@@ -116,24 +134,50 @@ impl Hub {
                 PeerNotice::Disconnected(e) => {
                     tracing::warn!(peer = %peer, "peer disconnected: {e}");
                     // Keep the last known list, but flag it.
-                    let mut map = self.remote_sessions.lock().unwrap();
-                    for r in map.values_mut().filter(|r| r.peer == peer) {
-                        r.summary["status"] = Value::String("unreachable".into());
+                    let changed: Vec<Value> = {
+                        let mut map = self.remote_sessions.lock().unwrap();
+                        map.values_mut()
+                            .filter(|r| r.peer == peer)
+                            .map(|r| {
+                                r.summary["status"] = Value::String("unreachable".into());
+                                r.summary.clone()
+                            })
+                            .collect()
+                    };
+                    for summary in changed {
+                        self.announce_remote(&peer, summary, "status");
                     }
                 }
                 PeerNotice::Sessions(list) => {
-                    let mut map = self.remote_sessions.lock().unwrap();
-                    map.retain(|_, r| r.peer != peer);
-                    for s in list {
-                        if let Some(id) = s.get("sessionId").and_then(Value::as_str) {
-                            map.insert(
-                                id.to_owned(),
-                                RemoteSession {
-                                    peer: peer.clone(),
-                                    summary: Self::remote_summary(&peer, s.clone()),
-                                },
-                            );
+                    // The list can land after clients took their snapshot (an
+                    // ssh tunnel is slow to open), so tell watchers what changed.
+                    let (changed, gone) = {
+                        let mut map = self.remote_sessions.lock().unwrap();
+                        let mut old: HashMap<String, Value> = map
+                            .iter()
+                            .filter(|(_, r)| r.peer == peer)
+                            .map(|(id, r)| (id.clone(), r.summary.clone()))
+                            .collect();
+                        map.retain(|_, r| r.peer != peer);
+                        let mut changed = Vec::new();
+                        for s in list {
+                            if let Some(id) =
+                                s.get("sessionId").and_then(Value::as_str).map(str::to_owned)
+                            {
+                                let summary = Self::remote_summary(&peer, s);
+                                if old.remove(&id).as_ref() != Some(&summary) {
+                                    changed.push(summary.clone());
+                                }
+                                map.insert(id, RemoteSession { peer: peer.clone(), summary });
+                            }
                         }
+                        (changed, old.into_keys().collect::<Vec<_>>())
+                    };
+                    for summary in changed {
+                        self.announce_remote(&peer, summary, "status");
+                    }
+                    for id in gone {
+                        self.announce_remote(&peer, json!({"sessionId": id}), "purged");
                     }
                 }
                 PeerNotice::SessionChanged { session, kind, seq } => {
