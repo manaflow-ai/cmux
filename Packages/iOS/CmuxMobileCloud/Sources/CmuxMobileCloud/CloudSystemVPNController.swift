@@ -482,9 +482,21 @@ public final class CloudSystemVPNController {
                 tunnel.scope == creationScope
             }
             if enrolled.isEmpty {
-                guard let scope = creationScope,
-                      let fingerprint = try? await identityResolver.stored()?.fingerprint
-                else { return }
+                guard let scope = creationScope else { return }
+                let identity: CloudDeviceIdentity?
+                do {
+                    identity = try await identityResolver.stored()
+                } catch {
+                    // A locked Keychain must remain visible as cleanup
+                    // failure. Returning silently here leaves the server peer
+                    // enrolled with no retry signal.
+                    await controller.recordServerTeardownIdentityFailure()
+                    return
+                }
+                guard let fingerprint = identity?.fingerprint else {
+                    await controller.recordServerTeardownIdentityFailure()
+                    return
+                }
                 enrolled = [(
                     scope: scope,
                     deviceFingerprint: fingerprint,
@@ -516,6 +528,11 @@ public final class CloudSystemVPNController {
                 attempts: attempts
             )
         }
+    }
+
+    private func recordServerTeardownIdentityFailure() {
+        cleanupPending = true
+        publish(.failed(.configuration))
     }
 
     /// The user turned the VPN off. The configuration stays saved so iOS

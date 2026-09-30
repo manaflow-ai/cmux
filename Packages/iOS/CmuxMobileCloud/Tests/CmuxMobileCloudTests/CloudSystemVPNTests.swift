@@ -308,6 +308,23 @@ import Testing
         #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"])
     }
 
+    @Test func signOutSurfacesUnavailableIdentityInsteadOfSilentlySkippingRevocation() async {
+        let store = InMemoryCloudDeviceIdentityStore(unavailable: true)
+        let controller = CloudSystemVPNController(
+            service: FakeCloudVMService(),
+            identityStore: store,
+            manager: FakeSystemVPNManager(),
+            deviceName: "Aziz's iPhone",
+            pendingRevocationStore: InMemoryCloudSystemVPNPendingRevocationStore()
+        )
+        controller.setScope("user-1/team-1", teamID: "team-1")
+        await controller.waitForPendingOperation()
+
+        await controller.serverTeardown()("captured-access", "captured-refresh")
+
+        #expect(controller.phase == .failed(.configuration))
+    }
+
     @Test func failedSignOutRevocationIsRetriedAfterControllerRecreation() async {
         let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
         let first = Rig(cleanupRetryCount: 1, pendingRevocationStore: pendingStore)

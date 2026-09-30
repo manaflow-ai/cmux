@@ -309,11 +309,26 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             existing="$(mktemp -d)"
             gh release download "$TAG" \
+              --pattern "CmuxTerminalClient.xcframework.zip" \
               --pattern "CmuxTerminalClient.xcframework.zip.sha256" \
+              --pattern "SHA256SUMS" \
               --dir "$existing"
+            for asset in \
+              CmuxTerminalClient.xcframework.zip \
+              CmuxTerminalClient.xcframework.zip.sha256 \
+              SHA256SUMS; do
+              if [[ ! -s "$existing/$asset" ]]; then
+                echo "::error::release $TAG is missing $asset" >&2
+                exit 1
+              fi
+            done
             published_checksum="$(cat "$existing/CmuxTerminalClient.xcframework.zip.sha256")"
             if [[ "$published_checksum" != "$checksum" ]]; then
               echo "::error::release $TAG already exists with checksum $published_checksum, expected $checksum; use a new tag" >&2
+              exit 1
+            fi
+            if ! (cd "$existing" && sha256sum --check --strict SHA256SUMS); then
+              echo "::error::release $TAG has an invalid SHA256SUMS entry" >&2
               exit 1
             fi
             echo "release $TAG already contains the matching immutable artifact"
