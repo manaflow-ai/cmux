@@ -69,11 +69,21 @@ extension SurfaceCatalog {
             }
             return view
         }
-        if resources[placement.resource]?.kind == .display,
-           resources[placement.resource]?.remoteViews == nil,
-           let workspaceID,
-           let view = cloudDisplayMembershipView(for: placement.resource, workspaceID: workspaceID) {
-            return view
+        if let resource = resources[placement.resource],
+           placement.remoteTabID == nil,
+           resource.remoteViews == nil,
+           (resource.kind == .display || resource.id.isForwardedPort) {
+            // Displays and forwarded ports can be local previews in more than
+            // one bound workspace. They have no daemon tab or membership row
+            // to resolve, so an absent membership is a valid local placement.
+            // Keep the accepted membership view when one exists, but do not
+            // turn a missing preview membership into a reconcile failure.
+            if resource.kind == .display,
+               let workspaceID,
+               let view = cloudDisplayMembershipView(for: placement.resource, workspaceID: workspaceID) {
+                return view
+            }
+            return nil
         }
         return try remoteView(
             for: placement.resource,

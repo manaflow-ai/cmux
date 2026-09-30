@@ -813,7 +813,7 @@ extension CMUXCLI {
                 lastFailure = error.message
             }
             if attempt < Self.vmLayoutOpenAttempts {
-                Thread.sleep(forTimeInterval: Self.vmLayoutOpenRetryDelay)
+                Thread.sleep(forTimeInterval: Self.vmLayoutOpenRetryDelay())
             }
         }
         throw CLIError(message: "vm dev: the layout is built in workspace \(remoteWorkspace) on \(machine), but it could not be opened here yet (\(lastFailure)). Open it with: cmux vm workspace open \(machine) \(remoteWorkspace)")

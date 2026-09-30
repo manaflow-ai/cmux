@@ -93,7 +93,7 @@ extension KeyboardShortcutSettings.Action {
              .simulatorToggleAppearance,
              .simulatorToggleSoftwareKeyboard,
              .diffViewerNextFile, .diffViewerPreviousFile,
-             .diffViewerNextHunk, .diffViewerPreviousHunk:
+             .diffViewerNextHunk, .diffViewerPreviousHunk, .diffViewerToggleViewed:
             .focusResolved
 
         case .openSettings, .openTeamPicker, .reloadConfiguration,

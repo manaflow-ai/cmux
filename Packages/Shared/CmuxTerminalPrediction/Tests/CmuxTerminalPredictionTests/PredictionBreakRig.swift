@@ -93,9 +93,10 @@ struct PredictionBreakRig {
         case frame
     }
 
-    /// How long after the drain ghostty's parser applies a read. The tee
-    /// fires before the IO thread takes the renderer mutex, so a main-actor
-    /// drain can run first; zero models the parser always winning.
+    /// How long after the remote reply arrives Ghostty spends applying a read.
+    /// Ghostty PR #242 moved the tee after the parser, so both events share
+    /// the parser's completion time and the grid always receives the bytes
+    /// before the host can drain them.
     var parseLagMicros = 0
     /// Characters drawn over cells that hold, or will hold, something else.
     private(set) var wrongText: [String] = []
@@ -241,10 +242,9 @@ struct PredictionBreakRig {
             let reply = remoteModel.read(keystroke.key)
             repliedAt = max(repliedAt, readAt + keystroke.downlink)
             if !reply.isEmpty {
-                // At equal times the parse is scheduled first, so a zero lag
-                // is the parser winning, as the engine assumes.
-                schedule(.parse(reply), at: repliedAt + parseLagMicros)
-                schedule(.output(reply), at: repliedAt)
+                let parserFinishedAt = repliedAt + parseLagMicros
+                schedule(.parse(reply), at: parserFinishedAt)
+                schedule(.output(reply), at: parserFinishedAt)
             }
         }
         remote = remoteModel

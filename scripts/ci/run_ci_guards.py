@@ -65,6 +65,9 @@ EVENT_CONDITION_STEPS = {
     # The history job binds the synthetic merge base; run_steps binds it
     # directly (PACKAGE_RESOLVED_POLICY_BASE_REF).
     "Bind package policy to synthetic merge base",
+    # The Actions-only poll gates the duplicated `ci` group. Local runs should
+    # execute the group directly, so the planner omits this step.
+    "Check independent fast guard result",
 }
 # The groups the "CI fast guards" check and a default local run cover: the
 # workflow, scripts/ci and repository-variable contracts. `--all` runs every
@@ -83,6 +86,7 @@ PORTABLE_SUBSTITUTES = {
     "Run canonical CMUX CI guard profile": "scripts/ci/run_ci_guard_payload.sh",
 }
 GROUP_CONDITION = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
+FAST_GUARD_CONDITION = re.compile(r"\s*&&\s*steps\.fast-guard\.outputs\.skip\s*!=\s*'true'")
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
 # Steps run in their own sessions, so Ctrl-C reaches only this process; it
@@ -148,7 +152,8 @@ def load_yaml(path: Path):
 def step_groups(condition: str) -> tuple[set[str], bool]:
     """Groups named by a step `if:`, and whether anything else is in it."""
     groups = set(GROUP_CONDITION.findall(condition))
-    rest = GROUP_CONDITION.sub("", condition)
+    rest = FAST_GUARD_CONDITION.sub("", condition)
+    rest = GROUP_CONDITION.sub("", rest)
     rest = re.sub(r"[\s${}()|]", "", rest)
     return groups, bool(rest)
 
@@ -212,9 +217,9 @@ def plan(workflow: dict, base_sha: str, head_sha: str) -> list[Unit]:
                 name = str(raw.get("name") or raw.get("uses") or raw.get("run", "")[:40])
                 condition = str(raw.get("if", ""))
                 named, other = step_groups(condition)
+                if name in EVENT_CONDITION_STEPS:
+                    continue
                 if other:
-                    if name in EVENT_CONDITION_STEPS:
-                        continue
                     raise PlanError(f"step {name!r} has a condition run_ci_guards.py cannot evaluate: {condition}")
                 if named and group not in named:
                     continue
