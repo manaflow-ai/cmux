@@ -781,6 +781,15 @@ pub(super) fn resolve_socket_with_env(
             return Ok((PathBuf::from(path), false));
         }
     }
+    // The `cmux` bundled in a cmux app talks to that app's session.
+    #[cfg(target_os = "macos")]
+    if let Some(identity) = crate::app_identity::AppIdentity::detect(
+        |name| env(name).and_then(|value| value.into_string().ok()),
+        std::env::current_exe().ok().as_deref(),
+    ) && let Some(path) = crate::app_identity::app_daemon_socket(&identity)
+    {
+        return Ok((path, true));
+    }
     Ok((cmux_tui_core::server::try_default_socket_path("main")?, true))
 }
 

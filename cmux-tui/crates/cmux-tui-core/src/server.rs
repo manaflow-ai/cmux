@@ -708,6 +708,13 @@ pub fn try_default_socket_path(session: &str) -> anyhow::Result<PathBuf> {
     Ok(default_socket_path_in_runtime_dir(session, platform::runtime_dir()))
 }
 
+/// The socket `session` listens on when its owner runs with `TMPDIR=base`
+/// and no `XDG_RUNTIME_DIR` (how the cmux app starts its session).
+pub fn try_default_socket_path_in_base(session: &str, base: &Path) -> anyhow::Result<PathBuf> {
+    validate_session_name(session)?;
+    Ok(default_socket_path_in_runtime_dir(session, platform::runtime_dir_for_base(base)))
+}
+
 fn invalid_session_socket_path(session: &str) -> PathBuf {
     let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
     platform::invalid_runtime_dir().join(format!("{digest}.sock"))

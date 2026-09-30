@@ -96,14 +96,21 @@ mod tests {
     use serde_json::json;
 
     fn claude() -> Defaults {
-        Defaults { harness: Some("claude".into()), policy: Some("approve-edits".into()), ..Default::default() }
+        Defaults {
+            harness: Some("claude".into()),
+            policy: Some("approve-edits".into()),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn session_new_gets_the_defaults() {
         let line = r#"{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/w","mcpServers":[]}}"#;
         let out: Value = serde_json::from_str(&apply_defaults(line, &claude())).unwrap();
-        assert_eq!(out["params"]["_meta"]["acpmux"], json!({"harness":"claude","policy":"approve-edits"}));
+        assert_eq!(
+            out["params"]["_meta"]["acpmux"],
+            json!({"harness":"claude","policy":"approve-edits"})
+        );
         assert_eq!(out["params"]["cwd"], "/w");
     }
 

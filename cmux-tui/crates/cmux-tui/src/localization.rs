@@ -1210,7 +1210,6 @@ pub(crate) struct AgentWrapperMessages {
     pub agent_start_failed: &'static str,
 }
 
-#[derive(Debug, PartialEq, Eq)]
 /// `cmux app|action|settings|window|events` and action verbs: the scopes the
 /// cmux app owns (cli/app.rs).
 #[derive(Debug, PartialEq, Eq)]
@@ -1232,6 +1231,7 @@ pub(crate) struct AppControlMessages {
     pub acp_open_usage: &'static str,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
     pub startup: StartupMessages,

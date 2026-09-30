@@ -8,7 +8,7 @@
 //! `cmux workspace move-to-window --target ws_…` runs the action whose CLI
 //! name is those words, so the app's registry, not this file, lists them.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -41,7 +41,8 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     }
     let messages = &crate::localization::catalog().app_control;
     let rest = &args[1..];
-    let call = |method, params| AppCommand::Call { method, params, timeout: READ_TIMEOUT, pick: None };
+    let call =
+        |method, params| AppCommand::Call { method, params, timeout: READ_TIMEOUT, pick: None };
     let command = match (scope.as_str(), rest.first().map(String::as_str)) {
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
@@ -94,9 +95,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             let options = Options::parse(rest, &["after", "name", "category"], &["no-heartbeats"])?;
             let mut params = Map::new();
             if let Some(after) = options.value("after") {
-                let after: i64 = after
-                    .parse()
-                    .map_err(|_| UsageError::new(messages.events_after_invalid.replace("{value}", after)))?;
+                let after: i64 = after.parse().map_err(|_| {
+                    UsageError::new(messages.events_after_invalid.replace("{value}", after))
+                })?;
                 params.insert("after_seq".into(), json!(after));
             }
             let names = options.values("name");
@@ -150,9 +151,9 @@ pub(super) fn run_action(action: &str, args: &[String]) -> Result<AppCommand, Us
         let (name, value) = match name.split_once('=') {
             Some((name, value)) => (name.to_owned(), value.to_owned()),
             None => {
-                let value = args
-                    .get(index + 1)
-                    .ok_or_else(|| UsageError::new(messages.missing_value.replace("{flag}", flag)))?;
+                let value = args.get(index + 1).ok_or_else(|| {
+                    UsageError::new(messages.missing_value.replace("{flag}", flag))
+                })?;
                 index += 1;
                 (name.to_owned(), value.clone())
             }
@@ -163,9 +164,9 @@ pub(super) fn run_action(action: &str, args: &[String]) -> Result<AppCommand, Us
                 params.insert("target".into(), json!(value));
             }
             "arg" => {
-                let (key, value) = value
-                    .split_once('=')
-                    .ok_or_else(|| UsageError::new(messages.arg_shape.replace("{value}", &value)))?;
+                let (key, value) = value.split_once('=').ok_or_else(|| {
+                    UsageError::new(messages.arg_shape.replace("{value}", &value))
+                })?;
                 arguments.insert(key.into(), json!(value));
             }
             _ => {
@@ -203,7 +204,9 @@ pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
             match response {
                 Ok(result) => {
                     let value = match pick {
-                        Some(key) => result.get("topology").and_then(|topology| topology.get(key)).cloned(),
+                        Some(key) => {
+                            result.get("topology").and_then(|topology| topology.get(key)).cloned()
+                        }
                         None => None,
                     }
                     .unwrap_or(result);
@@ -220,7 +223,10 @@ pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
 pub(super) fn has_action(global: &GlobalArgs, name: &str) -> bool {
     let Ok(socket) = socket_path(global) else { return false };
     let Ok(mut stream) = connect(&socket) else { return false };
-    matches!(request(&mut stream, "action.describe", json!({ "action": name }), READ_TIMEOUT), Ok(Ok(_)))
+    matches!(
+        request(&mut stream, "action.describe", json!({ "action": name }), READ_TIMEOUT),
+        Ok(Ok(_))
+    )
 }
 
 fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
@@ -238,7 +244,10 @@ fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
 fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
     let messages = &crate::localization::catalog().app_control;
     UnixStream::connect(socket).map_err(|error| {
-        messages.unreachable.replace("{path}", &socket.display().to_string()).replace("{error}", &error.to_string())
+        messages
+            .unreachable
+            .replace("{path}", &socket.display().to_string())
+            .replace("{error}", &error.to_string())
     })
 }
 
@@ -253,7 +262,9 @@ fn request(
     let line = json!({ "id": 1, "method": method, "params": params });
     send_line(stream, &line)?;
     stream.set_read_timeout(Some(timeout)).map_err(|error| error.to_string())?;
-    let mut reader = BufReader::new(stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES));
+    let mut reader = BufReader::new(
+        stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES),
+    );
     let mut response = String::new();
     reader.read_line(&mut response).map_err(|error| read_error(&error, timeout))?;
     parse_response(&response)
@@ -286,7 +297,8 @@ pub(super) fn parse_response(line: &str) -> Result<Result<Value, Value>, String>
     if !line.starts_with('{') {
         return Err(line.to_owned());
     }
-    let value: Value = serde_json::from_str(line).map_err(|_| messages.invalid_response.to_owned())?;
+    let value: Value =
+        serde_json::from_str(line).map_err(|_| messages.invalid_response.to_owned())?;
     match value.get("ok").and_then(Value::as_bool) {
         Some(true) => Ok(Ok(value.get("result").cloned().unwrap_or(Value::Null))),
         Some(false) => Ok(Err(value.get("error").cloned().unwrap_or(Value::Null))),
@@ -297,7 +309,9 @@ pub(super) fn parse_response(line: &str) -> Result<Result<Value, Value>, String>
 /// `events.stream`: one JSON event per line until the app closes the
 /// stream or this process is interrupted. Blocking reads, no polling.
 fn stream_events(stream: &mut UnixStream, params: Value, output: OutputMode) -> i32 {
-    if let Err(error) = send_line(stream, &json!({ "id": 1, "method": "events.stream", "params": params })) {
+    if let Err(error) =
+        send_line(stream, &json!({ "id": 1, "method": "events.stream", "params": params }))
+    {
         return failure("app.transport", &error, output, 3);
     }
     let reader = match stream.try_clone() {
@@ -356,9 +370,9 @@ impl Options {
             {
                 options.values.push((name.into(), value.into()));
             } else if valued.contains(&name) {
-                let value = args
-                    .get(index + 1)
-                    .ok_or_else(|| UsageError::new(messages.missing_value.replace("{flag}", arg)))?;
+                let value = args.get(index + 1).ok_or_else(|| {
+                    UsageError::new(messages.missing_value.replace("{flag}", arg))
+                })?;
                 options.values.push((name.into(), value.clone()));
                 index += 1;
             } else if flags.contains(&name) {
@@ -376,7 +390,11 @@ impl Options {
     }
 
     fn values(&self, key: &str) -> Vec<&str> {
-        self.values.iter().filter(|(name, _)| name == key).map(|(_, value)| value.as_str()).collect()
+        self.values
+            .iter()
+            .filter(|(name, _)| name == key)
+            .map(|(_, value)| value.as_str())
+            .collect()
     }
 
     fn flag(&self, key: &str) -> bool {
@@ -407,8 +425,7 @@ mod tests {
 
     #[test]
     fn unknown_words_run_the_action_with_that_cli_name() {
-        let (method, params) =
-            call(parse(&args(&["app", "new-window"])).unwrap().unwrap());
+        let (method, params) = call(parse(&args(&["app", "new-window"])).unwrap().unwrap());
         assert_eq!(method, "action.run");
         assert_eq!(params, json!({ "action": "app new-window" }));
     }
@@ -417,8 +434,16 @@ mod tests {
     fn action_run_maps_flags_to_target_and_arguments() {
         let (_, params) = call(
             parse(&args(&[
-                "action", "run", "tab.rename", "--target", "tab_0123", "--title", "Build",
-                "--arg", "keep_case=true", "--wait",
+                "action",
+                "run",
+                "tab.rename",
+                "--target",
+                "tab_0123",
+                "--title",
+                "Build",
+                "--arg",
+                "keep_case=true",
+                "--wait",
             ]))
             .unwrap()
             .unwrap(),
@@ -436,20 +461,29 @@ mod tests {
 
     #[test]
     fn settings_set_takes_json_or_a_plain_string() {
-        let (_, params) = call(parse(&args(&["settings", "set", "layout.panePadding", "4"])).unwrap().unwrap());
+        let (_, params) =
+            call(parse(&args(&["settings", "set", "layout.panePadding", "4"])).unwrap().unwrap());
         assert_eq!(params, json!({ "path": "layout.panePadding", "value": 4 }));
-        let (_, params) = call(parse(&args(&["settings", "set", "window.titlebar", "minimal"])).unwrap().unwrap());
+        let (_, params) = call(
+            parse(&args(&["settings", "set", "window.titlebar", "minimal"])).unwrap().unwrap(),
+        );
         assert_eq!(params, json!({ "path": "window.titlebar", "value": "minimal" }));
     }
 
     #[test]
     fn responses_split_transport_from_app_errors() {
-        assert_eq!(parse_response(r#"{"id":1,"ok":true,"result":{"pong":true}}"#), Ok(Ok(json!({"pong":true}))));
+        assert_eq!(
+            parse_response(r#"{"id":1,"ok":true,"result":{"pong":true}}"#),
+            Ok(Ok(json!({"pong":true})))
+        );
         assert_eq!(
             parse_response(r#"{"id":1,"ok":false,"error":{"code":"not_found"}}"#),
             Ok(Err(json!({"code":"not_found"})))
         );
-        assert!(parse_response("ERROR: Access denied - only processes started inside cmux can connect").is_err());
+        assert!(
+            parse_response("ERROR: Access denied - only processes started inside cmux can connect")
+                .is_err()
+        );
         assert!(parse_response("").is_err());
     }
 }

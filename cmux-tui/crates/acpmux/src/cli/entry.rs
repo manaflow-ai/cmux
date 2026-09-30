@@ -66,8 +66,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     }
     let run_alias = argv.get(1).map(|a| a == "run" || a == "exec").unwrap_or(false);
     let exec_alias = argv.get(1).map(|a| a == "exec").unwrap_or(false);
-    let name = invocation.display_name.clone();
-    let matches = Cli::command().name(name.clone()).bin_name(name).get_matches_from(argv);
+    // clap keeps command names as `&'static str`; one per process.
+    let name: &'static str = Box::leak(invocation.display_name.clone().into_boxed_str());
+    let matches = Cli::command().name(name).bin_name(name).get_matches_from(argv);
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     let command = cli.command.map(flatten).map(|c| match c {
         Command::New(mut a) if run_alias => {
@@ -92,8 +93,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 )
                 .with_target(false)
                 .init();
-            crate::daemon::run(DaemonOptions { ws_listen: listen, ws_token: token, memory, ready_fd })
-                .await?;
+            crate::daemon::run(DaemonOptions {
+                ws_listen: listen,
+                ws_token: token,
+                memory,
+                ready_fd,
+            })
+            .await?;
             // The daemon has stopped its agents and synced its store. Exit
             // now rather than wait for the runtime to drain blocking tasks
             // (a launcher `--version` check can take 20 s).
@@ -107,8 +113,14 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 }
                 None => (None, None),
             };
-            crate::cli::stdio::run(crate::cli::stdio::Defaults { harness, model, effort, policy, preset })
-                .await
+            crate::cli::stdio::run(crate::cli::stdio::Defaults {
+                harness,
+                model,
+                effort,
+                policy,
+                preset,
+            })
+            .await
         }
         Some(Command::Skill) => {
             use std::io::Write;

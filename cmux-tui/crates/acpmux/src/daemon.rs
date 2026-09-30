@@ -265,7 +265,11 @@ fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyh
     } else {
         "is ready but refused the connection"
     };
-    anyhow!("daemon {why} at {}: {error:#}; see {}", path.display(), home().join("daemon.log").display())
+    anyhow!(
+        "daemon {why} at {}: {error:#}; see {}",
+        path.display(),
+        home().join("daemon.log").display()
+    )
 }
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and

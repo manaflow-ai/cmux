@@ -66,8 +66,10 @@ impl AppIdentity {
             if bundle == channel_id {
                 return PathBuf::from(format!("/tmp/cmux-{channel}.sock"));
             }
-            if let Some(slug) =
-                bundle.strip_prefix(channel_id).and_then(|rest| rest.strip_prefix('.')).and_then(sanitize)
+            if let Some(slug) = bundle
+                .strip_prefix(channel_id)
+                .and_then(|rest| rest.strip_prefix('.'))
+                .and_then(sanitize)
             {
                 return PathBuf::from(format!("/tmp/cmux-{channel}-{slug}.sock"));
             }
@@ -86,15 +88,50 @@ impl AppIdentity {
     }
 
     /// The app's cmux-tui session (`DaemonLauncher.sessionName`).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn daemon_session(&self) -> Option<String> {
         let Some(tag) = &self.tag else { return Some("cmux-app".into()) };
         let cleaned: String = tag
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '-' })
+            .map(
+                |c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '-' },
+            )
             .collect();
         let cleaned = cleaned.trim_matches(|c| c == '-' || c == '.');
         (!cleaned.is_empty()).then(|| format!("cmux-app-{cleaned}"))
     }
+}
+
+/// The app's session socket: `DaemonLauncher` starts the owner with
+/// `TMPDIR` set to the per-user Darwin temp directory, whatever this
+/// process's `TMPDIR` is.
+#[cfg(target_os = "macos")]
+pub(crate) fn app_daemon_socket(identity: &AppIdentity) -> Option<PathBuf> {
+    let session = identity.daemon_session()?;
+    let base = darwin_user_temp_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+    cmux_tui_core::server::try_default_socket_path_in_base(&session, &base).ok()
+}
+
+/// `confstr(_CS_DARWIN_USER_TEMP_DIR)`, as the app's `userTemporaryDirectory`.
+#[cfg(target_os = "macos")]
+fn darwin_user_temp_dir() -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    // SAFETY: a null buffer of length 0 asks for the required length.
+    let length = unsafe { libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, std::ptr::null_mut(), 0) };
+    if length == 0 {
+        return None;
+    }
+    let mut buffer = vec![0u8; length];
+    // SAFETY: buffer holds `length` bytes, the size confstr reported.
+    let written = unsafe {
+        libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, buffer.as_mut_ptr().cast(), length)
+    };
+    if written == 0 {
+        return None;
+    }
+    let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
+    buffer.truncate(end);
+    (!buffer.is_empty()).then(|| PathBuf::from(std::ffi::OsString::from_vec(buffer)))
 }
 
 /// `…/Foo.app` for an executable at `…/Foo.app/Contents/Resources/bin/cmux`
@@ -152,13 +189,20 @@ mod tests {
             (Some("com.cmuxterm.app"), None, "/Users/a/.local/state/cmux/cmux.sock"),
         ];
         for (bundle, tag, expected) in cases {
-            assert_eq!(identity(bundle, tag).control_socket(home), PathBuf::from(expected), "{bundle:?} {tag:?}");
+            assert_eq!(
+                identity(bundle, tag).control_socket(home),
+                PathBuf::from(expected),
+                "{bundle:?} {tag:?}"
+            );
         }
     }
 
     #[test]
     fn daemon_session_matches_the_app_launcher() {
-        assert_eq!(identity(Some("com.cmuxterm.app"), None).daemon_session().as_deref(), Some("cmux-app"));
+        assert_eq!(
+            identity(Some("com.cmuxterm.app"), None).daemon_session().as_deref(),
+            Some("cmux-app")
+        );
         assert_eq!(
             identity(Some("com.cmuxterm.app.debug.nx9"), None).daemon_session().as_deref(),
             Some("cmux-app-nx9")
@@ -173,7 +217,10 @@ mod tests {
             _ => None,
         };
         let found = AppIdentity::detect(env, None).unwrap();
-        assert_eq!(found.control_socket(Path::new("/h")), PathBuf::from("/tmp/cmux-debug-own.sock"));
+        assert_eq!(
+            found.control_socket(Path::new("/h")),
+            PathBuf::from("/tmp/cmux-debug-own.sock")
+        );
         assert_eq!(found.daemon_session().as_deref(), Some("cmux-app-own"));
         assert_eq!(AppIdentity::detect(|_| None, None), None);
     }

@@ -276,7 +276,13 @@ pub fn self_exe_for_spawn() -> io::Result<PathBuf> {
 
 /// Runtime socket/pidfile directory for the current user.
 pub fn runtime_dir() -> PathBuf {
-    runtime_base_dir().join(format!("cmux-tui-{}", user_id_component()))
+    runtime_dir_for_base(&runtime_base_dir())
+}
+
+/// The runtime directory an owner started with `TMPDIR=base` (and no
+/// `XDG_RUNTIME_DIR`) uses, for a client whose own environment differs.
+pub fn runtime_dir_for_base(base: &Path) -> PathBuf {
+    base.join(format!("cmux-tui-{}", user_id_component()))
 }
 
 /// Short, user-private runtime directory used when the preferred runtime

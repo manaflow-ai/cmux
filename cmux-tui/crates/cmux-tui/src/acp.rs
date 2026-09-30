@@ -10,7 +10,8 @@ use acpmux::cli::entry::{self, Invocation};
 /// `cmux acp <args>`.
 pub(crate) fn run(args: Vec<OsString>) -> i32 {
     if args.first().is_some_and(|arg| arg == "open") {
-        let words: Vec<String> = args[1..].iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        let words: Vec<String> =
+            args[1..].iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
         return open(&words);
     }
     let home = std::env::var("HOME").ok().map(PathBuf::from);
@@ -50,10 +51,12 @@ fn open_command(args: &[String], exe: &str) -> Result<Vec<String>, String> {
     let messages = &crate::localization::catalog().app_control;
     let (session, pane) = match args {
         [session] => (session, "current"),
-        [session, flag, pane] | [flag, pane, session] if flag == "--pane" => (session, pane.as_str()),
+        [session, flag, pane] | [flag, pane, session] if flag == "--pane" => {
+            (session, pane.as_str())
+        }
         _ => return Err(messages.acp_open_usage.to_owned()),
     };
-    Ok([ "pane", pane, "run", "--", exe, "acp", "attach", session.as_str()]
+    Ok(["pane", pane, "run", "--", exe, "acp", "attach", session.as_str()]
         .into_iter()
         .map(str::to_owned)
         .collect())

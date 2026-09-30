@@ -1,14 +1,15 @@
 //! Dispatch of every parsed CLI command against the daemon.
 
+use crate::cli::command::*;
 use crate::cli::output::*;
 use crate::cli::{errors, orchestrate};
-use crate::cli::command::*;
 use crate::client::Client;
 use crate::config::{Config, home};
 use crate::daemon::connect;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
+use std::path::PathBuf;
 
 pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
     match cmd {
