@@ -375,27 +375,33 @@
   },
   {
    "role": "link",
-   "name": "Web"
+   "name": "Web",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "JavaScript"
+   "name": "JavaScript",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Reference"
+   "name": "Reference",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Standard built-in objects"
+   "name": "Standard built-in objects",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Array"
+   "name": "Array",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "map()"
+   "name": "map()",
+   "edge": true
   },
   {
    "role": "link",

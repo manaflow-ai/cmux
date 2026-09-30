@@ -31,59 +31,73 @@
   },
   {
    "role": "link",
-   "name": "Home"
+   "name": "Home",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "News"
+   "name": "News",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Sport"
+   "name": "Sport",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Business"
+   "name": "Business",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Technology"
+   "name": "Technology",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Health"
+   "name": "Health",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Culture"
+   "name": "Culture",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Arts"
+   "name": "Arts",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Travel"
+   "name": "Travel",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Earth"
+   "name": "Earth",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Audio"
+   "name": "Audio",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Video"
+   "name": "Video",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Live"
+   "name": "Live",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Documentaries"
+   "name": "Documentaries",
+   "edge": true
   },
   {
    "role": "link",

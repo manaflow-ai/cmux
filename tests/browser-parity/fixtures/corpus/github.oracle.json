@@ -151,935 +151,1168 @@
   },
   {
    "role": "link",
-   "name": ".agents, (Directory)"
+   "name": ".agents, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "[codex] Add more cmux agent skills ("
+   "name": "[codex] Add more cmux agent skills (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#5614"
+   "name": "#5614",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ".asc, (Directory)"
+   "name": ".asc, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Add iOS App Store production lane ("
+   "name": "Add iOS App Store production lane (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#7644"
+   "name": "#7644",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ".claude, (Directory)"
+   "name": ".claude, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Backfill Unreleased changelog and draft next release cards ("
+   "name": "Backfill Unreleased changelog and draft next release cards (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#14999"
+   "name": "#14999",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ".github, (Directory)"
+   "name": ".github, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Load diff viewer grammars lazily and drop dead vendored Pierre bundles ("
+   "name": "Load diff viewer grammars lazily and drop dead vendored Pierre bundles (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ".greptile, (Directory)"
+   "name": ".greptile, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#13277"
+   "name": "#13277",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "AppIcon.icon, (Directory)"
+   "name": "AppIcon.icon, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Regenerate app icons from Icon Composer ("
+   "name": "Regenerate app icons from Icon Composer (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#1005"
+   "name": "#1005",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Assets.xcassets, (Directory)"
+   "name": "Assets.xcassets, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "CLI, (Directory)"
+   "name": "CLI, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Examples, (Directory)"
+   "name": "Examples, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "KeyboardPinningLab, (Directory)"
+   "name": "KeyboardPinningLab, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Keep the iOS terminal dock pinned during keyboard reversals ("
+   "name": "Keep the iOS terminal dock pinned during keyboard reversals (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Native, (Directory)"
+   "name": "Native, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Packages, (Directory)"
+   "name": "Packages, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Merge pull request"
+   "name": "Merge pull request",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15789"
+   "name": "#15789",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "from manaflow-ai/feat-ios-browser-update-wa…"
+   "name": "from manaflow-ai/feat-ios-browser-update-wa…",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Prototypes/SettingsShellLab, (Directory)"
+   "name": "Prototypes/SettingsShellLab, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Add settings sidebar shell ("
+   "name": "Add settings sidebar shell (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#3244"
+   "name": "#3244",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Resources, (Directory)"
+   "name": "Resources, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Sources, (Directory)"
+   "name": "Sources, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "TunnelExtension, (Directory)"
+   "name": "TunnelExtension, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Fix Cloud VPN cancellation ordering and stale tunnel device selection ("
+   "name": "Fix Cloud VPN cancellation ordering and stale tunnel device selection (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "agent-chat, (Directory)"
+   "name": "agent-chat, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Keep the mail broker from orphaning a reply to an unknown parent ("
+   "name": "Keep the mail broker from orphaning a reply to an unknown parent (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmux-browser, (Directory)"
+   "name": "cmux-browser, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15231"
+   "name": "#15231",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmux-tui, (Directory)"
+   "name": "cmux-tui, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Consolidate SSH security, shim hardening, and restored terminal repla…"
+   "name": "Consolidate SSH security, shim hardening, and restored terminal repla…",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmux.xcodeproj, (Directory)"
+   "name": "cmux.xcodeproj, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmux.xcworkspace, (Directory)"
+   "name": "cmux.xcworkspace, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#14301"
+   "name": "#14301",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmuxCLITestSupport, (Directory)"
+   "name": "cmuxCLITestSupport, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Add resize-window CLI and socket command, plus a scrollback resize gu…"
+   "name": "Add resize-window CLI and socket command, plus a scrollback resize gu…",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmuxCLITests, (Directory)"
+   "name": "cmuxCLITests, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Show Claude sessions that stop on an API error instead of leaving the…"
+   "name": "Show Claude sessions that stop on an API error instead of leaving the…",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmuxTests, (Directory)"
+   "name": "cmuxTests, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmuxUITests, (Directory)"
+   "name": "cmuxUITests, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Open the Cloud team picker as an anchored dropdown ("
+   "name": "Open the Cloud team picker as an anchored dropdown (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15078"
+   "name": "#15078",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "config, (Directory)"
+   "name": "config, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "daemon/remote, (Directory)"
+   "name": "daemon/remote, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Consolidate SSH security, shim hardening, and restored terminal repla…"
+   "name": "Consolidate SSH security, shim hardening, and restored terminal repla…",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "design, (Directory)"
+   "name": "design, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Regenerate app icons from Icon Composer ("
+   "name": "Regenerate app icons from Icon Composer (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#1005"
+   "name": "#1005",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "docs, (Directory)"
+   "name": "docs, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15763"
+   "name": "#15763",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "dogfood, (Directory)"
+   "name": "dogfood, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15118"
+   "name": "#15118",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "examples/cmux-pack-template, (Directory)"
+   "name": "examples/cmux-pack-template, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#13356"
+   "name": "#13356",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "experiments, (Directory)"
+   "name": "experiments, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "ghostty, (Submodule)"
+   "name": "ghostty, (Submodule)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15146"
+   "name": "#15146",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "homebrew-cmux, (Submodule)"
+   "name": "homebrew-cmux, (Submodule)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "ios, (Directory)"
+   "name": "ios, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "plans, (Directory)"
+   "name": "plans, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "schemas/control-plane, (Directory)"
+   "name": "schemas/control-plane, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Device-list authorization + DO-first control plane (listauth) ("
+   "name": "Device-list authorization + DO-first control plane (listauth) (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#11220"
+   "name": "#11220",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "scripts, (Directory)"
+   "name": "scripts, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Load diff viewer grammars lazily and drop dead vendored Pierre bundles ("
+   "name": "Load diff viewer grammars lazily and drop dead vendored Pierre bundles (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "services/iroh-relay-minter, (Directory)"
+   "name": "services/iroh-relay-minter, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "skills, (Directory)"
+   "name": "skills, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "tests, (Directory)"
+   "name": "tests, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Install updates automatically at a quiet moment and resume agents ("
+   "name": "Install updates automatically at a quiet moment and resume agents (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "tests_v2, (Directory)"
+   "name": "tests_v2, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Consolidate SSH security, shim hardening, and restored terminal repla…"
+   "name": "Consolidate SSH security, shim hardening, and restored terminal repla…",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "vault, (Directory)"
+   "name": "vault, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Fix Codex Security scan findings ("
+   "name": "Fix Codex Security scan findings (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#7437"
+   "name": "#7437",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "vendor, (Directory)"
+   "name": "vendor, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Keep split-divider-color on the split divider only ("
+   "name": "Keep split-divider-color on the split divider only (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15093"
+   "name": "#15093",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "web, (Directory)"
+   "name": "web, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15506"
+   "name": "#15506",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "webviews, (Directory)"
+   "name": "webviews, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "workers, (Directory)"
+   "name": "workers, (Directory)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ".coderabbit.yaml, (File)"
+   "name": ".coderabbit.yaml, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#13277"
+   "name": "#13277",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ".gitattributes, (File)"
+   "name": ".gitattributes, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Load diff viewer grammars lazily and drop dead vendored Pierre bundles ("
+   "name": "Load diff viewer grammars lazily and drop dead vendored Pierre bundles (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ".gitignore, (File)"
+   "name": ".gitignore, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#13383"
+   "name": "#13383",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ".gitkeep, (File)"
+   "name": ".gitkeep, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ".gitmodules, (File)"
+   "name": ".gitmodules, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Fix frozen terminals after split churn ("
+   "name": "Fix frozen terminals after split churn (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#12"
+   "name": "#12",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ".vercelignore, (File)"
+   "name": ".vercelignore, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ".xcode-version, (File)"
+   "name": ".xcode-version, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "AGENTS.md, (Symlink to file)"
+   "name": "AGENTS.md, (Symlink to file)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "agents"
+   "name": "agents",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "CHANGELOG.md, (File)"
+   "name": "CHANGELOG.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Graduate Dock from Beta Features ("
+   "name": "Graduate Dock from Beta Features (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15456"
+   "name": "#15456",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "CLA.md, (File)"
+   "name": "CLA.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "CLAUDE.md, (File)"
+   "name": "CLAUDE.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15638"
+   "name": "#15638",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "CODE_OF_CONDUCT.md, (File)"
+   "name": "CODE_OF_CONDUCT.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15263"
+   "name": "#15263",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "CONTRIBUTING.md, (File)"
+   "name": "CONTRIBUTING.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15263"
+   "name": "#15263",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "LICENSE, (File)"
+   "name": "LICENSE, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "PR-10599-AUDIT.md, (File)"
+   "name": "PR-10599-AUDIT.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "PROJECTS.md, (File)"
+   "name": "PROJECTS.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Reversion all 1.x.x to 0.x.x for pre-launch versioning"
+   "name": "Reversion all 1.x.x to 0.x.x for pre-launch versioning",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.ar.md, (File)"
+   "name": "README.ar.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.bs.md, (File)"
+   "name": "README.bs.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.da.md, (File)"
+   "name": "README.da.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.de.md, (File)"
+   "name": "README.de.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.es.md, (File)"
+   "name": "README.es.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.fr.md, (File)"
+   "name": "README.fr.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.it.md, (File)"
+   "name": "README.it.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.ja.md, (File)"
+   "name": "README.ja.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.km.md, (File)"
+   "name": "README.km.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.ko.md, (File)"
+   "name": "README.ko.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.md, (File)"
+   "name": "README.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15263"
+   "name": "#15263",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.no.md, (File)"
+   "name": "README.no.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.pl.md, (File)"
+   "name": "README.pl.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.pt-BR.md, (File)"
+   "name": "README.pt-BR.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.ru.md, (File)"
+   "name": "README.ru.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.th.md, (File)"
+   "name": "README.th.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.tr.md, (File)"
+   "name": "README.tr.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.uk.md, (File)"
+   "name": "README.uk.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.vi.md, (File)"
+   "name": "README.vi.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.zh-CN.md, (File)"
+   "name": "README.zh-CN.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README.zh-TW.md, (File)"
+   "name": "README.zh-TW.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Use founders@cmux.com as the contact address everywhere ("
+   "name": "Use founders@cmux.com as the contact address everywhere (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "SECURITY.md, (File)"
+   "name": "SECURITY.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#15263"
+   "name": "#15263",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "STYLE.md, (File)"
+   "name": "STYLE.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Clarify writing guidance for issue and PR descriptions ("
+   "name": "Clarify writing guidance for issue and PR descriptions (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#13275"
+   "name": "#13275",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "THIRD_PARTY_LICENSES.md, (File)"
+   "name": "THIRD_PARTY_LICENSES.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Load diff viewer grammars lazily and drop dead vendored Pierre bundles ("
+   "name": "Load diff viewer grammars lazily and drop dead vendored Pierre bundles (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "TODO.md, (File)"
+   "name": "TODO.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "biome.json, (File)"
+   "name": "biome.json, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Scope Biome checks to maintained JS sources ("
+   "name": "Scope Biome checks to maintained JS sources (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#6008"
+   "name": "#6008",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "bun.lock, (File)"
+   "name": "bun.lock, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Scope Biome checks to maintained JS sources ("
+   "name": "Scope Biome checks to maintained JS sources (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#6008"
+   "name": "#6008",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmux-Bridging-Header.h, (File)"
+   "name": "cmux-Bridging-Header.h, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Bound app termination with a force-exit watchdog ("
+   "name": "Bound app termination with a force-exit watchdog (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#6758"
+   "name": "#6758",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ") ("
+   "name": ") (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#6837"
+   "name": "#6837",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmux-helper.entitlements, (File)"
+   "name": "cmux-helper.entitlements, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Inside-out signing with per-binary entitlements to restore passkeys ("
+   "name": "Inside-out signing with per-binary entitlements to restore passkeys (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmux.entitlements, (File)"
+   "name": "cmux.entitlements, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Add personal-information entitlements for Calendar, Contacts, Locatio…"
+   "name": "Add personal-information entitlements for Calendar, Contacts, Locatio…",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmux.nightly.entitlements, (File)"
+   "name": "cmux.nightly.entitlements, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmux.rc.entitlements, (File)"
+   "name": "cmux.rc.entitlements, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Add the cmux RC release channel (com.cmuxterm.app.rc) ("
+   "name": "Add the cmux RC release channel (com.cmuxterm.app.rc) (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#12777"
+   "name": "#12777",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "cmux.release.entitlements, (File)"
+   "name": "cmux.release.entitlements, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "ghostty.h, (File)"
+   "name": "ghostty.h, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Fix ghostty bridge header drift"
+   "name": "Fix ghostty bridge header drift",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "glaeda.apple.json, (File)"
+   "name": "glaeda.apple.json, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#13383"
+   "name": "#13383",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "package.json, (File)"
+   "name": "package.json, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Fix Iroh relay policy Vercel deployment ("
+   "name": "Fix Iroh relay policy Vercel deployment (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#8118"
+   "name": "#8118",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "reports.md, (File)"
+   "name": "reports.md, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Add global font magnification ("
+   "name": "Add global font magnification (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#6554"
+   "name": "#6554",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "skills.sh, (File)"
+   "name": "skills.sh, (File)",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#4301"
+   "name": "#4301",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")\" ("
+   "name": ")\" (",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "#4305"
+   "name": "#4305",
+   "edge": true
   },
   {
    "role": "link",
-   "name": ")"
+   "name": ")",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "README"
+   "name": "README",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Code of conduct"
+   "name": "Code of conduct",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Contributing"
+   "name": "Contributing",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "License"
+   "name": "License",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Security"
+   "name": "Security",
+   "edge": true
   },
   {
    "role": "button",
@@ -1519,7 +1752,8 @@
   },
   {
    "role": "link",
-   "name": "cmux.com"
+   "name": "cmux.com",
+   "edge": true
   },
   {
    "role": "link",
@@ -1643,7 +1877,8 @@
   },
   {
    "role": "link",
-   "name": "https://github.com/manaflow-ai/cmux#founders-edition"
+   "name": "https://github.com/manaflow-ai/cmux#founders-edition",
+   "edge": true
   },
   {
    "role": "link",

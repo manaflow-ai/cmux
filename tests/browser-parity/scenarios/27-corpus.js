@@ -1,6 +1,8 @@
 // Real-site corpus (fixtures/corpus, frozen by lib/corpus.mjs): on each page
 // the snapshot must hold every interactive element of Chrome's Playwright AI
-// snapshot with the same role and name (recall), print no text Chrome does
+// snapshot with the same role and name (recall; an element inside an
+// overflowing overflow:hidden box is optional, since what such a box cuts
+// depends on each engine's text metrics), print no text Chrome does
 // not render (leaks), and stay within 10% of the size of Aside's snapshot of
 // the same page (Aside drops some visible text cmux keeps, such as card
 // descriptions). Exact byte counts are printed, not compared.
@@ -52,7 +54,8 @@ globalThis.corpusCheck = async (name) => {
     const hit = entries.find((e) => !e.used && e.role === want.role &&
       (sameText(e.name, n) || (!e.name && sameText(e.content, n))));
     if (hit) hit.used = true;
-    else missing.push(`${want.role} "${want.name}"`);
+    // An element at a clipper's edge may be clipped by this engine's layout.
+    else if (!want.edge) missing.push(`${want.role} "${want.name}"`);
   }
   const shown = squash(texts.join("\n"));
   const leaks = oracle.hidden.filter((t) => shown.includes(squash(t)));

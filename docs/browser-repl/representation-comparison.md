@@ -402,3 +402,50 @@ Each item is a rule change to `snapshot()` and the measurement it would move.
   shift a few percent between runs. Fixture numbers are reproducible.
 - The change scenario sets the field value and clicks through page script in
   every tool, so it measures reporting, not input fidelity.
+
+## After: cmux at 039b111 (2026-09-30)
+
+Items 1 to 9 of "cmux must" are implemented (commit 039b111; spec in
+[README.md](README.md#snapshot)). Item 10 and 11 are kept: refs are
+unchanged and the guide now says they stay valid until the element is
+removed; the password mask and state set are unchanged. Rerun of
+`node tests/browser-parity/compare/run.mjs` (same harness, same tools; cmux on
+the dev driver). Amazon refused WebKit in this run, so its live and frozen
+rows show the error page for every tool and are left out below; the Amazon
+figures come from the app (WKWebView, tag brepl-v24) instead.
+
+| measure | cmux before (8c5ef2c) | cmux after | cmux-i before | cmux-i after |
+| --- | ---: | ---: | ---: | ---: |
+| Wikipedia tokens | 19k | 19k | 9.1k | 9.8k |
+| HN tokens | 3.9k | 3.3k | 2.9k | 2.9k |
+| GitHub tokens | 18k | 17k | 9.2k | 9.8k |
+| MDN tokens | 1.0k | 1.2k | 749 | 1.0k |
+| tokens per addressable visible element (wikipedia, hn, github, mdn, amazon) | 34.7 | 29.2 | 19.9 | 17.1 |
+| GitHub leaked interactive items | 28/607 | 0/536 | 28/607 | 0/536 |
+| Wikipedia / MDN leaked interactive items | 3/698, 1/56 | 3/698, 2/56 | 3/698, 1/56 | 3/698, 2/56 |
+| recall, live (micro) | 100% | 100% | 100% | 100% |
+| structure probes passed | 33/36 | 35/36 | 25/36 | 29/36 |
+| small form: output after one action | diff, 63% of full | diff, 46% | full tree (100%) | diff, 55% |
+| big page: output after one action | diff, 3% | diff, 2% | diff, 6% | diff, 5% |
+
+Probes that changed: `select-options` and `table-header` now pass; cmux-i
+now passes heading and landmark probes. `link-target` still fails by design:
+URLs print by default only for links with no name or an image-only name,
+and the probe asks for the URL of a named link. The per-element token cost
+fell because clipped links, punctuation lines and most URLs are gone; MDN and
+the interactive views grew slightly because select options, headings and
+landmarks now print.
+
+The same four live pages on the app (brepl-v24, 1280x800), bytes of
+`snapshot()` against Aside's `snapshot(page).tree`:
+
+| page | cmux | Aside | delta | cmux `{ interactive }` | cmux `{ viewport }` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Wikipedia | 62,367 | 69,213 | -9.9% | 29,618 | 6,663 |
+| Hacker News | 9,009 | 11,770 | -23.5% | 7,876 | 6,668 |
+| GitHub | 61,812 | 64,244 | -3.8% | 32,496 | 6,652 |
+| Amazon | 59,748 | 62,566 | -4.5% | 42,586 | 8,614 |
+
+Amazon's nav belt: 11 of its 30 links print; the 19 its overflow box cuts
+off are left out (item 1). Its department select prints as one line with 10
+options and `+N more` (item 3).

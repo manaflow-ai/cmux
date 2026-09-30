@@ -375,23 +375,28 @@
   },
   {
    "role": "link",
-   "name": "Web"
+   "name": "Web",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "HTML"
+   "name": "HTML",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Reference"
+   "name": "Reference",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "Elements"
+   "name": "Elements",
+   "edge": true
   },
   {
    "role": "link",
-   "name": "<iframe>"
+   "name": "<iframe>",
+   "edge": true
   },
   {
    "role": "link",

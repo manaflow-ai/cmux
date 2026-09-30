@@ -246,10 +246,13 @@ function interactiveFromAiSnapshot(text) {
 // the element out entirely, following CSS containing blocks (an absolutely
 // positioned element escapes clippers below its positioned ancestor, a fixed
 // one all but those at or above a transformed ancestor). Chrome's AI
-// snapshot lists such elements; nobody can see them.
+// snapshot lists such elements; nobody can see them. Returns "clipped",
+// "edge" when a clipper around it overflows or holds one clipped line (what
+// such a box cuts depends on text metrics, which differ between engines), or "".
 function clippedOut(el) {
+  let edge = false;
   const r = el.getBoundingClientRect();
-  if (!r.width || !r.height) return false;
+  if (!r.width || !r.height) return "";
   const clips = (v) => v === "hidden" || v === "clip";
   let skip = null; // "positioned" | "transformed" while escaping
   const own = getComputedStyle(el).position;
@@ -266,15 +269,22 @@ function clippedOut(el) {
       if (x || y) {
         const b = a.getBoundingClientRect();
         const left = b.left + a.clientLeft, top = b.top + a.clientTop;
-        const cut = (x && (r.right <= left + 0.5 || r.left >= left + a.clientWidth - 0.5)) || (y && (r.bottom <= top + 0.5 || r.top >= top + a.clientHeight - 0.5));
-        if (cut) return true;
+        const right = left + a.clientWidth, bottom = top + a.clientHeight;
+        const cut = (x && (r.right <= left + 0.5 || r.left >= right - 0.5)) || (y && (r.bottom <= top + 0.5 || r.top >= bottom - 0.5));
+        if (cut) return "clipped";
+        // Inside a clipper whose content overflows (an ellipsized line), what
+        // is cut depends on text metrics, which differ between engines.
+        // A single clipped line (nowrap, ellipsis) may overflow in another
+        // engine even when it fits here.
+        const oneLine = /nowrap|pre/.test(cs.whiteSpace) || cs.textOverflow === "ellipsis";
+        if ((x && (oneLine || a.scrollWidth > a.clientWidth + 1)) || (y && a.scrollHeight > a.clientHeight + 1)) edge = true;
       }
       skip = null;
     }
     if (cs.position === "absolute") skip = "positioned";
     else if (cs.position === "fixed") skip = "transformed";
   }
-  return false;
+  return edge ? "edge" : "";
 }
 
 async function oracle(only) {
@@ -294,9 +304,9 @@ async function oracle(only) {
       const interactive = [];
       let clipped = 0;
       for (const item of interactiveFromAiSnapshot(aiText)) {
-        const cut = item.ref ? await page.locator(`aria-ref=${item.ref}`).evaluate(clippedOut).catch(() => false) : false;
-        if (cut) clipped++;
-        else interactive.push({ role: item.role, name: item.name });
+        const cut = item.ref ? await page.locator(`aria-ref=${item.ref}`).evaluate(clippedOut).catch(() => "") : "";
+        if (cut === "clipped") clipped++;
+        else interactive.push(cut === "edge" ? { role: item.role, name: item.name, edge: true } : { role: item.role, name: item.name });
       }
       // Hidden text can still name an element (aria-labelledby a hidden
       // tooltip); Chrome prints such names, so they are not leaks.
