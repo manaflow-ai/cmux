@@ -240,7 +240,10 @@ const flatEntries = computed(() => {
 // after the group, outside it) - chosen by the pointer's X position mid-drag.
 // Dragging a group HEADER moves the whole block (extra.block).
 function handleMove(id, index, extra) {
-  const ws = data.workspaces() ?? [];
+  // Use the order currently rendered, including optimistic reorder overrides.
+  // The host-provided `index` fields can lag behind that view for one or more
+  // frames after a bulk or group move.
+  const ws = visibleWorkspaces();
 
   if (extra && extra.block && id.startsWith("h:")) {
     // Whole-group move. workspace.group.move is NOT usable here: its
@@ -356,8 +359,9 @@ function handleMove(id, index, extra) {
   }
 
   if (nextWorkspace) {
-    const before = nextWorkspace.index;
-    const target = dragged.index < before ? before - 1 : before;
+    const draggedPosition = ws.findIndex((w) => w.id === dragged.id);
+    const before = ws.findIndex((w) => w.id === nextWorkspace.id);
+    const target = draggedPosition < before ? before - 1 : before;
     cmux("workspace.reorder", { workspace_id: id, index: target });
   } else {
     cmux("workspace.reorder", { workspace_id: id, index: ws.length - 1 });

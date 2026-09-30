@@ -13,8 +13,20 @@ TEMPLATES = {
     "btop-agents": ("btop Agents", "left", ["CPU 24%", "Memory 3.1G", "Running 4", "Waiting 2", "Finished 8"]),
     "panel-todo": ("Panel Todo", "right", ["Ship gallery", "Add screenshots", "Review PR", "Update docs", "Publish"]),
 }
-font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
-small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+def load_font(size):
+    for path in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+    ):
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            pass
+    return ImageFont.load_default()
+
+
+font = load_font(18)
+small = load_font(12)
 for slug, (title, placement, rows) in TEMPLATES.items():
     for theme, palette in {
         "dark": ((24, 27, 34), (34, 39, 49), (235, 240, 248), (151, 163, 180), (47, 54, 67), (215, 221, 231)),

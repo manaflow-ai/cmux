@@ -65,7 +65,13 @@ public struct CustomSidebarsSection: View {
                 discoveredSidebars = names
             }
         }
+        .onAppear {
+            if CustomSidebarTemplateGalleryRequest.consume() {
+                galleryPresented = true
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .customSidebarTemplateGalleryRequested)) { _ in
+            _ = CustomSidebarTemplateGalleryRequest.consume()
             galleryPresented = true
         }
     }

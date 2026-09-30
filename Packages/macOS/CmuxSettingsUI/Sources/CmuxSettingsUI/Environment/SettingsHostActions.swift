@@ -8,6 +8,24 @@ public extension Notification.Name {
     static let customSidebarTemplateGalleryRequested = Notification.Name("cmux.settings.customSidebarTemplateGalleryRequested")
 }
 
+/// Holds a gallery request until the progressively mounted Custom Sidebars
+/// section is ready to present it.
+@MainActor
+public enum CustomSidebarTemplateGalleryRequest {
+    private static var pending = false
+
+    public static func request() {
+        pending = true
+        NotificationCenter.default.post(name: .customSidebarTemplateGalleryRequested)
+    }
+
+    public static func consume() -> Bool {
+        guard pending else { return false }
+        pending = false
+        return true
+    }
+}
+
 /// Host-supplied callbacks the package's section views invoke for
 /// actions that live outside the catalog — clearing browser history,
 /// opening the user's editor on cmux.json, sending feedback, posting
