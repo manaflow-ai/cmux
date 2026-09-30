@@ -24,6 +24,11 @@ mkdir -p "$EVIDENCE_DIR"
 LOG="$EVIDENCE_DIR/codex-workload.jsonl"
 : > "$LOG"
 
+# The preferred model is unavailable to the ChatGPT account used by this
+# hosted verification lane. Record the explicit fallback in the evidence so a
+# successful run proves the workload ran with a real supported Codex model.
+printf '{"event":"model_selection","requested_preferred":"gpt-5.3-codex-spark","selected":"%s","unavailable_reason":"unsupported ChatGPT account"}\n' "$MODEL" >> "$LOG"
+
 json_value() {
   /usr/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); v=d.get(sys.argv[1]); print(v if v is not None else "")' "$1"
 }
