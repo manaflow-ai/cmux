@@ -11,6 +11,9 @@ public final class CloudDisplayCoordinator {
     public private(set) var snapshot: CloudGuestDisplaySnapshot?
     private(set) var lastValidatedSnapshot: CloudGuestDisplaySnapshot?
     public private(set) var isAvailable = false
+    /// Becomes true after the first guest catalog probe completes, including a failed probe.
+    /// Callers use this to keep creation enabled while discovery is still pending.
+    public private(set) var hasAttemptedDiscovery = false
     private var generation: UInt64 = 0
     private var requestID: UUID?
     private var refreshTask: Task<Void, Never>?
@@ -62,6 +65,7 @@ public final class CloudDisplayCoordinator {
         }
         refreshTask = task
         await task.value
+        if token == generation { hasAttemptedDiscovery = true }
         if refreshTask != nil, token == generation { refreshTask = nil }
     }
 
@@ -120,5 +124,6 @@ public final class CloudDisplayCoordinator {
         lastValidatedSnapshot = nil
         requestID = nil
         isAvailable = false
+        hasAttemptedDiscovery = false
     }
 }

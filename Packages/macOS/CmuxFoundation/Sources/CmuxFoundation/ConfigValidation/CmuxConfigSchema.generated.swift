@@ -834,13 +834,13 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.showTextBoxOnNewTerminals",
-          "description": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits."
+          "description": "Show the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits."
         },
         "focusTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.focusTextBoxOnNewTerminals",
-          "description": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
+          "description": "Focus the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
         },
         "agentHibernation": {
           "type": "object",
@@ -1570,7 +1570,7 @@ enum CmuxEmbeddedConfigSchema {
       "properties": {
         "matchTerminalBackground": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Use the terminal background instead of the sidebar tint."
         },
         "tintColor": {
@@ -2109,6 +2109,7 @@ enum CmuxEmbeddedConfigSchema {
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
               "pasteLastScreenshot",
+              "sizeTerminalToMyWindow",
               "clearScreenKeepScrollback",
               "simulatorHome",
               "simulatorRotateLeft",
@@ -2189,7 +2190,9 @@ enum CmuxEmbeddedConfigSchema {
               "diffViewerScrollToTop",
               "diffViewerOpenFileSearch",
               "diffViewerNextFile",
-              "diffViewerPreviousFile"
+              "diffViewerPreviousFile",
+              "diffViewerNextHunk",
+              "diffViewerPreviousHunk"
             ]
           },
           "properties": {
@@ -2230,6 +2233,12 @@ enum CmuxEmbeddedConfigSchema {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerPreviousFile": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerNextHunk": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerPreviousHunk": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },
