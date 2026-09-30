@@ -34,6 +34,9 @@ struct AgentAutoResumePolicyTests {
         "invalid_request: prompt is too long",
         "max_output_tokens",
         "The task wrote 15000 lines",
+        "connection refused: invalid proxy configuration",
+        "network access denied by sandbox",
+        "timeout while waiting for local approval",
     ])
     func permanentOrUnknownFailures(detail: String?) {
         #expect(!AgentRetryableFailureClassifier().isRetryable(detail: detail))

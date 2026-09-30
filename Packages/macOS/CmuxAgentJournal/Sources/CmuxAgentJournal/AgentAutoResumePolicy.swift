@@ -198,8 +198,9 @@ public struct AgentRetryableFailureClassifier: Sendable, Equatable {
     static let retryableMarkers = [
         "overloaded", "at capacity", "model_capacity", "server_overloaded", "server_error", "server error",
         "rate_limit", "rate limit", "rate-limit", "too many requests",
-        "stream disconnected", "stream_error", "stream error", "connection", "econnreset", "econnrefused",
-        "etimedout", "timed out", "timeout", "network", "socket hang up", "temporarily unavailable",
+        "stream disconnected", "stream_error", "stream error", "connection error", "connection reset",
+        "connection_dropped", "econnreset", "econnrefused", "etimedout", "request timed out",
+        "network error", "network_error", "socket hang up", "temporarily unavailable",
         "service unavailable", "bad gateway", "internal server error", "try again",
     ]
 

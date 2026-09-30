@@ -251,15 +251,6 @@ final class AgentAutoResumeCoordinator {
         }
         guard typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .draft }
         let stalledFooter = nonEmptyRows.last?.hasSuffix("Goal stalled (/goal resume)") == true
-        let footerIndex = stalledFooter ? plainRows.lastIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) : nil
-        for index in (promptIndex + 1)..<rows.count where index != footerIndex {
-            let typedRow = rows[index].filter { !$0.faint }.map(\.text).joined()
-                .trimmingCharacters(in: .whitespaces)
-            if !typedRow.isEmpty,
-               !typedRow.allSatisfy({ "─│╭╮╰╯".contains($0) || $0.isWhitespace }) {
-                return .draft
-            }
-        }
         return stalledFooter ? .codexGoalResume : .emptyPrompt
     }
 
@@ -292,7 +283,7 @@ final class AgentAutoResumeCoordinator {
 
         @MainActor
         func matchesManagedSession(_ sessionId: String?, agent: String) -> Bool {
-            guard let sessionId, !sessionId.isEmpty else { return true }
+            guard let sessionId, !sessionId.isEmpty else { return false }
             let binding: SurfaceResumeBindingSnapshot?
             let currentSessionId: String?
             switch self {
