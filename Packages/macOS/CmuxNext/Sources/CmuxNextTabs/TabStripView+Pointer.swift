@@ -127,11 +127,11 @@ extension TabStripView {
             press = Press(id: id, start: point)
             return
         }
-        if event.clickCount == 2 {
-            model.send(.newTab(after: nil))
-            return
-        }
-        if dragsWindowFromEmptySpace { window?.performDrag(with: event) }
+        // In the window's top row empty space is the titlebar: it moves
+        // the window, and a double-click zooms or minimizes (the user's
+        // macOS setting). Elsewhere a double-click opens a tab.
+        if actsAsTitlebar { return WindowTitlebar.handleMouseDown(event, in: window) }
+        if event.clickCount == 2 { model.send(.newTab(after: nil)) }
     }
 
     public override func mouseDragged(with event: NSEvent) {

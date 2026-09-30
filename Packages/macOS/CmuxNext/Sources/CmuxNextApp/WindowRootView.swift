@@ -4,9 +4,13 @@ import CmuxNextSidebar
 import Observation
 
 /// Window content: the sidebar flush on the leading edge (traffic lights sit
-/// on its top), a compact titlebar across the content column, and the
-/// workspace layout below it. With the sidebar hidden the layout reaches the
-/// leading window edge and the titlebar starts after the traffic lights. Every surface is the terminal background
+/// on its top) and the workspace layout beside it. `window.titlebar`
+/// "minimal" (the default) has no titlebar strip: the layout reaches the
+/// window's top edge, the traffic lights sit in the top row (the sidebar
+/// header, or with the sidebar hidden the top-left tab strip, which starts
+/// after them), and that row's empty space moves the window. "standard"
+/// adds a compact titlebar across the content column with the workspace
+/// name. Every surface is the terminal background
 /// (`Palette.windowBackground`), so sidebar, titlebar, tab strip and
 /// terminal read as one sheet with no panel edges or seams.
 final class WindowRootView: NSView {
@@ -26,8 +30,7 @@ final class WindowRootView: NSView {
             addSubview(view)
         }
         addSubview(sidebar)
-        sidebar.sidebarView.titlebarHeightOverride = Metrics.titlebarHeight
-        let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: Metrics.titlebarHeight)
+        let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
         // Below required, so it yields to the traffic-light inset.
         let titleFollowsSidebar = titlebar.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor)
         titleFollowsSidebar.priority = .required - 1
@@ -48,8 +51,11 @@ final class WindowRootView: NSView {
             contentHost.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         self.titleHeight = titleHeight
+        applyTokens()
         tokenObservation = Task { [weak self] in
-            for await _ in Observations({ Metrics.titlebarHeight }) { self?.applyTokens() }
+            for await _ in Observations({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0] }) {
+                self?.applyTokens()
+            }
         }
         themeDidChange()
     }
@@ -61,9 +67,16 @@ final class WindowRootView: NSView {
         tokenObservation?.cancel()
     }
 
+    var titlebarStyle: TitlebarStyle { DesignSettings.shared.titlebar }
+
+    /// Minimal: no strip, and the sidebar header is as tall as the tab
+    /// strip, so the list starts level with the panes' content.
     private func applyTokens() {
-        titleHeight?.constant = Metrics.titlebarHeight
-        sidebar.sidebarView.titlebarHeightOverride = Metrics.titlebarHeight
+        let minimal = titlebarStyle == .minimal
+        titleHeight?.constant = minimal ? 0 : Metrics.titlebarHeight
+        titlebar.isHidden = minimal
+        sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
+        needsLayout = true
     }
 
     /// Replaces the workspace layout view.

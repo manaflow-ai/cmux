@@ -36,6 +36,8 @@ public final class DesignSettings {
     public var focusRing = FocusRingSettings()
     /// `notifications.attention.*`: the unread pane's attention ring.
     public var attention = AttentionSettings()
+    /// `window.titlebar`: minimal (no titlebar strip) or standard.
+    public var titlebar: TitlebarStyle = .minimal
 
     public init() {}
 

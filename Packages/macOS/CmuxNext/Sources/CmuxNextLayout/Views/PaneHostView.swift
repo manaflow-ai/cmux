@@ -23,6 +23,7 @@ final class PaneHostView: NSView {
     private(set) var padding: CGFloat = 0
     private(set) var cornerRadius: CGFloat = 0
     private var reporter: PaneContentChrome? { content as? PaneContentChrome }
+    private var lastWindowFrame: CGRect?
 
     init(pane: PaneID, content: NSView) {
         self.pane = pane
@@ -85,9 +86,18 @@ final class PaneHostView: NSView {
         chrome.setShape(padding: padding, cornerRadius: cornerRadius, headerHeight: header)
     }
 
-    func setChrome(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, showsBorder: Bool,
+    /// Tells the content when the pane's frame in the window changed.
+    func noteWindowFrame() {
+        guard let reporter, window != nil else { return }
+        let frame = convert(bounds, to: nil)
+        guard frame != lastWindowFrame else { return }
+        lastWindowFrame = frame
+        reporter.paneFrameInWindowDidChange()
+    }
+
+    func setChrome(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, border: PaneOverlayView.Border,
                    attention: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
-        chrome.update(showsRing: showsRing, dim: dim, focusRing: focusRing, showsBorder: showsBorder,
+        chrome.update(showsRing: showsRing, dim: dim, focusRing: focusRing, border: border,
                       attention: attention, attentionSettings: attentionSettings, animated: animated)
     }
 }

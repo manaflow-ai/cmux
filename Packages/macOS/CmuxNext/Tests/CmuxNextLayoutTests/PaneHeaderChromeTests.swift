@@ -57,3 +57,29 @@ extension LayoutDesignMetricsTests {
         withExtendedLifetime(provider) {}
     }
 }
+
+extension LayoutDesignMetricsTests {
+    /// `layout.paneBorderWidth` sets the border's line width and
+    /// `layout.paneBorderColor` its color.
+    @Test func bordersTakeAWidthAndAColor() async throws {
+        let splits = ScreenLayout.splits(.split("s", axis: .horizontal, ratio: 0.5, a: .leaf("a"), b: .leaf("b")))
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "", layout: splits)], activeScreenID: "s", focusedPane: "a")
+        let provider = HeaderProvider()
+        let view = LayoutRootView(model: model, contentProvider: provider)
+        view.frame = CGRect(origin: .zero, size: viewport)
+        view.layoutSubtreeIfNeeded()
+
+        let orange = ThemeRGB(hex: 0xFF8000)
+        try await withPaneChrome(PaneChromeOverrides(padding: 4, border: .subtle, borderColor: orange, borderWidth: 2)) {
+            try await waitUntil { view.context.hosts["b"]?.chrome.borderWidth == CGFloat(2) }
+            let unfocused = try #require(view.context.hosts["b"])
+            #expect(unfocused.chrome.showsBorder)
+            #expect(unfocused.chrome.borderColor == orange)
+        }
+        try await withPaneChrome(PaneChromeOverrides(padding: 4, border: .subtle)) {
+            try await waitUntil { view.context.hosts["b"]?.chrome.borderWidth ?? 2 < 2 }
+            #expect(view.context.hosts["b"]?.chrome.borderColor == nil)
+        }
+        withExtendedLifetime(provider) {}
+    }
+}

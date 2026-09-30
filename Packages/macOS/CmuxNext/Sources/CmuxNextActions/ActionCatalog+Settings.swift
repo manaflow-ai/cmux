@@ -224,6 +224,30 @@ nonisolated extension ActionCatalog {
                 symbol: "square.inset.filled", surfaces: [.palette], cliName: "settings toggle-single-pane-focus-ring"
             ),
             ActionDescriptor(
+                id: "appearance.paneBorderWidth.toggle",
+                title: String(localized: "action.appearance.paneBorderWidth.toggle", defaultValue: "Toggle Thick Pane Borders", bundle: .module),
+                keywords: ["border", "width", "thick", "thin", "hairline", "pane", "appearance", "layout"], category: .settings,
+                symbol: "lineweight", surfaces: [.palette], cliName: "settings toggle-thick-pane-borders"
+            ),
+            ActionDescriptor(
+                id: "appearance.paneBorderColor.reset",
+                title: String(localized: "action.appearance.paneBorderColor.reset", defaultValue: "Use Theme Color for Pane Borders", bundle: .module),
+                keywords: ["border", "color", "colour", "theme", "ghostty", "reset", "pane", "appearance", "layout"], category: .settings,
+                symbol: "paintpalette", surfaces: [.palette], cliName: "settings use-theme-pane-border-color"
+            ),
+            ActionDescriptor(
+                id: "appearance.titlebar.minimal",
+                title: String(localized: "action.appearance.titlebar.minimal", defaultValue: "Use Minimal Titlebar", bundle: .module),
+                keywords: ["titlebar", "title bar", "window", "compact", "hide", "drag", "appearance"], category: .settings,
+                symbol: "macwindow", surfaces: [.palette], cliName: "settings use-minimal-titlebar"
+            ),
+            ActionDescriptor(
+                id: "appearance.titlebar.standard",
+                title: String(localized: "action.appearance.titlebar.standard", defaultValue: "Use Standard Titlebar", bundle: .module),
+                keywords: ["titlebar", "title bar", "window", "workspace name", "show", "appearance"], category: .settings,
+                symbol: "macwindow.badge.plus", surfaces: [.palette], cliName: "settings use-standard-titlebar"
+            ),
+            ActionDescriptor(
                 id: "appearance.interfaceSize.increase",
                 title: String(localized: "action.appearance.interfaceSize.increase", defaultValue: "Increase Interface Size", bundle: .module),
                 keywords: ["appearance", "font", "chrome", "bigger", "zoom"], category: .settings,

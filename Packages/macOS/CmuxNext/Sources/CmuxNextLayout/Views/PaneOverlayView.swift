@@ -12,6 +12,15 @@ import QuartzCore
 /// inside the content area: it never changes a pane frame or inset. A ring
 /// hides the border while it shows.
 final class PaneOverlayView: NSView {
+    /// The pane border: shown, width in points (nil = one device pixel) and
+    /// color (nil = the theme's `Palette.paneBorder`), from
+    /// `layout.paneBorder`, `layout.paneBorderWidth`, `layout.paneBorderColor`.
+    struct Border: Equatable {
+        var shows: Bool
+        var width: CGFloat?
+        var color: ThemeRGB?
+    }
+
     private let border = CALayer()
     private let ring = CALayer()
     private let glowClip = CALayer()
@@ -24,6 +33,7 @@ final class PaneOverlayView: NSView {
     private var focusRing = FocusRingSettings()
     private var attentionSettings = AttentionSettings()
     private var attentionMark: AttentionMark?
+    private var borderStyle = Border(shows: false)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -87,6 +97,9 @@ final class PaneOverlayView: NSView {
 
     /// The rect the border and ring trace (for tests and `debug.layers`).
     var borderFrame: CGRect { border.frame }
+    /// The border's line width in points and color override (for tests).
+    var borderWidth: CGFloat { border.borderWidth }
+    var borderColor: ThemeRGB? { borderStyle.color }
 
     private func layoutLayers() {
         var style = LayoutStyle()
@@ -115,7 +128,7 @@ final class PaneOverlayView: NSView {
             : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         glow.frame = glowClip.bounds
         glow.cornerRadius = ringRadius
-        border.borderWidth = PaneChromeGeometry.hairlineWidth(scale: scale)
+        border.borderWidth = borderStyle.width ?? PaneChromeGeometry.hairlineWidth(scale: scale)
         ring.borderWidth = focusRing.width
         glow.borderWidth = focusRing.width
         glow.shadowRadius = max(2, focusRing.width * 3)
@@ -125,9 +138,12 @@ final class PaneOverlayView: NSView {
 
     /// `showsRing`: this pane is focused and the ring should mark it.
     /// `attention`: the pane's unread mark, nil when none.
-    func update(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, showsBorder: Bool,
+    func update(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, border borderStyle: Border,
                 attention mark: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
         let shapeChanged = focusRing != self.focusRing || attentionSettings != self.attentionSettings
+            || borderStyle.width != self.borderStyle.width
+        let showsBorder = borderStyle.shows
+        self.borderStyle = borderStyle
         self.focusRing = focusRing
         self.attentionSettings = attentionSettings
         if shapeChanged { layoutLayers() }
@@ -172,7 +188,7 @@ final class PaneOverlayView: NSView {
             glow.shadowColor = ringColor.cgColor
             let attentionColor = attentionMark?.color?.nsColor ?? attentionSettings.color?.nsColor ?? Palette.attention
             attention.borderColor = attentionColor.cgColor
-            border.borderColor = Palette.paneBorder.cgColor
+            border.borderColor = (borderStyle.color?.nsColor ?? Palette.paneBorder).cgColor
             dimLayer.backgroundColor = Palette.contentBackground.withAlphaComponent(1).cgColor
         }
     }

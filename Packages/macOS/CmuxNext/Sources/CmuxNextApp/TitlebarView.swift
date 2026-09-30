@@ -1,9 +1,9 @@
 import AppKit
 import CmuxNextDesign
 
-/// Compact custom titlebar above the content column: the workspace title,
-/// centered, secondary text. Dragging it moves the window; double-click
-/// zooms like a native titlebar.
+/// The standard titlebar strip (`window.titlebar` "standard") above the
+/// content column: the workspace title, centered, secondary text. Dragging
+/// it moves the window; a double-click runs the user's titlebar action.
 final class TitlebarView: NSView {
     private let label = NSTextField(labelWithString: "")
 
@@ -34,6 +34,6 @@ final class TitlebarView: NSView {
     override var mouseDownCanMoveWindow: Bool { true }
 
     override func mouseUp(with event: NSEvent) {
-        if event.clickCount == 2 { window?.performZoom(nil) } else { super.mouseUp(with: event) }
+        if event.clickCount == 2 { WindowTitlebar.performDoubleClick(in: window) } else { super.mouseUp(with: event) }
     }
 }

@@ -37,6 +37,10 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// The attention ring of panes with an unread notification
     /// (`notifications.attention.*`).
     public var attention = AttentionSettings()
+    /// Border color override (`layout.paneBorderColor`); nil is the theme's.
+    public var paneBorderColor: ThemeRGB?
+    /// Border width in points (`layout.paneBorderWidth`); nil is one device pixel.
+    public var paneBorderWidth: CGFloat?
     /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
     public var inactivePaneDimming: CGFloat = 0.14
     /// Fraction of a pane's extent that counts as an edge drop zone.
@@ -73,6 +77,8 @@ extension LayoutStyle {
         style.showsPaneBorder = Metrics.paneBorder == .subtle
         style.focusRing = DesignSettings.shared.focusRing
         style.attention = DesignSettings.shared.attention
+        style.paneBorderColor = DesignSettings.shared.paneChrome.borderColor
+        style.paneBorderWidth = Metrics.paneBorderWidth
         return style
     }
 }

@@ -126,6 +126,18 @@ public final class SettingsController {
         try await file.set(.string(speed.rawValue), at: AnimationSpeedSetting.configPath)
     }
 
+    /// Writes `window.titlebar`; the default ("minimal") removes the key,
+    /// and the `window` object when it empties.
+    public func setTitlebar(_ style: TitlebarStyle) async throws {
+        guard style == WindowTitlebarSetting.fallback else {
+            return try await file.set(.string(style.rawValue), at: WindowTitlebarSetting.configPath)
+        }
+        try await file.remove(WindowTitlebarSetting.configPath)
+        if case .object(let members)? = try await file.value(at: ["window"]), members.isEmpty {
+            try await file.remove(["window"])
+        }
+    }
+
     public func setDensity(_ density: Density) async throws {
         try await file.set(.string(density.rawValue), at: ["appearance", "density"])
     }
@@ -143,6 +155,16 @@ public final class SettingsController {
     /// Writes `layout.paneBorder`; nil removes it (subtle).
     public func setPaneBorder(_ border: PaneBorderStyle?) async throws {
         try await setLayoutValue(border.map { .string($0.rawValue) }, key: "paneBorder")
+    }
+
+    /// Writes `layout.paneBorderWidth` in points; nil removes it (one device pixel).
+    public func setPaneBorderWidth(_ points: Double?) async throws {
+        try await setLayoutValue(points.map(JSONValue.number), key: "paneBorderWidth")
+    }
+
+    /// Removes `layout.paneBorderColor` (the theme's color) or writes "#RRGGBB[AA]".
+    public func setPaneBorderColor(_ hex: String?) async throws {
+        try await setLayoutValue(hex.map(JSONValue.string), key: "paneBorderColor")
     }
 
     private func setLayoutValue(_ value: JSONValue?, key: String) async throws {

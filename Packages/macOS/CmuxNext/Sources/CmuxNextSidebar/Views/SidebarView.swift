@@ -183,6 +183,18 @@ public final class SidebarView: NSView {
         syncListWidth()
     }
 
+    // MARK: Titlebar row
+
+    /// The header row beside the traffic lights is titlebar: it moves the
+    /// window, and a double-click zooms or minimizes (the user's macOS
+    /// setting). Its buttons take their own clicks.
+    override public func mouseDown(with event: NSEvent) {
+        guard convert(event.locationInWindow, from: nil).y < titlebarHeight else { return super.mouseDown(with: event) }
+        WindowTitlebar.handleMouseDown(event, in: window)
+    }
+
+    override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     // MARK: Hover reveal
 
     override public func updateTrackingAreas() {

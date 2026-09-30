@@ -242,7 +242,7 @@ final class ScreenContentView: NSView {
                 showsRing: ringAllowed && isFocused,
                 dim: multiple && dimsInactive && !isFocused ? style.inactivePaneDimming : 0,
                 focusRing: style.focusRing,
-                showsBorder: style.showsPaneBorder,
+                border: PaneOverlayView.Border(shows: style.showsPaneBorder, width: style.paneBorderWidth, color: style.paneBorderColor),
                 attention: attention[pane],
                 attentionSettings: style.attention,
                 animated: animated

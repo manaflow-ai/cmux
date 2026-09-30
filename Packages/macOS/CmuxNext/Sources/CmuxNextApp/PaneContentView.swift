@@ -20,7 +20,6 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     init(stripModel: TabStripModel) {
         stripView = TabStripView(model: stripModel)
-        stripView.dragsWindowFromEmptySpace = false
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         wantsLayer = true
         layer?.backgroundColor = Palette.contentBackground.cgColor
@@ -80,6 +79,10 @@ final class PaneContentView: NSView, PaneContentChrome {
         CATransaction.setDisableActions(true)
         layer.cornerRadius = hostRadius
         CATransaction.commit()
+    }
+
+    func paneFrameInWindowDidChange() {
+        stripView.updateWindowControlsAvoidance()
     }
 
     private func reportHeaderIfChanged() {

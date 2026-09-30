@@ -16,4 +16,12 @@ public protocol PaneContentChrome: AnyObject {
     var onPaneHeaderHeightChange: (() -> Void)? { get set }
     /// Rounds the content area's corners with `radius` (0 is square).
     func setPaneContentCornerRadius(_ radius: CGFloat)
+    /// The pane moved or resized in its window (layout step, sidebar show
+    /// or hide, column scroll), so window-relative chrome can re-check
+    /// itself (a tab strip under the traffic lights).
+    func paneFrameInWindowDidChange()
+}
+
+extension PaneContentChrome {
+    public func paneFrameInWindowDidChange() {}
 }

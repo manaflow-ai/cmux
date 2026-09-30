@@ -40,6 +40,7 @@ public final class SettingsApplier {
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         if design.focusRing != snapshot.focusRing { design.focusRing = snapshot.focusRing }
         if design.attention != snapshot.attention { design.attention = snapshot.attention }
+        if design.titlebar != snapshot.titlebar { design.titlebar = snapshot.titlebar }
         for key in MetricKey.allCases {
             let value = snapshot.metrics[key.rawValue].map { CGFloat($0) }
             let range = DesignSettings.allowedRange(key)
