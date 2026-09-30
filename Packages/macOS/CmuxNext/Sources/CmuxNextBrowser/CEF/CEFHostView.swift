@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// The parent view of a pane's Chromium window. The fork's
 /// `CmuxParentViewTracker` keeps the page window over this view, clips it to
@@ -19,10 +20,24 @@ final class CEFHostView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        updateBackground()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateBackground()
+    }
+
+    /// Until Chromium's page window shows its first frame, the page area is
+    /// the theme color, never white (`PageBackground`).
+    private func updateBackground() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = Palette.pageBackground.cgColor
+        }
+    }
 
     isolated deinit {
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }

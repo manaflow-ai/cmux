@@ -54,6 +54,9 @@ public final class WebKitTab: NSObject, BrowserTab {
         webView.allowsMagnification = true
         webView.isInspectable = true
         webView.underPageBackgroundColor = .clear
+        // No white before the first page: the pane's theme color shows
+        // through until a real page finishes (`PageBackground`).
+        setDrawsPageBackground(false)
 
         let controller = webViewConfiguration.userContentController
         controller.addUserScript(WKUserScript(
@@ -71,6 +74,22 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     isolated deinit {
         faviconTask?.cancel()
+    }
+
+    /// WKWebView paints white behind every page by default. macOS has no
+    /// public switch, so this uses WebKit's `_setDrawsBackground:` SPI
+    /// through KVC ("drawsBackground"), checked first; without it the tab
+    /// keeps WebKit's default.
+    func setDrawsPageBackground(_ draws: Bool) {
+        guard webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) else { return }
+        webView.setValue(draws, forKey: "drawsBackground")
+    }
+
+    /// The first real page finished: from now on WebKit draws its default
+    /// behind pages again (white for pages without a background).
+    func pageDidFinish() {
+        guard !PageBackground.isBlank(webView.url) else { return }
+        setDrawsPageBackground(true)
     }
 
     // MARK: Navigation commands

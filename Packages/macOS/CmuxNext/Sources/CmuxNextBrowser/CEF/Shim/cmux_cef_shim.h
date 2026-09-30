@@ -140,6 +140,12 @@ CMUX_SHIM_EXPORT int cmux_shim_fork_api_version(void);
 // Chromium disables unpacked (--load-extension) extensions without it.
 // Development and verification only; call before cmux_shim_initialize.
 CMUX_SHIM_EXPORT void cmux_shim_set_extension_developer_mode(int enabled);
+// Page background before the first paint and for documents without one
+// (CefSettings.background_color and CefBrowserSettings.background_color),
+// as opaque 0xAARRGGBB; 0 keeps Chromium's default. Browsers created after
+// the call use it; call before cmux_shim_initialize so tabs the fork adds
+// (cmux_shim_tab_add) fall back to it too.
+CMUX_SHIM_EXPORT void cmux_shim_set_background_color(unsigned int argb);
 // Returns 1 when NSApp conforms to CefAppProtocol and implements its
 // methods (the host app's NSApplication subclass must), 0 otherwise. The shim
 // no longer patches NSApp. Check before cmux_shim_initialize.

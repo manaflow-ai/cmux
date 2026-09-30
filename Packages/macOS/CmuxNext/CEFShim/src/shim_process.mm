@@ -59,6 +59,11 @@ bool TakeHostClose(int browser_id) {
 }
 
 static bool g_extension_developer_mode = false;
+static cef_color_t g_background_color = 0;
+
+cef_color_t BackgroundColor() {
+  return g_background_color;
+}
 // accept_language_list from cmux_shim_initialize, for every request context.
 static std::string g_accept_languages;
 
@@ -203,6 +208,10 @@ void cmux_shim_set_extension_developer_mode(int enabled) {
   g_extension_developer_mode = enabled != 0;
 }
 
+void cmux_shim_set_background_color(unsigned int argb) {
+  g_background_color = static_cast<cef_color_t>(argb);
+}
+
 int cmux_shim_fork_api_version(void) {
   return fork_api().version;
 }
@@ -244,6 +253,7 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   if (locale && *locale) {
     CefString(&settings.locale) = locale;
   }
+  settings.background_color = g_background_color;
   g_accept_languages = accept_languages ? accept_languages : "";
   if (!g_accept_languages.empty()) {
     CefString(&settings.accept_language_list) = g_accept_languages;

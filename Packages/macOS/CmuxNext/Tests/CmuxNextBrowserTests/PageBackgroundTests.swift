@@ -34,4 +34,23 @@ import WebKit
         #expect(drawsBackground(tab) == true)
         tab.close()
     }
+
+    /// Chromium: the theme color (CefBrowserSettings.background_color)
+    /// stays through blank documents and ends at the first real commit.
+    @Test func chromiumKeepsTheThemeColorUntilTheFirstRealPageCommits() {
+        let runtime = CEFRuntime.shared
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "bg"), profile: .default), runtime: runtime)
+        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(tab)
+        tab.handle(.loadStart(browser: 1, url: "about:blank"))
+        #expect(tab.usesThemeBackground)
+        tab.handle(.loadStart(browser: 1, url: "https://a.example/"))
+        #expect(!tab.usesThemeBackground)
+    }
+
+    @Test func blankURLs() {
+        #expect(PageBackground.isBlank(nil))
+        #expect(PageBackground.isBlank(URL(string: "about:blank")))
+        #expect(!PageBackground.isBlank(URL(string: "https://example.com")))
+    }
 }

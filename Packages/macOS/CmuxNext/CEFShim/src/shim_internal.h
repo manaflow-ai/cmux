@@ -80,6 +80,9 @@ bool TakeHostClose(int browser_id);
 void StoreUnresponsiveCallback(int browser_id, CefRefPtr<CefUnresponsiveProcessCallback> callback);
 CefRefPtr<CefUnresponsiveProcessCallback> TakeUnresponsiveCallback(int browser_id);
 
+// cmux_shim_set_background_color; 0 = Chromium's default.
+cef_color_t BackgroundColor();
+
 // Request contexts per profile cache path.
 CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path);
 

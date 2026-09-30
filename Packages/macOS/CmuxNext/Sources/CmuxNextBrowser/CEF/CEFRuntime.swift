@@ -289,6 +289,8 @@ final class CEFRuntime {
         )
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
+        // New pages start on the theme color, never white (PageBackground).
+        shim.setBackgroundColor(PageBackground.themeARGB)
         let switches = switchSet.arguments
         switchStorage = switches.map { strdup($0) } + [nil]
         let locale = library.locale

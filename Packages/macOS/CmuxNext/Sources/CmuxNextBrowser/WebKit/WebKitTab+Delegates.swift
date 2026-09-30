@@ -89,6 +89,7 @@ extension WebKitTab: WKNavigationDelegate {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.finished(id))
+        pageDidFinish()
         syncHistory()
         refreshFavicon()
     }

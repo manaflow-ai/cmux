@@ -39,8 +39,18 @@ final class LoadErrorView: NSView {
     func show(_ error: BrowserLoadError) {
         messageLabel.stringValue = error.message
         isHidden = false
+        updateColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColors()
+    }
+
+    /// Opaque theme color: the failed page must not show through.
+    private func updateColors() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Palette.contentBackground.cgColor
+            layer?.backgroundColor = Palette.pageBackground.cgColor
         }
     }
 

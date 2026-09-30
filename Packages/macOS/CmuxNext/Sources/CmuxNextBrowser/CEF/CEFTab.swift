@@ -51,6 +51,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
     @ObservationIgnored var pendingFocus = false
+    /// True until the first real page commits: Chromium paints the theme
+    /// color behind the page (`PageBackground`), then its white default.
+    @ObservationIgnored private(set) var usesThemeBackground = true
     /// The renderer ended while the tab was hidden: reload when shown
     /// (Chrome reloads a crashed background tab when it is selected).
     @ObservationIgnored var reloadWhenShown = false
@@ -93,6 +96,19 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         if pendingFocus { runtime.shim?.setFocus(browser, 1) }
         refreshExtensionActions()
+    }
+
+    /// A document committed. The first one that is not a blank page puts
+    /// Chromium's white default back for pages without a background (the
+    /// theme color came from `CefBrowserSettings.background_color`), so plain
+    /// text never shows dark text on a dark theme color.
+    func documentCommitted(_ url: URL?) {
+        guard usesThemeBackground, !PageBackground.isBlank(url) else { return }
+        usesThemeBackground = false
+        guard let browser = browserID else { return }
+        let white: [String: Any] = ["color": ["r": 255, "g": 255, "b": 255, "a": 1]]
+        let runtime = runtime
+        Task { _ = try? await runtime.devTools(browser, method: "Emulation.setDefaultBackgroundColorOverride", params: white) }
     }
 
     func creationFailed() {

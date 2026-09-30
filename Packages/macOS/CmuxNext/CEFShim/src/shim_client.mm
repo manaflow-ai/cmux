@@ -214,7 +214,7 @@ class Client : public CefClient,
 
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, int, const CefString& target_url,
                      const CefString&, WindowOpenDisposition disposition, bool, const CefPopupFeatures& features,
-                     CefWindowInfo& window_info, CefRefPtr<CefClient>&, CefBrowserSettings&,
+                     CefWindowInfo& window_info, CefRefPtr<CefClient>&, CefBrowserSettings& settings,
                      CefRefPtr<CefDictionaryValue>&, bool*) override {
     // Every popup (target=_blank, window.open with or without features) is
     // a tab: no parent view or bounds of its own, so Chromium never gives it
@@ -223,6 +223,8 @@ class Client : public CefClient,
     // Chromium window and the host moves the tab into a pane. window.opener
     // stays either way. AFTER_CREATED carries the disposition and features.
     window_info = CefWindowInfo();
+    // A popup page starts on the theme color like any new tab.
+    settings.background_color = BackgroundColor();
     RememberPopup(browser->GetIdentifier(), disposition, features);
     Emit(CMUX_SHIM_POPUP, browser->GetIdentifier(), 0, disposition, 0, target_url.ToString());
     return false;
