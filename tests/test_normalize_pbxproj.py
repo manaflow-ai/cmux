@@ -60,23 +60,6 @@ class NormalizeProjectTests(unittest.TestCase):
                     # Normalizing must never change which duplicate definition wins.
                     self.assertEqual(path.read_text(), contents)
 
-    def test_rejects_unquoted_extension_path_without_rewriting(self) -> None:
-        contents = project("""
-/* Begin PBXFileReference section */
-        FILE1 = {isa = PBXFileReference; path = AppDelegate+CloudTerminalNavigation.swift; };
-/* End PBXFileReference section */
-""")
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "project.pbxproj"
-            for args in [(), ("--check",)]:
-                with self.subTest(args=args):
-                    path.write_text(contents)
-                    result = self.run_normalizer(path, *args)
-                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                    self.assertIn("unquoted string", result.stderr)
-                    self.assertIn("line 7", result.stderr)
-                    self.assertEqual(path.read_text(), contents)
-
     def test_accepts_quoted_special_characters_and_rejects_unquoted_ones(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "project.pbxproj"
