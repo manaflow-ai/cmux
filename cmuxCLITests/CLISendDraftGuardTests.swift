@@ -348,6 +348,18 @@ struct CLISendDraftGuardTests {
         #expect(run.result.stdout.contains("submitted: false"), Comment(rawValue: run.result.stdout))
     }
 
+    @Test func sendSubmitBareShellGlyphWithoutHooksUsesReturn() throws {
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "echo hi"],
+            screenText: "❯\u{00A0}"
+        )
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout.contains("submitted"), Comment(rawValue: run.result.stdout))
+        let keyRequest = try #require(run.requests.first { $0["method"] as? String == "surface.send_key" })
+        #expect((keyRequest["params"] as? [String: Any])?["key"] as? String == "return")
+    }
+
     // MARK: - Harness
 
     private struct Run {
