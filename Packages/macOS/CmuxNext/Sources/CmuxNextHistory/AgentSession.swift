@@ -115,7 +115,11 @@ public nonisolated struct AgentJournalRecord: Hashable, Sendable, Decodable {
             sequence = try c.decode(UInt64.self, forKey: .sequence)
         }
         kind = try c.decode(String.self, forKey: .kind)
-        occurredAtMs = try c.decodeIfPresent(Int64.self, forKey: .occurredAtMs)
+        if let text = try? c.decodeIfPresent(String.self, forKey: .occurredAtMs) {
+            occurredAtMs = Int64(text)
+        } else {
+            occurredAtMs = try? c.decodeIfPresent(Int64.self, forKey: .occurredAtMs)
+        }
         subjects = try c.decodeIfPresent([Subject].self, forKey: .subjects) ?? []
         payload = try c.decodeIfPresent(Payload.self, forKey: .payload)
     }
