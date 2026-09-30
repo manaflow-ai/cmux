@@ -153,7 +153,7 @@ export const PROVIDERS: ProviderDef[] = [
     id: "gemini",
     label: "Gemini",
     adapter: "acp",
-    cmd: ["gemini", "--acp"],
+    cmd: ["gemini", "--experimental-acp"],
     autoApproveArgs: ["--yolo"],
     installCommand: "npm i -g @google/gemini-cli",
     models: geminiCatalogModels(),
