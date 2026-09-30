@@ -24,6 +24,10 @@ public final class WorkstreamStore {
     public private(set) var items: [WorkstreamItem] = []
     public private(set) var hasMorePersistedItems = false
     public private(set) var isLoadingOlderItems = false
+    /// Number of in-memory items still waiting for a user decision.
+    public private(set) var pendingCount = 0
+    /// Number of in-memory items that represent an actionable event.
+    public private(set) var actionableCount = 0
 
     public var pending: [WorkstreamItem] {
         items.filter { $0.status.isPending }
@@ -89,6 +93,7 @@ public final class WorkstreamStore {
         if let persistence {
             if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
                 items = page.items.map(normalizedWorkstreamItem)
+                rebuildDerivedCounts()
                 hasMorePersistedItems = page.hasMoreBefore
                 oldestLoadedPersistenceOffset = page.startOffset
                 rebuildContextIndex()
@@ -131,6 +136,7 @@ public final class WorkstreamStore {
         }
         if !olderItems.isEmpty {
             items.insert(contentsOf: olderItems, at: 0)
+            adjustDerivedCounts(for: olderItems, by: 1)
         }
         self.oldestLoadedPersistenceOffset = page.startOffset ?? oldestLoadedPersistenceOffset
         hasMorePersistedItems = page.hasMoreBefore
@@ -170,6 +176,7 @@ public final class WorkstreamStore {
         let now = clock()
         items[idx].status = .resolved(decision, at: now)
         items[idx].updatedAt = now
+        pendingCount -= 1
     }
 
     /// Marks one still-pending item expired.
@@ -179,6 +186,7 @@ public final class WorkstreamStore {
         let now = clock()
         items[idx].status = .expired(at: now)
         items[idx].updatedAt = now
+        pendingCount -= 1
     }
 
     /// Marks every still-pending item created before `threshold` as
@@ -190,6 +198,7 @@ public final class WorkstreamStore {
             if now.timeIntervalSince(items[idx].createdAt) > threshold {
                 items[idx].status = .expired(at: now)
                 items[idx].updatedAt = now
+                pendingCount -= 1
             }
         }
     }
@@ -198,10 +207,33 @@ public final class WorkstreamStore {
 
     private func insert(_ item: WorkstreamItem) {
         items.append(item)
+        adjustDerivedCounts(for: item, by: 1)
         if items.count > ringCapacity {
             let overflow = items.count - ringCapacity
+            adjustDerivedCounts(for: items.prefix(overflow), by: -1)
             items.removeFirst(overflow)
         }
+    }
+
+    private func rebuildDerivedCounts() {
+        pendingCount = 0
+        actionableCount = 0
+        for item in items {
+            if item.status.isPending { pendingCount += 1 }
+            if item.kind.isActionable { actionableCount += 1 }
+        }
+    }
+
+    private func adjustDerivedCounts<S: Sequence>(for items: S, by delta: Int)
+    where S.Element == WorkstreamItem {
+        for item in items {
+            if item.status.isPending { pendingCount += delta }
+            if item.kind.isActionable { actionableCount += delta }
+        }
+    }
+
+    private func adjustDerivedCounts(for item: WorkstreamItem, by delta: Int) {
+        adjustDerivedCounts(for: CollectionOfOne(item), by: delta)
     }
 
     private func applyResolution(for action: WorkstreamAction) {
@@ -255,6 +287,7 @@ public final class WorkstreamStore {
                   items[idx].ppid == ppid else { continue }
             items[idx].status = .expired(at: now)
             items[idx].updatedAt = now
+            pendingCount -= 1
         }
     }
 
@@ -274,6 +307,7 @@ public final class WorkstreamStore {
             if !isProcessAlive(ppid) {
                 items[idx].status = .expired(at: now)
                 items[idx].updatedAt = now
+                pendingCount -= 1
             }
         }
     }
