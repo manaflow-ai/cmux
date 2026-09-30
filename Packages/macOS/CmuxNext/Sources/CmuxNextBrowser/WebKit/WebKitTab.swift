@@ -21,7 +21,10 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// The underlying web view. Exposed for WebKit-only features (the
     /// automation executor); engine-neutral callers use `contentView`.
     @ObservationIgnored public let webView: WKWebView
-    public var contentView: NSView { webView }
+    /// The web view's container (`WebKitPageContainer`): WebKit places an
+    /// attached Web Inspector beside the web view inside it.
+    public var contentView: NSView { container }
+    @ObservationIgnored private let container: WebKitPageContainer
 
     private var machine = BrowserTabStateMachine()
     @ObservationIgnored private(set) weak var engine: WebKitEngine?
@@ -41,6 +44,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         self.engine = engine
         let webView = WebKitWebView(frame: .zero, configuration: webViewConfiguration)
         self.webView = webView
+        container = WebKitPageContainer(page: webView)
         super.init()
 
         webView.owner = self
@@ -211,6 +215,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         webView.removeFromSuperview()
+        container.removeFromSuperview()
     }
 
     // MARK: Internals shared with the delegate extension
