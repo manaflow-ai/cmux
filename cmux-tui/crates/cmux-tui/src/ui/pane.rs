@@ -562,7 +562,17 @@ fn draw_browser_content(
     }
 
     let browser_status = surface.browser_status();
-    let message = if let Some(status @ BrowserStatus::Failed(_)) = browser_status.as_ref() {
+    let remote_terminal = app
+        .tree
+        .active_screen()
+        .and_then(|screen| screen.pane(area.pane))
+        .and_then(|pane| pane.tabs.iter().find(|tab| tab.surface == area.surface))
+        .filter(|tab| tab.remote_terminal)
+        .map(|tab| tab.title.clone());
+    let message = if let Some(title) = remote_terminal {
+        // A terminal on another machine that only the cmux app renders.
+        Some(localization::catalog().browser.remote_terminal(&title))
+    } else if let Some(status @ BrowserStatus::Failed(_)) = browser_status.as_ref() {
         status.failure().map(|failure| localization::catalog().browser.failure_message(failure))
     } else if matches!(browser_status, Some(BrowserStatus::Starting)) {
         Some(localization::catalog().browser.starting.to_string())
