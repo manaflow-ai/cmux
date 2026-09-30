@@ -78,7 +78,13 @@ extension TerminalController {
                 return .ok(payload)
             }
             payload["terminal"] = true
-            let snapshot = Self.agentPromptSubmissionSnapshot(of: panel.surface)
+            let lifecycleKind = Self.agentPromptAgentKind(
+                fromLifecycleKeys: workspace.agentLifecycleStatesByPanelId[surfaceId]?.keys ?? []
+            )
+            let snapshot = Self.agentPromptSubmissionSnapshot(
+                of: panel.surface,
+                agentKindHint: lifecycleKind
+            )
             let screen = snapshot.state
             // Only the screen decides, and only for a surface that runs an
             // agent: the prompt glyphs and key hints also show up in other
@@ -118,7 +124,10 @@ extension TerminalController {
 
     /// Returns the richer submission observation used by `cmux send --submit`.
     @MainActor
-    static func agentPromptSubmissionSnapshot(of surface: TerminalSurface) -> AgentPromptSubmissionSnapshot {
+    static func agentPromptSubmissionSnapshot(
+        of surface: TerminalSurface,
+        agentKindHint: AgentPromptAgentKind? = nil
+    ) -> AgentPromptSubmissionSnapshot {
         // The active screen, not the viewport: a human scrolled up in the
         // pane still has their draft at the bottom.
         guard let frame = surface.mobileRenderGridFrame(
@@ -126,7 +135,7 @@ extension TerminalController {
             includeTheme: false,
             anchor: .screen
         )?.frame else {
-            return AgentPromptSubmissionSnapshot(screenRows: [])
+            return AgentPromptSubmissionSnapshot(screenRows: [], agentKindHint: agentKindHint)
         }
         var faintStyles = Set<Int>()
         for style in frame.styles where style.faint {
@@ -140,6 +149,25 @@ extension TerminalController {
                 faint: faintStyles.contains(span.styleID)
             ))
         }
-        return AgentPromptSubmissionSnapshot(screenRows: rows)
+        return AgentPromptSubmissionSnapshot(screenRows: rows, agentKindHint: agentKindHint)
+    }
+
+    /// Resolves only exact built-in agent lifecycle keys; prose in a pane can
+    /// mention another agent without changing the target's key policy.
+    private static func agentPromptAgentKind<S: Sequence>(
+        fromLifecycleKeys keys: S
+    ) -> AgentPromptAgentKind? where S.Element == String {
+        let kinds = Set(keys.compactMap { key -> AgentPromptAgentKind? in
+            switch key.lowercased() {
+            case "claude", "claude-code", "claude_code",
+                 "cmux.remote.agent:claude", "cmux.remote.agent:claude_code":
+                return .claude
+            case "codex", "cmux.remote.agent:codex":
+                return .codex
+            default:
+                return nil
+            }
+        })
+        return kinds.count == 1 ? kinds.first : nil
     }
 }

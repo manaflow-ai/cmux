@@ -26,7 +26,7 @@ public enum AgentPromptInputState: Equatable, Sendable {
 }
 
 /// The agent family represented by a detected prompt.
-public enum AgentPromptAgentKind: String, Equatable, Sendable {
+public enum AgentPromptAgentKind: String, Equatable, Hashable, Sendable {
     /// Anthropic's Claude Code terminal interface.
     case claude
     /// OpenAI's Codex terminal interface.
@@ -52,10 +52,16 @@ public struct AgentPromptSubmissionSnapshot: Equatable, Sendable {
 
     /// Creates a snapshot from styled terminal rows.
     ///
-    /// - Parameter screenRows: Visible rows from top to bottom. Faint spans are
-    ///   treated as placeholders and are excluded from drafts.
-    public init(screenRows: [[AgentPromptScreenSpan]]) {
-        let result = Self.detect(rows: screenRows)
+    /// - Parameters:
+    ///   - screenRows: Visible rows from top to bottom. Faint spans are treated
+    ///     as placeholders and are excluded from drafts.
+    ///   - agentKindHint: An exact kind reported by lifecycle metadata. This
+    ///     takes precedence over screen text when supplied.
+    public init(
+        screenRows: [[AgentPromptScreenSpan]],
+        agentKindHint: AgentPromptAgentKind? = nil
+    ) {
+        let result = Self.detect(rows: screenRows, agentKindHint: agentKindHint)
         state = result.state
         agentKind = result.agentKind
         busy = result.busy
@@ -148,10 +154,14 @@ private extension AgentPromptSubmissionSnapshot {
         let slashCommandPopup: Bool
     }
 
-    static func detect(rows: [[AgentPromptScreenSpan]]) -> DetectionResult {
+    static func detect(
+        rows: [[AgentPromptScreenSpan]],
+        agentKindHint: AgentPromptAgentKind?
+    ) -> DetectionResult {
         let plainRows = rows.map(plainText)
         let promptRow = plainRows.lastIndex(where: { promptPrefix(in: $0) != nil })
-        let detectedKind = promptRow.flatMap { self.agentKind(for: plainRows[$0]) }
+        let detectedKind = agentKindHint
+            ?? promptRow.flatMap { self.agentKind(for: plainRows[$0]) }
             ?? inferredAgentKind(from: plainRows)
 
         let hintSearchStart = promptRow.map { $0 + 1 } ?? 0
@@ -255,25 +265,31 @@ private extension AgentPromptSubmissionSnapshot {
     }
 
     private static func isBusy(_ rows: [String]) -> Bool {
-        let markers = [
-            "working", "thinking", "generating", "processing",
-            "esc to interrupt", "press esc to interrupt", "ctrl+c to interrupt",
-        ]
-        let explicitInterrupt = rows.contains { row in
-            let lowered = row.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            return ["esc to interrupt", "press esc to interrupt", "ctrl+c to interrupt"]
-                .contains { lowered.contains($0) }
-        }
-        if explicitInterrupt { return true }
         guard let promptIndex = rows.lastIndex(where: { promptPrefix(in: $0) != nil }) else {
             return false
         }
         let start = max(0, promptIndex - 2)
         let end = min(rows.count, promptIndex + 3)
-        return rows[start..<end].contains { row in
-            let lowered = row.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            return markers.contains { lowered.contains($0) }
+        return rows[start..<end].contains(where: isBusyStatusRow)
+    }
+
+    private static func isBusyStatusRow(_ row: String) -> Bool {
+        let lowered = row.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if ["esc to interrupt", "press esc to interrupt", "ctrl+c to interrupt"].contains(lowered) {
+            return true
         }
+        if lowered.first.map({ "✻✽✶⏺".contains($0) }) == true {
+            return ["thinking", "working", "generating", "processing"].contains {
+                lowered.contains($0)
+            }
+        }
+        if lowered == "thinking" || lowered == "generating" || lowered == "processing" {
+            return true
+        }
+        return lowered.hasPrefix("working...")
+            || lowered.hasPrefix("working…")
+            || lowered.hasPrefix("working on ")
+            || lowered.hasPrefix("working (")
     }
 
     private static func isQueued(_ rows: [String]) -> Bool {
