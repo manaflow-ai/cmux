@@ -44,13 +44,16 @@ export function settingsNavGroups({
     item("/dashboard/billing", "billing"),
   ];
   const teamItems: SettingsSubnavItem[] = [
-    ...teams.map((team) => ({
-      id: `team-${team.id}`,
-      href: `/dashboard/teams/${encodeURIComponent(team.id)}`,
-      label: team.displayName,
-      icon: <TeamInitial team={team} />,
-      active: pathname.startsWith(`/dashboard/teams/${team.id}`),
-    })),
+    ...teams.map((team) => {
+      const href = `/dashboard/teams/${encodeURIComponent(team.id)}`;
+      return {
+        id: `team-${team.id}`,
+        href,
+        label: team.displayName,
+        icon: <TeamInitial team={team} />,
+        active: pathname === href || pathname.startsWith(`${href}/`),
+      };
+    }),
     item("/dashboard/teams/new", "createTeam"),
   ];
   return [

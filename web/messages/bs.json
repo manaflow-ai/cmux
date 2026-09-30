@@ -879,7 +879,7 @@
         },
         "maxUsesLabel": "Najviše korištenja",
         "maxUsesPlaceholder": "Neograničeno",
-        "maxUsesInvalid": "Najveći broj korištenja mora biti cijeli broj od 1 do 10000 ili prazno za neograničeno.",
+        "maxUsesInvalid": "Najveći broj korištenja mora biti cijeli broj od 1 do {max} ili prazno za neograničeno.",
         "create": "Kreiraj link",
         "creating": "Kreiranje…",
         "memberOnly": "Ljudi koji se pridruže putem linka postaju članovi. Po potrebi ih kasnije unaprijedite u administratore.",

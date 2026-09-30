@@ -879,7 +879,7 @@
         },
         "maxUsesLabel": "使用次數上限",
         "maxUsesPlaceholder": "無限制",
-        "maxUsesInvalid": "使用次數上限必須是 1 到 10000 之間的整數，留空表示無限制。",
+        "maxUsesInvalid": "使用次數上限必須是 1 到 {max} 之間的整數，留空表示無限制。",
         "create": "建立連結",
         "creating": "正在建立…",
         "memberOnly": "透過連結加入的人會成為成員。如有需要，之後可將其升為管理員。",

@@ -879,7 +879,7 @@
         },
         "maxUsesLabel": "Máximo de usos",
         "maxUsesPlaceholder": "Ilimitado",
-        "maxUsesInvalid": "O máximo de usos deve ser um número inteiro de 1 a 10000, ou vazio para ilimitado.",
+        "maxUsesInvalid": "O máximo de usos deve ser um número inteiro de 1 a {max}, ou vazio para ilimitado.",
         "create": "Criar link",
         "creating": "Criando…",
         "memberOnly": "Quem entra pelo link se torna membro. Promova a administrador depois, se necessário.",

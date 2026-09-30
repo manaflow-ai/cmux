@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { MAX_INVITE_LINK_USES } from "./links";
-import { MAX_INVITE_EMAILS } from "./invitations";
+import { MAX_INVITE_EMAILS, MAX_INVITE_LINK_USES } from "./limits";
 
 const displayName = z.string().trim().min(1).max(120);
 const teamRole = z.enum(["admin", "member"]);

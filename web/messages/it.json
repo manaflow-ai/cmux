@@ -879,7 +879,7 @@
         },
         "maxUsesLabel": "Utilizzi massimi",
         "maxUsesPlaceholder": "Illimitati",
-        "maxUsesInvalid": "Gli utilizzi massimi devono essere un numero intero da 1 a 10000, oppure vuoti per illimitati.",
+        "maxUsesInvalid": "Gli utilizzi massimi devono essere un numero intero da 1 a {max}, oppure vuoti per illimitati.",
         "create": "Crea link",
         "creating": "Creazione…",
         "memberOnly": "Chi si unisce tramite link diventa membro. Se serve, promuovilo ad admin in seguito.",

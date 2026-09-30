@@ -879,7 +879,7 @@
         },
         "maxUsesLabel": "Maksimum kullanım",
         "maxUsesPlaceholder": "Sınırsız",
-        "maxUsesInvalid": "Maksimum kullanım 1 ile 10000 arasında bir tam sayı olmalı veya sınırsız için boş bırakılmalıdır.",
+        "maxUsesInvalid": "Maksimum kullanım 1 ile {max} arasında bir tam sayı olmalı veya sınırsız için boş bırakılmalıdır.",
         "create": "Bağlantı oluştur",
         "creating": "Oluşturuluyor…",
         "memberOnly": "Bağlantıyla katılan kişiler üye olur. Gerekirse onları daha sonra yönetici yapın.",

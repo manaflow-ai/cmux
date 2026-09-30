@@ -879,7 +879,7 @@
         },
         "maxUsesLabel": "Maks. antal brug",
         "maxUsesPlaceholder": "Ubegrænset",
-        "maxUsesInvalid": "Maks. antal brug skal være et heltal fra 1 til 10000 eller tomt for ubegrænset.",
+        "maxUsesInvalid": "Maks. antal brug skal være et heltal fra 1 til {max} eller tomt for ubegrænset.",
         "create": "Opret link",
         "creating": "Opretter…",
         "memberOnly": "Personer, der bliver medlem via link, bliver medlemmer. Forfrem dem til administrator bagefter, hvis det er nødvendigt.",
