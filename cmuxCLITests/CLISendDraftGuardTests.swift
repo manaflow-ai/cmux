@@ -186,6 +186,23 @@ struct CLISendDraftGuardTests {
         #expect(params["key"] as? String == "tab")
     }
 
+    @Test func sendSubmitUsesEnterForBusyClaude() throws {
+        let busyClaude: [String: Any] = [
+            "state": "empty", "agent": true, "terminal": true,
+            "agent_kind": "claude", "busy": true, "lifecycle": "running",
+            "blocks_typing": false,
+        ]
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [busyClaude, Self.draft, Self.empty],
+            screenText: "› quoted output\n✻ Thinking…"
+        )
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        let key = try #require(run.requests.first { $0["method"] as? String == "surface.send_key" })
+        #expect((key["params"] as? [String: Any])?["key"] as? String == "return")
+    }
+
     @Test func sendSubmitRetriesSlashPopupWithAnExtraSubmit() throws {
         let run = try runCLI(
             arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "/goal resume"],
