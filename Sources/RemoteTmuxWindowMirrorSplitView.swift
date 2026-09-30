@@ -10,7 +10,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     let portalPriority: Int
     let onOuterFocus: () -> Void
     var onVisible: () -> Void = {}
-    var notificationCount: Int = 0
+    var notificationToken: Int = 0
     var unreadSurfaceIDs: Set<UUID> = []
     @Environment(\.displayScale) private var displayScale
     @State private var containerSize: CGSize = .zero
@@ -78,7 +78,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                     onVisible()
                 }
             }
-            .onChange(of: notificationCount) { _, _ in
+            .onChange(of: notificationToken) { _, _ in
                 if isVisibleInUI {
                     onVisible()
                 }
