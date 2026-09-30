@@ -48,7 +48,7 @@ describe("invite URLs", () => {
     for (const value of ["//evil.com", "..%2f", "en/../../x", "xx", "", null, undefined]) {
       expect(safeTeamLocale(value)).toBe("en");
     }
-    const hostile = request("https://cmux.com/api/teams", {
+    const hostile = request("https://app.cmux.test/api/teams", {
       "x-next-intl-locale": "//evil.com",
       referer: "https://evil.com/..%2f/dashboard",
       cookie: "NEXT_LOCALE=//evil.com",
@@ -59,7 +59,7 @@ describe("invite URLs", () => {
   });
 
   test("uses the caller's supported locale", () => {
-    const japanese = request("https://cmux.com/api/teams", { referer: "https://cmux.com/ja/dashboard/teams/x" });
+    const japanese = request("https://app.cmux.test/api/teams", { referer: "https://app.cmux.test/ja/dashboard/teams/x" });
     expect(teamInviteAcceptUrl(japanese, environment)).toBe("https://cmux.com/ja/dashboard/team/accept");
   });
 
