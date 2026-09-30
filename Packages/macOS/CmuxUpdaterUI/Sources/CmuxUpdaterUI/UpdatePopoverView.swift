@@ -76,7 +76,18 @@ public struct UpdatePopoverView: View {
                 )
             }
         }
-        .frame(width: 300)
+        .frame(width: popoverWidth)
+    }
+
+    /// One width owner for every state: a child frame wider than this is centered
+    /// and clipped on both edges by the popover.
+    private var popoverWidth: CGFloat {
+        if case .installing(let installing) = model.effectiveState,
+           installing.relaunchBlockers != nil {
+            // Room for Wait, Update When These Finish, and Update Anyway on one row.
+            return 340
+        }
+        return 300
     }
 }
 
@@ -509,7 +520,6 @@ private struct WaitingToRelaunchView: View {
             }
         }
         .padding(16)
-        .frame(width: 340)
     }
 
     private var sortedAgents: [UpdateRelaunchAgent] {
