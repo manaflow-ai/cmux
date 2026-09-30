@@ -81,15 +81,18 @@ extension TabStripView {
     }
 
     public override func mouseEntered(with event: NSEvent) {
+        buttonReveal.pointerInStrip = true
         updateHover(at: convert(event.locationInWindow, from: nil))
     }
 
     public override func mouseMoved(with event: NSEvent) {
+        buttonReveal.pointerInStrip = true
         hoverCardSuppressed = false
         updateHover(at: convert(event.locationInWindow, from: nil))
     }
 
     public override func mouseExited(with event: NSEvent) {
+        buttonReveal.pointerInStrip = false
         setHovered(nil)
         setHoveredChip(nil)
         if let closeHoveredID { cells[closeHoveredID]?.isCloseHovered = false }
@@ -215,6 +218,12 @@ extension TabStripView {
     }
 
     public override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = contextMenu(for: event)
+        if let menu { beginMenuTracking(menu) }
+        return menu
+    }
+
+    private func contextMenu(for event: NSEvent) -> NSMenu? {
         hoverCard.hide(allowsQuickReshow: false)
         let point = convert(event.locationInWindow, from: nil)
         if trailingButtonIndex(at: point) != nil { return nil }
@@ -283,7 +292,35 @@ extension TabStripView {
         hoverCard.hide(allowsQuickReshow: false)
         let frame = convert(newTabButton.frame, from: newTabButton.superview)
         let origin = NSPoint(x: frame.minX, y: isFlipped ? frame.maxY + 2 : frame.minY - 2)
+        beginMenuTracking(menu)
         menu.popUp(positioning: nil, at: origin, in: self)
+        endMenuTracking()
+    }
+
+    // MARK: - Menus keep the trailing buttons
+
+    /// A menu from this strip is about to show: the trailing buttons stay
+    /// while it is open, since the pointer leaves the strip for it.
+    func beginMenuTracking(_ menu: NSMenu) {
+        endMenuTracking()
+        buttonReveal.menuOpen = true
+        menuEndObserver = NotificationCenter.default.addObserver(
+            forName: NSMenu.didEndTrackingNotification, object: menu, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.endMenuTracking() }
+        }
+    }
+
+    /// The menu closed. AppKit sends no exit event for a pointer that left
+    /// during menu tracking, so the pointer is checked here.
+    func endMenuTracking() {
+        if let menuEndObserver { NotificationCenter.default.removeObserver(menuEndObserver) }
+        menuEndObserver = nil
+        guard buttonReveal.menuOpen else { return }
+        buttonReveal.menuOpen = false
+        if let window, !bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
+            buttonReveal.pointerInStrip = false
+        }
     }
 
     /// Closes a tab. Mouse closes enter Chrome's closing mode first.

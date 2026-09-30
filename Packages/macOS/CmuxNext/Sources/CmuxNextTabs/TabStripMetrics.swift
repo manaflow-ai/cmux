@@ -18,8 +18,6 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Extra space between the last pinned tab and the first unpinned tab.
     public var pinnedGroupGap: CGFloat
 
-    /// Inactive, unhovered tabs show a close button only when at least this wide.
-    public var inactiveCloseMinWidth: CGFloat
     /// Hovered inactive tabs show a close button only when at least this wide.
     public var hoverCloseMinWidth: CGFloat
     /// Below this width the title is hidden entirely.
@@ -97,7 +95,6 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleFadeWidth = Metrics.space6 + Metrics.space2
         badgeSize = Metrics.space3
         minActiveTabWidth = contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
-        inactiveCloseMinWidth = Metrics.tabMaxWidth / 2
         hoverCloseMinWidth = Metrics.tabMinWidth
         titleMinWidth = Metrics.tabMinWidth * 2
         stripHeight = Metrics.tabStripHeight

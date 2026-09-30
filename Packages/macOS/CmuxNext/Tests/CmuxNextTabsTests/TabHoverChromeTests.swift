@@ -62,24 +62,26 @@ import Testing
         let close = try #require(cell.closeButtonRect)
         let mask = try #require(cell.titleLayer.mask as? CAGradientLayer)
         let locations = try #require(mask.locations).map { CGFloat($0.doubleValue) }
+        let colors = try #require(mask.colors as? [CGColor])
+        let firstClear = try #require(colors.firstIndex { $0.alpha == 0 })
         // Fully clear where the x starts (title coordinates).
-        let clearAt = cell.titleLayer.frame.minX + (locations.last ?? 1) * cell.titleLayer.frame.width
+        let clearAt = cell.titleLayer.frame.minX + locations[firstClear] * cell.titleLayer.frame.width
         #expect(clearAt <= close.minX + 0.5)
     }
 
-    @Test func shortTitleUnderTheCloseButtonAlsoFades() throws {
-        // A title that fits the full width but reaches under the x.
-        let h = Harness(titles: ["Short title here", "Two", "Three", "Four", "Five", "Six"], width: 700)
+    @Test func titleThatFitsButReachesUnderTheCloseButtonFades() {
+        let h = Harness(titles: ["W", "Two"])
         let cell = h.strip.cells[TabID("t0")]!
-        #expect(cell.titleLayer.mask == nil)
+        let full = cell.titleLayer.frame.width
+        func width(_ text: String) -> CGFloat { ceil((text as NSString).size(withAttributes: [.font: cell.titleFont]).width) }
+        var title = "W"
+        while width(title + "a") < full { title += "a" }
+        h.model.tabs[0].title = title
+        h.strip.sync(fromModel: true)
+        #expect(cell.titleLayer.mask == nil, "fits the full width while the x is hidden")
         cell.isHovered = true
-        let close = try #require(cell.closeButtonRect)
-        let textWidth = ceil((cell.displayTitle as NSString).size(withAttributes: [.font: cell.titleFont]).width)
-        let textEnd = cell.titleLayer.frame.minX + textWidth
-        if textEnd > close.minX {
-            #expect(cell.titleLayer.mask != nil)
-        } else {
-            #expect(cell.titleLayer.mask == nil)
-        }
+        #expect(cell.titleLayer.mask != nil, "fades out before the x")
+        cell.isHovered = false
+        #expect(cell.titleLayer.mask == nil)
     }
 }
