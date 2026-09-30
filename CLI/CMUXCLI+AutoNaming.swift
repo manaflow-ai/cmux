@@ -269,11 +269,12 @@ struct CodexAutoNamingArguments: Sendable {
         var result = ["model_provider=\(modelProvider)"]
         if let model { result.append("model=\(model)") }
         guard !usesTemporaryConfig else { return result }
+        let providerPrefix = "model_providers.\(providerName)"
         result.append(contentsOf: providerEntries
-            .filter { $0.section.hasPrefix("model_providers.\(providerName)") }
+            .filter { $0.section == providerPrefix || $0.section.hasPrefix(providerPrefix + ".") }
             .filter { !isCredentialBearingKey(section: $0.section, key: $0.key) }
             .map {
-                let prefix = "model_providers.\(providerName)"
+                let prefix = providerPrefix
                 let nestedPath = String($0.section.dropFirst(prefix.count))
                     .trimmingCharacters(in: CharacterSet(charactersIn: "."))
                 let keyPath = nestedPath.isEmpty ? $0.key : "\(nestedPath).\($0.key)"
@@ -288,7 +289,7 @@ struct CodexAutoNamingArguments: Sendable {
             return true
         }
         let normalized = key.lowercased().replacingOccurrences(of: "-", with: "_")
-        if normalized == "headers" || normalized == "http_headers" {
+        if normalized == "headers" || normalized == "http_headers" || normalized == "env_http_headers" {
             return true
         }
         return normalized.contains("token")
