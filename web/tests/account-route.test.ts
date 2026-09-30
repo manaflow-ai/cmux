@@ -12,6 +12,7 @@ import {
   cloudVmBillingGrants,
   cloudVmDomains,
   cloudVmLeases,
+  cloudVmObservedDestroyCleanups,
   cloudVmPublicationAuthCodes,
   cloudVmPublications,
   cloudVmPublicationSessions,
@@ -202,11 +203,14 @@ const updateRows = mock((table: unknown) => ({
   },
 }));
 const insertRows = mock((table: unknown) => ({
-  values: (values: unknown) => ({
-    onConflictDoUpdate: async () => {
-      routeEvents.push("tombstone-upsert");
-    },
-  }),
+  values: (values: unknown) => {
+    insertedRows.push({ table, values });
+    return {
+      onConflictDoUpdate: async () => {
+        routeEvents.push("tombstone-upsert");
+      },
+    };
+  },
 }));
 const listUserVms = mock((...args: unknown[]) => {
   const [userId, billingTeamId] = args as [string, string | null | undefined];
@@ -367,6 +371,7 @@ let deletedTables: unknown[] = [];
 let deletedWhere: Array<{ readonly table: unknown; readonly condition: unknown }> = [];
 let selectedWhere: Array<{ readonly table: unknown; readonly condition: unknown }> = [];
 let updatedRows: Array<{ readonly table: unknown; readonly values: unknown }> = [];
+let insertedRows: Array<{ readonly table: unknown; readonly values: unknown }> = [];
 let tombstoneUpdates: unknown[] = [];
 let tombstoneCompleteError: unknown = null;
 let tombstoneCleanupIncompleteError: unknown = null;
@@ -729,6 +734,7 @@ beforeEach(() => {
   deletedWhere = [];
   selectedWhere = [];
   updatedRows = [];
+  insertedRows = [];
   tombstoneUpdates = [];
   tombstoneCompleteError = null;
   tombstoneCleanupIncompleteError = null;
@@ -2146,6 +2152,58 @@ describe("account deletion route", () => {
 
     expect(response.status).toBe(200);
     expect(deletedTables).toContain(cloudVms);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("completes account deletion after transferring unsupported legacy home-volume cleanup", async () => {
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000769",
+      provider: "freestyle",
+      providerVmId: "provider-vm-destroyed",
+      status: "destroyed",
+      providerMetadata: {
+        cmuxObservedDestroyCleanup: { homeVolume: "legacy-home-volume" },
+      },
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
+    expect(insertedRows).toContainEqual({
+      table: cloudVmObservedDestroyCleanups,
+      values: [{
+        vmId: "00000000-0000-4000-8000-000000000769",
+        provider: "freestyle",
+        cleanup: { homeVolume: "legacy-home-volume" },
+      }],
+    });
+    expect(deletedTables).toContain(cloudVms);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("completes account deletion after transferring pending credential revocation", async () => {
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000770",
+      provider: "freestyle",
+      providerVmId: "provider-vm-destroyed",
+      status: "destroyed",
+      providerMetadata: {
+        cmuxObservedDestroyCleanup: { modelPlane: true },
+      },
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(insertedRows).toContainEqual({
+      table: cloudVmObservedDestroyCleanups,
+      values: [{
+        vmId: "00000000-0000-4000-8000-000000000770",
+        provider: "freestyle",
+        cleanup: { modelPlane: true },
+      }],
+    });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 

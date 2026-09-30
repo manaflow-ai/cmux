@@ -7556,6 +7556,22 @@ struct CMUXCLI {
                 includeContextInPlainOutput: true
             )
 
+        case "record":
+            try runRecordCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowId
+            )
+
+        case "shot", "screenshot":
+            try runShotCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowId
+            )
+
         case "read-screen":
             let selectionOnly = commandArgs.contains("--selection")
             if selectionOnly {
@@ -20557,6 +20573,10 @@ struct CMUXCLI {
             return Self.readSelectionHelp
         case "read-screen":
             return Self.readScreenHelp
+        case "record":
+            return Self.recordHelp
+        case "shot", "screenshot":
+            return Self.shotHelp
         case "paste":
             return Self.pasteHelp
         case "send":
@@ -38573,6 +38593,7 @@ export default {
             promptText: promptText,
             promptLength: feedPromptLength(from: parsedInput.object, compacted: true)
         )
+        enrichStopFeedEvent(&event, hookEventName: hookEventName, rawObject: parsedInput.rawObject)
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         if let agentID = firstString(in: fallbackObject, keys: ["agent_id", "agentId"]) {
             event["agent_id"] = agentID
@@ -38767,6 +38788,24 @@ export default {
             .map { String(format: "%02x", $0) }
             .joined()
         return "fallback-\(String(digest.prefix(16)))"
+    }
+
+    /// Feed reading must retain the completion, not the notification preview.
+    /// Both native Feed hooks and wrapper hooks call this with the raw payload.
+    private func enrichStopFeedEvent(
+        _ event: inout [String: Any],
+        hookEventName: String,
+        rawObject: [String: Any]?
+    ) {
+        guard hookEventName == "Stop", let rawObject else { return }
+        let keys = ["last_assistant_message", "lastAssistantMessage", "assistant_response",
+                    "assistantResponse", "assistantPreamble", "assistant_preamble"]
+        let nested = ["extra", "data", "context"].compactMap { rawObject[$0] as? [String: Any] }
+        guard let message = firstString(in: rawObject, keys: keys)
+            ?? nested.lazy.compactMap({ self.firstString(in: $0, keys: keys) }).first else { return }
+        var input = event["tool_input"] as? [String: Any] ?? [:]
+        input["reason"] = message
+        event["tool_input"] = input
     }
 
     private func enrichUserPromptSubmitFeedEvent(
@@ -40987,6 +41026,7 @@ export default {
             "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
+            "_cmux_ordered_hook": true,
         ]
         if agentPid > 0 { eventDict["_ppid"] = agentPid }
         if let workspaceId = validatedCodexFeedTarget?.workspaceId ?? claimedWorkspaceId {
@@ -41044,6 +41084,7 @@ export default {
             promptText: promptText,
             promptLength: feedPromptLength(from: stdinObj, compacted: false)
         )
+        enrichStopFeedEvent(&eventDict, hookEventName: hookEventName, rawObject: stdinObj)
         let causalEvidence = Self.semanticAttentionContext(stdinObj)
         let requestId = stdinObj["_opencode_request_id"] as? String
             ?? causalEvidence.requestIdentity.map { "\(workstreamID):\(Data($0.utf8).base64EncodedString())" }
@@ -41076,11 +41117,24 @@ export default {
             "method": "feed.push",
             "params": params,
         ]
-        if waitTimeout > 0 || shouldAwaitTelemetryIngestion {
+        // Codex progress hooks must use the ordered request lane so the host
+        // can retire the prompt only after this event is accepted. Detached
+        // wrapper telemetry does not carry this marker or send stamp.
+        let isOrderedCodexProgress = source == "codex" && !isActionable && [
+            "PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "Stop", "SessionEnd"
+        ].contains(hookEventName)
+        if isOrderedCodexProgress {
+            eventDict["_hook_sent_at_ms"] = Self.feedHookSentAtMs()
+            request["params"] = [
+                "event": eventDict,
+                "wait_timeout_seconds": waitTimeout,
+            ]
+        }
+        if waitTimeout > 0 || shouldAwaitTelemetryIngestion || isOrderedCodexProgress {
             request["id"] = UUID().uuidString
         }
 
-        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
+        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion && !isOrderedCodexProgress {
             let payload = try JSONSerialization.data(withJSONObject: request)
             let line = String(data: payload, encoding: .utf8) ?? "{}"
             // Codex-style agents block in their own approval UI while this
