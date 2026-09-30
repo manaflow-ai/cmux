@@ -11,6 +11,7 @@ struct MachinesCloudStatus: View {
     let listError: String?
     let treeError: String?
     let onDismissStale: (String) -> Void
+    let onDismissTreeError: (String) -> Void
     /// Runs the fix the status names. The notice and the empty state route the
     /// same three actions through it, so the toolbar row is not a dead end.
     let performListStatusAction: (MachineListStatusPresentation.Action) -> Void
@@ -52,10 +53,26 @@ struct MachinesCloudStatus: View {
                     .cmuxFont(size: 11)
                     .lineLimit(2)
                     .truncationMode(.tail)
+                Spacer(minLength: 0)
+                CloudBannerDismissButton { onDismissTreeError(error) }
             }
             .foregroundColor(.orange.opacity(0.9))
             .help(error)
             .cloudErrorCopyMenu(error)
+        }
+    }
+}
+
+extension MachinesPanelView {
+    func performListStatusAction(_ action: MachineListStatusPresentation.Action) {
+        switch action {
+        case .retry:
+            viewModel.recoverList()
+        case .signInAgain:
+            guard let accountFlow = AppDelegate.shared?.auth?.accountFlow else { return }
+            Task { await accountFlow.signOut() }
+        case .upgrade:
+            ProUpgradePresenter.present(source: .machinesPanelRequiresPro)
         }
     }
 }

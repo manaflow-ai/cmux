@@ -94,8 +94,7 @@ struct WorktreeSeedPlannerTests {
 
     @Test func questionMarkMatchesOneCharacter() {
         let repository = WorktreeSeedFakeRepository(["a.env", "ab.env", ".env"])
-        #expect(plan("?.env", WorktreeSeedFakeRepository(["a.env", "ab.env", ".env"])).entries.map(\.relativePath) == ["a.env"])
-        _ = repository
+        #expect(plan("?.env", repository).entries.map(\.relativePath) == ["a.env"])
     }
 
     @Test func doubleStarIsHowAPatternOptsIntoAWalk() {
@@ -111,6 +110,19 @@ struct WorktreeSeedPlannerTests {
         let plan = plan("secrets/**", repository)
         #expect(plan.entries.map(\.relativePath) == ["secrets/a", "secrets/b"])
         #expect(plan.shadowed.map(\.relativePath) == ["secrets/b/c"])
+    }
+
+    @Test func aTrailingDoubleStarNegationDoesNotDisarmTheDirectoryItself() {
+        let repository = WorktreeSeedFakeRepository(["secrets/", "secrets/a"])
+        let plan = plan("secrets\n!secrets/**\n", repository)
+        #expect(plan.entries.map(\.relativePath) == ["secrets"])
+    }
+
+    @Test func aTrailingDoubleStarSlashSelectsOnlyDirectories() {
+        let repository = WorktreeSeedFakeRepository(["a/", "a/f", "a/d/", "a/d/g"])
+        let plan = plan("a/**/", repository)
+        #expect(plan.entries.allSatisfy { $0.isDirectory })
+        #expect(!plan.entries.contains { $0.relativePath == "a/f" })
     }
 
     @Test func aTrailingSlashSelectsDirectoriesOnly() {
@@ -264,7 +276,37 @@ struct WorktreeSeedPlannerTests {
         let repository = WorktreeSeedFakeRepository(paths)
         let plan = plan("**/.env", repository, maximumVisitedDirectories: 5)
         #expect(plan.reachedWalkLimit)
-        #expect(repository.listedDirectories.count <= 5)
+        #expect(repository.listedDirectories.count == 5)
+    }
+
+    @Test func aPatternAfterABudgetExhaustingOneIsStillTried() {
+        var paths = [".env"]
+        var prefix = "a"
+        for _ in 0..<8 {
+            paths.append(prefix + "/")
+            paths.append(prefix + "/.env")
+            prefix += "/a"
+        }
+        let repository = WorktreeSeedFakeRepository(paths)
+        let plan = plan("**/.env\n.env\n", repository, maximumVisitedDirectories: 3)
+        #expect(plan.truncated.map(\.glob) == ["**/.env"])
+        #expect(!plan.unmatched.contains { $0.glob == ".env" })
+        #expect(plan.entries.map(\.relativePath) == [".env"])
+    }
+
+    @Test func aBudgetExhaustingPatternIsNotReportedAsMatchingNothing() {
+        var paths: [String] = []
+        var prefix = "a"
+        for _ in 0..<8 {
+            paths.append(prefix + "/")
+            paths.append(prefix + "/.env")
+            prefix += "/a"
+        }
+        let repository = WorktreeSeedFakeRepository(paths)
+        let plan = plan("**/.env\n", repository, maximumVisitedDirectories: 3)
+        #expect(plan.reachedWalkLimit)
+        #expect(plan.truncated.map(\.glob) == ["**/.env"])
+        #expect(plan.unmatched.isEmpty)
     }
 
     @Test func aPlanThatStaysInBudgetDoesNotClaimALimit() {
