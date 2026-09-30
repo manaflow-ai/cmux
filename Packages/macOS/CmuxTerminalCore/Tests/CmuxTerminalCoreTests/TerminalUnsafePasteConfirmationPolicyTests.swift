@@ -20,12 +20,19 @@ struct TerminalUnsafePasteConfirmationPolicyTests {
         #expect(policy.decision(isPasteRequest: true, hasWindow: false) == .reject)
     }
 
-    @Test func leavesOSC52ReadsApprovedWhateverTheSetting() {
+    // Ghostty asks about a terminal clipboard read only under
+    // `clipboard-read = ask`; `allow` and `deny` never reach this policy.
+    @Test func asksInAWindowSheetBeforeATerminalReadsTheClipboardWhateverTheSetting() {
         for enabled in [true, false] {
             let policy = TerminalUnsafePasteConfirmationPolicy(confirmationEnabled: enabled)
-            for hasWindow in [true, false] {
-                #expect(policy.decision(isPasteRequest: false, hasWindow: hasWindow) == .approve)
-            }
+            #expect(policy.decision(isPasteRequest: false, hasWindow: true) == .askInWindowSheet)
+        }
+    }
+
+    @Test func rejectsATerminalClipboardReadItCannotAskAboutWhateverTheSetting() {
+        for enabled in [true, false] {
+            let policy = TerminalUnsafePasteConfirmationPolicy(confirmationEnabled: enabled)
+            #expect(policy.decision(isPasteRequest: false, hasWindow: false) == .reject)
         }
     }
 
