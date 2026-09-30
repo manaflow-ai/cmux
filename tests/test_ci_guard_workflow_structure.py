@@ -95,7 +95,9 @@ def test_ci_group_deduplication_gates_only_the_overlapping_matrix_leg() -> None:
     assert "exclude" not in job["strategy"]["matrix"]
     steps = job["steps"]
     poll = next(step for step in steps if step.get("name") == "Check independent fast guard result")
+    propagate = next(step for step in steps if step.get("name") == "Propagate failed independent fast guard")
     assert poll["if"] == "${{ matrix.group == 'ci' }}"
+    assert propagate["if"] == "${{ matrix.group == 'ci' && steps.fast-guard.outputs.state == 'failure' }}"
     assert job["permissions"] == {"contents": "read", "checks": "read"}
     assert poll["run"] == "python3 scripts/ci/fast_guard_status.py"
     ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
@@ -103,7 +105,7 @@ def test_ci_group_deduplication_gates_only_the_overlapping_matrix_leg() -> None:
     gated = [
         step for step in steps
         if "matrix.group == 'ci'" in str(step.get("if", ""))
-        and step.get("name") != "Check independent fast guard result"
+        and step.get("name") not in {"Check independent fast guard result", "Propagate failed independent fast guard"}
     ]
     assert gated
     assert all("steps.fast-guard.outputs.skip != 'true'" in step["if"] for step in gated)

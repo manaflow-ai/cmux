@@ -12,8 +12,19 @@ its own.
   admin.
 - Roles: `admin` (Stack `team_admin`) and `member`. Admins invite, remove,
   change roles, rename, manage billing, delete. A team always keeps one admin.
-- Seats: soft. Joining over the paid seat count is allowed; admins see a
-  nudge to add seats. PR #11352 (use-time seat demotion) is not merged here.
+- Seats: the Team subscription quantity follows the member count, $60 per
+  member. Joining is never blocked. Membership changes are billable facts:
+  invitation accept, link join, removal, and leave mark the team dirty in
+  `team_seat_reconciles`; sending an invitation does not, and pending
+  invitations cost nothing. A reconciler (`services/billing/teamSeats.ts`)
+  counts current Stack members, and when the Stripe quantity differs updates
+  it with `create_prorations`, inline after the response and from the
+  `/api/cron/team-seats` sweep. The membership write never waits on billing.
+  A quantity edited in Stripe is not fought: the reconciler runs only on
+  membership facts, and then the member count wins. Pro and Max personal
+  teams keep the fixed 3-member cap in `services/teams/seats.ts` and have no
+  per-seat quantity; free teams are ignored. PR #11352 (use-time seat
+  demotion) is not merged here.
 - Personal plans stay user-scoped. The synthetic personal entry (`id ===
   user.id`) routes to Pro/Max checkout, real teams to Team checkout.
 

@@ -854,6 +854,7 @@
 		09FBC463786149D49E73B297 /* CloudSurfaceDropGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A23E881DEAE40649BC8FFCF /* CloudSurfaceDropGateView.swift */; };
 		5CB4AC1D92064236B5C2DDF1 /* CloudSurfaceMoveOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF212BA811D54BB986A5E27F /* CloudSurfaceMoveOwnershipTests.swift */; };
 		6D2669CD5E4944C2B8C0F49C /* CloudSurfaceOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4DAE66C6AF74046B5545B47 /* CloudSurfaceOwnershipTests.swift */; };
+		6FE12D85D9F41A0BC7FAD03A /* CloudTeamInvitePopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE52542ACA80E2B6E3EE6977 /* CloudTeamInvitePopover.swift */; };
 		A14327000000000000000004 /* CloudTeamPickerHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14327000000000000000003 /* CloudTeamPickerHeader.swift */; };
 		270246D98C0855B7EFB5C087 /* CloudTeamPickerMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 080D6C181C210FE2F33B5B35 /* CloudTeamPickerMenu.swift */; };
 		F3652B9AAF82CE9B22C69255 /* CloudTeamPickerMenuAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB0A8E1552E2CD2205B9B33 /* CloudTeamPickerMenuAnchor.swift */; };
@@ -2182,6 +2183,8 @@
 				800100000000000000000101 /* HiveAccountTokenSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800100000000000000000102 /* HiveAccountTokenSource.swift */; };
 				800100000000000000000103 /* HiveComputersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800100000000000000000104 /* HiveComputersService.swift */; };
 		140240000000000000000002 /* HookPromptLengthUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 140240000000000000000001 /* HookPromptLengthUITests.swift */; };
+		A4FF11E04A292AACEB803A41 /* HostAccountFlow+ReceivedInvitations.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDD2711070DB004542E6B9C0 /* HostAccountFlow+ReceivedInvitations.swift */; };
+		40A965C25799A1B366F3F672 /* HostAccountFlow+TeamMembers.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFD17B8A4545F43B50EF504A /* HostAccountFlow+TeamMembers.swift */; };
 		13019B000000000000000002 /* HostAccountFlow+TeamSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019B000000000000000001 /* HostAccountFlow+TeamSelection.swift */; };
 		CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */; };
 		C0D878FCFB109001931F29AB /* HostAccountFlowTeamChangeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F059425EE5BED219C784819C /* HostAccountFlowTeamChangeTests.swift */; };
@@ -5241,6 +5244,7 @@
 		3A23E881DEAE40649BC8FFCF /* CloudSurfaceDropGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSurfaceDropGateView.swift; sourceTree = "<group>"; };
 		DF212BA811D54BB986A5E27F /* CloudSurfaceMoveOwnershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSurfaceMoveOwnershipTests.swift; sourceTree = "<group>"; };
 		D4DAE66C6AF74046B5545B47 /* CloudSurfaceOwnershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSurfaceOwnershipTests.swift; sourceTree = "<group>"; };
+		BE52542ACA80E2B6E3EE6977 /* CloudTeamInvitePopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamInvitePopover.swift; sourceTree = "<group>"; };
 		A14327000000000000000003 /* CloudTeamPickerHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerHeader.swift; sourceTree = "<group>"; };
 		080D6C181C210FE2F33B5B35 /* CloudTeamPickerMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerMenu.swift; sourceTree = "<group>"; };
 		CCB0A8E1552E2CD2205B9B33 /* CloudTeamPickerMenuAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerMenuAnchor.swift; sourceTree = "<group>"; };
@@ -6441,6 +6445,8 @@
 				800100000000000000000102 /* HiveAccountTokenSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Hive/HiveAccountTokenSource.swift"; sourceTree = "<group>"; };
 				800100000000000000000104 /* HiveComputersService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Hive/HiveComputersService.swift"; sourceTree = "<group>"; };
 		140240000000000000000001 /* HookPromptLengthUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookPromptLengthUITests.swift; sourceTree = "<group>"; };
+		FDD2711070DB004542E6B9C0 /* HostAccountFlow+ReceivedInvitations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccountFlow+ReceivedInvitations.swift"; sourceTree = "<group>"; };
+		EFD17B8A4545F43B50EF504A /* HostAccountFlow+TeamMembers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccountFlow+TeamMembers.swift"; sourceTree = "<group>"; };
 		13019B000000000000000001 /* HostAccountFlow+TeamSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccountFlow+TeamSelection.swift"; sourceTree = "<group>"; };
 		CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostAccountFlow.swift; sourceTree = "<group>"; };
 		F059425EE5BED219C784819C /* HostAccountFlowTeamChangeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccountFlowTeamChangeTests.swift"; sourceTree = "<group>"; };
@@ -8867,6 +8873,8 @@
 				4F6B1A593C13D2BAEE34B912 /* UITestFixtureTeamsAuthClient.swift */,
 				5177F4A60D55EBC0B59312F8 /* TeamChangeInProgressError.swift */,
 				898CD27F22E66409D1EEE890 /* PendingTeamCreate.swift */,
+				FDD2711070DB004542E6B9C0 /* HostAccountFlow+ReceivedInvitations.swift */,
+				EFD17B8A4545F43B50EF504A /* HostAccountFlow+TeamMembers.swift */,
 			);
 			name = Auth;
 			path = Auth;
@@ -9331,6 +9339,7 @@
 				ED5D1E2BA55BA3938CF26AB4 /* CloudTuiManualMirrorStopReason.swift */,
 				347D1CC32D12CFA9B39A67CB /* CloudTreeCreateActionLabel.swift */,
 				E9F1AC4DB302C65ABFE57B89 /* CloudTreeCreateActionView.swift */,
+				BE52542ACA80E2B6E3EE6977 /* CloudTeamInvitePopover.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -14188,6 +14197,7 @@
 				A1329C020000000000000101 /* CloudSizingPhoneRelaying.swift in Sources */,
 				D318853B007D48AD9532F83F /* CloudSurfaceDropGate.swift in Sources */,
 				09FBC463786149D49E73B297 /* CloudSurfaceDropGateView.swift in Sources */,
+				6FE12D85D9F41A0BC7FAD03A /* CloudTeamInvitePopover.swift in Sources */,
 				A14327000000000000000004 /* CloudTeamPickerHeader.swift in Sources */,
 				270246D98C0855B7EFB5C087 /* CloudTeamPickerMenu.swift in Sources */,
 				F3652B9AAF82CE9B22C69255 /* CloudTeamPickerMenuAnchor.swift in Sources */,
@@ -14839,6 +14849,8 @@
 				A10348020000000000000001 /* HistoryMenuState.swift in Sources */,
 				800100000000000000000101 /* HiveAccountTokenSource.swift in Sources */,
 				800100000000000000000103 /* HiveComputersService.swift in Sources */,
+				A4FF11E04A292AACEB803A41 /* HostAccountFlow+ReceivedInvitations.swift in Sources */,
+				40A965C25799A1B366F3F672 /* HostAccountFlow+TeamMembers.swift in Sources */,
 				13019B000000000000000002 /* HostAccountFlow+TeamSelection.swift in Sources */,
 				CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */,
 				B1F0C0030000000000000001 /* HostedInspectorDockControlScript.swift in Sources */,

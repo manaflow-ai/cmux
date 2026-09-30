@@ -641,6 +641,37 @@ import SwiftUI
 #endif
     }
 
+    /// A Cloud manual-mirror surface can receive a pointer while its portal
+    /// focus callback is being rebound. Pointer activation must still update
+    /// the workspace model immediately, otherwise keyboard input goes to Cloud
+    /// while Bonsplit keeps the local pane's focus ring.
+    @Test func pointerFocusConvergesMixedLocalAndCloudPanes() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let sourcePane = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanelID = try #require(workspace.focusedPanelId)
+        let cloudPanel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+
+        _ = try workspace.insertCloudManualMirrorPanel(
+            cloudPanel,
+            at: .split(workspaceID: workspace.id, paneID: sourcePane.id.uuidString, direction: .right),
+            focus: false,
+            isLoading: false
+        )
+        #expect(workspace.focusedPanelId == localPanelID)
+        #expect(workspace.isFocusedTerminalInputSurface(localPanelID))
+
+        let pointerView = GhosttyNSView(frame: .zero)
+        pointerView.terminalSurface = cloudPanel.surface
+        pointerView.activateContainerFocusFromPointerDown()
+
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
+        let cloudPane = try #require(workspace.paneId(forPanelId: cloudPanel.id))
+        #expect(cloudPane != sourcePane)
+    }
+
     /// A projected browser (VM desktop or port preview) goes through the same create
     /// handler as a terminal; `focus: true` must select it too.
     @Test func focusedBrowserTabIsSelected() throws {
