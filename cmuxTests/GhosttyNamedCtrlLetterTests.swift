@@ -34,7 +34,10 @@ struct GhosttyNamedCtrlLetterTests {
                 let codepoint = UInt32(97 + offset)
                 let letter = String(try #require(UnicodeScalar(codepoint)))
                 let expected: Data
-                if flags == 0 {
+                // Ghostty keeps Ctrl-I and Ctrl-M in CSI-u form even without
+                // negotiated Kitty flags because their C0 bytes are commonly
+                // interpreted as tab and carriage return.
+                if flags == 0 && offset != 8 && offset != 12 {
                     expected = Data([UInt8(offset + 1)])
                 } else {
                     var sequence = "\u{1b}[\(codepoint);5u"
