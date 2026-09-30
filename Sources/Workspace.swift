@@ -6822,6 +6822,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         panel,
                         workspace: self
                     )
+                self.syncRemoteRelayIDAliasesToController()
             }
             mirror.onTerminalPanelRemoved = { [weak self] panel in
                 guard let self else { return }
@@ -6831,6 +6832,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         panel,
                         workspace: self
                     )
+                self.syncRemoteRelayIDAliasesToController()
             }
             for panel in mirror.panelsByPaneId.values {
                 terminalFontSizeChangeCoordinator?
@@ -7430,7 +7432,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let previousPresentedDirectory = presentedCurrentDirectory
         let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(panelId) != nil; if removedTrustedDirectory { clearPanelGitBranch(panelId: panelId) }
         clearRemoteTerminalSessionPhase(surfaceId: panelId)
-        guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else {
+        let wasTracked = activeRemoteTerminalSurfaceIds.remove(panelId) != nil
+        syncRemoteRelayIDAliasesToController()
+        guard wasTracked else {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
             return
         }

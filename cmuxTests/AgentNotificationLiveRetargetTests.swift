@@ -177,7 +177,7 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
-    func testRelayAgentMessageWorkspaceTargetCannotChooseLocalSplit() throws {
+    func testRelayAgentMessageHandlersCannotChooseLocalSplit() async throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
@@ -203,12 +203,44 @@ extension AgentNotificationRegressionTests {
             focus: true
         ))
 
-        let recipient = TerminalController.shared.agentMessageResolveRecipient(
-            fixture.owningWorkspace.id.uuidString,
-            allowedSurfaceIDs: [fixture.panelId]
-        )
-        #expect(recipient?.surfaceId == fixture.panelId)
-        #expect(recipient?.surfaceId != localPanel.id)
+        let remoteBody = "relay-remote-\(UUID().uuidString)"
+        let localBody = "relay-local-\(UUID().uuidString)"
+        try AgentMessageCenter.store.append(AgentMessageDraft(
+            senderName: "test",
+            recipientSurfaceId: localPanel.id.uuidString,
+            recipientWorkspaceId: fixture.owningWorkspace.id.uuidString,
+            body: localBody
+        ))
+        let connectionID = try #require(fixture.owningWorkspace.activeRemoteSessionControllerID)
+        let provenance: [String: JSONValue] = [
+            WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey: .string(
+                fixture.owningWorkspace.id.uuidString
+            ),
+            WorkspaceRemoteRelayCommandRewriter.connectionIDKey: .string(
+                connectionID.uuidString
+            ),
+        ]
+        var sendParams = provenance
+        sendParams["target"] = .string(fixture.owningWorkspace.id.uuidString)
+        sendParams["body"] = .string(remoteBody)
+        let sendResponse = await TerminalController.shared.agentMessageResponse(ControlRequest(
+            id: .string("relay-send"),
+            method: "agent.message.send",
+            params: sendParams
+        ))
+        #expect(sendResponse.contains(remoteBody))
+        #expect(sendResponse.contains(fixture.panelId.uuidString))
+        #expect(!sendResponse.contains(localPanel.id.uuidString))
+
+        var listParams = provenance
+        listParams["surface"] = .string(fixture.owningWorkspace.id.uuidString)
+        let listResponse = await TerminalController.shared.agentMessageResponse(ControlRequest(
+            id: .string("relay-list"),
+            method: "agent.message.list",
+            params: listParams
+        ))
+        #expect(listResponse.contains(remoteBody))
+        #expect(!listResponse.contains(localBody))
     }
 
     @Test
