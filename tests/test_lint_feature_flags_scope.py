@@ -55,6 +55,15 @@ class FlagLinterScopeTests(unittest.TestCase):
         for flag in flags:
             self.assertTrue(flag["source"], "each flag must be attributed to its own file")
 
+    def test_collect_flags_includes_web_and_swift_registries(self):
+        flags = self.linter.collect_flags()
+        sources = {flag["source"] for flag in flags}
+        self.assertIn(self.linter.WEB_REGISTRY_REL, sources)
+        self.assertTrue(
+            sources - {self.linter.WEB_REGISTRY_REL},
+            "the collector must include at least one Swift registry",
+        )
+
     def test_prose_flag_references_are_not_declarations(self):
         """Discovery and parsing must agree on what a declaration is.
 
@@ -98,9 +107,10 @@ class FlagLinterScopeTests(unittest.TestCase):
         )
         parsed = self.linter.parse_swift_registry(source, "Example.swift")
         self.linter.errors.clear()
+        grep_keys = lambda key: {"Example.swift"} if key == "malformed-date-release" else set()
         with mock.patch.object(self.linter, "parse_web_registry", return_value=parsed), \
              mock.patch.object(self.linter, "swift_registry_files", return_value=[]), \
-             mock.patch.object(self.linter, "grep_key_files", return_value={"Example.swift"}):
+             mock.patch.object(self.linter, "grep_key_files", side_effect=grep_keys):
             self.assertEqual(self.linter.main(), 1)
         self.assertTrue(
             any("malformed-date-release" in error and "Example.swift" in error

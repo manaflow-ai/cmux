@@ -99,6 +99,18 @@ def parse_swift_registry(text: str, source: str) -> list[dict]:
     return flags
 
 
+def collect_flags() -> list[dict]:
+    """Collect declarations from every supported feature flag registry."""
+    flags: list[dict] = []
+    if WEB_REGISTRY.exists():
+        flags += parse_web_registry(WEB_REGISTRY.read_text())
+    for rel in swift_registry_files():
+        path = REPO / rel
+        if path.exists():
+            flags += parse_swift_registry(path.read_text(), rel)
+    return flags
+
+
 def grep_key_files(key: str) -> set[str]:
     out = subprocess.run(
         ["git", "grep", "-l", "--untracked", "--fixed-strings", key, "--",
@@ -110,14 +122,8 @@ def grep_key_files(key: str) -> set[str]:
 
 
 def main() -> int:
-    flags: list[dict] = []
-    if WEB_REGISTRY.exists():
-        flags += parse_web_registry(WEB_REGISTRY.read_text())
+    flags = collect_flags()
     swift_registries = swift_registry_files()
-    for rel in swift_registries:
-        path = REPO / rel
-        if path.exists():
-            flags += parse_swift_registry(path.read_text(), rel)
 
     if not flags:
         print("lint-feature-flags: no flags declared")
@@ -160,11 +166,17 @@ def main() -> int:
         review = flag.get("reviewBy")
         if not review or not DATE_RE.match(review):
             fail(f"{where}: '{key}' needs reviewBy: YYYY-MM-DD")
-        elif datetime.date.fromisoformat(review) < today:
-            fail(
-                f"{where}: '{key}' reviewBy {review} has passed — remove the "
-                "zombie flag or consciously extend the date"
-            )
+        else:
+            try:
+                review_date = datetime.date.fromisoformat(review)
+            except ValueError:
+                fail(f"{where}: '{key}' needs reviewBy: YYYY-MM-DD")
+            else:
+                if review_date < today:
+                    fail(
+                        f"{where}: '{key}' reviewBy {review} has passed — remove the "
+                        "zombie flag or consciously extend the date"
+                    )
         if not flag.get("hasDefault"):
             fail(f"{where}: '{key}' must declare defaultWhenUnavailable")
         if key in retired:
