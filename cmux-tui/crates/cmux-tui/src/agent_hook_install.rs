@@ -1903,7 +1903,23 @@ fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String
     )
 }
 
+/// The installed hook command. It runs `$CMUX_TUI_HOOK`, which every cmux-tui
+/// terminal exports. An agent inside tmux may have been started by a tmux
+/// server that never ran in a cmux-tui terminal, so without that variable a
+/// tmux pane falls back to the installed helper, which routes the event to the
+/// cmux-tui terminal attached to the pane's tmux session. Anywhere else the
+/// command stays a process-free no-op.
 fn hook_command(provider: &str, event: &str) -> String {
+    format!(
+        "h=${{CMUX_TUI_HOOK:-${{TMUX:+${{XDG_DATA_HOME:-$HOME/.local/share}}/cmux-tui/bin/cmux-tui-hook}}}};\"${{h:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
+        shell_quote(provider),
+        shell_quote(event),
+    )
+}
+
+/// The command shape before the tmux fallback. Its codex trust hashes stay
+/// cmux-owned so an upgrade replaces them instead of leaving them behind.
+fn legacy_hook_command(provider: &str, event: &str) -> String {
     format!(
         "\"${{CMUX_TUI_HOOK:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
@@ -2093,16 +2109,21 @@ fn codex_expected_trust_entries(
     Ok(entries)
 }
 
-/// Every trust hash the current installer shape can produce. Entries carrying
+/// Every trust hash the current and previous installer shapes can produce. Entries carrying
 /// one of these hashes are cmux-owned regardless of their positional key.
 fn codex_owned_trust_hashes() -> anyhow::Result<BTreeSet<String>> {
     CODEX_EVENTS
         .iter()
         .map(|event| {
             let label = codex_event_state_label(event)?;
-            Ok(codex_trust_hash(label, &hook_command("codex", event), codex_hook_timeout(event)))
+            let timeout = codex_hook_timeout(event);
+            Ok([
+                codex_trust_hash(label, &hook_command("codex", event), timeout),
+                codex_trust_hash(label, &legacy_hook_command("codex", event), timeout),
+            ])
         })
-        .collect()
+        .collect::<anyhow::Result<Vec<_>>>()
+        .map(|pairs| pairs.into_iter().flatten().collect())
 }
 
 /// Dotfile managers commonly symlink `config.toml`; the atomic rename must
@@ -2807,13 +2828,47 @@ mod tests {
         assert!(!text.contains(COMMAND_MARKER));
     }
 
-    /// Trust hashes verified against the real codex 0.150.1 binary: with these
+    /// Trust hashes of the current `hook_command`, from the same identity hash
+    /// that reproduces `LEGACY_CODEX_TRUSTED_HASHES` below.
+    const CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
+        (
+            "session_start",
+            "sha256:62dec7fda2eedda09e521ed25f5a3e56fdf259e2cf6e09c61caf6fde04cf9169",
+        ),
+        (
+            "user_prompt_submit",
+            "sha256:11c9dc25e1d294a6f3c33e6c03354c7e032250357e143879ac720a392cf632b9",
+        ),
+        ("stop", "sha256:c44b06979e220fd6665d250bb2cc470787cc4b06568e62b6cd8004577cdd124a"),
+        (
+            "permission_request",
+            "sha256:6a6d12a917dfc12fdfc3e0796f4c5f43d31db0a9dd1f7372cce0f6635cd32b24",
+        ),
+        ("pre_tool_use", "sha256:73db9083c29d7b48384ab6e3684e0ab49f482f9d11cc07f6c7d2584f55175a34"),
+        (
+            "post_tool_use",
+            "sha256:7eae35124685878835e8f7a4bc73214600f6732c8bddafc27370e4e89757d1a4",
+        ),
+        ("pre_compact", "sha256:e957b79dd72144e1e738feeeaade51816e2ae07fcaa31c9638fa40b895b2d580"),
+        ("post_compact", "sha256:adbb48bf6be51c36f594b09dc5b9b008d2de4b7e72bf20c7e897459beb295d6c"),
+        (
+            "subagent_start",
+            "sha256:25a7790bb05c595170f35ce823c0e64080c31ec43e5c65003875466ace055dbd",
+        ),
+        (
+            "subagent_stop",
+            "sha256:46e1ebc2d41d01b8f4c7ec6ee657e2cfc66ed0b0531fef08cfe52f7fd8f1a479",
+        ),
+        ("session_end", "sha256:b8231b7c25e8a4c9ecfbfa026269958f32763c359db6b16d4c7579416f5f3097"),
+    ];
+
+    /// Trust hashes of `legacy_hook_command`, verified against the real codex 0.150.1 binary: with these
     /// exact `hooks.state` values in `config.toml`, codex executes the installed
     /// hooks.json commands; without them it parses hooks.json (it even warns
     /// about clamping the SessionEnd timeout) and silently skips every handler,
     /// so codex sessions never reach the cmux-tui agents view
     /// (https://github.com/manaflow-ai/cmux/issues/11040).
-    const CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
+    const LEGACY_CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
         (
             "session_start",
             "sha256:397d7ce9e0c6367e34771a4293777ff95415b595bf77e2aa420425adc75d70ae",
@@ -2879,6 +2934,20 @@ mod tests {
             );
         }
         assert_eq!(state.len(), CODEX_EVENTS.len());
+    }
+
+    #[test]
+    fn codex_trust_hash_reproduces_the_hashes_codex_verified() {
+        let owned = codex_owned_trust_hashes().unwrap();
+        for (event, (label, hash)) in CODEX_EVENTS.iter().zip(LEGACY_CODEX_TRUSTED_HASHES) {
+            let legacy = codex_trust_hash(
+                label,
+                &legacy_hook_command("codex", event),
+                codex_hook_timeout(event),
+            );
+            assert_eq!(legacy, *hash, "{event}");
+            assert!(owned.contains(*hash), "{event}: an upgrade must replace the old entry");
+        }
     }
 
     #[test]
@@ -3660,7 +3729,7 @@ esac
             serde_json::from_slice(&fs::read(context.home.join(".codex/hooks.json")).unwrap())
                 .unwrap();
         let command = root["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
-        assert!(command.len() <= 90, "hook command is {} bytes: {command}", command.len());
+        assert!(command.len() <= 170, "hook command is {} bytes: {command}", command.len());
         assert!(!command.contains("CMUX_TUI_SOCKET"));
         assert!(!hook_command("claude", "Stop").contains("GROK_HOOK_EVENT"));
 
@@ -3668,6 +3737,7 @@ esac
             .args(["-c", command])
             .env("CMUX_TUI_SOCKET", "/tmp/cmux-test.sock")
             .env_remove("CMUX_TUI_HOOK")
+            .env_remove("TMUX")
             .env("CAPTURE", &capture)
             .output()
             .unwrap();
@@ -3684,16 +3754,32 @@ esac
             .unwrap();
         assert!(output.status.success());
         assert_eq!(output.stdout, b"{}\n");
-        assert_eq!(fs::read_to_string(capture).unwrap(), "codex Stop\n");
+        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex Stop\n");
+        fs::remove_file(&capture).unwrap();
+
+        // A tmux pane without the session's variables falls back to the
+        // installed helper, which routes through the attached tmux client.
+        let output = Command::new("/bin/sh")
+            .args(["-c", command])
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_HOOK")
+            .env("TMUX", "/tmp/tmux-test/default,1,0")
+            .env("XDG_DATA_HOME", &context.data_home)
+            .env("CAPTURE", &capture)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"{}\n");
+        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex Stop\n");
     }
 
     #[test]
-    fn every_command_hook_fits_in_one_hundred_bytes() {
+    fn every_command_hook_fits_in_two_hundred_bytes() {
         for provider in PROVIDERS {
             for event in provider.events {
                 let command = hook_command(provider.id, event);
                 assert!(
-                    command.len() <= 100,
+                    command.len() <= 200,
                     "{} {event} hook command is {} bytes: {command}",
                     provider.id,
                     command.len()

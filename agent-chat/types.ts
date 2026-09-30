@@ -21,6 +21,7 @@ export type AgentEvent =
   | { kind: "commands"; trigger: CommandTrigger; commands: CommandEntry[] }
   | { kind: "user"; text: string }
   | { kind: "status"; text: string }
+  | { kind: "plan"; entries: AgentPlanEntry[] }
   | { kind: "delta"; text: string } // streaming assistant text
   | { kind: "assistant"; text: string } // full assistant message (non-streaming providers)
   | { kind: "thinking"; text: string } // streaming reasoning text
@@ -81,6 +82,14 @@ export interface ChangedFile {
   status: string;
 }
 
+export type AgentPlanStatus = "pending" | "in_progress" | "completed" | "unknown";
+
+export interface AgentPlanEntry {
+  text: string;
+  status: AgentPlanStatus;
+  priority?: string;
+}
+
 export interface SessionCtx {
   id: string;
   provider: string;
@@ -99,6 +108,8 @@ export interface SessionCtx {
   // Adapter-private state (child proc, provider session/thread ids, rpc counters).
   internal: Record<string, unknown>;
   emit(evt: AgentEvent): void;
+  /** Replace replayed transcript history when its source file resets. */
+  resetHistory?(): void;
   setStatus(status: SessionStatus): void;
 }
 

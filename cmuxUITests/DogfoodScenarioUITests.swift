@@ -149,18 +149,29 @@ final class DogfoodScenarioUITests: XCTestCase {
             app.typeKey(key, modifierFlags: modifiers)
         case .type(let text):
             app.typeText(text)
-        case .click(let target):
-            try element(target, in: app).click()
-        case .doubleClick(let target):
-            try element(target, in: app).doubleClick()
-        case .rightClick(let target):
-            try element(target, in: app).rightClick()
-        case .hover(let target):
-            try element(target, in: app).hover()
-        case .clickAt(let x, let y):
-            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y)).click()
-        case .hoverAt(let x, let y):
-            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y)).hover()
+        case .click(let target, let modifiers):
+            let resolved = try element(target, in: app)
+            DogfoodStep.holding(modifiers) { resolved.click() }
+        case .doubleClick(let target, let modifiers):
+            let resolved = try element(target, in: app)
+            DogfoodStep.holding(modifiers) { resolved.doubleClick() }
+        case .rightClick(let target, let modifiers):
+            let resolved = try element(target, in: app)
+            DogfoodStep.holding(modifiers) { resolved.rightClick() }
+        case .hover(let target, let modifiers):
+            let resolved = try element(target, in: app)
+            DogfoodStep.holding(modifiers) { resolved.hover() }
+        case .clickAt(let x, let y, let modifiers):
+            let point = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y))
+            DogfoodStep.holding(modifiers) { point.click() }
+        case .hoverAt(let x, let y, let modifiers):
+            let point = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y))
+            DogfoodStep.holding(modifiers) { point.hover() }
+        case .dragAt(let from, let to, let duration):
+            let window = app.windows.firstMatch
+            let start = window.coordinate(withNormalizedOffset: CGVector(dx: from.x, dy: from.y))
+            let end = window.coordinate(withNormalizedOffset: CGVector(dx: to.x, dy: to.y))
+            start.press(forDuration: duration, thenDragTo: end)
         case .menu(let path):
             try clickMenu(path, in: app)
         case .socket(let method, let params, let saveAs):
@@ -174,6 +185,15 @@ final class DogfoodScenarioUITests: XCTestCase {
             }
             if let saveAs {
                 saved[saveAs] = response["result"] ?? [:]
+            }
+        case .socketLine(let line):
+            let resolved = substituteInline(line)
+            guard let reply = socketLine(resolved, path: socketPath, timeout: 15) else {
+                throw DogfoodError("no reply to socketLine: \(lastSocketError)")
+            }
+            attachText("> \(resolved)\n< \(reply)", name: "\(label)-socketLine.txt")
+            if reply.hasPrefix("ERROR") || reply.hasPrefix("error") {
+                throw DogfoodError("socketLine failed: \(reply)")
             }
         case .expect(let target, let exists):
             let matches = query(target, in: app)
@@ -203,18 +223,55 @@ final class DogfoodScenarioUITests: XCTestCase {
         return element
     }
 
+    /// One step of a menu path: the item directly under `owner`'s menu.
+    ///
+    /// `menus` and `menuItems` are descendant queries, so `owner.menuItems[x]`
+    /// matches anywhere in that menu's whole subtree. The File menu alone has
+    /// two `New Window` items and two `Close Workspace` items at different
+    /// depths, so a descendant lookup raises "Multiple matching elements" for
+    /// a path that names exactly one of them. Taking the direct children of
+    /// the one open `Menu` makes each path element mean what it reads as.
+    private func menuChild(_ title: String, of owner: XCUIElement) -> XCUIElement {
+        owner.menus.firstMatch.children(matching: .menuItem)[title]
+    }
+
+    /// Every element after the first names a direct child of the menu the one
+    /// before it opened, so a submenu item needs its submenu in the path.
     private func clickMenu(_ path: [String], in app: XCUIApplication) throws {
         guard let top = path.first else { throw DogfoodError("empty menu path") }
         let bar = app.menuBars.menuBarItems[top]
         guard bar.waitForExistence(timeout: 5) else { throw DogfoodError("no menu \(top)") }
         bar.click()
+        var opened = bar
+        var reached: [String] = [top]
         for item in path.dropFirst() {
-            let menuItem = app.menuItems[item]
+            let menuItem = menuChild(item, of: opened)
             guard menuItem.waitForExistence(timeout: 3) else {
-                app.typeKey(.escape, modifierFlags: [])
-                throw DogfoodError("no menu item \(item)")
+                // One Escape per menu still standing. Escape closes a single
+                // level, so a path that failed inside a submenu used to leave
+                // its parent menu open; a failed step is recorded and the tour
+                // carries on, so every later click landed on the menu overlay
+                // and every later shot, `99-final` included, was taken through
+                // it. One bad title cost the rest of the tour.
+                //
+                // `reached` bounds the loop but does not set it: a middle
+                // element that named a plain command ran it and closed the
+                // menus already, and an extra Escape would go to the app, where
+                // it is a keystroke to whatever the focused terminal is running.
+                for _ in reached where app.menus.count > 0 {
+                    app.typeKey(.escape, modifierFlags: [])
+                }
+                // Name the prefix that resolved, not the whole path: a middle
+                // element with no submenu fails here, and blaming the last
+                // element for that points at the wrong step.
+                throw DogfoodError(
+                    "no menu item \(item) under \(reached.joined(separator: " > "))"
+                )
             }
             menuItem.click()
+            // A submenu's own items hang off the item that opened it.
+            opened = menuItem
+            reached.append(item)
         }
     }
 
@@ -247,17 +304,44 @@ final class DogfoodScenarioUITests: XCTestCase {
 
     // MARK: Socket
 
+    /// Resolves `name.key.0.key` against saved results; numeric components
+    /// index arrays.
+    private func resolve(_ path: [String]) -> Any? {
+        var current: Any? = saved[path.first ?? ""]
+        for key in path.dropFirst() {
+            if let array = current as? [Any], let index = Int(key) {
+                current = array.indices.contains(index) ? array[index] : nil
+            } else {
+                current = (current as? [String: Any])?[key]
+            }
+        }
+        return current
+    }
+
+    /// Replaces every `${path}` inside `line` with the resolved value's text.
+    private func substituteInline(_ line: String) -> String {
+        var result = ""
+        var rest = Substring(line)
+        while let open = rest.range(of: "${"), let close = rest[open.upperBound...].firstIndex(of: "}") {
+            result += rest[..<open.lowerBound]
+            let path = rest[open.upperBound..<close].split(separator: ".").map(String.init)
+            if let value = resolve(path) {
+                result += "\(value)"
+            } else {
+                result += rest[open.lowerBound...close]
+            }
+            rest = rest[rest.index(after: close)...]
+        }
+        return result + rest
+    }
+
     /// `"${name.key}"` in a param string takes that field of a saved result,
     /// so a later step can target the workspace or surface an earlier one made.
     private func substitute(_ value: Any) -> Any {
         if let string = value as? String,
            string.hasPrefix("${"), string.hasSuffix("}") {
             let path = string.dropFirst(2).dropLast().split(separator: ".").map(String.init)
-            var current: Any? = saved[path.first ?? ""]
-            for key in path.dropFirst() {
-                current = (current as? [String: Any])?[key]
-            }
-            return current ?? string
+            return resolve(path) ?? string
         }
         if let dictionary = value as? [String: Any] {
             return dictionary.mapValues { substitute($0) }
@@ -272,13 +356,22 @@ final class DogfoodScenarioUITests: XCTestCase {
     /// tours read better filling the display. Not every locale says "Zoom".
     private func zoomFrontWindow(in app: XCUIApplication) {
         let windowMenu = app.menuBars.menuBarItems["Window"]
-        guard windowMenu.waitForExistence(timeout: 3) else { return }
+        guard windowMenu.waitForExistence(timeout: 3) else {
+            log.append("launch: no Window menu, so the window was left at its default size")
+            return
+        }
         windowMenu.click()
-        let zoom = app.menuItems["Zoom"]
+        // Scoped like `clickMenu`: `Zoom` is unique app-wide today, but this
+        // runs before every tour, so one new duplicate title would break all
+        // of them at step zero.
+        let zoom = menuChild("Zoom", of: windowMenu)
         if zoom.waitForExistence(timeout: 2) {
             zoom.click()
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         } else {
+            // Say so. Every shot in the tour is then a default-size window, and
+            // a silent miss here reads as the app having changed, not the menu.
+            log.append("launch: no Zoom item, so the window was left at its default size")
             app.typeKey(.escape, modifierFlags: [])
         }
     }
@@ -441,14 +534,18 @@ enum DogfoodStep {
     case wait(TimeInterval)
     case key(String, XCUIElement.KeyModifierFlags)
     case type(String)
-    case click(DogfoodTarget)
-    case doubleClick(DogfoodTarget)
-    case rightClick(DogfoodTarget)
-    case hover(DogfoodTarget)
-    case clickAt(Double, Double)
-    case hoverAt(Double, Double)
+    case click(DogfoodTarget, XCUIElement.KeyModifierFlags)
+    case doubleClick(DogfoodTarget, XCUIElement.KeyModifierFlags)
+    case rightClick(DogfoodTarget, XCUIElement.KeyModifierFlags)
+    case hover(DogfoodTarget, XCUIElement.KeyModifierFlags)
+    case clickAt(Double, Double, XCUIElement.KeyModifierFlags)
+    case hoverAt(Double, Double, XCUIElement.KeyModifierFlags)
+    case dragAt(from: CGPoint, to: CGPoint, duration: TimeInterval)
     case menu([String])
     case socket(method: String, params: Any, saveAs: String?)
+    /// One raw v1 line (for example `agent_journal_append {...}`); `${...}`
+    /// placeholders inside it resolve from saved socket results.
+    case socketLine(String)
     case expect(DogfoodTarget, exists: Bool)
 
     var summary: String {
@@ -458,21 +555,31 @@ enum DogfoodStep {
         case .wait(let seconds): return "wait \(seconds)"
         case .key(let key, let modifiers): return "key \(key) modifiers=\(modifiers.rawValue)"
         case .type(let text): return "type \(text.debugDescription)"
-        case .click(let target): return "click \(target)"
-        case .doubleClick(let target): return "doubleClick \(target)"
-        case .rightClick(let target): return "rightClick \(target)"
-        case .hover(let target): return "hover \(target)"
-        case .clickAt(let x, let y): return "clickAt \(x),\(y)"
-        case .hoverAt(let x, let y): return "hoverAt \(x),\(y)"
+        case .click(let target, let modifiers): return "click \(target)\(Self.describe(modifiers))"
+        case .doubleClick(let target, let modifiers):
+            return "doubleClick \(target)\(Self.describe(modifiers))"
+        case .rightClick(let target, let modifiers):
+            return "rightClick \(target)\(Self.describe(modifiers))"
+        case .hover(let target, let modifiers):
+            return "hover \(target)\(Self.describe(modifiers))"
+        case .clickAt(let x, let y, let modifiers):
+            return "clickAt \(x),\(y)\(Self.describe(modifiers))"
+        case .hoverAt(let x, let y, let modifiers):
+            return "hoverAt \(x),\(y)\(Self.describe(modifiers))"
+        case .dragAt(let from, let to, let duration):
+            return "dragAt \(from.x),\(from.y) to \(to.x),\(to.y) over \(duration)s"
         case .menu(let path): return "menu \(path.joined(separator: " > "))"
         case .socket(let method, _, _): return "socket \(method)"
+        case .socketLine(let line): return "socketLine \(line.prefix(40))"
         case .expect(let target, let exists): return "expect \(target) exists=\(exists)"
         }
     }
 
     var usesSocket: Bool {
-        if case .socket = self { return true }
-        return false
+        switch self {
+        case .socket, .socketLine: return true
+        default: return false
+        }
     }
 
     init(json: Any) throws {
@@ -489,23 +596,38 @@ enum DogfoodStep {
         case "key":
             guard let key = object["key"] as? String else { throw DogfoodError("key takes a string") }
             self = .key(Self.key(named: key), try Self.modifiers(object["modifiers"]))
-        case "click": self = .click(try DogfoodTarget(json: value))
-        case "doubleClick": self = .doubleClick(try DogfoodTarget(json: value))
-        case "rightClick": self = .rightClick(try DogfoodTarget(json: value))
-        case "hover": self = .hover(try DogfoodTarget(json: value))
+        case "click": self = .click(try DogfoodTarget(json: value), try Self.modifiers(object["modifiers"]))
+        case "doubleClick":
+            self = .doubleClick(try DogfoodTarget(json: value), try Self.modifiers(object["modifiers"]))
+        case "rightClick":
+            self = .rightClick(try DogfoodTarget(json: value), try Self.modifiers(object["modifiers"]))
+        case "hover":
+            self = .hover(try DogfoodTarget(json: value), try Self.modifiers(object["modifiers"]))
         case "clickAt", "hoverAt":
             guard let point = value as? [String: Any],
                   let x = (point["x"] as? NSNumber)?.doubleValue,
                   let y = (point["y"] as? NSNumber)?.doubleValue else {
                 throw DogfoodError("\(kind) takes {\"x\": 0-1, \"y\": 0-1} in window space")
             }
-            self = kind == "clickAt" ? .clickAt(x, y) : .hoverAt(x, y)
+            let modifiers = try Self.modifiers(object["modifiers"])
+            self = kind == "clickAt" ? .clickAt(x, y, modifiers) : .hoverAt(x, y, modifiers)
+        case "dragAt":
+            guard let pair = value as? [String: Any],
+                  let from = Self.point(pair["from"]),
+                  let to = Self.point(pair["to"]) else {
+                throw DogfoodError("dragAt takes {\"from\": {x, y}, \"to\": {x, y}} in window space")
+            }
+            let duration = (pair["duration"] as? NSNumber)?.doubleValue ?? 0.2
+            self = .dragAt(from: from, to: to, duration: duration)
         case "menu":
             guard let path = value as? [String], !path.isEmpty else { throw DogfoodError("menu takes a path array") }
             self = .menu(path)
         case "socket":
             guard let method = value as? String else { throw DogfoodError("socket takes a method name") }
             self = .socket(method: method, params: object["params"] ?? [String: Any](), saveAs: object["save"] as? String)
+        case "socketLine":
+            guard let line = value as? String, !line.isEmpty else { throw DogfoodError("socketLine takes a string") }
+            self = .socketLine(line)
         case "expect":
             self = .expect(try DogfoodTarget(json: value), exists: object["exists"] as? Bool ?? true)
         default:
@@ -515,8 +637,16 @@ enum DogfoodStep {
 
     private static let kinds: Set<String> = [
         "shot", "tree", "wait", "type", "key", "click", "doubleClick", "rightClick",
-        "hover", "clickAt", "hoverAt", "menu", "socket", "expect",
+        "hover", "clickAt", "hoverAt", "dragAt", "menu", "socket", "socketLine", "expect",
     ]
+
+    /// Reads a `{"x": 0-1, "y": 0-1}` window-space point.
+    private static func point(_ json: Any?) -> CGPoint? {
+        guard let object = json as? [String: Any],
+              let x = (object["x"] as? NSNumber)?.doubleValue,
+              let y = (object["y"] as? NSNumber)?.doubleValue else { return nil }
+        return CGPoint(x: x, y: y)
+    }
 
     private static func key(named name: String) -> String {
         switch name.lowercased() {
@@ -538,8 +668,47 @@ enum DogfoodStep {
         }
     }
 
+    /// Runs `body` with `modifiers` held down.
+    ///
+    /// Neither `XCUIElement.click()` nor `XCUICoordinate.click()` takes
+    /// modifiers, so they are pressed around the call instead.
+    /// `perform(withKeyModifiers:block:)` is a type method: the modifiers are
+    /// global keyboard state for the duration of the block, not something
+    /// scoped to a particular element, which is why any event synthesized
+    /// inside the block sees them. An empty set skips the wrapper entirely, so
+    /// every existing step keeps its exact previous behavior.
+    fileprivate static func holding(
+        _ modifiers: XCUIElement.KeyModifierFlags,
+        _ body: () -> Void
+    ) {
+        guard !modifiers.isEmpty else {
+            body()
+            return
+        }
+        XCUIElement.perform(withKeyModifiers: modifiers, block: body)
+    }
+
+    /// Renders held modifiers for the step label, so a frame caption says which
+    /// click it was rather than just "clickAt".
+    fileprivate static func describe(_ modifiers: XCUIElement.KeyModifierFlags) -> String {
+        guard !modifiers.isEmpty else { return "" }
+        var names: [String] = []
+        if modifiers.contains(.command) { names.append("cmd") }
+        if modifiers.contains(.shift) { names.append("shift") }
+        if modifiers.contains(.option) { names.append("opt") }
+        if modifiers.contains(.control) { names.append("ctrl") }
+        if modifiers.contains(.function) { names.append("fn") }
+        return " +\(names.joined(separator: "+"))"
+    }
+
     private static func modifiers(_ json: Any?) throws -> XCUIElement.KeyModifierFlags {
-        guard let names = json as? [String] else { return [] }
+        guard let json, !(json is NSNull) else { return [] }
+        // A typo such as `"modifiers": "cmd"` must stop the tour. Degrading to
+        // a plain click would produce a green run and a frame that silently
+        // shows the wrong interaction.
+        guard let names = json as? [String] else {
+            throw DogfoodError("modifiers must be an array of strings, got \(json)")
+        }
         var flags: XCUIElement.KeyModifierFlags = []
         for name in names {
             switch name.lowercased() {

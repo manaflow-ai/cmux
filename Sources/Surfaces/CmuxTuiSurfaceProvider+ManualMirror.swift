@@ -122,7 +122,8 @@ extension CmuxTuiSurfaceProvider {
                     onFocus: { [weak session] in
                         session?.claimGeometry()
                     },
-                    attachment: session.attachmentStatus
+                    attachment: session.attachmentStatus,
+                    allowsRemoteClipboardWrites: machine.cloudMachineID != nil
                 )
             }
             session.bind(surface: created.surface)
@@ -263,7 +264,7 @@ extension CmuxTuiSurfaceProvider {
             if let state = cloudState {
                 let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
                 guard catalog.projections(of: resourceID).contains(where: {
-                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state)
+                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state, catalog: catalog)
                 }) else { continue }
             }
             for session in sessionsByTerminal[terminalID] ?? [] {

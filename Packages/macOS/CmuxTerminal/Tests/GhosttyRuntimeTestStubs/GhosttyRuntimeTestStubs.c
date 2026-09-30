@@ -510,6 +510,11 @@ uint64_t ghostty_surface_foreground_pid(void *surface) {
     (void)surface;
     return cmux_test_foreground_pid;
 }
+bool ghostty_surface_grid_metrics(void *surface, void *metrics) {
+    (void)surface;
+    (void)metrics;
+    return false;
+}
 void ghostty_surface_has_selection(void) {}
 void ghostty_surface_key(void) {}
 bool ghostty_surface_key_is_binding(void) { return false; }

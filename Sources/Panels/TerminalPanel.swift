@@ -24,6 +24,15 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The underlying terminal surface
     let surface: TerminalSurface
+    private(set) var hasReceivedExplicitInput = false
+
+    func recordExplicitInput() {
+        hasReceivedExplicitInput = true
+    }
+
+    func restoreExplicitInputState(_ state: Bool) {
+        hasReceivedExplicitInput = state
+    }
     var fontSizePanelTransfer:
         WorkspaceTerminalFontSizePanelTransfer?
 
@@ -156,6 +165,9 @@ final class TerminalPanel: Panel, ObservableObject {
         self.workspaceId = workspaceId
         self.surface = surface
         self.title = surface.agentPanelTitle.flatMap { AutomaticTerminalTitle($0)?.value } ?? "Terminal"
+        surface.onExplicitInput = { [weak self] in
+            self?.hasReceivedExplicitInput = true
+        }
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -180,6 +192,7 @@ final class TerminalPanel: Panel, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        isRemoteTerminal: Bool = false,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         let surface = TerminalSurface(
@@ -194,7 +207,9 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement, runtimeSpawnPolicy: runtimeSpawnPolicy,
+            focusPlacement: focusPlacement,
+            isRemoteTerminal: isRemoteTerminal,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
         )
         self.init(workspaceId: workspaceId, surface: surface)

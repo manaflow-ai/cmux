@@ -883,6 +883,7 @@ extension MobileShellComposite {
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         knownPairing: MobilePairedMac? = nil,
+        preconnectedClient: MobileCoreRPCClient? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         await connectStoredMacOutcome(
@@ -896,25 +897,29 @@ extension MobileShellComposite {
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
             knownPairing: knownPairing,
+            preconnectedClient: preconnectedClient,
             ifStillCurrent: ifStillCurrent
         )
     }
 
-    /// Connects through a stored route set while enforcing the caller's exact
-    /// authenticated instance-authority requirement.
-    @discardableResult
-    private func connectStoredMacOutcome(
-        name: String,
+    /// The method, Direct allowlist, and pinned route order a stored-route
+    /// dial uses. Concurrent zero-touch dials build their client from this
+    /// same plan so the foreground connect can adopt it without redialing.
+    struct StoredMacDialPlan {
+        let method: MobileConnectionMethod
+        /// Direct's Iroh address allowlist; `nil` for every other method. An
+        /// empty allowlist means Direct has nothing it may dial.
+        let methodPinnedCandidates: [CmxIrohDirectDialCandidate]?
+        let routes: [CmxAttachRoute]
+    }
+
+    func storedMacDialPlan(
         routes: [CmxAttachRoute],
         pairedMacDeviceID: String,
-        instanceTagExpectation: MobileMacInstanceTagExpectation,
-        legacyTailscaleRoutes: [CmxAttachRoute] = [],
-        automaticReconnectAccountID: String? = nil,
-        recordsPairingAttempt: Bool = false,
-        knownPairing: MobilePairedMac? = nil,
-        ifStillCurrent: (() -> Bool)? = nil
-    ) async -> StoredMacReconnectOutcome {
-        guard ifStillCurrent?() ?? true else { return .superseded }
+        expectedInstanceTag: String?,
+        legacyTailscaleRoutes: [CmxAttachRoute],
+        knownPairing: MobilePairedMac?
+    ) -> StoredMacDialPlan {
         // The caller's freshly loaded row is authoritative for the method:
         // during startup restore the published `pairedMacs` list backing the
         // by-ID resolver is not loaded yet and would silently fall back to
@@ -922,7 +927,7 @@ extension MobileShellComposite {
         let resolvedMethod = knownPairing.map { connectionMethod(for: $0) }
             ?? connectionMethod(
                 forMacDeviceID: pairedMacDeviceID,
-                instanceTag: instanceTagExpectation.expectedTag
+                instanceTag: expectedInstanceTag
             )
         // Direct is the only method that supplies an Iroh address allowlist.
         // Tailscale selects an authorized raw Tailscale route below and must
@@ -932,15 +937,11 @@ extension MobileShellComposite {
         if resolvedMethod == .direct {
             methodPinnedCandidates = irohMethodPinnedDialCandidates(
                 forMacDeviceID: pairedMacDeviceID,
-                instanceTag: instanceTagExpectation.expectedTag,
+                instanceTag: expectedInstanceTag,
                 knownPairing: knownPairing
             ) ?? []
         } else {
             methodPinnedCandidates = nil
-        }
-        if let methodPinnedCandidates, methodPinnedCandidates.isEmpty {
-            applyOperationalError(MobileShellConnectionError.insecureManualRoute)
-            return .failed(.unsupportedRoute)
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         var pinnedRoutes = Self.storedReconnectRoutes(
@@ -965,6 +966,54 @@ extension MobileShellComposite {
             // allowlist constrains the Iroh dial exclusively.
             pinnedRoutes = pinnedRoutes.filter { $0.kind == .iroh }
         }
+        return StoredMacDialPlan(
+            method: resolvedMethod,
+            methodPinnedCandidates: methodPinnedCandidates,
+            routes: pinnedRoutes
+        )
+    }
+
+    /// Connects through a stored route set while enforcing the caller's exact
+    /// authenticated instance-authority requirement.
+    @discardableResult
+    private func connectStoredMacOutcome(
+        name: String,
+        routes: [CmxAttachRoute],
+        pairedMacDeviceID: String,
+        instanceTagExpectation: MobileMacInstanceTagExpectation,
+        legacyTailscaleRoutes: [CmxAttachRoute] = [],
+        automaticReconnectAccountID: String? = nil,
+        recordsPairingAttempt: Bool = false,
+        knownPairing: MobilePairedMac? = nil,
+        preconnectedClient: MobileCoreRPCClient? = nil,
+        ifStillCurrent: (() -> Bool)? = nil
+    ) async -> StoredMacReconnectOutcome {
+        // A preconnected client is owned by this call from here on: `connect`
+        // adopts it for its matching route and disconnects it otherwise.
+        // Every exit that never reaches `connect` must release it here.
+        var unconsumedPreconnectedClient = preconnectedClient
+        defer {
+            if let unconsumedPreconnectedClient {
+                unconsumedPreconnectedClient.retire()
+                Task { await unconsumedPreconnectedClient.disconnect() }
+            }
+        }
+        guard ifStillCurrent?() ?? true else { return .superseded }
+        let plan = storedMacDialPlan(
+            routes: routes,
+            pairedMacDeviceID: pairedMacDeviceID,
+            expectedInstanceTag: instanceTagExpectation.expectedTag,
+            legacyTailscaleRoutes: legacyTailscaleRoutes,
+            knownPairing: knownPairing
+        )
+        let resolvedMethod = plan.method
+        let methodPinnedCandidates = plan.methodPinnedCandidates
+        if let methodPinnedCandidates, methodPinnedCandidates.isEmpty {
+            applyOperationalError(MobileShellConnectionError.insecureManualRoute)
+            return .failed(.unsupportedRoute)
+        }
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        let pinnedRoutes = plan.routes
         guard let firstRoute = pinnedRoutes.first else {
             applyOperationalError(MobileShellConnectionError.insecureManualRoute)
             return .failed(.unsupportedRoute)
@@ -986,6 +1035,8 @@ extension MobileShellComposite {
                     routes: pinnedRoutes,
                     pairedMacDeviceID: pairedMacDeviceID
                 )
+                let preconnectedClient = unconsumedPreconnectedClient
+                unconsumedPreconnectedClient = nil
                 let noThrowFailure = try await connect(
                     ticket: ticket,
                     legacyTailscaleRoutes: legacyTailscaleRoutes,
@@ -993,6 +1044,7 @@ extension MobileShellComposite {
                     resolvedConnectionMethod: resolvedMethod,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
+                    preconnectedClient: preconnectedClient,
                     ifStillCurrent: ifStillCurrent
                 )
                 guard ifStillCurrent?() ?? true else { return .superseded }
@@ -1396,30 +1448,6 @@ extension MobileShellComposite {
         abandonedDialCount: Int
     ) -> Bool {
         abandonedDialCount < maximumAbandonedReconnectDials
-    }
-
-    /// Tracks an abandoned dial until it resolves, so a persistently wedged
-    /// transport cannot accumulate an unbounded set of retained reconnect
-    /// tasks across automatic retries. On resolution, if the shell is still
-    /// signed in and disconnected, the automatic retry loop is re-armed
-    /// (covers the case where retries were paused at the ceiling).
-    func registerAbandonedReconnectDial(_ task: Task<StoredMacReconnectOutcome, Never>?) {
-        guard let task else { return }
-        abandonedReconnectDialCount += 1
-        Task { @MainActor [weak self] in
-            _ = await task.value
-            guard let self else { return }
-            self.abandonedReconnectDialCount = max(0, self.abandonedReconnectDialCount - 1)
-            // Re-arm the retry loop directly through the coalesced recovery
-            // entry, NEVER by recording backoff: a backoff write here can land
-            // mid-manual-retry and re-block the dial the user just requested
-            // (manual retries clear backoff on entry). Skip when any attempt
-            // or scheduled retry is already active.
-            guard self.isSignedIn, self.connectionState != .connected,
-                  !self.connectionRecoveryOwner.isRedialingOrValidating,
-                  self.automaticReconnectRetryTask == nil else { return }
-            self.recoverMobileConnection(trigger: .automaticBackoffExpired)
-        }
     }
 
     /// The race result: `value` is nil when the deadline won, in which case

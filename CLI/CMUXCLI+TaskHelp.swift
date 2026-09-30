@@ -189,6 +189,7 @@ extension CMUXCLI {
         \(restoreCommandUsageLine)
         \(forkCommandUsageLine)
         restore-session [--from <channel|path> | --export <path> [--force]]
+        session restore [--list] [--session <id>]...
         \(String(localized: "cli.sessions.command", defaultValue: "sessions [list] [options]"))
         open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
         new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
@@ -263,6 +264,7 @@ extension CMUXCLI {
         vault checkpoints --agent <id> --session <id> [--json]
         vault checkpoint --agent <id> --session <id> [--name <text>] [--json]
         vault fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open] [--json]
+        recover [--query <text>] [--session <id>] [--limit <n>] [--focus] [--json]
         list-workspaces [--window <id|ref|index>]
         list-panes [--workspace <id|ref|index>] [--window <id|ref|index>]
         list-pane-surfaces [--workspace <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>]
@@ -274,6 +276,8 @@ extension CMUXCLI {
         current-workspace [--window <id|ref|index>]
         \(Self.readSelectionUsageLine)
         \(Self.readScreenUsageLine)
+        \(Self.recordUsageLine)
+        \(Self.shotUsageLine)
         sidebar-state [--workspace <id|ref|index>] [--window <id|ref|index>]
         markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
         diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
@@ -284,7 +288,7 @@ extension CMUXCLI {
         return """
         guide | --skill
         welcome
-        docs [settings|shortcuts|api|browser|agents|dock|sidebars]
+        docs [settings|shortcuts|api|browser|capture|agents|dock|sidebars]
         settings [open [target]|path|docs|<target>]
         config <doctor|check|validate|path|paths|docs|documentation|reload>
         shortcuts

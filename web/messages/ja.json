@@ -166,6 +166,11 @@
       "message": "Cloud VM のセットアップを一時的に利用できません。",
       "action": "しばらくしてから再試行してください。問題が続く場合はサポートにお問い合わせください。"
     },
+    "recreateRequired": {
+      "title": "このマシンを作り直してください",
+      "message": "このマシンは Cloud の更新前に作成されたため、接続できません。",
+      "action": "新しいマシンを作成し、cmux vm pull と cmux vm push でファイルを移してから、このマシンを削除してください。"
+    },
     "unsupported": {
       "title": "Cloud VM 操作を利用できません",
       "reason": "このマシン種別ではこの操作を利用できません。",
@@ -336,24 +341,28 @@
     "backToBlog": "ブログに戻る",
     "readTheDocs": "ドキュメントを読む",
     "viewChangelog": "変更履歴を見る",
-    "otherPlatforms": "その他のプラットフォーム"
+    "otherPlatforms": "その他のプラットフォーム",
+    "copyCode": "コードをコピー",
+    "copied": "コピーしました"
   },
   "dashboard": {
     "nav": {
       "brand": "cmux",
       "cloudGroup": "クラウド",
       "cloudDevices": "Macアクセス",
-      "vaultGroup": "vault",
+      "vaultGroup": "Vault",
       "vaultOverview": "概要",
       "vaultSessions": "セッション",
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "概要",
       "remoteControlGroup": "Remote control",
       "accountGroup": "アカウント",
       "billing": "請求",
       "team": "チーム",
       "testflight": "iOS TestFlight",
-      "mobileDevices": "モバイルデバイス"
+      "mobileDevices": "モバイルデバイス",
+      "settings": "設定",
+      "teams": "チーム"
     },
     "home": {
       "title": "ダッシュボード",
@@ -361,12 +370,12 @@
       "cloudName": "Cloud Macアクセス",
       "cloudDescription": "プライベートCloud VMネットワークに接続できるMacを確認し、アクセスを取り消します。",
       "cloudLink": "Macアクセスを管理",
-      "vaultName": "vault",
+      "vaultName": "Vault",
       "vaultDescription": "同期済みエージェントセッションの閲覧とCLIアクセスの管理を行います。",
-      "vaultLink": "vaultを開く",
-      "coderouterName": "coderouter",
+      "vaultLink": "Vaultを開く",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "プロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
-      "coderouterLink": "coderouterを開く",
+      "coderouterLink": "Coderouterを開く",
       "iosAppName": "iOSアプリ",
       "iosAppDescription": "TestFlight（ベータ版）で cmux iOS アプリをインストール。",
       "iosLink": "iOSアプリを開く"
@@ -394,13 +403,14 @@
       "renameError": "このMacの名前を変更できませんでした。",
       "revokeTitle": "{name}のアクセスを取り消しますか？",
       "revokeBody": "このMacをサインアウトし、すべてのCloud VMネットワークアクセスを削除します。",
-      "revokeError": "このMacのアクセスを取り消せませんでした。"
+      "revokeError": "このMacのアクセスを取り消せませんでした。",
+      "emptyBody": "Mac 上の cmux が初めて Cloud VM に接続すると、その Mac がここに表示されます。"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "共有AIアカウントを管理し、coderouterでリクエストをルーティングします。",
-      "title": "coderouter",
-      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
+      "title": "Coderouter",
+      "description": "Coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
       "machines": {
         "title": "マシン",
         "description": "{team} のマシン別 coderouter 使用状況（過去{days}日間）。",
@@ -411,6 +421,20 @@
         "empty": "過去{days}日間に coderouter を使用したマシンはありません。",
         "unavailable": "マシン別の使用状況は現在利用できません。",
         "estimateNote": "API換算額は公開定価による推定で、実際の請求額ではありません。"
+      },
+      "metrics": {
+        "title": "30日間の使用状況",
+        "scope": "{team} のチーム集計",
+        "period": "過去{days}日間",
+        "inputTokens": "入力トークン",
+        "outputTokens": "出力トークン",
+        "tokens": "合計トークン",
+        "apiEquivalent": "API換算額",
+        "unpriced": "全トークンの {share} は価格が不明なモデルのもので、換算額に含まれていません。",
+        "chartLabel": "日別のCodeRouterトークン使用量",
+        "privacy": "プロンプト、出力、アカウントラベル、メンバーIDは記録・表示しません。",
+        "estimate": "API換算額は、同じトークンを公開定価（レート表 {version}）で API 利用した場合の推定額で、実際の請求額ではありません。",
+        "unavailable": "チーム使用状況は現在利用できません。"
       }
     },
     "coderouterAccounts": {
@@ -441,8 +465,6 @@
       "migrationPendingBody": "共有 Codex アカウントは一時的に利用できません。しばらくしてからもう一度お試しください。",
       "loadErrorTitle": "一部のアカウントを読み込めませんでした",
       "loadErrorBody": "アカウント一覧の一部を読み取れませんでした。他のプロバイダーの表示は完全です。しばらくしてから再試行してください。",
-      "pageErrorTitle": "coderouter を読み込めませんでした",
-      "pageErrorBody": "アカウントサービスに接続できませんでした。しばらくしてから再試行してください。",
       "providerColumn": "プロバイダー",
       "labelColumn": "ラベル",
       "statusColumn": "状態",
@@ -510,10 +532,6 @@
       "apiKeysTitle": "APIキー",
       "apiKeysDescription": "スクリプトやエージェント用の長期キーを作成できます。秘密鍵は一度だけ表示されます。",
       "apiKeysCount": "{count, plural, one {# 個のキー} other {# 個のキー}}",
-      "apiKeysLoading": "APIキーを読み込んでいます…",
-      "apiKeysLoadError": "APIキーを読み込めませんでした。しばらくしてから再試行してください。",
-      "apiKeysRetry": "再試行",
-      "apiKeysEmptyBody": "APIキーはまだありません。CodeRouterクライアント用に作成してください。",
       "apiKeyPrefixColumn": "キー",
       "apiKeyStatusColumn": "状態",
       "apiKeySecretTitle": "今すぐこのキーをコピー",
@@ -533,7 +551,11 @@
       "revokeApiKeyConfirmTitle": "このAPIキーを失効させますか？",
       "revokeApiKeyConfirmBody": "このキーを使うクライアントは直ちに認証できなくなります。",
       "apiKeyUsageDetail": "過去30日間: {completions} 回の完了 · {tokens} トークン ({input} 入力 / {output} 出力) · API換算 {value}",
-      "apiKeyUsageUnavailable": "使用状況を取得できません"
+      "apiKeyUsageUnavailable": "使用状況を取得できません",
+      "apiKeysEmptyTitle": "API キーはまだありません",
+      "apiKeysEmptyHint": "CodeRouter クライアントを認証するためのキーを作成してください。",
+      "unavailableTitle": "共有アカウントは利用できません",
+      "unavailableBody": "現在、共有アカウントサービスに接続できません。cr add で追加したアカウントと、Anthropic および Bedrock のアカウントは引き続き使えます。"
     },
     "accountMenu": {
       "label": "アカウントメニュー",
@@ -544,7 +566,8 @@
       "signOut": "サインアウト",
       "signingOut": "サインアウト中…",
       "signOutError": "サインアウトできませんでした。もう一度お試しください。",
-      "signIn": "サインイン"
+      "signIn": "サインイン",
+      "upgrade": "アップグレード"
     },
     "teamSwitcher": {
       "label": "チーム",
@@ -552,14 +575,18 @@
     },
     "billing": {
       "eyebrow": "アカウント",
-      "title": "請求",
+      "title": "プランと請求",
       "description": "cmuxプランを確認し、サブスクリプション請求を管理します。",
       "banners": {
         "cancelled": "現在の請求期間の終了時にプランがキャンセルされます。",
         "resumed": "プランは再開され、通常どおり更新されます。",
         "nosub": "このアカウントに有効なStripeサブスクリプションは見つかりませんでした。",
         "error": "請求を更新できませんでした。しばらくしてから再試行してください。",
-        "pastDue": "最新のお支払いに失敗しました。プランを継続するには支払い方法を更新してください。"
+        "pastDue": "最新のお支払いに失敗しました。プランを継続するには支払い方法を更新してください。",
+        "team_admin_required": "このチームの請求を管理できるのはチーム管理者のみです。",
+        "team_not_found": "このチームは利用できません。チームから退出したか、チームが削除された可能性があります。",
+        "authorization_unavailable": "チームの権限を確認できませんでした。しばらくしてからもう一度お試しください。",
+        "personal_team_not_upgradable_to_team": "個人アカウントでは Pro または Max を利用できます。Team を購入するにはチームを作成してください。"
       },
       "free": {
         "name": "Free",
@@ -590,7 +617,8 @@
         "activeBody": "{team}は{date}に更新されます。",
         "pendingBody": "{team}は{date}に終了する予定です。",
         "price": "${amount}/シート/月",
-        "annualPrice": "${monthly}/シート/月（年払い）"
+        "annualPrice": "${monthly}/シート/月（年払い）",
+        "createCta": "チームを作成"
       },
       "details": {
         "renewsOn": "更新日",
@@ -616,8 +644,7 @@
       "plan": {
         "heading": "個人プラン",
         "free": "無料",
-        "pro": "Pro",
-        "loading": "読み込み中…"
+        "pro": "Pro"
       },
       "max": {
         "name": "cmux Max",
@@ -625,6 +652,122 @@
         "pendingBody": "Max プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月",
         "upsell": "Max は月額 $200 の月払いで、最大 50 台の Cloud VM が 64 GB RAM と 16 vCPU を共有します。"
+      },
+      "teamPanel": {
+        "notFound": "このチームは利用できません。チームから退出したか、チームが削除された可能性があります。",
+        "unavailable": "チームの請求情報を読み込めませんでした。しばらくしてからもう一度お試しください。",
+        "welcome": "Team が有効になりました。チームのメンバーページからチームメイトを招待してください。",
+        "freeBody": "{team} は Free プランです。Team では、すべてのメンバーがクラウドエージェントを利用でき、請求書は 1 つにまとまります。",
+        "upgradeCta": "このチームをアップグレード",
+        "askAdmin": "請求を変更できるのはチーム管理者のみです。{team} の管理者にアップグレードを依頼してください。",
+        "memberReadOnly": "このプランを変更できるのはチーム管理者のみです。",
+        "grantedBody": "{team} には cmux チームから Team へのアクセスが付与されています。管理するサブスクリプションはありません。",
+        "seatsUsed": "{seats} シート中 {members} 使用",
+        "overSeat": "{team} にはメンバーが {members} 人いますが、有料シートは {seats} です。参加は引き続き可能です。全員をカバーするにはシートを追加してください。",
+        "addSeats": "シートを追加"
+      },
+      "teamList": {
+        "heading": "請求の対象",
+        "personal": "個人アカウント",
+        "planBadges": {
+          "free": "無料",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "picker": {
+        "current": "現在のプラン",
+        "upgradeTo": "{plan} にアップグレード",
+        "switchTo": "{plan} に切り替え",
+        "cancelPlan": "プランを解約",
+        "resume": "{plan} を再開",
+        "renewsOn": "{date} に更新",
+        "endsOn": "{date} に終了",
+        "perMonth": "月額",
+        "perSeatMonth": "1 シートあたり月額",
+        "paymentMethod": "支払い方法を管理",
+        "invoices": "請求書",
+        "heading": "プラン",
+        "actionError": "プランを変更できませんでした。もう一度お試しください。",
+        "unavailable": {
+          "cancelScheduled": "変更するには、まずプランを再開してください。",
+          "granted": "cmux から付与されたプランです。変更できる項目はありません。",
+          "adminOnly": "プランを変更できるのはチーム管理者だけです。"
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "macOS 用の cmux ターミナルのすべての機能",
+            "自分のキーで任意の CLI エージェントを実行",
+            "ローカルのセッション履歴"
+          ],
+          "go": [
+            "稼働中の Cloud VM 1 台",
+            "毎月 40 VM 時間",
+            "保存できる VM 2 台"
+          ],
+          "pro": [
+            "Cloud VM 上のクラウドエージェント",
+            "VM 全体で共有する 24 GB RAM と 6 vCPU",
+            "cmux iOS アプリ"
+          ],
+          "max": [
+            "VM 全体で共有する 64 GB RAM と 16 vCPU",
+            "より大きなマシンサイズ",
+            "Pro のすべての機能"
+          ],
+          "team": [
+            "全メンバーに Pro のすべての機能",
+            "チーム全体で 1 つの請求書",
+            "優先サポート"
+          ]
+        },
+        "billedAnnually": "年払い"
+      },
+      "change": {
+        "title": "{plan} に切り替えますか？",
+        "upgradeBody": "{plan} はすぐに開始します。今回の請求期間の残り分として、本日 {amount} をお支払いいただきます。{date} からは月額 {price} です。",
+        "downgradeBody": "{plan} はすぐに開始します。現在のプランの未使用分 {credit} は、次回以降の請求に充当されます。{date} の次回請求額は {amount} です。",
+        "confirm": "{plan} に切り替え",
+        "keep": "現在のプランを続ける",
+        "switching": "切り替え中…",
+        "previewError": "料金を計算できませんでした。もう一度お試しください。",
+        "paymentFailed": "カードが拒否されました。支払い方法を更新してから、もう一度お試しください。",
+        "error": "プランを切り替えられませんでした。もう一度お試しください。"
+      },
+      "cancelDialog": {
+        "title": "{plan} を解約しますか？",
+        "body": "{date} まで {plan} を利用できます。その後、次の機能が使えなくなります:",
+        "bodyNoDate": "今回の請求期間の終了まで {plan} を利用できます。その後、次の機能が使えなくなります:",
+        "reasonLabel": "解約の理由（任意）",
+        "otherPlaceholder": "詳しく教えてください（任意）",
+        "confirm": "プランを解約",
+        "keep": "{plan} を続ける",
+        "error": "プランを解約できませんでした。もう一度お試しください。",
+        "resumeError": "プランを再開できませんでした。もう一度お試しください。",
+        "reasons": {
+          "too_expensive": "料金が高い",
+          "missing_feature": "必要な機能がない",
+          "not_using": "あまり使っていない",
+          "other": "その他"
+        }
+      },
+      "welcome": {
+        "title": "{plan} へようこそ",
+        "body": "プランが有効になりました。まず試してみましょう:",
+        "ios": "iOS アプリをインストール",
+        "cloud": "Cloud を開く",
+        "team": "チームを作成",
+        "banner": "{plan} をご利用中です。",
+        "bannerLink": "プランと請求"
       }
     },
     "testflight": {
@@ -679,7 +822,6 @@
       "loading": "デバイスを読み込んでいます…",
       "empty": "このチームには登録済みのデバイスがありません。",
       "unavailable": "デバイスを読み込めませんでした。ページを更新してもう一度お試しください。",
-      "retry": "もう一度試す",
       "mutationError": "デバイスの変更を完了できませんでした。",
       "revoke": "アクセスを取り消す",
       "deviceId": "デバイス",
@@ -699,6 +841,543 @@
       "activeDevices": "有効なデバイス",
       "directoryRevision": "一覧のリビジョン",
       "savingRelaySettings": "保存中…"
+    },
+    "settings": {
+      "nav": {
+        "title": "設定",
+        "profile": "プロフィール",
+        "auth": "メールと認証",
+        "notifications": "通知",
+        "sessions": "セッション",
+        "apiKeys": "API キー",
+        "account": "アカウント",
+        "billing": "請求",
+        "teamsGroup": "チーム",
+        "createTeam": "チームを作成",
+        "accountGroup": "アカウント",
+        "billingGroup": "請求",
+        "planBilling": "プランと請求"
+      },
+      "ui": {
+        "save": "保存",
+        "saving": "保存中…",
+        "cancel": "キャンセル",
+        "editLabel": "{label}を編集",
+        "required": "この項目は必須です。",
+        "saveError": "保存できませんでした。もう一度お試しください。",
+        "actionError": "問題が発生しました。もう一度お試しください。",
+        "working": "処理中…",
+        "typeToConfirm": "確認のため {text} と入力してください",
+        "imageSaveError": "画像を保存できませんでした。もう一度お試しください。",
+        "invalidImage": "有効な画像ファイルを選択してください。",
+        "uploadImage": "画像をアップロード",
+        "removeImage": "画像を削除",
+        "zoom": "ズーム"
+      },
+      "profile": {
+        "title": "プロフィール",
+        "description": "名前とアバター。",
+        "displayNameTitle": "表示名",
+        "displayNameDescription": "チームメイトに表示されます。サインインには使用されません。",
+        "displayNameEmpty": "未設定",
+        "imageTitle": "プロフィール画像",
+        "imageDescription": "アバターとして使用する画像をアップロードします。",
+        "imageUpload": "プロフィール画像を変更"
+      },
+      "auth": {
+        "title": "メールと認証",
+        "description": "メールアドレス、サインイン方法、多要素認証。",
+        "emails": {
+          "title": "メールアドレス",
+          "description": "確認済みのメールアドレスは、メインの連絡先やサインインに使用できます。",
+          "add": "メールアドレスを追加",
+          "addSubmit": "追加",
+          "adding": "追加中…",
+          "cancel": "キャンセル",
+          "inputLabel": "新しいメールアドレス",
+          "placeholder": "メールアドレスを入力",
+          "addError": "メールアドレスを追加できませんでした。もう一度お試しください。",
+          "added": "{email} を追加しました。受信トレイで確認リンクをチェックしてください。",
+          "addedVerificationFailed": "{email} を追加しましたが、確認メールを送信できませんでした。「確認メールを送信」から再試行してください。",
+          "verificationSent": "{email} に確認メールを送信しました。",
+          "actionError": "メールアドレスを更新できませんでした。もう一度お試しください。",
+          "usedBySomeoneElse": "このメールアドレスは、すでに別のユーザーがサインインに使用しています。",
+          "removeTitle": "メールアドレスを削除",
+          "removeBody": "{email} をアカウントから削除しますか？後で再度追加できます。",
+          "remove": "削除",
+          "actionsLabel": "{email} の操作",
+          "validation": {
+            "required": "メールアドレスは必須です。",
+            "invalid": "有効なメールアドレスを入力してください。",
+            "duplicate": "このメールアドレスはすでにアカウントに登録されています。"
+          },
+          "actions": {
+            "sendVerification": "確認メールを送信",
+            "setPrimary": "メインに設定",
+            "useForSignIn": "サインインに使用",
+            "stopUsingForSignIn": "サインインへの使用を停止",
+            "remove": "削除"
+          },
+          "disabled": {
+            "verifyFirst": "先にこのメールアドレスを確認してください。",
+            "lastSignInEmail": "最後のサインイン用メールアドレスは削除できません。"
+          },
+          "badges": {
+            "primary": "メイン",
+            "unverified": "未確認",
+            "usedForSignIn": "サインインに使用中"
+          }
+        },
+        "password": {
+          "title": "パスワード",
+          "updateDescription": "パスワードを更新します。",
+          "setDescription": "アカウントのパスワードを設定します。",
+          "update": "パスワードを更新",
+          "set": "パスワードを設定",
+          "updateSubmit": "パスワードを更新",
+          "setSubmit": "パスワードを設定",
+          "saving": "保存中…",
+          "cancel": "キャンセル",
+          "saved": "パスワードを保存しました。",
+          "needsSignInEmail": "パスワードを設定するには、先にサインイン用メールアドレスを追加してください。",
+          "saveError": "パスワードを保存できませんでした。もう一度お試しください。",
+          "oldPassword": "現在のパスワード",
+          "newPassword": "新しいパスワード",
+          "repeatPassword": "新しいパスワード（確認）",
+          "incorrect": "パスワードが正しくありません。",
+          "requirements": "このパスワードは要件を満たしていません。",
+          "errors": {
+            "oldPassword": {
+              "required": "現在のパスワードを入力してください。"
+            },
+            "newPassword": {
+              "required": "新しいパスワードを入力してください。",
+              "tooShort": "{min} 文字以上にしてください。",
+              "tooLong": "{max} 文字以内にしてください。"
+            },
+            "newPasswordRepeat": {
+              "required": "新しいパスワードをもう一度入力してください。",
+              "mismatch": "パスワードが一致しません。"
+            }
+          }
+        },
+        "passkey": {
+          "title": "パスキー",
+          "registered": "パスキーが登録されています。",
+          "notRegistered": "パスキーを登録すると、パスワードなしでサインインできます。",
+          "add": "パスキーを追加",
+          "registering": "パスキーを待機中…",
+          "registerError": "パスキーを登録できませんでした。リクエストがキャンセルされたか失敗しました。もう一度お試しください。",
+          "delete": "パスキーを削除",
+          "needsVerifiedEmail": "パスキーでのサインインを有効にするには、確認済みのサインイン用メールアドレスを追加してください。",
+          "onlyMethod": "パスキーは唯一のサインイン方法のため、無効にできません。",
+          "disableTitle": "パスキーでのサインインを無効化",
+          "disableBody": "パスキーでサインインできなくなります。",
+          "disable": "無効化",
+          "disableError": "パスキーでのサインインを無効にできませんでした。もう一度お試しください。"
+        },
+        "otp": {
+          "title": "ワンタイムコードでのサインイン",
+          "enabledDescription": "マジックリンクまたはワンタイムコードでのサインインが有効です。",
+          "disabledDescription": "サインイン用メールアドレスに送信されるマジックリンクまたはワンタイムコードでサインインします。",
+          "enable": "有効化",
+          "enableError": "ワンタイムコードでのサインインを有効にできませんでした。もう一度お試しください。",
+          "disable": "無効化",
+          "needsVerifiedEmail": "ワンタイムコードでのサインインを有効にするには、確認済みのサインイン用メールアドレスを追加してください。",
+          "onlyMethod": "ワンタイムコードは唯一のサインイン方法のため、無効にできません。",
+          "disableTitle": "ワンタイムコードでのサインインを無効化",
+          "disableBody": "メールアドレスだけではサインインできなくなります。",
+          "disableConfirm": "無効化",
+          "disableError": "ワンタイムコードでのサインインを無効にできませんでした。もう一度お試しください。"
+        },
+        "mfa": {
+          "title": "多要素認証",
+          "enabledDescription": "多要素認証は有効です。",
+          "disabledDescription": "多要素認証は無効です。",
+          "enable": "MFA を有効化",
+          "disable": "MFA を無効化",
+          "startError": "MFA の設定を開始できませんでした。もう一度お試しください。",
+          "enableError": "MFA を有効にできませんでした。もう一度お試しください。",
+          "scan": "認証アプリでこの QR コードをスキャンしてください。",
+          "qrAlt": "多要素認証用の QR コード",
+          "enterCode": "次に 6 桁のコードを入力してください：",
+          "incorrect": "コードが正しくありません。もう一度お試しください。",
+          "cancel": "キャンセル",
+          "disableTitle": "多要素認証を無効化",
+          "disableBody": "サインイン時に認証アプリのコードを求められなくなります。",
+          "disableConfirm": "MFA を無効化",
+          "disableError": "MFA を無効にできませんでした。もう一度お試しください。"
+        },
+        "connected": {
+          "title": "連携アカウント",
+          "description": "cmux アカウントにリンクされた他サービスのアカウント。",
+          "usedForSignIn": "サインインに使用中",
+          "useForSignIn": "サインインに使用",
+          "stopUsingForSignIn": "サインインへの使用を停止",
+          "remove": "リンク解除",
+          "lastMethod": "これは唯一のサインイン方法です。",
+          "actionsLabel": "{provider} の操作",
+          "actionError": "連携アカウントを更新できませんでした。もう一度お試しください。",
+          "usedBySomeoneElse": "このアカウントは、すでに別のユーザーがサインインに使用しています。",
+          "removeTitle": "{provider} のリンクを解除",
+          "removeBody": "このアカウントでサインインできなくなります。このアカウントでサインインすると、再度リンクできます。"
+        }
+      },
+      "notifications": {
+        "title": "通知",
+        "description": "cmux からのメール通知。",
+        "heading": "受信するメールを選択",
+        "empty": "設定できるメールカテゴリはありません。",
+        "cannotDisable": "（無効にできません）",
+        "saveError": "この設定を保存できませんでした。もう一度お試しください。"
+      },
+      "sessions": {
+        "title": "セッション",
+        "description": "サインインしているデバイス。",
+        "heading": "アクティブなセッション",
+        "explanation": "サインインしているデバイスの一覧です。セッションを取り消すとサインアウトされます。",
+        "revokeAll": "他のすべてのセッションを取り消す",
+        "revokeAllTitle": "他のセッションを取り消す",
+        "revokeAllBody": "{count, plural, other {他の # 件のセッション}}からサインアウトします。このセッションはサインインしたままです。",
+        "revokeAllConfirm": "セッションを取り消す",
+        "revokeAllError": "一部のセッションを取り消せませんでした。残っているセッションが一覧に表示されています。",
+        "revokeError": "セッションを取り消せませんでした。もう一度お試しください。",
+        "empty": "アクティブなセッションはありません。",
+        "columns": {
+          "session": "セッション",
+          "ip": "IP アドレス",
+          "location": "場所",
+          "lastUsed": "最終使用"
+        },
+        "current": "現在のセッション",
+        "other": "その他のセッション",
+        "impersonation": "なりすまし",
+        "signedIn": "{date} にサインイン",
+        "actionsLabel": "セッションの操作",
+        "revoke": "取り消す",
+        "cannotRevokeCurrent": "現在のセッションは取り消せません。",
+        "unknownIp": "-",
+        "unknownLocation": "不明",
+        "never": "なし"
+      },
+      "apiKeys": {
+        "title": "API キー",
+        "description": "プログラムからアカウントへのアクセスを許可するキー。",
+        "disabled": "このプロジェクトでは個人用 API キーが有効になっていません。",
+        "create": "API キーを作成",
+        "createTitle": "API キーを作成",
+        "createDescription": "API キーを使うと、プログラムからアカウントにアクセスできます。",
+        "descriptionLabel": "説明",
+        "descriptionPlaceholder": "例：開発、本番、CI",
+        "descriptionRequired": "説明は必須です。",
+        "expiresIn": "有効期間",
+        "expiry": {
+          "1d": "1 日",
+          "7d": "7 日",
+          "30d": "30 日",
+          "90d": "90 日",
+          "1y": "1 年",
+          "never": "無期限"
+        },
+        "cancel": "キャンセル",
+        "createSubmit": "作成",
+        "creating": "作成中…",
+        "createError": "API キーを作成できませんでした。もう一度お試しください。",
+        "showTitle": "API キー",
+        "showBody": "API キーが作成されました。",
+        "showWarning": "安全な場所にコピーしてください。このキーは再表示できません。",
+        "secretLabel": "シークレット API キー",
+        "copy": "コピー",
+        "copied": "コピーしました",
+        "copyError": "コピーできませんでした。キーを選択して手動でコピーしてください。",
+        "acknowledge": "このキーを再表示できないことを理解しました。",
+        "close": "閉じる",
+        "search": "キーを検索",
+        "statusFilter": "ステータスで絞り込み",
+        "status": {
+          "valid": "有効",
+          "expired": "期限切れ",
+          "revoked": "取り消し済み"
+        },
+        "empty": "API キーはまだありません。",
+        "noMatches": "条件に一致する API キーはありません。",
+        "columns": {
+          "description": "説明",
+          "status": "ステータス",
+          "key": "キー",
+          "expiresAt": "有効期限",
+          "createdAt": "作成日"
+        },
+        "never": "なし",
+        "actionsLabel": "{description} の操作",
+        "revoke": "取り消す",
+        "revokeTitle": "API キーを取り消す",
+        "revokeBody": "API キー *****{lastFour} を取り消しますか？このキーを使用しているアプリはすぐにアクセスできなくなります。",
+        "revokeAcknowledge": "この API キーを使用しているすべてのアプリのリンクが解除されることを理解しました。",
+        "revokeConfirm": "キーを取り消す",
+        "revokeError": "API キーを取り消せませんでした。もう一度お試しください。"
+      },
+      "account": {
+        "title": "アカウント",
+        "description": "請求、サインアウト、アカウントの削除。",
+        "billingTitle": "請求",
+        "billingDescription": "プラン、請求書、支払い方法。",
+        "billingLink": "請求を開く",
+        "signOutTitle": "サインアウト",
+        "signOutDescription": "現在のセッションを終了します。",
+        "signOut": "サインアウト",
+        "signingOut": "サインアウト中…",
+        "signOutError": "サインアウトできませんでした。もう一度お試しください。",
+        "deleteTitle": "アカウントを削除",
+        "deleteDescription": "アカウントと関連するすべてのデータを完全に削除します。",
+        "delete": "アカウントを削除",
+        "deleteConfirmTitle": "アカウントを削除しますか？",
+        "deleteConfirmBody": "この操作は元に戻せず、アカウントに関連するすべてのデータが削除されます。",
+        "deleteAcknowledge": "アカウントとそのデータが完全に削除されることを理解しました。",
+        "deleteConfirm": "アカウントを削除",
+        "deleteError": "アカウントを削除できませんでした。もう一度お試しください。"
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "コピー",
+        "copied": "コピーしました",
+        "copyFailed": "コピーに失敗しました"
+      },
+      "plan": {
+        "free": "無料",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "管理者",
+        "member": "メンバー"
+      },
+      "errors": {
+        "generic": "問題が発生しました。もう一度お試しください。",
+        "network_error": "cmux に接続できませんでした。接続を確認して、もう一度お試しください。",
+        "unauthorized": "セッションが終了しました。もう一度サインインしてください。",
+        "forbidden": "この操作を行う権限がありません。",
+        "team_not_found": "このチームは存在しません。",
+        "invalid_request": "リクエストが無効です。入力内容を確認して、もう一度お試しください。",
+        "rate_limited": "リクエストが多すぎます。しばらく待ってから、もう一度お試しください。",
+        "last_admin": "チームには少なくとも 1 人の管理者が必要です。先に別のメンバーを管理者にしてください。",
+        "member_not_found": "この人はもうメンバーではありません。",
+        "invitation_not_found": "この招待はもう存在しません。",
+        "invitation_invalid": "この招待は無効、期限切れ、または使用済みです。",
+        "email_mismatch": "この招待は別のメールアドレスに送信されています。",
+        "link_not_found": "この招待リンクはもう存在しません。",
+        "link_invalid": "この招待リンクは無効、期限切れ、取り消し済み、または上限に達しています。",
+        "team_has_active_subscription": "チームを削除する前に、チームのサブスクリプションをキャンセルしてください。",
+        "service_unavailable": "サービスは一時的に利用できません。しばらくしてからもう一度お試しください。"
+      },
+      "list": {
+        "title": "チーム",
+        "description": "チームではメンバー、請求、coderouter アカウントを共有します。チームを開いて管理してください。",
+        "create": "チームを作成",
+        "count": "{count, plural, other {# 件のチーム}}",
+        "selected": "現在のチーム",
+        "emptyTitle": "チームはまだありません",
+        "emptyBody": "チームを作成して、メンバーを招待し、1 つのプランを共有しましょう。"
+      },
+      "new": {
+        "title": "チームを作成",
+        "description": "チーム名を決め、プランを選んでから、メンバーを招待します。",
+        "stepsLabel": "ステップ",
+        "steps": {
+          "name": "名前",
+          "plan": "プラン",
+          "invite": "招待"
+        },
+        "nameTitle": "チーム名を入力",
+        "nameLabel": "チーム名",
+        "namePlaceholder": "Acme Engineering",
+        "nameError": {
+          "empty": "チーム名を入力してください。",
+          "tooLong": "{max} 文字以内にしてください。"
+        },
+        "cancel": "キャンセル",
+        "createAction": "チームを作成",
+        "creating": "作成中…",
+        "planTitle": "{team} のプランを選択",
+        "planDescription": "プランは後でチームの請求ページから変更できます。",
+        "freeName": "Free",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "1 シートあたり月額 ${price}",
+        "featureMembers": "メンバー、ロール、招待",
+        "featureProForEveryone": "すべてのメンバーに Pro の全機能",
+        "featureCentralBilling": "チーム全体の請求を一元管理",
+        "featurePrioritySupport": "優先サポート",
+        "chooseFree": "Free で続ける",
+        "chooseTeam": "Team にアップグレード（${price}/シート/月）",
+        "upgradeLater": "シート数は柔軟です。支払い済みのシート数を超えて招待でき、シートは後から追加できます。",
+        "inviteTitle": "{team} にメンバーを招待",
+        "inviteDescription": "任意です。チームのメンバーページから後で招待することもできます。",
+        "inviteByEmail": "メールで招待",
+        "inviteByLink": "招待リンク",
+        "backToPlan": "プランに戻る",
+        "finish": "チームへ移動"
+      },
+      "invite": {
+        "emailsLabel": "メールアドレス",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "有効なメールアドレスではありません",
+        "removeEmail": "{email} を削除",
+        "roleLabel": "ロール",
+        "roleMember": "メンバー",
+        "roleAdmin": "管理者",
+        "count": "{count}/{max}",
+        "send": "招待を送信",
+        "sending": "送信中…",
+        "invalidCount": "{count, plural, other {送信する前に、無効なアドレス # 件を修正または削除してください。}}",
+        "overflow": "{count, plural, other {# 件のアドレスは追加されませんでした。1 回のリクエストの上限は {max} 件です。}}",
+        "sent": "{count, plural, other {# 件の招待を送信しました。}}"
+      },
+      "inviteFailure": {
+        "generic": "招待できませんでした",
+        "already_member": "すでにメンバーです",
+        "invite_failed": "招待を送信できませんでした"
+      },
+      "links": {
+        "expiryLabel": "有効期限",
+        "expiry": {
+          "1": "1 日後",
+          "7": "7 日後",
+          "30": "30 日後",
+          "never": "無期限"
+        },
+        "maxUsesLabel": "最大使用回数",
+        "maxUsesPlaceholder": "無制限",
+        "maxUsesInvalid": "最大使用回数は 1〜{max} の整数で指定してください。無制限にする場合は空欄のままにします。",
+        "create": "リンクを作成",
+        "creating": "作成中…",
+        "memberOnly": "リンクから参加した人はメンバーになります。必要に応じて後から管理者に変更してください。",
+        "showOnce": "今すぐこのリンクをコピーしてください。表示されるのは 1 回だけです。",
+        "empty": "有効な招待リンクはありません。",
+        "createdAt": "{at} に作成",
+        "expiresAt": "{at} に期限切れ",
+        "neverExpires": "無期限",
+        "uses": "{count}/{max} 回使用",
+        "usesUnlimited": "{count, plural, other {# 回使用}}",
+        "revoke": "取り消す",
+        "revokeTitle": "この招待リンクを取り消しますか？",
+        "revokeBody": "リンクを持っている人は参加できなくなります。すでに参加した人はメンバーのままです。",
+        "actionsFor": "招待リンクの操作（{created}）"
+      },
+      "shell": {
+        "allTeams": "すべてのチーム",
+        "tabsLabel": "チーム設定",
+        "tabs": {
+          "general": "一般",
+          "members": "メンバー",
+          "apiKeys": "API キー",
+          "billing": "請求"
+        },
+        "notFoundTitle": "チームが見つかりません",
+        "notFoundBody": "このチームは存在しないか、あなたはメンバーではありません。",
+        "backToTeams": "チーム一覧に戻る"
+      },
+      "general": {
+        "imageTitle": "チーム画像",
+        "imageDescription": "cmux 全体でチーム名の横に表示されます。",
+        "imageUpload": "チーム画像をアップロード",
+        "nameTitle": "チーム名",
+        "nameDescription": "すべてのメンバーに表示されます。",
+        "nameReadOnly": "チーム名を変更できるのは管理者のみです。",
+        "nameError": {
+          "empty": "チーム名を入力してください。",
+          "tooLong": "{max} 文字以内にしてください。"
+        },
+        "profileTitle": "このチームでのあなたの名前",
+        "profileDescription": "このチームの他のメンバーに表示される名前です。空欄にするとアカウント名が使われます。",
+        "profileLabel": "チームでの表示名",
+        "leaveTitle": "チームから退出",
+        "leaveDescription": "このチームの共有アカウントと請求にアクセスできなくなります。",
+        "leaveAction": "チームから退出",
+        "leaveBlocked": "あなたは唯一の管理者です。退出する前に、別のメンバーを管理者にするか、チームを削除してください。",
+        "leaveConfirmTitle": "{team} から退出しますか？",
+        "leaveConfirmBody": "再参加するには新しい招待が必要です。",
+        "deleteTitle": "チームを削除",
+        "deleteDescription": "チーム、メンバーのアクセス権、招待リンクを完全に削除します。",
+        "deleteAction": "チームを削除",
+        "deleteConfirmTitle": "{team} を削除しますか？",
+        "deleteConfirmBody": "この操作は元に戻せません。",
+        "openBilling": "チームの請求を開く"
+      },
+      "members": {
+        "title": "メンバー",
+        "count": "{count, plural, other {# 人のメンバー}}",
+        "memberColumn": "メンバー",
+        "roleColumn": "ロール",
+        "actionsColumn": "操作",
+        "you": "あなた",
+        "unnamed": "名前のないメンバー",
+        "remove": "削除",
+        "removeTitle": "{name} を削除しますか？",
+        "removeBody": "このメンバーはすぐにチームにアクセスできなくなります。後で再度招待できます。",
+        "inviteTitle": "メンバーを招待",
+        "inviteDescription": "メールで招待を送信します。カンマ、スペース、改行で区切ったリストを貼り付けてください（最大 20 件）。",
+        "pendingTitle": "保留中の招待",
+        "pendingDescription": "まだ承認されていない招待です。",
+        "pendingEmpty": "保留中の招待はありません。",
+        "unknownEmail": "不明なアドレス",
+        "expires": "{at} に期限切れ",
+        "resend": "再送信",
+        "resent": "送信済み",
+        "revoke": "取り消す",
+        "linksTitle": "招待リンク",
+        "linksDescription": "誰でもメンバーとして参加できる、再利用可能なリンクです。",
+        "seatNudge": "メンバーまたは招待中の人が {used} 人いますが、プランのシートは {seats} です。招待は引き続き有効です。全員をカバーするには {over, plural, other {# シート}}を追加してください。",
+        "seatNudgeAction": "シートを管理",
+        "actions": {
+          "makeAdmin": "管理者にする",
+          "makeMember": "メンバーにする",
+          "remove": "チームから削除",
+          "leave": "チームを離れる"
+        },
+        "actionsFor": "{name} の操作",
+        "lastAdminReason": "チームには少なくとも 1 人の管理者が必要です。先に別のメンバーを管理者にしてください。",
+        "demoteSelfTitle": "管理者をやめますか？",
+        "demoteSelfBody": "このチームの管理者権限を失います。別の管理者が再び付与できます。",
+        "demoteSelfConfirm": "メンバーになる"
+      },
+      "apiKeys": {
+        "title": "チームの API キー",
+        "description": "このチームとして動作するキーです。キーを持つ人は誰でもチームのアクセス権を使用できるため、安全に保管してください。",
+        "create": "チームの API キーを作成",
+        "disabled": "このプロジェクトではチーム API キーが有効になっていません。",
+        "forbidden": "このチームのキーを表示するには「API キーの管理」権限が必要です。"
+      }
+    },
+    "notFound": {
+      "title": "ページが見つかりません",
+      "body": "このダッシュボードページは存在しないか、移動されました。",
+      "home": "ダッシュボードへ移動"
+    },
+    "states": {
+      "errorTitle": "{section}を読み込めませんでした",
+      "errorTitleGeneric": "このセクションを読み込めませんでした",
+      "reason": {
+        "network": "接続を確認してから、もう一度お試しください。",
+        "unavailable": "cmux は一時的に利用できません。しばらくしてからもう一度お試しください。",
+        "forbidden": "これにアクセスする権限がありません。",
+        "notFound": "これは存在しないか、アクセスする権限がありません。",
+        "rateLimited": "リクエストが多すぎます。少し待ってからもう一度お試しください。",
+        "generic": "問題が発生しました。もう一度お試しください。"
+      },
+      "retry": "再試行",
+      "retrying": "再試行中…"
+    },
+    "upgrade": {
+      "title": "Pro が必要です",
+      "cloud": "Cloud VM とクラウドエージェントは Pro に含まれます。",
+      "testflight": "cmux iOS アプリは Pro に含まれます。",
+      "mobileDevices": "スマートフォンやタブレットとの接続は Pro に含まれます。",
+      "action": "Pro にアップグレード",
+      "comparePlans": "プランを比較"
     }
   },
   "vault": {
@@ -2502,20 +3181,21 @@
           "warnBeforeQuit": "終了確認用の従来の boolean フォールバックです。新しい設定では app.confirmQuit を使ってください。",
           "warnBeforeClosingTabXButton": "タブの閉じるボタンでタブを閉じる前に確認を表示します。",
           "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。",
+          "tabBarVisibility": "ペインがタブバーを描画するタイミングを決めます。\"always\" はタブが 1 つだけのペインでも描画し、\"multiple-tabs\" はペインのタブが 1 つの間は隠し、2 つ目のタブが開かれた時点で描画します。ミニマルモード (app.minimalMode) では常に描画されます。最上部のペインのタブバーがウインドウのタイトルバーを兼ねているためです。",
           "forkConversationDefaultDestination": "タブのコンテキストメニューにある主要な「会話をフォーク」操作のデフォルトのフォーク先です。サブメニューには引き続きすべてのフォーク先が表示されます。",
           "globalFontMagnification": "cmux が自前で描画するすべての要素（ターミナルのテキスト、タブのタイトル、サイドバー、設定、オーバーレイ、ウィンドウの枠）の表示倍率をパーセントで指定します。ブラウザサーフェス内の Web ページは独自のサイズを保ちます。",
           "paneResizeStepPixels": "ペインのリサイズショートカットを1回押すごとに移動するピクセル数。範囲は 1～200、既定値は 20 です。変更はすぐに適用されます。"
         },
         "terminal": {
           "adaptiveDefaultTheme": "true（既定）の場合、Ghostty のテーマやターミナルの色が設定されていなければ、外観に追従する既定のパレットを適用します。フォントなどの設定は保持されます。false の場合は Ghostty の固定された組み込みパレットを使用します。theme = light:X,dark:Y を含め、明示的なテーマと色の設定が常に優先されます。",
-          "agentHibernation": "通常のエージェント休止の設定です。cmux はアイドル中のバックグラウンドエージェントプロセスを終了して RAM と CPU を解放し、そのタブを開いたときに保存済みセッションから再開します。通常の休止には、再開可能なコーディングエージェントであること、ライフサイクルがアイドルと報告していること、ターミナルが画面外にあること、ライブターミナル数が設定上限を超えていること、アイドル時間と確認時間を通して出力が変化していないことが必要です。これとは別に、メモリ負荷が危険な状態では enabled が false でも、安全なアイドル中のバックグラウンドエージェントを cmux が上限付きのバッチで休止する場合があります。表示中、実行中、入力待ち、最近変更された、またはトランスクリプトを保護できないエージェントは対象外です。プレースホルダーの「再開」ボタンは手動の代替手段です。",
-          "agentHibernationEnabled": "ライブターミナル数の上限に基づく通常のエージェント休止を有効にします。false の場合も、メモリ負荷が危険な状態での安全休止は有効です。",
+          "agentHibernation": "通常のエージェント休止の設定です。cmux はアイドル中のバックグラウンドエージェントプロセスを終了して RAM と CPU を解放し、そのタブを開いたときに保存済みセッションから再開します。通常の休止には、再開可能なコーディングエージェントであること、ライフサイクルがアイドルと報告していること、ターミナルが画面外にあること、ライブターミナル数が設定上限を超えていること、アイドル時間と確認時間を通して出力が変化していないことが必要です。これとは別に、メモリ負荷が高い状態（macOS または cmux アプリ自身のメモリ使用量によるメモリ負荷が危険な状態、あるいは cmux 全体のメモリ使用量が集計警告しきい値を超えた状態）では、enabled が false でも、cmux が安全なアイドル中のバックグラウンドエージェントをすべて休止する場合があります。表示中、実行中、入力待ち、最近変更された、またはトランスクリプトを保護できないエージェントは対象外です。プレースホルダーの「再開」ボタンは手動の代替手段です。",
+          "agentHibernationEnabled": "ライブターミナル数の上限に基づく通常のエージェント休止を有効にします。false の場合も、メモリ負荷時の安全休止は有効です。",
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "scrollSpeed": "マウスホイールやトラックパッドのスクロールイベント 1 回あたりにターミナルが移動する量を調整します。1 より大きい値でスクロールが速くなり、1 より小さい値で遅くなります。",
           "sessionContentMaxWidth": "ターミナルと組み込みエージェントチャットのコンテンツ幅の上限をポイント単位で指定します。ペインの全幅を使うには false を設定します。",
           "sessionContentAlignment": "sessionContentMaxWidth が有効な場合の、ターミナルと組み込みエージェントチャットの水平方向の配置です。",
-          "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
-          "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。",
+          "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でTextBox 入力を既定で表示します。",
+          "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でTextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。",
           "textBoxDefaultSubmitAction": "新しいターミナルセッションで使う既定の TextBox 送信アクション ID です。通常の入力には text-entry、または設定済みアクション ID のいずれかを使います。",
           "textBoxSubmitActions": "送信ボタン、Shift-Tab の切り替え、右クリックメニューに表示する設定可能な TextBox 送信アクションです。",
           "textBoxSubmitActionId": "terminal.textBoxDefaultSubmitAction から参照される安定したアクション ID です。",
@@ -2560,6 +3240,8 @@
           "tabWidth": "1 つのタブストップが占める列数です。インデントガイドも同じ間隔を使います。"
         },
         "sidebar": {
+          "compactAgentStatus": "各ワークスペースを1行で表示します。タイトルの前の色付きアイコン1つがエージェント、未読、プルリクエストの状態を示し、エージェントの状態行（「実行中」や「入力待ち」など）、ブランチとディレクトリの行、プルリクエストの行を置き換えます。それらの詳細はアイコンのツールチップに移ります。その他のステータス項目は独自の行のまま表示されます。",
+          "compactStatusIcons": "compactAgentStatus のグリフを状態ごとに置き換える SF Symbol 名です（例: {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}）。未設定の状態は組み込みのシンボルを使い、表示できない名前も組み込みのシンボルに戻ります。",
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
           "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
         },
@@ -2571,14 +3253,16 @@
           "defaultLayout": "新しく開く diff ビューアの既定レイアウトです。ツールバーのレイアウト切り替えはユーザーの最後の選択を保持し、明示的な `cmux diff --layout` オプションはその両方を上書きします。"
         },
         "shortcuts": {
-          "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
+          "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、terminalAlternateScreen、workspaceCanvasLayout。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
           "showModifierHoldHints": "Cmd または Control を押し続けている間、ショートカットヒントのチップを表示します。"
         },
         "paneBorderColor": "分割ワークスペースで cmux ペインの区切り線の色を上書きします。Ghostty 内部の分割ではなく、cmux のペイン境界に適用されます。",
         "activePaneBorderColor": "分割ワークスペースでフォーカス中の cmux ペインの周囲に描画する任意の境界線色です。",
         "notifications": {
           "paneFlashColor": "ペインのフラッシュと未読通知リングの色を上書きします。未設定の場合は app.accentColor のアクセントカラーを使用します。",
+          "soundWhenFocused": "通知を送ったペインがすでにフォーカスされている場合でも通知音を鳴らします。既定ではオフで、フォーカス中のペインはリングとフラッシュのみを表示します。",
           "suppressOnlyFocusedSurface": "有効にすると、通知バナーはその対象がまさにフォーカス中のサーフェスである場合のみ自動的に取り下げられます。現在表示中のワークスペース内でフォーカスされていないサーフェス向けに配信されたバナーは、ワークスペースが表示されたときに取り消されるのではなく、そのサーフェスをフォーカスする（またはクリック／消去する）まで表示され続けます。オフの場合は従来のワークスペース表示時の取り下げ動作を維持します。",
+          "suppressWhenAppFocused": "有効にすると、cmux がアクティブなアプリである間は、フォーカス中のペインだけでなくすべての通知でデスクトップバナーを省略します。通知はサイドバーに引き続き表示され、サウンドとカスタムコマンドも実行され、スマートフォンへの転送は変わりません。オフの場合、cmux にフォーカスがあっても他のワークスペースやペインのバナーは表示されます。",
           "agentPermissionPrompt": "エージェント（Claude Code など）がツールの実行にあなたの許可を待って停止しているときに通知します。エージェントの停止を解除するには操作が必要なため、既定でオンです。",
           "agentTurnComplete": "エージェントがターンを終えたことを通知するタイミングです。whenIdle（既定）は、実行中のバックグラウンドタスクや保留中のスケジュール再開が残っている間は通知を抑制し、作業が完全に片付いてから通知します。always はターン終了ごとに通知し、never は通知しません。",
           "agentIdleReminder": "エージェントがあなたの入力を待って待機状態になったとき（ターン終了の約60秒後）に通知します。前のターンのバックグラウンド作業がまだ実行中の間は抑制されるため、ビルドやウォッチャーの実行中に誤った待機通知が出ることはありません。",
@@ -2629,10 +3313,18 @@
       "customActionsDesc": "<actions>actions</actions> の項目は、cmux が実行する再利用可能な処理です。同じ動作を Command Palette、サーフェスタブバー、ショートカット、またはプラスボタンのメニューから使えるようにしたい場合にアクションを使います。再利用可能なシェルコマンドやワークスペースレイアウトには <commands>commands</commands> を使い続けます。Command Palette に出したくないアクションは <palette>palette</palette> を false に設定します。",
       "actionTypes": "アクションの種類",
       "actionTypeBuiltin": "cmux.newTerminal、cmux.newBrowser、cmux.splitRight、cmux.splitDown などの組み込み cmux アクションに別名を付けます。",
+      "actionTypeBuiltinCopy": "コピー用のビルトイン: cmux.copyWorkingDirectory はターミナルの作業ディレクトリを、cmux.copyProjectRoot は Git リポジトリのルート（リポジトリ外では作業ディレクトリ）を、cmux.copyScreen は表示中の画面をコピーします。",
+      "actionTypeBuiltinCopyRemote": "SSH、クラウド、リモート tmux のワークスペースでは、リモート側の Git リポジトリを cmux が調べられないため、cmux.copyProjectRoot はリモートの作業ディレクトリをコピーします。",
       "actionTypeCommand": "ターミナルでシェルテキストを実行します。target で現在のターミナルまたは現在のペイン内の新しいタブを選びます。",
       "actionTypeAgent": "コーディングエージェントを新しいターミナルタブで起動します。任意の CLI 名(claude、codex、opencode、独自バイナリなど)を指定でき、args も併用できます。",
       "actionTypeWorkspaceCommand": "commands から名前付きのワークスペース定義を実行します。複数ペインのレイアウト、カスタム作業ディレクトリ、起動コマンドに使います。",
       "actionTypeWorkspace": "アクション内に埋め込んだワークスペース定義から新しいワークスペースを作成します。restart の指定も可能で、新規ワークスペースのプラスボタンメニューに自動的に表示されます。",
+      "actionTypeSetting": "グローバルの cmux.json の設定を 1 つ変更します。たとえば true/false の設定を切り替えたり、値のリストを順に切り替えたりできます。詳しくは下の「設定アクション」を参照してください。",
+      "actionTypeSettingPreset": "settingPresets に登録した名前付きの設定グループをまとめて適用します。",
+      "settingActions": "設定アクション",
+      "settingActionsDesc": "設定アクションには設定の <path>path</path> と、次のうち 1 つだけを指定します: <set>set</set>(値を書き込む)、<toggle>toggle: true</toggle>(true/false の設定を切り替える)、<cycle>cycle</cycle>(リスト内の次の値に進み、最後まで来たら先頭に戻る)、<unset>unset: true</unset>(cmux.json からキーを削除し、設定ウインドウで選んだ値か既定値に戻す)。toggle と cycle は、設定ウインドウで変更した値を含め、cmux が現在使っている値から始まります。settingPreset アクションは <presets>settingPresets</presets> のエントリを適用します。エントリは部分的な cmux.json で、入れ子のオブジェクトはキーごとにマージされます。cmux は保存前にすべての変更をスキーマで検証し、コメントや他のキーはそのまま残して、変更をすぐに反映します。設定アクションとプリセットはグローバルの cmux.json と、そこから参照するパックからのみ実行でき、プロジェクトの設定では宣言できません。",
+      "settingActionsCli": "同じ変更はターミナルからも行えます: <set>cmux config set terminal.scrollSpeed 1.4</set>、<toggle>cmux config toggle fileEditor.wordWrap</toggle>、<preset>cmux config preset sidebar.quiet</preset>。",
+      "settingActionsLimits": "<confirm>confirm: true</confirm> を指定すると、cmux は保存前に確認し、同じ変更を行う cmux config コマンドを表示します。パスはすべての \".\" で分割されるため、キー自体に \".\" を含むもの(~/src/app.web 用の <byCwd>workspaceGroups.byCwd</byCwd> エントリなど)はこの方法では変更できません。cmux.json で直接編集してください。",
       "actionFields": "アクションのフィールド",
       "actionFieldTitle": "Command Palette の行タイトル、サーフェスボタンのラベル、メニュー項目タイトル、信頼確認のタイトルです。項目側で上書きできます。",
       "actionFieldSubtitle": "Command Palette の補助テキストです。description は subtitle の別名として使えます。",
@@ -2710,7 +3402,6 @@
       "workspaceActionsDefaultDesc": "<defaultMenu>新規ワークスペースのデフォルト</defaultMenu> サブメニューで、通常の新規ワークスペース作成時に実行する保存済みワークスペースレイアウトを選べます。「なし」を選ぶと空のターミナルに戻ります。保存ダイアログにも <checkbox>新規ワークスペースのデフォルトとして使用</checkbox> チェックボックスがあります。設定キーは <action>ui.newWorkspace.action</action> です。プロジェクトローカルの <localConfig>.cmux/cmux.json</localConfig> の値は <globalConfig>~/.config/cmux/cmux.json</globalConfig> より優先されます。"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "ファイルエディタの行折り返しを切り替え (Option+Z).",
       "title": "キーボードショートカット",
       "description": "cmuxのデフォルトショートカット一覧です。cmux管理のショートカットはすべて設定画面または ~/.config/cmux/cmux.json で変更でき、2段階のコードにも対応しています。",
       "chordsTitle": "ショートカットコード",
@@ -3302,7 +3993,7 @@
       "ohMyClaudeCode": "oh-my-claudecode",
       "changelog": "変更履歴",
       "dock": "Dock",
-      "textBox": "TextBox（ベータ）",
+      "textBox": "TextBox",
       "ios": "iOSアプリ",
       "vault": "Vault",
       "taskManager": "タスクマネージャ",
@@ -3319,7 +4010,11 @@
       "automationSection": "自動化",
       "remoteSection": "リモートアクセス",
       "customizeSection": "カスタマイズと管理",
-      "basicsSection": "基本"
+      "basicsSection": "基本",
+      "coderouterSection": "CodeRouter",
+      "coderouterOverview": "概要",
+      "coderouterAgents": "エージェントとモデル",
+      "coderouterCli": "CLIとトラブルシューティング"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -3419,11 +4114,10 @@
       "daemonPath": "デーモン バイナリはリモート ホストの ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote に保存され、アプリに埋め込まれた SHA-256 マニフェストに対して検証されます。"
     },
     "textBox": {
-      "title": "TextBox（ベータ）",
-      "metaTitle": "TextBox（ベータ）",
-      "metaDescription": "新しいターミナルタブ、分割、ワークスペースで使うベータ版の cmux TextBox 入力を設定します。",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "新しいターミナルタブ、分割、ワークスペースで使うcmux TextBox 入力を設定します。",
       "intro": "TextBox は、ターミナルへ送る前にプロンプトを組み立てるための cmux のリッチなターミナル入力面です。",
-      "betaCallout": "TextBox はベータ機能です。テスト中のため、既定値や動作が変わる場合があります。",
       "defaultsTitle": "既定値",
       "defaultsDesc": "TextBox の設定は Settings > TextBox にあります：",
       "showSetting": "Show TextBox on New Terminals は、新しいワークスペース、ターミナルタブ、ターミナル分割を TextBox 表示状態で開き、フォーカスはターミナルに残します。",
@@ -3467,7 +4161,7 @@
       "data3": "ペアリングとデバイスのメタデータ。スマートフォンとMacを接続するため。",
       "dataNot": "インタラクティブなターミナルセッション（その内容とキー入力）は、あなた自身のネットワークを通じてスマートフォンとMacの間を直接流れ、cmuxサーバーを経由したり保存されたりすることはありません。唯一の例外は転送される通知テキストで、これはスマートフォンに届くためにcmuxとAppleのプッシュサービスを経由します（「コンテンツを隠す」を有効にしている場合を除く。上記の「通知」を参照）。",
       "enterpriseTitle": "エンタープライズとセルフホスト",
-      "enterpriseDesc": "セルフホストまたはエアギャップ環境での導入については、<link>founders@manaflow.com</link>までご連絡ください。"
+      "enterpriseDesc": "セルフホストまたはエアギャップ環境での導入については、<link>founders@cmux.com</link>までご連絡ください。"
     },
     "vault": {
       "title": "Vault",
@@ -3633,7 +4327,8 @@
       "guestDesc": "マシン内では、cmux コマンドはそのマシンのセッションを操作します。tree、new-workspace、new-split、send、send-key、read-screen、terminal、layout、env、notify、open-url、self に対応しています。cmux self は所有者、そのマシン、ほかのマシンを表示します。cmux vm verb peer を使うと、マシン内からほかのマシンを操作できます。",
       "guestHostOnly": "サインイン、AIアカウントのアップロード、そして new、delete、checkpoint、fork、resize、pause、domains、open、vpn などのマシンのライフサイクルに関するコマンドは、Mac上でのみ実行できます。",
       "iosTitle": "iPhone",
-      "iosDesc": "cmux iOSアプリではCloudマシンを管理できません。起動中のマシンはプレースホルダーカードとして表示されます。"
+      "iosDesc": "cmux iOSアプリではCloudマシンを管理できません。起動中のマシンはプレースホルダーカードとして表示されます。",
+      "coderouterLink": "CodeRouterドキュメント：対応アカウント、共有、使用量"
     },
     "cloudNetworking": {
       "title": "Cloudのファイルとネットワーク",
@@ -3698,7 +4393,8 @@
       "accountsTitle": "AIアカウントとモデルルーティング",
       "accountsDesc": "チーム用のエージェントアカウントをアップロードし、モデルルーティングを確認します。",
       "preflightTitle": "スクリプト用チェックリスト",
-      "preflightDesc": "スクリプトでマシンを作成または使用する前に、次の読み取り専用のチェックを実行してください。サインイン済みであることを確認し、マシンとプランの上限、ディレクトリがどのマシンを使うかを表示します。"
+      "preflightDesc": "スクリプトでマシンを作成または使用する前に、次の読み取り専用のチェックを実行してください。サインイン済みであることを確認し、マシンとプランの上限、ディレクトリがどのマシンを使うかを表示します。",
+      "coderouterLink": "CodeRouterの全コマンドリファレンス"
     },
     "cloudTroubleshooting": {
       "title": "Cloudのセキュリティとトラブルシューティング",
@@ -3755,6 +4451,177 @@
       "fixTransferDisabled": "管理ポリシーでファイル転送がオフになっています。管理者に問い合わせてください。",
       "supportTitle": "サポート",
       "supportDesc": "作成に失敗した場合は、通知の「エラーをコピー」を使い、トレースIDがあればそれも含めてサポートに連絡してください。"
+    },
+    "ui": {
+      "onThisPage": "このページの内容",
+      "copyPage": "ページをコピー",
+      "copyPageDesc": "LLM 向けに Markdown としてコピー",
+      "copied": "コピーしました",
+      "pageActions": "その他のページ操作",
+      "openInChatGPT": "ChatGPT で開く",
+      "openInClaude": "Claude で開く",
+      "openInDesc": "このページについて質問する",
+      "askPrompt": "{url} を読んで、内容について質問に答えてください。",
+      "previous": "前へ",
+      "next": "次へ",
+      "helpful": "このページは役に立ちましたか？",
+      "yes": "はい",
+      "no": "いいえ",
+      "thanks": "フィードバックありがとうございます。",
+      "raiseIssue": "Issue を作成",
+      "openNavigation": "ナビゲーションを開く",
+      "closeNavigation": "ナビゲーションを閉じる",
+      "searchShortcut": "ドキュメントを検索 (⌘K)",
+      "navigation": "ドキュメント"
+    },
+    "coderouterOverview": {
+      "title": "CodeRouter",
+      "metaTitle": "CodeRouter モデルルーティング",
+      "metaDescription": "CodeRouterは、Codex、Claude Code、OpenCode、PiのリクエストをチームのAIサブスクリプションとAPIキーに振り分け、アカウントが上限に達したときはフェイルオーバーします。",
+      "intro": "CodeRouterはcmuxの背後にあるモデルルーターです。コーディングエージェントはリクエストをCodeRouterに送り、CodeRouterは各リクエストをチームが追加したサブスクリプションまたはAPIキーに転送します。アカウントがレート制限を受けたり、拒否されたり、停止したりすると、CodeRouterは処理を別のアカウントに移すため、エージェントは動き続けます。",
+      "whyTitle": "利用する理由",
+      "whyPool": "複数のChatGPT、Claude、OpenCode GoのサブスクリプションとAPIキーをまとめ、チームで共有できます。",
+      "whyFailover": "1つのアカウントが使用量の上限に達しても、エージェントは作業を続けられます。",
+      "whyCloud": "マシンに認証情報を保存せずに、cmux Cloudマシンにモデルへのアクセスを与えます。",
+      "whyUsage": "アカウント、APIキー、Cloudマシンごとのトークン使用量を確認できます。",
+      "accountsTitle": "対応アカウント",
+      "accountsDesc": "各アカウントは、そのプロバイダーのAPIを使うエージェントに対応します。CodexとPiは1つのプールを共有し、Claude CodeはClaudeアカウントの別のプールを使います。",
+      "accountColumn": "アカウント",
+      "servesColumn": "対応エージェント",
+      "addColumn": "追加方法",
+      "accountChatgpt": "ChatGPTサブスクリプション（個人またはチームワークスペース）",
+      "accountOpenAiKey": "OpenAI APIキー",
+      "accountOpenRouterKey": "OpenRouter APIキー",
+      "accountOpencodeGo": "OpenCode Goサブスクリプション",
+      "accountClaudeSubscription": "Claude MaxまたはPro（Claude Codeのセットアップトークン）",
+      "accountAnthropicKey": "Anthropic APIキー",
+      "accountBedrock": "Amazon Bedrockの認証情報",
+      "addDashboard": "CodeRouterダッシュボード",
+      "accountsDashboard": "CodeRouterダッシュボードでも、APIキー、Claudeトークン、Bedrockの認証情報を追加できます。ダッシュボードには、すべてのアカウントが状態、クールダウン、アクティブなセッションとともに表示されます：",
+      "routingTitle": "ルーティングの仕組み",
+      "routingSticky": "各エージェントセッションは、アカウントが正常な間は同じアカウントにとどまり、プロバイダーのプロンプトキャッシュを有効に保ちます。新しいセッションは、アクティブなセッションが最も少ないアカウントに割り当てられます。",
+      "routingFailover": "プロバイダーがレート制限を返したとき、認証情報を拒否したとき、または応答しないとき、CodeRouterはそのアカウントをクールダウンに入れ、別のアカウントでリクエストを再試行します。再試行はモデルの出力がエージェントに届く前に限られるため、ストリーミングが始まった応答が二重に送られることはありません。",
+      "routingProvider": "プロバイダーへのリクエストはCodeRouterのホスト型サービスが行います。そのため、プロバイダーへの通信はMacやCloudマシンからではなく、CodeRouterから送られます。",
+      "quickstartTitle": "Macでのクイックスタート",
+      "stepInstall": "CodeRouter CLIをインストールします。coderouterとcrの両方の名前でインストールされます。cmux crを実行することもでき、初回はインストールを提案します。",
+      "stepLogin": "cmuxアカウントでサインインします。cr loginはブラウザを開くので、表示されたコードを承認してください。",
+      "stepAdd": "サブスクリプションを追加します。cr addはプロバイダーのメニューを開き、cr add codexはブラウザでChatGPTにサインインします。",
+      "stepRun": "cr codex、cr opencode、cr piでエージェントをCodeRouter経由で実行します。エージェント名の後の引数はそのままエージェントに渡されます。",
+      "cloudTitle": "cmux Cloudマシンの場合",
+      "cloudDesc": "すべてのCloudマシンは作成時にCodeRouterに接続されます。マシン上のClaude Code、Codex、OpenCode、Piは、サインインや設定なしでチームのアカウントを使います。",
+      "cloudLink": "Cloudマシンでのエージェントの設定方法",
+      "teamsTitle": "チームと共有",
+      "teamsScope": "アカウントはサインイン中のチームに属します。cr org listでチームを表示し、cr org switchでcrが使うチームを切り替えます。cmux coderouterのコマンドは--team '<id>'を受け付けます。",
+      "teamsPrivate": "新しいアカウントは、追加した人だけが使える非公開の状態になります。ダッシュボードの「チームと共有」で全メンバーとチームのCloudマシンが使えるようになり、「非公開にする」で元に戻せます。",
+      "teamsPersonal": "個人チームでは、非公開のアカウントも自分のCloudマシンで使われます。組織のCloudマシンは共有アカウントだけを使うため、マシンに使わせたいアカウントは事前に共有してください。",
+      "teamsManage": "チームのメンバーは誰でも、チームの共有アカウントを追加、名前変更、無効化、移管、削除できます。cr transferは確認後にアカウントを別のチームへ移します。",
+      "usageTitle": "使用量と上限",
+      "usageLimits": "各プロバイダーは、リクエストを処理したアカウントの使用量を、そのアカウント自身のプランと上限に従って計測します。CodeRouterは処理を複数のアカウントに分散しますが、個々のアカウントの上限は引き上げません。",
+      "usageCr": "crは各サブスクリプションのクォータ状態を表示します。--watchを付けると30秒ごとに更新し、--jsonを付けるとスクリプト用の出力になります。",
+      "usageMachines": "cmux coderouter machinesは、各Cloudマシンの30日間のトークン使用量とAPI換算額を表示します。マシン内では、cmux coderouter usageがそのマシンの使用量を日、ワークスペース、エージェント、モデル別に表示します。",
+      "usageEstimate": "API換算額は公開価格に基づく見積もりです。請求額ではありません。",
+      "privacyTitle": "認証情報とプライバシー",
+      "privStored": "プロバイダーの認証情報は暗号化してから保存されます。保存された認証情報を返すCodeRouterのAPIやダッシュボード画面はありません。アカウントにはラベル、メールアドレス、またはマスクされたキーだけが表示されます。",
+      "privArgv": "cr addとcmux coderouter claude addは、シェル履歴に残るコマンド引数としてプロバイダーの認証情報を受け取りません。環境変数、標準入力、または非表示のプロンプトから読み取ります。",
+      "privLocal": "cr add codexとcr add opencodeは、ブラウザでプロバイダーにサインインします。cr codexはその実行に限ってCodeRouterの設定をCodexに渡し、通常のCodexのログインと設定は変更しません。",
+      "privCloud": "Cloudマシンは認証情報を保持しません。マシン上のエージェントは公開のプレースホルダーキーをCodeRouterの非公開アドレスに送り、マシンのネットワークエッジがそのマシンに紐づいた署名付きの認証情報を付加します。CodeRouterは他のマシンからのその認証情報を拒否し、マシンが削除されると失効させます。",
+      "privRequestId": "CodeRouterのすべての応答には、リクエストを識別するx-coderouter-request-idヘッダーが含まれます。",
+      "nextTitle": "次のステップ",
+      "nextAgents": "エージェントとモデル：MacとCloudマシンで各エージェントを設定する",
+      "nextCli": "CLIとトラブルシューティング：全コマンドとよくあるエラー",
+      "nextCloud": "cmux Cloud"
+    },
+    "coderouterAgents": {
+      "title": "CodeRouterのエージェントとモデル",
+      "metaTitle": "CodeRouterのエージェントとモデル",
+      "metaDescription": "Claude Code、Codex、OpenCode、PiをMacとcmux Cloudマシン上でCodeRouter経由で実行し、各エージェントが使うモデルを選びます。",
+      "intro": "このページでは、Macとcmux Cloudマシンで各エージェントがCodeRouterに接続する方法と、各エージェントがモデルを選ぶ方法を説明します。",
+      "agentColumn": "エージェント",
+      "macColumn": "Macの場合",
+      "cloudColumn": "Cloudマシンの場合",
+      "automatic": "自動",
+      "experimental": "（実験的）",
+      "claudeMacCell": "CodeRouter APIキー",
+      "macTitle": "Macの場合",
+      "macDesc": "crはインストール済みのエージェントを起動し、その実行に限ってCodeRouterに向けます。エージェントはPATH上にある必要があります。エージェント名の後はすべてそのまま渡されます。",
+      "codexDesc": "cr codexはCodeRouterのモデルプロバイダーでCodexを実行します。exec、review、resumeなどのサブコマンドも同じように動作します。cr nakedはCodeRouterを経由せずに通常のCodexを実行します。",
+      "opencodeDesc": "cr opencodeはチームのOpenCode Goアカウントのモデルを読み込み、--modelを指定しない限り最初のモデルを使います。--modelの値はそれらのモデルのいずれかである必要があります。他のプロバイダーを使う場合は通常のopencodeを実行してください。",
+      "piDesc": "cr piはCodexと同じモデルを持つcoderouterプロバイダーをPiに追加し、--modelを指定しない限り最初のモデルを使います。プロバイダーは固定なので、--providerは拒否されます。Piのサポートは実験的です。",
+      "claudeTitle": "Claude Codeとその他のAPIクライアント",
+      "claudeDesc": "crにはClaude Code用のランチャーはありません。Mac上のClaude Code、またはAnthropic Messages APIやOpenAI Responses APIを使うツールをルーティングするには、CodeRouter APIキーを作成し、ツールをcoderouter.devに向けてください。",
+      "apiKeyCreate": "CodeRouterダッシュボードのAPIキーセクションでキーを作成します。キーはcrk_で始まり、一度だけ表示されます。キーの作成や失効には、そのチームでAPIキーを管理する権限が必要です。個人チームでは常にこの権限があります：",
+      "apiKeyScope": "組織のAPIキーはチームの共有アカウントだけを使います。個人チームのキーは非公開のアカウントも使えます。CodeRouterが提供するのはOpenAI Responses APIで、Chat Completionsではありません。",
+      "apiKeyLogin": "ブラウザを開けないマシンでは、cr login --api-keyでキーを使ってcrにサインインし、CODEROUTER_API_KEYで1回のコマンドにキーを渡せます。キーはダッシュボードで失効させるか、そのキーを使うマシンでcr logoutを実行してください。",
+      "cloudTitle": "cmux Cloudマシンの場合",
+      "cloudDesc": "Cloudマシンでは設定は不要です。マシンの環境はOPENAI_BASE_URLとANTHROPIC_BASE_URLをCodeRouterの非公開アドレスに向けており、シェルまたはエージェントの初回起動時にcmuxが各エージェントの設定を書き込みます：",
+      "cloudClaude": "Claude Codeは環境からANTHROPIC_BASE_URLとプレースホルダーのANTHROPIC_API_KEYを読み取ります。初回起動時の質問にはすでに回答済みです。",
+      "cloudCodex": "Codexには~/.codex/config.tomlにcmuxモデルプロバイダーが設定されます。",
+      "cloudPi": "Piには~/.pi/agent/models.jsonにプロバイダーの上書きが設定されます。",
+      "cloudOpencode": "OpenCodeは初回起動時にCodeRouterからプロバイダーリストをダウンロードし、~/.config/opencode/opencode.jsonに保存します。",
+      "cloudYours": "cmuxは各ファイルが存在しないときだけ書き込むため、自分で編集した内容は保持されます。すでに別のモデルプロバイダーを指定しているCodexの設定は変更しません。",
+      "cloudRun": "エージェントは通常どおり実行します。cmux coderouter agentは単独のプロンプトをエージェントの単発実行形式に変換します。マシン内では現在のターミナルで実行し、Macではcmux vm agentと同様に、指定したマシン上でエージェントを起動します。",
+      "cloudAccounts": "Cloudマシンは、そのマシンを所有するチームのアカウントを使います。利用可能なアカウントがないとエージェントが報告した場合は、アカウントを追加するか、既存のアカウントをそのチームと共有してください。",
+      "modelsTitle": "モデル",
+      "modelsCodex": "CodexとPiは、CodeRouterが選んだアカウントのモデルカタログを使います。カタログは/v1/modelsで提供されるため、Codexのモデル選択にはアカウントで使えるモデルが表示されます。モデルはCodexの-mフラグまたは/modelコマンドで選びます。OpenRouterキーの場合、CodeRouterはOpenAIのモデルIDをそのままではなくopenai/'<model>'として送ります。",
+      "modelsOpencode": "OpenCodeにはチームのOpenCode Goアカウントのモデルが表示されます。",
+      "modelsClaude": "Claude Codeは--modelまたは/modelで選んだモデルを送り、CodeRouterはそれを選ばれたアカウントに転送します。サブスクリプションとAPIキーのアカウントは、Anthropicがそのアカウントに許可しているモデルを提供します。",
+      "modelsBedrock": "Bedrockアカウントは組み込みの対応表でClaudeのモデルIDをBedrockのモデルIDに変換し、BedrockのIDはそのまま通します。対応表にないモデルはnot_found_errorを返します。別のモデルを対応付けるには、--modelを付けてアカウントを追加してください：",
+      "modelsList": "Cloudマシン内では、cmux coderouter modelsがCodexのモデルカタログをJSONで出力します。"
+    },
+    "coderouterCli": {
+      "title": "CodeRouterのCLIとトラブルシューティング",
+      "metaTitle": "CodeRouterのCLIとトラブルシューティング",
+      "metaDescription": "cr CLIとcmux coderouterのコマンド、cmux Cloudマシン内で使える機能、よくあるCodeRouterエラーの対処法。",
+      "intro": "CodeRouterには2つのコマンド群があります。coderouterとしてもインストールされるcrは、サインイン、サブスクリプションの管理、エージェントの起動を行います。cmux coderouterは、サインイン済みのcmuxアプリを通じてチームのClaudeアカウントとCloudマシンの使用量を管理し、それ以外のコマンドはすべてcrに渡します。",
+      "installTitle": "インストールとサインイン",
+      "installDesc": "インストーラーはチェックサム検証済みのバイナリを~/.coderouter/binにダウンロードし、crをそこにリンクして、そのディレクトリをシェルのPATHに追加します。もう一度実行すると更新されます。arm64とx64のmacOSとLinuxに対応しています。同じCLIがnpmとPyPIでも公開されています。",
+      "loginDesc": "cr loginはブラウザを開き、予備のリンクを表示します。ローカルのブラウザがない場合は、--device-authを使って別のデバイスでリンクを開くか、cr login --codeでコードまたはマジックリンクを貼り付けてください。",
+      "crTitle": "cr",
+      "crDesc": "コマンドを指定しない場合、crはアカウントとその使用量を表示します。エージェントのルーティングは常に明示的です。通常のcodex、opencode、piはCodeRouterなしでそのまま動作します。",
+      "crAddCodex": "個人とチームのChatGPTワークスペースが同じメールアドレスを使うことがあります。ワークスペースごとにcr add codexを1回ずつ実行し、ブラウザでワークスペースを選んでください。CodeRouterはそれらを別々のアカウントとして扱います。",
+      "cmuxTitle": "cmux coderouter",
+      "cmuxDesc": "これらのコマンドはcmuxアプリを通じて実行されるため、アプリが起動済みでサインイン済み（cmux auth login）である必要があります。機械可読な出力には--jsonを、選択中以外のチームを対象にするには--team '<id>'を付けてください。",
+      "claudeAddDesc": "claude add oauth-tokenはCLAUDE_CODE_OAUTH_TOKENまたは--stdinから読み取ります。どちらもないターミナルでは、claude setup-tokenを実行し、そのコマンドが出力したトークンを読み取ります。claude add api-keyはANTHROPIC_API_KEY、--stdin、または非表示のプロンプトから読み取ります。claude add bedrockはAWS_ACCESS_KEY_ID、AWS_SECRET_ACCESS_KEY、および任意のAWS_SESSION_TOKENを読み取り、リージョンを--region、AWS_REGION、またはAWS_DEFAULT_REGIONから取得します。",
+      "accountSelector": "'<account>'にはID、ラベル、またはマスクされた識別子を指定できます。disableは、再びenableするまでアカウントをローテーションから外します。",
+      "passthroughDesc": "その他のcmux coderouterのコマンドと、すべてのcmux crコマンドは、crをそのまま実行します。crがない場合、cmuxはインストーラーの実行を提案します。cmuxは自身の環境変数やサインイン情報をcrに渡しません。",
+      "guestTitle": "Cloudマシン内の場合",
+      "guestDesc": "各Cloudマシンには独自のcmuxがあり、サインイン不要のCodeRouterコマンドを使えます。アカウント管理はMac上で行うため、マシン内ではclaude、login、logoutは拒否されます。",
+      "troubleTitle": "トラブルシューティング",
+      "troubleDesc": "1列目のメッセージは、エージェント、cr、またはcmuxが出力するものです。",
+      "symptomColumn": "メッセージまたは症状",
+      "fixColumn": "対処法",
+      "errSignIn": "Sign in with `cr login` and retry.（別の表示：Missing coderouter route token.）",
+      "fixSignIn": "cr loginを実行してください。APIクライアントの場合は、キーが設定されていてcrk_で始まることを確認してください。",
+      "errExpired": "Your coderouter session expired or was revoked.",
+      "fixExpired": "もう一度cr loginを実行してください。失効したAPIキーはすぐに使えなくなるため、新しいキーを作成してください。",
+      "errNoCodex": "No healthy Codex subscription is currently available.",
+      "fixNoCodex": "crを実行して各アカウントの状態を確認してください。cr addでアカウントを追加するか、クールダウンが終わるのを待ってください。組織のCloudマシンの場合は、アカウントをチームと共有してください。",
+      "errNoClaude": "No Claude upstream account is configured for this team.",
+      "fixNoClaude": "cr add claudeまたはcmux coderouter claude addでアカウントを追加してください。組織のCloudマシンの場合は、チームと共有してください。",
+      "errClaudeCooling": "Every Claude upstream account of this team is cooling down or disabled.",
+      "fixClaudeCooling": "クールダウン後に再試行するか、cmux coderouter claude enableで無効なアカウントを有効にするか、別のアカウントを追加してください。",
+      "errBedrockModel": "Bedrockアカウントからのnot_found_error",
+      "fixBedrockModel": "そのモデルにはBedrockの対応付けがありません。アカウントを削除し、--model '<claude-id>=<bedrock-id>'を付けて再度追加してください。",
+      "errBedrockRegion": "The team's Bedrock account is missing a region.",
+      "fixBedrockRegion": "アカウントを削除し、--regionを付けるか、AWS_REGIONを設定して再度追加してください。",
+      "errNotInstalled": "CodeRouter CLI is not installed.",
+      "fixNotInstalled": "インストーラーを実行するか、cmux crがインストールを提案したときにyと答えてください。",
+      "errAgentMissing": "Codex is not installed or is not on PATH（またはOpenCode、Pi）.",
+      "fixAgentMissing": "エージェントをインストールしてください。crはPATH上で見つけたものを起動します。",
+      "errCodexLoop": "`codex` resolves back to coderouter.",
+      "fixCodexLoop": "codexコマンドがcrを指しています。本物のCodex実行ファイルがPATHの先頭に来るようにしてください。",
+      "errOpencodeModel": "`'<model>'` is not a coderouter OpenCode model.",
+      "fixOpencodeModel": "OpenCode Goアカウントのモデルを選ぶか、他のプロバイダーを使う場合は通常のopencodeを実行してください。",
+      "errOpencodeMachine": "cmux: OpenCode provider configuration is unavailable; retry in one minute.",
+      "fixOpencodeMachine": "マシンがOpenCodeのプロバイダーリストをダウンロードできませんでした。1分待ってからOpenCodeを再度起動してください。",
+      "errEdge": "CodeRouter: TLS edge unreachable, or route rejected（マシン内のcmux auth statusで表示）.",
+      "fixEdge": "マシンがCodeRouterに到達できないか、CodeRouterがマシンの認証情報を拒否しました。少し待ってから再試行してください。解決しない場合は、マシン名とcmux auth status --jsonの出力を添えてサポートに連絡してください。",
+      "errUnavailable": "coderouter is temporarily unavailable. Retry shortly.",
+      "fixUnavailable": "CodeRouterまたはアカウントストアが一時的に利用できません。再試行してください。エラーが続く場合は、リクエストIDを添えて報告してください。",
+      "diagnoseTitle": "診断",
+      "diagnoseDesc": "cr doctorは、crがサインイン済みかどうかと、使用しているCodeRouterのエンドポイントを表示します。cmux coderouter statusは、cmuxのサインイン状態、選択中のチーム、そのチームのClaudeアカウントを表示します。",
+      "supportTitle": "サポート",
+      "supportDesc": "失敗したリクエストを報告するときは、x-coderouter-request-idレスポンスヘッダーの値を含めてください。この値でCodeRouterの記録からそのリクエストを特定できます。"
     }
   },
   "legal": {
@@ -5802,8 +6669,8 @@
       "privacy": "この情報は Enterprise のご相談への返信と、適切な創業者への共有に使用します。連絡先情報を販売することはありません。",
       "submit": "送信",
       "submitting": "送信中...",
-      "success": "ありがとうございます。リクエストを受け付けました。founders@manaflow.com から返信します。",
-      "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
+      "success": "ありがとうございます。リクエストを受け付けました。founders@cmux.com から返信します。",
+      "error": "問題が発生しました。もう一度お試しいただくか、founders@cmux.com にメールしてください。"
     }
   },
   "support": {
@@ -5826,7 +6693,7 @@
         "description": "バグ報告や機能リクエストを公開の場で送れます。"
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "メールでの問い合わせはこちらに直接どうぞ。"
       }
     },
@@ -5848,8 +6715,8 @@
       "privacy": "メールアドレスはサポートへの返信のみに使用します。連絡先情報を販売することはありません。",
       "submit": "送信",
       "submitting": "送信中...",
-      "success": "ありがとうございます。メッセージを受け付けました。founders@manaflow.com からメールで返信します。",
-      "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
+      "success": "ありがとうございます。メッセージを受け付けました。founders@cmux.com からメールで返信します。",
+      "error": "問題が発生しました。もう一度お試しいただくか、founders@cmux.com にメールしてください。"
     }
   },
   "emails": {
@@ -6044,7 +6911,10 @@
     "emailUnavailable": "メールアドレスを取得できません",
     "organization": "組織",
     "personalAccount": "個人アカウント",
-    "switchAccountButton": "別のアカウントを使用"
+    "switchAccountButton": "別のアカウントを使用",
+    "signedOutTitle": "サインインして coderouter を承認",
+    "signedOutBody": "コマンドラインアプリケーションがサインインを待っています。cmux アカウントでサインインすると、このターミナルの接続が完了します。このリクエストに心当たりがない場合は、このページを閉じてください。",
+    "signInButton": "サインイン"
   },
   "MobileRelease106": {
     "title": "1.0.6 の新機能",
@@ -6055,5 +6925,27 @@
     "updateDetail": "cmux {stableVersion} 以降、または NIGHTLY {nightlyVersion} 以降が必要です。各 Mac の「設定」>「モバイル」で iOS ペアリングを有効にしてください。",
     "rollbackTitle": "古い Mac ビルドを使い続ける場合",
     "rollbackDetail": "利用可能な間は、TestFlight の「以前のビルド」から cmux BETA 1.0.5 ({rollbackBuild}) を使用してください。それ以降のビルドは新しい接続サービスを使用するため、このビルドを選んでください。"
+  },
+  "teamInvite": {
+    "loading": "招待を読み込み中…",
+    "title": "{team} に参加",
+    "titleUnknown": "このチームに参加",
+    "body": "cmux のこのチームに招待されました。",
+    "join": "チームに参加",
+    "joining": "参加中…",
+    "signedInAs": "{email} としてサインイン中",
+    "alreadyMemberTitle": "すでに {team} のメンバーです",
+    "alreadyMemberTitleUnknown": "すでにこのチームのメンバーです",
+    "alreadyMemberBody": "チームを開いて管理してください。",
+    "openTeam": "チームを開く",
+    "mismatchTitle": "この招待は別のアカウント宛てです",
+    "mismatchBody": "{email} としてサインインしていますが、招待は別のアドレスに送信されています。招待されたアドレスでサインインするか、このアカウントにそのアドレスを追加して確認してください。",
+    "mismatchBodyUnknown": "招待は別のアドレスに送信されています。招待されたアドレスでサインインするか、このアカウントにそのアドレスを追加して確認してください。",
+    "switchAccount": "サインアウトしてアカウントを切り替える",
+    "switching": "サインアウト中…",
+    "switchFailed": "サインアウトできませんでした。もう一度お試しください。",
+    "invalidTitle": "この招待はもう有効ではありません",
+    "invalidBody": "期限切れ、取り消し済み、または使用済みです。チームの管理者に新しい招待を依頼してください。",
+    "goToTeams": "チーム一覧へ"
   }
 }

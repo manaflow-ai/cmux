@@ -587,6 +587,31 @@ export class ProviderError extends Error {
   }
 }
 
+/**
+ * A machine that can never be attached as it is: it was created before the
+ * attach contract the server now requires, and nothing on the server changes
+ * that. Routes answer with a non-retryable recreate action, never a retryable
+ * outage; see docs/cloud-guest-upgrades.md.
+ */
+export class ProviderMachineRecreateRequiredError extends ProviderError {
+  constructor(provider: ProviderId, message: string) {
+    super(provider, message);
+    this.name = "ProviderMachineRecreateRequiredError";
+  }
+}
+
+/**
+ * The owner's private network has no free address for another member. It
+ * stays full until machines are deleted or computers are revoked, so routes
+ * answer with a non-retryable cleanup action, never a retryable outage.
+ */
+export class ProviderNetworkFullError extends ProviderError {
+  constructor(provider: ProviderId, message: string, cause?: unknown) {
+    super(provider, message, cause);
+    this.name = "ProviderNetworkFullError";
+  }
+}
+
 /** An unpublished runtime artifact; diagnostics stay server-side while routes localize the failure. */
 export class ProviderArtifactUnavailableError extends ProviderError {
   constructor(provider: ProviderId, diagnostic: { readonly manifestUrl: string; readonly target: string }) {

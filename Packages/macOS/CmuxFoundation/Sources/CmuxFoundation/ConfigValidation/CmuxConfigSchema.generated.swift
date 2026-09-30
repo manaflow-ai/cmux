@@ -75,7 +75,7 @@ enum CmuxEmbeddedConfigSchema {
     },
     "actions": {
       "title": "actions",
-      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
+      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart), \"setting\" (change one setting in the global cmux.json: path plus exactly one of set, toggle: true, cycle, or unset: true), or \"settingPreset\" (apply a named entry from settingPresets). Setting actions only run when declared in the global ~/.config/cmux/cmux.json or a pack it references; with confirm: true they ask before saving. Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
       "type": "object",
       "additionalProperties": true
     },
@@ -106,6 +106,27 @@ enum CmuxEmbeddedConfigSchema {
       "items": {
         "type": "object",
         "additionalProperties": true
+      }
+    },
+    "settingPresets": {
+      "x-cmux-scopes": ["global"],
+      "title": "settingPresets",
+      "description": "Named groups of settings applied together by a \"settingPreset\" action or `cmux config preset <name>`. Each preset is a partial cmux.json holding only settings sections, for example {\"sidebar\": {\"showPorts\": false}}. Nested objects merge key by key; other values replace the current one. Keys the preset doesn't name keep their values.",
+      "type": "object",
+      "default": {},
+      "additionalProperties": {
+        "allOf": [
+          { "$ref": "#" },
+          {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+              "not": {
+                "enum": ["$schema", "schemaVersion", "actions", "commands", "newWorkspaceCommand", "packs", "rightSidebar", "settingPresets", "surfaceTabBarButtons", "ui", "vault"]
+              }
+            }
+          }
+        ]
       }
     },
     "computerUse": {
@@ -548,10 +569,17 @@ enum CmuxEmbeddedConfigSchema {
           "description": "App appearance mode."
         },
         "accentColor": {
-          "type": "string",
-          "enum": ["cmux", "system"],
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["cmux", "system"]
+            },
+            {
+              "$ref": "#/$defs/colorHex"
+            }
+          ],
           "default": "cmux",
-          "description": "Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. \"cmux\" uses cmux blue; \"system\" follows the macOS accent color and updates when it changes. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent."
+          "description": "Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. \"cmux\" uses cmux blue; \"system\" follows the macOS accent color and updates when it changes; a \"#RRGGBB\" hex uses that color in light and dark mode. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent."
         },
         "appIcon": {
           "type": "string",
@@ -657,9 +685,17 @@ enum CmuxEmbeddedConfigSchema {
           "description": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "reorderOnNotification": {
-          "type": "boolean",
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "enum": ["off", "notifications", "agentActivity"]
+            }
+          ],
           "default": true,
-          "description": "Move workspaces with new notifications toward the top."
+          "description": "Automatic workspace reordering. true or \"notifications\" moves workspaces with new notifications toward the top. \"agentActivity\" also moves them when a prompt is sent or an agent finishes a turn, needs input, or fails, at most once per burst and never while the pointer is over the sidebar. false or \"off\" keeps the order stable."
         },
         "iMessageMode": {
           "type": "boolean",
@@ -710,6 +746,13 @@ enum CmuxEmbeddedConfigSchema {
           "default": false,
           "descriptionKey": "schemaDescriptions.app.hideTabCloseButton",
           "description": "Hide tab close buttons in the pane tab bar."
+        },
+        "tabBarVisibility": {
+          "type": "string",
+          "enum": ["always", "multiple-tabs"],
+          "default": "always",
+          "descriptionKey": "schemaDescriptions.app.tabBarVisibility",
+          "description": "Decide when a pane draws its tab bar. \"always\" draws it even for a pane holding one tab; \"multiple-tabs\" hides it while a pane holds one tab and draws it once a second tab opens. Minimal mode (app.minimalMode) always draws it, because there the top pane's tab bar doubles as the window titlebar."
         },
         "renameSelectsExistingName": {
           "type": "boolean",
@@ -791,7 +834,17 @@ enum CmuxEmbeddedConfigSchema {
         "textEditingGestures": {
           "type": "boolean",
           "default": false,
-          "description": "Replay macOS text-editing gestures as line-editor keys: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. Applications receive these translated keys instead of the original chords, so leave this off for full-screen TUIs that bind those chords."
+          "description": "Replay macOS text-editing gestures as line-editor keys at the shell prompt: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. While a full-screen application (vim, less, htop, tmux) has the terminal on the alternate screen, it gets the keys as if gestures were off, unless textEditingGesturesInFullScreenApps is on. Ghostty's own bindings still apply there, so Command+Left sends Ctrl+A and Option+Left sends Esc b."
+        },
+        "textEditingCommandMovesByWord": {
+          "type": "boolean",
+          "default": false,
+          "description": "With textEditingGestures on, switch to a browser-style layout: Command arrow and Delete keys move and delete by word, like Option, and Control+Left/Right move to the start and end of the line. Every other Control chord, including Ctrl+W and Ctrl+C, still reaches the terminal. macOS reserves Control+Left/Right for switching Spaces by default; turn those off in System Settings > Keyboard > Keyboard Shortcuts > Mission Control for Control+arrows to reach cmux."
+        },
+        "textEditingGesturesInFullScreenApps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Keep textEditingGestures active while a full-screen application has the terminal on the alternate screen. tmux, screen, and zellij keep the outer terminal on the alternate screen even at their shell prompt, so turn this on to use gestures inside a multiplexer. Applications that bind the gesture chords themselves then receive the translated keys."
         },
         "showPasswordInputIndicator": {
           "type": "boolean",
@@ -803,6 +856,11 @@ enum CmuxEmbeddedConfigSchema {
           "default": false,
           "description": "When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them. Pasted text is not counted."
         },
+        "predictiveLocalEcho": {
+          "type": "boolean",
+          "default": true,
+          "description": "Draw typed characters immediately in a terminal whose shell runs on another machine (cmux ssh, Cloud, remote tmux) when the link is slow, underlined until the remote echo confirms them, and withdraw them if the remote disagrees. Local terminals, password prompts and full-screen apps are excluded."
+        },
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,
@@ -812,25 +870,25 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.showTextBoxOnNewTerminals",
-          "description": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits."
+          "description": "Show the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits."
         },
         "focusTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.focusTextBoxOnNewTerminals",
-          "description": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
+          "description": "Focus the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
         },
         "agentHibernation": {
           "type": "object",
           "additionalProperties": false,
           "descriptionKey": "schemaDescriptions.terminal.agentHibernation",
-          "description": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
+          "description": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, under memory pressure (critical pressure from macOS or from the cmux app's own footprint, or cmux's total memory use past its aggregate warning threshold) cmux may hibernate every safe idle background agent even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
           "properties": {
             "enabled": {
               "type": "boolean",
               "default": false,
               "descriptionKey": "schemaDescriptions.terminal.agentHibernationEnabled",
-              "description": "Enable routine Agent Hibernation based on the live-terminal limit. Critical-pressure safety hibernation remains active when false."
+              "description": "Enable routine Agent Hibernation based on the live-terminal limit. Memory-pressure safety hibernation remains active when false."
             },
             "idleSeconds": {
               "type": "integer",
@@ -1112,12 +1170,26 @@ enum CmuxEmbeddedConfigSchema {
           "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
           "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
         },
+        "soundWhenFocused": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.soundWhenFocused",
+          "description": "Play the notification sound even when the pane that notified is already focused. Off by default, so a focused pane shows only its ring and flash."
+        },
         "suppressOnlyFocusedSurface": {
           "x-cmux-scopes": ["global"],
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.notifications.suppressOnlyFocusedSurface",
           "description": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw."
+        },
+        "suppressWhenAppFocused": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.suppressWhenAppFocused",
+          "description": "When enabled, cmux skips the desktop banner for every notification while cmux is the active app, not only for the focused pane. Notifications still appear in the sidebar, the sound and custom command still run, and phone forwarding is unchanged. Off keeps showing banners for other workspaces and panes while cmux is focused."
         },
         "agentPermissionPrompt": {
           "x-cmux-scopes": ["global"],
@@ -1408,6 +1480,34 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show custom metadata pills."
         },
+        "compactAgentStatus": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.sidebar.compactAgentStatus",
+          "description": "Show each workspace on one line: one colored icon before the title for agent, unread, and pull request state replaces the agent status rows (for example Running or Needs input), the branch and directory line, and the pull request rows, whose details move to the icon's tooltip. Other status entries keep their rows."
+        },
+        "compactStatusIcons": {
+          "type": "object",
+          "default": {},
+          "descriptionKey": "schemaDescriptions.sidebar.compactStatusIcons",
+          "description": "SF Symbol names that replace the compactAgentStatus glyph for each state, for example {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Unset states keep the built-in symbol, and a name that does not render falls back to it.",
+          "properties": {
+            "error": { "type": "string", "minLength": 1 },
+            "needsInput": { "type": "string", "minLength": 1 },
+            "subagents": { "type": "string", "minLength": 1 },
+            "running": { "type": "string", "minLength": 1 },
+            "waiting": { "type": "string", "minLength": 1 },
+            "starting": { "type": "string", "minLength": 1 },
+            "unseen": { "type": "string", "minLength": 1 },
+            "pullRequestOpen": { "type": "string", "minLength": 1 },
+            "pullRequestMerged": { "type": "string", "minLength": 1 },
+            "pullRequestClosed": { "type": "string", "minLength": 1 },
+            "idle": { "type": "string", "minLength": 1 },
+            "branch": { "type": "string", "minLength": 1 },
+            "terminal": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
         "rightMaxWidth": {
           "type": "number",
           "exclusiveMinimum": 0,
@@ -1508,7 +1608,7 @@ enum CmuxEmbeddedConfigSchema {
       "properties": {
         "matchTerminalBackground": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Use the terminal background instead of the sidebar tint."
         },
         "tintColor": {
@@ -1819,6 +1919,18 @@ enum CmuxEmbeddedConfigSchema {
           "enum": ["subtree", "oneLevel"],
           "default": "subtree",
           "description": "Controls whether a referenced or terminal-visible directory authorizes its full canonical subtree or only immediate children."
+        },
+        "browserTunnel": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The iOS \"On iPhone\" browser for this Mac's workspaces, which loads pages on the phone through this Mac.",
+          "properties": {
+            "allowOtherHosts": {
+              "type": "boolean",
+              "default": false,
+              "description": "Allow the iOS browser to reach hosts other than this Mac's own localhost through this Mac (LAN, VPN, and internet hosts, resolved on this Mac). When off, only this Mac's localhost is reachable and the phone loads other sites over its own network. Link-local and cloud metadata addresses are always refused."
+            }
+          }
         }
       }
     },
@@ -2060,6 +2172,7 @@ enum CmuxEmbeddedConfigSchema {
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
               "pasteLastScreenshot",
+              "sizeTerminalToMyWindow",
               "clearScreenKeepScrollback",
               "simulatorHome",
               "simulatorRotateLeft",
@@ -2140,7 +2253,10 @@ enum CmuxEmbeddedConfigSchema {
               "diffViewerScrollToTop",
               "diffViewerOpenFileSearch",
               "diffViewerNextFile",
-              "diffViewerPreviousFile"
+              "diffViewerPreviousFile",
+              "diffViewerNextHunk",
+              "diffViewerPreviousHunk",
+              "diffViewerToggleViewed"
             ]
           },
           "properties": {
@@ -2182,6 +2298,15 @@ enum CmuxEmbeddedConfigSchema {
             },
             "diffViewerPreviousFile": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerNextHunk": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerPreviousHunk": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerToggleViewed": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },
           "additionalProperties": {
@@ -2191,7 +2316,7 @@ enum CmuxEmbeddedConfigSchema {
         "when": {
           "type": "object",
           "default": {},
-          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "descriptionKey": "schemaDescriptions.shortcuts.when",
           "additionalProperties": {
             "type": "string"

@@ -184,6 +184,7 @@ extension TerminalSurface {
         _ text: String,
         to liveSurface: ghostty_surface_t
     ) -> Bool {
+        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
 
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
@@ -469,7 +470,7 @@ extension TerminalSurface {
             return TerminalInputReportParser(scalars: scalars, start: start).csiSequenceLength()
         case 0x5D: // OSC: ESC ] ... (BEL | ST)
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
-        case 0x50, 0x5E, 0x5F: // DCS / PM / APC: ESC P/^/_ ... ST
+        case 0x50, 0x58, 0x5E, 0x5F: // DCS / SOS / PM / APC: ESC P/X/^/_ ... ST
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
         default:
             return nil
@@ -600,6 +601,7 @@ extension TerminalSurface {
         keycode: UInt32,
         mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE
     ) {
+        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
         let (handled, codepoint) = Self.withSocketKeyEvent(keycode: keycode, mods: mods) { keyEvent in
             (withRuntimeClipboardPasteIntent { ghostty_surface_key(surface, keyEvent) }, keyEvent.unshifted_codepoint)
         }
@@ -691,14 +693,18 @@ extension TerminalSurface {
         return liveSurfaceForGhosttyAccess(reason: reason)
     }
 
+    @MainActor
     func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
+        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
         }
     }
 
+    @MainActor
     func writeInputTextData(_ data: Data, to surface: ghostty_surface_t) {
+        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text_input(surface, baseAddress, UInt(rawBuffer.count))
@@ -732,10 +738,12 @@ extension TerminalSurface {
     public func processRemoteOutput(_ data: Data) {
         guard !data.isEmpty else { return }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "remoteOutput") else {
+            let overflow = data.count > maxPendingRemoteOutputBytes - pendingRemoteOutput.count
             pendingRemoteOutput.append(data)
             if pendingRemoteOutput.count > maxPendingRemoteOutputBytes {
                 pendingRemoteOutput.removeFirst(pendingRemoteOutput.count - maxPendingRemoteOutputBytes)
             }
+            if overflow { discardPendingRemoteReplayCompletions() }
             return
         }
         flushPendingRemoteOutput(to: surface)
@@ -747,7 +755,18 @@ extension TerminalSurface {
         guard !pendingRemoteOutput.isEmpty else { return }
         let buffered = pendingRemoteOutput
         pendingRemoteOutput = Data()
-        remoteOutputLane.enqueue(buffered, to: surface)
+        let replayCompletions = pendingRemoteReplayCompletions
+        pendingRemoteReplayCompletions.removeAll(keepingCapacity: true)
+        remoteOutputLane.enqueue(buffered, to: surface) {
+            replayCompletions.forEach { $0.applied() }
+        }
+    }
+
+    @MainActor
+    func discardPendingRemoteReplayCompletions() {
+        let replayCompletions = pendingRemoteReplayCompletions
+        pendingRemoteReplayCompletions.removeAll(keepingCapacity: true)
+        replayCompletions.forEach { $0.discarded() }
     }
 
     private func keycodeForLetter(_ letter: Character) -> UInt32? {

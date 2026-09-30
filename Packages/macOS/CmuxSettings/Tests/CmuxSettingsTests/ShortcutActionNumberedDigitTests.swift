@@ -63,6 +63,9 @@ struct ShortcutActionNumberedDigitTests {
             .diffViewerOpenFileSearch,
             .diffViewerNextFile,
             .diffViewerPreviousFile,
+            .diffViewerNextHunk,
+            .diffViewerPreviousHunk,
+            .diffViewerToggleViewed,
             .fileExplorerOpenSelection,
             .fileExplorerOpenSelectionFinderAlias,
         ]
