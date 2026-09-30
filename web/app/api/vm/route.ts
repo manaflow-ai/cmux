@@ -95,17 +95,17 @@ export const maxDuration = 600;
 const VM_CREATE_ADMISSION_BUDGET_MS = 200;
 
 export async function GET(request: Request): Promise<Response> {
-  // List traffic is the natural idle-path signal from the Cloud sidebar. Keep
-  // the provider and database connections ready before the next create rather
-  // than making the first paid mutation pay their cold handshake.
-  void preconnectFreestyle();
-  void preconnectCloudDb();
   return withAuthedVmApiRoute(
     request,
     "/api/vm",
     { "cmux.vm.operation": "list" },
     "/api/vm GET failed",
     async ({ user, span }) => {
+      // List traffic is the natural idle-path signal from the Cloud sidebar.
+      // Start warming only after auth so an unauthenticated poll cannot open a
+      // provider socket or database pool on every fresh function instance.
+      void preconnectCloudDb();
+      runAfterResponse(() => preconnectFreestyle());
       let billingTeamId: string | null = null;
       let listEntitlements: ReturnType<typeof resolveVmEntitlements> | null = null;
       const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
@@ -241,7 +241,11 @@ export async function POST(request: Request): Promise<Response> {
   const warmupStartedAt = performance.now();
   const freestyleWarmup = preconnectFreestyle();
   const databaseWarmup = preconnectCloudDb();
-  const connectionInitDuration = Promise.all([freestyleWarmup, databaseWarmup]).then(
+  // Database warming is an optimization only: its driver may wait on a
+  // provider-controlled connect deadline, so it must never delay validation or
+  // turn an authenticated create into an unbounded database health check.
+  void databaseWarmup;
+  const connectionInitDuration = freestyleWarmup.then(
     () => performance.now() - warmupStartedAt,
   );
   return withAuthedVmApiRoute(
@@ -254,7 +258,7 @@ export async function POST(request: Request): Promise<Response> {
       timing.record("auth", authDurationMs);
       let admissionRecorded = false;
       let admissionStartedAt = performance.now();
-      /** Records validation/admission even when the request exits before provisioning. */
+      /** Records request validation even when it exits before provisioning. */
       const recordAdmission = () => {
         if (admissionRecorded) return;
         admissionRecorded = true;
@@ -280,9 +284,9 @@ export async function POST(request: Request): Promise<Response> {
       });
 
       timing.record("connection_init", await connectionInitDuration);
-      // Admission starts after connection readiness. Its budget therefore
-      // describes request validation and durable create admission, without
-      // hiding the separate cold connection phase above.
+      // Admission starts after connection readiness. Its budget describes only
+      // request validation; the durable begin_create phase is recorded inside
+      // the workflow and remains a separate authoritative boundary.
       admissionStartedAt = performance.now();
 
       const parsed = await parseCreateRequest(request, span, timing);

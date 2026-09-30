@@ -189,21 +189,23 @@ export type FreestylePreconnectOptions = {
   readonly timeoutMs?: number;
 };
 
-type FreestyleWarmupState = { promise?: Promise<void> };
+type FreestyleWarmupState = { promise?: Promise<void>; succeeded?: boolean };
 
-const freestyleWarmupStates = new WeakMap<object, FreestyleWarmupState>();
+const freestyleWarmupStates = new WeakMap<object, Map<string, FreestyleWarmupState>>();
 
 const globalForFreestyle = globalThis as typeof globalThis & {
   __cmuxFreestyleClients?: Map<string, Freestyle>;
 };
 
-/** Returns the single-flight state associated with one fetch implementation. */
-function warmupStateFor(fetchImpl: typeof fetch): FreestyleWarmupState {
+/** Returns the sticky single-flight state for one fetch implementation and origin. */
+function warmupStateFor(fetchImpl: typeof fetch, baseUrl: string): FreestyleWarmupState {
   const key = fetchImpl as unknown as object;
-  const existing = freestyleWarmupStates.get(key);
+  const states = freestyleWarmupStates.get(key) ?? new Map<string, FreestyleWarmupState>();
+  const existing = states.get(baseUrl);
   if (existing) return existing;
   const state: FreestyleWarmupState = {};
-  freestyleWarmupStates.set(key, state);
+  states.set(baseUrl, state);
+  freestyleWarmupStates.set(key, states);
   return state;
 }
 
@@ -232,9 +234,12 @@ export function preconnectFreestyle(options: FreestylePreconnectOptions = {}): P
   const baseUrl = options.baseUrl?.trim() || process.env.FREESTYLE_API_URL?.trim() || "https://api.freestyle.sh";
   const fetchImpl = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? 3_000;
-  const state = warmupStateFor(fetchImpl);
+  const state = warmupStateFor(fetchImpl, baseUrl);
+  if (state.succeeded) return Promise.resolve();
   if (state.promise) return state.promise;
-  const promise = warmFreestyleConnection({ baseUrl, fetch: fetchImpl, timeoutMs }).catch(() => undefined);
+  const promise = warmFreestyleConnection({ baseUrl, fetch: fetchImpl, timeoutMs })
+    .then(() => { state.succeeded = true; })
+    .catch(() => { state.succeeded = false; });
   const settled = promise.finally(() => {
     if (state.promise === settled) state.promise = undefined;
   });
@@ -1012,10 +1017,11 @@ export class FreestyleProvider implements VMProvider {
           setSpanAttributes(span, {
             "cmux.vm.id": vmId,
             "cmux.vm.network.private": !!networkId,
-            // The SDK resolves only after the provider response has been
-            // decoded, so this is both API provisioning and machine-id receipt.
             "cmux.vm.provider.api_provision_ms": providerMs,
-            "cmux.vm.provider.machine_id_receipt_ms": providerMs,
+            // `vms.create` resolves only after the SDK has decoded the id;
+            // retain its wall-clock receipt as an explicit correlation point.
+            "cmux.vm.provider.machine_id_received": true,
+            "cmux.vm.provider.machine_id_received_at_ms": Date.now(),
           });
           try {
             // Validate the provider-assigned VPC address without issuing the
