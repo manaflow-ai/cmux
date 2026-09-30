@@ -198,6 +198,35 @@ struct SidebarCloudWorkspaceBadgeTests {
         }
     }
 
+    @Test("Plain SSH workspaces expose a network provenance badge")
+    func sshWorkspaceUsesNetworkBadge() throws {
+        let workspace = Workspace(title: "Enable workspace fan-out", initialSurface: .terminal)
+        defer { workspace.teardownAllPanels() }
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.invalid",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            managedCloudVMID: nil,
+            terminalStartupCommand: nil
+        )
+
+        let snapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults()),
+            showsAgentActivity: false
+        ).makeSnapshot()
+
+        #expect(snapshot.remoteWorkspaceBadgeSymbol == "network")
+        #expect(snapshot.remoteWorkspaceBadgeLabel?.contains("SSH workspace on") == true)
+        #expect(snapshot.remoteWorkspaceBadgeLabel?.contains("dev@example.invalid:2222") == true)
+    }
+
     /// Exercises the real row geometry across selection, density, scaling, and pinning.
     @Test(arguments: [180.0, 280.0], [false, true])
     func cloudBadgeLeadsTitleWithoutDisplacingPin(width: Double, isPinned: Bool) throws {

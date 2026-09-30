@@ -103,4 +103,3 @@ remains the low-level materialization primitive during migration.
    show provenance/rotation state.
 5. Add machine-pool binding, service recipes, and environment cloning for
    fan-out.
-

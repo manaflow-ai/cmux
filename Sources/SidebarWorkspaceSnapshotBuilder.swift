@@ -80,8 +80,28 @@ struct SidebarWorkspaceSnapshotBuilder {
         /// is on (agent status entries then leave `metadataEntries`).
         var compactStatusGlyph: SidebarCompactStatusGlyph? = nil
 
-        var remoteWorkspaceBadgeLabel: String? { deviceWorkspaceLabel ?? cloudWorkspaceLabel }
-        var remoteWorkspaceBadgeSymbol: String { deviceWorkspaceLabel == nil ? "cloud" : "desktopcomputer" }
+        /// Human-readable provenance for the small leading workspace badge.
+        ///
+        /// Cloud and device workspaces already have a stable machine label. A
+        /// plain SSH workspace used to leave this slot empty, which made an
+        /// SSH row look like a local workspace until the reader noticed the
+        /// second-line target. Keep the target in the same identity slot so
+        /// remote workspaces are distinguishable at a glance.
+        var remoteWorkspaceBadgeLabel: String? {
+            if let deviceWorkspaceLabel { return deviceWorkspaceLabel }
+            if let cloudWorkspaceLabel { return cloudWorkspaceLabel }
+            guard let target = remoteWorkspaceSidebarText else { return nil }
+            return String.localizedStringWithFormat(
+                String(localized: "sidebar.sshWorkspace.label", defaultValue: "SSH workspace on %@"),
+                target
+            )
+        }
+
+        var remoteWorkspaceBadgeSymbol: String {
+            if deviceWorkspaceLabel != nil { return "desktopcomputer" }
+            if cloudWorkspaceLabel != nil { return "cloud" }
+            return remoteWorkspaceSidebarText == nil ? "cloud" : "network"
+        }
 
         func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
             let position = String(

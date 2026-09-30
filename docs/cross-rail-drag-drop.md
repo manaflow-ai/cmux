@@ -61,4 +61,3 @@ organization semantics.
 The first implementation should not merge layouts or move source workspaces.
 Those operations need a separate explicit command because they can close or
 reparent user-visible surfaces.
-
