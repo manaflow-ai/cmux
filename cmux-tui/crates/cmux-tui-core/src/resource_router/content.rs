@@ -1744,6 +1744,166 @@ mod tests {
         assert!(!handles(ResourceOperation::BrowserViewerResize));
     }
 
+    /// A kept terminal with no tab (the only view of it lives in another
+    /// session's layout, cmux-next remote-terminal tabs) takes input and
+    /// reads by its public id, and projecting it back tells raw v12 tree
+    /// subscribers, like `move-tab` does. Before, `terminal.project` and
+    /// `terminal.move` published only the resource journal, so a frontend
+    /// subscribed with `tree_events` never learned about the new tab.
+    #[test]
+    fn cmux_next_unplaced_terminal_io_and_projection_reach_raw_subscribers() {
+        let (mux, original, selectors) = terminal_fixture(None);
+        let terminal_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let initial = public_session_snapshot(&mux).unwrap();
+        let original_tab = initial["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .unwrap()["tab_ids"][0]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let pane_id = initial["tabs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tab| tab["id"] == original_tab)
+            .unwrap()["pane_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let current = |pane: Option<String>, tab: Option<String>| ResourceSelectors {
+            machine: Some("current".into()),
+            session: Some("current".into()),
+            pane,
+            tab,
+            ..ResourceSelectors::default()
+        };
+        // A second tab keeps the pane alive once the original tab closes.
+        super::super::topology::dispatch(
+            &mux,
+            parsed_request(
+                "tab.create_terminal",
+                &current(Some(pane_id.clone()), None),
+                json!({}),
+                Some("unplaced-keeper"),
+            ),
+        )
+        .unwrap();
+        super::super::topology::dispatch(
+            &mux,
+            parsed_request(
+                "tab.close",
+                &current(None, Some(original_tab)),
+                json!({}),
+                Some("unplaced-detach"),
+            ),
+        )
+        .unwrap();
+        assert!(mux.surface(original.id).is_some(), "the terminal outlives its tab");
+
+        // Terminal I/O by public id with no tab.
+        dispatch(
+            &mux,
+            parsed_request(
+                "terminal.input.write",
+                &selectors,
+                json!({"text":"x"}),
+                Some("unplaced-write"),
+            ),
+        )
+        .expect("terminal.input.write works on a terminal with no tab");
+        dispatch(
+            &mux,
+            parsed_request(
+                "terminal.input.keys",
+                &selectors,
+                json!({"keys":["enter"]}),
+                Some("unplaced-keys"),
+            ),
+        )
+        .expect("terminal.input.keys works on a terminal with no tab");
+        original.try_with_terminal(|terminal| terminal.vt_write(b"mk42")).unwrap();
+        let screen =
+            dispatch(&mux, parsed_request("terminal.screen.read", &selectors, json!({}), None))
+                .expect("terminal.screen.read works on a terminal with no tab");
+        assert!(screen["text"].as_str().unwrap().contains("mk42"), "{screen}");
+        dispatch(
+            &mux,
+            parsed_request("terminal.history.read", &selectors, json!({"limit":5}), None),
+        )
+        .expect("terminal.history.read works on a terminal with no tab");
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let workspace_id = snapshot["workspaces"][0]["id"].as_str().unwrap().to_string();
+        let screen_id = snapshot["screens"][0]["id"].as_str().unwrap().to_string();
+        let events = mux.subscribe();
+        let tree_events = |events: &crate::MuxEventReceiver| {
+            events
+                .try_iter()
+                .filter(|event| {
+                    matches!(
+                        event,
+                        crate::mux::MuxEvent::TreeChanged | crate::mux::MuxEvent::TreeDelta(_)
+                    )
+                })
+                .count()
+        };
+        let projected = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.project",
+                &selectors,
+                json!({
+                    "destination_workspace":workspace_id,
+                    "destination_screen":screen_id,
+                    "destination_pane":pane_id,
+                    "index":0,
+                }),
+                Some("unplaced-project"),
+            ),
+        )
+        .unwrap();
+        assert!(tree_events(&events) > 0, "terminal.project must notify raw tree subscribers");
+
+        assert!(projected["value"]["id"].as_str().unwrap().starts_with("tab_"));
+        dispatch(
+            &mux,
+            parsed_request(
+                "terminal.move",
+                &selectors,
+                json!({
+                    "destination_workspace":workspace_id,
+                    "destination_screen":screen_id,
+                    "destination_pane":pane_id,
+                    "index":1,
+                }),
+                Some("unplaced-move"),
+            ),
+        )
+        .unwrap();
+        assert!(tree_events(&events) > 0, "terminal.move must notify raw tree subscribers");
+        // A replayed projection commits nothing new and stays quiet.
+        dispatch(
+            &mux,
+            parsed_request(
+                "terminal.move",
+                &selectors,
+                json!({
+                    "destination_workspace":workspace_id,
+                    "destination_screen":screen_id,
+                    "destination_pane":pane_id,
+                    "index":1,
+                }),
+                Some("unplaced-move"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(tree_events(&events), 0, "a replay emits nothing");
+        original.kill();
+    }
+
     #[test]
     fn one_terminal_can_be_detached_reprojected_and_closed_explicitly() {
         let (mux, original, selectors) = terminal_fixture(None);
