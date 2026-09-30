@@ -77,6 +77,7 @@ public struct NotificationFeedPreviewView: View {
                         NavigationStack {
                             NotificationFeedPreviewWorkspacesView()
                         }
+                        .toolbar(.hidden, for: .navigationBar)
                     } feed: {
                         Text(verbatim: "Agent feed fixture")
                             .foregroundStyle(.secondary)
@@ -97,6 +98,7 @@ public struct NotificationFeedPreviewView: View {
                                 .mobileToolbarVisibility(.hidden, for: .tabBar)
                             }
                         }
+                        .toolbar(.hidden, for: .navigationBar)
                         .onAppear {
                             consumePendingSearchNavigation(for: .notifications)
                         }
@@ -107,7 +109,8 @@ public struct NotificationFeedPreviewView: View {
                         MobilePrimarySearchNavigationStack(
                             path: $searchNavigationPath,
                             selection: $selectedTab,
-                            searchCoordinator: primarySearchCoordinator
+                            searchCoordinator: primarySearchCoordinator,
+                            hidesRootNavigationBar: true
                         ) {
                             Group {
                                 switch primarySearchCoordinator.scope {

@@ -508,6 +508,7 @@ struct WorkspaceShellView: View {
                                 .mobileToolbarVisibility(.hidden, for: .tabBar)
                             }
                     }
+                    .toolbar(.hidden, for: .navigationBar)
                 } notifications: {
                     NavigationStack(path: $notificationNavigationPath) {
                         NotificationFeedStoreView(
@@ -529,6 +530,7 @@ struct WorkspaceShellView: View {
                                 .mobileToolbarVisibility(.hidden, for: .tabBar)
                             }
                     }
+                    .toolbar(.hidden, for: .navigationBar)
                     .onAppear {
                         notificationsStackIsOnScreen = true
                         consumePendingPrimarySearchNavigation(for: .notifications)
@@ -578,7 +580,8 @@ struct WorkspaceShellView: View {
             MobilePrimarySearchNavigationStack(
                 path: primarySearchNavigationPath,
                 selection: $selectedPrimaryTab,
-                searchCoordinator: primarySearchCoordinator
+                searchCoordinator: primarySearchCoordinator,
+                hidesRootNavigationBar: true
             ) {
                 Group {
                     switch primarySearchCoordinator.scope {
@@ -875,6 +878,7 @@ struct WorkspaceShellView: View {
                     .background(InteractiveSwipeBackEnabler())
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
             if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
                 currentPath: compactNavigationPath,
