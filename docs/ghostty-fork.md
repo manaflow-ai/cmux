@@ -12,6 +12,28 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### VT replay blank cells keep the default style
+
+- Branch: `fix-formatter-blank-cell-style-9d8d`
+  ([manaflow-ai/ghostty#249](https://github.com/manaflow-ai/ghostty/pull/249)),
+  based on `9d8d40319`. The same commits on top of `e1b8bf5f4` are
+  [manaflow-ai/ghostty#246](https://github.com/manaflow-ai/ghostty/pull/246);
+  cmux does not pin them because of
+  [#16040](https://github.com/manaflow-ai/cmux/issues/16040).
+- Commits: `1a3d3584c` (regression test), `559740279` (fix)
+- Summary: the VT and HTML formatters wrote pending blank cells as spaces
+  before switching to the next cell's style, so the spaces took the previous
+  cell's colors. Claude Code's mascot sets a black background and skips three
+  cells with CHA, which a Cloud replay painted as a black box. The formatter
+  now closes a non-default style before the pending blanks.
+- Coverage: Ghostty's `Page VT unstyled blank cells do not inherit the
+  previous background`.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-55974027991e4230210712796cd87c7b3a2018ee-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `fadcca35636c45690dcfd180d0889f0adc3b0e636fadf7a97c74b14017031cf8`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: upstream has the same bug. Keep the close before
+  `splatByteAll(' ', blank_cells)`; it mirrors the row-break reset above it.
+
 ### Cloud VT replay keeps the active viewport anchored
 
 - Branch: `issue-15109-replay-fix`
@@ -125,12 +147,19 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `e1b8bf5f4`, the OSC 133;A prompt
-line fix (section 15, manaflow-ai/ghostty#245) on top of `9d8d40319`, which
-corrects the styled blank row test. Artifact
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e1b8bf5f478c6aadbf70e51cdbb41930e92fda10-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-has SHA-256 `d18c7ddcc9f503cf2b03dff07b7001f4fc04f60d3d22bf84b2b4d5d5ce9ec885`,
-pinned in `scripts/ghosttykit-checksums.txt`. The previous pin was `9961d09be`,
+The submodule pinned by this branch is `559740279`, the VT replay blank-cell
+style fix (manaflow-ai/ghostty#249) on top of `9d8d40319`, which is `9961d09be`
+plus its styled blank row test fix. It leaves out `e1b8bf5f4`: with it, cmux
+DEV.app does not open its socket on current main
+([#16040](https://github.com/manaflow-ai/cmux/issues/16040)). Artifact
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-55974027991e4230210712796cd87c7b3a2018ee-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `fadcca35636c45690dcfd180d0889f0adc3b0e636fadf7a97c74b14017031cf8`,
+pinned in `scripts/ghosttykit-checksums.txt`. The previous pin was `9961d09be`
+(set by #15747); the pin before that was `e1b8bf5f4`,
+the OSC 133;A prompt line fix (section 15, manaflow-ai/ghostty#245) on top of
+`9d8d40319`, which corrects the styled blank row test (artifact SHA-256
+`d18c7ddcc9f503cf2b03dff07b7001f4fc04f60d3d22bf84b2b4d5d5ce9ec885`). The pin
+before that was `9961d09be`,
 the Cloud VT replay
 styled-blank-row fix on top of fork `main`, Ghostty #241's carried trailing
 row state, and the exact #239 startup-input commits. The previous pin was
