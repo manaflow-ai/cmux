@@ -59,7 +59,7 @@ struct MachinesPanelView: View {
         AppDelegate.shared?.auth?.accountFlow
     }
 
-    private var authState: CloudVMPanelAuthState {
+    var authState: CloudVMPanelAuthState {
         CloudVMPanelAuthState.resolve(
             isAuthenticated: accountFlow?.isAuthenticated == true,
             // Keep the embedded sign-in screen mounted while the browser is
@@ -136,7 +136,7 @@ struct MachinesPanelView: View {
     }
 
     @ViewBuilder
-    private var authenticatedContent: some View {
+    var authenticatedContent: some View {
         if includesCloud {
             controlBar
         }
@@ -246,7 +246,7 @@ struct MachinesPanelView: View {
         }
     }
 
-    private var authCheckingState: some View {
+    var authCheckingState: some View {
         VStack(spacing: 10) {
             Spacer()
             ProgressView()
@@ -264,7 +264,7 @@ struct MachinesPanelView: View {
     }
 
     @ViewBuilder
-    private var authGate: some View {
+    var authGate: some View {
         if let accountFlow {
             CloudMachinesSignInView(accountFlow: accountFlow)
         } else {
