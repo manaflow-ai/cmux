@@ -1,4 +1,6 @@
 import AppKit
+import Bonsplit
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)
@@ -102,12 +104,11 @@ struct SidebarWorkspaceDragDelegateTests {
         let registry = TabDragTransferRegistry()
         let group = SurfaceResourceGroup(
             title: "workspace",
-            resources: [SurfaceResourceID(
+            placements: [SurfaceResourcePlacement(resource: SurfaceResourceID(
                 machine: .local,
                 kind: .terminal,
                 key: UUID().uuidString
-            )],
-            representsWorkspace: true
+            ))]
         )
         let controller = SidebarWorkspaceTableController()
         let table = SidebarWorkspaceTableViewImpl()
@@ -127,7 +128,7 @@ struct SidebarWorkspaceDragDelegateTests {
             pasteboard.clearContents()
         }
 
-        #expect(writer.write(to: pasteboard))
+        #expect(pasteboard.writeObjects([writer]))
         #expect(pasteboard.types?.contains(TabDragTransferRegistry.pasteboardType) == true)
         #expect(pasteboard.types?.contains(DragOverlayRoutingPolicy.surfaceResourceTransferType) == true)
         let transfer = try #require(registry.resolve(from: pasteboard))
