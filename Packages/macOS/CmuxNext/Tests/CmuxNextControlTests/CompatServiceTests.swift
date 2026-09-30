@@ -45,6 +45,11 @@ import Testing
         let (router, _) = makeRouter()
         let ping = try await router.handle(ControlRequest(method: "system.ping")).get()
         #expect(ping["pong"] == true)
+        // The bundled CLI routes shared nouns (`cmux tab …`, `cmux pane …`)
+        // to the generated verbs only when ping names cmux-next; the compat
+        // table must not replace the built-in ping with one that drops it.
+        #expect(ping["app"] == "cmux-next")
+        #expect(ping["protocol_version"] != nil)
         let caps = try await router.handle(ControlRequest(method: "system.capabilities")).get()
         let methods = caps["methods"]?.arrayValue?.compactMap(\.stringValue) ?? []
         #expect(methods.contains("action.run") && methods.contains("surface.send_text") && methods.contains("workspace.create"))

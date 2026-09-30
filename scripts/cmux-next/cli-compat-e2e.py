@@ -138,6 +138,23 @@ def main() -> int:
     r.check("browser eval", ["browser", bref, "eval", "1 + 41"], lambda o: o == "42")
     r.check("browser url", ["browser", bref, "url"], lambda o: o.startswith("about:"))
     r.check("unsupported is typed", ["trigger-flash", "--workspace", ws], lambda o: "unsupported" in o, expect_fail=True)
+    # Generated `cmux <noun> <verb>` commands, including nouns that are also
+    # legacy top-level commands (`tab`, `pane`, `workspace-group`): the CLI
+    # must route them to the app's actions, never "Unknown command".
+    r.check("tab new-webkit", ["tab", "new-webkit", "--url", "about:blank"], lambda o: o.startswith("OK"))
+    # Chromium either opens or refuses with the build's reason (fleet builds
+    # have no CEF); both prove the verb resolved.
+    proc = r.raw("tab", "new-chromium", "--url", "about:blank")
+    chromium = (proc.stdout + proc.stderr).strip()
+    ok = "Unknown command" not in chromium and (proc.returncode == 0 or "Chromium" in chromium)
+    r.results.append(("cmux tab new-chromium", ok, chromium[:140]))
+    print(f"{'PASS' if ok else 'FAIL'}  {'tab new-chromium':<28} cmux tab new-chromium  -> {chromium[:140]}", flush=True)
+    r.check("pane split-right", ["pane", "split-right"], lambda o: o.startswith("OK"))
+    r.check("workspace-group create", ["workspace-group", "create", "--name", f"{marker}-group"], lambda o: o.startswith("OK"))
+    nouns = sorted({a.get("noun") for a in r.json(["action", "list"]).get("actions", []) if a.get("noun")})
+    unrouted = [n for n in nouns if "Unknown command" in (r.raw(n).stdout + r.raw(n).stderr)]
+    r.results.append(("every action noun routes", bool(nouns) and not unrouted, ", ".join(unrouted) or f"{len(nouns)} nouns"))
+    print(f"{'PASS' if nouns and not unrouted else 'FAIL'}  every action noun routes  -> {', '.join(unrouted) or len(nouns)}", flush=True)
     r.check("close-workspace", ["close-workspace", "--workspace", ws], lambda o: o.startswith("OK"))
     if not args.keep_daemon:
         ok, detail = teardown(args.cli, args.socket)
