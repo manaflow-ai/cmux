@@ -648,15 +648,20 @@ func browserZoomShortcutAction(
         layoutCharacterProvider: layoutCharacterProvider
     )
 
-    if keys.contains("=") || keys.contains("+") || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
+    // US key positions identify zoom keys unless the key types another shortcut
+    // character. Dvorak types "]" and "[" on the US "=" and "-" keys.
+    let typesOtherShortcutKey = keys.contains { ShortcutStroke.shortcutKey(typedAs: $0) != nil }
+    let isUSKey: (UInt16) -> Bool = { !typesOtherShortcutKey && keyCode == $0 }
+
+    if keys.contains("=") || keys.contains("+") || isUSKey(24) || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
         return .zoomIn
     }
 
-    if keys.contains("-") || keys.contains("_") || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
+    if keys.contains("-") || keys.contains("_") || isUSKey(27) || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
         return .zoomOut
     }
 
-    if keys.contains("0") || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
+    if keys.contains("0") || isUSKey(29) || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
         return .reset
     }
 
