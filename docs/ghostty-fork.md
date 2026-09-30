@@ -47,6 +47,41 @@ When we change the fork, update this document and the parent submodule SHA.
   soft-wrapped line counts; a hard newline in a multi-line buffer takes no
   cell, so offsets across it would not map onto arrow keys.
 
+### Prompt input caret stops and selection
+
+- Branches: `cmux/prompt-input-selection` ([manaflow-ai/ghostty#235](https://github.com/manaflow-ai/ghostty/pull/235)),
+  `cmux/prompt-input-right-prompt` ([manaflow-ai/ghostty#237](https://github.com/manaflow-ai/ghostty/pull/237)),
+  `cmux/prompt-input-erased-spaces` ([manaflow-ai/ghostty#238](https://github.com/manaflow-ai/ghostty/pull/238))
+- Commits: `218d80ead`, `d3edc8ede`, `cda3f06df`, `aa2472dbb`; merged to fork
+  `main` as `1015e149c`, `f8f8f828a` and `b93ab4222`
+- Summary: `ghostty_surface_prompt_input` reports the OSC 133 shell input the
+  cursor is editing (length and caret in caret stops, plus the selection when it
+  lies wholly inside the input), and `ghostty_surface_select_prompt_input`
+  selects a range of it without writing a clipboard. A caret stop is an `.input`
+  cell holding text, wide spacers skipped, so one stop is one Left/Right step
+  for zle or readline. cmux's `terminal.promptSelection` uses them for
+  text-field selection at the prompt. Both refuse the alternate screen, a
+  running command, a line with no `.prompt` cell before its input (fzf
+  `--height` and completion menus draw in input mode), and a line holding a
+  multi-codepoint grapheme. The input ends at the first empty cell at or after
+  the cursor, because zle draws RPROMPT after OSC 133 B by moving across the
+  gap, which makes a right prompt `.input` text. Spaces at or after the cursor
+  that run into that end are dropped too: with RPROMPT shown, zle erases
+  deleted text by writing spaces.
+- Coverage: eleven `Screen: promptInput ...` Zig tests, run by
+  `build-ghosttykit.yml` before packaging (`-Dtest-filter="promptInput"`).
+  Hosted [run 36319683313](https://github.com/manaflow-ai/cmux/actions/runs/36319683313) passed 84 tests with this filter at `b93ab4222` (74 with
+  the single-test pacer filter, so all eleven ran) and published GhosttyKit.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b93ab422284ad3ae982bf7e2fc7651a55ddf1e4f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `6aadd3e2ae583ef323212a95aeacd73eed1056d7dae51b0f76ade1c3dfaaaedb`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: everything lives in new functions (`Screen.promptInput`,
+  `Screen.promptInputSelection`, `Surface.promptInput`,
+  `Surface.selectPromptInput`, and two `CAPI` exports). Only the cursor's
+  soft-wrapped line counts; a hard newline in a multi-line buffer takes no
+  cell, so offsets across it would not map onto arrow keys.
+
 ### Cloud VT replay keeps the active viewport anchored
 
 - Branch: `issue-15109-replay-fix`
