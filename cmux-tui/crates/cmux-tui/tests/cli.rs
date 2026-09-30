@@ -33,17 +33,24 @@ impl HeadlessServer {
     }
 
     fn start_with_config(name: &str, config_contents: Option<&str>) -> Self {
-        Self::start_with_options(name, config_contents, None)
+        Self::start_with_options(name, config_contents, None, &[])
     }
 
     fn start_in(name: &str, launch_cwd: &std::path::Path) -> Self {
-        Self::start_with_options(name, None, Some(launch_cwd))
+        Self::start_with_options(name, None, Some(launch_cwd), &[])
+    }
+
+    /// Shells launched without Ghostty shell integration emit no OSC 133
+    /// prompt marks, so the terminal sees no prompt boundary.
+    fn start_without_shell_integration(name: &str) -> Self {
+        Self::start_with_options(name, None, None, &[("CMUX_TUI_SHELL_INTEGRATION", "none")])
     }
 
     fn start_with_options(
         name: &str,
         config_contents: Option<&str>,
         launch_cwd: Option<&std::path::Path>,
+        env: &[(&str, &str)],
     ) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
@@ -63,6 +70,7 @@ impl HeadlessServer {
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
+            .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
         if let Some(launch_cwd) = launch_cwd {
@@ -3309,7 +3317,8 @@ fn raw_command_is_the_explicit_private_protocol_v10_escape() {
 
 #[test]
 fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
-    let server = HeadlessServer::start("matrix");
+    // The clear-history check below covers a shell with no prompt boundary.
+    let server = HeadlessServer::start_without_shell_integration("matrix");
 
     let identify = raw_cli(&server, serde_json::json!({"id":"identify-human","cmd":"identify"}));
     assert_success(&identify);
