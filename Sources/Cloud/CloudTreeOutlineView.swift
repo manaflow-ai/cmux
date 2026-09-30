@@ -268,7 +268,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         func apply(nodes: [CloudTreeNode]) {
             apply(nodes: nodes, allowDuringNativeDrag: false)
         }
-
         /// Applies a snapshot immediately after a destination accepted a drop.
         /// AppKit's source session may send `endedAt` later, but the destination
         /// is complete and the user should see the new order now.
@@ -276,7 +275,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             deferredNodes = nil
             apply(nodes: nodes, allowDuringNativeDrag: true)
         }
-
         private func apply(nodes: [CloudTreeNode], allowDuringNativeDrag: Bool) {
             if isDragging && !allowDuringNativeDrag {
                 deferredNodes = nodes
@@ -357,7 +355,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             body()
             isUpdatingProgrammatically = false
         }
-
         // MARK: NSOutlineViewDataSource
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -462,10 +459,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
         /// One place decides what "open" means per row. Every surface row is
         /// `SurfaceCatalog.project` (focusing an open pane first); machine and
-        /// group rows toggle. Creation is never an open side effect: the hover
-        /// "+" and the context menu own it (an expired machine still prompts,
-        /// and the asleep placeholder still wakes, because those rows advertise
-        /// exactly that).
+        /// group rows toggle. A workspace row admits its local destination
+        /// through the shared optimistic open owner, while persistent create rows
+        /// use this same open path. The hover "+" and context menu remain alternate
+        /// entrypoints (an expired machine still prompts, and the asleep placeholder
+        /// still wakes, because those rows advertise exactly that).
         func open(_ node: CloudTreeNode) {
             switch node.kind {
             case .machine(let machine, _):
@@ -478,6 +476,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 toggle(node)
             case .devicesEmpty:
                 break
+            case .createAction(let action):
+                action.perform(nodeActions)
             case .pendingMachine(let operation):
                 // Nothing to open yet. A failed create's click shows why (the
                 // CLI transcript); a running one has nothing to say beyond its row.
@@ -506,7 +506,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                         nodeActions.project(openRow.resource.id, .tab, true)
                     }
                 } else if let group = node.dragGroup, !group.isEmpty {
-                    nodeActions.openGroupAsWorkspace(machine, group, workspace.id)
+                    // A workspace-row activation owns the workspace itself. It
+                    // admits a local destination through the shared optimistic
+                    // creation coordinator; open-here/split and drag/drop keep
+                    // their explicit group destinations below.
+                    nodeActions.openWorkspace(machine, workspace, group)
                 }
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
@@ -766,6 +770,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return deviceDiscoveryMenuItems(section: section)
             case .cloudMachinesSection:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
+            case .createAction: return []
             }
         }
 
