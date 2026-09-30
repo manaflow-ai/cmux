@@ -37,6 +37,9 @@ env:
   # Fork pull requests do not receive repository variables; the public read
   # URL is not a secret, so default it rather than run every fork build cold.
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+  # Exact trusted head repositories may use the owned minis. Keep this as one
+  # list so adding another team account changes one value and nothing else.
+  CI_OWNED_HEAD_REPOS: '["manaflow-ai/cmux", "teamleaderleo/cmux"]'
 
 concurrency:
   # Adding dev-build gets its own group, so a later label event cannot replace
@@ -64,6 +67,7 @@ jobs:
       web: ${{ steps.detect.outputs.web }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
       release_build: ${{ steps.detect.outputs.release_build }}
+      owned_head_repos: ${{ steps.owned-head-repos.outputs.repos }}
       linux_guard_tests: ${{ steps.linux_guards.outputs.linux_guard_tests }}
       linux_guard_test_groups: ${{ steps.linux_guards.outputs.linux_guard_test_groups }}
       linux_guard_history: ${{ steps.linux_guards.outputs.linux_guard_history }}
@@ -145,6 +149,12 @@ jobs:
       contents: read
       pull-requests: read
     steps:
+      - name: Publish the owned head repository allowlist
+        id: owned-head-repos
+        env:
+          CI_OWNED_HEAD_REPOS: ${{ env.CI_OWNED_HEAD_REPOS }}
+        run: echo "repos=$CI_OWNED_HEAD_REPOS" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -685,7 +695,7 @@ jobs:
         # yet, the App not installed, or the App without that organization
         # permission) leaves the token empty, and the choice falls back to the
         # janitor snapshot and CI_OWNED_POOL_SLOTS.
-        if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -722,30 +732,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          CI_PR_POOL_FORK_ALLOWED: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) && '1' || '0' }}
+          MACOS_RUNNER_PR: ${{ vars.MACOS_RUNNER_PR }}
           DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}
           # Empty unless the step above minted it: idle owned runners, live.
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
-          POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
+          CI_PR_POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
-          # Rounds of queue a pool may hold, owned or Blacksmith (default 1; 0 off).
           POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
-          # Owned Mac pools (off unless 1), their machine counts, and the lane
-          # Xcode whose version names their label (glaeda-std-xcode-26.6).
-          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
-          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
-          # 1 lets a run take the owned machines that are free and send its
-          # other jobs to Blacksmith, instead of all or nothing (off unless 1).
+          # Owned Mac pools (off unless 1), their live capacity, and the lane
+          # Xcode whose version names their label.
+          CI_PR_POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           POOL_OWNED_SPLIT: ${{ vars.CI_PR_POOL_OWNED_SPLIT }}
-          OWNED_LIGHT_RETRY: ${{ vars.CI_OWNED_LIGHT_RETRY }}
-          # 0 keeps GUI jobs (app-host shards, tests-build-and-lag) off them.
           POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
-          # Machines and root runners main's dispatch leaves free (default 0).
-          CMUX_CI_XCODE_APP_PR: ${{ (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CMUX_CI_XCODE_APP_PR || '' }}
-          # Handed to the macOS 15 pool's jobs only when the run lands there.
+          CMUX_CI_XCODE_APP_PR: ${{ (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CMUX_CI_XCODE_APP_PR || '' }}
           CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
-          # This run's macOS jobs, from the routing above, so an owned pool is
-          # taken only when every job of the run gets a machine at once.
+          # The run's machine count. A chosen label is never split.
           RUN_MACOS: ${{ steps.detect.outputs.macos }}
           RUN_FULL_SUITE: ${{ steps.suite.outputs.full_suite }}
           RUN_UNIT_SUITE: ${{ steps.suite.outputs.unit_suite }}
@@ -754,21 +758,13 @@ jobs:
           RUN_CLAUDE_WRAPPER: ${{ steps.standalone.outputs.claude_wrapper }}
           RUN_CLI: ${{ steps.detect.outputs.cli }}
           RUN_REMOTE_DAEMON: ${{ steps.standalone.outputs.remote_daemon }}
-          # swift-package-tests takes an owned Mac when it builds no SDK 15
-          # Release helper (full suite plus release_build), which the minis
-          # cannot build (pr_runner_pool.package_lane_owned()).
           RUN_SWIFT_PACKAGES: ${{ steps.detect.outputs.swift_packages }}
           RUN_RELEASE_BUILD: ${{ steps.detect.outputs.release_build }}
-          # The main commit this run merges onto: compile admission may take
-          # the root runner the snapshot calls warm for it (warm affinity).
           MERGED_ONTO: ${{ steps.source-identity.outputs.parent1 || github.event.pull_request.base.sha }}
-          # Or, failing that, the root runner warm for this pull request.
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
-          # 0 pins admission on exact warm keys only; otherwise every mini's
-          # kept builds are scored by distance (warm_distance.distance_route()).
           OWNED_WARM_DISTANCE: ${{ vars.CI_OWNED_WARM_DISTANCE }}
-        run: python3 scripts/ci/pr_runner_pool.py
+        run: python3 scripts/ci/simple_pool_picker.py
 
       # A job queued on a persistent pool (owned Macs) waits for it however long
       # it stays busy. ci-owned-pool-rescue.yml's sweeper, running from main,
@@ -949,7 +945,7 @@ jobs:
           # the pull-request macOS jobs compile under, or a lane move would reuse
           # a build admitted under the previous Xcode and skip the compile. A run
           # pr_runner_pool.py moved to the macOS 15 pool compiles under its Xcode.
-          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
         run: |
           set -euo pipefail
           fingerprint="$(python3 scripts/ci/build_input_fingerprint.py --extra "xcode=$XCODE_APP")"
@@ -966,7 +962,7 @@ jobs:
           # the pull-request macOS jobs compile under, or a lane move would reuse
           # a build admitted under the previous Xcode and skip the compile. A run
           # pr_runner_pool.py moved to the macOS 15 pool compiles under its Xcode.
-          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
           HEAD_FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
           set -euo pipefail
@@ -1118,6 +1114,10 @@ jobs:
     # decline ~25 s sooner without admitting macOS on a rejected diff.
     needs: [changes]
     if: ${{ needs.changes.outputs.linux_guard_tests != 'false' || needs.changes.outputs.linux_guard_history != 'false' || needs.changes.outputs.linux_guard_cli != 'false' || needs.changes.outputs.linux_guard_source != 'false' }}
+    # The reusable workflow's ci matrix leg reads the fast-guards check.
+    permissions:
+      contents: read
+      checks: read
     uses: ./.github/workflows/ci-guards.yml
     with:
       linux_guard_tests: ${{ needs.changes.outputs.linux_guard_tests }}
@@ -1190,7 +1190,7 @@ jobs:
     name: Claude wrapper regressions
     needs: [changes, static-preflight]
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt > 1 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && ((contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(needs.changes.outputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && ((contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     # Normally 1-2 minutes, but it spawns hundreds of short bash, perl and node
     # processes, so a mini saturated by a compile beside it stretches it:
     # 120-527 s at a mean load of 36-100 on 14 cores (glaeda-cmux-jobs.jsonl,
@@ -1337,6 +1337,7 @@ jobs:
       pr_admission_route: ${{ needs.changes.outputs.macos_pr_admission_route }}
       pr_admission_warm: ${{ needs.changes.outputs.macos_pr_admission_warm }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
+      owned_head_repos: ${{ needs.changes.outputs.owned_head_repos }}
       pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' swift-package ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
       pr_gui_runner: ${{ needs.changes.outputs.macos_pr_gui_runner }}
     # ci-macos.yml's admission-placement and late-placement read the runners with it.
@@ -1594,7 +1595,10 @@ jobs:
       - changes
       - static-preflight
       - macos-admission-gate
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-admission-gate.result == 'success' || needs.macos-admission-gate.result == 'skipped' && needs.changes.outputs.compile_admitted == 'true') && needs.changes.outputs.ui_selectors != '' }}
+    # The route/controller lane is disabled while its infra cancellation bug is
+    # repaired. Re-enable with the repository variable CI_UI_TESTS_ENABLED=1;
+    # selectors still keep dispatches limited to UI-touching diffs.
+    if: ${{ vars.CI_UI_TESTS_ENABLED == '1' && !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-admission-gate.result == 'success' || needs.macos-admission-gate.result == 'skipped' && needs.changes.outputs.compile_admitted == 'true') && needs.changes.outputs.ui_selectors != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A compile wait of up to 50 minutes, then the tests.
     timeout-minutes: 150

@@ -159,7 +159,8 @@ impl SurfaceSessionScope {
             | MuxEvent::SurfaceResizeFailed { surface, .. }
             | MuxEvent::AgentChanged { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
-            | MuxEvent::ScrollChanged { surface, .. } => *surface == self.surface,
+            | MuxEvent::ScrollChanged { surface, .. }
+            | MuxEvent::SizeStateChanged { surface, .. } => *surface == self.surface,
             MuxEvent::Notification(notification) => {
                 notification.surface.is_none_or(|surface| surface == self.surface)
             }

@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudBannerCore
 import CmuxCloudTui
 import CmuxComputerUse
 import CmuxCloudMachines
@@ -558,6 +559,7 @@ final class CmuxMainThreadTurnProfiler {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment {
     nonisolated(unsafe) static var shared: AppDelegate?
+    let cloudBannerDismissalStore: CloudBannerDismissalStore
     private(set) var devicesRegistry: DeviceSurfaceProviderRegistry?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
@@ -928,6 +930,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
+    var shortcutEventAlternateScreenCache: ShortcutEventAlternateScreenCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var globalFontMagnificationObserver: NSObjectProtocol?
     var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -1455,6 +1458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     override init() {
+        cloudBannerDismissalStore = CloudBannerDismissalStore(defaults: .standard)
         let fileManager = FileManager.default
         if let bundleIdentifier = Bundle.main.bundleIdentifier,
            !bundleIdentifier.isEmpty,
@@ -1543,7 +1547,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // audit recoverable route lifecycle after a surface unregisters.
         GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(self)
     }
-
     /// Shared native auth callback entrypoint for LaunchServices and embedded
     /// browser handoffs. The returned value reflects completed sign-in.
     @MainActor
@@ -1557,7 +1560,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
             return false
         }
-
         let signedIn = await accountFlow.handleCallbackURL(url)
         guard signedIn else {
             AuthDebugLog().log("auth.callback did not complete sign-in")
@@ -1590,7 +1592,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 _ = await handleAuthCallbackURLInProcess(url)
             }
         }
-
         let externalFileURLs = externalOpenFileURLs(from: urls)
         let terminalFileRequests = TerminalDefaultFileOpenRequest.requests(from: externalFileURLs)
         let terminalFilePaths = Set(terminalFileRequests.map { $0.fileURL.path(percentEncoded: false) })
@@ -6801,8 +6802,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func confirmCloseMainWindow(_ window: NSWindow, warningDefaults: UserDefaults) -> Bool {
-        let dontAskAgain: CloseWarningKinds = .window
+    private func confirmCloseMainWindow(
+        _ window: NSWindow,
+        warningDefaults: UserDefaults,
+        dontAskAgain: CloseWarningKinds
+    ) -> Bool {
 #if DEBUG
         if let debugCloseMainWindowConfirmationHandler {
             let accepted = debugCloseMainWindowConfirmationHandler(window)
@@ -6849,12 +6853,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // preconfirmed, so the last-window quit policy still applies. Without a
         // context there is no way to tell, so only the setting decides.
         let shouldConfirm: Bool
+        var dontAskAgain: CloseWarningKinds = .window
         let warningDefaults: UserDefaults
         if let context = mainWindowContext(forExactWindowIdentity: window) {
             warningDefaults = context.tabManager.closeTabWarningDefaults
+            let windowDockNeedsConfirmation = context.existingWindowDock()?.needsConfirmClose() == true
             shouldConfirm = context.tabManager.shouldConfirmWindowClose(
-                windowDockNeedsConfirmation: context.existingWindowDock()?.needsConfirmClose() == true
+                windowDockNeedsConfirmation: windowDockNeedsConfirmation
             )
+            if windowDockNeedsConfirmation
+                || context.tabManager.tabs.contains(where: {
+                    context.tabManager.workspaceNeedsConfirmClose($0)
+                }) {
+                dontAskAgain.insert(.safety)
+            }
         } else {
             warningDefaults = .standard
             shouldConfirm = CloseTabWarningStore(defaults: warningDefaults).warnsBeforeClosingWindow
@@ -6863,7 +6875,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.performClose(nil)
             return true
         }
-        guard confirmCloseMainWindow(window, warningDefaults: warningDefaults) else { return true }
+        guard confirmCloseMainWindow(
+            window,
+            warningDefaults: warningDefaults,
+            dontAskAgain: dontAskAgain
+        ) else { return true }
         performPreconfirmedMainWindowClose(window)
         return true
     }
@@ -10910,6 +10926,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             onQuitApp: {
                 AppDelegate.requestApplicationTermination()
+            },
+            cloudMenuEntries: { [weak self] in
+                guard let self else { return [] }
+                return CloudMenuContent.entries(
+                    self.cloudMenuContext(),
+                    actions: self.cloudMenuActions(fromStatusItem: true),
+                    layout: .statusItem
+                )
+            },
+            onCloudMenuWillOpen: {
+                CloudMenuModel.shared.menuWillOpen()
             }
         )
     }
@@ -15282,14 +15309,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
-            let focusContext = shortcutEventFocusContext(event)
             let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
                 // Arm by the effective `when` clause (its shortcuts.when override or
                 // the built-in context default), matching the keyDown gate, so a
                 // `when`-broadened chord arms in its allowed context and a narrowed
                 // one does not swallow its first stroke elsewhere (issue #5189).
-                KeyboardShortcutSettings.effectiveWhenClause(for: action)
-                    .evaluate(focusContext.whenClauseContext(for: action))
+                shortcutWhenClauseAllows(action: action, event: event)
             }
             if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
                 return true
@@ -15615,6 +15640,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             // Only consume when a focused terminal actually received the chord.
             return handled
+        }
+
+        if matchConfiguredShortcut(event: event, action: .sizeTerminalToMyWindow) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if routedManager?.sizeFocusedTerminalToMyWindow() != true {
+                NSSound.beep()
+            }
+            return true
         }
 
         if matchConfiguredShortcut(event: event, action: .pasteLastScreenshot) {
@@ -17609,8 +17642,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Gates every focus-scoped shortcut, including the numbered workspace/surface
     /// handlers that previously ignored context (issue #5189).
     func shortcutWhenClauseAllows(action: KeyboardShortcutSettings.Action, event: NSEvent) -> Bool {
-        KeyboardShortcutSettings.effectiveWhenClause(for: action)
-            .evaluate(shortcutEventFocusContext(event).whenClauseContext(for: action))
+        let clause = KeyboardShortcutSettings.effectiveWhenClause(for: action)
+        return clause.evaluate(shortcutWhenClauseContext(for: action, clause: clause, event: event))
     }
 
     /// Resolves a right-sidebar mode shortcut after applying the action's
@@ -17993,6 +18026,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didSplit { onExecuted?() }
                 return didSplit
+            case .copyWorkingDirectory, .copyProjectRoot, .copyScreen:
+                guard let copyAction = builtIn.terminalCopyAction else { return false }
+                let workspace = context.tabManager.selectedWorkspace
+                // With a browser, editor, or other non-terminal panel focused
+                // there is no copy target. Report the action unhandled without
+                // a beep: a bound shortcut's keystroke then reaches the focused
+                // panel, and the plus and group menus beep on their own.
+                guard workspace?.copyActionTerminal(panelId: workspace?.focusedPanelId) != nil else {
+                    return false
+                }
+                // With a terminal focused, the runner beeps when there is
+                // nothing to copy. Report the action handled and finish the
+                // caller's bookkeeping either way: a bound shortcut is consumed
+                // instead of also reaching the terminal after the beep, and the
+                // group menu restores its selection in `onExecuted`.
+                TerminalCopyActionRunner.run(
+                    copyAction,
+                    workspace: workspace,
+                    panelId: workspace?.focusedPanelId
+                )
+                onExecuted?()
+                return true
             }
         case .command, .agent, .workspaceCommand, .workspace:
             guard let cmuxConfigStore = context.cmuxConfigStore else {

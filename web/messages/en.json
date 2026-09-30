@@ -348,66 +348,69 @@
   "dashboard": {
     "nav": {
       "brand": "cmux",
-      "cloudGroup": "cloud",
+      "cloudGroup": "Cloud",
       "cloudDevices": "Mac access",
-      "vaultGroup": "vault",
-      "vaultOverview": "overview",
-      "vaultSessions": "sessions",
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "overview",
+      "vaultGroup": "Vault",
+      "vaultOverview": "Overview",
+      "vaultSessions": "Sessions",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Overview",
       "remoteControlGroup": "Remote control",
-      "accountGroup": "account",
-      "billing": "billing",
-      "team": "team",
+      "accountGroup": "Account",
+      "billing": "Billing",
+      "team": "Team",
       "testflight": "iOS TestFlight",
-      "mobileDevices": "Mobile devices"
+      "mobileDevices": "Mobile devices",
+      "settings": "Settings",
+      "teams": "Teams"
     },
     "home": {
-      "title": "dashboard",
-      "description": "choose a product dashboard.",
+      "title": "Dashboard",
+      "description": "Choose a product dashboard.",
       "cloudName": "Cloud Mac access",
-      "cloudDescription": "review and revoke the Macs that can reach your private Cloud VM network.",
-      "cloudLink": "manage Mac access",
-      "vaultName": "vault",
-      "vaultDescription": "browse synced agent sessions and manage cli access.",
-      "vaultLink": "open vault",
-      "coderouterName": "coderouter",
-      "coderouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
-      "coderouterLink": "open coderouter",
+      "cloudDescription": "Review and revoke the Macs that can reach your private Cloud VM network.",
+      "cloudLink": "Manage Mac access",
+      "vaultName": "Vault",
+      "vaultDescription": "Browse synced agent sessions and manage CLI access.",
+      "vaultLink": "Open vault",
+      "coderouterName": "Coderouter",
+      "coderouterDescription": "Route LLM requests across provider accounts with failover and usage-aware scheduling.",
+      "coderouterLink": "Open coderouter",
       "iosAppName": "iOS app",
-      "iosAppDescription": "install the cmux iOS app via TestFlight (beta access).",
-      "iosLink": "open iOS app"
+      "iosAppDescription": "Install the cmux iOS app via TestFlight (beta access).",
+      "iosLink": "Open iOS app"
     },
     "cloud": {
       "title": "Cloud Mac access",
       "description": "These Macs have WireGuard access to your private Cloud VM network. iPhone and Iroh pairing records are separate.",
       "empty": "No Mac has enrolled for Cloud VM access.",
       "cmux": "cmux build",
-      "access": "network access",
-      "lastContact": "last control-plane contact",
-      "deviceId": "device ID",
-      "unknown": "unknown",
-      "none": "none",
+      "access": "Network access",
+      "lastContact": "Last control-plane contact",
+      "deviceId": "Device ID",
+      "unknown": "Unknown",
+      "none": "None",
       "purpose": {
         "terminal": "terminal",
         "browser": "browser VPN"
       },
-      "rename": "rename",
-      "revoke": "revoke",
+      "rename": "Rename",
+      "revoke": "Revoke",
       "renameTitle": "Rename this Mac",
       "nameLabel": "Name",
-      "cancel": "cancel",
-      "save": "save",
+      "cancel": "Cancel",
+      "save": "Save",
       "renameError": "Could not rename this Mac.",
       "revokeTitle": "Revoke {name}?",
       "revokeBody": "This signs the Mac out and removes all of its Cloud VM network access.",
-      "revokeError": "Could not revoke this Mac."
+      "revokeError": "Could not revoke this Mac.",
+      "emptyBody": "A Mac appears here the first time it connects to one of your Cloud VMs."
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Manage shared AI accounts and route requests with coderouter.",
-      "title": "coderouter",
-      "description": "coderouter routes llm requests across provider accounts with failover and usage-aware scheduling.",
+      "title": "Coderouter",
+      "description": "Coderouter routes LLM requests across provider accounts with failover and usage-aware scheduling.",
       "machines": {
         "title": "Machines",
         "description": "Per-machine coderouter usage for {team} over the last {days} days.",
@@ -418,6 +421,20 @@
         "empty": "No machines have used coderouter in the last {days} days.",
         "unavailable": "Machine usage is temporarily unavailable.",
         "estimateNote": "API-equivalent value is an estimate using public list prices, not actual spend."
+      },
+      "metrics": {
+        "title": "30-day usage",
+        "scope": "Team aggregate for {team}",
+        "period": "Last {days} days",
+        "inputTokens": "Input tokens",
+        "outputTokens": "Output tokens",
+        "tokens": "Total tokens",
+        "apiEquivalent": "API-equivalent value",
+        "unpriced": "{share} of these tokens came from models without a list price and are left out of that value.",
+        "chartLabel": "Daily CodeRouter token usage",
+        "privacy": "No prompts, outputs, account labels, or member identities are recorded or shown.",
+        "estimate": "API-equivalent value is what these tokens would have cost at public API list prices (rate card {version}). It is not what you paid.",
+        "unavailable": "Team usage is temporarily unavailable."
       }
     },
     "coderouterAccounts": {
@@ -448,8 +465,6 @@
       "migrationPendingBody": "Shared Codex accounts are temporarily unavailable. Try again shortly.",
       "loadErrorTitle": "Some accounts could not load",
       "loadErrorBody": "Part of the account list could not be read. The accounts shown are complete for the other providers. Try again shortly.",
-      "pageErrorTitle": "coderouter could not load",
-      "pageErrorBody": "The account service could not be reached. Try again shortly.",
       "providerColumn": "Provider",
       "labelColumn": "Label",
       "statusColumn": "Status",
@@ -471,10 +486,10 @@
       "stateBroken": "Sign-in broken",
       "stateUnhealthy": "Needs attention",
       "coolingDown": "Cooling down until {until}",
-      "lastFailure": "last failure {code}",
-      "lastUsed": "last used {at}",
-      "neverUsed": "never used",
-      "createdAt": "added {at}",
+      "lastFailure": "Last failure {code}",
+      "lastUsed": "Last used {at}",
+      "neverUsed": "Never used",
+      "createdAt": "Added {at}",
       "activeSessions": "{count, plural, =0 {no active sessions} one {# active session} other {# active sessions}}",
       "addTitle": "Add account",
       "kindSelectorLabel": "Account kind",
@@ -517,18 +532,14 @@
       "apiKeysTitle": "API keys",
       "apiKeysDescription": "Create long-lived keys for scripts and agents. The secret is shown once.",
       "apiKeysCount": "{count, plural, one {# key} other {# keys}}",
-      "apiKeysLoading": "Loading API keys…",
-      "apiKeysLoadError": "API keys could not be loaded. Try again shortly.",
-      "apiKeysRetry": "Retry",
-      "apiKeysEmptyBody": "No API keys yet. Create one to authenticate a CodeRouter client.",
       "apiKeyPrefixColumn": "Key",
       "apiKeyStatusColumn": "Status",
       "apiKeySecretTitle": "Copy this key now",
       "apiKeySecretBody": "This secret will not be shown again.",
       "apiKeyCopy": "Copy API key",
       "apiKeyCopied": "Copied",
-      "apiKeyCreatedAt": "created {at}",
-      "apiKeyLastUsed": "last used {at}",
+      "apiKeyCreatedAt": "Created {at}",
+      "apiKeyLastUsed": "Last used {at}",
       "apiKeyRevoked": "Revoked",
       "apiKeyLabelPlaceholder": "For example, CI or production",
       "createApiKeyAction": "Create API key",
@@ -539,8 +550,12 @@
       "apiKeyRevokeError": "API key could not be revoked.",
       "revokeApiKeyConfirmTitle": "Revoke this API key?",
       "revokeApiKeyConfirmBody": "Clients using this key will stop authenticating immediately.",
-      "apiKeyUsageDetail": "last 30 days: {completions} completions · {tokens} tokens ({input} in / {output} out) · {value} API equivalent",
-      "apiKeyUsageUnavailable": "Usage unavailable"
+      "apiKeyUsageDetail": "Last 30 days: {completions} completions · {tokens} tokens ({input} in / {output} out) · {value} API equivalent",
+      "apiKeyUsageUnavailable": "Usage unavailable",
+      "apiKeysEmptyTitle": "No API keys yet",
+      "apiKeysEmptyHint": "Create one to authenticate a CodeRouter client.",
+      "unavailableTitle": "Shared accounts are unavailable",
+      "unavailableBody": "cmux cannot reach the shared account service right now. Accounts added with cr add, and Anthropic and Bedrock accounts, still work."
     },
     "accountMenu": {
       "label": "Account menu",
@@ -551,22 +566,27 @@
       "signOut": "Sign out",
       "signingOut": "Signing out…",
       "signOutError": "Could not sign out. Try again.",
-      "signIn": "Sign in"
+      "signIn": "Sign in",
+      "upgrade": "Upgrade"
     },
     "teamSwitcher": {
       "label": "Team",
       "personal": "Personal"
     },
     "billing": {
-      "eyebrow": "account",
-      "title": "billing",
-      "description": "review your cmux plan and manage subscription billing.",
+      "eyebrow": "Account",
+      "title": "Plan & billing",
+      "description": "Review your cmux plan and manage subscription billing.",
       "banners": {
         "cancelled": "Your plan will cancel at the end of the current billing period.",
         "resumed": "Your plan has been resumed and will renew normally.",
         "nosub": "No active Stripe subscription was found for this account.",
         "error": "Billing could not be updated. Try again shortly.",
-        "pastDue": "Your latest payment failed. Update your payment method to keep your plan active."
+        "pastDue": "Your latest payment failed. Update your payment method to keep your plan active.",
+        "team_admin_required": "Only team admins can manage this team's billing.",
+        "team_not_found": "That team is not available. You may have left it, or it was deleted.",
+        "authorization_unavailable": "Team permissions could not be checked. Try again shortly.",
+        "personal_team_not_upgradable_to_team": "Your personal account uses Pro or Max. Create a team to buy Team."
       },
       "free": {
         "name": "Free",
@@ -597,7 +617,8 @@
         "activeBody": "{team} renews on {date}.",
         "pendingBody": "{team} is scheduled to end on {date}.",
         "price": "${amount}/seat/mo",
-        "annualPrice": "${monthly}/seat/mo, billed annually"
+        "annualPrice": "${monthly}/seat/mo, billed annually",
+        "createCta": "Create a team"
       },
       "details": {
         "renewsOn": "Renews on",
@@ -623,8 +644,7 @@
       "plan": {
         "heading": "Your personal plan",
         "free": "Free",
-        "pro": "Pro",
-        "loading": "Loading…"
+        "pro": "Pro"
       },
       "max": {
         "name": "cmux Max",
@@ -632,12 +652,128 @@
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
         "upsell": "Max includes up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs for $200 per month, billed monthly."
+      },
+      "teamPanel": {
+        "notFound": "This team is not available. You may have left it, or it was deleted.",
+        "unavailable": "Team billing could not be loaded. Try again shortly.",
+        "welcome": "Team is active. Invite your teammates from the team's members page.",
+        "freeBody": "{team} is on the Free plan. Team gives every member cloud agents with one shared invoice.",
+        "upgradeCta": "Upgrade this team",
+        "askAdmin": "Only team admins can change billing. Ask an admin of {team} to upgrade.",
+        "memberReadOnly": "Only team admins can change this plan.",
+        "grantedBody": "Team access was granted to {team} by the cmux team. There is no subscription to manage.",
+        "seatsUsed": "{members} of {seats} used",
+        "overSeat": "{team} has {members} members and {seats} paid seats. Joining still works; add seats to cover everyone.",
+        "addSeats": "Add seats"
+      },
+      "teamList": {
+        "heading": "Billing scopes",
+        "personal": "Personal account",
+        "planBadges": {
+          "free": "Free",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "picker": {
+        "current": "Current plan",
+        "upgradeTo": "Upgrade to {plan}",
+        "switchTo": "Switch to {plan}",
+        "cancelPlan": "Cancel plan",
+        "resume": "Resume {plan}",
+        "renewsOn": "Renews on {date}",
+        "endsOn": "Ends on {date}",
+        "perMonth": "per month",
+        "perSeatMonth": "per seat per month",
+        "paymentMethod": "Manage payment method",
+        "invoices": "Invoices",
+        "heading": "Plans",
+        "actionError": "Could not change the plan. Try again.",
+        "unavailable": {
+          "cancelScheduled": "Resume your plan to change it.",
+          "granted": "Granted by cmux. There is nothing to change.",
+          "adminOnly": "Only team admins can change the plan."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "The full cmux terminal for macOS",
+            "Any CLI agent with your own keys",
+            "Local session history"
+          ],
+          "go": [
+            "1 active Cloud VM",
+            "40 VM-hours each month",
+            "2 saved VMs"
+          ],
+          "pro": [
+            "Cloud agents on Cloud VMs",
+            "24 GB RAM and 6 vCPUs shared across VMs",
+            "The cmux iOS app"
+          ],
+          "max": [
+            "64 GB RAM and 16 vCPUs shared across VMs",
+            "Larger machine sizes",
+            "Everything in Pro"
+          ],
+          "team": [
+            "Everything in Pro for every member",
+            "One invoice for the whole team",
+            "Priority support"
+          ]
+        },
+        "billedAnnually": "billed annually"
+      },
+      "change": {
+        "title": "Switch to {plan}?",
+        "upgradeBody": "{plan} starts now. You pay {amount} today for the rest of this billing period. From {date}, you pay {price} per month.",
+        "downgradeBody": "{plan} starts now. The unused part of your current plan, {credit}, is credited to your next invoices. Your next invoice, on {date}, is {amount}.",
+        "confirm": "Switch to {plan}",
+        "keep": "Keep current plan",
+        "switching": "Switching…",
+        "previewError": "Could not calculate the price. Try again.",
+        "paymentFailed": "Your card was declined. Update your payment method, then try again.",
+        "error": "Could not switch the plan. Try again."
+      },
+      "cancelDialog": {
+        "title": "Cancel {plan}?",
+        "body": "You keep {plan} until {date}. After that, you lose:",
+        "bodyNoDate": "You keep {plan} until the end of this billing period. After that, you lose:",
+        "reasonLabel": "Why are you canceling? (optional)",
+        "otherPlaceholder": "Tell us more (optional)",
+        "confirm": "Cancel plan",
+        "keep": "Keep {plan}",
+        "error": "Could not cancel the plan. Try again.",
+        "resumeError": "Could not resume the plan. Try again.",
+        "reasons": {
+          "too_expensive": "Too expensive",
+          "missing_feature": "Missing a feature I need",
+          "not_using": "Not using it enough",
+          "other": "Other"
+        }
+      },
+      "welcome": {
+        "title": "Welcome to {plan}",
+        "body": "Your plan is active. Things to try first:",
+        "ios": "Install the iOS app",
+        "cloud": "Open Cloud",
+        "team": "Create a team",
+        "banner": "You are on {plan} now.",
+        "bannerLink": "Plan & billing"
       }
     },
     "testflight": {
-      "eyebrow": "account",
+      "eyebrow": "Account",
       "title": "iOS TestFlight",
-      "description": "join the cmux iOS beta from your active subscription.",
+      "description": "Join the cmux iOS beta from your active subscription.",
       "banners": {
         "joined": "Apple will email your TestFlight invite shortly.",
         "left": "You have left the iOS TestFlight group.",
@@ -689,7 +825,6 @@
       "emptyTitle": "No connected devices yet",
       "emptyDescription": "When a cmux device pairs with this team, it will appear here with its platform, version, and access controls.",
       "unavailable": "Could not load your devices. Refresh the page to try again.",
-      "retry": "Try again",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "revoking": "Revoking…",
@@ -705,7 +840,544 @@
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
       "savingRelaySettings": "Saving…",
-      "eyebrow": "cloud / devices"
+      "eyebrow": "Cloud / devices"
+    },
+    "settings": {
+      "nav": {
+        "title": "Settings",
+        "profile": "Profile",
+        "auth": "Emails & auth",
+        "notifications": "Notifications",
+        "sessions": "Sessions",
+        "apiKeys": "API keys",
+        "account": "Account",
+        "billing": "Billing",
+        "teamsGroup": "Teams",
+        "createTeam": "Create team",
+        "accountGroup": "Account",
+        "billingGroup": "Billing",
+        "planBilling": "Plan & billing"
+      },
+      "ui": {
+        "save": "Save",
+        "saving": "Saving…",
+        "cancel": "Cancel",
+        "editLabel": "Edit {label}",
+        "required": "This field is required.",
+        "saveError": "Could not save. Try again.",
+        "actionError": "Something went wrong. Try again.",
+        "working": "Working…",
+        "typeToConfirm": "Type {text} to confirm",
+        "imageSaveError": "Could not save the image. Try again.",
+        "invalidImage": "Choose a valid image file.",
+        "uploadImage": "Upload image",
+        "removeImage": "Remove image",
+        "zoom": "Zoom"
+      },
+      "profile": {
+        "title": "Profile",
+        "description": "Your name and avatar.",
+        "displayNameTitle": "Display name",
+        "displayNameDescription": "Shown to teammates. It is not used to sign in.",
+        "displayNameEmpty": "Not set",
+        "imageTitle": "Profile image",
+        "imageDescription": "Upload an image to use as your avatar.",
+        "imageUpload": "Change profile image"
+      },
+      "auth": {
+        "title": "Emails & auth",
+        "description": "Emails, sign-in methods, and multi-factor authentication.",
+        "emails": {
+          "title": "Emails",
+          "description": "Verified emails can be your primary contact address and can be used to sign in.",
+          "add": "Add an email",
+          "addSubmit": "Add",
+          "adding": "Adding…",
+          "cancel": "Cancel",
+          "inputLabel": "New email address",
+          "placeholder": "Enter email",
+          "addError": "Could not add the email. Try again.",
+          "added": "Added {email}. Check that inbox for a verification link.",
+          "addedVerificationFailed": "Added {email}, but the verification email could not be sent. Use Send verification email to retry.",
+          "verificationSent": "Verification email sent to {email}.",
+          "actionError": "Could not update the email. Try again.",
+          "usedBySomeoneElse": "This email is already used for sign-in by another user.",
+          "removeTitle": "Remove email",
+          "removeBody": "Remove {email} from your account? You can add it again later.",
+          "remove": "Remove",
+          "actionsLabel": "Actions for {email}",
+          "validation": {
+            "required": "Email is required.",
+            "invalid": "Enter a valid email address.",
+            "duplicate": "This email is already on your account."
+          },
+          "actions": {
+            "sendVerification": "Send verification email",
+            "setPrimary": "Set as primary",
+            "useForSignIn": "Use for sign-in",
+            "stopUsingForSignIn": "Stop using for sign-in",
+            "remove": "Remove"
+          },
+          "disabled": {
+            "verifyFirst": "Verify this email first.",
+            "lastSignInEmail": "You cannot remove your last sign-in email."
+          },
+          "badges": {
+            "primary": "Primary",
+            "unverified": "Unverified",
+            "usedForSignIn": "Used for sign-in"
+          }
+        },
+        "password": {
+          "title": "Password",
+          "updateDescription": "Update your password.",
+          "setDescription": "Set a password for your account.",
+          "update": "Update password",
+          "set": "Set password",
+          "updateSubmit": "Update password",
+          "setSubmit": "Set password",
+          "saving": "Saving…",
+          "cancel": "Cancel",
+          "saved": "Password saved.",
+          "needsSignInEmail": "To set a password, add a sign-in email first.",
+          "saveError": "Could not save the password. Try again.",
+          "oldPassword": "Old password",
+          "newPassword": "New password",
+          "repeatPassword": "Repeat new password",
+          "incorrect": "Incorrect password.",
+          "requirements": "This password does not meet the requirements.",
+          "errors": {
+            "oldPassword": {
+              "required": "Enter your old password."
+            },
+            "newPassword": {
+              "required": "Enter a new password.",
+              "tooShort": "Use at least {min} characters.",
+              "tooLong": "Use at most {max} characters."
+            },
+            "newPasswordRepeat": {
+              "required": "Repeat the new password.",
+              "mismatch": "Passwords do not match."
+            }
+          }
+        },
+        "passkey": {
+          "title": "Passkey",
+          "registered": "A passkey is registered.",
+          "notRegistered": "Register a passkey to sign in without a password.",
+          "add": "Add passkey",
+          "registering": "Waiting for passkey…",
+          "registerError": "Could not register the passkey. The request was cancelled or failed. Try again.",
+          "delete": "Remove passkey",
+          "needsVerifiedEmail": "To enable passkey sign-in, add a verified sign-in email.",
+          "onlyMethod": "Passkey sign-in cannot be disabled because it is your only sign-in method.",
+          "disableTitle": "Disable passkey sign-in",
+          "disableBody": "You will no longer be able to sign in with your passkey.",
+          "disable": "Disable",
+          "disableError": "Could not disable passkey sign-in. Try again."
+        },
+        "otp": {
+          "title": "One-time code sign-in",
+          "enabledDescription": "Sign-in with a magic link or one-time code is enabled.",
+          "disabledDescription": "Sign in with a magic link or one-time code sent to your sign-in emails.",
+          "enable": "Enable",
+          "enableError": "Could not enable one-time code sign-in. Try again.",
+          "disable": "Disable",
+          "needsVerifiedEmail": "To enable one-time code sign-in, add a verified sign-in email.",
+          "onlyMethod": "One-time code sign-in cannot be disabled because it is your only sign-in method.",
+          "disableTitle": "Disable one-time code sign-in",
+          "disableBody": "You will no longer be able to sign in with only an email.",
+          "disableConfirm": "Disable",
+          "disableError": "Could not disable one-time code sign-in. Try again."
+        },
+        "mfa": {
+          "title": "Multi-factor authentication",
+          "enabledDescription": "Multi-factor authentication is enabled.",
+          "disabledDescription": "Multi-factor authentication is disabled.",
+          "enable": "Enable MFA",
+          "disable": "Disable MFA",
+          "startError": "Could not start MFA setup. Try again.",
+          "enableError": "Could not enable MFA. Try again.",
+          "scan": "Scan this QR code with your authenticator app.",
+          "qrAlt": "QR code for multi-factor authentication",
+          "enterCode": "Then enter the six-digit code:",
+          "incorrect": "Incorrect code. Try again.",
+          "cancel": "Cancel",
+          "disableTitle": "Disable multi-factor authentication",
+          "disableBody": "Sign-in will no longer ask for a code from your authenticator app.",
+          "disableConfirm": "Disable MFA",
+          "disableError": "Could not disable MFA. Try again."
+        },
+        "connected": {
+          "title": "Connected accounts",
+          "description": "Accounts from other providers linked to your cmux account.",
+          "usedForSignIn": "Used for sign-in",
+          "useForSignIn": "Use for sign-in",
+          "stopUsingForSignIn": "Stop using for sign-in",
+          "remove": "Unlink",
+          "lastMethod": "This is your only sign-in method.",
+          "actionsLabel": "Actions for {provider}",
+          "actionError": "Could not update the connected account. Try again.",
+          "usedBySomeoneElse": "This account is already used for sign-in by another user.",
+          "removeTitle": "Unlink {provider}",
+          "removeBody": "You will no longer be able to sign in with this account. You can link it again by signing in with it."
+        }
+      },
+      "notifications": {
+        "title": "Notifications",
+        "description": "Email notifications from cmux.",
+        "heading": "Choose which emails you want to receive",
+        "empty": "There are no email categories to configure.",
+        "cannotDisable": "(cannot be disabled)",
+        "saveError": "Could not save this preference. Try again."
+      },
+      "sessions": {
+        "title": "Sessions",
+        "description": "Devices where you are signed in.",
+        "heading": "Active sessions",
+        "explanation": "These are devices where you are signed in. Revoke a session to sign it out.",
+        "revokeAll": "Revoke all other sessions",
+        "revokeAllTitle": "Revoke other sessions",
+        "revokeAllBody": "This signs out {count, plural, one {# other session} other {# other sessions}}. This session stays signed in.",
+        "revokeAllConfirm": "Revoke sessions",
+        "revokeAllError": "Could not revoke every session. The list shows what remains.",
+        "revokeError": "Could not revoke the session. Try again.",
+        "empty": "No active sessions found.",
+        "columns": {
+          "session": "Session",
+          "ip": "IP address",
+          "location": "Location",
+          "lastUsed": "Last used"
+        },
+        "current": "Current session",
+        "other": "Other session",
+        "impersonation": "Impersonation",
+        "signedIn": "Signed in {date}",
+        "actionsLabel": "Session actions",
+        "revoke": "Revoke",
+        "cannotRevokeCurrent": "You cannot revoke your current session.",
+        "unknownIp": "-",
+        "unknownLocation": "Unknown",
+        "never": "Never"
+      },
+      "apiKeys": {
+        "title": "API keys",
+        "description": "Keys that give programs access to your account.",
+        "disabled": "Personal API keys are not enabled for this project.",
+        "create": "Create API key",
+        "createTitle": "Create API key",
+        "createDescription": "API keys grant programmatic access to your account.",
+        "descriptionLabel": "Description",
+        "descriptionPlaceholder": "For example: Development, Production, CI",
+        "descriptionRequired": "Description is required.",
+        "expiresIn": "Expires in",
+        "expiry": {
+          "1d": "1 day",
+          "7d": "7 days",
+          "30d": "30 days",
+          "90d": "90 days",
+          "1y": "1 year",
+          "never": "Never"
+        },
+        "cancel": "Cancel",
+        "createSubmit": "Create",
+        "creating": "Creating…",
+        "createError": "Could not create the API key. Try again.",
+        "showTitle": "API key",
+        "showBody": "Here is your API key.",
+        "showWarning": "Copy it to a safe place. You will not be able to view it again.",
+        "secretLabel": "Secret API key",
+        "copy": "Copy",
+        "copied": "Copied",
+        "copyError": "Could not copy. Select the key and copy it manually.",
+        "acknowledge": "I understand that I will not be able to view this key again.",
+        "close": "Close",
+        "search": "Search keys",
+        "statusFilter": "Filter by status",
+        "status": {
+          "valid": "Valid",
+          "expired": "Expired",
+          "revoked": "Revoked"
+        },
+        "empty": "No API keys yet.",
+        "noMatches": "No API keys match these filters.",
+        "columns": {
+          "description": "Description",
+          "status": "Status",
+          "key": "Key",
+          "expiresAt": "Expires",
+          "createdAt": "Created"
+        },
+        "never": "Never",
+        "actionsLabel": "Actions for {description}",
+        "revoke": "Revoke",
+        "revokeTitle": "Revoke API key",
+        "revokeBody": "Revoke API key *****{lastFour}? Apps that use it lose access immediately.",
+        "revokeAcknowledge": "I understand this will unlink all the apps using this API key.",
+        "revokeConfirm": "Revoke key",
+        "revokeError": "Could not revoke the API key. Try again."
+      },
+      "account": {
+        "title": "Account",
+        "description": "Billing, sign out, and account deletion.",
+        "billingTitle": "Billing",
+        "billingDescription": "Plans, invoices, and payment methods.",
+        "billingLink": "Open billing",
+        "signOutTitle": "Sign out",
+        "signOutDescription": "End your current session.",
+        "signOut": "Sign out",
+        "signingOut": "Signing out…",
+        "signOutError": "Could not sign out. Try again.",
+        "deleteTitle": "Delete account",
+        "deleteDescription": "Permanently remove your account and all associated data.",
+        "delete": "Delete account",
+        "deleteConfirmTitle": "Delete your account?",
+        "deleteConfirmBody": "This is irreversible and deletes all data associated with your account.",
+        "deleteAcknowledge": "I understand my account and its data will be deleted permanently.",
+        "deleteConfirm": "Delete account",
+        "deleteError": "Could not delete the account. Try again."
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "Copy",
+        "copied": "Copied",
+        "copyFailed": "Copy failed"
+      },
+      "plan": {
+        "free": "Free",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "Admin",
+        "member": "Member"
+      },
+      "errors": {
+        "generic": "Something went wrong. Try again.",
+        "network_error": "Could not reach cmux. Check your connection and try again.",
+        "unauthorized": "Your session ended. Sign in again.",
+        "forbidden": "You do not have permission to do this.",
+        "team_not_found": "This team no longer exists.",
+        "invalid_request": "The request was not valid. Check the fields and try again.",
+        "rate_limited": "Too many requests. Wait a moment and try again.",
+        "last_admin": "A team must keep at least one admin. Promote another member first.",
+        "member_not_found": "That person is no longer a member.",
+        "invitation_not_found": "That invitation no longer exists.",
+        "invitation_invalid": "This invitation is invalid, expired, or already used.",
+        "email_mismatch": "This invitation was sent to a different email address.",
+        "link_not_found": "That invite link no longer exists.",
+        "link_invalid": "This invite link is invalid, expired, revoked, or full.",
+        "team_has_active_subscription": "Cancel the team subscription before deleting the team.",
+        "service_unavailable": "The service is temporarily unavailable. Try again shortly."
+      },
+      "list": {
+        "title": "Teams",
+        "description": "Teams share members, billing, and coderouter accounts. Open a team to manage it.",
+        "create": "Create team",
+        "count": "{count, plural, one {# team} other {# teams}}",
+        "selected": "Current",
+        "emptyTitle": "No teams yet",
+        "emptyBody": "Create a team to invite people and share one plan."
+      },
+      "new": {
+        "title": "Create a team",
+        "description": "Name the team, pick a plan, then invite people.",
+        "stepsLabel": "Steps",
+        "steps": {
+          "name": "Name",
+          "plan": "Plan",
+          "invite": "Invite"
+        },
+        "nameTitle": "Name your team",
+        "nameLabel": "Team name",
+        "namePlaceholder": "Acme Engineering",
+        "nameError": {
+          "empty": "Enter a team name.",
+          "tooLong": "Use {max} characters or fewer."
+        },
+        "cancel": "Cancel",
+        "createAction": "Create team",
+        "creating": "Creating…",
+        "planTitle": "Choose a plan for {team}",
+        "planDescription": "You can change the plan later from the team's billing page.",
+        "freeName": "Free",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "${price} per seat per month",
+        "featureMembers": "Members, roles, and invitations",
+        "featureProForEveryone": "Everything in Pro for every member",
+        "featureCentralBilling": "Centralized billing for the whole team",
+        "featurePrioritySupport": "Priority support",
+        "chooseFree": "Continue with Free",
+        "chooseTeam": "Upgrade to Team (${price}/seat/month)",
+        "upgradeLater": "Seats are soft: you can invite more people than you pay for and add seats later.",
+        "inviteTitle": "Invite people to {team}",
+        "inviteDescription": "Optional. You can also invite people later from the team's Members page.",
+        "inviteByEmail": "Invite by email",
+        "inviteByLink": "Invite link",
+        "backToPlan": "Back to plans",
+        "finish": "Go to team"
+      },
+      "invite": {
+        "emailsLabel": "Email addresses",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "Not a valid email address",
+        "removeEmail": "Remove {email}",
+        "roleLabel": "Role",
+        "roleMember": "Member",
+        "roleAdmin": "Admin",
+        "count": "{count}/{max}",
+        "send": "Send invitations",
+        "sending": "Sending…",
+        "invalidCount": "{count, plural, one {Fix or remove # invalid address before sending.} other {Fix or remove # invalid addresses before sending.}}",
+        "overflow": "{count, plural, one {# address was not added: the limit is {max} per request.} other {# addresses were not added: the limit is {max} per request.}}",
+        "sent": "{count, plural, one {Sent # invitation.} other {Sent # invitations.}}"
+      },
+      "inviteFailure": {
+        "generic": "could not be invited",
+        "already_member": "is already a member",
+        "invite_failed": "the invitation could not be sent"
+      },
+      "links": {
+        "expiryLabel": "Expires",
+        "expiry": {
+          "1": "In 1 day",
+          "7": "In 7 days",
+          "30": "In 30 days",
+          "never": "Never"
+        },
+        "maxUsesLabel": "Max uses",
+        "maxUsesPlaceholder": "Unlimited",
+        "maxUsesInvalid": "Max uses must be a whole number from 1 to {max}, or empty for unlimited.",
+        "create": "Create link",
+        "creating": "Creating…",
+        "memberOnly": "People who join by link become members. Promote them to admin afterwards if needed.",
+        "showOnce": "Copy this link now. It is shown only once.",
+        "empty": "No active invite links.",
+        "createdAt": "Created {at}",
+        "expiresAt": "Expires {at}",
+        "neverExpires": "Never expires",
+        "uses": "{count}/{max} uses",
+        "usesUnlimited": "{count, plural, one {# use} other {# uses}}",
+        "revoke": "Revoke",
+        "revokeTitle": "Revoke this invite link?",
+        "revokeBody": "Anyone holding the link can no longer join. People who already joined stay members.",
+        "actionsFor": "Actions for the link ({created})"
+      },
+      "shell": {
+        "allTeams": "All teams",
+        "tabsLabel": "Team settings",
+        "tabs": {
+          "general": "General",
+          "members": "Members",
+          "apiKeys": "API keys",
+          "billing": "Billing"
+        },
+        "notFoundTitle": "Team not found",
+        "notFoundBody": "This team does not exist, or you are not a member of it.",
+        "backToTeams": "Back to teams"
+      },
+      "general": {
+        "imageTitle": "Team image",
+        "imageDescription": "Shown next to the team name across cmux.",
+        "imageUpload": "Upload team image",
+        "nameTitle": "Team name",
+        "nameDescription": "Visible to every member.",
+        "nameReadOnly": "Only admins can rename the team.",
+        "nameError": {
+          "empty": "Enter a team name.",
+          "tooLong": "Use {max} characters or fewer."
+        },
+        "profileTitle": "Your name in this team",
+        "profileDescription": "How other members of this team see you. Leave empty to use your account name.",
+        "profileLabel": "Your team display name",
+        "leaveTitle": "Leave team",
+        "leaveDescription": "You lose access to this team's shared accounts and billing.",
+        "leaveAction": "Leave team",
+        "leaveBlocked": "You are the only admin. Promote another member to admin, or delete the team, before leaving.",
+        "leaveConfirmTitle": "Leave {team}?",
+        "leaveConfirmBody": "You need a new invitation to rejoin.",
+        "deleteTitle": "Delete team",
+        "deleteDescription": "Permanently removes the team, its members' access, and its invite links.",
+        "deleteAction": "Delete team",
+        "deleteConfirmTitle": "Delete {team}?",
+        "deleteConfirmBody": "This cannot be undone.",
+        "openBilling": "Open team billing"
+      },
+      "members": {
+        "title": "Members",
+        "count": "{count, plural, one {# member} other {# members}}",
+        "memberColumn": "Member",
+        "roleColumn": "Role",
+        "actionsColumn": "Actions",
+        "you": "You",
+        "unnamed": "Unnamed member",
+        "remove": "Remove",
+        "removeTitle": "Remove {name}?",
+        "removeBody": "They lose access to this team immediately. You can invite them again later.",
+        "inviteTitle": "Invite people",
+        "inviteDescription": "Send email invitations. Paste a list separated by commas, spaces, or new lines (up to 20).",
+        "pendingTitle": "Pending invitations",
+        "pendingDescription": "Invitations that have not been accepted yet.",
+        "pendingEmpty": "No pending invitations.",
+        "unknownEmail": "Unknown address",
+        "expires": "Expires {at}",
+        "resend": "Resend",
+        "resent": "Sent",
+        "revoke": "Revoke",
+        "linksTitle": "Invite links",
+        "linksDescription": "A reusable link anyone can use to join as a member.",
+        "seatNudge": "{used} people are members or invited, but the plan has {seats} seats. Invitations still work; add {over, plural, one {# seat} other {# seats}} to cover everyone.",
+        "seatNudgeAction": "Manage seats",
+        "actions": {
+          "makeAdmin": "Make admin",
+          "makeMember": "Make member",
+          "remove": "Remove from team",
+          "leave": "Leave team"
+        },
+        "actionsFor": "Actions for {name}",
+        "lastAdminReason": "A team needs at least one admin. Promote someone else first.",
+        "demoteSelfTitle": "Stop being an admin?",
+        "demoteSelfBody": "You lose admin access to this team. Another admin can give it back.",
+        "demoteSelfConfirm": "Make me a member"
+      },
+      "apiKeys": {
+        "title": "Team API keys",
+        "description": "Keys that act for this team. Anyone with a key can use the team's access, so store keys securely.",
+        "create": "Create team API key",
+        "disabled": "Team API keys are not enabled for this project.",
+        "forbidden": "You need the Manage API keys permission in this team to see its keys."
+      }
+    },
+    "notFound": {
+      "title": "Page not found",
+      "body": "This dashboard page does not exist or was moved.",
+      "home": "Go to dashboard"
+    },
+    "states": {
+      "errorTitle": "Could not load {section}",
+      "errorTitleGeneric": "Could not load this section",
+      "reason": {
+        "network": "Check your connection, then try again.",
+        "unavailable": "cmux is temporarily unavailable. Try again in a moment.",
+        "forbidden": "You do not have access to this.",
+        "notFound": "This no longer exists, or you do not have access to it.",
+        "rateLimited": "Too many requests. Wait a moment, then try again.",
+        "generic": "Something went wrong. Try again."
+      },
+      "retry": "Try again",
+      "retrying": "Retrying…"
+    },
+    "upgrade": {
+      "title": "Requires Pro",
+      "cloud": "Cloud VMs and cloud agents are part of Pro.",
+      "testflight": "The cmux iOS app is part of Pro.",
+      "mobileDevices": "Connecting your phone and tablet is part of Pro.",
+      "action": "Upgrade to Pro",
+      "comparePlans": "Compare plans"
     }
   },
   "vault": {
@@ -2599,8 +3271,8 @@
           "scrollSpeed": "Scales how far the terminal moves for each mouse-wheel or trackpad scroll event. Values above 1 speed scrolling up and values below 1 slow it down.",
           "sessionContentMaxWidth": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width.",
           "sessionContentAlignment": "Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled.",
-          "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
-          "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox.",
+          "showTextBoxOnNewTerminals": "Show the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
+          "focusTextBoxOnNewTerminals": "Focus the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox.",
           "textBoxDefaultSubmitAction": "Default TextBox submit action ID for new terminal sessions. Use text-entry for plain input or one of the configured action IDs.",
           "textBoxSubmitActions": "Configurable TextBox submit actions shown on the submit button, Shift-Tab cycle, and right-click menu.",
           "textBoxSubmitActionId": "Stable action ID referenced by terminal.textBoxDefaultSubmitAction.",
@@ -2658,7 +3330,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "showModifierHoldHints": "Show shortcut-hint chips while holding Cmd or Control."
         },
         "paneBorderColor": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits.",
@@ -2718,6 +3390,8 @@
       "customActionsDesc": "An <actions>actions</actions> entry is the reusable thing cmux runs. Use actions when the same behavior should be available from the Command Palette, surface tab bar, shortcuts, or the plus-button menu. Keep <commands>commands</commands> for reusable shell commands and workspace layouts. Set <palette>palette</palette> to false when an action should stay out of Command Palette.",
       "actionTypes": "Action types",
       "actionTypeBuiltin": "Alias a built-in cmux action such as cmux.newTerminal, cmux.newBrowser, cmux.splitRight, or cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Copy built-ins: cmux.copyWorkingDirectory copies the terminal's working directory, cmux.copyProjectRoot copies the root of its git repository (or the working directory outside one), and cmux.copyScreen copies the visible screen.",
+      "actionTypeBuiltinCopyRemote": "In an SSH, cloud, or remote tmux workspace, cmux.copyProjectRoot copies the remote working directory, because cmux can't look up the git repository on the other host.",
       "actionTypeCommand": "Run shell text in a terminal. Use target to choose the current terminal or a new tab in the current pane.",
       "actionTypeAgent": "Start a coding agent in a new terminal tab. Any CLI name works (claude, codex, opencode, or your own binary), with optional args.",
       "actionTypeWorkspaceCommand": "Run a named workspace definition from commands. Use this for multi-pane layouts, custom working directories, and startup commands.",
@@ -3464,7 +4138,7 @@
       "ohMyClaudeCode": "oh-my-claudecode",
       "changelog": "Changelog",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)",
+      "textBox": "TextBox",
       "ios": "iOS App",
       "vault": "Vault",
       "taskManager": "Task Manager",
@@ -3522,11 +4196,10 @@
       "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Configure the beta cmux TextBox input for new terminal tabs, splits, and workspaces.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Configure the cmux TextBox input for new terminal tabs, splits, and workspaces.",
       "intro": "TextBox is cmux's rich terminal input surface for composing prompts before sending them to a terminal.",
-      "betaCallout": "TextBox is a beta feature. Its defaults and behavior may change while it is being tested.",
       "defaultsTitle": "Defaults",
       "defaultsDesc": "The TextBox settings live in Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals opens new workspaces, terminal tabs, and terminal splits with the TextBox visible while keeping focus in the terminal.",
@@ -6336,5 +7009,27 @@
     "updateDetail": "Requires cmux {stableVersion} or later, or NIGHTLY {nightlyVersion} or later. Enable iOS pairing in Settings > Mobile on each Mac.",
     "rollbackTitle": "Need to keep an older Mac build?",
     "rollbackDetail": "Use cmux BETA 1.0.5 ({rollbackBuild}) from TestFlight > Previous Builds while it remains available. Choose that exact build, since later builds use a newer connection service."
+  },
+  "teamInvite": {
+    "loading": "Loading invitation…",
+    "title": "Join {team}",
+    "titleUnknown": "Join this team",
+    "body": "You were invited to join this team on cmux.",
+    "join": "Join team",
+    "joining": "Joining…",
+    "signedInAs": "Signed in as {email}",
+    "alreadyMemberTitle": "You are already a member of {team}",
+    "alreadyMemberTitleUnknown": "You are already a member of this team",
+    "alreadyMemberBody": "Open the team to manage it.",
+    "openTeam": "Open team",
+    "mismatchTitle": "This invitation is for a different account",
+    "mismatchBody": "You are signed in as {email}, but the invitation was sent to another address. Sign in with the invited address, or add and verify it on this account.",
+    "mismatchBodyUnknown": "The invitation was sent to another address. Sign in with the invited address, or add and verify it on this account.",
+    "switchAccount": "Sign out and switch account",
+    "switching": "Signing out…",
+    "switchFailed": "Could not sign out. Try again.",
+    "invalidTitle": "This invitation is no longer valid",
+    "invalidBody": "It expired, was revoked, or was already used. Ask a team admin for a new one.",
+    "goToTeams": "Go to your teams"
   }
 }

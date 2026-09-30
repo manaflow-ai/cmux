@@ -154,6 +154,7 @@ enum KeyboardShortcutSettings {
         case focusTextBoxInput, cycleTextBoxSubmitAction, attachTextBoxFile
         case sendCtrlFToTerminal
         case pasteLastScreenshot
+        case sizeTerminalToMyWindow
         case clearScreenKeepScrollback
         // Panes / splits
         case focusLeft
@@ -230,7 +231,7 @@ enum KeyboardShortcutSettings {
         case diffViewerOpenFileSearch
         case simulatorHome, simulatorRotateLeft, simulatorRotateRight
         case simulatorToggleAppearance, simulatorToggleSoftwareKeyboard
-        case diffViewerNextFile, diffViewerPreviousFile, diffViewerNextHunk, diffViewerPreviousHunk
+        case diffViewerNextFile, diffViewerPreviousFile, diffViewerNextHunk, diffViewerPreviousHunk, diffViewerToggleViewed
 
         var id: String { rawValue }
         /// Localized action title displayed by shortcut settings and command surfaces.
@@ -317,6 +318,7 @@ enum KeyboardShortcutSettings {
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
             case .sendCtrlFToTerminal: return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
             case .pasteLastScreenshot: return String(localized: "shortcut.pasteLastScreenshot.label", defaultValue: "Paste Last Screenshot")
+            case .sizeTerminalToMyWindow: return String(localized: "shortcut.sizeTerminalToMyWindow.label", defaultValue: "Size Terminal to My Window")
             case .clearScreenKeepScrollback: return String(localized: "shortcut.clearScreenKeepScrollback.label", defaultValue: "Clear Screen (Keep Scrollback)")
             case .focusLeft: return String(localized: "shortcut.focusPaneLeft.label", defaultValue: "Focus Pane Left")
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
@@ -406,7 +408,7 @@ enum KeyboardShortcutSettings {
             case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
                  .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
                 return simulatorLabel
-            case .diffViewerNextFile, .diffViewerPreviousFile, .diffViewerNextHunk, .diffViewerPreviousHunk:
+            case .diffViewerNextFile, .diffViewerPreviousFile, .diffViewerNextHunk, .diffViewerPreviousHunk, .diffViewerToggleViewed:
                 return diffViewerNavigationLabel
             }
         }
@@ -635,6 +637,10 @@ enum KeyboardShortcutSettings {
                 // (e.g. Claude Code's Ctrl-F force-stop) to the focused terminal. Binding it to plain Ctrl-F
                 // would be self-referential, so users opt in via Settings; it stays reachable through the command palette and the `send_key ctrl-f` socket command.
                 return .unbound
+            case .sizeTerminalToMyWindow:
+                // Ctrl+Opt+Cmd+=: "make the shared terminal my size". Unused by cmux
+                // and Ghostty defaults (Cmd+= zooms, Ctrl+Cmd+= and Opt+Cmd+= are taken).
+                return StoredShortcut(key: "=", command: true, shift: false, option: true, control: true)
             case .pasteLastScreenshot:
                 // Unbound by default: reachable through the command palette; users opt into a
                 // key in Settings or cmux.json.
@@ -739,7 +745,7 @@ enum KeyboardShortcutSettings {
                 )
             case .diffViewerOpenFileSearch:
                 return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
-            case .diffViewerNextFile, .diffViewerPreviousFile, .diffViewerNextHunk, .diffViewerPreviousHunk:
+            case .diffViewerNextFile, .diffViewerPreviousFile, .diffViewerNextHunk, .diffViewerPreviousHunk, .diffViewerToggleViewed:
                 return diffViewerNavigationDefaultShortcut
             case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
                  .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
