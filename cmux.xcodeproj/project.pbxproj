@@ -2077,6 +2077,7 @@
 		09F6D65337EEB5988F365778 /* GhosttyNSView+Accessibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C738D190FCB85202992C756 /* GhosttyNSView+Accessibility.swift */; };
 		B88357000000000000000001 /* GhosttyNSView+ClipboardActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000002 /* GhosttyNSView+ClipboardActions.swift */; };
 		B88357000000000000000003 /* GhosttyNSView+ClipboardInputSequencing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */; };
+		3436831626068CC556129EB3 /* GhosttyNSView+CodexActionCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9FA91EF89C03A74979E6EF7 /* GhosttyNSView+CodexActionCommand.swift */; };
 		972DEB57D4E5CE93A044F413 /* GhosttyNSView+ForeignCommandChord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50E4257EE224618460A48C8B /* GhosttyNSView+ForeignCommandChord.swift */; };
 		F0ACC0DE0000000000000001 /* GhosttyNSView+ForkConversationContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */; };
 		D3571000A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571001A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift */; };
@@ -6311,6 +6312,7 @@
 		2C738D190FCB85202992C756 /* GhosttyNSView+Accessibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+Accessibility.swift"; sourceTree = "<group>"; };
 		B88357000000000000000002 /* GhosttyNSView+ClipboardActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ClipboardActions.swift"; sourceTree = "<group>"; };
 		B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ClipboardInputSequencing.swift"; sourceTree = "<group>"; };
+		A9FA91EF89C03A74979E6EF7 /* GhosttyNSView+CodexActionCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+CodexActionCommand.swift"; sourceTree = "<group>"; };
 		50E4257EE224618460A48C8B /* GhosttyNSView+ForeignCommandChord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ForeignCommandChord.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ForkConversationContextMenu.swift"; sourceTree = "<group>"; };
 		D3571001A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+IMEComposition.swift"; sourceTree = "<group>"; };
@@ -11432,6 +11434,7 @@
 				4845BF2DCEA4B76EC0EBC410 /* BrowserWindowSlotView+PaneDropOverlay.swift */,
 				E7E4D51BF3365A4CB3A658E4 /* GhosttySurfaceScrollView+PaneDropOverlay.swift */,
 				2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */,
+				A9FA91EF89C03A74979E6EF7 /* GhosttyNSView+CodexActionCommand.swift */,
 				DFA8781ABBE7A67C2E61F17D /* WorkspaceCloudVMBinding+OwningTeam.swift */,
 			);
 			path = Sources;
@@ -14699,6 +14702,7 @@
 				09F6D65337EEB5988F365778 /* GhosttyNSView+Accessibility.swift in Sources */,
 				B88357000000000000000001 /* GhosttyNSView+ClipboardActions.swift in Sources */,
 				B88357000000000000000003 /* GhosttyNSView+ClipboardInputSequencing.swift in Sources */,
+				3436831626068CC556129EB3 /* GhosttyNSView+CodexActionCommand.swift in Sources */,
 				972DEB57D4E5CE93A044F413 /* GhosttyNSView+ForeignCommandChord.swift in Sources */,
 				F0ACC0DE0000000000000001 /* GhosttyNSView+ForkConversationContextMenu.swift in Sources */,
 				D3571000A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift in Sources */,

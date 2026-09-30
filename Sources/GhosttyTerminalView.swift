@@ -3836,6 +3836,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var commandClickReleaseRuntimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome?
     private var commandClickReleaseCanOpenURL = false
     private var terminalPointerGesture = TerminalPointerGestureState()
+    var codexActionCommandHovering = false
+    private var pressedCodexActionCommand: CodexActionCommand?
+    var codexActionCacheSurfaceID: UUID?
+    var codexActionCacheRuntimeGeneration: UInt64 = .max
+    var codexActionCacheFrameSequence: UInt64 = .max
+    var codexActionCacheRows: [String]?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
@@ -5390,7 +5396,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        addCursorRect(terminalCursorRect(), cursor: Self.ghosttyMouseCursor(for: ghosttyMouseShape))
+        let cursor = codexActionCommandHovering
+            ? NSCursor.pointingHand
+            : Self.ghosttyMouseCursor(for: ghosttyMouseShape)
+        addCursorRect(terminalCursorRect(), cursor: cursor)
     }
 
     override var isOpaque: Bool { false }
@@ -7778,6 +7787,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
+        updateCodexActionCommandHover(at: eventPoint, surface: surface)
     }
 
     private func shouldSuppressCommandPathHover(for flags: NSEvent.ModifierFlags) -> Bool {
@@ -8306,6 +8316,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
         let eventPoint = mouseState.localPoint
+        pressedCodexActionCommand = event.clickCount == 1
+            && !ghostty_surface_has_selection(surface)
+            ? codexActionCommand(at: eventPoint, surface: surface)
+            : nil
         let pressFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Option-drag is Ghostty's rectangular selection on macOS. Joining
         // those rows would paste columns as one line.
@@ -8341,6 +8355,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     func forwardPendingLeftMouseDrag(with event: NSEvent) -> Bool {
         if routeInputDuringClipboardRead(event) { return true }
+        pressedCodexActionCommand = nil
         terminalPointerGesture.invalidateLinkActivation()
         synchronizeGhosttyMouseSurfaceIdentity()
         guard let surface,
@@ -8380,8 +8395,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let releaseFlags = completion.map {
             NSEvent.ModifierFlags(rawValue: $0.modifierFlagsRawValue)
         } ?? []
+        let pressedCommand = pressedCodexActionCommand
+        pressedCodexActionCommand = nil
+        let releasedCommand = event.clickCount == 1
+            && !ghostty_surface_has_selection(surface)
+            ? codexActionCommand(at: point, surface: surface)
+            : nil
+        let codexActionHandled = pressedCommand != nil
+            && releasedCommand == pressedCommand
+            ? handleCodexActionCommand(at: point, surface: surface)
+            : false
         let linkActivationAuthorized = completion?.permitsLinkActivation == true
             && event.modifierFlags.contains(.command) && bounds.contains(point) && desiredFocus
+            && !codexActionHandled
         _ = dispatchCommandClickRelease(
             surface: surface,
             at: point,
@@ -9524,6 +9550,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
+        updateCodexActionCommandHover(at: eventPoint, surface: surface)
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -9550,6 +9577,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
+        updateCodexActionCommandHover(at: eventPoint, surface: surface)
     }
 
     private func maybeRequestFirstResponderForMouseFocus() {
@@ -9571,6 +9599,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseExited(with event: NSEvent) {
         terminalPointerGesture.invalidateLinkActivation()
+        pressedCodexActionCommand = nil
+        if codexActionCommandHovering {
+            codexActionCommandHovering = false
+            window?.invalidateCursorRects(for: self)
+        }
         if routeInputDuringClipboardRead(event) { return }
         reconcileGhosttyMouseButtons(reason: "mouseExited")
         if wordPathHoverActive {
@@ -9586,6 +9619,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseDragged(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
+        pressedCodexActionCommand = nil
         synchronizeGhosttyMouseSurfaceIdentity()
         guard let surface = surface else { return }
         let mouseState = rememberGhosttyMouseState(from: event)
