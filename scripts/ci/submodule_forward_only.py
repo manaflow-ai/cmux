@@ -15,8 +15,18 @@ from urllib.request import Request, urlopen
 MARKER_PREFIX = "submodule-forward-only: allow "
 
 
-def run(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def run(*args: str, cwd: str | None = None, timeout: float = 60) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            args,
+            cwd=cwd,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(args, 124, "", f"timed out after {timeout}s")
 
 
 def gitlink(ref: str, path: str) -> str | None:

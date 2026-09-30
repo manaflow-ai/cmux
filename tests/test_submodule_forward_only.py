@@ -134,6 +134,16 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("could not determine ancestry", result.stderr)
 
+    def test_git_command_timeout_returns_a_failed_result(self) -> None:
+        with patch.object(
+            submodule_forward_only.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(["git", "fetch"], 60),
+        ):
+            result = submodule_forward_only.run("git", "fetch")
+        self.assertEqual(result.returncode, 124)
+        self.assertIn("timed out after 60s", result.stderr)
+
     def test_declared_rollback_passes(self) -> None:
         b = self.commit_sub("intentional rollback")
         self.pointer(b)
