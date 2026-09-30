@@ -30,6 +30,9 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     private var lastLayoutHeight: CGFloat = 0
     /// Rows measured exactly during the current height pass; other rows return estimates.
     private var measureWindow: Range<Int> = 0..<0
+    /// During a pass that applies finished layouts, every height comes from the cache or
+    /// an estimate; no row is laid out on the main thread.
+    private var heightsFromCacheOnly = false
     /// Rows whose height is an estimate at the current width. Layout workers lay them out
     /// off the main thread; each display frame applies the heights that became ready.
     private var estimatedRows = IndexSet()
@@ -206,17 +209,18 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         let indexes = indexByRowID
         for rowID in ready {
             guard let index = indexes[rowID], estimatedRows.contains(index), let request = request(for: index),
-                  engine.hasLayout(for: request.key) else { continue }
+                  engine.hasHeight(for: request.key) else { continue }
             batch.insert(index)
         }
         guard !batch.isEmpty else { return }
         estimatedRows.subtract(batch)
-        measureWindow = 0..<rows.count
+        // The table may ask for every row's height here; none may be laid out on this thread.
+        heightsFromCacheOnly = true
         let anchor = isPinnedToBottom ? nil : captureAnchor()
         isAdjustingScroll = true
         tableView.noteHeightOfRows(withIndexesChanged: batch)
         isAdjustingScroll = false
-        measureWindow = 0..<0
+        heightsFromCacheOnly = false
         if isPinnedToBottom {
             scrollToBottom(animated: false)
         } else if let anchor {
@@ -378,7 +382,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     }
 
     private func restore(_ anchor: Anchor) {
-        guard let index = rows.firstIndex(where: { $0.id == anchor.rowID }) else { return }
+        guard let index = indexByRowID[anchor.rowID] else { return }
         let target = tableView.rect(ofRow: index).minY + anchor.offsetFromRowTop
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: target))
         scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -579,7 +583,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard row < rows.count else { return 1 }
-        if !measureWindow.isEmpty, !measureWindow.contains(row),
+        if heightsFromCacheOnly || (!measureWindow.isEmpty && !measureWindow.contains(row)),
            let estimate = engine.height(
                for: rows[row],
                position: row < positions.count ? positions[row] : .standalone,

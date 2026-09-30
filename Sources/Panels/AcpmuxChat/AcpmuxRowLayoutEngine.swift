@@ -22,13 +22,22 @@ struct AcpmuxRowLayoutRequest: Sendable {
 ///
 /// Text is laid out off the main thread by a small worker pool: rows about to scroll into
 /// view first (``prefetch(_:)``), then every other row in the background
-/// (``layOutInBackground(_:)``). A cell then only adopts a finished layout. The main thread
-/// lays text out itself only for a row that must show before its layout is ready, such as
-/// the streaming answer, whose growth has to land in the frame it arrives.
+/// (``layOutInBackground(_:)``), which records only heights. A cell then only adopts a
+/// finished layout. The main thread lays text out itself only for a row that must show
+/// before its layout is ready, such as the streaming answer, whose growth has to land in
+/// the frame it arrives.
+///
+/// Heights are kept for every row; finished layouts (TextKit groups, tens of kilobytes
+/// each) only for the rows used most recently, so a long transcript stays small.
 @MainActor
 final class AcpmuxRowLayoutEngine {
     private(set) var builder: AcpmuxRowLayoutBuilder
     private var cache: [AcpmuxRowLayoutKey: AcpmuxRowLayout] = [:]
+    private var lastUse: [AcpmuxRowLayoutKey: Int] = [:]
+    private var useClock = 0
+    private var heights: [AcpmuxRowLayoutKey: CGFloat] = [:]
+    /// About ten screens of rows; prefetch refills what scrolling needs.
+    private let layoutLimit = 400
     /// The most recent measurement of each row at any width, for cheap estimates during resize.
     private var lastMeasured: [String: (version: Int, width: CGFloat, height: CGFloat)] = [:]
     /// Bumped when cached layouts become invalid (theme change), so results from requests
@@ -61,6 +70,8 @@ final class AcpmuxRowLayoutEngine {
         builder = AcpmuxRowLayoutBuilder(theme: theme)
         generation += 1
         cache.removeAll()
+        lastUse.removeAll()
+        heights.removeAll()
         urgentQueue.removeAll()
         backgroundQueue.removeAll()
         backgroundHead = 0
@@ -70,6 +81,8 @@ final class AcpmuxRowLayoutEngine {
     func retainOnly(width: CGFloat) {
         let keep = Int(width.rounded())
         cache = cache.filter { $0.key.width == keep }
+        lastUse = lastUse.filter { $0.key.width == keep }
+        heights = heights.filter { $0.key.width == keep }
     }
 
     static func key(for row: TranscriptRow, position: AcpmuxRowGroupPosition, width: CGFloat, expanded: Bool) -> AcpmuxRowLayoutKey {
@@ -79,19 +92,41 @@ final class AcpmuxRowLayoutEngine {
     /// The layout, from the cache or laid out now on the main thread.
     func layout(for row: TranscriptRow, position: AcpmuxRowGroupPosition, width: CGFloat, expanded: Bool) -> AcpmuxRowLayout {
         let key = Self.key(for: row, position: position, width: width, expanded: expanded)
-        if let cached = cache[key] { return cached }
+        useClock += 1
+        if let cached = cache[key] {
+            lastUse[key] = useClock
+            return cached
+        }
         synchronousLayoutCount += 1
         let computed = builder.layout(for: row, position: position, width: width, expanded: expanded)
-        store(computed, for: key, rowID: row.id, width: width)
+        store(computed, for: key, rowID: row.id, width: width, keepsLayout: true)
         return computed
     }
 
     /// Whether a finished layout for this row is cached.
     func hasLayout(for key: AcpmuxRowLayoutKey) -> Bool { cache[key] != nil }
 
-    private func store(_ layout: AcpmuxRowLayout, for key: AcpmuxRowLayoutKey, rowID: String, width: CGFloat) {
-        cache[key] = layout
+    /// Whether this row's exact height is known.
+    func hasHeight(for key: AcpmuxRowLayoutKey) -> Bool { heights[key] != nil }
+
+    private func store(_ layout: AcpmuxRowLayout, for key: AcpmuxRowLayoutKey, rowID: String, width: CGFloat, keepsLayout: Bool) {
+        heights[key] = layout.height
         lastMeasured[rowID] = (key.version, width, layout.height)
+        guard keepsLayout else { return }
+        useClock += 1
+        cache[key] = layout
+        lastUse[key] = useClock
+        if cache.count > layoutLimit + layoutLimit / 4 { evictLeastRecentlyUsed() }
+    }
+
+    /// Drops the least recently used layouts down to the limit. A cell that shows one keeps
+    /// it alive; it is laid out again only if it scrolls back into view after that.
+    private func evictLeastRecentlyUsed() {
+        let evicted = lastUse.sorted { $0.value < $1.value }.prefix(cache.count - layoutLimit)
+        for (key, _) in evicted {
+            cache[key] = nil
+            lastUse[key] = nil
+        }
     }
 
     /// The height at `width` without laying out: the exact cached height when there is one,
@@ -100,7 +135,7 @@ final class AcpmuxRowLayoutEngine {
     /// Returns `nil` only for a zero width.
     func height(for row: TranscriptRow, position: AcpmuxRowGroupPosition, width: CGFloat, expanded: Bool) -> (height: CGFloat, exact: Bool)? {
         let key = Self.key(for: row, position: position, width: width, expanded: expanded)
-        if let cached = cache[key] { return (cached.height, true) }
+        if let exact = heights[key] { return (exact, true) }
         guard width > 0 else { return nil }
         guard let last = lastMeasured[row.id], last.version == row.version else {
             return (builder.roughHeight(for: row, width: width), false)
@@ -122,7 +157,7 @@ final class AcpmuxRowLayoutEngine {
     /// every row whose height is still an estimate, so the list replaces the previous one
     /// (for example, one queued at a width the pane has since left).
     func layOutInBackground(_ requests: [AcpmuxRowLayoutRequest]) {
-        backgroundQueue = requests.filter { cache[$0.key] == nil }
+        backgroundQueue = requests.filter { heights[$0.key] == nil }
         backgroundHead = 0
         startWorkersIfNeeded()
     }
@@ -142,7 +177,7 @@ final class AcpmuxRowLayoutEngine {
                             expanded: request.key.expanded
                         ))
                     }
-                    await self?.finish(results, generation: work.generation)
+                    await self?.finish(results, generation: work.generation, keepsLayouts: work.keepsLayouts)
                 }
             }
         }
@@ -152,36 +187,43 @@ final class AcpmuxRowLayoutEngine {
         let generation: Int
         let builder: AcpmuxRowLayoutBuilder
         let requests: [AcpmuxRowLayoutRequest]
+        /// Prefetched rows keep their layouts for display; background rows keep only heights.
+        let keepsLayouts: Bool
     }
 
     /// The next few requests for a worker, urgent ones first, or `nil` to stop the worker.
     private func takeBatch() -> Batch? {
         var batch: [AcpmuxRowLayoutRequest] = []
-        let limit = urgentQueue.isEmpty ? 16 : 4
-        while batch.count < limit, let request = nextRequest() {
-            guard cache[request.key] == nil, !inFlight.contains(request.key) else { continue }
+        let urgent = !urgentQueue.isEmpty
+        while batch.count < (urgent ? 4 : 16), let request = urgent ? nextUrgent() : nextBackground() {
+            let done = urgent ? cache[request.key] != nil : heights[request.key] != nil
+            guard !done, !inFlight.contains(request.key) else { continue }
             inFlight.insert(request.key)
             batch.append(request)
         }
         guard !batch.isEmpty else {
+            if hasQueuedWork { return takeBatch() }
             workers -= 1
             return nil
         }
-        return Batch(generation: generation, builder: builder, requests: batch)
+        return Batch(generation: generation, builder: builder, requests: batch, keepsLayouts: urgent)
     }
 
-    private func nextRequest() -> AcpmuxRowLayoutRequest? {
-        if !urgentQueue.isEmpty { return urgentQueue.removeFirst() }
+    private func nextUrgent() -> AcpmuxRowLayoutRequest? {
+        urgentQueue.isEmpty ? nil : urgentQueue.removeFirst()
+    }
+
+    private func nextBackground() -> AcpmuxRowLayoutRequest? {
         guard backgroundHead < backgroundQueue.count else { return nil }
         defer { backgroundHead += 1 }
         return backgroundQueue[backgroundHead]
     }
 
-    private func finish(_ results: [(AcpmuxRowLayoutRequest, AcpmuxRowLayout)], generation: Int) {
+    private func finish(_ results: [(AcpmuxRowLayoutRequest, AcpmuxRowLayout)], generation: Int, keepsLayouts: Bool) {
         for (request, _) in results { inFlight.remove(request.key) }
         guard generation == self.generation else { return }
         for (request, layout) in results where cache[request.key] == nil {
-            store(layout, for: request.key, rowID: request.row.id, width: request.width)
+            store(layout, for: request.key, rowID: request.row.id, width: request.width, keepsLayout: keepsLayouts)
         }
         onLayoutsReady?(results.map { $0.0.row.id })
     }
