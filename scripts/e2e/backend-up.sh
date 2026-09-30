@@ -204,7 +204,10 @@ http_bind_addr = "127.0.0.1:$RELAY_PORT"
 enable_quic_addr_discovery = false
 enable_metrics = false
 EOF
-  "$CMUX_E2E_IROH_RELAY_BIN" --config-path "$STATE/relay.toml" >"$LOGS/relay.log" 2>&1 &
+  # info logs each client connection: the evidence that the terminal stream
+  # actually rode this relay.
+  RUST_LOG="${CMUX_E2E_RELAY_LOG:-info}" \
+    "$CMUX_E2E_IROH_RELAY_BIN" --config-path "$STATE/relay.toml" >"$LOGS/relay.log" 2>&1 &
   echo $! >"$STATE/relay.pid"
 }
 

@@ -66,7 +66,25 @@ TIMINGS_FILE="$EVIDENCE_DIR/steps.jsonl"
 fail() {
   echo "E2E FAIL [$STEP_NAME]: $*" >&2
   shot "failure"
+  collect_diagnostics
   exit 1
+}
+
+# On failure, keep what separates a product crash from a harness miss: whether
+# the app still runs, its crash reports, and the device log since the run began.
+RUN_STARTED_EPOCH="$(date +%s)"
+collect_diagnostics() {
+  local dir="$EVIDENCE_DIR/diagnostics" since
+  mkdir -p "$dir"
+  xcrun simctl spawn "$SIM_UDID" launchctl list 2>/dev/null \
+    | grep -F "${BUNDLE_ID:-dev.cmux}" >"$dir/app-process.txt" \
+    || echo "not running" >"$dir/app-process.txt"
+  find "$HOME/Library/Logs/DiagnosticReports" -type f -newermt "@$RUN_STARTED_EPOCH" \
+    \( -iname '*cmux*' -o -iname '*.ips' \) -exec cp {} "$dir/" \; 2>/dev/null || true
+  since="$(( $(date +%s) - RUN_STARTED_EPOCH + 60 ))s"
+  xcrun simctl spawn "$SIM_UDID" log show --last "$since" --style compact \
+    --predicate 'process CONTAINS[c] "cmux" OR subsystem CONTAINS[c] "cmux"' \
+    >"$dir/device.log" 2>&1 || true
 }
 
 step() {
@@ -277,7 +295,8 @@ step_done
 
 step "replay-after-reconnect"
 "$AXE" button home --udid "$SIM_UDID"
-xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
+# Keep simctl's answer (the pid) so a failed relaunch is visible in the log.
+echo "relaunch: $(xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" 2>&1)"
 wait_phone "$MARKC"   # session replay re-renders the pre-background history
 # Relaunch resets first responder exactly like a cold boot; re-establish
 # input with the same tap + typed self-check used in preflight.
