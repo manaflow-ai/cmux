@@ -44,8 +44,6 @@ extension CmuxTuiSurfaceProvider {
         stateRecoveryRefreshTask?.cancel()
         stateRecoveryRefreshTask = nil
         stateRecoveryRefreshQueued = false
-        for session in manualMirrorSessions.values { session.stop() }
-        manualMirrorSessions.removeAll()
         for task in remoteTerminalProjectionTasks.values { task.cancel() }
         remoteTerminalProjectionTasks.removeAll()
     }

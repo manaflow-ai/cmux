@@ -423,8 +423,9 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     /// Stops machine-bound transports while retaining the provider and its graph.
     func machineBecameInactive(_ rawID: String, status: String = "paused") async {
-        await links.setMachineStatus(status, for: rawID)
-        guard let provider = providers[registeredMachineID(matching: rawID)] else { return }
+        let id = registeredMachineID(matching: rawID)
+        await links.recordLocalMachineStatus(status, for: id)
+        guard let provider = providers[id] else { return }
         provider.markInactive(status: status)
         scheduleTransportTeardown(rawID, provider: provider)
     }
@@ -492,6 +493,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     // MARK: - internals
 
     private func performDiscovery(generation: UInt64, updateExisting: Bool) async -> [CmuxTuiSurfaceProvider]? {
+        let discoveryStartedAt = Date()
         guard !isRetired, let catalog, let page = await listPage() else { return nil }
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
         if allowsBackgroundWork() { await wireGuardHub?.prepareForCloudUse() }
@@ -530,15 +532,17 @@ final class CmuxTuiSurfaceProviderRegistry {
                 guard generation == refreshGeneration else { return nil }
             }
             await links.setPrivateAddresses([summary.addressIPv4, summary.addressIPv6].compactMap { $0 }, for: summary.id)
-            await links.setMachineStatus(summary.status, for: summary.id)
+            let statusAccepted = await links.setMachineStatus(summary.status, for: registeredID, observedAt: discoveryStartedAt)
             // A delete that ran while that await was suspended bumped the
             // generation; creating a provider now would hand its link and
             // forwards to the teardown that delete scheduled.
             guard generation == refreshGeneration else { return nil }
             if let provider = providers[summary.id] {
-                provider.update(summary: summary)
-                if summary.status != "running" {
-                    scheduleTransportTeardown(summary.id, provider: provider)
+                if statusAccepted {
+                    provider.update(summary: summary)
+                    if CloudMachineLinkManager.isAsleepStatus(summary.status) {
+                        scheduleTransportTeardown(summary.id, provider: provider)
+                    }
                 }
             } else {
                 let provider = CmuxTuiSurfaceProvider(
