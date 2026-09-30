@@ -6,6 +6,8 @@ extension SurfaceCatalog {
     /// into a local workspace is intentionally separate: the guest resource
     /// must survive a missing or changing local destination.
     func createDisplay(on machine: SurfaceMachineID) async throws -> SurfaceResource {
+        guard activeDisplayCreations.insert(machine).inserted else { throw CancellationError() }
+        defer { activeDisplayCreations.remove(machine) }
         guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider else {
             throw SurfaceCatalogError.noProvider(machine)
         }

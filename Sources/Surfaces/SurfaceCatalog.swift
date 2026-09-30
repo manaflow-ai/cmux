@@ -43,6 +43,8 @@ final class SurfaceCatalog {
     private(set) var cloudStates: [SurfaceMachineID: CloudVMState] = [:]
     private(set) var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
+    /// Admits one display creation per machine so repeated clicks cannot project the same guest twice.
+    fileprivate var activeDisplayCreations: Set<SurfaceMachineID> = []
     /// Remote rename intents shared by all local windows.
     let cloudRenameCoordinator = CloudRenameCoordinator()
     let sidebarOrganization: CloudSidebarOrganizationStore
