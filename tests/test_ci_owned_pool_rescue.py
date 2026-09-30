@@ -1784,19 +1784,25 @@ class Workflow(unittest.TestCase):
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"], {"ref": "main", "persist-credentials": False})
 
-    def test_runs_when_dispatched_or_for_a_screenshots_or_side_lane_run(self):
+    def test_runs_when_dispatched_or_for_a_screenshots_or_nightly_run(self):
         triggers = self.doc[True]
         self.assertEqual(sorted(triggers), ["schedule", "workflow_dispatch", "workflow_run"])
         self.assertIs(triggers["workflow_dispatch"]["inputs"]["run_id"]["required"], False)
         # release.yml calls ios-screenshots.yml with contents: read only, so
-        # it cannot upload through a job asking for more; the side lanes have
-        # no picker and are all on the fleet. Both keep the event trigger.
+        # it cannot upload through a job asking for more. Side lanes are swept
+        # periodically and must not create one rescue run per workflow_run.
         self.assertEqual(triggers["workflow_run"]["types"], ["requested"])
-        self.assertEqual(triggers["workflow_run"]["workflows"][0], "iOS App Store screenshots")
+        self.assertEqual(
+            triggers["workflow_run"]["workflows"],
+            ["iOS App Store screenshots", "Nightly macOS build"],
+        )
         self.assertNotIn("CI", triggers["workflow_run"]["workflows"])
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
-        self.assertEqual(set(paths), {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, *rescue.SIDE_WORKFLOW_PATHS,
-                                      rescue.NIGHTLY_WORKFLOW_PATH})
+        self.assertEqual(
+            set(paths),
+            {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, rescue.NIGHTLY_WORKFLOW_PATH},
+        )
+        self.assertTrue(set(paths).isdisjoint(rescue.SIDE_WORKFLOW_PATHS))
         # workflow_run matches by display name: each source's `name:` is listed, and nothing else.
         names = {yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))["name"] for path in paths}
         self.assertEqual(set(triggers["workflow_run"]["workflows"]), names)
