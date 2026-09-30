@@ -224,8 +224,17 @@ extension TerminalController {
                 return "internal_error"
             }
         }
-        if error is WindowRecordingFrameGeometry.Failure {
-            return "invalid_params"
+        if let failure = error as? WindowRecordingFrameGeometry.Failure {
+            switch failure {
+            case .regionOutsideWindow, .gifFrameTooLarge:
+                // Both name a value the caller passed: a region the window does
+                // not contain, or a scale and width a gif frame cannot hold.
+                return "invalid_params"
+            case .emptyWindow:
+                // No flag makes an unrendered window capturable, so telling an
+                // agent to fix its params would send it round a loop.
+                return "not_found"
+            }
         }
         return "internal_error"
     }

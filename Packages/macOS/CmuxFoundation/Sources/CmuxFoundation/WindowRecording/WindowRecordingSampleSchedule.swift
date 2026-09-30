@@ -32,8 +32,15 @@ public struct WindowRecordingSampleSchedule: Equatable, Sendable {
             return targetUptime
         }
         guard targetUptime < now else { return targetUptime }
-        let missedSlots = floor((now - targetUptime) / interval) + 1
-        let stepped = targetUptime + (missedSlots * interval)
+        // Rounding up lands on `now` when it is itself a slot, where adding one
+        // to a floor would have thrown that frame away and waited a slot more.
+        let missedSlots = ((now - targetUptime) / interval).rounded(.up)
+        var stepped = targetUptime + (missedSlots * interval)
+        if stepped < now {
+            // Only reachable when the division rounds down in binary; the
+            // contract is a slot at or after `now`, not the nearest one.
+            stepped += interval
+        }
         targetUptime = stepped.isFinite ? stepped : now
         return targetUptime
     }

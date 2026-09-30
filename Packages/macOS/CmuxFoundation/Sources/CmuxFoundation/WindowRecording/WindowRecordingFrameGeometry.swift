@@ -4,7 +4,9 @@ internal import Foundation
 ///
 /// A video has one frame size for its whole length, so the geometry is decided
 /// once from the first captured frame and reused: a window resized mid-clip is
-/// letterboxed into the size the clip started with rather than ending it.
+/// letterboxed into the size the clip started with rather than ending it. The
+/// crop is planned again per frame, so a `region` that a shrinking window no
+/// longer contains is the one resize that does end a clip.
 public struct WindowRecordingFrameGeometry: Equatable, Sendable {
     /// Crop rectangle in captured pixels, origin at the image's top-left.
     public let cropX: Int

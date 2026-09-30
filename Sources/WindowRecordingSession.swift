@@ -306,7 +306,10 @@ actor WindowRecordingSession {
             throw WindowRecordingSessionError.alreadyFinished
         }
         // A window resized mid-clip is re-cropped into the frame size the clip
-        // opened with, rather than ending the recording.
+        // opened with, rather than ending the recording. The exception is a
+        // `region` the window has shrunk out of: planning throws, the caller
+        // gets state `failed` with the frames captured so far, because there is
+        // no rectangle left to sample.
         let planned = try WindowRecordingFrameGeometry.plan(
             windowPixelWidth: sample.image.width,
             windowPixelHeight: sample.image.height,
