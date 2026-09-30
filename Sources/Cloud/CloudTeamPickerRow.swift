@@ -4,15 +4,16 @@ import SwiftUI
 /// Shows the active team in the Cloud header and opens its team menu.
 struct CloudTeamPickerRow: View {
     let accountFlow: HostAccountFlow
-    @Binding var isPresented: Bool
+    let presentation: CloudTeamPickerPresentation
 
     private var currentTeam: AccountTeamSummary? {
         accountFlow.availableTeams.first { $0.id == accountFlow.selectedTeamID }
     }
 
     var body: some View {
-        Button {
-            isPresented = true
+        @Bindable var presentation = presentation
+        return Button {
+            presentation.isPresented = true
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "person.2")
@@ -32,8 +33,11 @@ struct CloudTeamPickerRow: View {
             .contentShape(RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .popover(isPresented: $isPresented, arrowEdge: .top) {
-            CloudTeamPicker(accountFlow: accountFlow)
+        .popover(isPresented: $presentation.isPresented, arrowEdge: .top) {
+            CloudTeamPicker(accountFlow: accountFlow) {
+                presentation.isPresented = false
+                presentation.isInvitePresented = true
+            }
         }
         .safeHelp(String(localized: "settings.account.activeTeam", defaultValue: "Active Team"))
         .accessibilityLabel(teamPickerAccessibilityLabel)

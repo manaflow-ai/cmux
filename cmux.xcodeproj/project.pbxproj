@@ -814,7 +814,7 @@
 		09FBC463786149D49E73B297 /* CloudSurfaceDropGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A23E881DEAE40649BC8FFCF /* CloudSurfaceDropGateView.swift */; };
 		5CB4AC1D92064236B5C2DDF1 /* CloudSurfaceMoveOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF212BA811D54BB986A5E27F /* CloudSurfaceMoveOwnershipTests.swift */; };
 		6D2669CD5E4944C2B8C0F49C /* CloudSurfaceOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4DAE66C6AF74046B5545B47 /* CloudSurfaceOwnershipTests.swift */; };
-		FB58391FC9A0010315617D4C /* CloudTeamInviteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9123C33B97A251B9F1BD1532 /* CloudTeamInviteSheet.swift */; };
+		FB58391FC9A0010315617D4C /* CloudTeamInvitePopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9123C33B97A251B9F1BD1532 /* CloudTeamInvitePopover.swift */; };
 		13019A000000000000000004 /* CloudTeamPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019A000000000000000003 /* CloudTeamPicker.swift */; };
 		A14327000000000000000004 /* CloudTeamPickerHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14327000000000000000003 /* CloudTeamPickerHeader.swift */; };
 		A14327000000000000000006 /* CloudTeamPickerPlacementUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14327000000000000000005 /* CloudTeamPickerPlacementUITests.swift */; };
@@ -5032,7 +5032,7 @@
 		3A23E881DEAE40649BC8FFCF /* CloudSurfaceDropGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSurfaceDropGateView.swift; sourceTree = "<group>"; };
 		DF212BA811D54BB986A5E27F /* CloudSurfaceMoveOwnershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSurfaceMoveOwnershipTests.swift; sourceTree = "<group>"; };
 		D4DAE66C6AF74046B5545B47 /* CloudSurfaceOwnershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSurfaceOwnershipTests.swift; sourceTree = "<group>"; };
-		9123C33B97A251B9F1BD1532 /* CloudTeamInviteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamInviteSheet.swift; sourceTree = "<group>"; };
+		9123C33B97A251B9F1BD1532 /* CloudTeamInvitePopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamInvitePopover.swift; sourceTree = "<group>"; };
 		13019A000000000000000003 /* CloudTeamPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPicker.swift; sourceTree = "<group>"; };
 		A14327000000000000000003 /* CloudTeamPickerHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerHeader.swift; sourceTree = "<group>"; };
 		A14327000000000000000005 /* CloudTeamPickerPlacementUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerPlacementUITests.swift; sourceTree = "<group>"; };
@@ -8952,7 +8952,7 @@
 				8131E9BE5F3F3A28CA99614F /* MachineDeleteCoordinator.swift */,
 				ED2C0C087F0298473CB156E7 /* MachinesPanelViewModel+MachineDeletion.swift */,
 				E3AF26EAE918E646929A4B58 /* CloudTreeOutlineView+RestoreState.swift */,
-				9123C33B97A251B9F1BD1532 /* CloudTeamInviteSheet.swift */,
+				9123C33B97A251B9F1BD1532 /* CloudTeamInvitePopover.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -13650,7 +13650,7 @@
 				375E0D1FDA464DC4A05359E1 /* CloudSidebarRowSnapshot.swift in Sources */,
 				D318853B007D48AD9532F83F /* CloudSurfaceDropGate.swift in Sources */,
 				09FBC463786149D49E73B297 /* CloudSurfaceDropGateView.swift in Sources */,
-				FB58391FC9A0010315617D4C /* CloudTeamInviteSheet.swift in Sources */,
+				FB58391FC9A0010315617D4C /* CloudTeamInvitePopover.swift in Sources */,
 				13019A000000000000000004 /* CloudTeamPicker.swift in Sources */,
 				A14327000000000000000004 /* CloudTeamPickerHeader.swift in Sources */,
 				A14327000000000000000002 /* CloudTeamPickerPresentation.swift in Sources */,

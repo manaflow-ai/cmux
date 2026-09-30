@@ -740,12 +740,6 @@
       2
     ]
   },
-  "cloudInvite.seatsFull": {
-    "source": "All %d seats on this plan are used. Remove someone or upgrade to Team to invite more.",
-    "arguments": [
-      1
-    ]
-  },
   "cloudInvite.seatsOpen": {
     "source": "%1$d of %2$d seats open on this plan.",
     "arguments": [

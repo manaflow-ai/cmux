@@ -82,11 +82,11 @@ extension HostAccountFlow {
         return try await TeamsClient.shared.changeMemberRole(teamID: id, userID: userID, role: role)
     }
 
-    /// Opens the dedicated invite sheet on the main window. Shared by the
-    /// Cloud header Invite button, the picker row, the palette and the socket.
+    /// Opens the Invite popover on the Cloud header. Shared by the picker
+    /// row, the palette and the socket.
     func showTeamInvite(preferredWindow: NSWindow? = nil) {
         guard isAuthenticated, confirmedTeamID != nil else { return }
-        CloudTeamInviteSheetPresenter.shared.present(accountFlow: self, preferredWindow: preferredWindow)
+        _ = AppDelegate.shared?.openCloudTeamInvite(preferredWindow: preferredWindow, debugSource: "accountFlow.showTeamInvite")
     }
 
     /// Opens Settings › Account at the Team card (roster, roles, pending

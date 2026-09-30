@@ -235,10 +235,11 @@ public struct AccountTeamCard: View {
                     Text(invitation.email ?? invitation.id).cmuxFont(size: 12).lineLimit(1)
                     Spacer(minLength: 8)
                     Text(roleTitle(invitation.role)).cmuxFont(size: 11).foregroundColor(.secondary)
+                        .padding(.trailing, 6)
                     Button(String(localized: "settings.team.revoke", defaultValue: "Revoke")) {
                         model.revoke(invitation)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
                 .padding(.horizontal, 14)
@@ -259,7 +260,7 @@ public struct AccountTeamCard: View {
                     Button(String(localized: "settings.team.revoke", defaultValue: "Revoke")) {
                         model.revoke(link)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
                 .padding(.horizontal, 14)

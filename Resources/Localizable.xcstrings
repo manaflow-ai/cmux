@@ -573775,124 +573775,6 @@
         }
       }
     },
-    "cloudInvite.cancel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancel"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إلغاء"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abbrechen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancelar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Annuler"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャンセル"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "취소"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取消"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取消"
-          }
-        }
-      }
-    },
-    "cloudInvite.copyLink": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy invite link"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نسخ رابط الدعوة"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Einladungslink kopieren"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copiar enlace de invitación"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copier le lien d’invitation"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "招待リンクをコピー"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "초대 링크 복사"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "复制邀请链接"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "複製邀請連結"
-          }
-        }
-      }
-    },
     "cloudInvite.done": {
       "extractionState": "manual",
       "localizations": {
@@ -573948,124 +573830,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "完成"
-          }
-        }
-      }
-    },
-    "cloudInvite.emails.placeholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "name@company.com, another@company.com"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "name@company.com، another@company.com"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "name@firma.de, weitere@firma.de"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "nombre@empresa.com, otra@empresa.com"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "nom@entreprise.com, autre@entreprise.com"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "name@company.com、another@company.com"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "name@company.com、another@company.com"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "name@company.com、another@company.com"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "name@company.com、another@company.com"
-          }
-        }
-      }
-    },
-    "cloudInvite.heading": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invite people to %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "دعوة أشخاص إلى %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personen zu %@ einladen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invitar personas a %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inviter des personnes dans %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ にメンバーを招待"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@에 구성원 초대"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "邀请成员加入 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "邀請成員加入 %@"
           }
         }
       }
@@ -574243,65 +574007,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "管理成員…"
-          }
-        }
-      }
-    },
-    "cloudInvite.notAdmin": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Only team admins can invite people. Ask an admin, or switch to a team you manage."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يمكن لمسؤولي الفريق فقط دعوة الأشخاص. اطلب من مسؤول أو انتقل إلى فريق تديره."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nur Team-Admins können Personen einladen. Frage einen Admin oder wechsle zu einem Team, das du verwaltest."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solo los administradores del equipo pueden invitar. Pide a un administrador o cambia a un equipo que gestiones."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seuls les administrateurs de l’équipe peuvent inviter. Demandez à un administrateur ou passez à une équipe que vous gérez."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "招待できるのはチームの管理者だけです。管理者に依頼するか、自分が管理するチームに切り替えてください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "팀 관리자만 초대할 수 있습니다. 관리자에게 요청하거나 내가 관리하는 팀으로 전환하세요."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "只有团队管理员可以邀请成员。请联系管理员，或切换到你管理的团队。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "只有團隊管理員可以邀請成員。請聯絡管理員，或切換到你管理的團隊。"
           }
         }
       }
@@ -574601,183 +574306,6 @@
         }
       }
     },
-    "cloudInvite.sent.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Each person gets an email from cmux with a link to join. They appear in the team as soon as they accept. Pending invitations are listed in Settings › Account."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يتلقى كل شخص بريدًا إلكترونيًا من cmux يحتوي على رابط للانضمام. يظهر في الفريق فور القبول. الدعوات المعلّقة مدرجة في الإعدادات › الحساب."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jede Person erhält eine E-Mail von cmux mit einem Link zum Beitreten. Sie erscheint im Team, sobald sie annimmt. Ausstehende Einladungen findest du unter Einstellungen › Konto."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cada persona recibe un correo de cmux con un enlace para unirse. Aparece en el equipo en cuanto acepta. Las invitaciones pendientes están en Ajustes › Cuenta."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chaque personne reçoit un e-mail de cmux avec un lien pour rejoindre. Elle apparaît dans l’équipe dès qu’elle accepte. Les invitations en attente sont listées dans Réglages › Compte."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "各自に cmux から参加リンク付きのメールが届きます。承諾するとすぐにチームに表示されます。保留中の招待は「設定 › アカウント」に一覧されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "각자 cmux에서 참여 링크가 담긴 이메일을 받습니다. 수락하면 바로 팀에 표시됩니다. 대기 중인 초대는 설정 › 계정에 있습니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每个人都会收到 cmux 发送的加入链接邮件，接受后即会出现在团队中。待处理的邀请列于“设置 › 账户”。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每個人都會收到 cmux 寄出的加入連結郵件，接受後即會出現在團隊中。待處理的邀請列於「設定 › 帳號」。"
-          }
-        }
-      }
-    },
-    "cloudInvite.sent.many": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invitations sent"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم إرسال الدعوات"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Einladungen gesendet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invitaciones enviadas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invitations envoyées"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "招待を送信しました"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "초대를 보냈습니다"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "邀请已发送"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "邀請已送出"
-          }
-        }
-      }
-    },
-    "cloudInvite.sent.one": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invitation sent"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم إرسال الدعوة"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Einladung gesendet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invitación enviada"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invitation envoyée"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "招待を送信しました"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "초대를 보냈습니다"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "邀请已发送"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "邀請已送出"
-          }
-        }
-      }
-    },
     "cloudInvite.someSent": {
       "extractionState": "manual",
       "localizations": {
@@ -574833,303 +574361,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "其餘邀請已送出。"
-          }
-        }
-      }
-    },
-    "cloudInvite.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Members get the team's Cloud machines. Nothing on your Mac is shared."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يحصل الأعضاء على أجهزة Cloud الخاصة بالفريق. لا تتم مشاركة أي شيء على جهاز Mac الخاص بك."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mitglieder erhalten die Cloud-Maschinen des Teams. Nichts auf deinem Mac wird geteilt."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los miembros obtienen las máquinas Cloud del equipo. Nada de tu Mac se comparte."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les membres accèdent aux machines Cloud de l’équipe. Rien sur votre Mac n’est partagé."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メンバーはチームの Cloud マシンを利用できます。あなたの Mac 上のものは共有されません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "구성원은 팀의 Cloud 머신을 사용합니다. 내 Mac의 어떤 것도 공유되지 않습니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "成员可使用团队的 Cloud 机器。你 Mac 上的内容不会被共享。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "成員可使用團隊的 Cloud 機器。你 Mac 上的內容不會被共用。"
-          }
-        }
-      }
-    },
-    "cloudInvite.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invite People"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "دعوة أشخاص"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personen einladen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invitar personas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inviter des personnes"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メンバーを招待"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "구성원 초대"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "邀请成员"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "邀請成員"
-          }
-        }
-      }
-    },
-    "cloudInvite.seatsFull": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "The %d seat on this plan is used. Remove someone or upgrade to Team to invite more."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "All %d seats on this plan are used. Remove someone or upgrade to Team to invite more."
-                }
-              }
-            }
-          }
-        },
-        "de": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Der %d Platz dieses Plans ist belegt. Entferne jemanden oder wechsle zu Team, um weitere einzuladen."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Alle %d Plätze dieses Plans sind belegt. Entferne jemanden oder wechsle zu Team, um weitere einzuladen."
-                }
-              }
-            }
-          }
-        },
-        "fr": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Le %d siège de cette offre est utilisé. Retirez quelqu’un ou passez à Team pour inviter plus de personnes."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Les %d sièges de cette offre sont utilisés. Retirez quelqu’un ou passez à Team pour inviter plus de personnes."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Les %d sièges de cette offre sont utilisés. Retirez quelqu’un ou passez à Team pour inviter plus de personnes."
-                }
-              }
-            }
-          }
-        },
-        "es": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "El %d asiento de este plan está en uso. Elimina a alguien o cambia a Team para invitar a más."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Los %d asientos de este plan están en uso. Elimina a alguien o cambia a Team para invitar a más."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Los %d asientos de este plan están en uso. Elimina a alguien o cambia a Team para invitar a más."
-                }
-              }
-            }
-          }
-        },
-        "ar": {
-          "variations": {
-            "plural": {
-              "zero": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "لا مقاعد متاحة في هذه الخطة (%d). أزل أحدهم أو قم بالترقية إلى Team لدعوة المزيد."
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "المقعد الوحيد في هذه الخطة مستخدم (%d). أزل أحدهم أو قم بالترقية إلى Team لدعوة المزيد."
-                }
-              },
-              "two": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "كلا المقعدين في هذه الخطة مستخدمان (%d). أزل أحدهم أو قم بالترقية إلى Team لدعوة المزيد."
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "جميع المقاعد الـ %d في هذه الخطة مستخدمة. أزل أحدهم أو قم بالترقية إلى Team لدعوة المزيد."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "جميع المقاعد الـ %d في هذه الخطة مستخدمة. أزل أحدهم أو قم بالترقية إلى Team لدعوة المزيد."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "جميع المقاعد الـ %d في هذه الخطة مستخدمة. أزل أحدهم أو قم بالترقية إلى Team لدعوة المزيد."
-                }
-              }
-            }
-          }
-        },
-        "zh-Hant": {
-          "variations": {
-            "plural": {
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "此方案的 %d 個席位已全部使用。請移除成員或升級至 Team 以邀請更多人。"
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans": {
-          "variations": {
-            "plural": {
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "此方案的 %d 个席位已全部使用。请移除成员或升级到 Team 以邀请更多人。"
-                }
-              }
-            }
-          }
-        },
-        "ko": {
-          "variations": {
-            "plural": {
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "이 플랜의 %d석이 모두 사용 중입니다. 구성원을 제거하거나 Team으로 업그레이드하여 더 초대하세요."
-                }
-              }
-            }
-          }
-        },
-        "ja": {
-          "variations": {
-            "plural": {
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "このプランの %d 席はすべて使用中です。誰かを削除するか、Team にアップグレードしてさらに招待してください。"
-                }
-              }
-            }
           }
         }
       }
@@ -575403,179 +574634,474 @@
         }
       }
     },
-    "cloudInvite.point.admin": {
+    "cloudInvite.checkingSeats": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Admins invite and remove people, change roles and manage billing."
+            "value": "Checking seats…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يدعو المسؤولون الأشخاص ويزيلونهم ويغيّرون الأدوار ويديرون الفوترة."
+            "value": "جارٍ التحقق من المقاعد…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Admins laden Personen ein und entfernen sie, ändern Rollen und verwalten die Abrechnung."
+            "value": "Plätze werden geprüft…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los administradores invitan y eliminan personas, cambian roles y gestionan la facturación."
+            "value": "Comprobando asientos…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les administrateurs invitent et retirent des personnes, changent les rôles et gèrent la facturation."
+            "value": "Vérification des sièges…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "管理者はメンバーの招待と削除、役割の変更、請求の管理を行います。"
+            "value": "席を確認中…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "관리자는 사람을 초대·제거하고 역할을 바꾸며 결제를 관리합니다."
+            "value": "좌석 확인 중…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "管理员可邀请与移除成员、更改角色并管理账单。"
+            "value": "正在检查席位…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "管理員可邀請與移除成員、變更角色並管理帳單。"
+            "value": "正在檢查席位…"
           }
         }
       }
     },
-    "cloudInvite.point.cloud": {
+    "cloudInvite.copyLink.short": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud machines are shared by default. Members can open, attach to and create them."
+            "value": "Copy link"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أجهزة Cloud مشتركة افتراضيًا. يمكن للأعضاء فتحها والاتصال بها وإنشاؤها."
+            "value": "نسخ الرابط"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-Maschinen werden standardmäßig geteilt. Mitglieder können sie öffnen, sich verbinden und neue erstellen."
+            "value": "Link kopieren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las máquinas Cloud se comparten de forma predeterminada. Los miembros pueden abrirlas, conectarse y crearlas."
+            "value": "Copiar enlace"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les machines Cloud sont partagées par défaut. Les membres peuvent les ouvrir, s’y connecter et en créer."
+            "value": "Copier le lien"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud マシンはデフォルトで共有されます。メンバーは開き、接続し、作成できます。"
+            "value": "リンクをコピー"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 머신은 기본적으로 공유됩니다. 구성원이 열고, 연결하고, 만들 수 있습니다."
+            "value": "링크 복사"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 机器默认共享。成员可以打开、连接并创建机器。"
+            "value": "复制链接"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 機器預設共用。成員可以開啟、連線並建立機器。"
+            "value": "複製連結"
           }
         }
       }
     },
-    "cloudInvite.point.local": {
+    "cloudInvite.emails.placeholder.short": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac stays private. Local terminals, files and paired devices are never shared."
+            "value": "Email, comma separated"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يبقى جهاز Mac الخاص بك خاصًا. لا تتم مشاركة الطرفيات المحلية والملفات والأجهزة المقترنة أبدًا."
+            "value": "البريد الإلكتروني، مفصول بفواصل"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dein Mac bleibt privat. Lokale Terminals, Dateien und gekoppelte Geräte werden nie geteilt."
+            "value": "E-Mail, durch Kommas getrennt"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tu Mac sigue siendo privado. Los terminales locales, archivos y dispositivos emparejados nunca se comparten."
+            "value": "Correo, separado por comas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Votre Mac reste privé. Terminaux locaux, fichiers et appareils jumelés ne sont jamais partagés."
+            "value": "E-mail, séparés par des virgules"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "あなたの Mac は非公開のままです。ローカルのターミナル、ファイル、ペアリング済みデバイスが共有されることはありません。"
+            "value": "メール（カンマ区切り）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "내 Mac은 비공개로 유지됩니다. 로컬 터미널, 파일, 페어링된 기기는 절대 공유되지 않습니다."
+            "value": "이메일(쉼표로 구분)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的 Mac 保持私密。本地终端、文件和已配对设备绝不会共享。"
+            "value": "电子邮件，以逗号分隔"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的 Mac 保持私密。本機終端機、檔案與已配對裝置絕不會共用。"
+            "value": "電子郵件，以逗號分隔"
+          }
+        }
+      }
+    },
+    "cloudInvite.heading.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invite to %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دعوة إلى %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu %@ einladen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitar a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inviter dans %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に招待"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 초대"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邀请加入 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邀請加入 %@"
+          }
+        }
+      }
+    },
+    "cloudInvite.notAdmin.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only team admins can invite."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن لمسؤولي الفريق فقط الدعوة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Team-Admins können einladen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo los administradores pueden invitar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seuls les administrateurs peuvent inviter."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "招待できるのはチームの管理者だけです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀 관리자만 초대할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有团队管理员可以邀请。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有團隊管理員可以邀請。"
+          }
+        }
+      }
+    },
+    "cloudInvite.oneLiner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Members share this team's Cloud machines. Your Mac stays private."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتشارك الأعضاء أجهزة Cloud الخاصة بهذا الفريق. يبقى جهاز Mac الخاص بك خاصًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitglieder teilen die Cloud-Maschinen dieses Teams. Dein Mac bleibt privat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los miembros comparten las máquinas Cloud de este equipo. Tu Mac sigue siendo privado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les membres partagent les machines Cloud de cette équipe. Votre Mac reste privé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバーはこのチームの Cloud マシンを共有します。あなたの Mac は非公開のままです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구성원은 이 팀의 Cloud 머신을 공유합니다. 내 Mac은 비공개로 유지됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成员共享此团队的 Cloud 机器。你的 Mac 保持私密。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成員共用此團隊的 Cloud 機器。你的 Mac 保持私密。"
+          }
+        }
+      }
+    },
+    "cloudInvite.seatsFull.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No seats left on this plan. Upgrade to Team to invite more."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا مقاعد متبقية في هذه الخطة. قم بالترقية إلى Team لدعوة المزيد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Plätze mehr in diesem Plan. Wechsle zu Team, um weitere einzuladen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No quedan asientos en este plan. Cambia a Team para invitar a más."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus de sièges sur cette offre. Passez à Team pour inviter plus de personnes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプランに空席はありません。Team にアップグレードしてさらに招待してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 플랜에 남은 좌석이 없습니다. Team으로 업그레이드하여 더 초대하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此方案已无席位。请升级到 Team 以邀请更多人。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此方案已無席位。請升級至 Team 以邀請更多人。"
+          }
+        }
+      }
+    },
+    "cloudInvite.sentTo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent to %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم الإرسال إلى %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesendet an %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviado a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyé à %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に送信しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에게 보냈습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已发送给 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已傳送給 %@"
           }
         }
       }

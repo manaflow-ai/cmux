@@ -4,6 +4,8 @@ import SwiftUI
 /// The Cloud team menu. Selection and creation use the shared account flow.
 struct CloudTeamPicker: View {
     let accountFlow: HostAccountFlow
+    /// Closes this menu and opens the Invite popover on the header button.
+    var onInvite: () -> Void = {}
     @State private var isCreatingTeam = false
     @State private var newTeamName = ""
     @State private var isSubmitting = false
@@ -44,7 +46,7 @@ struct CloudTeamPicker: View {
                     title: String(localized: "sidebar.account.invitePeople", defaultValue: "Invite people…"),
                     systemImage: "person.badge.plus"
                 ) {
-                    accountFlow.showTeamInvite()
+                    onInvite()
                 }
                 .accessibilityIdentifier("CloudTeamPickerInviteButton")
                 teamMenuRow(

@@ -19,7 +19,7 @@ struct CloudTeamPickerHeader<OverflowMenu: View, Status: View>: View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 if let accountFlow {
-                    CloudTeamPickerRow(accountFlow: accountFlow, isPresented: $picker.isPresented)
+                    CloudTeamPickerRow(accountFlow: accountFlow, presentation: picker)
                         .disabled(accountFlow.isWorkingOnAuth)
                 }
                 Spacer(minLength: 0)
@@ -28,8 +28,11 @@ struct CloudTeamPickerHeader<OverflowMenu: View, Status: View>: View {
                         symbolName: "person.badge.plus",
                         title: String(localized: "sidebar.account.invite.button", defaultValue: "Invite"),
                         accessibilityLabel: String(localized: "sidebar.account.invitePeople.short", defaultValue: "Invite People"),
-                        action: { accountFlow.showTeamInvite() }
+                        action: { picker.isInvitePresented = true }
                     )
+                    .popover(isPresented: $picker.isInvitePresented, arrowEdge: .bottom) {
+                        CloudTeamInvitePopover(accountFlow: accountFlow, presentation: picker)
+                    }
                     .accessibilityIdentifier("CloudTeamInviteButton")
                 }
                 MachinesChromeIconButton(
@@ -51,6 +54,9 @@ struct CloudTeamPickerHeader<OverflowMenu: View, Status: View>: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
         }
-        .onDisappear { picker.isPresented = false }
+        .onDisappear {
+            picker.isPresented = false
+            picker.isInvitePresented = false
+        }
     }
 }

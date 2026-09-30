@@ -5,4 +5,6 @@ import Observation
 @Observable
 final class CloudTeamPickerPresentation {
     var isPresented = false
+    /// The Invite popover anchored to the header Invite button.
+    var isInvitePresented = false
 }
