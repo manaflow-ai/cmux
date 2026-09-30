@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -51,12 +52,19 @@ func defaultCloudCLIBridgeSocketIfExists() string {
 }
 
 // cloudCLIBridgeSocketIfTrusted returns path when it names a socket the CLI
-// may send requests to, else "".
+// may send requests to, else "": a socket itself (not a symlink) owned by
+// uid. The path is shared (/tmp), so another local user could otherwise
+// create a listener there first and read or answer every request.
 func cloudCLIBridgeSocketIfTrusted(path string, uid uint32) string {
-	if info, err := os.Stat(path); err == nil && info.Mode()&os.ModeSocket != 0 {
-		return path
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSocket == 0 {
+		return ""
 	}
-	return ""
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uid {
+		return ""
+	}
+	return path
 }
 
 func (b *cloudCLIBridge) start(ctx context.Context, socketPath string, stderr io.Writer) error {
