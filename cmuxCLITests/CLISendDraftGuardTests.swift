@@ -446,7 +446,8 @@ struct CLISendDraftGuardTests {
         let done = DispatchSemaphore(value: 0)
         let stop = StopFlag()
         let inputStateData = inputStates?.compactMap { try? JSONSerialization.data(withJSONObject: $0) } ?? []
-        let stateIndex = LockedCounter()
+        let inputStateIndex = LockedCounter()
+        let screenIndex = LockedCounter()
         DispatchQueue.global(qos: .userInitiated).async {
             defer { done.signal() }
             while !stop.isSet {
@@ -466,7 +467,8 @@ struct CLISendDraftGuardTests {
                     clientFD: clientFD,
                     recorder: recorder,
                     inputStateData: inputStateData,
-                    stateIndex: stateIndex,
+                    inputStateIndex: inputStateIndex,
+                    screenIndex: screenIndex,
                     screenText: screenText,
                     screenTexts: screenTexts
                 )
@@ -491,7 +493,8 @@ struct CLISendDraftGuardTests {
     private static func response(
         for line: String,
         inputStateData: [Data],
-        stateIndex: LockedCounter,
+        inputStateIndex: LockedCounter,
+        screenIndex: LockedCounter,
         screenText: String?,
         screenTexts: [String]?
     ) -> String {
@@ -500,7 +503,7 @@ struct CLISendDraftGuardTests {
         if request?["method"] as? String == "surface.read_text" {
             let text: String?
             if let screenTexts {
-                text = screenTexts[min(stateIndex.next(), screenTexts.count - 1)]
+                text = screenTexts[min(screenIndex.next(), screenTexts.count - 1)]
             } else {
                 text = screenText
             }
@@ -518,7 +521,7 @@ struct CLISendDraftGuardTests {
         }
         guard !inputStateData.isEmpty,
               let state = try? JSONSerialization.jsonObject(
-                with: inputStateData[min(stateIndex.next(), inputStateData.count - 1)]
+                with: inputStateData[min(inputStateIndex.next(), inputStateData.count - 1)]
               ) as? [String: Any] else {
             let payload: [String: Any] = [
                 "id": id,
@@ -535,7 +538,8 @@ struct CLISendDraftGuardTests {
         clientFD: Int32,
         recorder: RequestRecorder,
         inputStateData: [Data],
-        stateIndex: LockedCounter,
+        inputStateIndex: LockedCounter,
+        screenIndex: LockedCounter,
         screenText: String?,
         screenTexts: [String]?
     ) {
@@ -559,7 +563,8 @@ struct CLISendDraftGuardTests {
                 let reply = response(
                     for: line,
                     inputStateData: inputStateData,
-                    stateIndex: stateIndex,
+                    inputStateIndex: inputStateIndex,
+                    screenIndex: screenIndex,
                     screenText: screenText,
                     screenTexts: screenTexts
                 )
