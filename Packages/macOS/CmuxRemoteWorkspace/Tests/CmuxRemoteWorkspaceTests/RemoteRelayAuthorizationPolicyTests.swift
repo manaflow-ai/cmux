@@ -156,7 +156,7 @@ struct RemoteRelayAuthorizationPolicyTests {
         let owner = UUID()
         let surface = UUID()
         let foreign = UUID()
-        let ownedSurface = [surface]
+        let ownedSurface = Set([surface])
 
         #expect(policy.validate(
             method: "agent.message.poll",

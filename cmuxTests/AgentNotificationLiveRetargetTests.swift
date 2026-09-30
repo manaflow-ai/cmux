@@ -177,6 +177,41 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
+    func testRelayAgentMessageWorkspaceTargetCannotChooseLocalSplit() throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+
+        fixture.owningWorkspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "example.invalid",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_007,
+            relayID: "relay",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: nil,
+            ownerWorkspaceID: fixture.owningWorkspace.id,
+            terminalStartupCommand: nil
+        )
+        fixture.owningWorkspace.activeRemoteSessionControllerID = UUID()
+        fixture.owningWorkspace.trackRemoteTerminalSurface(fixture.panelId)
+
+        let paneID = try #require(fixture.owningWorkspace.bonsplitController.allPaneIds.first)
+        let localPanel = try #require(fixture.owningWorkspace.newTerminalSurface(
+            inPane: paneID,
+            focus: true
+        ))
+
+        let recipient = TerminalController.shared.agentMessageResolveRecipient(
+            fixture.owningWorkspace.id.uuidString,
+            allowedSurfaceIDs: [fixture.panelId]
+        )
+        #expect(recipient?.surfaceId == fixture.panelId)
+        #expect(recipient?.surfaceId != localPanel.id)
+    }
+
+    @Test
     func testRelayTTYResolutionStaysInsideAuthenticatedWorkspace() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }

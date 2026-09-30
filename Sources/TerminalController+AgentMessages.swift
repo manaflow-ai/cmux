@@ -373,7 +373,11 @@ extension TerminalController {
     /// surface running its agent: the focused agent surface, then any agent
     /// surface, then the focused terminal.
     @MainActor
-    func agentMessageResolveRecipient(_ target: String) -> AgentMessageRecipient? {
+    func agentMessageResolveRecipient(
+        _ target: String,
+        allowedSurfaceIDs: Set<UUID>? = nil
+    ) -> AgentMessageRecipient? {
+        _ = allowedSurfaceIDs
         guard let app = AppDelegate.shared else { return nil }
         let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
