@@ -891,9 +891,9 @@ enum CmuxEmbeddedConfigSchema {
               "description": "Enable automatic closing of eligible settled agent sessions. Off by default."
             },
             "idleHours": {
-              "type": "number",
+              "type": "integer",
               "minimum": 1,
-              "maximum": 720,
+              "maximum": 168,
               "default": 2,
               "description": "Minimum idle time in hours before an eligible settled session can close."
             }
