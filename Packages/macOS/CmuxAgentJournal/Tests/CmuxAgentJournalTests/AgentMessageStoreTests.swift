@@ -231,6 +231,17 @@ struct AgentMessageStoreTests {
         #expect(store.poll(recipientSurfaceId: "surface-c", pollerKey: "turn-1", register: false) == .current(queued: 0))
     }
 
+    @Test("A deferred wake reserves messages from the prompt drain")
+    func deferredWakeReservesMessagesFromPromptDrain() throws {
+        let store = AgentMessageStore(fileURL: nil)
+        _ = try store.append(draft(to: "surface-b"))
+        _ = store.poll(recipientSurfaceId: "surface-b", pollerKey: "poller-1", register: true)
+
+        #expect(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-1")?.count == 1)
+        #expect(store.claimQueued(recipientSurfaceId: "surface-b", via: "claude.prompt-submit").isEmpty)
+        #expect(store.hasQueued(recipientSurfaceId: "surface-b"))
+    }
+
     @Test("Deferred messages are recipient-only and bound to the active poller")
     func deferredMessagesAreRecipientOnlyAndPollerBound() throws {
         let store = AgentMessageStore(fileURL: nil)
