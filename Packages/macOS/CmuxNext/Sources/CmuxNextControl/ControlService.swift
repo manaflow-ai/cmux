@@ -63,7 +63,8 @@ public final class ControlService {
         return try start(
             registry: registry,
             settingsStore: settings?.file,
-            configuration: ControlSocketServer.Configuration(path: launch.socketPath, accessMode: mode, passwordVerifier: verifier),
+            configuration: ControlSocketServer.Configuration(path: launch.socketPath, accessMode: mode, passwordVerifier: verifier,
+                                                             trustedExecutables: bundledExecutables(bundle)),
             identity: identity,
             frameSource: frameSource,
             watchdog: watchdog
@@ -112,5 +113,16 @@ public final class ControlService {
         #else
         false
         #endif
+    }
+
+    /// The bundled cmux binary (`bin/cmux`, also run as `bin/cmux-tui`),
+    /// whose processes host every terminal: `.cmuxOnly` admits their
+    /// descendants.
+    static func bundledExecutables(_ bundle: Bundle) -> Set<String> {
+        guard let bin = bundle.resourceURL?.appendingPathComponent("bin") else { return [] }
+        return Set(["cmux", "cmux-tui"].flatMap { name -> [String] in
+            let url = bin.appendingPathComponent(name)
+            return [url.path, url.resolvingSymlinksInPath().path]
+        })
     }
 }
