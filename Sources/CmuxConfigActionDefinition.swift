@@ -13,6 +13,8 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
     var tooltip: String?
     var confirm: Bool?
     var terminalCommandTarget: CmuxConfigTerminalCommandTarget?
+    /// Grouping for the terminal right-click Snippets submenu (text actions only).
+    var category: String?
     /// Whether this action is offered in the new-workspace plus-button menu.
     /// Defaults to true for `workspace` actions and false otherwise.
     var newWorkspaceMenu: Bool?
@@ -46,6 +48,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         case cycle
         case unset
         case preset
+        case category
     }
 
     init(
@@ -59,6 +62,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         tooltip: String? = nil,
         confirm: Bool? = nil,
         terminalCommandTarget: CmuxConfigTerminalCommandTarget? = nil,
+        category: String? = nil,
         newWorkspaceMenu: Bool? = nil
     ) {
         self.action = action
@@ -71,6 +75,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         self.tooltip = tooltip
         self.confirm = confirm
         self.terminalCommandTarget = terminalCommandTarget
+        self.category = category
         self.newWorkspaceMenu = newWorkspaceMenu
     }
 
@@ -89,6 +94,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         tooltip = try Self.trimmedString(forKey: .tooltip, in: container, allowBlankAsNil: true)
         confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
         terminalCommandTarget = try container.decodeIfPresent(CmuxConfigTerminalCommandTarget.self, forKey: .target)
+        category = try Self.trimmedString(forKey: .category, in: container, allowBlankAsNil: true)
         newWorkspaceMenu = try container.decodeIfPresent(Bool.self, forKey: .newWorkspaceMenu)
 
         let inferredType: String?
@@ -180,6 +186,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         try container.encodeIfPresent(tooltip, forKey: .tooltip)
         try container.encodeIfPresent(confirm, forKey: .confirm)
         try container.encodeIfPresent(terminalCommandTarget, forKey: .target)
+        try container.encodeIfPresent(category, forKey: .category)
         try container.encodeIfPresent(newWorkspaceMenu, forKey: .newWorkspaceMenu)
         guard let action else { return }
         switch action {

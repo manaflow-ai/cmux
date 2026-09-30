@@ -173,6 +173,7 @@ Text actions paste reusable prompts into the focused terminal, preserving newlin
   "actions": {
     "review-prompt": {
       "type": "text",
+      "category": "Prompts",
       "title": "Review Prompt",
       "keywords": ["review", "snippet"],
       "shortcut": "cmd+shift+r",
@@ -188,7 +189,7 @@ Text actions paste reusable prompts into the focused terminal, preserving newlin
 }
 ```
 
-Both entries appear in Cmd+Shift+P, can be bound to a shortcut, and can be referenced from `ui.surfaceTabBar.buttons` like any other action.
+Both entries appear in Cmd+Shift+P, can be bound to a shortcut, and can be referenced from `ui.surfaceTabBar.buttons` like any other action. They also appear under **Snippets** in the terminal right-click menu; entries with a `category` are grouped into a sub-submenu named after it, uncategorised ones sit at the top.
 
 ## CI Watch
 
