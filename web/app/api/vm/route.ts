@@ -251,6 +251,7 @@ export async function POST(request: Request): Promise<Response> {
       timing.record("auth", authDurationMs);
       let admissionRecorded = false;
       let admissionStartedAt = performance.now();
+      /** Records validation/admission even when the request exits before provisioning. */
       const recordAdmission = () => {
         if (admissionRecorded) return;
         admissionRecorded = true;

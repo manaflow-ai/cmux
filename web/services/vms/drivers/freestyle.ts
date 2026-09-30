@@ -197,6 +197,7 @@ const globalForFreestyle = globalThis as typeof globalThis & {
   __cmuxFreestyleClients?: Map<string, Freestyle>;
 };
 
+/** Returns the single-flight state associated with one fetch implementation. */
 function warmupStateFor(fetchImpl: typeof fetch): FreestyleWarmupState {
   const key = fetchImpl as unknown as object;
   const existing = freestyleWarmupStates.get(key);
@@ -206,6 +207,7 @@ function warmupStateFor(fetchImpl: typeof fetch): FreestyleWarmupState {
   return state;
 }
 
+/** Performs the bounded same-origin probe that establishes the provider connection pool. */
 async function warmFreestyleConnection(options: Required<FreestylePreconnectOptions>): Promise<void> {
   await options.fetch(`${options.baseUrl}/`, {
     method: "HEAD",

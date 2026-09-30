@@ -48,6 +48,10 @@ const REQUEST_TIMEOUT_MS = 330_000;
 const CREATE_TIMEOUT_MS = 630_000;
 // Bounds when a new attach attempt may start; it never cuts a request short.
 const ATTACH_BUDGET_MS = 180_000;
+// The durable row should become visible immediately after the create response;
+// keep this separate from provider/daemon readiness so a lagging list index is
+// visible instead of being folded into attach time.
+const ROW_READY_BUDGET_MS = 60_000;
 
 const requireFromWeb = createRequire(path.join(webDir, "package.json"));
 const { StackServerApp } = await import(pathToFileURL(requireFromWeb.resolve("@hexclave/js")).href);
@@ -266,6 +270,35 @@ async function attachUntilReady(vmId, stage) {
   }
 }
 
+/** Polls the authoritative VM list until the newly created durable row is visible. */
+async function rowUntilVisible(vmId) {
+  const startedAt = performance.now();
+  const attempts = [];
+  for (;;) {
+    const elapsed = performance.now() - startedAt;
+    if (elapsed >= ROW_READY_BUDGET_MS || interrupted) {
+      throw new Error(`VM row for ${vmId} did not become visible within ${ROW_READY_BUDGET_MS} ms (${attempts.length} attempts)`);
+    }
+    const response = await fetchTimed(`${targetUrl}/api/vm`, { headers: authHeaders });
+    const body = json(response.text);
+    attempts.push({ status: response.status, ms: response.ms });
+    if (response.status === 200) {
+      const row = (body.vms ?? []).find((entry) => entry?.id === vmId);
+      if (row) {
+        return {
+          rowReadyMs: elapsedMs(startedAt),
+          rowReadyStatus: row.status ?? null,
+          rowReadyAttempts: attempts,
+        };
+      }
+    } else if (response.status >= 500) {
+      throw new Error(`VM row list failed while waiting for ${vmId}: ${response.status} ${response.text.slice(0, 300)}`);
+    }
+    const remainingMs = ROW_READY_BUDGET_MS - (performance.now() - startedAt);
+    await sleep(Math.min(remainingMs, 250));
+  }
+}
+
 /** Time from the first probe until the edge alias answers with an HTTP status (any status proves injection). */
 async function edgeReady(vmId) {
   const startedAt = performance.now();
@@ -328,12 +361,14 @@ async function runTrial(trial) {
   trial.vmId = vmId;
   trial.imageVersion = created.imageVersion ?? null;
   trial.size = created.size?.name ?? null;
+  Object.assign(trial, await rowUntilVisible(vmId));
   Object.assign(trial, await attachUntilReady(vmId, "attach"));
   // Create plus the attach-endpoint's own time: the route and lease exist,
   // but the link, the terminal and the shell prompt come after this point
-  // (bench-private-link.ts measures those), so this is attach readiness,
-  // not a usable terminal.
+  // (bench-private-link.ts measures those). Trusted-carrier attach is the
+  // first usable machine boundary; rowReadyMs is the durable fleet-row boundary.
   trial.createToAttachReadyMs = trial.createMs + trial.attachMs;
+  trial.createToRowReadyMs = trial.createMs + trial.rowReadyMs;
   Object.assign(trial, await attachUntilReady(vmId, "warmAttach"));
   if (!skipExec) {
     const exec = await fetchTimed(vmUrl(vmId, "/exec"), {
@@ -888,7 +923,7 @@ function emitReport({ results, listMs, startedAt, runError, cleanup }) {
     totalMs: startedAt === null ? null : elapsedMs(startedAt),
     succeeded: ok.length,
     failed: results.length - ok.length,
-    stages: summarizeFields(measured, ["createMs", "attachMs", "createToAttachReadyMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
+    stages: summarizeFields(measured, ["createMs", "rowReadyMs", "createToRowReadyMs", "attachMs", "createToAttachReadyMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
     attachAttempts: summarizeFields(measured.map((trial) => ({ attempts: trial.attachAttempts?.length })), ["attempts"]).attempts,
     createServerTiming: summarizeStages(measured.map((trial) => trial.createStages)),
     results,
