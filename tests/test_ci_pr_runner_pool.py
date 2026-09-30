@@ -85,6 +85,12 @@ def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL
 
 
 class PreferenceOrder(unittest.TestCase):
+    def test_blacksmith_headroom_must_fit_the_whole_run(self):
+        snap = backlog(small=0, large=0, old=0)
+        for entry in snap["pools"].values():
+            entry["running"] = 0
+        self.assertEqual(choose(snap, jobs=6, queue_rounds="0").runner, SMALL)
+
     def test_12vcpu_first_while_it_has_headroom(self):
         choice = choose(backlog(small=0, large=0))
         self.assertEqual((choice.runner, choice.xcode_app), (LARGE, ""))
