@@ -186,6 +186,20 @@ public final class ControlReadSnapshotStore: @unchecked Sendable {
         }
     }
 
+    /// Invalidates cached responses while advancing the publication
+    /// generation. The next read falls through to its live resolution until
+    /// the main actor publishes a fresh topology snapshot.
+    public func invalidate() {
+        retiredState.withLock { retired in
+            let current = readUnlocked()
+            let next = ControlReadSnapshot(
+                generation: current.generation &+ 1,
+                responses: [:]
+            )
+            publishLocked(next, retired: &retired)
+        }
+    }
+
     /// Looks up one command result without an actor hop.
     ///
     /// - Parameters:

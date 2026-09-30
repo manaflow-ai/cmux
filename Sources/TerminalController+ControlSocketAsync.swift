@@ -274,9 +274,9 @@ extension TerminalController {
             let response = try await v2MainAsync {
                 self.socketWorkerV2Response(handling: request)
             }
-            Task { @MainActor [weak self] in
-                self?.scheduleSocketReadSnapshotRefresh()
-            }
+            // Invalidate before the deferred refresh so follow-up reads resolve live.
+            socketReadSnapshotStore.invalidate()
+            Task { @MainActor [weak self] in self?.scheduleSocketReadSnapshotRefresh() }
             return response
         }
 
@@ -489,9 +489,8 @@ extension TerminalController {
                 diffViewerRegistration: diffViewerRegistration
             )
         }
-        Task { @MainActor [weak self] in
-            self?.scheduleSocketReadSnapshotRefresh()
-        }
+        socketReadSnapshotStore.invalidate()
+        Task { @MainActor [weak self] in self?.scheduleSocketReadSnapshotRefresh() }
         switch outcome {
         case .callResult(let result):
             return Self.v2Encoder.response(id: request.id, result)
