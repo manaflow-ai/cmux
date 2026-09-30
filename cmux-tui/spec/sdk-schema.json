@@ -1874,6 +1874,24 @@
      "presence": "required",
      "nullable": false
     },
+    "session_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
+    "machine_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
     "registry_id": {
      "type": {
       "kind": "scalar",

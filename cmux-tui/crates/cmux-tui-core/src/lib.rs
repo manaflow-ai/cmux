@@ -30,6 +30,7 @@ mod journal_ingress;
 mod journal_kernel;
 mod journal_plugin;
 mod journal_reducers;
+mod machine_name;
 mod model;
 mod mux;
 mod pairing;

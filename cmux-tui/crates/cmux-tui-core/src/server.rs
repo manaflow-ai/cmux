@@ -196,6 +196,9 @@ pub const SAVED_TAB_GROUPS_CAPABILITY: &str = "saved-tab-groups-v1";
 /// Per-terminal `env` on `new-tab`, `split`, and `create-terminal`, and
 /// `cwd` on `split`.
 pub const TERMINAL_ENV_CAPABILITY: &str = "terminal-env-v1";
+/// `identify` carries `session_id` (the durable registry id) and
+/// `machine_name` (plans/cmux-next/data-model.md section 2).
+pub const SESSION_IDENTITY_CAPABILITY: &str = "session-identity-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -326,6 +329,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SAVED_TAB_GROUPS_CAPABILITY,
         TERMINAL_ENV_CAPABILITY,
         LOOPBACK_FORWARD_CAPABILITY,
+        SESSION_IDENTITY_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -12777,6 +12781,8 @@ fn handle_command_with_cancellation(
                 "capabilities": advertised_capabilities(cfg!(unix)),
                 "session": mux.session,
                 "pid": std::process::id(),
+                "session_id": registry_id,
+                "machine_name": crate::machine_name::machine_name(),
                 "registry_id": registry_id,
                 "generation": generation,
                 "workspace_revision": mux.with_state(|state| state.workspace_revision),

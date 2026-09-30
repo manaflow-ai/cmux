@@ -632,8 +632,8 @@
     },
     {
       "path": "IdentifyResult.java",
-      "sha256": "01d12a8f161f06e624efd559b338cb7fccafe511aef96e0cc091b35098566702",
-      "size": 10786
+      "sha256": "cbded85bd2194d7fd9ad4ebe8bccd404568c89ea7d4c2b3aafbfc8afef7d66b2",
+      "size": 12126
     },
     {
       "path": "IdsRequest.java",
@@ -1042,7 +1042,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "78ddbfa69f49fa06161868117fcd974beb55ce9403856228630d2713a9e43748",
+      "sha256": "c24a663bf0313ebfd1c8327a9659b35eef4bd778db8126884d03f370ae9c91c2",
       "size": 4546
     },
     {
@@ -1932,7 +1932,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af",
+  "ir_sha256": "b794ed0edf9e69c25274ac3ffbdd79dfa9ca531385e4b94f254f9dc7b55d5952",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

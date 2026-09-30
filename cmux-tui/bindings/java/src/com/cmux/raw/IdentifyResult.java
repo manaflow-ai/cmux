@@ -16,10 +16,12 @@ public final class IdentifyResult implements WireValue {
     private final String generation;
     private final Field<String> ghosttyCommit;
     private final Field<Boolean> lifecycleReady;
+    private final Field<String> machineName;
     private final long pid;
     private final long protocol;
     private final String registryId;
     private final String session;
+    private final Field<String> sessionId;
     private final UInt64 terminalRevision;
     private final String version;
     private final UInt64 workspaceRevision;
@@ -31,6 +33,7 @@ public final class IdentifyResult implements WireValue {
         this.generation = Wire.nonNull(builder.generation, "generation");
         this.ghosttyCommit = builder.ghosttyCommit;
         this.lifecycleReady = builder.lifecycleReady;
+        this.machineName = builder.machineName;
         if (!builder.pidSet) throw new IllegalArgumentException("pid is required");
         this.pid = builder.pid;
         if (!builder.protocolSet) throw new IllegalArgumentException("protocol is required");
@@ -39,6 +42,7 @@ public final class IdentifyResult implements WireValue {
         this.registryId = Wire.nonNull(builder.registryId, "registry_id");
         if (!builder.sessionSet) throw new IllegalArgumentException("session is required");
         this.session = Wire.nonNull(builder.session, "session");
+        this.sessionId = builder.sessionId;
         if (!builder.terminalRevisionSet) throw new IllegalArgumentException("terminal_revision is required");
         this.terminalRevision = Wire.nonNull(builder.terminalRevision, "terminal_revision");
         if (!builder.versionSet) throw new IllegalArgumentException("version is required");
@@ -56,10 +60,12 @@ public final class IdentifyResult implements WireValue {
     public String generation() { return generation; }
     public Field<String> ghosttyCommit() { return ghosttyCommit; }
     public Field<Boolean> lifecycleReady() { return lifecycleReady; }
+    public Field<String> machineName() { return machineName; }
     public long pid() { return pid; }
     public long protocol() { return protocol; }
     public String registryId() { return registryId; }
     public String session() { return session; }
+    public Field<String> sessionId() { return sessionId; }
     public UInt64 terminalRevision() { return terminalRevision; }
     public String version() { return version; }
     public UInt64 workspaceRevision() { return workspaceRevision; }
@@ -89,6 +95,10 @@ public final class IdentifyResult implements WireValue {
         if (!Wire.isMissing(rawLifecycleReady)) {
             builder.lifecycleReady(Wire.bool(rawLifecycleReady, "IdentifyResult.lifecycle_ready"));
         }
+        Object rawMachineName = Wire.optional(object, "machine_name");
+        if (!Wire.isMissing(rawMachineName)) {
+            builder.machineName(Wire.string(rawMachineName, "IdentifyResult.machine_name"));
+        }
         Object rawPid = Wire.required(object, "pid");
         builder.pid(Wire.uint32(rawPid, "IdentifyResult.pid"));
         Object rawProtocol = Wire.required(object, "protocol");
@@ -97,6 +107,10 @@ public final class IdentifyResult implements WireValue {
         builder.registryId(Wire.string(rawRegistryId, "IdentifyResult.registry_id"));
         Object rawSession = Wire.required(object, "session");
         builder.session(Wire.string(rawSession, "IdentifyResult.session"));
+        Object rawSessionId = Wire.optional(object, "session_id");
+        if (!Wire.isMissing(rawSessionId)) {
+            builder.sessionId(Wire.string(rawSessionId, "IdentifyResult.session_id"));
+        }
         Object rawTerminalRevision = Wire.required(object, "terminal_revision");
         builder.terminalRevision(Wire.uint64(rawTerminalRevision, "IdentifyResult.terminal_revision"));
         Object rawVersion = Wire.required(object, "version");
@@ -116,10 +130,12 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "generation", generation);
         Wire.put(object, "ghostty_commit", ghosttyCommit);
         Wire.put(object, "lifecycle_ready", lifecycleReady);
+        Wire.put(object, "machine_name", machineName);
         Wire.put(object, "pid", pid);
         Wire.put(object, "protocol", protocol);
         Wire.put(object, "registry_id", registryId);
         Wire.put(object, "session", session);
+        Wire.put(object, "session_id", sessionId);
         Wire.put(object, "terminal_revision", terminalRevision);
         Wire.put(object, "version", version);
         Wire.put(object, "workspace_revision", workspaceRevision);
@@ -129,11 +145,11 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(buildCommit, that.buildCommit) && Objects.equals(capabilities, that.capabilities) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(buildCommit, that.buildCommit) && Objects.equals(capabilities, that.capabilities) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineName, that.machineName) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(buildCommit, capabilities, generation, ghosttyCommit, lifecycleReady, pid, protocol, registryId, session, terminalRevision, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(buildCommit, capabilities, generation, ghosttyCommit, lifecycleReady, machineName, pid, protocol, registryId, session, sessionId, terminalRevision, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
@@ -145,6 +161,7 @@ public final class IdentifyResult implements WireValue {
         private boolean generationSet;
         private Field<String> ghosttyCommit = Field.omitted();
         private Field<Boolean> lifecycleReady = Field.omitted();
+        private Field<String> machineName = Field.omitted();
         private Long pid;
         private boolean pidSet;
         private Long protocol;
@@ -153,6 +170,7 @@ public final class IdentifyResult implements WireValue {
         private boolean registryIdSet;
         private String session;
         private boolean sessionSet;
+        private Field<String> sessionId = Field.omitted();
         private UInt64 terminalRevision;
         private boolean terminalRevisionSet;
         private String version;
@@ -181,6 +199,10 @@ public final class IdentifyResult implements WireValue {
             this.lifecycleReady = Field.of(value);
             return this;
         }
+        public Builder machineName(String value) {
+            this.machineName = Field.of(value);
+            return this;
+        }
         public Builder pid(long value) {
             this.pid = value;
             this.pidSet = true;
@@ -199,6 +221,10 @@ public final class IdentifyResult implements WireValue {
         public Builder session(String value) {
             this.session = value;
             this.sessionSet = true;
+            return this;
+        }
+        public Builder sessionId(String value) {
+            this.sessionId = Field.of(value);
             return this;
         }
         public Builder terminalRevision(UInt64 value) {

@@ -1727,6 +1727,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("lifecycle_ready", std::move(encoded).value());
     }
+    if (value.machine_name) {
+        auto encoded = encode_value(*value.machine_name);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_name", std::move(encoded).value());
+    }
     auto encoded_pid = encode_value(value.pid);
     if (!encoded_pid) return std::move(encoded_pid).error();
     object.emplace("pid", std::move(encoded_pid).value());
@@ -1739,6 +1744,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
     auto encoded_session = encode_value(value.session);
     if (!encoded_session) return std::move(encoded_session).error();
     object.emplace("session", std::move(encoded_session).value());
+    if (value.session_id) {
+        auto encoded = encode_value(*value.session_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("session_id", std::move(encoded).value());
+    }
     auto encoded_terminal_revision = encode_value(value.terminal_revision);
     if (!encoded_terminal_revision) return std::move(encoded_terminal_revision).error();
     object.emplace("terminal_revision", std::move(encoded_terminal_revision).value());
@@ -1814,6 +1824,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         result.lifecycle_ready = std::move(decoded).value();
     }
+    const Json* field_machine_name = value.find("machine_name");
+    if (field_machine_name) {
+        auto decoded = decode_value<std::string>(*field_machine_name);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_name = std::move(decoded).value();
+    }
     const Json* field_pid = value.find("pid");
     if (!field_pid) {
         return make_error(ErrorCode::decode, "missing required field 'pid'");
@@ -1849,6 +1865,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_session);
         if (!decoded) return std::move(decoded).error();
         result.session = std::move(decoded).value();
+    }
+    const Json* field_session_id = value.find("session_id");
+    if (field_session_id) {
+        auto decoded = decode_value<std::string>(*field_session_id);
+        if (!decoded) return std::move(decoded).error();
+        result.session_id = std::move(decoded).value();
     }
     const Json* field_terminal_revision = value.find("terminal_revision");
     if (!field_terminal_revision) {
