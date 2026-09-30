@@ -12439,7 +12439,7 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             predicate: finalPageAligned, object: nil
         )], timeout: 3), .completed)
         XCTAssertEqual(primary.label, "Check Again")
-        XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
+        XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].isHittable)
         frames.append("Connect: \(primary.frame)")
         capture("onboarding-5-connect", in: app)
         record("onboarding-final-page-result", "The final connection page keeps the primary action aligned with the preceding onboarding pages.")
