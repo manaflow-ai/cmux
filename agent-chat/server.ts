@@ -277,6 +277,15 @@ function sessionSummary(s: Session) {
   };
 }
 
+export function stripQueuedMessages(summary: Record<string, unknown>): Record<string, unknown> {
+  const { queuedMessages: _queuedMessages, ...withoutQueuedMessages } = summary;
+  return withoutQueuedMessages;
+}
+
+function sessionListSummary(s: Session) {
+  return stripQueuedMessages(sessionSummary(s));
+}
+
 function capabilitiesFor(provider: string): ProviderCapabilities {
   return adapters.get(provider)?.capabilities ?? { options: [], triggers: [] };
 }
@@ -335,10 +344,7 @@ function broadcastSessions() {
   const payload = JSON.stringify({
     kind: "sessions",
     // Queued message bodies go only to the session's own page.
-    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map((s) => {
-      const { queuedMessages: _queued, ...summary } = sessionSummary(s) as ReturnType<typeof sessionSummary> & { queuedMessages?: unknown };
-      return summary;
-    }),
+    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionListSummary),
   });
   for (const ws of allSockets) ws.send(payload);
 }
@@ -614,8 +620,14 @@ function emitDoneAfterFiles(sess: Session, evt: InternalDoneEvent) {
 
 function sendPrompt(sess: Session, prompt: string, requestId = crypto.randomUUID()) {
   if (sess.transcript) {
-    // Typed into the terminal's agent; the transcript records the prompt.
-    void sess.adapter.send(sess, prompt);
+    // Typed into the terminal's agent; the transcript records the prompt, so
+    // there is no turn generation to unwind and no "done" to emit. The send
+    // can still reject (a replaced agent process, a failed spawn), and that
+    // has to reach the user rather than becoming an unhandled rejection.
+    Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
+      console.error("[agent-chat] send failed", err);
+      sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
+    });
     return;
   }
   emitRouting(sess, { phase: "started", requestId, attempt: 1, provider: sess.provider });
@@ -2175,7 +2187,7 @@ function startServer() {
       return new Response(null, { status: 302, headers: { location: `${prefixedPath(`/s/${sess.id}`)}${url.search}` } });
     }
     if (url.pathname === "/api/sessions" && req.method === "GET") {
-      return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary));
+      return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionListSummary));
     }
     return new Response(renderPage(url), { headers: { "content-type": "text/html; charset=utf-8" } });
     },

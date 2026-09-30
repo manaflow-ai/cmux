@@ -10,7 +10,7 @@ struct BrowserStateLoadTransactionTests {
     func storageWaitsForNavigationCommit() {
         var events: [String] = []
 
-        let result = BrowserStateLoadTransaction.run(
+        let result = BrowserStateLoadTransaction().run(
             hasNavigation: true,
             installCookies: {
                 events.append("cookies")
@@ -35,7 +35,7 @@ struct BrowserStateLoadTransactionTests {
     func navigationFailureDoesNotApplyStorage() {
         var storageApplied = false
 
-        let result = BrowserStateLoadTransaction.run(
+        let result = BrowserStateLoadTransaction().run(
             hasNavigation: true,
             installCookies: { true },
             navigateAndWait: { .failed("offline") },
