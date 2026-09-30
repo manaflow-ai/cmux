@@ -16,6 +16,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
@@ -185,36 +186,94 @@ fn content_digest() -> String {
 /// Write the scripts under `root`, or confirm they are already intact. The
 /// check runs on every launch because a shell pointed at a missing script
 /// would start without its rc files (bash stays in POSIX mode).
+///
+/// Every new shell sources these files, so the directories and files must
+/// belong to this user and must not be symlinks; otherwise the launch goes
+/// ahead without integration.
 fn materialize(root: &Path) -> io::Result<PathBuf> {
+    let container = root.parent().ok_or_else(|| io::Error::other("scripts root has no parent"))?;
+    if let Some(base) = container.parent() {
+        fs::create_dir_all(base)?;
+    }
+    ensure_private_dir(container)?;
+    ensure_private_dir(root)?;
     for script in SCRIPTS {
         let path = root.join(script.path);
-        if fs::read(&path).is_ok_and(|existing| existing == script.contents.as_bytes()) {
+        let parent = path.parent().ok_or_else(|| io::Error::other("script has no parent"))?;
+        let mut missing = Vec::new();
+        let mut dir = parent;
+        while dir != root {
+            missing.push(dir);
+            dir = dir.parent().ok_or_else(|| io::Error::other("script outside its root"))?;
+        }
+        for dir in missing.into_iter().rev() {
+            ensure_private_dir(dir)?;
+        }
+        if check_owned(&path, false).is_ok()
+            && fs::read(&path).is_ok_and(|existing| existing == script.contents.as_bytes())
+        {
             continue;
         }
-        let parent = path.parent().ok_or_else(|| io::Error::other("script has no parent"))?;
-        fs::create_dir_all(parent)?;
-        let mut dir = parent;
-        while dir.starts_with(root) {
-            crate::platform::restrict_directory(dir)?;
-            match dir.parent() {
-                Some(next) => dir = next,
-                None => break,
-            }
-        }
+        // Unique per call: shells can launch concurrently in one process.
         let temp = parent.join(format!(
-            ".{}.{}.tmp",
+            ".{}.{}.{}.tmp",
             path.file_name().and_then(OsStr::to_str).unwrap_or("script"),
-            std::process::id()
+            std::process::id(),
+            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
-        {
-            let mut file = fs::File::create(&temp)?;
+        let written = (|| {
+            let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
             file.write_all(script.contents.as_bytes())?;
             file.sync_all()?;
+            crate::platform::restrict_file(&temp)?;
+            fs::rename(&temp, &path)
+        })();
+        if written.is_err() {
+            let _ = fs::remove_file(&temp);
         }
-        crate::platform::restrict_file(&temp)?;
-        fs::rename(&temp, &path)?;
+        written?;
     }
     Ok(root.to_path_buf())
+}
+
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn ensure_private_dir(dir: &Path) -> io::Result<()> {
+    match fs::create_dir(dir) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
+    }
+    check_owned(dir, true)?;
+    crate::platform::restrict_directory(dir)
+}
+
+#[cfg(unix)]
+fn check_owned(path: &Path, directory: bool) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink()
+        || metadata.is_dir() != directory
+        || metadata.uid() != crate::platform::effective_uid()
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{} is not a private shell integration path", path.display()),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn check_owned(path: &Path, directory: bool) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || metadata.is_dir() != directory {
+        return Err(io::Error::other(format!(
+            "{} is not a shell integration path",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -324,6 +383,17 @@ mod tests {
         fs::remove_file(root.join("bash/ghostty.bash")).unwrap();
         materialize(&root).unwrap();
         assert!(root.join("bash/ghostty.bash").is_file());
+        // A symlink in place of a script is replaced by the real file.
+        #[cfg(unix)]
+        {
+            let decoy = base.join("decoy");
+            fs::write(&decoy, "echo hijacked\n").unwrap();
+            fs::remove_file(root.join("zsh/.zshenv")).unwrap();
+            std::os::unix::fs::symlink(&decoy, root.join("zsh/.zshenv")).unwrap();
+            materialize(&root).unwrap();
+            assert!(!fs::symlink_metadata(root.join("zsh/.zshenv")).unwrap().file_type().is_symlink());
+            assert_eq!(fs::read_to_string(&decoy).unwrap(), "echo hijacked\n");
+        }
         fs::remove_dir_all(&base).unwrap();
     }
 
