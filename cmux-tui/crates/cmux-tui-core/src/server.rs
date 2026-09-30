@@ -24727,20 +24727,11 @@ mod tests {
         assert_eq!(pairs, vec![("A".into(), "1".into()), ("B".into(), "2".into())]);
     }
 
-    fn wait_for_screen_text(mux: &Arc<Mux>, surface: u64, needle: &str) {
-        let surface = mux.surface(surface).expect("created surface");
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            let text = surface.with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
-            if text.contains(needle) {
-                return;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "terminal did not show {needle:?}; screen: {text:?}"
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
+    /// The argv the created terminal was spawned with (the in-process test
+    /// runtime records it instead of running it).
+    fn spawned_argv(mux: &Arc<Mux>, created: &Value) -> Vec<String> {
+        let surface = created["surface"].as_u64().expect("created surface");
+        mux.surface(surface).and_then(|surface| surface.spawn_argv()).expect("terminal surface")
     }
 
     #[test]
@@ -24758,22 +24749,23 @@ mod tests {
             ("new-pane-right", json!({"width":0.5})),
         ];
         for (command, extra) in commands {
-            let marker = format!("shell-args-{command}");
             let mut request = json!({
                 "cmd":command,
                 "pane":pane,
                 "cols":60,
                 "rows":8,
-                "env":{"SHELL":"/bin/sh"},
-                "shell_args":["-c", format!("echo {marker}-$0; exec cat")],
+                "env":{"SHELL":"/opt/homebrew/bin/bash"},
+                "shell_args":["--posix"],
             });
             for (key, value) in extra.as_object().unwrap() {
                 request[key] = value.clone();
             }
             let created = run_json_command(&mux, request).unwrap();
-            let surface = created["surface"].as_u64().unwrap();
-            // $0 of `sh -c` is the shell the daemon ran: the env's SHELL.
-            wait_for_screen_text(&mux, surface, &format!("{marker}-/bin/sh"));
+            assert_eq!(
+                spawned_argv(&mux, &created),
+                vec!["/opt/homebrew/bin/bash".to_string(), "--posix".to_string()],
+                "{command}"
+            );
         }
 
         let key = mux.with_state(|state| state.workspaces[0].key.clone());
@@ -24784,17 +24776,20 @@ mod tests {
                 "key":key,
                 "cols":60,
                 "rows":8,
-                "env":{"SHELL":"/bin/sh"},
-                "shell_args":["-c", "echo shell-args-create-$0; exec cat"],
+                "env":{"SHELL":"/opt/homebrew/bin/nu"},
+                "shell_args":["--execute", "use ghostty *"],
                 "origin":"test",
                 "mutation_id":"shell-args-create",
             }),
         )
         .unwrap();
-        wait_for_screen_text(
-            &mux,
-            created["surface"].as_u64().unwrap(),
-            "shell-args-create-/bin/sh",
+        assert_eq!(
+            spawned_argv(&mux, &created),
+            vec![
+                "/opt/homebrew/bin/nu".to_string(),
+                "--execute".to_string(),
+                "use ghostty *".to_string()
+            ]
         );
         for conflicting in [json!({"argv":["/bin/sh"]}), json!({"command":"true"})] {
             let mut request = json!({
@@ -24818,24 +24813,14 @@ mod tests {
         let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
         let created = run_json_command(
             &mux,
-            json!({
-                "cmd":"new-tab",
-                "pane":pane,
-                "cols":60,
-                "rows":8,
-                "shell_args":["-c", "echo default-shell-$0; exec cat"],
-            }),
+            json!({"cmd":"new-tab","pane":pane,"cols":60,"rows":8,"shell_args":["-l"]}),
         )
         .unwrap();
-        wait_for_screen_text(
-            &mux,
-            created["surface"].as_u64().unwrap(),
-            &format!("default-shell-{}", platform::default_shell()),
-        );
+        assert_eq!(spawned_argv(&mux, &created), vec![platform::default_shell(), "-l".to_string()]);
         // No shell_args (or an empty list) keeps the plain default shell.
         let plain =
             run_json_command(&mux, json!({"cmd":"new-tab","pane":pane,"shell_args":[]})).unwrap();
-        assert!(plain["surface"].as_u64().is_some());
+        assert_eq!(spawned_argv(&mux, &plain), vec![platform::default_shell()]);
     }
 
     #[test]
