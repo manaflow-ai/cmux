@@ -1,0 +1,29 @@
+{
+  "tour": "agent-activity-reorder",
+  "head_sha": "08ebcfd8a6dd9331acdf2a16016a6e73493f14d8",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "01-failed",
+      "file": "01-failed.png"
+    },
+    {
+      "name": "02-failed",
+      "file": "02-failed.png"
+    },
+    {
+      "name": "10-start-order",
+      "file": "10-start-order.png"
+    },
+    {
+      "name": "42-alpha-turn-finished-moves-to-top",
+      "file": "42-alpha-turn-finished-moves-to-top.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36678711911",
+  "failures": [
+    "Failed to get matching snapshot: No matches found for first query match sequence: `Descendants matching type Window`, given input App element pid: 7533"
+  ],
+  "frames": 27
+}
