@@ -1364,9 +1364,9 @@ GUARDED = (
     # place on the owned pool: the Blacksmith pool the picker named for it.
     "github.event_name == 'pull_request' && (github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs,"
     " ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner",
-    # The full-suite dispatch on main (code already on main, which
+    # A trusted manual dispatch (code already in the repository, which
     # pr_runner_pool.py places like a pull request): only the job it placed.
-    "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2"
+    "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2"
     " && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner"
     " || needs.changes.outputs.macos_pr_runner)",
 )
