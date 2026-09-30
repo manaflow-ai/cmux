@@ -356,7 +356,9 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "總覽",
       "team": "團隊",
-      "mobileDevices": "行動裝置"
+      "mobileDevices": "行動裝置",
+      "settings": "設定",
+      "teams": "團隊"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -381,6 +383,20 @@
         "empty": "過去 {days} 天內沒有機器使用 coderouter。",
         "unavailable": "機器使用情況暫時無法使用。",
         "estimateNote": "API 等值金額是依公開牌價估算，並非實際支出。"
+      },
+      "metrics": {
+        "title": "30 天用量",
+        "scope": "{team} 的團隊彙總",
+        "period": "最近 {days} 天",
+        "inputTokens": "輸入權杖",
+        "outputTokens": "輸出權杖",
+        "tokens": "總權杖數",
+        "apiEquivalent": "API 等值金額",
+        "unpriced": "其中 {share} 的權杖來自沒有公開定價的模型，未計入該金額。",
+        "chartLabel": "CodeRouter 每日權杖用量",
+        "privacy": "不會記錄或顯示任何提示詞、輸出、帳戶標籤或成員身分。",
+        "estimate": "API 等值金額是這些權杖按公開 API 定價（價目表 {version}）計算的費用，並非你的實際支出。",
+        "unavailable": "團隊用量暫時無法使用。"
       }
     },
     "accountMenu": {
@@ -397,8 +413,40 @@
       "plan": {
         "heading": "你的個人方案",
         "free": "免費",
-        "pro": "Pro",
-        "loading": "載入中…"
+        "pro": "Pro"
+      },
+      "teamPanel": {
+        "notFound": "無法使用此團隊。你可能已退出該團隊，或該團隊已被刪除。",
+        "unavailable": "無法載入團隊帳單，請稍後再試。",
+        "welcome": "Team 已啟用。請前往團隊的成員頁面邀請你的隊友。",
+        "freeBody": "{team} 目前使用免費方案。Team 讓每位成員都能使用雲端代理程式，並合併為一張帳單。",
+        "upgradeCta": "升級此團隊",
+        "askAdmin": "只有團隊管理員可以變更帳單。請聯絡 {team} 的管理員進行升級。",
+        "memberReadOnly": "只有團隊管理員可以變更此方案。",
+        "grantedBody": "cmux 團隊已授予 {team} Team 存取權限，沒有需要管理的訂閱。",
+        "seatsUsed": "已使用 {members}/{seats}",
+        "overSeat": "{team} 有 {members} 位成員，但只有 {seats} 個付費席次。成員仍可加入；請新增席次以涵蓋所有人。",
+        "addSeats": "新增席次"
+      },
+      "teamList": {
+        "heading": "帳單範圍",
+        "personal": "個人帳號",
+        "planBadges": {
+          "free": "免費",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "banners": {
+        "team_admin_required": "只有團隊管理員可以管理此團隊的帳單。",
+        "team_not_found": "無法使用該團隊。你可能已退出該團隊，或該團隊已被刪除。",
+        "authorization_unavailable": "無法檢查團隊權限，請稍後再試。",
+        "personal_team_not_upgradable_to_team": "你的個人帳號使用 Pro 或 Max。若要購買 Team，請先建立團隊。"
+      },
+      "team": {
+        "createCta": "建立團隊"
       }
     },
     "mobileDevices": {
@@ -409,7 +457,6 @@
       "loading": "正在載入裝置…",
       "empty": "此團隊沒有已註冊的裝置。",
       "unavailable": "無法載入你的裝置。重新整理頁面後再試一次。",
-      "retry": "重試",
       "mutationError": "無法完成裝置變更。",
       "revoke": "撤銷存取權",
       "deviceId": "裝置",
@@ -429,6 +476,513 @@
       "activeDevices": "有效裝置",
       "directoryRevision": "裝置清單修訂編號",
       "savingRelaySettings": "正在儲存…"
+    },
+    "settings": {
+      "nav": {
+        "title": "設定",
+        "profile": "個人資料",
+        "auth": "電子郵件與驗證",
+        "notifications": "通知",
+        "sessions": "工作階段",
+        "apiKeys": "API 金鑰",
+        "account": "帳號",
+        "billing": "帳單",
+        "teamsGroup": "團隊",
+        "createTeam": "建立團隊"
+      },
+      "ui": {
+        "save": "儲存",
+        "saving": "正在儲存…",
+        "cancel": "取消",
+        "editLabel": "編輯{label}",
+        "required": "此欄位為必填。",
+        "saveError": "無法儲存，請再試一次。",
+        "actionError": "發生錯誤，請再試一次。",
+        "working": "處理中…",
+        "typeToConfirm": "輸入 {text} 以確認",
+        "imageSaveError": "無法儲存圖片，請再試一次。",
+        "invalidImage": "請選擇有效的圖片檔案。",
+        "uploadImage": "上傳圖片",
+        "removeImage": "移除圖片",
+        "zoom": "縮放"
+      },
+      "profile": {
+        "title": "個人資料",
+        "description": "你的名稱和大頭貼。",
+        "displayNameTitle": "顯示名稱",
+        "displayNameDescription": "會顯示給隊友看，不會用於登入。",
+        "displayNameEmpty": "未設定",
+        "imageTitle": "個人資料圖片",
+        "imageDescription": "上傳一張圖片作為你的大頭貼。",
+        "imageUpload": "變更個人資料圖片"
+      },
+      "auth": {
+        "title": "電子郵件與驗證",
+        "description": "電子郵件、登入方式和多重要素驗證。",
+        "emails": {
+          "title": "電子郵件",
+          "description": "已驗證的電子郵件可設為主要聯絡地址，也可用於登入。",
+          "add": "新增電子郵件",
+          "addSubmit": "新增",
+          "adding": "正在新增…",
+          "cancel": "取消",
+          "inputLabel": "新的電子郵件地址",
+          "placeholder": "輸入電子郵件",
+          "addError": "無法新增電子郵件，請再試一次。",
+          "added": "已新增 {email}。請到該收件匣查看驗證連結。",
+          "addedVerificationFailed": "已新增 {email}，但無法寄送驗證郵件。請使用「寄送驗證郵件」重試。",
+          "verificationSent": "已將驗證郵件寄送至 {email}。",
+          "actionError": "無法更新電子郵件，請再試一次。",
+          "usedBySomeoneElse": "此電子郵件已被其他使用者用於登入。",
+          "removeTitle": "移除電子郵件",
+          "removeBody": "要從你的帳號移除 {email} 嗎？之後可以再新增回來。",
+          "remove": "移除",
+          "actionsLabel": "{email} 的操作",
+          "validation": {
+            "required": "電子郵件為必填。",
+            "invalid": "請輸入有效的電子郵件地址。",
+            "duplicate": "此電子郵件已在你的帳號中。"
+          },
+          "actions": {
+            "sendVerification": "寄送驗證郵件",
+            "setPrimary": "設為主要",
+            "useForSignIn": "用於登入",
+            "stopUsingForSignIn": "停止用於登入",
+            "remove": "移除"
+          },
+          "disabled": {
+            "verifyFirst": "請先驗證此電子郵件。",
+            "lastSignInEmail": "無法移除你最後一個登入用電子郵件。"
+          },
+          "badges": {
+            "primary": "主要",
+            "unverified": "未驗證",
+            "usedForSignIn": "用於登入"
+          }
+        },
+        "password": {
+          "title": "密碼",
+          "updateDescription": "更新你的密碼。",
+          "setDescription": "為你的帳號設定密碼。",
+          "update": "更新密碼",
+          "set": "設定密碼",
+          "updateSubmit": "更新密碼",
+          "setSubmit": "設定密碼",
+          "saving": "正在儲存…",
+          "cancel": "取消",
+          "saved": "密碼已儲存。",
+          "needsSignInEmail": "若要設定密碼，請先新增登入用電子郵件。",
+          "saveError": "無法儲存密碼，請再試一次。",
+          "oldPassword": "舊密碼",
+          "newPassword": "新密碼",
+          "repeatPassword": "確認新密碼",
+          "incorrect": "密碼不正確。",
+          "requirements": "此密碼不符合要求。",
+          "errors": {
+            "oldPassword": {
+              "required": "請輸入舊密碼。"
+            },
+            "newPassword": {
+              "required": "請輸入新密碼。",
+              "tooShort": "至少使用 {min} 個字元。",
+              "tooLong": "最多使用 {max} 個字元。"
+            },
+            "newPasswordRepeat": {
+              "required": "請再次輸入新密碼。",
+              "mismatch": "兩次輸入的密碼不一致。"
+            }
+          }
+        },
+        "passkey": {
+          "title": "通行密鑰",
+          "registered": "已註冊通行密鑰。",
+          "notRegistered": "註冊通行密鑰即可免密碼登入。",
+          "add": "新增通行密鑰",
+          "registering": "正在等待通行密鑰…",
+          "registerError": "無法註冊通行密鑰。請求已取消或失敗，請再試一次。",
+          "delete": "移除通行密鑰",
+          "needsVerifiedEmail": "若要啟用通行密鑰登入，請新增已驗證的登入用電子郵件。",
+          "onlyMethod": "通行密鑰是你唯一的登入方式，因此無法停用。",
+          "disableTitle": "停用通行密鑰登入",
+          "disableBody": "你將無法再使用通行密鑰登入。",
+          "disable": "停用",
+          "disableError": "無法停用通行密鑰登入，請再試一次。"
+        },
+        "otp": {
+          "title": "一次性驗證碼登入",
+          "enabledDescription": "已啟用魔術連結或一次性驗證碼登入。",
+          "disabledDescription": "使用寄送到登入用電子郵件的魔術連結或一次性驗證碼登入。",
+          "enable": "啟用",
+          "enableError": "無法啟用一次性驗證碼登入，請再試一次。",
+          "disable": "停用",
+          "needsVerifiedEmail": "若要啟用一次性驗證碼登入，請新增已驗證的登入用電子郵件。",
+          "onlyMethod": "一次性驗證碼是你唯一的登入方式，因此無法停用。",
+          "disableTitle": "停用一次性驗證碼登入",
+          "disableBody": "你將無法再只用電子郵件登入。",
+          "disableConfirm": "停用",
+          "disableError": "無法停用一次性驗證碼登入，請再試一次。"
+        },
+        "mfa": {
+          "title": "多重要素驗證",
+          "enabledDescription": "多重要素驗證已啟用。",
+          "disabledDescription": "多重要素驗證已停用。",
+          "enable": "啟用 MFA",
+          "disable": "停用 MFA",
+          "startError": "無法開始設定 MFA，請再試一次。",
+          "enableError": "無法啟用 MFA，請再試一次。",
+          "scan": "使用驗證器應用程式掃描此 QR 碼。",
+          "qrAlt": "多重要素驗證的 QR 碼",
+          "enterCode": "接著輸入六位數驗證碼：",
+          "incorrect": "驗證碼不正確，請再試一次。",
+          "cancel": "取消",
+          "disableTitle": "停用多重要素驗證",
+          "disableBody": "登入時將不再要求輸入驗證器應用程式中的驗證碼。",
+          "disableConfirm": "停用 MFA",
+          "disableError": "無法停用 MFA，請再試一次。"
+        },
+        "connected": {
+          "title": "已連結的帳號",
+          "description": "已連結到你 cmux 帳號的其他服務帳號。",
+          "usedForSignIn": "用於登入",
+          "useForSignIn": "用於登入",
+          "stopUsingForSignIn": "停止用於登入",
+          "remove": "取消連結",
+          "lastMethod": "這是你唯一的登入方式。",
+          "actionsLabel": "{provider} 的操作",
+          "actionError": "無法更新已連結的帳號，請再試一次。",
+          "usedBySomeoneElse": "此帳號已被其他使用者用於登入。",
+          "removeTitle": "取消連結 {provider}",
+          "removeBody": "你將無法再使用此帳號登入。使用該帳號登入即可重新連結。"
+        }
+      },
+      "notifications": {
+        "title": "通知",
+        "description": "來自 cmux 的電子郵件通知。",
+        "heading": "選擇你想收到的電子郵件",
+        "empty": "沒有可設定的電子郵件類別。",
+        "cannotDisable": "（無法停用）",
+        "saveError": "無法儲存此偏好設定，請再試一次。"
+      },
+      "sessions": {
+        "title": "工作階段",
+        "description": "你已登入的裝置。",
+        "heading": "使用中的工作階段",
+        "explanation": "以下是你已登入的裝置。撤銷工作階段即可將其登出。",
+        "revokeAll": "撤銷所有其他工作階段",
+        "revokeAllTitle": "撤銷其他工作階段",
+        "revokeAllBody": "這會登出{count, plural, other {其他 # 個工作階段}}。目前的工作階段會保持登入。",
+        "revokeAllConfirm": "撤銷工作階段",
+        "revokeAllError": "無法撤銷所有工作階段。清單中顯示的是剩餘的工作階段。",
+        "revokeError": "無法撤銷工作階段，請再試一次。",
+        "empty": "找不到使用中的工作階段。",
+        "columns": {
+          "session": "工作階段",
+          "ip": "IP 位址",
+          "location": "位置",
+          "lastUsed": "上次使用"
+        },
+        "current": "目前的工作階段",
+        "other": "其他工作階段",
+        "impersonation": "模擬身分",
+        "signedIn": "登入於 {date}",
+        "actionsLabel": "工作階段操作",
+        "revoke": "撤銷",
+        "cannotRevokeCurrent": "無法撤銷目前的工作階段。",
+        "unknownIp": "-",
+        "unknownLocation": "未知",
+        "never": "從未"
+      },
+      "apiKeys": {
+        "title": "API 金鑰",
+        "description": "允許程式存取你帳號的金鑰。",
+        "disabled": "此專案未啟用個人 API 金鑰。",
+        "create": "建立 API 金鑰",
+        "createTitle": "建立 API 金鑰",
+        "createDescription": "API 金鑰可讓程式存取你的帳號。",
+        "descriptionLabel": "說明",
+        "descriptionPlaceholder": "例如：開發、正式環境、CI",
+        "descriptionRequired": "說明為必填。",
+        "expiresIn": "有效期限",
+        "expiry": {
+          "1d": "1 天",
+          "7d": "7 天",
+          "30d": "30 天",
+          "90d": "90 天",
+          "1y": "1 年",
+          "never": "永不過期"
+        },
+        "cancel": "取消",
+        "createSubmit": "建立",
+        "creating": "正在建立…",
+        "createError": "無法建立 API 金鑰，請再試一次。",
+        "showTitle": "API 金鑰",
+        "showBody": "這是你的 API 金鑰。",
+        "showWarning": "請將它複製到安全的地方。之後將無法再次檢視。",
+        "secretLabel": "API 私密金鑰",
+        "copy": "複製",
+        "copied": "已複製",
+        "copyError": "無法複製。請選取金鑰後手動複製。",
+        "acknowledge": "我了解之後將無法再次檢視此金鑰。",
+        "close": "關閉",
+        "search": "搜尋金鑰",
+        "statusFilter": "依狀態篩選",
+        "status": {
+          "valid": "有效",
+          "expired": "已過期",
+          "revoked": "已撤銷"
+        },
+        "empty": "尚無 API 金鑰。",
+        "noMatches": "沒有符合篩選條件的 API 金鑰。",
+        "columns": {
+          "description": "說明",
+          "status": "狀態",
+          "key": "金鑰",
+          "expiresAt": "到期時間",
+          "createdAt": "建立時間"
+        },
+        "never": "永不",
+        "actionsLabel": "{description} 的操作",
+        "revoke": "撤銷",
+        "revokeTitle": "撤銷 API 金鑰",
+        "revokeBody": "要撤銷 API 金鑰 *****{lastFour} 嗎？使用它的應用程式將立即失去存取權。",
+        "revokeAcknowledge": "我了解這會中斷所有使用此 API 金鑰的應用程式連結。",
+        "revokeConfirm": "撤銷金鑰",
+        "revokeError": "無法撤銷 API 金鑰，請再試一次。"
+      },
+      "account": {
+        "title": "帳號",
+        "description": "帳單、登出和刪除帳號。",
+        "billingTitle": "帳單",
+        "billingDescription": "方案、發票和付款方式。",
+        "billingLink": "開啟帳單",
+        "signOutTitle": "登出",
+        "signOutDescription": "結束目前的工作階段。",
+        "signOut": "登出",
+        "signingOut": "正在登出…",
+        "signOutError": "無法登出，請再試一次。",
+        "deleteTitle": "刪除帳號",
+        "deleteDescription": "永久移除你的帳號及所有相關資料。",
+        "delete": "刪除帳號",
+        "deleteConfirmTitle": "要刪除你的帳號嗎？",
+        "deleteConfirmBody": "此操作無法復原，將刪除與你帳號相關的所有資料。",
+        "deleteAcknowledge": "我了解我的帳號及其資料將被永久刪除。",
+        "deleteConfirm": "刪除帳號",
+        "deleteError": "無法刪除帳號，請再試一次。"
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "複製",
+        "copied": "已複製",
+        "copyFailed": "複製失敗"
+      },
+      "plan": {
+        "free": "免費",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "管理員",
+        "member": "成員"
+      },
+      "errors": {
+        "generic": "發生錯誤，請再試一次。",
+        "network_error": "無法連線到 cmux。請檢查網路連線後再試一次。",
+        "unauthorized": "你的工作階段已結束，請重新登入。",
+        "forbidden": "你沒有執行此操作的權限。",
+        "team_not_found": "此團隊已不存在。",
+        "invalid_request": "請求無效。請檢查各欄位後再試一次。",
+        "rate_limited": "請求過多，請稍候再試。",
+        "last_admin": "團隊必須至少保留一位管理員。請先將其他成員升為管理員。",
+        "member_not_found": "此人已不再是成員。",
+        "invitation_not_found": "該邀請已不存在。",
+        "invitation_invalid": "此邀請無效、已過期或已被使用。",
+        "email_mismatch": "此邀請是寄給另一個電子郵件地址。",
+        "link_not_found": "該邀請連結已不存在。",
+        "link_invalid": "此邀請連結無效、已過期、已撤銷或已額滿。",
+        "team_has_active_subscription": "刪除團隊前，請先取消團隊訂閱。",
+        "service_unavailable": "服務暫時無法使用，請稍後再試。"
+      },
+      "list": {
+        "title": "團隊",
+        "description": "團隊共用成員、帳單和 coderouter 帳號。開啟團隊即可管理。",
+        "create": "建立團隊",
+        "count": "{count, plural, other {# 個團隊}}",
+        "selected": "目前",
+        "emptyTitle": "尚無團隊",
+        "emptyBody": "建立團隊以邀請他人並共用同一個方案。"
+      },
+      "new": {
+        "title": "建立團隊",
+        "description": "為團隊命名、選擇方案，然後邀請成員。",
+        "stepsLabel": "步驟",
+        "steps": {
+          "name": "名稱",
+          "plan": "方案",
+          "invite": "邀請"
+        },
+        "nameTitle": "為你的團隊命名",
+        "nameLabel": "團隊名稱",
+        "namePlaceholder": "Acme Engineering",
+        "nameError": {
+          "empty": "請輸入團隊名稱。",
+          "tooLong": "最多使用 {max} 個字元。"
+        },
+        "cancel": "取消",
+        "createAction": "建立團隊",
+        "creating": "正在建立…",
+        "planTitle": "為 {team} 選擇方案",
+        "planDescription": "之後可以在團隊的帳單頁面變更方案。",
+        "freeName": "免費",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "每席次每月 ${price}",
+        "featureMembers": "成員、角色和邀請",
+        "featureProForEveryone": "每位成員皆享有 Pro 的所有功能",
+        "featureCentralBilling": "整個團隊集中計費",
+        "featurePrioritySupport": "優先支援",
+        "chooseFree": "繼續使用免費方案",
+        "chooseTeam": "升級至 Team（${price}/席次/月）",
+        "upgradeLater": "席次具有彈性：邀請人數可以超過已付費席次，之後再新增席次即可。",
+        "inviteTitle": "邀請成員加入 {team}",
+        "inviteDescription": "選填。你也可以稍後在團隊的成員頁面邀請成員。",
+        "inviteByEmail": "透過電子郵件邀請",
+        "inviteByLink": "邀請連結",
+        "backToPlan": "返回方案",
+        "finish": "前往團隊"
+      },
+      "invite": {
+        "emailsLabel": "電子郵件地址",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "不是有效的電子郵件地址",
+        "removeEmail": "移除 {email}",
+        "roleLabel": "角色",
+        "roleMember": "成員",
+        "roleAdmin": "管理員",
+        "count": "{count}/{max}",
+        "send": "寄送邀請",
+        "sending": "正在寄送…",
+        "invalidCount": "{count, plural, other {寄送前請修正或移除 # 個無效地址。}}",
+        "overflow": "{count, plural, other {有 # 個地址未新增：每次請求最多 {max} 個。}}",
+        "sent": "{count, plural, other {已寄送 # 個邀請。}}"
+      },
+      "inviteFailure": {
+        "generic": "無法邀請",
+        "already_member": "已是成員",
+        "invite_failed": "無法寄送邀請"
+      },
+      "links": {
+        "expiryLabel": "有效期限",
+        "expiry": {
+          "1": "1 天後",
+          "7": "7 天後",
+          "30": "30 天後",
+          "never": "永不過期"
+        },
+        "maxUsesLabel": "使用次數上限",
+        "maxUsesPlaceholder": "無限制",
+        "maxUsesInvalid": "使用次數上限必須是 1 到 {max} 之間的整數，留空表示無限制。",
+        "create": "建立連結",
+        "creating": "正在建立…",
+        "memberOnly": "透過連結加入的人會成為成員。如有需要，之後可將其升為管理員。",
+        "showOnce": "請立即複製此連結，它只會顯示一次。",
+        "empty": "沒有有效的邀請連結。",
+        "createdAt": "建立於 {at}",
+        "expiresAt": "{at} 到期",
+        "neverExpires": "永不過期",
+        "uses": "已使用 {count}/{max} 次",
+        "usesUnlimited": "{count, plural, other {已使用 # 次}}",
+        "revoke": "撤銷",
+        "revokeTitle": "要撤銷此邀請連結嗎？",
+        "revokeBody": "持有此連結的人將無法再加入。已加入的人仍是成員。",
+        "actionsFor": "連結操作（{created}）"
+      },
+      "shell": {
+        "allTeams": "所有團隊",
+        "tabsLabel": "團隊設定",
+        "tabs": {
+          "general": "一般",
+          "members": "成員",
+          "apiKeys": "API 金鑰",
+          "billing": "帳單"
+        },
+        "notFoundTitle": "找不到團隊",
+        "notFoundBody": "此團隊不存在，或你不是其成員。",
+        "backToTeams": "返回團隊列表"
+      },
+      "general": {
+        "imageTitle": "團隊圖片",
+        "imageDescription": "在 cmux 各處顯示於團隊名稱旁。",
+        "imageUpload": "上傳團隊圖片",
+        "nameTitle": "團隊名稱",
+        "nameDescription": "所有成員皆可看到。",
+        "nameReadOnly": "只有管理員可以重新命名團隊。",
+        "nameError": {
+          "empty": "請輸入團隊名稱。",
+          "tooLong": "最多使用 {max} 個字元。"
+        },
+        "profileTitle": "你在此團隊中的名稱",
+        "profileDescription": "此團隊其他成員看到的你的名稱。留空則使用你的帳號名稱。",
+        "profileLabel": "你在團隊中的顯示名稱",
+        "leaveTitle": "退出團隊",
+        "leaveDescription": "你將無法再存取此團隊的共用帳號和帳單。",
+        "leaveAction": "退出團隊",
+        "leaveBlocked": "你是唯一的管理員。退出前，請將其他成員升為管理員，或刪除團隊。",
+        "leaveConfirmTitle": "要退出 {team} 嗎？",
+        "leaveConfirmBody": "你需要新的邀請才能重新加入。",
+        "deleteTitle": "刪除團隊",
+        "deleteDescription": "永久移除團隊、其成員的存取權及其邀請連結。",
+        "deleteAction": "刪除團隊",
+        "deleteConfirmTitle": "要刪除 {team} 嗎？",
+        "deleteConfirmBody": "此操作無法復原。",
+        "openBilling": "開啟團隊帳單"
+      },
+      "members": {
+        "title": "成員",
+        "count": "{count, plural, other {# 位成員}}",
+        "memberColumn": "成員",
+        "roleColumn": "角色",
+        "actionsColumn": "操作",
+        "you": "你",
+        "unnamed": "未命名的成員",
+        "remove": "移除",
+        "removeTitle": "要移除 {name} 嗎？",
+        "removeBody": "對方將立即失去此團隊的存取權。之後可以再次邀請。",
+        "inviteTitle": "邀請成員",
+        "inviteDescription": "寄送電子郵件邀請。貼上以逗號、空格或換行分隔的清單（最多 20 個）。",
+        "pendingTitle": "待處理的邀請",
+        "pendingDescription": "尚未被接受的邀請。",
+        "pendingEmpty": "沒有待處理的邀請。",
+        "unknownEmail": "未知地址",
+        "expires": "{at} 到期",
+        "resend": "重新寄送",
+        "resent": "已寄送",
+        "revoke": "撤銷",
+        "linksTitle": "邀請連結",
+        "linksDescription": "任何人都能透過此可重複使用的連結以成員身分加入。",
+        "seatNudge": "已有 {used} 人是成員或已受邀，但方案只有 {seats} 個席次。邀請仍然有效；請新增 {over, plural, other {# 個席次}}以涵蓋所有人。",
+        "seatNudgeAction": "管理席次",
+        "actions": {
+          "makeAdmin": "設為管理員",
+          "makeMember": "設為成員",
+          "remove": "從團隊中移除",
+          "leave": "退出團隊"
+        },
+        "actionsFor": "{name} 的操作",
+        "lastAdminReason": "團隊至少需要一位管理員。請先將其他成員升為管理員。",
+        "demoteSelfTitle": "不再擔任管理員？",
+        "demoteSelfBody": "你將失去此團隊的管理員權限。其他管理員可以重新授予。",
+        "demoteSelfConfirm": "設為成員"
+      },
+      "apiKeys": {
+        "title": "團隊 API 金鑰",
+        "description": "代表此團隊執行操作的金鑰。任何持有金鑰的人都能使用團隊的存取權，請妥善保管。",
+        "create": "建立團隊 API 金鑰",
+        "disabled": "此專案未啟用團隊 API 金鑰。",
+        "forbidden": "你需要此團隊的「管理 API 金鑰」權限才能檢視其金鑰。"
+      }
     },
     "coderouterAccounts": {
       "transferAction": "轉移",
@@ -455,10 +1009,6 @@
       "apiKeysTitle": "API 金鑰",
       "apiKeysDescription": "為腳本和代理程式建立長期金鑰。秘密只會顯示一次。",
       "apiKeysCount": "{count, plural, one {# 個金鑰} other {# 個金鑰}}",
-      "apiKeysLoading": "正在載入 API 金鑰…",
-      "apiKeysLoadError": "無法載入 API 金鑰，請稍後再試。",
-      "apiKeysRetry": "重試",
-      "apiKeysEmptyBody": "尚無 API 金鑰。建立金鑰以驗證 CodeRouter 用戶端。",
       "apiKeyPrefixColumn": "金鑰",
       "apiKeyStatusColumn": "狀態",
       "apiKeySecretTitle": "立即複製此金鑰",
@@ -478,7 +1028,28 @@
       "revokeApiKeyConfirmTitle": "撤銷此 API 金鑰？",
       "apiKeyUsageDetail": "過去 30 天：{completions} 次完成 · {tokens} 個權杖（輸入 {input} / 輸出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用量不可用",
-      "revokeApiKeyConfirmBody": "使用此金鑰的用戶端將立即無法驗證。"
+      "revokeApiKeyConfirmBody": "使用此金鑰的用戶端將立即無法驗證。",
+      "apiKeysEmptyTitle": "還沒有 API 金鑰",
+      "apiKeysEmptyHint": "建立金鑰來驗證 CodeRouter 用戶端。"
+    },
+    "notFound": {
+      "title": "找不到頁面",
+      "body": "此儀表板頁面不存在或已移動。",
+      "home": "前往儀表板"
+    },
+    "states": {
+      "errorTitle": "無法載入{section}",
+      "errorTitleGeneric": "無法載入此區段",
+      "reason": {
+        "network": "請檢查網路連線，然後再試一次。",
+        "unavailable": "cmux 暫時無法使用。請稍後再試。",
+        "forbidden": "你沒有存取此內容的權限。",
+        "notFound": "此內容已不存在，或你沒有存取權限。",
+        "rateLimited": "要求過多。請稍候再試。",
+        "generic": "發生問題。請再試一次。"
+      },
+      "retry": "再試一次",
+      "retrying": "正在重試…"
     }
   },
   "community": {
@@ -4583,5 +5154,27 @@
     "updateDetail": "需要 cmux {stableVersion} 或更新版本，或 NIGHTLY {nightlyVersion} 或更新版本。請在每台 Mac 的「設定」>「行動裝置」中啟用 iOS 配對。",
     "rollbackTitle": "需要保留較舊的 Mac 組建？",
     "rollbackDetail": "在仍可用時，從 TestFlight > 先前的組建中使用 cmux BETA 1.0.5 ({rollbackBuild})。請選擇此確切組建，因為後續組建使用更新的連線服務。"
+  },
+  "teamInvite": {
+    "loading": "正在載入邀請…",
+    "title": "加入 {team}",
+    "titleUnknown": "加入此團隊",
+    "body": "你受邀加入 cmux 上的這個團隊。",
+    "join": "加入團隊",
+    "joining": "正在加入…",
+    "signedInAs": "已登入為 {email}",
+    "alreadyMemberTitle": "你已是 {team} 的成員",
+    "alreadyMemberTitleUnknown": "你已是此團隊的成員",
+    "alreadyMemberBody": "開啟團隊即可管理。",
+    "openTeam": "開啟團隊",
+    "mismatchTitle": "此邀請屬於另一個帳號",
+    "mismatchBody": "你目前以 {email} 登入，但邀請是寄給另一個地址。請使用受邀地址登入，或在此帳號中新增並驗證該地址。",
+    "mismatchBodyUnknown": "邀請是寄給另一個地址。請使用受邀地址登入，或在此帳號中新增並驗證該地址。",
+    "switchAccount": "登出並切換帳號",
+    "switching": "正在登出…",
+    "switchFailed": "無法登出，請再試一次。",
+    "invalidTitle": "此邀請已失效",
+    "invalidBody": "邀請已過期、已撤銷或已被使用。請向團隊管理員索取新的邀請。",
+    "goToTeams": "前往你的團隊"
   }
 }
