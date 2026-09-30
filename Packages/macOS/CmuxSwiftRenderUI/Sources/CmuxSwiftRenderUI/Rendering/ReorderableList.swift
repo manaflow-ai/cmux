@@ -10,13 +10,20 @@ import SwiftUI
 struct ReorderableList: View {
     let rows: [RenderNode]
     let spec: ReorderSpec?
+    let contextMenuPath: [Int]
 
     @Environment(\.sidebarActionDispatch) private var dispatch
+
+    init(rows: [RenderNode], spec: ReorderSpec?, contextMenuPath: [Int] = []) {
+        self.rows = rows
+        self.spec = spec
+        self.contextMenuPath = contextMenuPath
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                RenderNodeView(node: row)
+                RenderNodeView(node: row, contextMenuPath: contextMenuPath + [index])
                     .draggable(itemId(index))
                     .dropDestination(for: String.self) { dropped, _ in
                         guard let draggedId = dropped.first else { return false }
