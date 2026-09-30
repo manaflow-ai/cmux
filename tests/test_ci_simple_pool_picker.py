@@ -103,6 +103,12 @@ class LiveReaderTests(unittest.TestCase):
         self.assertIn(" shard-8 ", values["owned_jobs"])
         self.assertIn(" cli-product ", values["owned_jobs"])
 
+        values = picker.write_outputs(
+            picker.Choice("glaeda-std-xcode-26.6", "owned", owned=True), 1,
+            env={"RUN_MACOS": "true", "CI_OWNED_POOL_SLOTS": '{"glaeda-std-xcode-26.6": 8, "glaeda-root-std-xcode-26.6": 2}'})
+        self.assertEqual(values["root_runner"], "glaeda-root-std-xcode-26.6")
+        self.assertEqual(values["admission_runner"], '["glaeda-root-std-xcode-26.6"]')
+
 
 if __name__ == "__main__":
     unittest.main()

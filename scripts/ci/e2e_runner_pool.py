@@ -560,7 +560,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         choice = simple_pool_picker.pick(simple_pool_picker.observe(
             token=values.get("ROUTE_TOKEN") or values.get("GH_TOKEN") or "",
             repository=values.get("GH_REPO") or values.get("GITHUB_REPOSITORY") or "",
-            jobs=1, env=values, fork=values.get("FORK_PULL_REQUEST") == "true"))
+            jobs=1, env=values,
+            fork=values.get("FORK_PULL_REQUEST") == "true"
+            or (values.get("HEAD_REPO") or values.get("GITHUB_REPOSITORY"))
+            != (values.get("GH_REPO") or values.get("GITHUB_REPOSITORY"))))
         print(choice.label or args.variable or SMALL_RUNNER)
         return 0
     if args.retry_of is not None:

@@ -207,6 +207,22 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
     """Write the stable output names consumed by ci.yml and ci-macos.yml."""
     env = {} if env is None else env
     values = {key: "" for key in ("runner", "xcode_app", "retry_runner", "shard_runner", "owned_jobs", "root_runner", "side_runner", "light_side_runner", "light_side_jobs", "gui_runner", "admission_runner", "admission_route", "admission_warm")}
+    configured = set()
+    try:
+        raw_slots = json.loads(env.get("CI_OWNED_POOL_SLOTS", "{}"))
+        if isinstance(raw_slots, dict):
+            configured = {str(label) for label in raw_slots}
+    except (TypeError, ValueError):
+        pass
+    root = f"glaeda-root-{choice.label.removeprefix('glaeda-')}" if choice.owned else ""
+    side = f"glaeda-side-{choice.label.removeprefix('glaeda-')}" if choice.owned else ""
+    gui = f"glaeda-gui-{choice.label.removeprefix('glaeda-')}" if choice.owned else ""
+    if root not in configured:
+        root = ""
+    if side not in configured:
+        side = ""
+    if gui not in configured:
+        gui = ""
     owned_jobs: list[str] = []
     if choice.owned:
         if env.get("RUN_MACOS") == "true":
@@ -223,11 +239,12 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
             if env.get(key) == "true":
                 owned_jobs.append(lane)
     values.update(runner=choice.label, xcode_app=choice.xcode_app, retry_runner=choice.label,
-                  shard_runner=choice.label, side_runner=choice.label, gui_runner=choice.label,
+                  shard_runner=choice.label,
                   persistent="true" if choice.owned else "false", jobs=str(jobs),
                   placed=str(jobs if choice.owned else 0),
                   owned_jobs=f" {' '.join(owned_jobs)} " if owned_jobs else "",
-                  admission_runner=choice.label if choice.owned and "admission" in owned_jobs else "")
+                  root_runner=root, side_runner=side or choice.label, gui_runner=gui,
+                  admission_runner=json.dumps([root]) if root and "admission" in owned_jobs else "")
     if path:
         with open(path, "a", encoding="utf-8") as handle:
             for key, value in values.items():
