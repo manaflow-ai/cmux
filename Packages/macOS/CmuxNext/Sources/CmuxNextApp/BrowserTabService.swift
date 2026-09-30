@@ -23,9 +23,9 @@ final class BrowserTabService {
     let preference = BrowserEnginePreference()
     /// Chromium-to-WebKit fallbacks and the one-time notice.
     let fallbacks = ChromiumFallbackLog()
-    /// The current surface of the tab with durable id `id`, nil when it
-    /// closed.
-    var surface: @MainActor (_ id: String) -> SurfaceID?
+    /// The current model of the tab with durable id `id` (a moved tab gets
+    /// a new TabModel in its destination pane), nil when it closed.
+    var tabModel: @MainActor (_ id: String) -> TabModel?
     var writeBackDelay: Duration = .milliseconds(500)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
     private var writers: [String: BrowserRecordWriter] = [:]
@@ -40,8 +40,8 @@ final class BrowserTabService {
                 _ = try await connection.updateFrontendBrowserTab(surface, url: update.url, title: update.title, faviconURL: update.favicon)
             } ?? false
         }
-        surface = { [weak daemon] id in
-            daemon?.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.id == id }?.surface
+        tabModel = { [weak daemon] id in
+            daemon?.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.id == id }
         }
         isAvailable = { [weak daemon] in daemon?.supports(DaemonCapabilities.frontendBrowserTabs) ?? false }
         cefUnavailable = { [weak cef] in
@@ -90,9 +90,15 @@ final class BrowserTabService {
         // new TabModel in the destination pane, so the writer must not hold
         // the original one.
         writers[id] = BrowserRecordWriter(tab: page, recorded: BrowserRecord(tab: tab), delay: writeBackDelay, sleep: sleep) { [weak self] fields in
-            guard let surface = self?.surface(id) else { return false }
+            guard let surface = self?.tabModel(id)?.surface else { return false }
             return await update(surface, fields)
         }
+    }
+
+    /// `track` for the tab's current model, looked up by id: for a page
+    /// that finished starting after the tab moved (its old TabModel is gone).
+    func track(_ page: any BrowserTab, tabID: String) {
+        if let tab = tabModel(tabID) { track(page, for: tab) }
     }
 
     /// The page was released: stop writing.

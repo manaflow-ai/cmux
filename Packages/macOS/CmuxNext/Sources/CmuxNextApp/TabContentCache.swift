@@ -130,19 +130,21 @@ final class TabContentCache {
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browser(for: key, url: url), tab) }
         if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
         guard pendingBrowsers.insert(key).inserted else { return nil }
-        Task { [weak tab] in
+        Task {
             defer { pendingBrowsers.remove(key) }
             let page: any BrowserTab
             do {
                 page = try await makeCEFTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
             } catch {
-                guard let tab, browsers[key] == nil else { return }
+                guard let tab = browserTabs.tabModel(key), browsers[key] == nil else { return }
                 _ = fallBack(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
                 onBrowserReady?(key)
                 return
             }
             install(page, for: key)
-            if let tab { browserTabs.track(page, for: tab) }
+            // By id, not the captured TabModel: a tab moved while its page
+            // started (`cmux browser open` then split) has a new model.
+            browserTabs.track(page, tabID: key)
             onBrowserReady?(key)
         }
         return nil
