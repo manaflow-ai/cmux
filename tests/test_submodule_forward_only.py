@@ -124,6 +124,18 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("diverged", result.stderr)
 
+    def test_shallow_clone_defers_forward_move_to_github(self) -> None:
+        # CI checks submodules out shallow, so a forward bump's shared history
+        # is missing locally and must not read as divergence.
+        b = self.commit_sub("base subject")
+        c = self.commit_sub("new subject")
+        git("config", "uploadpack.allowAnySHA1InWant", "true", cwd=self.subrepo)
+        shallow = self.root / "shallow"
+        git("clone", "-q", "--depth", "1", f"file://{self.subrepo}", str(shallow), cwd=self.root)
+        git("fetch", "-q", "--depth", "1", "origin", b, cwd=shallow)
+        self.assertEqual(git("rev-parse", "--is-shallow-repository", cwd=shallow), "true")
+        self.assertIsNone(submodule_forward_only.local_relation(str(shallow), b, c))
+
     def test_undecidable_ancestry_fails(self) -> None:
         b = self.commit_sub("unavailable subject")
         self.pointer(b)
