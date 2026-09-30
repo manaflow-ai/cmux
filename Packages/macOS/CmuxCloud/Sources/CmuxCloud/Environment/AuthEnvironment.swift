@@ -537,7 +537,7 @@ public enum AuthEnvironment: Sendable {
     private static func devOverridePaths(home: String) -> [String] {
         var paths: [String] = []
         if let tag = ProcessInfo.processInfo.environment["CMUX_TAG"],
-           tag.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil {
+           tag.range(of: #"^[A-Za-z0-9._-]+\z"#, options: .regularExpression) != nil {
             paths.append((home as NSString).appendingPathComponent(".config/cmux/dev-profiles/\(tag).env"))
         }
         paths.append((home as NSString).appendingPathComponent(".cmux-dev.env"))

@@ -42,6 +42,13 @@ extension VerticalTabsSidebar {
             increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
             accent: settings.accentColor
         )
+        let anchorActiveEdgeColor = sidebarGroupHeaderAnchorActiveEdgeNSColor(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            subtleSelection: settings.subtleSelection,
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            colorScheme: renderContext.environment.colorScheme,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast
+        )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
         // The AppKit controller applies the current unread snapshot after row
@@ -106,6 +113,7 @@ extension VerticalTabsSidebar {
             isAnchorActive: isAnchorActive,
             isMultiSelected: isMultiSelected,
             multiSelectionBackgroundStyle: multiSelectionBackgroundStyle,
+            anchorActiveEdgeColor: anchorActiveEdgeColor,
             memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
             canMarkRead: canMarkAnchorRead,
@@ -220,6 +228,13 @@ extension VerticalTabsSidebar {
             increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
             accent: settings.accentColor
         )
+        let anchorActiveEdgeColor = sidebarGroupHeaderAnchorActiveEdgeNSColor(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            subtleSelection: settings.subtleSelection,
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            colorScheme: renderContext.environment.colorScheme,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast
+        )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
         let anchorUnreadCount: Int = {
@@ -287,6 +302,7 @@ extension VerticalTabsSidebar {
             isAnchorActive: isAnchorActive,
             isMultiSelected: isMultiSelected,
             multiSelectionBackgroundStyle: multiSelectionBackgroundStyle,
+            anchorActiveEdgeColor: anchorActiveEdgeColor,
             memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
             canMarkRead: canMarkAnchorRead,
@@ -341,6 +357,7 @@ extension VerticalTabsSidebar {
             isAnchorActive: snapshot.isAnchorActive,
             isMultiSelected: snapshot.isMultiSelected,
             multiSelectionBackgroundStyle: snapshot.multiSelectionBackgroundStyle,
+            anchorActiveEdgeColor: snapshot.anchorActiveEdgeColor,
             memberCount: snapshot.memberCount,
             anchorUnreadCount: snapshot.anchorUnreadCount,
             canMarkRead: snapshot.canMarkRead,

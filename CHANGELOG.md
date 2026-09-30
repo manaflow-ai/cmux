@@ -70,8 +70,10 @@ All notable changes to cmux are documented here.
 - iOS (beta): Settings > Reset > Erase All Data on This Device signs out and returns the app to a fresh-install state ([#14140](https://github.com/manaflow-ai/cmux/pull/14140))
 - Settings > App > Warn Before Closing Workspace (`app.warnBeforeClosingWorkspace`, on by default) turns off the "Close workspace?" prompts; pinned workspaces still ask ([#14979](https://github.com/manaflow-ai/cmux/pull/14979))
 - Close confirmation dialogs for tabs, panes and workspaces have a "Don’t ask again" checkbox that turns off the warning behind that dialog; "Close pinned workspace?" still always asks ([#15052](https://github.com/manaflow-ai/cmux/pull/15052))
+- `cmux.copyWorkingDirectory`, `cmux.copyProjectRoot`, and `cmux.copyScreen` built-in actions copy a terminal's working directory, its git project root, or its visible screen from a tab bar button, shortcut, or the Command Palette ([#14858](https://github.com/manaflow-ai/cmux/pull/14858))
 
 ### Changed
+- Dock is now enabled by default for new and existing users, and its former Beta Features toggle has been removed; hide or reorder it under Settings > Sidebar > Right Sidebar Tabs ([#15453](https://github.com/manaflow-ai/cmux/issues/15453))
 - Each Settings toggle and picker row shows one fixed subtitle instead of text that changes with the selected value, and localized Settings titles and Feed, Dock, and Cloud Machines labels use corrected wording ([#14883](https://github.com/manaflow-ai/cmux/pull/14883)) -- thanks @agoodkind!
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 - `cmux browser snapshot` names form fields by their `<label>` text, so plain HTML form inputs are no longer nameless ([#10231](https://github.com/manaflow-ai/cmux/pull/10231)) -- thanks @thingnoy!

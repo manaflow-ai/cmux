@@ -54,9 +54,10 @@ enum RightSidebarChromeMetrics {
     static var contentIconCenter: CGFloat {
         contentIconLeadingPadding + contentIconFrameSize / 2
     }
-    static var controlCornerRadius: CGFloat {
-        min(10, max(5, controlHeight * 0.25))
-    }
+    /// Corner radius for every right-sidebar button: header icon buttons,
+    /// mode and grouping pills, panel action buttons, and system bordered
+    /// buttons (via `rightSidebarButtonBorderShape()`).
+    static let buttonCornerRadius: CGFloat = HeaderChromeControlMetrics.cornerRadius
     static let headerControlSize: CGFloat = HeaderChromeControlMetrics.buttonSize
     static let headerIconSize: CGFloat = 10
     static let headerIconFrameSize: CGFloat = headerIconSize
@@ -66,7 +67,7 @@ enum RightSidebarChromeMetrics {
     /// controls share one leading column and one trailing column.
     static let headerLeadingPadding: CGFloat = HeaderChromeControlMetrics.titlebarControlsLeadingPadding
     static let headerTrailingPadding: CGFloat = 6
-    static let headerControlCornerRadius: CGFloat = HeaderChromeControlMetrics.cornerRadius
+    static let headerControlCornerRadius: CGFloat = buttonCornerRadius
     static let headerControlCenterAlignmentAdjustment: CGFloat = 0
 }
 
@@ -80,8 +81,12 @@ enum SidebarWorkspaceListMetrics {
     /// spent 32 of a 240pt sidebar on empty margins, and the title is what the
     /// sidebar is for.
     static let rowContentHorizontalPadding: CGFloat = 8
-    static let topScrimHeight: CGFloat = firstRowTopOffset + 20
-    static let bottomScrimHeight: CGFloat = topScrimHeight
+    /// The top fade ends where the first row rests, so rows fade only while
+    /// scrolled under the titlebar. It used to reach 20 pt into the list,
+    /// which left the first row partly transparent at rest; over a light
+    /// terminal-matched backdrop that washed out the selected row's top.
+    static let topScrimHeight: CGFloat = firstRowTopOffset
+    static let bottomScrimHeight: CGFloat = firstRowTopOffset + 20
 
     static var trailingAccessoryRightEdgeOffset: CGFloat {
         rowOuterHorizontalPadding + rowContentHorizontalPadding

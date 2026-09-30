@@ -40,6 +40,9 @@ export async function GET(
         billingTeamId: account.entitlements.billingTeamId,
         teamIds: user.teamIds,
         providerVmId: id,
+        // A status read is how a gone machine is usually noticed first, and the
+        // row it retires is one no destroy or cron pass can revisit.
+        modelPlane: vmModelPlaneRevoker(),
       }), { request });
       if (!run.ok) return run.response;
       const vm = run.value;

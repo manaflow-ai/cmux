@@ -331,6 +331,36 @@ func TestWriteClaudeSettingsFileRestoresPrivateModes(t *testing.T) {
 	}
 }
 
+// TestWriteClaudeSettingsFileRefusesSymlinkedDirectory checks a symlink at the cache path is not followed.
+func TestWriteClaudeSettingsFileRefusesSymlinkedDirectory(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(target, "stale.json")
+	if err := os.WriteFile(stale, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-claudeSettingsRetention - time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "settings")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeClaudeSettingsFile(link, []byte(`{"hooks":{}}`)); err == nil {
+		t.Fatal("settings were written through a symlinked cache directory")
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("a file behind the symlink was pruned: %v", err)
+	}
+	if info, err := os.Stat(target); err != nil || info.Mode().Perm() != 0o755 {
+		t.Fatalf("the symlink target's mode changed: %v", err)
+	}
+}
+
 // TestClaudeHookRelayGivesUpAtItsDeadline checks a silent relay cannot hold the hook past its deadline.
 func TestClaudeHookRelayGivesUpAtItsDeadline(t *testing.T) {
 	// A listener that accepts and never answers the relay handshake.

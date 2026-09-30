@@ -27,11 +27,20 @@ export function transcriptTarget(sess: SessionCtx): TranscriptTarget | undefined
   return sess.internal.transcriptTarget as TranscriptTarget | undefined;
 }
 
+function rpcErrorMessage(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.trim().slice(0, 300) || "the cmux control request failed";
+}
+
 /** Focuses the terminal pane that runs the agent (for prompts the view cannot answer). */
 export async function focusTranscriptTerminal(sess: SessionCtx): Promise<CmuxRpcResult> {
   const surfaceId = transcriptTarget(sess)?.surfaceId;
   if (!surfaceId) return { ok: false, error: "The terminal for this session is unknown." };
-  return rpc("surface.focus", { surface_id: surfaceId });
+  try {
+    return await rpc("surface.focus", { surface_id: surfaceId });
+  } catch (err) {
+    return { ok: false, error: rpcErrorMessage(err) };
+  }
 }
 
 export interface TranscriptParser {
@@ -517,15 +526,23 @@ export const transcriptAdapter: Adapter = {
       sess.emit({ kind: "error", message: "This view is not attached to a terminal session.", prompt });
       return;
     }
-    const res = await rpc("mobile.chat.send", { session_id: target.agentSessionId, text: prompt });
-    if (!res.ok) sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${res.error}`, prompt });
+    try {
+      const res = await rpc("mobile.chat.send", { session_id: target.agentSessionId, text: prompt });
+      if (!res.ok) sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${res.error}`, prompt });
+    } catch (err) {
+      sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${rpcErrorMessage(err)}`, prompt });
+    }
   },
   stop(sess: SessionCtx) {
     const target = transcriptTarget(sess);
     if (!target) return;
-    void rpc("mobile.chat.interrupt", { session_id: target.agentSessionId }).then((res) => {
-      if (!res.ok) sess.emit({ kind: "error", message: `Couldn't interrupt the terminal: ${res.error}` });
-    });
+    void rpc("mobile.chat.interrupt", { session_id: target.agentSessionId })
+      .then((res) => {
+        if (!res.ok) sess.emit({ kind: "error", message: `Couldn't interrupt the terminal: ${res.error}` });
+      })
+      .catch((err) => {
+        sess.emit({ kind: "error", message: `Couldn't interrupt the terminal: ${rpcErrorMessage(err)}` });
+      });
   },
   dispose(sess: SessionCtx) {
     const st = transcriptState(sess);

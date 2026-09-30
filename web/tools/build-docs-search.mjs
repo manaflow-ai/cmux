@@ -61,6 +61,9 @@ const searchAliases = {
   cloudNetworking: ["vm push", "port forwarding", "public URL", "custom domain", "WireGuard", "VPN"],
   cloudCli: ["cmux vm", "cmux cloud", "vm commands"],
   cloudTroubleshooting: ["cloud errors", "cloud security"],
+  coderouterOverview: ["coderouter", "model router", "failover", "shared subscriptions", "cr"],
+  coderouterAgents: ["cr codex", "cr opencode", "cr pi", "ANTHROPIC_BASE_URL", "crk_ API key", "Bedrock"],
+  coderouterCli: ["cr login", "cr add", "cmux coderouter", "coderouter errors"],
   ssh: ["remote sessions", "SSH relay", "scp uploads"],
 };
 
