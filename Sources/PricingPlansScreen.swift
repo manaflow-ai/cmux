@@ -515,7 +515,7 @@ private struct NativePricingPlansView: View {
                 isCurrent: false,
                 actionTitle: String(localized: "pricing.native.enterprise.cta", defaultValue: "Contact sales"),
                 action: {
-                    if let url = URL(string: "mailto:founders@manaflow.com") {
+                    if let url = URL(string: "mailto:founders@cmux.com") {
                         NSWorkspace.shared.open(url)
                     }
                 },

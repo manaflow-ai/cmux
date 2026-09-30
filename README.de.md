@@ -390,7 +390,7 @@ cmux ist kostenlos und Open Source und wird es immer bleiben. Wenn Sie die Entwi
 
 ### Ich habe einen Feature-Wunsch oder einen Bug gefunden?
 
-Wir möchten davon hören. Öffnen Sie eine [Issue](https://github.com/manaflow-ai/cmux/issues) oder einen [Pull Request](https://github.com/manaflow-ai/cmux/pulls) auf GitHub, oder [schreiben Sie uns eine E-Mail](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Wir möchten davon hören. Öffnen Sie eine [Issue](https://github.com/manaflow-ai/cmux/issues) oder einen [Pull Request](https://github.com/manaflow-ai/cmux/pulls) auf GitHub, oder [schreiben Sie uns eine E-Mail](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Star-Verlauf
 
@@ -443,4 +443,4 @@ cmux ist kostenlos, Open Source und wird es immer sein. Wenn Sie die Entwicklung
 
 cmux ist Open Source unter [GPL-3.0-or-later](LICENSE). Die cmux-Serversoftware (`web/`, die Cloudflare-Worker und die in [LICENSE](LICENSE) aufgeführten Relay-Dienste) steht stattdessen unter der [Business Source License 1.1](web/LICENSE): Sie dürfen sie lesen, ändern und für nicht-produktive Zwecke ausführen; für den Produktivbetrieb oder Self-Hosting ist eine kommerzielle Lizenz erforderlich.
 
-Wenn Ihre Organisation GPL nicht einhalten kann, ist eine kommerzielle Lizenz verfügbar. Kontaktieren Sie [founders@manaflow.com](mailto:founders@manaflow.com) für Details.
+Wenn Ihre Organisation GPL nicht einhalten kann, ist eine kommerzielle Lizenz verfügbar. Kontaktieren Sie [founders@cmux.com](mailto:founders@cmux.com) für Details.

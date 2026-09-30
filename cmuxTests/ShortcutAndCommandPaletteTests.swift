@@ -1205,12 +1205,11 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToMachines,
     ]
     /// The digit defaults are positional over the visible tabs, so the
-    /// expectations below pin every mode gate on and clear any tab
+    /// expectations below pin every remaining mode gate on and clear any tab
     /// customization; otherwise the test host's own settings would shift the
     /// digits.
     private let touchedTabEnvironmentKeys: [String] = [
         RightSidebarBetaFeatureSettings.feedEnabledKey,
-        RightSidebarBetaFeatureSettings.dockEnabledKey,
         RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey,
         RightSidebarTabPreferences.orderKey,
         RightSidebarTabPreferences.hiddenKey,
@@ -1234,7 +1233,6 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             }
         )
         UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-        UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         UserDefaults.standard.removeObject(forKey: RightSidebarTabPreferences.orderKey)
         UserDefaults.standard.removeObject(forKey: RightSidebarTabPreferences.hiddenKey)
@@ -1314,13 +1312,12 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         )
     }
 
-    /// The reported bug: Feed and Dock hidden leaves Cloud as the 4th visible
-    /// tab, so ctrl+4 must select it (the old static table pinned Cloud to
-    /// ctrl+6 while ctrl+4 fell on the invisible Feed and did nothing).
+    /// Hiding Feed and the standard Dock tab leaves Cloud as the 4th visible
+    /// tab, so ctrl+4 must select it.
     func testModeShortcutDigitsFollowVisibleTabPositions() {
         CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-        UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .dock))
 
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),
