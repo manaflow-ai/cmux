@@ -3,9 +3,14 @@ import CmuxTerminalCore
 import GhosttyKit
 
 extension GhosttyNSView {
+    private var codexActionCacheRuntimeGeneration: UInt64 = .max
+    private var codexActionCacheFrameSequence: UInt64 = .max
+    private var codexActionCacheIsLiveCodexPanel = false
+    private var codexActionCacheRows: [String]?
+
     private func codexActionCell(at point: NSPoint, surface: ghostty_surface_t) -> (TerminalPanel, CodexActionCommand)? {
         guard let terminalSurface, let panel = codexActionPanel(),
-              isLiveCodexPanel(panel), bounds.contains(point) else { return nil }
+              refreshCodexActionCache(for: panel), bounds.contains(point) else { return nil }
         var metrics = ghostty_surface_grid_metrics_s()
         var scrollbar = ghostty_surface_scrollbar_s()
         guard ghostty_surface_grid_metrics(surface, &metrics), ghostty_surface_scrollbar(surface, &scrollbar), metrics.rows > 0, metrics.columns > 0,
@@ -25,16 +30,12 @@ extension GhosttyNSView {
         let row = Int((gridRect.maxY - point.y) / cellHeight)
         guard row == Int(metrics.rows) - 1 else { return nil }
         let column = Int((point.x - gridRect.minX) / cellWidth)
-        guard let rendered = terminalSurface.mobileRenderGridFrame(
-            stateSeq: 0,
-            includeTheme: false,
-            anchor: .viewport
-        ),
-        row < rendered.rows.count,
-        let command = CodexActionCommandDetector().command(
-            in: rendered.rows[row],
-            atColumn: column
-        ) else { return nil }
+        guard let renderedRows = codexActionCacheRows,
+              row < renderedRows.count,
+              let command = CodexActionCommandDetector().command(
+                  in: renderedRows[row],
+                  atColumn: column
+              ) else { return nil }
         return (panel, command)
     }
 
@@ -50,6 +51,29 @@ extension GhosttyNSView {
         return terminalSurface.owningWorkspace()?.terminalPanel(for: terminalSurface.id)
     }
 
+    private func refreshCodexActionCache(for panel: TerminalPanel) -> Bool {
+        guard let terminalSurface else { return false }
+        let runtimeGeneration = terminalSurface.runtimeSurfaceGeneration
+        let frameSequence = renderedFrameSequence
+        if runtimeGeneration == codexActionCacheRuntimeGeneration,
+           frameSequence == codexActionCacheFrameSequence {
+            return codexActionCacheIsLiveCodexPanel
+        }
+        codexActionCacheRuntimeGeneration = runtimeGeneration
+        codexActionCacheFrameSequence = frameSequence
+        codexActionCacheIsLiveCodexPanel = isLiveCodexPanel(panel)
+        guard codexActionCacheIsLiveCodexPanel else {
+            codexActionCacheRows = nil
+            return false
+        }
+        codexActionCacheRows = terminalSurface.mobileRenderGridFrame(
+            stateSeq: 0,
+            includeTheme: false,
+            anchor: .viewport
+        )?.rows
+        return codexActionCacheRows != nil
+    }
+
     private func isLiveCodexPanel(_ panel: TerminalPanel) -> Bool {
         guard let terminalSurface else { return false }
         if let dock = DockSplitStore.liveStore(containingPanel: panel.id) {
@@ -59,6 +83,9 @@ extension GhosttyNSView {
             guard binding?.isAgentHookBinding == true,
                   binding?.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex" else {
                 return false
+            }
+            if binding?.launchFlavor.remoteContext != nil {
+                return dock.detachedSurfaceTransfersByPanelId[panel.id]?.remoteTerminalSessionPhase == .connected
             }
             return dock.restoredAgentHasLiveProcess(
                 panelId: panel.id,
@@ -73,6 +100,10 @@ extension GhosttyNSView {
                 ?? binding.managedRestorableAgentSnapshot(replacing: nil),
               agent.kind == .codex else {
             return false
+        }
+        if binding.launchFlavor.remoteContext != nil {
+            return workspace.isRemoteTerminalSurface(panel.id)
+                && workspace.remoteTerminalSessionStatesBySurfaceId[panel.id]?.phase == .connected
         }
         return workspace.restoredAgentHasLiveProcess(agent, panelId: panel.id)
     }
