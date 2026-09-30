@@ -53,13 +53,15 @@ Right-click anywhere inside the sidebar, including its top pad, empty space, fil
 
 Each context menu includes Keyboard shortcuts, which opens the same modal as `Ctrl-b ?`. The modal has a visible `[Esc close]` button and a terminal-style scrollbar when its rows overflow, with wheel, track-click, and thumb-drag control. Every menu action with a configured key shows the resolved shortcut on the right. Remapped prefix and action keys appear immediately, and unbound actions omit the shortcut.
 
-Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. When rows overflow, the menu draws the shared native scrollbar and supports wheel, track click, and thumb drag. Up and Down move the selected row, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
+Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. When rows overflow, the menu draws the shared native scrollbar and supports wheel, track click, and thumb drag. Up and Down move the selected row, Home and End jump to the first and last action, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
 
 ## Selection and Clipboard
 
 Clicks, releases, and motion inside a PTY pane are forwarded when the inner app enables terminal mouse tracking. cmux uses Ghostty's encoder so X10, UTF-8, SGR, URxvt, and SGR pixel modes follow the app's terminal state. Hold Shift to bypass mouse reporting and use cmux text selection.
 
 Drag inside a PTY pane to select text when mouse tracking is disabled or Shift is held. Releasing copies non-empty selected text to the host clipboard with OSC 52. The selection stores absolute scrollback rows, so it remains stable while the viewport scrolls.
+
+Double-click a terminal word, or its surrounding whitespace run, to select the complete Ghostty-defined word. Keep the button down after the second press and drag to extend the selection by complete words in either direction. A third nearby click selects the complete logical line and line drag extends it. A click that is too slow, too far away, on another screen, or on another UI target starts a new selection gesture.
 
 Holding a selection drag at the top or bottom content edge auto-scrolls and extends the selection. Typing clears the selection. If the selected surface exits, the selection is cleared.
 
@@ -76,3 +78,18 @@ Rename, connect-machine, and browser URL prompts are centered bordered dialogs u
 Enter commits. Esc cancels. Ctrl-C clears. Home and Ctrl-A move to the start. End and Ctrl-E move to the end. Alt-Left and Alt-B move one word left. Alt-Right and Alt-F move one word right. Backspace deletes left, Delete and Ctrl-D delete right, Ctrl-W and Alt-Backspace delete a word left, Alt-D deletes a word right, Ctrl-K deletes to the end, and Ctrl-U deletes to the start.
 
 Click OK to commit, Clear to clear, Cancel or outside the dialog to close, and the input row to move the cursor. Right-clicking while a prompt is open shakes the dialog instead of opening a menu.
+
+## Move tabs between workspaces
+
+Drag a tab chip onto **+ new workspace** in the sidebar to create a workspace
+containing that same tab. Drop onto an existing workspace row to move it there.
+Right-click a tab chip or sidebar tab row and choose **Move tab to workspace**,
+then choose an existing workspace or **New workspace**. The clicked tab is the
+source even when it is inactive. The destination becomes selected.
+
+The tab keeps its identity and running terminal or browser. Creating a destination
+layout and moving into a new or empty workspace commit together; a failed move
+does not leave a placeholder workspace or replacement shell. Destinations belong
+to the current session. Provider-owned workspaces do not offer local workspace
+creation. Hold Shift while right-clicking when an inner terminal app owns mouse
+input.

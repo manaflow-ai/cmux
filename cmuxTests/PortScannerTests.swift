@@ -1,3 +1,4 @@
+@testable import CmuxComputerUse
 import CmuxCore
 import CmuxFoundation
 import Darwin
@@ -10,6 +11,150 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@Suite("Port scanner owner-scoped completeness")
+struct PortScannerOwnerScopedCompletenessTests {
+    @Test("An unrelated incomplete PID does not pin a known listener port")
+    func unrelatedIncompletePIDDoesNotPinListener() {
+        let workspaceID = UUID()
+        let listener = AgentPIDProcessIdentity(pid: 101, startSeconds: 10, startMicroseconds: 0)
+        let unrelated = AgentPIDProcessIdentity(pid: 102, startSeconds: 11, startMicroseconds: 0)
+        let scanner = PortScanner(
+            processIdentityProvider: { pid in
+                pid == listener.pid ? listener : nil
+            },
+            processPresenceProvider: { _ in .present }
+        )
+        let lsofScan = PortLsofScanResult(
+            values: [:],
+            globallyComplete: true,
+            incompletePIDs: [Int(unrelated.pid)]
+        )
+
+        let completeness = scanner.missingPortCompletenessByKey(
+            previousOwnersByKey: [workspaceID: [4200: [listener]]],
+            observedOwnersByKey: [:],
+            currentProcessIdentitiesByKey: [workspaceID: [listener]],
+            processScopeCompletenessByKey: [workspaceID: .incomplete],
+            scannedKeys: [workspaceID],
+            lsofScan: lsofScan,
+            inspectedPIDs: [Int(listener.pid)]
+        )
+
+        #expect(completeness[workspaceID]?[4200] == .complete)
+    }
+
+    @Test("An unreadable live owner keeps its missing port incomplete")
+    func unreadableLiveOwnerRemainsIncomplete() {
+        let workspaceID = UUID()
+        let listener = AgentPIDProcessIdentity(pid: 101, startSeconds: 10, startMicroseconds: 0)
+        let scanner = PortScanner(
+            processIdentityProvider: { _ in nil },
+            processPresenceProvider: { _ in .present }
+        )
+        let lsofScan = PortLsofScanResult(
+            values: [:],
+            globallyComplete: true,
+            incompletePIDs: []
+        )
+
+        let completeness = scanner.missingPortCompletenessByKey(
+            previousOwnersByKey: [workspaceID: [4200: [listener]]],
+            observedOwnersByKey: [:],
+            currentProcessIdentitiesByKey: [:],
+            processScopeCompletenessByKey: [workspaceID: .incomplete],
+            scannedKeys: [workspaceID],
+            lsofScan: lsofScan,
+            inspectedPIDs: [Int(listener.pid)]
+        )
+
+        #expect(completeness[workspaceID]?[4200] == .incomplete)
+    }
+}
+
+@Suite("Port scanner ownership-scope evidence")
+struct PortScannerOwnershipScopeEvidenceTests {
+    @Test("A live owner dropped by an incomplete graph does not retire its port")
+    func incompleteOwnershipGraphRetainsLiveOwnerPort() {
+        let workspaceID = UUID()
+        let listener = AgentPIDProcessIdentity(pid: 101, startSeconds: 10, startMicroseconds: 0)
+        let scanner = PortScanner(
+            processIdentityProvider: { _ in listener },
+            processPresenceProvider: { _ in .present }
+        )
+        let lsofScan = PortLsofScanResult(
+            values: [Int(listener.pid): [4200]],
+            globallyComplete: true,
+            incompletePIDs: []
+        )
+
+        let completeness = scanner.missingPortCompletenessByKey(
+            previousOwnersByKey: [workspaceID: [4200: [listener]]],
+            observedOwnersByKey: [:],
+            currentProcessIdentitiesByKey: [:],
+            processScopeCompletenessByKey: [workspaceID: .incomplete],
+            scannedKeys: [workspaceID],
+            lsofScan: lsofScan,
+            inspectedPIDs: [Int(listener.pid)]
+        )
+
+        #expect(completeness[workspaceID]?[4200] == .incomplete)
+    }
+
+    @Test("A live owner absent from a complete graph is authoritative absence")
+    func completeOwnershipGraphRetiresDroppedOwnerPort() {
+        let workspaceID = UUID()
+        let listener = AgentPIDProcessIdentity(pid: 101, startSeconds: 10, startMicroseconds: 0)
+        let scanner = PortScanner(
+            processIdentityProvider: { _ in listener },
+            processPresenceProvider: { _ in .present }
+        )
+        let lsofScan = PortLsofScanResult(
+            values: [Int(listener.pid): [4200]],
+            globallyComplete: true,
+            incompletePIDs: []
+        )
+
+        let completeness = scanner.missingPortCompletenessByKey(
+            previousOwnersByKey: [workspaceID: [4200: [listener]]],
+            observedOwnersByKey: [:],
+            currentProcessIdentitiesByKey: [:],
+            processScopeCompletenessByKey: [workspaceID: .complete],
+            scannedKeys: [workspaceID],
+            lsofScan: lsofScan,
+            inspectedPIDs: [Int(listener.pid)]
+        )
+
+        #expect(completeness[workspaceID]?[4200] == .complete)
+    }
+
+    @Test("Unrelated incomplete lsof evidence does not pin a dropped owner")
+    func unrelatedIncompleteLsofDoesNotPinDroppedOwner() {
+        let workspaceID = UUID()
+        let listener = AgentPIDProcessIdentity(pid: 101, startSeconds: 10, startMicroseconds: 0)
+        let scanner = PortScanner(
+            processIdentityProvider: { _ in listener },
+            processPresenceProvider: { _ in .present }
+        )
+        let lsofScan = PortLsofScanResult(
+            values: [Int(listener.pid): [4200]],
+            globallyComplete: false,
+            incompletePIDs: [999]
+        )
+
+        let completeness = scanner.missingPortCompletenessByKey(
+            previousOwnersByKey: [workspaceID: [4200: [listener]]],
+            observedOwnersByKey: [:],
+            currentProcessIdentitiesByKey: [:],
+            processScopeCompletenessByKey: [workspaceID: .complete],
+            scannedKeys: [workspaceID],
+            lsofScan: lsofScan,
+            inspectedPIDs: [Int(listener.pid)]
+        )
+
+        #expect(completeness[workspaceID]?[4200] == .complete)
+    }
+}
 
 @Suite("Port scanner process capture")
 struct PortScannerProcessCaptureTests {
@@ -906,9 +1051,17 @@ struct ProcessTerminationGateTests {
 private actor ScriptedCommandRunner: CommandRunning {
     private let results: [CommandResult]
     private(set) var recordedArguments: [[String]] = []
+    private var invocationWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(results: [CommandResult]) {
         self.results = results
+    }
+
+    func waitForInvocation() async {
+        if !recordedArguments.isEmpty { return }
+        await withCheckedContinuation { continuation in
+            invocationWaiters.append(continuation)
+        }
     }
 
     func run(
@@ -918,6 +1071,8 @@ private actor ScriptedCommandRunner: CommandRunning {
         timeout: TimeInterval?
     ) async -> CommandResult {
         recordedArguments.append(arguments)
+        invocationWaiters.forEach { $0.resume() }
+        invocationWaiters.removeAll()
         let index = recordedArguments.count - 1
         guard results.indices.contains(index) else {
             return CommandResult(
@@ -932,8 +1087,203 @@ private actor ScriptedCommandRunner: CommandRunning {
     }
 }
 
+@Suite("Port scanner lifecycle")
+struct PortScannerLifecycleTests {
+    @Test("A stale completion preserves a pending rescan under the current generation")
+    func staleCompletionDoesNotConsumePendingRescan() async {
+        let runner = ScriptedCommandRunner(results: [])
+        let scanner = PortScanner(commandRunner: runner)
+        let workspaceID = UUID()
+        let panelID = UUID()
+        await MainActor.run {
+            scanner.registerTTY(workspaceId: workspaceID, panelId: panelID, ttyName: "ttys999")
+        }
+
+        // Simulate an in-flight scan from generation zero, then invalidate it.
+        scanner.queue.sync {
+            _ = scanner.scanCoordination.beginPanelScan()
+            _ = scanner.scanCoordination.beginPanelScan()
+        }
+        await MainActor.run {
+            scanner.unregisterPanel(workspaceId: workspaceID, panelId: panelID)
+        }
+        scanner.queue.sync {}
+        await MainActor.run {
+            scanner.registerTTY(workspaceId: workspaceID, panelId: panelID, ttyName: "ttys999")
+        }
+        scanner.queue.sync {
+            scanner.completePanelScan(
+                generation: 0,
+                [],
+                panelTTYs: [:],
+                panelRevisions: [:],
+                workspaceIds: [],
+                agentPortsByWorkspace: [:],
+                panelPortOwnersByKey: [:],
+                panelProcessIdentitiesByKey: [:],
+                agentPortOwnersByWorkspace: [:],
+                agentProcessIdentitiesByWorkspace: [:],
+                agentRevisions: [:],
+                panelCompletenessByKey: [:],
+                panelProcessScopeCompletenessByKey: [:],
+                agentCompletenessByWorkspace: [:],
+                agentProcessScopeCompletenessByWorkspace: [:],
+                panelLsofEvidence: PortLsofScanResult(values: [:], globallyComplete: true, incompletePIDs: []),
+                agentLsofEvidence: nil,
+                inspectedPIDs: [],
+                requestID: 0
+            )
+        }
+        await runner.waitForInvocation()
+        let calls = await runner.recordedArguments
+        #expect(!calls.isEmpty)
+    }
+
+    @Test("Unregister preserves a pending burst for other panels")
+    func unregisterPreservesOtherPanelBurst() async {
+        let runner = ScriptedCommandRunner(results: [])
+        let scanner = PortScanner(commandRunner: runner)
+        let workspaceID = UUID()
+        let removedPanelID = UUID()
+        let retainedPanelID = UUID()
+        await MainActor.run {
+            scanner.registerTTY(workspaceId: workspaceID, panelId: removedPanelID, ttyName: "ttys999")
+            scanner.registerTTY(workspaceId: workspaceID, panelId: retainedPanelID, ttyName: "ttys998")
+        }
+        scanner.kick(workspaceId: workspaceID, panelId: removedPanelID)
+        scanner.kick(workspaceId: workspaceID, panelId: retainedPanelID)
+        await MainActor.run {
+            scanner.unregisterPanel(workspaceId: workspaceID, panelId: removedPanelID)
+        }
+        await runner.waitForInvocation()
+        let calls = await runner.recordedArguments
+        #expect(!calls.isEmpty)
+    }
+}
+
+@MainActor
+@Suite("Port scanner generation")
+struct PortScannerGenerationTests {
+    @Test(
+        "A stale panel completion still publishes valid agent ports",
+        .timeLimit(.minutes(1))
+    )
+    func stalePanelCompletionPreservesAgentResults() async throws {
+        let workspaceID = UUID()
+        let rootIdentity = AgentPIDProcessIdentity(
+            pid: 100,
+            startSeconds: 10,
+            startMicroseconds: 0
+        )
+        let root = AgentPortRootIdentity(pid: 100, processIdentity: rootIdentity)
+        let scanner = PortScanner(commandRunner: ScriptedCommandRunner(results: []))
+        let (publications, continuation) = AsyncStream<[Int]>.makeStream(
+            bufferingPolicy: .unbounded
+        )
+        var iterator = publications.makeAsyncIterator()
+        scanner.onAgentPortsUpdated = { callbackWorkspaceID, ports in
+            guard callbackWorkspaceID == workspaceID else { return false }
+            continuation.yield(ports)
+            return true
+        }
+        defer {
+            continuation.finish()
+            scanner.onAgentPortsUpdated = nil
+        }
+
+        let agentRevision = scanner.publicationState.replaceAgentLifecycle(
+            workspaceId: workspaceID,
+            roots: [root]
+        )
+        let panelID = UUID()
+        scanner.registerTTY(workspaceId: workspaceID, panelId: panelID, ttyName: "ttys999")
+        scanner.queue.sync {
+            scanner.agentRevisionByWorkspace[workspaceID] = agentRevision
+            scanner.trackedAgentWorkspaces.insert(workspaceID)
+            scanner.forceAgentResultWorkspaces.insert(workspaceID)
+            _ = scanner.scanCoordination.beginPanelScan()
+        }
+        scanner.unregisterPanel(workspaceId: workspaceID, panelId: panelID)
+        scanner.queue.sync {}
+
+        scanner.queue.sync {
+            scanner.completePanelScan(
+                generation: 0,
+                [],
+                panelTTYs: [:],
+                panelRevisions: [:],
+                workspaceIds: [workspaceID],
+                agentPortsByWorkspace: [workspaceID: [5173]],
+                panelPortOwnersByKey: [:],
+                panelProcessIdentitiesByKey: [:],
+                agentPortOwnersByWorkspace: [:],
+                agentProcessIdentitiesByWorkspace: [:],
+                agentRevisions: [workspaceID: agentRevision],
+                panelCompletenessByKey: [:],
+                panelProcessScopeCompletenessByKey: [:],
+                agentCompletenessByWorkspace: [workspaceID: .complete],
+                agentProcessScopeCompletenessByWorkspace: [workspaceID: .complete],
+                panelLsofEvidence: PortLsofScanResult(
+                    values: [:],
+                    globallyComplete: true,
+                    incompletePIDs: []
+                ),
+                agentLsofEvidence: nil,
+                inspectedPIDs: [],
+                requestID: 1
+            )
+        }
+
+        let publishedPorts = try #require(await iterator.next())
+        #expect(publishedPorts == [5173])
+    }
+}
+
+@Suite("Port scanner lsof batching")
+struct PortScannerLsofBatchingTests {
+    @Test("Large PID lists are split without exceeding the argument budget")
+    func largePIDListUsesBoundedCSVArguments() {
+        let pids = Array(1...20_000)
+        let chunks = PortScanner.lsofPIDChunks(pids)
+
+        #expect(chunks.count > 1)
+        #expect(chunks.flatMap { $0 } == pids)
+        for chunk in chunks {
+            let csvBytes = chunk.map(String.init).joined(separator: ",").utf8.count
+            #expect(csvBytes + PortScanner.lsofArgumentOverhead <= PortScanner.lsofArgumentByteBudget)
+        }
+    }
+}
+
 @Suite("Port scanner retirement end to end")
 struct PortScannerPortRetirementTests {
+    /// The production burst spans ten seconds, so these tests drive the scanner
+    /// on a compressed schedule of the same shape: six scans, one burst, the
+    /// same coalesce step. Only the wall-clock spacing shrinks; the scan count
+    /// and the ordering the reconciler depends on are unchanged.
+    private static let fastBurstOffsets: [TimeInterval] = [0.05, 0.15, 0.3, 0.45, 0.6, 0.75]
+    /// Same six-scan burst, but with the final scan left far enough behind the
+    /// fifth that a kick issued from inside the fifth scan's `lsof` reaches the
+    /// scanner queue while the burst still owes exactly one scan — the case the
+    /// late-burst test covers. The gap only has to outlast the scanner's own
+    /// hop from the fifth timer to that `lsof` call, not a test-task wakeup.
+    private static let fastLateBurstOffsets: [TimeInterval] = [0.05, 0.15, 0.3, 0.45, 0.6, 1.6]
+    /// The compressed stand-in for the production 200ms coalesce step. No test
+    /// here kicks repeatedly while it waits, so nothing is racing this window:
+    /// each kick is issued once and the scanner's own guarantee of
+    /// `minimumScansPerKick` scans per kick carries the rest.
+    private static let fastCoalesceDelay: TimeInterval = 0.01
+
+    /// The compressed schedules above only stand in for production if the
+    /// shipped cadence still has the shape they mimic.
+    @Test("The production scan schedule keeps its six-scan burst and coalesce window")
+    func productionScanScheduleMatchesCompressedShape() {
+        #expect(PortScanner.defaultBurstOffsets == [0.5, 1.5, 3, 5, 7.5, 10])
+        #expect(PortScanner.defaultCoalesceDelay == 0.2)
+        #expect(Self.fastBurstOffsets.count == PortScanner.defaultBurstOffsets.count)
+        #expect(Self.fastLateBurstOffsets.count == PortScanner.defaultBurstOffsets.count)
+    }
+
     /// Drives the whole scanner — TTY registration, kick, coalesce, burst,
     /// reconcile, publish — so a break anywhere in that chain surfaces even
     /// when every individual stage still passes its own test.
@@ -960,7 +1310,9 @@ struct PortScannerPortRetirementTests {
         let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
         let scanner = PortScanner(
             commandRunner: runner,
-            ttySessionIdentityProvider: { _ in sessionIdentity }
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
         )
         let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
 
@@ -976,7 +1328,7 @@ struct PortScannerPortRetirementTests {
         let didPublishListeningPort = await Self.waitForPublication(
             in: publishedPorts,
             matching: { $0 == [listeningPort] },
-            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) }
+            pollInterval: .milliseconds(25)
         )
         try #require(didPublishListeningPort, "the listening port was never published")
 
@@ -984,12 +1336,16 @@ struct PortScannerPortRetirementTests {
         // retirement; an earlier empty publication is registration noise.
         let publicationsBeforeStop = publishedPorts.withLock { $0.count }
         await runner.stopListening()
+        // One kick, not one per poll: a kick guarantees `minimumScansPerKick`
+        // scans, which is exactly the number of complete misses the reconciler
+        // needs to retire the port.
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
 
         let didRetirePort = await Self.waitForPublication(
             in: publishedPorts,
             after: publicationsBeforeStop,
             matching: \.isEmpty,
-            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) }
+            pollInterval: .milliseconds(25)
         )
 
         #expect(didRetirePort, "the port was never retired after its process stopped listening")
@@ -1015,7 +1371,9 @@ struct PortScannerPortRetirementTests {
         let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
         let scanner = PortScanner(
             commandRunner: runner,
-            ttySessionIdentityProvider: { _ in sessionIdentity }
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastLateBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
         )
         let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
 
@@ -1026,30 +1384,35 @@ struct PortScannerPortRetirementTests {
             }
             scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
         }
+        // The fifth scan leaves only the last scan of the six-scan burst.
+        // Stopping there means clearing the kick at that scan strands the port
+        // after only one complete miss, so the kick must survive the burst.
+        // The runner stops and kicks from inside the fifth `lsof` call, after
+        // that call reports the port, so the stop is tied to the scan itself
+        // rather than to when this task happens to observe it.
+        await runner.stopListening(afterLsofInvocation: 5) {
+            scanner.kick(workspaceId: workspaceId, panelId: panelId)
+        }
         scanner.kick(workspaceId: workspaceId, panelId: panelId)
 
         let didPublishListeningPort = await Self.waitForPublication(
             in: publishedPorts,
             matching: { $0 == [listeningPort] },
-            onKick: {}
+            pollInterval: .milliseconds(10)
         )
         try #require(didPublishListeningPort, "the listening port was never published")
-
-        // The fifth scan is at 7.5 seconds in the six-scan burst. Stopping here
-        // leaves only the 10-second scan in the original burst, so clearing the
-        // kick at that scan strands the port after only one complete miss.
-        let reachedFifthScan = await runner.waitForLsofInvocation(5)
-        try #require(reachedFifthScan, "the scanner did not reach the fifth burst scan")
-        let publicationsBeforeStop = publishedPorts.withLock { $0.count }
-        await runner.stopListening()
-        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+        // Retirement is the first empty publication after the port appeared;
+        // an earlier empty publication is registration noise.
+        let firstListeningPublication = try #require(
+            publishedPorts.withLock { $0.firstIndex(of: [listeningPort]) }
+        )
 
         let didRetirePort = await Self.waitForPublication(
             in: publishedPorts,
-            after: publicationsBeforeStop,
+            after: firstListeningPublication + 1,
             matching: \.isEmpty,
-            onKick: {},
-            timeout: .seconds(12)
+            timeout: .seconds(12),
+            pollInterval: .milliseconds(10)
         )
 
         #expect(didRetirePort, "a late-burst kick did not schedule enough complete misses")
@@ -1097,7 +1460,6 @@ struct PortScannerPortRetirementTests {
         let didPublishListeningPort = await Self.waitForPublication(
             in: publishedPorts,
             matching: { $0 == [listeningPort] },
-            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) },
             timeout: .seconds(6)
         )
 
@@ -1105,17 +1467,23 @@ struct PortScannerPortRetirementTests {
     }
 
     /// Polls rather than sleeping a fixed interval, since the scan burst runs
-    /// on real timers whose spacing shifts under load.
+    /// on real timers whose spacing shifts under load. The deadline bounds only
+    /// the failure path: a satisfied predicate returns immediately.
     ///
-    /// The interval must stay above the scanner's 200ms kick coalesce window:
-    /// each kick reschedules that timer, so polling faster than it starves the
-    /// burst and no scan ever runs.
+    /// This only observes; it never kicks. Kicking from the poll loop is a
+    /// flake vector, not a nudge: `PortScanner.kick()` re-arms the coalesce
+    /// timer whenever no burst is running, so on a loaded runner — where timer
+    /// jitter is the same order as the coalesce window — a stream of polls can
+    /// cancel that timer forever and no scan ever runs. Each caller kicks once
+    /// instead, which the scanner already answers with a guaranteed
+    /// `minimumScansPerKick` scans. That makes the poll interval a pure
+    /// latency/CPU tradeoff, independent of the coalesce delay.
     private static func waitForPublication(
         in publishedPorts: OSAllocatedUnfairLock<[[Int]]>,
         after startIndex: Int = 0,
         matching predicate: @Sendable ([Int]) -> Bool,
-        onKick: @Sendable () -> Void,
-        timeout: Duration = .seconds(20)
+        timeout: Duration = .seconds(20),
+        pollInterval: Duration = .milliseconds(500)
     ) async -> Bool {
         func isSatisfied() -> Bool {
             publishedPorts.withLock { $0.dropFirst(startIndex).contains(where: predicate) }
@@ -1123,11 +1491,10 @@ struct PortScannerPortRetirementTests {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if isSatisfied() { return true }
-            onKick()
             // Cancellation makes the sleep throw immediately; without this the
             // poll would spin until the wall-clock deadline.
             do {
-                try await Task.sleep(for: .milliseconds(500))
+                try await Task.sleep(for: pollInterval)
             } catch {
                 break
             }
@@ -1147,6 +1514,7 @@ private actor PortLifecycleCommandRunner: CommandRunning {
     private var isListening = true
     private(set) var lastLsofArguments: [String]?
     private var lsofInvocationCount = 0
+    private var scheduledStop: (invocation: Int, action: @Sendable () -> Void)?
 
     private static let filesystemWarning = """
     lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/example
@@ -1173,16 +1541,14 @@ private actor PortLifecycleCommandRunner: CommandRunning {
         isListening = false
     }
 
-    func waitForLsofInvocation(_ target: Int, timeout: Duration = .seconds(15)) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while lsofInvocationCount < target, ContinuousClock.now < deadline {
-            do {
-                try await Task.sleep(for: .milliseconds(50))
-            } catch {
-                return false
-            }
-        }
-        return lsofInvocationCount >= target
+    /// Stops listening from inside the `target`th `lsof` call, after that call
+    /// has reported the port, then runs `action` while the call is still in
+    /// flight. Must be armed before that call happens.
+    func stopListening(
+        afterLsofInvocation target: Int,
+        then action: @escaping @Sendable () -> Void
+    ) {
+        scheduledStop = (target, action)
     }
 
     func run(
@@ -1209,7 +1575,13 @@ private actor PortLifecycleCommandRunner: CommandRunning {
         // PID-scoped TCP socket query, but any stderr currently makes the
         // scanner globally incomplete and prevents stale ports from aging out.
         let stderr = arguments.contains("-w") ? "" : Self.filesystemWarning
-        guard isListening, Self.selection(for: "-p", in: arguments).contains(String(pid)) else {
+        let reportsPort = isListening && Self.selection(for: "-p", in: arguments).contains(String(pid))
+        if let stop = scheduledStop, stop.invocation == lsofInvocationCount {
+            scheduledStop = nil
+            isListening = false
+            stop.action()
+        }
+        guard reportsPort else {
             return Self.noSelectedFiles(stderr: stderr)
         }
         return Self.output("p\(pid)\nf3\nn127.0.0.1:\(port)\n", stderr: stderr)

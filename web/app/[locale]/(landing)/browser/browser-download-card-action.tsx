@@ -36,7 +36,7 @@ export function BrowserDownloadCardAction({
         className={className}
         style={ctaButtonStyle}
       >
-        {children}
+        <DownloadLabel>{children}</DownloadLabel>
       </PlatformDownloadLink>
     );
   }
@@ -47,6 +47,15 @@ export function BrowserDownloadCardAction({
       className={`${className} cursor-not-allowed opacity-45`}
       style={ctaButtonStyle}
     >
+      <DownloadLabel>{children}</DownloadLabel>
+    </span>
+  );
+}
+
+/** Lets long localized labels wrap inside the fixed-width landing-page cards. */
+function DownloadLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="min-w-0 text-balance whitespace-normal text-center">
       {children}
     </span>
   );

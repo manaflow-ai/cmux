@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import CMUXAgentLaunch
@@ -160,7 +161,7 @@ struct AgentSessionAutoResumeSwiftTests {
 
         let manager = TabManager()
         let dockWorkspace = try #require(manager.selectedWorkspace)
-        let dock = dockWorkspace.dockSplit
+        let dock = try #require(dockWorkspace.dockSplit)
         defer {
             dock.closeAllPanels()
             dockWorkspace.teardownAllPanels()
@@ -205,9 +206,16 @@ struct AgentSessionAutoResumeSwiftTests {
         dock.flushPendingTerminalTitleUpdates()
         #expect(dock.bonsplitController.tab(dockTabID)?.title == persistedTitle)
 
-        // The Dock already owns the transferred promptIdle state. A duplicate
-        // report must not discard the pending title before commandRunning.
+        // A repeated prompt retires pre-prompt title provenance. The next
+        // command supplies a fresh preexec title before commandRunning.
         dock.updatePanelShellActivityState(panelId: restoredPanelID, state: .promptIdle)
+        #expect(dock.bonsplitController.tab(dockTabID)?.title == persistedTitle)
+        #expect(dock.applyTerminalTitleChange(GhosttyTitleChange(
+            tabId: dock.workspaceId,
+            surfaceId: restoredPanelID,
+            title: commandTitle,
+            sourceSurfaceIdentifier: ObjectIdentifier(dockTerminal.surface)
+        )))
         dock.updatePanelShellActivityState(panelId: restoredPanelID, state: .commandRunning)
         dock.flushPendingTerminalTitleUpdates()
         #expect(dockTerminal.displayTitle == commandTitle)
@@ -368,6 +376,7 @@ struct AgentSessionAutoResumeSwiftTests {
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let source = Workspace()
+            defer { source.teardownAllPanels() }
             let sourcePanelId = try #require(source.focusedPanelId)
             let sessionId = "claude-drifted-binding-session"
             let launchCwd = "/tmp/cmux-claude-launch"
@@ -401,23 +410,26 @@ struct AgentSessionAutoResumeSwiftTests {
                     updatedAt: 1_777_777_777
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
+            let snapshot = try snapshotOfRunningAgent(
+                in: source,
                 surfaceResumeBindingIndex: bindingIndex
             )
 
             #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == launchCwd)
             #expect(snapshot.panels.first?.terminal?.resumeBinding?.cwd == runtimeCwd)
 
-            let restored = Workspace()
+            let restored = Workspace(restorableAgentIndexProvider: { .empty })
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
 
             try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
-                scriptContains: [launchCwd, "--resume", sessionId],
-                scriptDoesNotContain: [runtimeCwd]
+                in: restored,
+                kind: "claude",
+                sessionID: sessionId,
+                commandContains: [launchCwd, "--resume", sessionId],
+                commandDoesNotContain: [runtimeCwd]
             )
             #expect(
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.cwd == launchCwd
@@ -494,14 +506,14 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(liveAgent.sessionId == childSessionId)
             #expect(liveAgent.workingDirectory == worktree)
 
-            let snapshot = source.sessionSnapshot(includeScrollback: false)
+            let snapshot = try snapshotOfRunningAgent(in: source)
             let savedTerminal = try #require(snapshot.panels.first?.terminal)
             #expect(savedTerminal.agent?.sessionId == childSessionId)
             #expect(savedTerminal.agent?.workingDirectory == worktree)
             #expect(savedTerminal.resumeBinding?.checkpointId == childSessionId)
             #expect(savedTerminal.resumeBinding?.cwd == worktree)
 
-            let restored = Workspace()
+            let restored = Workspace(restorableAgentIndexProvider: { .empty })
             defer { restored.teardownAllPanels() }
             let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
@@ -513,8 +525,11 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(restoredAgent.workingDirectory == worktree)
             try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
-                scriptContains: ["restore claude \(childSessionId)"],
-                scriptDoesNotContain: [parentSessionId]
+                in: restored,
+                kind: "claude",
+                sessionID: childSessionId,
+                commandContains: [worktree, "--resume", childSessionId],
+                commandDoesNotContain: [parentSessionId]
             )
         }
     }
@@ -743,7 +758,15 @@ struct AgentSessionAutoResumeSwiftTests {
                 orientation: .horizontal,
                 focus: false
             ))
-            #expect(split.requestedWorkingDirectory == projectDir)
+            // The split runs the workspace's SSH startup command, so since
+            // #12054 its cwd travels as the remote initial cwd instead of a
+            // local PTY cwd. The rescued session directory (not the clobbered
+            // tracked home) must still be the one handed over.
+            #expect(split.requestedWorkingDirectory == nil)
+            #expect(
+                split.surface.startupEnvironmentValue(Workspace.remoteInitialWorkingDirectoryEnvironmentKey)
+                    == projectDir
+            )
         }
     }
 
@@ -881,9 +904,11 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(clobberedTerminal.agent?.workingDirectory == projectDir)
             #expect(clobberedTerminal.resumeBinding == nil)
 
-            let secondRestore = Workspace()
+            let secondRestore = Workspace(restorableAgentIndexProvider: { .empty })
             secondRestore.restoreSessionSnapshot(clobberedSnapshot)
             let secondRestoredPanelId = try #require(secondRestore.focusedPanelId)
+            #expect(secondRestore.restoredAgentResumeStatesByPanelId[secondRestoredPanelId] == .awaitingAutoResumeCommand)
+            secondRestore.updatePanelShellActivityState(panelId: secondRestoredPanelId, state: .commandRunning)
             try #require(
                 secondRestore.restoredAgentResumeStatesByPanelId[secondRestoredPanelId] == .autoResumeCommandRunning
             )
@@ -927,7 +952,7 @@ struct AgentSessionAutoResumeSwiftTests {
             try #require(agentSessionId.hasPrefix("claude-"))
             let registrySessionId = String(agentSessionId.dropFirst("claude-".count))
 
-            let secondRestore = Workspace()
+            let secondRestore = Workspace(restorableAgentIndexProvider: { .empty })
             secondRestore.restoreSessionSnapshot(clobberedSnapshot)
             _ = try #require(secondRestore.focusedPanelId)
 
@@ -955,6 +980,7 @@ struct AgentSessionAutoResumeSwiftTests {
                 cwd: .ignore
             )
             let source = Workspace()
+            defer { source.teardownAllPanels() }
             source.currentDirectory = projectDir
             let sourcePanelId = try #require(source.focusedPanelId)
             source.updatePanelDirectory(panelId: sourcePanelId, directory: projectDir)
@@ -976,14 +1002,16 @@ struct AgentSessionAutoResumeSwiftTests {
                 panelId: sourcePanelId
             )
 
-            let snapshot = source.sessionSnapshot(includeScrollback: false)
+            let snapshot = try snapshotOfRunningAgent(in: source)
             let terminal = try #require(snapshot.panels.first?.terminal)
             #expect(terminal.agent?.workingDirectory == nil)
             #expect(terminal.agent?.launchCommand?.workingDirectory == projectDir)
 
-            let restored = Workspace()
+            let restored = Workspace(restorableAgentIndexProvider: { .empty })
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
+            #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .awaitingAutoResumeCommand)
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
             try #require(
                 restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning
             )
@@ -1284,6 +1312,7 @@ struct AgentSessionAutoResumeSwiftTests {
     ) throws -> (workspace: Workspace, panelId: UUID) {
         let sessionId = "claude-cmdt-resume-\(UUID().uuidString)"
         let source = Workspace()
+        defer { source.teardownAllPanels() }
         source.currentDirectory = savedDirectory
         let sourcePanelId = try #require(source.focusedPanelId)
 
@@ -1317,15 +1346,17 @@ struct AgentSessionAutoResumeSwiftTests {
             ),
         ])
 
-        let snapshot = source.sessionSnapshot(
-            includeScrollback: false,
+        let snapshot = try snapshotOfRunningAgent(
+            in: source,
             surfaceResumeBindingIndex: bindingIndex
         )
         #expect(snapshot.currentDirectory == savedDirectory)
 
-        let restored = Workspace()
+        let restored = Workspace(restorableAgentIndexProvider: { .empty })
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
+        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .awaitingAutoResumeCommand)
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
 
         // Restore replays the persisted directory onto the workspace and panel.
         #expect(restored.currentDirectory == savedDirectory)
@@ -1343,6 +1374,7 @@ struct AgentSessionAutoResumeSwiftTests {
     ) throws -> (workspace: Workspace, panelId: UUID) {
         let sessionId = "claude-restorable-only-resume-\(UUID().uuidString)"
         let source = Workspace()
+        defer { source.teardownAllPanels() }
         source.currentDirectory = savedDirectory
         let sourcePanelId = try #require(source.focusedPanelId)
         source.updatePanelDirectory(panelId: sourcePanelId, directory: savedDirectory)
@@ -1364,13 +1396,15 @@ struct AgentSessionAutoResumeSwiftTests {
         source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
         source.setRestoredAgentSnapshotForTesting(agent, panelId: sourcePanelId)
 
-        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        let snapshot = try snapshotOfRunningAgent(in: source)
         #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == savedDirectory)
         #expect(snapshot.panels.first?.terminal?.resumeBinding == nil)
 
-        let restored = Workspace()
+        let restored = Workspace(restorableAgentIndexProvider: { .empty })
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
+        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .awaitingAutoResumeCommand)
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
 
         #expect(restored.currentDirectory == savedDirectory)
         #expect(restored.panelDirectories[restoredPanelId] == savedDirectory)
@@ -1388,6 +1422,7 @@ struct AgentSessionAutoResumeSwiftTests {
     ) throws -> (workspace: Workspace, panelId: UUID) {
         let sessionId = "claude-binding-only-resume-\(UUID().uuidString)"
         let source = Workspace()
+        defer { source.teardownAllPanels() }
         source.currentDirectory = savedDirectory
         let sourcePanelId = try #require(source.focusedPanelId)
         source.updatePanelDirectory(panelId: sourcePanelId, directory: savedDirectory)
@@ -1406,16 +1441,18 @@ struct AgentSessionAutoResumeSwiftTests {
             ),
         ])
 
-        let snapshot = source.sessionSnapshot(
-            includeScrollback: false,
+        let snapshot = try snapshotOfRunningAgent(
+            in: source,
             surfaceResumeBindingIndex: bindingIndex
         )
         #expect(snapshot.panels.first?.terminal?.agent == nil)
         #expect(snapshot.panels.first?.terminal?.resumeBinding?.cwd == savedDirectory)
 
-        let restored = Workspace()
+        let restored = Workspace(restorableAgentIndexProvider: { .empty })
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
+        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .awaitingAutoResumeCommand)
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
 
         #expect(restored.currentDirectory == savedDirectory)
         #expect(restored.panelDirectories[restoredPanelId] == savedDirectory)
@@ -1430,6 +1467,7 @@ struct AgentSessionAutoResumeSwiftTests {
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let source = Workspace()
+            defer { source.teardownAllPanels() }
             let sourcePanelId = try #require(source.focusedPanelId)
             let staleSessionId = "claude-stale-restored-session"
             let freshSessionId = "claude-fresh-binding-session"
@@ -1463,12 +1501,12 @@ struct AgentSessionAutoResumeSwiftTests {
                     updatedAt: 1_777_777_778
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
+            let snapshot = try snapshotOfRunningAgent(
+                in: source,
                 surfaceResumeBindingIndex: bindingIndex
             )
 
-            let restored = Workspace()
+            let restored = Workspace(restorableAgentIndexProvider: { .empty })
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
@@ -1483,8 +1521,11 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent == nil)
             try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
-                scriptContains: [freshRuntimeCwd, "--resume", freshSessionId],
-                scriptDoesNotContain: [staleLaunchCwd, staleSessionId]
+                in: restored,
+                kind: "claude",
+                sessionID: freshSessionId,
+                commandContains: [freshRuntimeCwd, "--resume", freshSessionId],
+                commandDoesNotContain: [staleLaunchCwd, staleSessionId]
             )
         }
     }
@@ -1496,6 +1537,7 @@ struct AgentSessionAutoResumeSwiftTests {
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let source = Workspace()
+            defer { source.teardownAllPanels() }
             let sourcePanelId = try #require(source.focusedPanelId)
             let claudeSessionId = "claude-stale-cross-kind-session"
             let codexSessionId = "codex-fresh-binding-session"
@@ -1529,12 +1571,12 @@ struct AgentSessionAutoResumeSwiftTests {
                     updatedAt: 1_777_777_778
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
+            let snapshot = try snapshotOfRunningAgent(
+                in: source,
                 surfaceResumeBindingIndex: bindingIndex
             )
 
-            let restored = Workspace()
+            let restored = Workspace(restorableAgentIndexProvider: { .empty })
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
@@ -1546,8 +1588,11 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(restoredBinding.checkpointId == codexSessionId)
             try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
-                scriptContains: ["codex", "resume", codexSessionId],
-                scriptDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
+                in: restored,
+                kind: "codex",
+                sessionID: codexSessionId,
+                commandContains: ["codex", "resume", codexSessionId],
+                commandDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
             )
         }
     }
@@ -1559,6 +1604,7 @@ struct AgentSessionAutoResumeSwiftTests {
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let source = Workspace()
+            defer { source.teardownAllPanels() }
             let sourcePanelId = try #require(source.focusedPanelId)
             let claudeSessionId = "claude-stale-hibernated-session"
             let codexSessionId = "codex-fresh-hibernation-binding-session"
@@ -1595,8 +1641,8 @@ struct AgentSessionAutoResumeSwiftTests {
                     updatedAt: 1_777_777_778
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
+            let snapshot = try snapshotOfRunningAgent(
+                in: source,
                 surfaceResumeBindingIndex: bindingIndex
             )
             let terminalSnapshot = try #require(snapshot.panels.first?.terminal)
@@ -1605,15 +1651,18 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(terminalSnapshot.hibernation == nil)
             #expect(terminalSnapshot.resumeBinding?.kind == "codex")
 
-            let restored = Workspace()
+            let restored = Workspace(restorableAgentIndexProvider: { .empty })
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
 
             try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
-                scriptContains: ["codex", "resume", codexSessionId],
-                scriptDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
+                in: restored,
+                kind: "codex",
+                sessionID: codexSessionId,
+                commandContains: ["codex", "resume", codexSessionId],
+                commandDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
             )
         }
     }
@@ -1796,26 +1845,467 @@ struct AgentSessionAutoResumeSwiftTests {
     @MainActor
     private func assertAgentAutoResumeUsesStartupInput(
         _ panel: TerminalPanel,
-        scriptContains needles: [String],
-        scriptDoesNotContain excludedNeedles: [String] = []
+        in workspace: Workspace,
+        kind: String,
+        sessionID: String,
+        commandContains needles: [String],
+        commandDoesNotContain excludedNeedles: [String] = []
     ) throws {
         #expect(panel.surface.debugInitialCommand() == nil)
         let input = try #require(panel.surface.debugInitialInputForTesting())
-        let launcherPrefix = "/bin/zsh '"
-        let launcherRange = try #require(input.range(of: launcherPrefix, options: .backwards))
-        let launcherSuffix = input[launcherRange.upperBound...]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        #expect(launcherSuffix.hasSuffix("'"), Comment(rawValue: input))
-        let scriptPath = String(launcherSuffix.dropLast())
-        defer { try? FileManager.default.removeItem(atPath: scriptPath) }
-        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        #expect(input == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(sessionID)\n")
+        let command: String
+        if let agent = workspace.restoredAgentSnapshotForTesting(panelId: panel.id) {
+            #expect(agent.kind.rawValue == kind)
+            #expect(agent.sessionId == sessionID)
+            command = try #require(agent.resumeCommand)
+        } else {
+            let binding = try #require(workspace.surfaceResumeBindingsByPanelId[panel.id])
+            #expect(binding.kind == kind)
+            #expect(binding.checkpointId == sessionID)
+            command = try #require(binding.inlineStartupInput)
+        }
         for needle in needles {
-            #expect(script.contains(needle), Comment(rawValue: script))
+            #expect(command.contains(needle), Comment(rawValue: command))
         }
         for needle in excludedNeedles {
-            #expect(!script.contains(needle), Comment(rawValue: script))
+            #expect(!command.contains(needle), Comment(rawValue: command))
         }
-        #expect(script.contains("rm -f -- \"$0\""), Comment(rawValue: script))
-        #expect(!script.contains("exec -l"), Comment(rawValue: script))
+    }
+
+    /// Supplies the persisted liveness bit for restore-policy scenarios.
+    /// A shell command-running report alone cannot identify the agent that was alive at quit.
+    @MainActor
+    private func snapshotOfRunningAgent(
+        in workspace: Workspace,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) throws -> SessionWorkspaceSnapshot {
+        var snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        )
+        let panelID = try #require(workspace.focusedPanelId)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == panelID })
+        var terminal = try #require(snapshot.panels[panelIndex].terminal)
+        terminal.wasAgentRunning = true
+        snapshot.panels[panelIndex].terminal = terminal
+        return snapshot
+    }
+}
+
+@Suite(.serialized)
+struct RemoteAgentRestoreWorkingDirectoryTests {
+    @Test func exactSelectionStripsRegisteredBuiltInRecordedCwdArguments() throws {
+        let recordedLocalDirectory = "/Users/alice/recorded-agent-cwd"
+        let trustedRemoteDirectory = "/repo-b"
+        let cases: [(
+            kind: RestorableAgentKind,
+            registration: CmuxVaultAgentRegistration,
+            executable: String,
+            cwdOption: String,
+            cwdArgument: String,
+            launchWorkingDirectory: String?
+        )] = [
+            (
+                .grok,
+                .builtInGrok,
+                "grok",
+                "--cwd",
+                "/Users/alice/grok-explicit-cwd",
+                "/tmp/grok-process-cwd"
+            ),
+            (
+                .kimi,
+                .builtInKimi,
+                "kimi",
+                "--work-dir",
+                "/Users/alice/kimi-explicit-cwd",
+                nil
+            ),
+        ]
+
+        for testCase in cases {
+            let sessionId = "remote-\(testCase.executable)-session"
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: testCase.kind,
+                sessionId: sessionId,
+                workingDirectory: recordedLocalDirectory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: testCase.executable,
+                    executablePath: testCase.executable,
+                    arguments: [testCase.executable, testCase.cwdOption, testCase.cwdArgument],
+                    workingDirectory: testCase.launchWorkingDirectory,
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                ),
+                registration: testCase.registration
+            )
+
+            for exactDirectory in [trustedRemoteDirectory, nil] as [String?] {
+                let input = try #require(snapshot.resumeStartupInput(
+                    useLocalRestoreVerb: false,
+                    workingDirectorySelection: .exact(exactDirectory)
+                ))
+                #expect(input.contains(sessionId), Comment(rawValue: input))
+                #expect(!input.contains(recordedLocalDirectory), Comment(rawValue: input))
+                #expect(!input.contains(testCase.cwdArgument), Comment(rawValue: input))
+                #expect(!input.contains(testCase.cwdOption), Comment(rawValue: input))
+                if let exactDirectory {
+                    #expect(input.contains(exactDirectory), Comment(rawValue: input))
+                }
+            }
+        }
+    }
+
+    @Test func exactSelectionStripsAttachedShortCwdArguments() throws {
+        let trustedRemoteDirectory = "/repo-b"
+        let cases: [(
+            kind: RestorableAgentKind,
+            registration: CmuxVaultAgentRegistration?,
+            executable: String,
+            attachedCwdOption: String
+        )] = [
+            (.codex, nil, "codex", "-C/Users/alice/codex-explicit-cwd"),
+            (.kimi, .builtInKimi, "kimi", "-w/Users/alice/kimi-explicit-cwd"),
+        ]
+
+        for testCase in cases {
+            let sessionId = "remote-\(testCase.executable)-attached-cwd"
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: testCase.kind,
+                sessionId: sessionId,
+                workingDirectory: "/Users/alice/recorded-agent-cwd",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: testCase.executable,
+                    executablePath: testCase.executable,
+                    arguments: [testCase.executable, testCase.attachedCwdOption],
+                    workingDirectory: "/tmp/process-cwd",
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                ),
+                registration: testCase.registration
+            )
+
+            for exactDirectory in [trustedRemoteDirectory, nil] as [String?] {
+                let input = try #require(snapshot.resumeStartupInput(
+                    useLocalRestoreVerb: false,
+                    workingDirectorySelection: .exact(exactDirectory)
+                ))
+                #expect(input.contains(sessionId), Comment(rawValue: input))
+                #expect(!input.contains(testCase.attachedCwdOption), Comment(rawValue: input))
+                if let exactDirectory {
+                    #expect(input.contains(exactDirectory), Comment(rawValue: input))
+                }
+            }
+        }
+    }
+
+    /// A persisted Kimi session decodes as `.custom("kimi")` with the exact built-in
+    /// registration (Kimi is not in `RestorableAgentKind.allCases`), so the exact remote
+    /// restore must resolve the sanitizer's provider kind through the registration.
+    @Test func exactSelectionStripsKimiCwdArgumentsForPersistedCustomKind() throws {
+        let trustedRemoteDirectory = "/repo-b"
+        let localDirectory = "/Users/alice/kimi-explicit-cwd"
+        let cases: [(id: String, cwdArguments: [String])] = [
+            ("attached", ["-w\(localDirectory)"]),
+            ("separate", ["-w", localDirectory]),
+        ]
+
+        for testCase in cases {
+            let sessionId = "remote-kimi-custom-\(testCase.id)"
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: .custom("kimi"),
+                sessionId: sessionId,
+                workingDirectory: "/Users/alice/recorded-agent-cwd",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "kimi",
+                    executablePath: "kimi",
+                    arguments: ["kimi"] + testCase.cwdArguments,
+                    workingDirectory: "/tmp/process-cwd",
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                ),
+                registration: .builtInKimi
+            )
+
+            for exactDirectory in [trustedRemoteDirectory, nil] as [String?] {
+                let input = try #require(snapshot.resumeStartupInput(
+                    useLocalRestoreVerb: false,
+                    workingDirectorySelection: .exact(exactDirectory)
+                ))
+                #expect(input.contains(sessionId), Comment(rawValue: input))
+                #expect(!input.contains(localDirectory), Comment(rawValue: input))
+                #expect(!input.contains("'-w"), Comment(rawValue: input))
+                if let exactDirectory {
+                    #expect(input.contains(exactDirectory), Comment(rawValue: input))
+                }
+            }
+        }
+    }
+
+    /// A user-edited Kimi registration is a user-authored template, so its own `-w`
+    /// survives an exact remote restore.
+    @Test func exactSelectionKeepsUserEditedKimiTemplateCwdArgument() throws {
+        var registration = CmuxVaultAgentRegistration.builtInKimi
+        registration.resumeCommand = "{{executable}} -w /srv/kimi-owned --resume {{sessionId}}"
+        #expect(registration != .builtInKimi)
+
+        let sessionId = "remote-kimi-user-template"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("kimi"),
+            sessionId: sessionId,
+            workingDirectory: "/Users/alice/recorded-agent-cwd",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "kimi",
+                executablePath: "kimi",
+                arguments: ["kimi"],
+                workingDirectory: "/tmp/process-cwd",
+                environment: [:],
+                capturedAt: 1_777_777_777,
+                source: "process"
+            ),
+            registration: registration
+        )
+
+        for exactDirectory in ["/repo-b", nil] as [String?] {
+            let input = try #require(snapshot.resumeStartupInput(
+                useLocalRestoreVerb: false,
+                workingDirectorySelection: .exact(exactDirectory)
+            ))
+            #expect(input.contains(sessionId), Comment(rawValue: input))
+            #expect(input.contains("'-w' '/srv/kimi-owned'"), Comment(rawValue: input))
+        }
+    }
+
+    @MainActor
+    @Test func genericDirectoryReportCannotSeedEmptyTrustRequiredRemotePanel() throws {
+        let localDirectory = "/Users/alice/development"
+        let genericDirectory = "/repo-a"
+        let remoteCommand = "ssh cmux-remote"
+        let workspace = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: remoteCommand
+        )
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(
+            remoteWorkspaceConfiguration(command: remoteCommand),
+            autoConnect: false
+        )
+        workspace.panelDirectories.removeValue(forKey: panelId)
+
+        #expect(workspace.remoteDirectoryTrustRequiredPanelIds.contains(panelId))
+        #expect(!workspace.updatePanelDirectory(panelId: panelId, directory: genericDirectory))
+        #expect(workspace.panelDirectories[panelId] == nil)
+        #expect(workspace.reportedPanelDirectory(panelId: panelId) == nil)
+    }
+
+    @MainActor
+    @Test func remoteAutoResumeUsesLatestAuthoritativeDirectoryReport() throws {
+        let defaultsName = "cmux-remote-latest-cwd-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let localDirectory = "/Users/alice/development"
+        let firstRemoteDirectory = "/repo-a"
+        let latestRemoteDirectory = "/repo-b"
+        let remoteCommand = "ssh cmux-remote"
+        let sessionId = "codex-remote-latest-cwd-\(UUID().uuidString)"
+        let source = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: remoteCommand,
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { source.teardownAllPanels() }
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.configureRemoteConnection(
+            remoteWorkspaceConfiguration(command: remoteCommand),
+            autoConnect: false
+        )
+        #expect(source.updateRemotePanelDirectory(panelId: sourcePanelId, directory: firstRemoteDirectory))
+        #expect(source.updateRemotePanelDirectory(panelId: sourcePanelId, directory: latestRemoteDirectory))
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(
+            restorableCodexAgent(sessionId: sessionId, workingDirectory: firstRemoteDirectory),
+            panelId: sourcePanelId
+        )
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.panels.first?.directoryIsTrustedRemoteReport == true)
+        #expect(snapshot.panels.first?.terminal?.workingDirectory == latestRemoteDirectory)
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
+        let startupInput = try #require(restoredPanel.surface.initialInput)
+
+        #expect(startupInput.contains(latestRemoteDirectory), Comment(rawValue: startupInput))
+        #expect(!startupInput.contains(firstRemoteDirectory), Comment(rawValue: startupInput))
+        #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
+        // A remote workspace's local surface never takes a remote path as its own cwd; the
+        // directory travels to the remote side as CMUX_REMOTE_INITIAL_CWD.
+        #expect(restoredPanel.requestedWorkingDirectory == nil)
+        #expect(restoredPanel.surface.startupEnvironmentValue("CMUX_REMOTE_INITIAL_CWD") == latestRemoteDirectory)
+    }
+
+    @MainActor
+    @Test func remoteDirectoryNamespacedAutoResumeKeepsLaunchDirectory() throws {
+        let defaultsName = "cmux-remote-launch-cwd-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let localDirectory = "/Users/alice/development"
+        let launchRemoteDirectory = "/repo-a"
+        let latestRemoteDirectory = "/repo-b"
+        let remoteCommand = "ssh cmux-remote"
+        let sessionId = "grok-remote-launch-cwd-\(UUID().uuidString)"
+        let source = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: remoteCommand,
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { source.teardownAllPanels() }
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.configureRemoteConnection(
+            remoteWorkspaceConfiguration(command: remoteCommand),
+            autoConnect: false
+        )
+        #expect(source.updateRemotePanelDirectory(panelId: sourcePanelId, directory: launchRemoteDirectory))
+        #expect(source.updateRemotePanelDirectory(panelId: sourcePanelId, directory: latestRemoteDirectory))
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .grok,
+                sessionId: sessionId,
+                workingDirectory: launchRemoteDirectory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "grok",
+                    executablePath: "grok",
+                    arguments: ["grok", "--cwd", launchRemoteDirectory],
+                    workingDirectory: launchRemoteDirectory,
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                ),
+                registration: .builtInGrok
+            ),
+            panelId: sourcePanelId
+        )
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.panels.first?.directoryIsTrustedRemoteReport == true)
+        #expect(snapshot.panels.first?.terminal?.workingDirectory == latestRemoteDirectory)
+        #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == launchRemoteDirectory)
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
+        let startupInput = try #require(restoredPanel.surface.initialInput)
+
+        #expect(startupInput.contains(launchRemoteDirectory), Comment(rawValue: startupInput))
+        #expect(!startupInput.contains(latestRemoteDirectory), Comment(rawValue: startupInput))
+        #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
+        // A remote workspace's local surface never takes a remote path as its own cwd; the
+        // directory travels to the remote side as CMUX_REMOTE_INITIAL_CWD.
+        #expect(restoredPanel.requestedWorkingDirectory == nil)
+        #expect(restoredPanel.surface.startupEnvironmentValue("CMUX_REMOTE_INITIAL_CWD") == launchRemoteDirectory)
+    }
+
+    @MainActor
+    @Test func remoteAutoResumeWithoutTrustedDirectoryRejectsRecordedLocalCwd() throws {
+        let defaultsName = "cmux-remote-untrusted-cwd-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let localDirectory = "/Users/alice/development"
+        let untrustedRecordedDirectory = "/Users/alice/recorded-agent-cwd"
+        let remoteCommand = "ssh cmux-remote"
+        let sessionId = "codex-remote-untrusted-cwd-\(UUID().uuidString)"
+        let source = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: remoteCommand,
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { source.teardownAllPanels() }
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.configureRemoteConnection(
+            remoteWorkspaceConfiguration(command: remoteCommand),
+            autoConnect: false
+        )
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(
+            restorableCodexAgent(sessionId: sessionId, workingDirectory: untrustedRecordedDirectory),
+            panelId: sourcePanelId
+        )
+
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+        snapshot.panels[panelIndex].directory = untrustedRecordedDirectory
+        snapshot.panels[panelIndex].directoryIsTrustedRemoteReport = false
+        snapshot.panels[panelIndex].directoryRequiresRemoteTrust = true
+        var terminalSnapshot = try #require(snapshot.panels[panelIndex].terminal)
+        terminalSnapshot.workingDirectory = untrustedRecordedDirectory
+        terminalSnapshot.isRemoteTerminal = true
+        terminalSnapshot.wasAgentRunning = true
+        snapshot.panels[panelIndex].terminal = terminalSnapshot
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
+        let startupInput = try #require(restoredPanel.surface.initialInput)
+
+        #expect(startupInput.contains(sessionId), Comment(rawValue: startupInput))
+        #expect(!startupInput.contains(untrustedRecordedDirectory), Comment(rawValue: startupInput))
+        #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
+        #expect(restoredPanel.requestedWorkingDirectory == nil)
+        #expect(restored.remoteDirectoryTrustRequiredPanelIds.contains(restoredPanelId))
+    }
+
+    private func remoteWorkspaceConfiguration(command: String) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "cmux-remote",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_000,
+            relayID: "relay-remote-cwd-\(UUID().uuidString)",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-remote-cwd-\(UUID().uuidString).sock",
+            terminalStartupCommand: command
+        )
+    }
+
+    private func restorableCodexAgent(
+        sessionId: String,
+        workingDirectory: String
+    ) -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: workingDirectory,
+                environment: [:],
+                capturedAt: 1_777_777_777,
+                source: "process"
+            )
+        )
     }
 }

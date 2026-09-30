@@ -96,15 +96,15 @@ import Testing
             "workspace.unread-member",
             "groupFooter.group-a",
         ])
-        if case .groupHeader(_, let hasUnread)? = expandedView.groupedListItems.first {
-            #expect(!hasUnread)
+        if case .groupHeader(_, let unread)? = expandedView.groupedListItems.first {
+            #expect(!unread.isUnread)
         } else {
             Issue.record("Expanded group did not render a header")
         }
         #expect(collapsedView.rendersGroupedSections)
         #expect(collapsedView.groupedListItems.map(\.id) == ["group.group-a"])
-        if case .groupHeader(_, let hasUnread)? = collapsedView.groupedListItems.first {
-            #expect(hasUnread)
+        if case .groupHeader(_, let unread)? = collapsedView.groupedListItems.first {
+            #expect(unread.isUnread)
         } else {
             Issue.record("Collapsed group did not render a header")
         }

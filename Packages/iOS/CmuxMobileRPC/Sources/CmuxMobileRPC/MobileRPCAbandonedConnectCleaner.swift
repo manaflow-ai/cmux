@@ -33,7 +33,7 @@ struct MobileRPCAbandonedConnectCleaner: Sendable {
     }
 
     func handOffLateCandidateToRegistry(
-        task: Task<any CmxByteTransport, any Error>,
+        task: Task<any CmxByteTransport, any Error>
     ) async {
         await registry.handOffPhysicalCleanup(lease: lease) {
             do {

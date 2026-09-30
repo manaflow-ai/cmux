@@ -38,12 +38,18 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     /// Stored paired-Mac ids represented by this visible row.
     let aliasIDs: [String]
     /// Whether a fresher row with the same computer name exists and this row is
-    /// not online: almost always a stale pairing record from an older dev-build
+    /// confirmed offline: almost always a stale pairing record from an older dev-build
     /// device id (pre-shared-device-id, cmux PR
     /// https://github.com/manaflow-ai/cmux/pull/6772), kept so the user can
     /// still reconnect or remove it. Labeled so several identically named
     /// entries stop looking interchangeable.
     var isOlderDuplicate: Bool = false
+    /// Whether the phone can control this Mac's keep-awake state right now
+    /// (live connection + the Mac advertises the caffeine RPC).
+    var supportsCaffeineControl: Bool = false
+    /// This Mac's cmux-owned keep-awake state. `nil` while unknown, on Macs
+    /// without the capability, and whenever the phone isn't connected.
+    var caffeineEnabled: Bool?
     /// This Computer's effective connection method (its own stored choice,
     /// falling back to the app default). Decides the list section.
     var connectionMethod: MobileConnectionMethod?

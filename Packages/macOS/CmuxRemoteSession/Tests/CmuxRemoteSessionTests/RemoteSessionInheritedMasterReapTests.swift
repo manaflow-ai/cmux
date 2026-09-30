@@ -10,14 +10,18 @@ import Testing
 struct RemoteSessionInheritedMasterReapTests {
     @Test("Owned persistent relay exits its inherited master before retrying")
     func ownedPersistentRelayExitsInheritedMaster() async throws {
-        let runner = InheritedMasterReapProcessRunner()
+        let identity = ResolvedControlPathFixture.uniqueIdentity()
+        let runner = InheritedMasterReapProcessRunner(
+            relayPort: identity.relayPort
+        )
         let launcher = RecordingReverseRelayLauncher()
         let clock = ManualBrokerClock()
         let fixture = try await RemoteSessionReverseRelayStartupTests
             .makeCoordinator(
                 runner: runner,
                 reverseRelayLauncher: launcher,
-                persistentDaemonSlot: "ssh-persistent-slot",
+                persistentDaemonSlot: identity.persistentDaemonSlot,
+                identity: identity,
                 clock: clock
             )
         let coordinator = fixture.coordinator
@@ -54,7 +58,7 @@ struct RemoteSessionInheritedMasterReapTests {
         let reapingRequest = try #require(exitRequest)
         #expect(
             reapingRequest.arguments.contains(
-                "ControlPath=\(ResolvedControlPathFixture.path)"
+                "ControlPath=\(identity.controlPath)"
             )
         )
         #expect(!reapingRequest.arguments.contains("-R"))
@@ -70,7 +74,10 @@ struct RemoteSessionInheritedMasterReapTests {
     @MainActor
     @Test("A successful reap invalidates every sibling transport")
     func successfulReapInvalidatesSiblingTransport() async throws {
-        let runner = InheritedMasterReapProcessRunner()
+        let firstIdentity = ResolvedControlPathFixture.uniqueIdentity()
+        let runner = InheritedMasterReapProcessRunner(
+            relayPort: firstIdentity.relayPort
+        )
         let broker = NativeSSHConnectionBroker(
             sharingOptions: SSHConnectionSharingOptions(),
             clock: RecordingImmediateClock(),
@@ -82,17 +89,22 @@ struct RemoteSessionInheritedMasterReapTests {
         )
         let firstClock = ManualBrokerClock()
         let siblingClock = ManualBrokerClock()
+        // Sibling transports intentionally share one master; the identity is
+        // unique to this test invocation, so other suites remain isolated.
+        let siblingIdentity = firstIdentity
         let firstFixture = try Self.makeCoordinator(
             broker: broker,
             runner: runner,
             clock: firstClock,
-            ownerWorkspaceID: UUID()
+            ownerWorkspaceID: UUID(),
+            identity: firstIdentity
         )
         let siblingFixture = try Self.makeCoordinator(
             broker: broker,
             runner: runner,
             clock: siblingClock,
-            ownerWorkspaceID: UUID()
+            ownerWorkspaceID: UUID(),
+            identity: siblingIdentity
         )
         let first = firstFixture.coordinator
         let sibling = siblingFixture.coordinator
@@ -107,7 +119,7 @@ struct RemoteSessionInheritedMasterReapTests {
 
         let events = try #require(
             await broker.controlMasterReapEvents(
-                controlPath: ResolvedControlPathFixture.path
+                controlPath: firstIdentity.controlPath
             )
         )
         let siblingObserver = Task {
@@ -127,7 +139,7 @@ struct RemoteSessionInheritedMasterReapTests {
             sibling.daemonReady = true
             sibling.daemonRemotePath = "/tmp/cmuxd-remote"
             sibling.reverseRelayControlMasterForwardSpec =
-                "127.0.0.1:64045:127.0.0.1:55002"
+                "127.0.0.1:\(siblingIdentity.relayPort):127.0.0.1:55002"
         }
         first.queue.sync {
             first.daemonReady = true
@@ -158,11 +170,15 @@ struct RemoteSessionInheritedMasterReapTests {
 
     @Test("Stopping detaches from an in-flight inherited-master reap")
     func stopDetachesFromInheritedMasterReap() async throws {
-        let runner = BlockingInheritedMasterReapRunner()
+        let identity = ResolvedControlPathFixture.uniqueIdentity()
+        let runner = BlockingInheritedMasterReapRunner(
+            relayPort: identity.relayPort
+        )
         let fixture = try await RemoteSessionReverseRelayStartupTests
             .makeCoordinator(
                 runner: runner,
-                persistentDaemonSlot: "ssh-persistent-slot"
+                persistentDaemonSlot: identity.persistentDaemonSlot,
+                identity: identity
             )
         let coordinator = fixture.coordinator
         defer {
@@ -197,7 +213,8 @@ struct RemoteSessionInheritedMasterReapTests {
         broker: NativeSSHConnectionBroker,
         runner: any RemoteSessionProcessRunning,
         clock: any RemoteProxyRetryClock,
-        ownerWorkspaceID: UUID
+        ownerWorkspaceID: UUID,
+        identity: ResolvedControlPathFixture.Identity
     ) throws -> (
         coordinator: RemoteSessionCoordinator,
         scratchDirectory: URL
@@ -219,18 +236,18 @@ struct RemoteSessionInheritedMasterReapTests {
                 sshOptions: [
                     "ControlMaster=auto",
                     "ControlPersist=600",
-                    "ControlPath=\(ResolvedControlPathFixture.path)",
+                    "ControlPath=\(identity.controlPath)",
                 ],
                 localProxyPort: nil,
-                relayPort: 64_044,
-                relayID: "relay-startup-cancellation",
+                relayPort: identity.relayPort,
+                relayID: identity.relayID,
                 relayToken: String(repeating: "a", count: 64),
                 localSocketPath: scratchDirectory
                     .appendingPathComponent("relay.sock").path,
                 ownerWorkspaceID: ownerWorkspaceID,
                 terminalStartupCommand: nil,
                 preserveAfterTerminalExit: true,
-                persistentDaemonSlot: "ssh-persistent-slot"
+                persistentDaemonSlot: identity.persistentDaemonSlot
             )
         )
         return (
@@ -250,7 +267,10 @@ struct RemoteSessionInheritedMasterReapTests {
                 buildInfo: SSHOverrideStubBuildInfo(),
                 daemonStrings: RemoteDaemonStrings(
                     missingPersistentPTYCapability: "",
-                    missingRequiredFunctionality: ""
+                    missingRequiredFunctionality: "",
+                    cloudNotificationClearWorkspaceInvalid: "",
+                    cloudNotificationClearWorkspaceDenied: "",
+                    cloudNotificationClearSurfaceInvalid: ""
                 ),
                 strings: RemoteSessionStrings(
                     connectedVMNoProxyFormat: "%@",

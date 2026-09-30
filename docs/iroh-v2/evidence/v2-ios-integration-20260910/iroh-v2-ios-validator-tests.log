@@ -1,0 +1,80 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -workspace ios/cmux.xcworkspace -scheme cmux-ios -testPlan cmux -destination "platform=iOS Simulator,id=9331CE0B-B058-4320-AB0F-C5853BB4E723" -derivedDataPath /tmp/cmux-iv2a-20260910211351 -parallel-testing-enabled NO "-only-testing:CmuxMobileShellUITests/privatePathMacLabelsExposeSiblingBuilds()" "-only-testing:CmuxMobileShellUITests/customPrivatePathEditorValidationUsesSharedAddressLimit()" "-only-testing:CmuxMobileShellUITests/confinedRelayPreservesSurfaceRetargetPolicy()" "-only-testing:CmuxMobileShellUITests/replyRelayDoesNotRepeatRequestInsideServerCooldown()" CODE_SIGNING_ALLOWED=NO PRODUCT_BUNDLE_IDENTIFIER=dev.cmux.ios.iv2a CMUX_DEV_TAG=iv2a ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test-without-building
+
+Build settings from command line:
+    ARCHS = arm64
+    CMUX_DEV_TAG = iv2a
+    CODE_SIGNING_ALLOWED = NO
+    ONLY_ACTIVE_ARCH = YES
+    PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios.iv2a
+
+Resolve Package Graph
+
+
+Resolved source packages:
+  CmuxMobileTerminal: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileTerminal
+  CmuxAgentChatUI: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxAgentChatUI @ local
+  CmuxMobileAnalytics: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileAnalytics @ local
+  Sentry: https://github.com/getsentry/sentry-cocoa.git @ 9.26.0
+  StackAuth: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/vendor/stack-auth-swift-sdk-prerelease @ local
+  CmuxMobileSimulatorStream: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileSimulatorStream @ local
+  CmuxMobileShellModel: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileShellModel @ local
+  CmuxMobileCrashReporting: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileCrashReporting @ local
+  Highlightr: https://github.com/raspu/Highlightr.git @ 2.3.0
+  swift-crypto: https://github.com/apple/swift-crypto.git @ 3.15.1
+  CmuxSentryTelemetry: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxSentryTelemetry @ local
+  CmuxIrxTransport: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport @ local
+  CmuxMobileCamera: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileCamera @ local
+  CmuxMobileBrowserStream: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileBrowserStream @ local
+  CmuxMobileTransport: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileTransport @ local
+  CmuxAgentChat: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAgentChat @ local
+  CmuxIrohTransport: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrohTransport @ local
+  CmuxMobileToast: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileToast @ local
+  CmuxMobileTerminalKit: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileTerminalKit @ local
+  cmuxFeature: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/ios/cmuxPackage
+  CmuxClientConfig: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxClientConfig @ local
+  CMUXMobileCore: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore @ local
+  CmuxMobileWorkspace: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileWorkspace @ local
+  CMUXAuthCore: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXAuthCore @ local
+  CmuxMobilePairedMac: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobilePairedMac @ local
+  swift-asn1: https://github.com/apple/swift-asn1.git @ 1.7.1
+  IrohLib: https://github.com/manaflow-ai/iroh-ffi.git @ 1.0.2-cmux.7
+  CmuxMobileShellUI: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileShellUI
+  CmuxSimulatorStreamKit: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxSimulatorStreamKit @ local
+  CmuxMobileShell: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileShell @ local
+  CmuxMobileSupport: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileSupport @ local
+  CmuxMobileDiagnostics: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileDiagnostics @ local
+  CmuxMobileChanges: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileChanges @ local
+  CmuxAuthRuntime: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime @ local
+  CmuxMobileRPC: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileRPC @ local
+  CmuxMobileBrowser: /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/iOS/CmuxMobileBrowser @ local
+
+Test Suite 'Selected tests' started at 2026-09-10 22:03:28.784.
+Test Suite 'CmuxMobileShellUITests.xctest' started at 2026-09-10 22:03:28.784.
+Test Suite 'CmuxMobileShellUITests.xctest' passed at 2026-09-10 22:03:28.784.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-09-10 22:03:28.784.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64-apple-ios13.0-simulator
+◇ Test privatePathMacLabelsExposeSiblingBuilds() started.
+✔ Test privatePathMacLabelsExposeSiblingBuilds() passed after 0.001 seconds.
+◇ Test customPrivatePathEditorValidationUsesSharedAddressLimit() started.
+✔ Test customPrivatePathEditorValidationUsesSharedAddressLimit() passed after 0.001 seconds.
+◇ Test replyRelayDoesNotRepeatRequestInsideServerCooldown() started.
+✔ Test replyRelayDoesNotRepeatRequestInsideServerCooldown() passed after 0.003 seconds.
+◇ Test confinedRelayPreservesSurfaceRetargetPolicy() started.
+2026-09-10 22:03:28.801228-0700 xctest[64877:4220785] [push] inline reply parked in the server relay inbox
+✔ Test confinedRelayPreservesSurfaceRetargetPolicy() passed after 0.001 seconds.
+✔ Test run with 4 tests in 0 suites passed after 0.007 seconds.
+2026-09-10 22:03:29.092 xcodebuild[64543:4218599] [MT] IDETestOperationsObserverDebug: 4.158 elapsed -- Testing started completed.
+2026-09-10 22:03:29.092 xcodebuild[64543:4218599] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-09-10 22:03:29.092 xcodebuild[64543:4218599] [MT] IDETestOperationsObserverDebug: 4.158 sec, +4.158 sec -- end
+
+Test session results, code coverage, and logs:
+	/tmp/cmux-iv2a-20260910211351/Logs/Test/Test-cmux-ios-2026.09.10_22-03-24--0700.xcresult
+
+** TEST EXECUTE SUCCEEDED **
+
+Testing started

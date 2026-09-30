@@ -348,7 +348,8 @@ extension TerminalController {
                         initialCommand: v2NonEmptyString(remotePane.panel.surface.debugInitialCommand()),
                         tmuxStartCommand: v2NonEmptyString(remotePane.panel.surface.debugTmuxStartCommand()),
                         isTerminal: true,
-                        resumeBinding: nil
+                        resumeBinding: nil,
+                        renderHealthRawValue: remotePane.panel.surface.renderHealth.rawValue
                     )
                 }
             }
@@ -376,6 +377,7 @@ extension TerminalController {
                 resumeBinding: terminalPanel != nil
                     ? controlResumeBinding(from: workspace.surfaceResumeBinding(panelId: panel.id))
                     : nil,
+                renderHealthRawValue: terminalPanel?.surface.renderHealth.rawValue,
                 simulatorDeviceID: simulatorPanel?.selectedDeviceID,
                 simulatorRuntimeIdentifier: simulatorPanel?.selectedRuntimeIdentifier,
                 simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier,

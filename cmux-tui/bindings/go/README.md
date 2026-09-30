@@ -51,3 +51,8 @@ as an unsigned decimal string.
 `ClientOptions.DialContext` supports injected transports and tests. The default
 transport uses a Unix session socket, with a Windows-compatible build fallback
 that requires injection.
+
+An empty `ClientOptions.Session` with `SessionSet: false` is omitted and selects
+the `main` session. Set `SessionSet: true` when session text came from user input;
+an explicitly empty session is then rejected before socket discovery. Existing
+non-empty `Session` values remain explicit without requiring `SessionSet`.

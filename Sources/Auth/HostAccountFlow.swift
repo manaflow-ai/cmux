@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CMUXAuthCore
 import CmuxAuthRuntime
@@ -17,13 +18,26 @@ import Observation
 @MainActor
 @Observable
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
-    private let coordinator: AuthCoordinator
+    let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
     private let featureFlags = CmuxFeatureFlags.shared
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     private(set) var isProUpgradeAvailable: Bool
     private(set) var isProActive = false
     private(set) var canManageBilling = false
+    var teamObservationRevision: UInt64 = 0
+    /// Pending selection is shared by Settings, the menu and socket actions.
+    /// Cloud requests keep using the confirmed coordinator scope until success.
+    var pendingTeamSelection: (requestID: UUID, teamID: String?)?
+    var isSelectingTeam: Bool { coordinator.isSelectingTeam }
+    /// A team create still waiting on the server, shown as the active team
+    /// until the server answers. Switches and creates from every surface are
+    /// refused until it finishes, since a later change would fail it.
+    var pendingTeamCreate: PendingTeamCreate?
+    /// Owns the optimistic create projection so a later create cannot clear
+    /// it when the earlier coordinator request has already finished.
+    var pendingTeamCreateRequestID: UUID?
+    var isCreatingTeam: Bool { coordinator.isCreatingTeam }
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator
@@ -38,6 +52,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 self?.isProUpgradeAvailable = CmuxFeatureFlags.shared.isProUpgradeUIEnabled
             }
         }
+        startCoordinatorObservation()
     }
 
     deinit {
@@ -47,26 +62,38 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     var currentIdentity: AccountIdentity? {
-        Self.identity(from: coordinator.currentUser)
+        _ = teamObservationRevision
+        return Self.identity(from: coordinator.currentUser)
     }
 
     var availableTeams: [AccountTeamSummary] {
-        coordinator.availableTeams.map { team in
+        _ = teamObservationRevision
+        return coordinator.availableTeams.map { team in
             AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
         }
     }
 
     var selectedTeamID: String? {
-        get { coordinator.selectedTeamID }
-        set { coordinator.selectedTeamID = newValue }
+        get {
+            if let pendingTeamSelection { return pendingTeamSelection.teamID }
+            return confirmedTeamID
+        }
+    }
+
+    /// Cloud scope and persisted machine preferences follow confirmed authority.
+    var confirmedTeamID: String? {
+        _ = teamObservationRevision
+        return coordinator.resolvedTeamID
     }
 
     var isWorkingOnAuth: Bool {
-        coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
+        _ = teamObservationRevision
+        return coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
     }
 
     var isAuthenticated: Bool {
-        coordinator.isAuthenticated
+        _ = teamObservationRevision
+        return coordinator.isAuthenticated
     }
 
     var isPresentingSignIn: Bool {
@@ -78,7 +105,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     var isCompletingSignIn: Bool {
-        coordinator.isLoading || coordinator.isRestoringSession
+        _ = teamObservationRevision
+        return coordinator.isLoading || coordinator.isRestoringSession
     }
 
     var lastSignInFailure: AccountSignInModel.Failure? {
@@ -112,6 +140,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     func startSignInForPane() -> URL? {
         browserSignIn.beginSignIn()
         return browserSignIn.activeAttemptSignInURL
+    }
+
+    var activeSignInURL: URL? {
+        browserSignIn.activeAttemptSignInURL
     }
 
     /// Runs the same hosted Stack sign-in used by every UI entrypoint, while
@@ -199,12 +231,22 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         }
     }
 
+    // `AccountFlow` (CmuxSettingsUI) cannot see `ProUpgradeSource`; its
+    // parameterless calls come from the Settings account card.
     func openProUpgrade() {
-        ProUpgradePresenter.present()
+        openProUpgrade(source: .settingsAccountCard)
     }
 
     func prefetchProUpgrade() {
-        ProUpgradePresenter.prefetch()
+        prefetchProUpgrade(source: .settingsAccountCard)
+    }
+
+    func openProUpgrade(source: ProUpgradeSource) {
+        ProUpgradePresenter.present(source: source)
+    }
+
+    func prefetchProUpgrade(source: ProUpgradeSource) {
+        ProUpgradePresenter.prefetch(source: source)
     }
 
     func openBillingPortal() {

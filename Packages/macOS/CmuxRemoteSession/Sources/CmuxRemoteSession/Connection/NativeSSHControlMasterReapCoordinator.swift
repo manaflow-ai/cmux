@@ -70,7 +70,8 @@ final class NativeSSHControlMasterReapCoordinator {
     func reap(
         for configuration: WorkspaceRemoteConfiguration,
         resolvedControlPath: String,
-        metadataProbeCommand: String
+        metadataProbeCommand: String,
+        metadataProbeStdin: Data? = nil
     ) async -> NativeSSHControlMasterReapOutcome {
         guard let ownerWorkspaceID = configuration.ownerWorkspaceID,
               let generation =
@@ -136,6 +137,7 @@ final class NativeSSHControlMasterReapCoordinator {
                 effectiveSSHOptions: resolvedOptions
             ),
             environment: configuration.sshProcessEnvironment,
+            stdin: metadataProbeStdin,
             timeout: 6
         )
         let exitRequest = RemoteProcessRequest(

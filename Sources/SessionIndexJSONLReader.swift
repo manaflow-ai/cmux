@@ -13,15 +13,50 @@ struct SessionIndexJSONLReader: Sendable {
         maxBytes: Int,
         body: ([String: Any]) -> Bool
     ) -> SessionIndexJSONLReadMetrics {
+        fromStart(url: url, maxBytes: maxBytes, indexedBody: { object, _ in
+            body(object)
+        })
+    }
+
+    /// Streams non-empty JSONL records from the beginning, passing the
+    /// zero-based index of every non-empty raw line to `indexedBody`.
+    ///
+    /// The index deliberately advances before JSON decoding, so malformed
+    /// lines occupy the same position seen by a later fork pass. This keeps
+    /// positional `line:<index>` anchors deterministic across derivation and
+    /// copying.
+    func fromStart(
+        url: URL,
+        maxBytes: Int,
+        indexedBody: ([String: Any], Int) -> Bool
+    ) -> SessionIndexJSONLReadMetrics {
         guard maxBytes > 0, let handle = try? FileHandle(forReadingFrom: url) else {
             return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
         }
         defer { try? handle.close() }
 
+        // A seek-based size check distinguishes a file that ends exactly at
+        // the cap from one whose unread tail was cut off, without reading past
+        // the caller's byte budget. Failure to obtain a size leaves the
+        // result conservatively unmarked rather than claiming truncation.
+        let fileSize: UInt64? = {
+            guard let end = try? handle.seekToEnd() else { return nil }
+            try? handle.seek(toOffset: 0)
+            return end
+        }()
+
         var buffer = Data()
         var lineStart = buffer.startIndex
         var bytesRead = 0
         var recordsVisited = 0
+        var rawLineIndex = -1
+
+        func visit(line: Data) -> Bool {
+            guard !line.isEmpty else { return false }
+            rawLineIndex += 1
+            recordsVisited += 1
+            return Self.visit(line: line, lineIndex: rawLineIndex, body: indexedBody)
+        }
 
         while bytesRead < maxBytes {
             let readCount = min(chunkSize, maxBytes - bytesRead)
@@ -36,11 +71,11 @@ struct SessionIndexJSONLReader: Sendable {
                 let line = Data(buffer[lineStart..<newline])
                 lineStart = buffer.index(after: newline)
                 guard !line.isEmpty else { continue }
-                recordsVisited += 1
-                if Self.visit(line: line, body: body) {
+                if visit(line: line) {
                     return SessionIndexJSONLReadMetrics(
                         bytesRead: bytesRead,
-                        recordsVisited: recordsVisited
+                        recordsVisited: recordsVisited,
+                        didReachByteLimit: false
                     )
                 }
             }
@@ -55,13 +90,15 @@ struct SessionIndexJSONLReader: Sendable {
         if lineStart < buffer.endIndex {
             let line = Data(buffer[lineStart..<buffer.endIndex])
             if !line.isEmpty {
-                recordsVisited += 1
-                _ = Self.visit(line: line, body: body)
+                _ = visit(line: line)
             }
         }
+        let didReachByteLimit = bytesRead >= maxBytes
+            && fileSize.map { $0 > UInt64(maxBytes) } == true
         return SessionIndexJSONLReadMetrics(
             bytesRead: bytesRead,
-            recordsVisited: recordsVisited
+            recordsVisited: recordsVisited,
+            didReachByteLimit: didReachByteLimit
         )
     }
 
@@ -202,13 +239,21 @@ struct SessionIndexJSONLReader: Sendable {
 
     private static func visit(
         line: Data,
-        body: ([String: Any]) -> Bool
+        lineIndex: Int = 0,
+        body: ([String: Any], Int) -> Bool
     ) -> Bool {
         autoreleasepool {
             guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
                 return false
             }
-            return body(object)
+            return body(object, lineIndex)
         }
+    }
+
+    private static func visit(
+        line: Data,
+        body: ([String: Any]) -> Bool
+    ) -> Bool {
+        visit(line: line, lineIndex: 0) { object, _ in body(object) }
     }
 }

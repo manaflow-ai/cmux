@@ -205,7 +205,6 @@ extension Workspace {
           printf '\\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/start\\007' "$cmux_disconnect_host" "$cmux_disconnect_scrollback_token"
           if [ -f "$cmux_disconnect_scrollback_file" ]; then
             /bin/cat -- "$cmux_disconnect_scrollback_file" 2>/dev/null || true
-            printf '\\n'
           fi
           /bin/rm -f -- "$cmux_disconnect_scrollback_file" 2>/dev/null || true
           printf '\\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/end\\007' "$cmux_disconnect_host" "$cmux_disconnect_scrollback_token"

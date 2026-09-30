@@ -14,6 +14,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
     private let renderDemand: (any RenderDemandGating)?
     private let localRenderDemand: (any RenderDemandGating)?
     private let keyboardCopyModeCursorDemand: (any RenderDemandGating)?
+    private let predictedEchoDemand: (any RenderDemandGating)?
     private let frameDeliveryCoordinator: RenderedFrameDeliveryCoordinator
     private let drawableCount: AtomicUInt64Value
     private let lastDrawableTimeBits: AtomicUInt64Value
@@ -24,15 +25,18 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         renderDemand: (any RenderDemandGating)?,
         localRenderDemand: (any RenderDemandGating)?,
         keyboardCopyModeCursorDemand: (any RenderDemandGating)?,
+        predictedEchoDemand: (any RenderDemandGating)?,
         receiver: (any TerminalRenderedFrameReceiving)?
     ) {
         self.renderDemand = renderDemand
         self.localRenderDemand = localRenderDemand
         self.keyboardCopyModeCursorDemand = keyboardCopyModeCursorDemand
+        self.predictedEchoDemand = predictedEchoDemand
         self.frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator(
             renderDemand: renderDemand,
             localRenderDemand: localRenderDemand,
             keyboardCopyModeCursorDemand: keyboardCopyModeCursorDemand,
+            predictedEchoDemand: predictedEchoDemand,
             receiver: receiver
         )
         self.drawableCount = AtomicUInt64Value()
@@ -45,6 +49,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
             self.renderDemand = source.renderDemand
             self.localRenderDemand = source.localRenderDemand
             self.keyboardCopyModeCursorDemand = source.keyboardCopyModeCursorDemand
+            self.predictedEchoDemand = source.predictedEchoDemand
             self.frameDeliveryCoordinator = source.frameDeliveryCoordinator
             self.drawableCount = source.drawableCount
             self.lastDrawableTimeBits = source.lastDrawableTimeBits
@@ -52,6 +57,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
             self.renderDemand = nil
             self.localRenderDemand = nil
             self.keyboardCopyModeCursorDemand = nil
+            self.predictedEchoDemand = nil
             self.frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator()
             self.drawableCount = AtomicUInt64Value()
             self.lastDrawableTimeBits = AtomicUInt64Value()
@@ -64,6 +70,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         self.renderDemand = nil
         self.localRenderDemand = nil
         self.keyboardCopyModeCursorDemand = nil
+        self.predictedEchoDemand = nil
         self.frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator()
         self.drawableCount = AtomicUInt64Value()
         self.lastDrawableTimeBits = AtomicUInt64Value()
@@ -87,6 +94,14 @@ public final class GhosttyMetalLayer: CAMetalLayer {
             Int(clamping: drawableCount.loadRelaxed()),
             CFTimeInterval(bitPattern: lastDrawableTimeBits.loadRelaxed())
         )
+    }
+
+    /// The monotonic drawable sequence for this terminal view.
+    ///
+    /// Presentation coordinators snapshot this before a reveal so a later
+    /// sequence can prove that a fresh frame was produced for the handoff.
+    public var renderedFrameSequence: UInt64 {
+        drawableCount.loadRelaxed()
     }
 
     override public func nextDrawable() -> (any CAMetalDrawable)? {
