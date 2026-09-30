@@ -23,6 +23,7 @@ import uuid
 
 MAX_DISPLAYS = 16
 STARTER = "/usr/local/bin/start-vnc.sh"
+WALLPAPER_HELPER = "/usr/local/bin/cmux-wallpaper"
 
 
 def descriptor(number, state="running"):
@@ -321,6 +322,7 @@ class DisplayService:
             }))
 
     def start_session_components(self, number, environment, runtime):
+        started = False
         for executable, args in [
             ("openbox", []), ("tint2", ["-c", "/etc/cmux/tint2rc"]),
             ("vncconfig", ["-nowin"]),
@@ -338,6 +340,40 @@ class DisplayService:
                                        stdin=subprocess.DEVNULL,
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.track_process(number, executable, process)
+            started = True
+        return started
+
+    def apply_wallpaper(self, number, environment):
+        """Paint the display root or fail startup before exposing a black screen."""
+        helper = Path(WALLPAPER_HELPER)
+        if helper.is_file() and os.access(helper, os.X_OK):
+            command = [str(helper)]
+        else:
+            # Existing machines may not have the rebuilt helper yet. Their
+            # original asset remains a safe compatibility fallback.
+            command = [shutil.which("feh") or "feh", "--no-fehbg", "--bg-fill",
+                       "/usr/share/backgrounds/cmux/wallpaper.jpg"]
+        try:
+            result = subprocess.run(command, env=environment,
+                                    stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, timeout=10,
+                                    check=False)
+            if getattr(result, "returncode", 0) == 0:
+                return
+        except (OSError, subprocess.SubprocessError):
+            pass
+        try:
+            result = subprocess.run(
+                [shutil.which("xsetroot") or "xsetroot", "-solid", "#27304a"],
+                env=environment, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=10, check=False)
+            if getattr(result, "returncode", 0) == 0:
+                return
+        except (OSError, subprocess.SubprocessError):
+            pass
+        raise RuntimeError("display wallpaper unavailable")
 
     def start_websockify(self, number, environment, executable):
         path = executable if "/" in executable else shutil.which(executable)
@@ -382,6 +418,7 @@ class DisplayService:
                 raise RuntimeError("Xvnc did not become ready")
             self.start_dbus(number, environment, runtime)
             self.start_session_components(number, environment, runtime)
+            session_started = True
         elif number in self.named_processes:
             named = self.named_processes[number]
             dbus = named.get("dbus")
@@ -389,7 +426,11 @@ class DisplayService:
                 for name in ("openbox", "tint2", "vncconfig"):
                     self.remove_process(number, name)
                 self.start_dbus(number, environment, runtime)
-            self.start_session_components(number, environment, runtime)
+            session_started = self.start_session_components(number, environment, runtime)
+        else:
+            session_started = False
+        if not rfb_is_ready or session_started:
+            self.apply_wallpaper(number, environment)
         websockify_process = self.websockify_processes.get(number)
         if (websockify_process is None or not self.process_alive(websockify_process)
                 or not novnc_ready(number)):

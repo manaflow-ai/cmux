@@ -159,7 +159,8 @@ class CloudDisplayCatalogTests(unittest.TestCase):
              mock.patch.object(display, "novnc_ready", return_value=False), \
              mock.patch.object(display.shutil, "which", return_value="/usr/bin/websockify"), \
              mock.patch.object(display.subprocess, "Popen", return_value=new_websockify), \
-             mock.patch.object(service, "wait_for_port", return_value=True):
+             mock.patch.object(service, "wait_for_port", return_value=True), \
+             mock.patch.object(service, "apply_wallpaper"):
             service.start_components(number, environment, runtime)
 
         self.assertFalse(x_server.terminated)
@@ -197,7 +198,8 @@ class CloudDisplayCatalogTests(unittest.TestCase):
              mock.patch.object(display, "rfb_ready", return_value=True), \
              mock.patch.object(display, "novnc_ready", return_value=True), \
              mock.patch.object(display.shutil, "which", side_effect=lambda name: name), \
-             mock.patch.object(display.subprocess, "Popen", return_value=replacement):
+             mock.patch.object(display.subprocess, "Popen", return_value=replacement), \
+             mock.patch.object(service, "apply_wallpaper"):
             service.start_components(number, environment, runtime)
 
         self.assertFalse(x_server.terminated)

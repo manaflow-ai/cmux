@@ -17,7 +17,7 @@
 #
 # The session: TigerVNC's Xvnc, one D-Bus session bus shared by everything
 # below, the accessibility bus (computer-use agents read window trees over
-# it), openbox, the wallpaper, the tint2 dock, TigerVNC's clipboard helper
+# it), openbox, the wallpaper helper and collection, the tint2 dock, TigerVNC's clipboard helper
 # (copy/paste between the noVNC pane and the apps), a resize watcher, and
 # websockify. It publishes DISPLAY and the accessibility bus address at
 # $CMUX_DESKTOP_RUNTIME_DIR/env (/run/cmux-desktop/env) for
@@ -149,14 +149,21 @@ if ! mine -x openbox; then
 fi
 
 set_wallpaper() {
-  if [ -f /usr/share/backgrounds/cmux/wallpaper.jpg ] && command -v feh >/dev/null 2>&1; then
+  # New images use the shared deterministic collection. The inline fallback
+  # keeps existing machines usable until they receive the rebuilt image.
+  if [ -x /usr/local/bin/cmux-wallpaper ]; then
+    /usr/local/bin/cmux-wallpaper >/dev/null 2>&1
+  elif [ -f /usr/share/backgrounds/cmux/wallpaper.jpg ] && command -v feh >/dev/null 2>&1; then
     feh --no-fehbg --bg-fill /usr/share/backgrounds/cmux/wallpaper.jpg >/dev/null 2>&1 \
-      || xsetroot -solid '#1f2430' >/dev/null 2>&1 || true
+      || xsetroot -solid '#27304a' >/dev/null 2>&1
   else
-    xsetroot -solid '#1f2430' >/dev/null 2>&1 || true
+    xsetroot -solid '#27304a' >/dev/null 2>&1
   fi
 }
-set_wallpaper
+if ! set_wallpaper; then
+  echo "cmux wallpaper could not be painted; refusing a black desktop" >>"$LOG_DIR/wallpaper.log"
+  exit 1
+fi
 
 if ! mine -x tint2; then
   tint2 -c /etc/cmux/tint2rc >>"$LOG_DIR/tint2.log" 2>&1 &
@@ -180,7 +187,12 @@ if ! mine -f cmux-desktop-resize-watch; then
     xev -root -event randr 2>/dev/null | while read -r line; do
       case $line in
         *RRScreenChangeNotify*)
-          feh --no-fehbg --bg-fill /usr/share/backgrounds/cmux/wallpaper.jpg >/dev/null 2>&1 || true
+          if [ -x /usr/local/bin/cmux-wallpaper ]; then
+            /usr/local/bin/cmux-wallpaper >/dev/null 2>&1 || true
+          else
+            feh --no-fehbg --bg-fill /usr/share/backgrounds/cmux/wallpaper.jpg >/dev/null 2>&1 \
+              || xsetroot -solid '#27304a' >/dev/null 2>&1 || true
+          fi
           pkill -USR1 -U "$(id -u)" -x tint2 >/dev/null 2>&1 || true
           ;;
       esac

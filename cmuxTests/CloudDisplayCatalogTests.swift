@@ -20,6 +20,7 @@ struct CloudDisplayCatalogTests {
         let command = CloudGuestDisplayScript.command(action: "list")
         #expect(!command.contains(#"\"\"\""#))
         #expect(command.contains("base64 -d"))
+        #expect(command.contains("cmux-wallpaper"))
     }
 
     @Test("A lost creation reply replays its receipt rather than allocating another display")
