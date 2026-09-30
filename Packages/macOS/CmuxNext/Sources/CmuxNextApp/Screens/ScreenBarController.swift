@@ -22,6 +22,8 @@ final class ScreenBarController {
     private(set) var isVisible = false
     /// A screen dragged out of the bar (to another workspace or window).
     private var drag: ScreenDragSession?
+    /// The remembered screen was restored (once, at the first apply).
+    private var restoredScreen = false
 
     private struct Snapshot: Equatable {
         var bar: ScreenBarMapping.Snapshot
@@ -62,11 +64,29 @@ final class ScreenBarController {
         if model.tabs != snapshot.bar.items { model.tabs = snapshot.bar.items }
         let selected = snapshot.active.map { StripTabID($0) }
         if model.selectedID != selected { model.selectedID = selected }
+        rememberActiveScreen(snapshot.active)
         if isVisible != snapshot.bar.isVisible {
             isVisible = snapshot.bar.isVisible
             if !isVisible { view.cancelInlineRename() }
             onVisibilityChange?(isVisible)
         }
+    }
+
+    /// The window remembers the shown screen (persisted in its window
+    /// record); the first apply restores the remembered one instead.
+    private func rememberActiveScreen(_ active: String?) {
+        let state = content.state
+        if !restoredScreen {
+            restoredScreen = true
+            if let saved = state.activeScreenID, saved != active,
+               content.layoutModel.screens.contains(where: { $0.id.rawValue == saved }) {
+                ScreenCommands.select(LayoutScreenID(saved), in: content)
+                return
+            }
+        }
+        guard let active, state.activeScreenID != active else { return }
+        state.activeScreenID = active
+        content.services.windows.stateDidChange(state)
     }
 
     /// Opens the inline editor on `screen` when the bar shows it.
