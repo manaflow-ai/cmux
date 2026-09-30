@@ -32,6 +32,9 @@ final class NoActivateKeyboardGuard {
 
     /// Input this recent counts as the user choosing the app.
     static let userInputWindow: Duration = .seconds(1)
+    /// Notifications this close together belong to one activation
+    /// (didBecomeKey and didBecomeActive arrive a few ms apart).
+    static let sameActivation: Duration = .milliseconds(20)
 
     /// Most recent give-backs (bounded), for `debug.focus`.
     private(set) var giveBacks: [GiveBack] = []
@@ -49,6 +52,7 @@ final class NoActivateKeyboardGuard {
     }
 
     private var lastUserInput: ContinuousClock.Instant?
+    private var lastGiveBack: ContinuousClock.Instant?
 
     /// Another app became frontmost: that is where the keyboard goes back.
     func otherAppActivated(_ pid: pid_t) { previousApp = pid }
@@ -72,6 +76,13 @@ final class NoActivateKeyboardGuard {
 
     private func check(_ trigger: Trigger) {
         guard host.isAppActive, !userIntends else { return }
+        let now = host.now
+        if let lastGiveBack, now - lastGiveBack < Self.sameActivation {
+            // The same activation's other notification: step aside again, count once.
+            host.giveActivationBack(to: previousApp)
+            return
+        }
+        lastGiveBack = now
         let giveBack = GiveBack(trigger: trigger, cause: "no_user_input", restoredTo: previousApp)
         host.giveActivationBack(to: previousApp)
         giveBacks.append(giveBack)
