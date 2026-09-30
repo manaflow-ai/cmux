@@ -297,8 +297,6 @@ struct CLISendDraftGuardTests {
             inputStates: [Self.empty, claudeDraft, claudeDraft, claudeDraft],
             screenTexts: [
                 "Claude Code\n❯\u{00A0}",
-                "Claude Code\n❯\u{00A0}hello",
-                "Claude Code\n❯\u{00A0}hello",
                 "Claude Code\n❯\u{00A0}world",
             ]
         )
