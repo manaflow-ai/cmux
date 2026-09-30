@@ -12,6 +12,24 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Manual-IO terminals keep their prompt across a resize
+
+- Branch: `cmux-manual-io-keep-prompt-on-resize`, based on `324c02738`.
+- Commits: `89c6470cf` (regression test), `7404fd9dc` (fix)
+- Summary: `Terminal.resize` clears a redrawable OSC 133 prompt so the shell
+  repaints it after SIGWINCH. A termio Manual terminal mirrors a remote
+  terminal, so no shell receives its resizes and the cleared cells stayed
+  blank while the cursor kept the prompt's end column. `cmux ssh` and Cloud
+  splits lost their first prompt this way
+  ([#16184](https://github.com/manaflow-ai/cmux/issues/16184)). A new
+  `Terminal.resize_clears_prompt` gates the clear, and the Manual backend
+  turns it off in `initTerminal`. It lives outside `flags` so an OSC 133
+  `redraw=1` cannot turn clearing back on.
+- Coverage: Ghostty's `Terminal: resize keeps a redrawable prompt when no
+  shell can redraw it`.
+- Conflict note: upstream has no Manual backend. Keep the `.prompt_redraw`
+  gate in `Terminal.resize` if upstream reshapes that call.
+
 ### VT replay blank cells keep the default style
 
 - Branch: `fix-formatter-blank-cell-style-9d8d`
