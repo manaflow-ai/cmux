@@ -860,10 +860,11 @@
   const clock = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
 
   // Driver calls in flight at once while reading a page's frames. The app's
-  // WebKit driver stopped answering with 300 concurrent frame calls (a page
-  // of 300 iframes; 200 worked) and serves them about as fast at 8 as at
-  // 64; the dev driver gains up to about 32.
-  const FRAME_CONCURRENCY = 32;
+  // driver finds a frame without reading the frame tree, so hundreds of
+  // calls in flight cost about what they do one at a time; the bound only
+  // keeps a page of thousands of frames from queueing them all at once. On
+  // 300 iframes the app takes 137 ms at 256, 257 ms at 32, 549 ms at 8.
+  const FRAME_CONCURRENCY = 256;
   function limiter(max) {
     let active = 0;
     const waiting = [];
