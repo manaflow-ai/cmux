@@ -138,6 +138,48 @@ struct WorkspaceGroupDeletionConfirmationTests {
         #expect(model.tabs.map(\.id) == [other.id])
     }
 
+    @Test(arguments: [false, true])
+    func confirmedDeletePreservesUnconfirmedGeneratedAnchors(memberMovesDuringDelete: Bool) throws {
+        let (model, host, groups) = makeWorld()
+        let first = CoordinatorStubTab()
+        let trigger = CoordinatorStubTab()
+        let member = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [first, trigger, member, outside]
+        let sourceGroupId = try #require(groups.createWorkspaceGroup(
+            name: "Source",
+            childWorkspaceIds: [first.id, trigger.id, member.id]
+        ))
+        let confirmation = try #require(groups.deletionConfirmation(groupId: sourceGroupId))
+        let targetGroupId = try #require(groups.createWorkspaceGroup(name: "Target"))
+        let targetAnchorId = try #require(model.workspaceGroups.first {
+            $0.id == targetGroupId
+        }?.liveAnchorWorkspaceId)
+
+        if !memberMovesDuringDelete {
+            groups.addWorkspaceToGroup(workspaceId: member.id, groupId: targetGroupId)
+        }
+        host.onWorkspaceClosed = { tab in
+            if memberMovesDuringDelete && tab.id == trigger.id {
+                groups.addWorkspaceToGroup(workspaceId: member.id, groupId: targetGroupId)
+            }
+            if let closedGroupId = tab.groupId {
+                _ = groups.removeGeneratedAnchorIfOrphaned(groupId: closedGroupId)
+            }
+        }
+
+        let closed = groups.deleteWorkspaceGroup(confirmed: confirmation)
+
+        #expect(closed == confirmation.memberCount)
+        #expect(Set(host.closedWorkspaceIds) == Set(confirmation.memberWorkspaceIds))
+        #expect(model.tabs.contains { $0.id == targetAnchorId })
+        #expect(model.workspaceGroups.contains { $0.id == targetGroupId })
+        #expect(!model.workspaceGroups.contains { $0.id == sourceGroupId })
+        #expect(groups.removeGeneratedAnchorIfOrphaned(groupId: targetGroupId))
+        #expect(!model.tabs.contains { $0.id == targetAnchorId })
+        #expect(!model.workspaceGroups.contains { $0.id == targetGroupId })
+    }
+
     @Test
     func confirmedDeleteClosesOnlyConfirmedMembershipWhenGroupChangesDuringPrompt() throws {
         let (model, host, groups) = makeWorld()

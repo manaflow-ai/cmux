@@ -40,6 +40,7 @@ final class StubGroupHost: WorkspaceGroupHosting {
     var shouldFailGroupAnchorCreation = false
     var shouldFailWorkspaceCreation = false
     var untouchedGeneratedAnchorIds: Set<UUID> = []
+    var onWorkspaceClosed: ((CoordinatorStubTab) -> Void)?
 
     init(model: WorkspacesModel<CoordinatorStubTab>) {
         self.model = model
@@ -88,6 +89,7 @@ final class StubGroupHost: WorkspaceGroupHosting {
               let index = model.tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         model.tabs.remove(at: index)
         model.dissolveGroupsAnchoredBy(closedWorkspaceId: tab.id)
+        onWorkspaceClosed?(tab)
     }
 
     func selectWorkspace(_ tab: CoordinatorStubTab) {
