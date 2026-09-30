@@ -966,7 +966,7 @@ try {
   // request), exec, pause and destroy requests and the edge probe, in
   // ceil(trials / concurrency) rounds; capped at a day. Cleanup mints its
   // own fresh session, so it does not depend on this one.
-  const trialWorstMs = CREATE_TIMEOUT_MS + 3 * (ATTACH_BUDGET_MS + REQUEST_TIMEOUT_MS) + 3 * REQUEST_TIMEOUT_MS + EDGE_BUDGET_MS + REQUEST_TIMEOUT_MS;
+  const trialWorstMs = CREATE_TIMEOUT_MS + ROW_READY_BUDGET_MS + 3 * (ATTACH_BUDGET_MS + REQUEST_TIMEOUT_MS) + 3 * REQUEST_TIMEOUT_MS + EDGE_BUDGET_MS + REQUEST_TIMEOUT_MS;
   const sessionMs = Math.min(24 * 60 * 60 * 1000, 30 * 60 * 1000 + Math.ceil(trials / concurrency) * trialWorstMs);
   authHeaders = await mintSessionHeaders(sessionMs);
 
