@@ -547,6 +547,12 @@ export function codexInterruptParamsForTest(threadId: unknown, turnId: unknown):
   return codexInterruptParams(threadId, turnId);
 }
 
+// Lets a test drive codexAdapter.stop() against a fake app server instead of
+// spawning `codex app-server`; stop() reads the shared connection directly.
+export function codexSetSharedServerForTest(srv: unknown): void {
+  shared = (srv as AppServer | null) ?? null;
+}
+
 function waitForTurnId(st: CodexState): Promise<string | null> {
   if (st.currentTurnId) return Promise.resolve(st.currentTurnId);
   return new Promise((resolve) => {
