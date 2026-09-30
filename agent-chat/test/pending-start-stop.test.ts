@@ -41,6 +41,7 @@ try {
   await act(async () => { renderer = create(createElement(Harness)); });
   const ws = sockets.at(-1)!;
   await update(() => ws.open());
+  await update(() => ws.receive({ kind: "hello", providers: [], defaultCwd: "/fixture" }));
   await update(() => { assert.equal(state.start({ provider: "fixture", cwd: "/fixture", prompt: "initial prompt" }), true); });
   const start = ws.sent.at(-1);
   await update(() => { state.reply("queued follow-up"); state.reply("second follow-up"); });

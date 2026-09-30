@@ -122,7 +122,8 @@ extension CmuxTuiSurfaceProvider {
                     onFocus: { [weak session] in
                         session?.claimGeometry()
                     },
-                    attachment: session.attachmentStatus
+                    attachment: session.attachmentStatus,
+                    allowsRemoteClipboardWrites: machine.cloudMachineID != nil
                 )
             }
             session.bind(surface: created.surface)
