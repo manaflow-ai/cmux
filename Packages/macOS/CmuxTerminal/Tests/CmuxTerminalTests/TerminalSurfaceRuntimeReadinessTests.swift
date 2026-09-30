@@ -72,6 +72,17 @@ struct TerminalSurfaceRuntimeReadinessTests {
         #expect(surface.runtimeReadinessWaiters.isEmpty)
     }
 
+    @Test("A native creation failure is recorded separately from a still-starting runtime")
+    func failedNativeCreationIsNotReportedAsStillStarting() async {
+        let surface = makeSurface(
+            clock: ManualReadinessBudgetClock(),
+            runtimeSpawnPolicy: .immediate
+        )
+
+        #expect(await surface.waitForRuntimeSurfaceReady() == false)
+        #expect(surface.runtimeSurfaceCreationFailed)
+    }
+
     @Test("A closed surface answers without registering a waiter")
     func closedSurfaceAnswersImmediately() async {
         let surface = makeHeldSurface(clock: ManualReadinessBudgetClock())
@@ -84,6 +95,13 @@ struct TerminalSurfaceRuntimeReadinessTests {
     /// A surface held for restore admission: a readiness request cannot start
     /// its runtime, so only the lifecycle or the caller budget can answer.
     private func makeHeldSurface(clock: ManualReadinessBudgetClock) -> TerminalSurface {
+        makeSurface(clock: clock, runtimeSpawnPolicy: .heldForStartupRestoreAdmission)
+    }
+
+    private func makeSurface(
+        clock: ManualReadinessBudgetClock,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy
+    ) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
         )
@@ -91,7 +109,7 @@ struct TerminalSurfaceRuntimeReadinessTests {
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
-            runtimeSpawnPolicy: .heldForStartupRestoreAdmission,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
             dependencies: TerminalSurfaceRuntimeDependencies(
                 registry: FakeSurfaceRegistry(),
                 engine: FakeTerminalEngine(),

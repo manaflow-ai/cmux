@@ -15509,6 +15509,17 @@ class TerminalController {
         // A runtime still starting answers with its current state and streams
         // the rest; one that cannot start fails instead of showing an empty pane.
         let unavailableReason = terminalTarget.surface.runtimeUnavailableReason
+        if !resolved.runtimeReady, terminalTarget.surface.runtimeSurfaceCreationFailed {
+            return .err(
+                code: "surface_unavailable",
+                message: Self.terminalSurfaceUnavailableMessage,
+                data: [
+                    "reason": "runtime_creation_failed",
+                    "workspace_id": resolved.workspace.id.uuidString,
+                    "surface_id": surfaceId.uuidString,
+                ]
+            )
+        }
         if !resolved.runtimeReady, unavailableReason == .hibernated || unavailableReason == .closing {
             return Self.readTextTerminalNotRunningResult(workspaceID: resolved.workspace.id,
                 surfaceID: surfaceId, reason: unavailableReason)

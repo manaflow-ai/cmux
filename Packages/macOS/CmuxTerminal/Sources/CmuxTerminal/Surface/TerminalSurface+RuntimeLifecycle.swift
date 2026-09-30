@@ -732,6 +732,7 @@ extension TerminalSurface {
 #endif
             return
         }
+        runtimeSurfaceCreationFailed = false
         if deferRuntimeSurfaceCreationForConfigurationReload(
             view: view,
             source: source
@@ -764,6 +765,7 @@ extension TerminalSurface {
         #endif
 
         guard let app = engine.runtimeApp else {
+            runtimeSurfaceCreationFailed = true
             completeRuntimeReadiness(success: false)
             #if DEBUG
             logDebugEvent("ghostty.surface.create.failed reason=appNotInitialized surface=\(id.uuidString)")
@@ -787,6 +789,7 @@ extension TerminalSurface {
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
 
         if surface == nil {
+            runtimeSurfaceCreationFailed = true
             completeRuntimeReadiness(success: false)
             invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: false)
             surfaceCallbackContext?.release()

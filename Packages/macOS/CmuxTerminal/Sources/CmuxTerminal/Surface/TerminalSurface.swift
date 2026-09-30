@@ -359,6 +359,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var startupRestoreAdmissionPhase = TerminalSurfaceStartupRestoreAdmissionPhase.unrestricted
     var cancelsStartupRestoreAdmissionOnExplicitInput = false
     var runtimeSurfaceSuspendedForAgentHibernation = false { didSet { if runtimeSurfaceSuspendedForAgentHibernation { completeRuntimeReadiness(success: false) } } }
+    /// Records a concrete native runtime creation failure separately from a
+    /// runtime that is merely still starting or deferred.
+    @MainActor public private(set) var runtimeSurfaceCreationFailed = false
     var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
     var staleRuntimeResourceReleaseTicket: TerminalSurfaceRuntimeTeardownTicket?
     var agentHibernationRuntimeTeardownReservation:
