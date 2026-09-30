@@ -28,6 +28,39 @@ extension FeedCoordinator {
 }
 
 extension AgentNotificationRegressionTests {
+    @Test(arguments: ["claude", "codex"])
+    func answeringAnUncorrelatedAgentPromptClearsItsRing(source: String) throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        #expect(
+            AgentNotificationDelivery().enqueue(
+                workspaceID: fixture.source.id,
+                surfaceID: fixture.panelId,
+                title: "agent question",
+                subtitle: "",
+                body: "Answer needed",
+                category: .needsPermission,
+                pending: false,
+                agentKind: source,
+                sessionId: "session"
+            )
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(fixture.store.notifications.count == 1)
+        fixture.store.setFocusedReadIndicator(forTabId: fixture.source.id, surfaceId: fixture.panelId)
+
+        // A later same-session hook proves that the prompt was answered even
+        // when the original terminal notification had no producer key.
+        FeedCoordinator.shared.clearSemanticFeedNotification(requestId: "answered")
+
+        #expect(fixture.store.notifications.isEmpty)
+        #expect(!fixture.store.hasVisibleNotificationIndicator(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        ))
+    }
+
     private func semanticEvent(_ fixture: Fixture, source: String, sequence: Int64 = 1,
                                request: String = "approval") -> AgentJournalEvent {
         fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId] = SurfaceResumeBindingSnapshot(
