@@ -325,6 +325,22 @@ describe("coderouter accounts section", () => {
     expect(render(false)).not.toContain("not listed here");
   });
 
+  test("an unreachable shared-account service explains itself and never claims the team has no accounts", () => {
+    const html = renderToStaticMarkup(
+      <CoderouterAccountsSection
+        teamId="team-1"
+        canManage
+        canManageApiKeys
+        claude={{ kind: "ok", accounts: [] }}
+        native={{ kind: "ok", accounts: [] }}
+        shared={{ kind: "unavailable" }}
+      />,
+    );
+    expect(html).toContain("Shared accounts are unavailable");
+    expect(html).not.toContain("No accounts yet");
+    expect(html).not.toContain("Some accounts could not load");
+  });
+
   test("keeps the loaded provider visible when the other one fails", () => {
     const html = renderToStaticMarkup(
       <CoderouterAccountsSection
