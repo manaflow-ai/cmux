@@ -216,6 +216,17 @@ final class AgentFeedInlineTextView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        ensureTextLayout()
+        if let linkRange {
+            let glyphs = textView.layoutManager.glyphRange(forCharacterRange: linkRange, actualCharacterRange: nil)
+            let rect = textView.layoutManager.boundingRect(forGlyphRange: glyphs, in: textView.textContainer)
+            moreButton.frame = CGRect(x: max(0, rect.midX - max(44, rect.width) / 2),
+                                      y: max(0, rect.midY - 22),
+                                      width: max(44, rect.width), height: 44)
+        }
+    }
+
+    private func ensureTextLayout() {
         guard bounds.width > 0 else { return }
         _ = measure(width: bounds.width)
         textView.frame = bounds
@@ -223,13 +234,6 @@ final class AgentFeedInlineTextView: UIView {
             textView.layoutManager.ensureLayout(for: textView.textContainer)
             laidOutWidth = bounds.width
             textLayoutNeedsUpdate = false
-        }
-        if let linkRange {
-            let glyphs = textView.layoutManager.glyphRange(forCharacterRange: linkRange, actualCharacterRange: nil)
-            let rect = textView.layoutManager.boundingRect(forGlyphRange: glyphs, in: textView.textContainer)
-            moreButton.frame = CGRect(x: max(0, rect.midX - max(44, rect.width) / 2),
-                                      y: max(0, rect.midY - 22),
-                                      width: max(44, rect.width), height: 44)
         }
     }
 
@@ -372,6 +376,7 @@ final class AgentFeedInlineTextView: UIView {
     /// The Markdown link destination drawn at `point`, in this view's
     /// coordinates, or nil when the point is not on link text.
     func link(at point: CGPoint) -> URL? {
+        ensureTextLayout()
         guard let attributed = textView.attributedText, attributed.length > 0 else { return nil }
         let layout = textView.layoutManager
         let container = textView.textContainer
