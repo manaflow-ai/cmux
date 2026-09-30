@@ -96,8 +96,15 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
             }
           } catch (err) {
             if (sess.internal.acpDisposed) return;
-            sess.emit({ kind: "error", message: truncate(String(err), 400) });
-            sess.emit({ kind: "done", generation } as any);
+            // Startup can reject long after a cancel, up to the 30s watchdog
+            // below, so a cancelled turn reports the cancel rather than an
+            // error for a turn the user already stopped.
+            if (cancelled()) {
+              sess.emit({ kind: "done", stats: "stop: cancelled", generation } as any);
+            } else {
+              sess.emit({ kind: "error", message: truncate(String(err), 400) });
+              sess.emit({ kind: "done", generation } as any);
+            }
           }
         }
         if (sess.internal.acpTurn === turn) sess.setStatus("idle");
@@ -111,9 +118,11 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
       // A cancel during startup has no session to notify, and the queued turn
       // only reaches its own idle/done handling after ensureAcp settles, so
       // settle the status here instead of leaving it running until startup
-      // times out.
+      // times out. Published state without a session id is a different case:
+      // the agent answered session/new without one, so the turn is live and
+      // uncancellable and its own handling still owns the status.
       if (st?.acpSessionId) st.notify("session/cancel", { sessionId: st.acpSessionId });
-      else sess.setStatus("idle");
+      else if (!st) sess.setStatus("idle");
     },
     dispose(sess) {
       sess.internal.acpDisposed = true;
