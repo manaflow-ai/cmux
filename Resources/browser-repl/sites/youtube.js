@@ -53,15 +53,13 @@
     }
   }
 
-  // Runs in the watch page: turns captions on in the muted, paused player,
-  // waits for the caption request the player makes, and fetches it as json3.
+  // Runs in the watch page: turns captions on in the muted player and reads
+  // the caption response the player itself receives (its request carries the
+  // player's token), json3 or srv3 XML, as segments. Falls back to fetching
+  // the caption URL the player requested.
   async function captionsFromPlayer(arg) {
     const player = document.getElementById("movie_player");
     if (!player || typeof player.getVideoData !== "function") return { error: "the YouTube player did not load" };
-    try {
-      if (player.mute) player.mute();
-      if (player.pauseVideo) player.pauseVideo();
-    } catch (e) {}
     const matches = (name) => {
       try {
         const u = new URL(name, location.href);
@@ -70,34 +68,87 @@
         return false;
       }
     };
-    const find = () => performance.getEntriesByType("resource").map((e) => e.name).filter(matches).pop();
-    let url = find();
-    if (!url) {
+    const parse = (body) => {
+      const text = (s) => s.replace(/\s+/g, " ").trim();
       try {
+        const json = JSON.parse(body);
+        return (json.events || []).map((ev) => ({ start: (ev.tStartMs || 0) / 1000, duration: (ev.dDurationMs || 0) / 1000, text: text((ev.segs || []).map((x) => x.utf8 || "").join("")) })).filter((x) => x.text);
+      } catch (e) {}
+      // XML without DOMParser: YouTube enforces Trusted Types, which blocks it.
+      const decode = (s) => s.replace(/<[^>]*>/g, "").replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (m, e) => (e[0] === "#" ? String.fromCodePoint(e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10)) : { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }[e.toLowerCase()]));
+      const attr = (attrs, name) => { const m = new RegExp("\\b" + name + '="([^"]*)"').exec(attrs); return m ? Number(m[1]) : 0; };
+      const out = [];
+      for (const m of body.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)) out.push({ start: attr(m[1], "t") / 1000, duration: attr(m[1], "d") / 1000, text: text(decode(m[2])) });
+      if (!out.length) for (const m of body.matchAll(/<text\b([^>]*)>([\s\S]*?)<\/text>/g)) out.push({ start: attr(m[1], "start"), duration: attr(m[1], "dur"), text: text(decode(decode(m[2]))) });
+      return out.filter((x) => x.text);
+    };
+    // Capture caption responses the player receives, and note requested URLs
+    // (YouTube clears the resource timing buffer, so observe as they arrive).
+    const bodies = [];
+    const urls = [];
+    const XHR = XMLHttpRequest.prototype;
+    const open = XHR.open;
+    const origFetch = window.fetch;
+    XHR.open = function (method, url) {
+      if (matches(String(url)))
+        this.addEventListener("load", () => {
+          try {
+            const r = this.response;
+            const body = this.responseType === "" || this.responseType === "text" ? this.responseText : r instanceof ArrayBuffer ? new TextDecoder().decode(r) : r && typeof r === "object" ? JSON.stringify(r) : "";
+            if (body) bodies.push(body);
+          } catch (e) {}
+        });
+      return open.apply(this, arguments);
+    };
+    window.fetch = function (input) {
+      const p = origFetch.apply(this, arguments);
+      const url = typeof input === "string" ? input : input && input.url;
+      if (url && matches(url)) p.then((r) => r.clone().text()).then((t) => t && bodies.push(t), () => {});
+      return p;
+    };
+    const observer = new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) if (matches(e.name)) urls.push(e.name);
+    });
+    observer.observe({ type: "resource", buffered: true });
+    const wait = async (ms) => {
+      const deadline = Date.now() + ms;
+      while (!bodies.length && Date.now() < deadline) await new Promise((r) => setTimeout(r, 150));
+    };
+    try {
+      try {
+        if (player.mute) player.mute();
         if (player.toggleSubtitlesOn) player.toggleSubtitlesOn();
         else if (player.toggleSubtitles) player.toggleSubtitles();
         if (arg.lang && player.setOption) player.setOption("captions", "track", { languageCode: arg.lang });
       } catch (e) {}
-      const deadline = Date.now() + arg.timeoutMs;
-      while (!url && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 150));
-        url = find();
+      await wait(Math.min(4000, arg.timeoutMs));
+      // Some players load captions only while playing; play muted briefly.
+      if (!bodies.length && player.playVideo) {
+        player.playVideo();
+        await wait(arg.timeoutMs);
       }
+    } finally {
+      XHR.open = open;
+      window.fetch = origFetch;
+      observer.disconnect();
+      try {
+        if (player.pauseVideo) player.pauseVideo();
+      } catch (e) {}
     }
-    try {
-      if (player.pauseVideo) player.pauseVideo();
-    } catch (e) {}
+    for (const body of bodies) {
+      const segments = parse(body);
+      if (segments.length) return { segments };
+    }
+    const url = urls[urls.length - 1] || performance.getEntriesByType("resource").map((e) => e.name).filter(matches).pop();
     if (!url) return { error: "the player did not request captions" };
-    const u = new URL(url, location.href);
-    u.searchParams.set("fmt", "json3");
-    const r = await fetch(u.href, { credentials: "include" });
-    if (!r.ok) return { error: `captions request returned HTTP ${r.status}` };
-    const body = await r.text();
-    try {
-      return { json: JSON.parse(body), lang: u.searchParams.get("tlang") || u.searchParams.get("lang"), kind: u.searchParams.get("kind") };
-    } catch (e) {
-      return { error: "captions response was not json3" };
+    for (const fmt of ["json3", null]) {
+      const u = new URL(url, location.href);
+      if (fmt) u.searchParams.set("fmt", fmt);
+      const r = await origFetch(u.href, { credentials: "include" });
+      const segments = r.ok ? parse(await r.text()) : [];
+      if (segments.length) return { segments };
     }
+    return { error: "the caption response was empty" };
   }
 
   S.register(
@@ -223,7 +274,7 @@
               return p.evaluate(captionsFromPlayer, { videoId: id, lang: track.lang, timeoutMs: options.timeout || 12000 });
             });
             if (got.error) throw new S.SiteError("no_captions", `youtube.transcript: could not read captions for ${id}: ${got.error}`);
-            segments = segmentsOf(got.json);
+            segments = got.segments;
           }
           if (options.format === "segments") return segments;
           if (options.timestamps) return segments.map((s) => `[${clock(s.start)}] ${s.text}`).join("\n");
