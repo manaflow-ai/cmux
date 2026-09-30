@@ -529,6 +529,7 @@ final class CloudTuiManualMirrorSession {
             surface.onRuntimeReady = nil
             surface.onManualWindowAttached = nil
             surface.onManualVisibilityChanged = nil
+            surface.clearAssignedGrid()
         }
         self.surface = nil
     }
