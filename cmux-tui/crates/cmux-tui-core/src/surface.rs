@@ -5,6 +5,9 @@
 //! browser-aware frontends should branch on [`SurfaceKind`] before using
 //! VT operations.
 
+mod directory;
+use directory::PublishedDirectory;
+
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
@@ -78,6 +81,21 @@ pub(crate) enum ConfirmedInputFailure {
     Indeterminate(std::io::Error),
 }
 
+/// A terminal viewport and its output watermark captured at one parser
+/// boundary. The stream writers advance their revision while holding the
+/// terminal lock, so a reader cannot pair text from one boundary with a
+/// revision from another.
+pub(crate) struct TerminalScreenSnapshot {
+    pub(crate) text: String,
+    pub(crate) cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) cursor_col: u16,
+    pub(crate) cursor_row: u16,
+    pub(crate) cursor_visible: bool,
+    pub(crate) revision: u64,
+    pub(crate) osc_progress: String,
+}
+
 /// Nonblocking probe for the terminal mouse protocol and reporting mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerSemanticProbe {
@@ -145,6 +163,23 @@ pub struct SurfaceOptions {
     /// Durable per-terminal host records. When set, PTYs are created in a
     /// dedicated process and this surface becomes an adoptable mirror.
     pub terminal_host_root: Option<PathBuf>,
+    /// Adopt a live terminal host found under `terminal_host_root` into a
+    /// fresh registry (one with no workspaces) instead of terminating it.
+    ///
+    /// Cloud VM snapshots keep the first terminal's host process, and its
+    /// already-initialized shell, running while the daemon is parked and
+    /// every per-machine file (machine id, receipt pepper, session registry,
+    /// remote identity) is wiped. A clone's daemon then creates all of those
+    /// fresh and imports the warm host as its first terminal, so no identity
+    /// is shared between clones while the shell survives the snapshot.
+    pub adopt_template_terminal: bool,
+    /// Where to publish the adopted template terminal's new session and
+    /// terminal ids (`KEY=value` lines) once adoption commits.
+    pub template_bound_file: Option<PathBuf>,
+    /// Name of the workspace created for the adopted template terminal. The
+    /// template's own registry was wiped with the snapshot, so its name is
+    /// not recoverable from the host record. `None` uses the default name.
+    pub template_workspace_name: Option<String>,
 }
 
 /// Default TERM for child shells.
@@ -196,6 +231,9 @@ impl Default for SurfaceOptions {
             browser_max_capture_megapixels: crate::browser::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
             browser_capture_scale: None,
             terminal_host_root: None,
+            adopt_template_terminal: false,
+            template_bound_file: None,
+            template_workspace_name: None,
         }
     }
 }
@@ -316,6 +354,10 @@ pub struct AttachStream {
     pub kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
     pub kitty_state: KittyReplayState,
     pub colors: TerminalColors,
+    /// The incomplete sequence the parser is inside. `replay` ends at a
+    /// parser boundary; write this after it and after the colors, right
+    /// before the live stream that completes it.
+    pub pending_sequence: Arc<[u8]>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }
@@ -329,12 +371,14 @@ pub enum AttachFrame {
         output: Vec<u8>,
         colors: Box<TerminalColors>,
     },
+    /// `pending_sequence` has the meaning documented on [`AttachStream`].
     Resized {
         cols: u16,
         rows: u16,
         replay: Arc<[u8]>,
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
         kitty_state: KittyReplayState,
+        pending_sequence: Arc<[u8]>,
     },
     /// One parser transition: `replay` is theme-portable, so `colors` is part
     /// of the same replacement snapshot rather than a subsequent callback.
@@ -345,6 +389,7 @@ pub enum AttachFrame {
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
         kitty_state: KittyReplayState,
         colors: Box<TerminalColors>,
+        pending_sequence: Arc<[u8]>,
     },
     ColorsChanged(Arc<TerminalColors>),
 }
@@ -704,14 +749,36 @@ pub(crate) struct AttachLifecycle {
     state: Arc<AttachLifecycleState>,
 }
 
-#[derive(Default)]
 struct AttachLifecycleState {
     canceled: AtomicBool,
     overflowed: AtomicBool,
     overflow_reported: AtomicBool,
+    /// Whether this viewer writes a replay's pending sequence after its own
+    /// sequences (`terminal-pending-sequence-v1`). A viewer that does not
+    /// would write color sequences into it, so it reconnects instead.
+    resumes_pending_sequence: AtomicBool,
+}
+
+impl Default for AttachLifecycleState {
+    fn default() -> Self {
+        Self {
+            canceled: AtomicBool::new(false),
+            overflowed: AtomicBool::new(false),
+            overflow_reported: AtomicBool::new(false),
+            resumes_pending_sequence: AtomicBool::new(true),
+        }
+    }
 }
 
 impl AttachLifecycle {
+    pub(crate) fn set_resumes_pending_sequence(&self, resumes: bool) {
+        self.state.resumes_pending_sequence.store(resumes, Ordering::Release);
+    }
+
+    fn resumes_pending_sequence(&self) -> bool {
+        self.state.resumes_pending_sequence.load(Ordering::Acquire)
+    }
+
     pub(crate) fn cancel(&self) {
         self.state.canceled.store(true, Ordering::Release);
     }
@@ -1402,6 +1469,17 @@ impl Drop for ReaderCompletionGuard {
 }
 
 impl PtyTerminalRuntime {
+    /// Feed raw child output to the generic terminal metadata parser. The
+    /// parser has no knowledge of agents or plugins and keeps only bounded
+    /// terminal protocol state.
+    fn observe_terminal_output(&self, bytes: &[u8]) {
+        self.terminal_metadata.lock().unwrap().observe_output(bytes);
+    }
+
+    fn terminal_osc_progress(&self) -> String {
+        self.terminal_metadata.lock().unwrap().osc_progress().to_string()
+    }
+
     fn begin_terminal_journal_update(&self) -> Option<TerminalJournalUpdateGuard<'_>> {
         let _gate = self.journal_capture_gate.lock().unwrap();
         if !self.journal_capture_open.load(Ordering::Acquire) {
@@ -1487,6 +1565,10 @@ pub struct PtyTerminalRuntime {
     reaper_completion: Arc<ReaderCompletion>,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
+    /// Generic metadata parsed from raw PTY output. This field has no agent
+    /// or roster knowledge, so userland plugins can consume it through the
+    /// resource API without moving detection policy into core.
+    terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
     runtime: Mutex<PtyRuntime>,
     /// Explicit lifecycle authority for this process. Session content may
@@ -1517,6 +1599,11 @@ pub struct PtyTerminalRuntime {
     dirty: AtomicBool,
     title: Mutex<String>,
     pwd: Mutex<Option<String>>,
+    published_directory: Mutex<PublishedDirectory>,
+    directory_pending: AtomicBool,
+    /// A shell has reported a directory at least once; only then is a later
+    /// absent report a clear rather than the still-unreported launch directory.
+    directory_reported: AtomicBool,
     geometry: Mutex<PtyGeometry>,
     kitty_graphics_limits: Box<Mutex<KittyGraphicsLimits>>,
     #[cfg(test)]
@@ -1762,6 +1849,8 @@ pub(crate) struct TerminalStreamProgress {
     next_resource_waiter_id: AtomicU64,
     state: Mutex<TerminalStreamProgressState>,
     changed: Condvar,
+    #[cfg(test)]
+    test_before_notify: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 #[derive(Default)]
@@ -1820,6 +1909,8 @@ impl Default for TerminalStreamProgress {
             next_resource_waiter_id: AtomicU64::new(1),
             state: Mutex::new(TerminalStreamProgressState::default()),
             changed: Condvar::new(),
+            #[cfg(test)]
+            test_before_notify: Mutex::new(None),
         }
     }
 }
@@ -1830,6 +1921,10 @@ impl TerminalStreamProgress {
     }
 
     pub(crate) fn notify(&self) {
+        #[cfg(test)]
+        if let Some(hook) = self.test_before_notify.lock().unwrap().clone() {
+            hook();
+        }
         let mut state = self.state.lock().unwrap();
         state.revision = state.revision.wrapping_add(1);
         // An expired budget is retained only while the stream is unchanged.
@@ -1843,6 +1938,11 @@ impl TerminalStreamProgress {
         for wake in resource_waiters.into_values().filter_map(|waiter| waiter.upgrade()) {
             wake.notify();
         }
+    }
+
+    #[cfg(test)]
+    fn set_before_notify_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+        *self.test_before_notify.lock().unwrap() = hook;
     }
 
     fn notify_reconnect(&self) {
@@ -2395,6 +2495,7 @@ impl Surface {
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
+                terminal_metadata: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Local { writer, master: Some(master), killer }),
                 lifetime,
@@ -2418,6 +2519,9 @@ impl Surface {
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
+                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
+                directory_pending: AtomicBool::new(true),
+                directory_reported: AtomicBool::new(false),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
                 #[cfg(test)]
@@ -2513,6 +2617,7 @@ impl Surface {
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity");
                             let normalized = term.vt_write_with_normalized(&buf[..n]);
+                            pty.observe_terminal_output(&buf[..n]);
                             let cursor_changed = term
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity")
@@ -2537,9 +2642,7 @@ impl Surface {
                                     mux.emit_terminal_title(surface.id, title.into());
                                 }
                             }
-                            if let Some(pwd) = term.pwd() {
-                                *pty.pwd.lock().unwrap() = Some(pwd);
-                            }
+                            pty.record_directory(term.pwd());
                             if before != after {
                                 scroll_changed = Some(after);
                                 broadcast_render_scroll_locked(pty, after);
@@ -2549,10 +2652,14 @@ impl Surface {
                             // for the reader loop, so any journal allocation can happen after
                             // releasing the lock.
                             let journal_output = journal_enabled.then_some(normalized);
-                            (
-                                pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1,
-                                journal_output,
-                            )
+                            let generation =
+                                pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                            // Advance the output watermark before releasing
+                            // the parser lock. Screen snapshots take the same
+                            // lock, so they cannot observe this frame with the
+                            // previous revision.
+                            pty.stream_progress.notify();
+                            (generation, journal_output)
                         };
                         let (generation, journal_output) = generation;
                         if let (Some(journal_target), Some(journal_output)) =
@@ -2561,6 +2668,7 @@ impl Surface {
                             pty.journal_output_if_open(journal_target, journal_output.into_owned());
                         }
                         drop(journal_update);
+                        surface.publish_pending_directory();
                         pty.stream_progress.notify();
                         pty.request_frame(generation);
                         if let Some((offset, at_bottom)) = scroll_changed
@@ -2764,9 +2872,9 @@ impl Surface {
                 scroll_changed = Some(after);
                 broadcast_render_scroll_locked(pty, after);
             }
+            pty.stream_progress.notify();
             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
         };
-        pty.stream_progress.notify();
         pty.request_frame(generation);
         if let Some((offset, at_bottom)) = scroll_changed
             && let Some(mux) = mux.upgrade()
@@ -2821,6 +2929,11 @@ impl Surface {
         let title_changed = Arc::new(AtomicBool::new(false));
         let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
         let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
+        let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
+        anyhow::ensure!(
+            terminal_metadata.set_osc_progress(&snapshot.osc_progress),
+            "terminal host returned invalid OSC progress metadata"
+        );
         term.resize(
             snapshot.cols,
             snapshot.rows,
@@ -2895,6 +3008,7 @@ impl Surface {
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
+                terminal_metadata: Mutex::new(terminal_metadata),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
                 lifetime,
@@ -2915,7 +3029,10 @@ impl Surface {
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(title),
+                directory_reported: AtomicBool::new(pwd.is_some()),
                 pwd: Mutex::new(pwd),
+                published_directory: Mutex::new(PublishedDirectory::Unreported),
+                directory_pending: AtomicBool::new(true),
                 geometry: Mutex::new(PtyGeometry {
                     cols: snapshot.cols,
                     rows: snapshot.rows,
@@ -3068,6 +3185,7 @@ impl Surface {
                                     let journal_enabled = journal_update.is_some();
                                     let before = terminal_scroll_position(&term);
                                     let normalized = term.vt_write_with_normalized(&output);
+                                    pty.observe_terminal_output(&output);
                                     let output = match normalized {
                                         Cow::Borrowed(_) => output,
                                         Cow::Owned(normalized) => normalized,
@@ -3125,13 +3243,16 @@ impl Surface {
                                         *pty.title.lock().unwrap() = title.clone();
                                         title_update = Some(title);
                                     }
-                                    if let Some(pwd) = term.pwd() {
-                                        *pty.pwd.lock().unwrap() = Some(pwd);
-                                    }
+                                    pty.record_directory(term.pwd());
                                     if before != after {
                                         scroll_changed = Some(after);
                                         broadcast_render_scroll_locked(pty, after);
                                     }
+                                    // Advance the output watermark while the
+                                    // parser lock is held. A screen snapshot
+                                    // cannot then pair this text with an old
+                                    // revision.
+                                    pty.stream_progress.notify();
                                     (
                                         pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1,
                                         journal_output,
@@ -3144,6 +3265,7 @@ impl Surface {
                                     pty.journal_output_if_open(journal_target, journal_output);
                                 }
                                 drop(journal_update.take());
+                                surface.publish_pending_directory();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
@@ -3255,20 +3377,19 @@ impl Surface {
                                 let title = replacement.title().unwrap_or_default();
                                 let pwd = replacement.pwd();
                                 let mut scroll_changed = None;
-                                let generation = {
-                                    let mut term = pty.term.lock().unwrap();
-                                    let before = terminal_scroll_position(&term);
-                                    **term = replacement;
-                                    pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                                let generation = pty.with_terminal_stream_update(|term| {
+                                    let before = terminal_scroll_position(term);
+                                    *term = replacement;
+                                    pty.mouse_encoders.lock().unwrap().sync_from_terminal(term);
                                     *geometry = next_geometry;
                                     pty.journal_geometry(next_geometry);
                                     *pty.title.lock().unwrap() = title.clone();
-                                    *pty.pwd.lock().unwrap() = pwd;
+                                    pty.record_directory(pwd);
                                     *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
                                     applied_color_overrides = colors;
                                     applied_color_revision = term.color_revision();
                                     applied_cursor_activity = term.cursor_activity().ok();
-                                    let after = terminal_scroll_position(&term);
+                                    let after = terminal_scroll_position(term);
                                     if before != after {
                                         scroll_changed = Some(after);
                                         broadcast_render_scroll_locked(pty, after);
@@ -3283,12 +3404,16 @@ impl Surface {
                                         kitty_image_aliases,
                                         kitty_state,
                                         colors: Box::new(
-                                            pty.terminal_colors_locked(&term, defaults),
+                                            pty.terminal_colors_locked(term, defaults),
                                         ),
+                                        // Terminal hosts replay only at a
+                                        // parser boundary.
+                                        pending_sequence: Arc::from([]),
                                     });
                                     pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
-                                };
+                                });
                                 drop(geometry);
+                                surface.publish_pending_directory();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(mux) = mux.upgrade() {
@@ -3554,16 +3679,27 @@ impl Surface {
                         if !color_delta.is_empty() {
                             replacement_term.vt_write(&color_delta);
                         }
+                        let mut replacement_metadata =
+                            crate::terminal_metadata::TerminalMetadata::default();
+                        if !replacement_metadata
+                            .set_osc_progress(&replacement_snapshot.osc_progress)
+                        {
+                            if !retry.wait_or_fail(pty) {
+                                return;
+                            }
+                            continue;
+                        }
                         title_changed.store(false, Ordering::Relaxed);
                         let title = replacement_term.title().unwrap_or_default();
                         let pwd = replacement_term.pwd();
                         let generation = {
                             let mut term = pty.term.lock().unwrap();
                             **term = replacement_term;
+                            *pty.terminal_metadata.lock().unwrap() = replacement_metadata;
                             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                             *geometry = next_geometry;
                             *pty.title.lock().unwrap() = title.clone();
-                            *pty.pwd.lock().unwrap() = pwd;
+                            pty.record_directory(pwd);
                             *pty.kitty_graphics_limits.lock().unwrap() =
                                 replacement_snapshot.kitty_state.limits;
                             applied_color_overrides = replacement_snapshot.colors;
@@ -3576,11 +3712,12 @@ impl Surface {
                                 kitty_image_aliases: replacement_snapshot.kitty_image_aliases,
                                 kitty_state: replacement_snapshot.kitty_state,
                                 colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
+                                pending_sequence: Arc::from([]),
                             });
+                            pty.stream_progress.notify_reconnect();
                             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                         };
                         drop(geometry);
-                        pty.stream_progress.notify_reconnect();
                         pty.request_frame(generation);
                         if !reconnect_mux.terminal_host_reconnected(
                             surface.id,
@@ -3654,6 +3791,7 @@ impl Surface {
                             surface.id,
                             replacement_snapshot.cell_pixels,
                         );
+                        surface.publish_pending_directory();
                         reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
                         reconnect_mux.emit_terminal_resized(
                             pty.event_surface_id,
@@ -3935,6 +4073,7 @@ impl Surface {
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
+                terminal_metadata: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::ExitedHosted),
                 lifetime: PtyLifetime::SessionOwned,
@@ -3954,6 +4093,9 @@ impl Surface {
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
+                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
+                directory_pending: AtomicBool::new(true),
+                directory_reported: AtomicBool::new(false),
                 geometry: Mutex::new(PtyGeometry {
                     cols,
                     rows,
@@ -4163,6 +4305,7 @@ impl Surface {
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
+                terminal_metadata: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Local {
                     writer: Box::new(std::io::sink()),
@@ -4191,6 +4334,9 @@ impl Surface {
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
+                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
+                directory_pending: AtomicBool::new(true),
+                directory_reported: AtomicBool::new(false),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
                 geometry_test_hook: Mutex::new(None),
@@ -4402,11 +4548,11 @@ impl Surface {
                 drop(runtime);
                 receipt.wait().map_err(ConfirmedInputFailure::Indeterminate)
             }
+            // Same keep-on-exit contract as `write_bytes`: the child is gone,
+            // so there is no reader to deliver to and nothing to retry.
+            // Input to the final screen is a successful no-op.
             #[cfg(unix)]
-            PtyRuntime::ExitedHosted => Err(ConfirmedInputFailure::Known(std::io::Error::new(
-                std::io::ErrorKind::NotConnected,
-                "terminal has no live PTY owner for receipted input",
-            ))),
+            PtyRuntime::ExitedHosted => Ok(()),
         }
     }
 
@@ -4603,6 +4749,33 @@ impl Surface {
         Ok(pty.stream_progress.revision())
     }
 
+    /// Capture the viewport, generic terminal metadata, and stream revision
+    /// while the parser lock is held. This is the only screen-read path that
+    /// can safely use the revision as a scheduling watermark.
+    pub(crate) fn terminal_screen_snapshot(&self) -> anyhow::Result<TerminalScreenSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let text = term.viewport_text()?;
+        let (cursor_col, cursor_row) = term.cursor_position().unwrap_or((0, 0));
+        let cursor_visible = term.mode(25, false);
+        // Match the parser's lock order, term -> metadata -> stream progress.
+        // The revision is advanced before the terminal lock is released.
+        let osc_progress = pty.terminal_osc_progress();
+        let revision = pty.stream_progress.revision();
+        Ok(TerminalScreenSnapshot {
+            text,
+            cols: term.cols(),
+            rows: term.rows(),
+            cursor_col,
+            cursor_row,
+            cursor_visible,
+            revision,
+            osc_progress,
+        })
+    }
+
     pub(crate) fn subscribe_terminal_stream_change(
         &self,
     ) -> ghostty_vt::Result<TerminalStreamSubscription<'_>> {
@@ -4630,8 +4803,20 @@ impl Surface {
         let pty = self.as_pty()?;
         let mut term = pty.term.lock().unwrap();
         term.vt_write(bytes);
+        pty.observe_terminal_output(bytes);
         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
-        drop(term);
+        pty.stream_progress.notify();
+        Some(())
+    }
+
+    /// Apply PTY bytes the way the local reader does: parse them under the
+    /// terminal lock and publish the normalized bytes to byte attachments.
+    #[cfg(test)]
+    pub(crate) fn apply_local_pty_output_for_test(&self, bytes: &[u8]) -> Option<()> {
+        let pty = self.as_pty()?;
+        let mut term = pty.term.lock().unwrap();
+        let normalized = term.vt_write_with_normalized(bytes).into_owned();
+        pty.broadcast_attach_output(&normalized);
         pty.stream_progress.notify();
         Some(())
     }
@@ -5477,19 +5662,20 @@ impl Surface {
             }
             Surface::Browser(_) => false,
         };
+        // A hosted terminal's OSC 7 report counts only when it names this host
+        // (the same rule its published directory follows); a local PTY may also
+        // report a hostless URL or a plain path. Anything else falls back to the
+        // authenticated launch directory below.
         let terminal_pwd_to_local_path = if hosted {
             platform::terminal_pwd_to_local_path
         } else {
             platform::local_terminal_pwd_to_local_path
         };
-        let terminal_cwd = if hosted {
-            None
-        } else {
-            self.pwd()
-                .as_deref()
-                .and_then(terminal_pwd_to_local_path)
-                .map(|path| path.to_string_lossy().into_owned())
-        };
+        let terminal_cwd = self
+            .pwd()
+            .as_deref()
+            .and_then(terminal_pwd_to_local_path)
+            .map(|path| path.to_string_lossy().into_owned());
         terminal_cwd.or_else(|| {
             self.spawn_cwd()
                 .as_deref()
@@ -5500,7 +5686,9 @@ impl Surface {
 
     #[cfg(test)]
     pub(crate) fn set_test_pwd(&self, pwd: Option<String>) {
-        *self.as_pty().expect("test PTY surface").pwd.lock().unwrap() = pwd;
+        let pty = self.as_pty().expect("test PTY surface");
+        pty.record_directory(pwd);
+        pty.directory_pending.store(true, Ordering::Release);
     }
 
     pub fn process_id(&self) -> Option<u32> {
@@ -5685,6 +5873,7 @@ impl Surface {
             kitty_image_aliases: replay.kitty_image_aliases,
             kitty_state: replay.kitty_state,
             colors,
+            pending_sequence: replay.pending_sequence.into(),
             stream,
             lifecycle,
         })
@@ -6528,6 +6717,18 @@ impl PtySurface {
         !taps.is_empty()
     }
 
+    /// Viewers without pending-sequence support reconnect from a fresh
+    /// snapshot rather than receive a replay that ends inside a sequence.
+    fn cancel_taps_without_pending_support(&self) {
+        self.taps.lock().unwrap().retain(|tap| {
+            let keep = tap.lifecycle.resumes_pending_sequence();
+            if !keep {
+                tap.lifecycle.cancel();
+            }
+            keep
+        });
+    }
+
     fn broadcast_attach_frame(&self, frame: AttachFrame) {
         self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
     }
@@ -6560,6 +6761,9 @@ impl PtySurface {
         self.attach_colors_force_pending.store(false, Ordering::Release);
         *self.last_attach_colors.lock().unwrap() =
             Some(Box::new(TerminalColors::from_pty_output(term, defaults)));
+        if !replay.pending_sequence.is_empty() {
+            self.cancel_taps_without_pending_support();
+        }
         self.broadcast_attach_frame(AttachFrame::ResizedWithColors {
             cols: term.cols(),
             rows: term.rows(),
@@ -6567,6 +6771,7 @@ impl PtySurface {
             kitty_image_aliases: replay.kitty_image_aliases,
             kitty_state: replay.kitty_state,
             colors,
+            pending_sequence: replay.pending_sequence.into(),
         });
     }
 
@@ -6603,6 +6808,16 @@ impl PtySurface {
         match self.frame_requests.try_send(generation) {
             Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
         }
+    }
+
+    /// Apply one replacement to the terminal stream and publish its revision.
+    /// The revision must be published before another screen reader can acquire
+    /// the terminal lock.
+    fn with_terminal_stream_update<R>(&self, update: impl FnOnce(&mut Terminal) -> R) -> R {
+        let mut term = self.term.lock().unwrap();
+        let result = update(&mut term);
+        self.stream_progress.notify();
+        result
     }
 
     /// Publish the last PTY generation before the mux drops this surface.
@@ -6838,11 +7053,12 @@ impl PtySurface {
             taps.retain(|tap| !tap.lifecycle.is_canceled());
             !taps.is_empty()
         };
-        // A replacement replay cannot represent a parser that is between
-        // UTF-8 bytes or escape-sequence states. Smart mirrors resize in
-        // place, while compatibility mirrors reconnect from a fresh safe
-        // snapshot instead of consuming a corrupt replay.
-        if has_attach_taps && !term.vt_stream_is_ground() {
+        // A replacement replay ends inside the same incomplete sequence as
+        // this parser, so byte mirrors follow a resize at any byte. Only a
+        // control string larger than the replay's pending-sequence budget
+        // cannot be carried; those mirrors reconnect from a fresh snapshot
+        // instead of consuming a corrupt replay.
+        if has_attach_taps && !term.vt_replay_resumes_stream() {
             let mut taps = self.taps.lock().unwrap();
             for tap in taps.drain(..) {
                 tap.lifecycle.cancel();
@@ -6941,6 +7157,9 @@ impl PtySurface {
                 self.attach_colors_force_pending.store(false, Ordering::Release);
                 *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
             }
+            if !replay.pending_sequence.is_empty() {
+                self.cancel_taps_without_pending_support();
+            }
             self.broadcast_attach_frame(AttachFrame::ResizedWithColors {
                 cols: next.cols,
                 rows: next.rows,
@@ -6948,8 +7167,12 @@ impl PtySurface {
                 kitty_image_aliases: replay.kitty_image_aliases,
                 kitty_state: replay.kitty_state,
                 colors,
+                pending_sequence: replay.pending_sequence.into(),
             });
         }
+        // Geometry changes are terminal-stream transitions too. Publish the
+        // revision before releasing the parser lock so screen snapshots have
+        // one consistent boundary for text and dimensions.
         self.stream_progress.notify();
         Ok(true)
     }
@@ -7459,7 +7682,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn receipted_input_rejects_an_exited_host_before_effect() {
+    fn receipted_input_to_an_exited_host_is_a_no_op() {
         let mux = Mux::new_for_test("receipted-input-exited-host", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
@@ -7469,12 +7692,10 @@ mod tests {
             *runtime = PtyRuntime::ExitedHosted;
         }
 
-        let error = surface.write_bytes_confirmed(b"must-not-drop").unwrap_err();
-        let ConfirmedInputFailure::Known(error) = error else {
-            panic!("exited-host rejection became indeterminate");
-        };
-        assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
-        assert!(error.to_string().contains("no live PTY owner"));
+        // A keep-on-exit terminal keeps its final screen after the child
+        // exits; typing there succeeds without an effect, as `write_bytes`
+        // does.
+        surface.write_bytes_confirmed(b"ignored").unwrap();
     }
 
     #[test]
@@ -8187,6 +8408,202 @@ mod tests {
         assert_eq!(received, expected);
     }
 
+    /// Streaming output that crosses every kind of parser state a byte mirror
+    /// can join in the middle of: CSI, OSC (BEL and ST), OSC 8, DCS, APC, and
+    /// multi-byte UTF-8.
+    const MIRROR_TRANSCRIPT: &[u8] = concat!(
+        "before λ 🙂 ",
+        "\u{1b}[1;31mstyled 赤\u{1b}[0m ",
+        "\u{1b}]0;title λ\u{1b}\\",
+        "\u{1b}]8;;https://example.com\u{7}link\u{1b}]8;;\u{7} ",
+        "\u{1b}P$qm\u{1b}\\",
+        "\u{1b}_ignored\u{1b}\\",
+        "\u{1b}[3;7H\u{1b}[38;2;10;20;30mrgb\u{1b}[m",
+        "\r\n\u{1b}[Kafter"
+    )
+    .as_bytes();
+
+    /// Models the native Cloud pane with its grid pinned to the daemon: a byte
+    /// mirror that rebuilds from every replay at the advertised grid, writes
+    /// its color sidecar after the replay the way the pane does, and then
+    /// follows the live byte stream.
+    struct PinnedByteMirror {
+        term: Terminal,
+        attach: AttachStream,
+        replay_ended_mid_sequence: bool,
+    }
+
+    impl PinnedByteMirror {
+        fn attach(surface: &Surface) -> Self {
+            let attach = surface.attach_stream().unwrap();
+            let mut replay_ended_mid_sequence = false;
+            let term = Self::from_replay(
+                attach.cols,
+                attach.rows,
+                &attach.replay,
+                &attach.pending_sequence,
+                &mut replay_ended_mid_sequence,
+            );
+            Self { term, attach, replay_ended_mid_sequence }
+        }
+
+        fn from_replay(
+            cols: u16,
+            rows: u16,
+            replay: &[u8],
+            pending_sequence: &[u8],
+            replay_ended_mid_sequence: &mut bool,
+        ) -> Terminal {
+            let mut term = Terminal::new(cols, rows, 1000, Callbacks::default()).unwrap();
+            term.vt_write(replay);
+            // The pane appends color sequences here, which is only safe at a
+            // parser boundary.
+            *replay_ended_mid_sequence |= !term.vt_stream_is_ground();
+            term.vt_write(pending_sequence);
+            term
+        }
+
+        fn drain(&mut self) {
+            while let Ok(frame) = self.attach.stream.try_recv() {
+                match frame {
+                    AttachFrame::Output(bytes) => self.term.vt_write(&bytes),
+                    AttachFrame::OutputWithColors { output, .. } => self.term.vt_write(&output),
+                    AttachFrame::Resized { cols, rows, replay, pending_sequence, .. }
+                    | AttachFrame::ResizedWithColors {
+                        cols, rows, replay, pending_sequence, ..
+                    } => {
+                        self.term = Self::from_replay(
+                            cols,
+                            rows,
+                            &replay,
+                            &pending_sequence,
+                            &mut self.replay_ended_mid_sequence,
+                        );
+                    }
+                    AttachFrame::ColorsChanged(_) => {}
+                }
+            }
+        }
+
+        /// Returns a description of every way this mirror differs from the
+        /// authoritative terminal.
+        fn divergence(&mut self, surface: &Surface) -> Option<String> {
+            let disconnected = self.attach.lifecycle.is_canceled();
+            self.drain();
+            let pty = surface.as_pty().unwrap();
+            let mut source = pty.term.lock().unwrap();
+            let grid = (source.cols(), source.rows());
+            let mirror_grid = (self.term.cols(), self.term.rows());
+            let text = source.viewport_text().unwrap();
+            let mirror_text = self.term.viewport_text().unwrap();
+            let cursor = source.cursor_position();
+            let mirror_cursor = self.term.cursor_position();
+            let mid_sequence = self.replay_ended_mid_sequence;
+            (disconnected
+                || mid_sequence
+                || grid != mirror_grid
+                || text != mirror_text
+                || cursor != mirror_cursor)
+                .then(|| {
+                    format!(
+                        "disconnected={disconnected} replay_ended_mid_sequence={mid_sequence} \
+                         grid={grid:?}/{mirror_grid:?} cursor={cursor:?}/{mirror_cursor:?} \
+                         text={text:?} mirror={mirror_text:?}"
+                    )
+                })
+        }
+    }
+
+    fn mirror_test_surface(mux: &Arc<Mux>) -> Arc<Surface> {
+        let options = SurfaceOptions { cols: 80, rows: 10, ..SurfaceOptions::default() };
+        Surface::spawn_for_test(1, options, Arc::downgrade(mux)).unwrap()
+    }
+
+    #[test]
+    fn byte_mirror_attached_inside_any_sequence_matches_the_terminal() {
+        let mux = Mux::new_for_test("mirror-attach-mid-sequence", SurfaceOptions::default());
+        let mut failures = Vec::new();
+        for split in 0..=MIRROR_TRANSCRIPT.len() {
+            let surface = mirror_test_surface(&mux);
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[..split]).unwrap();
+            let mut mirror = PinnedByteMirror::attach(&surface);
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[split..]).unwrap();
+            if let Some(divergence) = mirror.divergence(&surface) {
+                failures.push(format!("attach at byte {split}: {divergence}"));
+            }
+        }
+        assert!(failures.is_empty(), "byte mirror diverged:\n{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn byte_mirror_survives_owner_resize_inside_any_sequence() {
+        let mux = Mux::new_for_test("mirror-resize-mid-sequence", SurfaceOptions::default());
+        let mut failures = Vec::new();
+        for split in 0..=MIRROR_TRANSCRIPT.len() {
+            let surface = mirror_test_surface(&mux);
+            let mut mirror = PinnedByteMirror::attach(&surface);
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[..split]).unwrap();
+            surface.resize(100, 30).unwrap();
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[split..]).unwrap();
+            if let Some(divergence) = mirror.divergence(&surface) {
+                failures.push(format!("resize at byte {split}: {divergence}"));
+            }
+        }
+        assert!(failures.is_empty(), "byte mirror diverged:\n{}", failures.join("\n"));
+    }
+
+    /// A released client writes its color sequences right after a resize
+    /// replay, so a replay ending inside a sequence would put them inside it.
+    /// Those viewers keep the old behavior: they reconnect from a fresh
+    /// snapshot. Viewers that advertised pending-sequence support stay.
+    #[test]
+    fn resize_inside_a_sequence_disconnects_only_viewers_without_pending_support() {
+        let mux = Mux::new_for_test("mirror-resize-legacy-viewer", SurfaceOptions::default());
+        let surface = mirror_test_surface(&mux);
+        let mut capable = PinnedByteMirror::attach(&surface);
+        let legacy_lifecycle = AttachLifecycle::default();
+        legacy_lifecycle.set_resumes_pending_sequence(false);
+        let _legacy = surface.attach_stream_with_lifecycle(legacy_lifecycle.clone()).unwrap();
+
+        surface.apply_local_pty_output_for_test(b"\x1b[1;3").unwrap();
+        surface.resize(100, 30).unwrap();
+        assert!(legacy_lifecycle.is_canceled(), "a legacy viewer kept a mid-sequence replay");
+        surface.apply_local_pty_output_for_test(b"1mred").unwrap();
+        assert_eq!(capable.divergence(&surface), None);
+    }
+
+    /// Several people view one terminal at different sizes. Viewers join at
+    /// arbitrary stream positions while geometry ownership moves between them,
+    /// and every viewer must still show exactly the authoritative screen.
+    #[test]
+    fn byte_mirrors_joining_during_owner_churn_converge_on_the_terminal() {
+        let mux = Mux::new_for_test("mirror-owner-churn", SurfaceOptions::default());
+        let transcript = [MIRROR_TRANSCRIPT, MIRROR_TRANSCRIPT].concat();
+        let owner_grids = [(45, 20), (132, 40), (80, 24)];
+        let mut failures = Vec::new();
+        for split in 0..=MIRROR_TRANSCRIPT.len() {
+            let surface = mirror_test_surface(&mux);
+            let mut first = PinnedByteMirror::attach(&surface);
+            surface.apply_local_pty_output_for_test(&transcript[..split]).unwrap();
+            let mut second = PinnedByteMirror::attach(&surface);
+            surface.resize(owner_grids[0].0, owner_grids[0].1).unwrap();
+            let middle = split + MIRROR_TRANSCRIPT.len() / 2;
+            surface.apply_local_pty_output_for_test(&transcript[split..middle]).unwrap();
+            let mut third = PinnedByteMirror::attach(&surface);
+            surface.resize(owner_grids[1].0, owner_grids[1].1).unwrap();
+            surface.resize(owner_grids[2].0, owner_grids[2].1).unwrap();
+            surface.apply_local_pty_output_for_test(&transcript[middle..]).unwrap();
+            for (name, mirror) in
+                [("first", &mut first), ("second", &mut second), ("third", &mut third)]
+            {
+                if let Some(divergence) = mirror.divergence(&surface) {
+                    failures.push(format!("{name} viewer, split {split}: {divergence}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "byte mirrors diverged:\n{}", failures.join("\n"));
+    }
+
     fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
         haystack.windows(needle.len()).any(|window| window == needle)
     }
@@ -8259,6 +8676,7 @@ mod tests {
             kitty_image_aliases: Vec::new(),
             kitty_state: KittyReplayState::disabled(),
             colors: Box::new(TerminalColors::default()),
+            pending_sequence: Arc::from([]),
         });
 
         let first_replay = match first.stream.recv_timeout(Duration::from_secs(1)).unwrap() {
@@ -8277,14 +8695,17 @@ mod tests {
     }
 
     #[test]
-    fn unsafe_legacy_resize_disconnects_the_byte_attachment() {
+    fn unresumable_legacy_resize_disconnects_the_byte_attachment() {
         let mux = Mux::new("legacy-resize-disconnect", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(73, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let attachment = surface.attach_stream().unwrap();
         let pty = surface.as_pty().unwrap();
-        pty.term.lock().unwrap().vt_write(b"partial \xce");
-        assert!(!pty.term.lock().unwrap().vt_stream_is_ground());
+        // Only a control string past the replay's pending-sequence budget
+        // cannot be carried into a replacement replay.
+        pty.term.lock().unwrap().vt_write(b"\x1b]52;c;");
+        pty.term.lock().unwrap().vt_write(&vec![b'A'; 2 * 1024 * 1024]);
+        assert!(!pty.term.lock().unwrap().vt_replay_resumes_stream());
 
         assert!(surface.resize(100, 30).unwrap());
         assert!(matches!(
@@ -9427,6 +9848,135 @@ mod tests {
         assert_eq!(surface.try_with_terminal(|term| term.history_rows()).unwrap(), 0);
 
         assert_eq!(progress.revision(), revision_before);
+    }
+
+    #[test]
+    fn terminal_snapshot_cannot_pair_new_text_with_an_old_revision() {
+        let mux = Mux::new_for_test("terminal-snapshot-boundary", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let progress = &surface.as_pty().unwrap().stream_progress;
+        let revision_before = progress.revision();
+        let (notify_started_tx, notify_started_rx) = sync_channel(1);
+        let (release_notify_tx, release_notify_rx) = sync_channel(1);
+        let release_notify = Arc::new(Mutex::new(release_notify_rx));
+        progress.set_before_notify_hook(Some(Arc::new(move || {
+            notify_started_tx.send(()).unwrap();
+            release_notify
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(2))
+                .expect("snapshot test did not release the notification boundary");
+        })));
+
+        let update_surface = surface.clone();
+        let update = std::thread::spawn(move || {
+            update_surface.apply_stream_output_for_test(b"new-output").unwrap();
+        });
+        notify_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("output did not reach the notification boundary");
+
+        let (snapshot_entered_tx, snapshot_entered_rx) = sync_channel(1);
+        let (snapshot_tx, snapshot_rx) = sync_channel(1);
+        let snapshot_surface = surface.clone();
+        let snapshot_revision_surface = snapshot_surface.clone();
+        std::thread::spawn(move || {
+            let snapshot = snapshot_surface
+                .try_with_terminal(|terminal| {
+                    snapshot_entered_tx.send(()).unwrap();
+                    let text = terminal.viewport_text().unwrap();
+                    let revision = snapshot_revision_surface.terminal_stream_revision().unwrap();
+                    (text, revision)
+                })
+                .unwrap();
+            snapshot_tx.send(snapshot).unwrap();
+        });
+
+        assert!(
+            snapshot_entered_rx.recv_timeout(Duration::from_millis(250)).is_err(),
+            "snapshot entered while output revision notification was still pending"
+        );
+        assert!(
+            snapshot_rx.try_recv().is_err(),
+            "snapshot returned while output revision notification was still pending"
+        );
+
+        release_notify_tx.send(()).unwrap();
+        update.join().unwrap();
+        snapshot_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("snapshot did not run after the output boundary");
+        let (text, revision) = snapshot_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("snapshot result was not delivered");
+        assert!(text.contains("new-output"), "snapshot omitted applied output: {text:?}");
+        assert!(revision > revision_before, "snapshot returned stale revision {revision}");
+        progress.set_before_notify_hook(None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_replacement_publishes_revision_before_unlocking_terminal() {
+        let mux =
+            Mux::new_for_test("hosted-replacement-snapshot-boundary", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let progress = &surface.as_pty().unwrap().stream_progress;
+        let revision_before = progress.revision();
+        let (notify_started_tx, notify_started_rx) = sync_channel(1);
+        let (release_notify_tx, release_notify_rx) = sync_channel(1);
+        let release_notify_hook = Arc::new(Mutex::new(release_notify_rx));
+        progress.set_before_notify_hook(Some(Arc::new(move || {
+            notify_started_tx.send(()).unwrap();
+            release_notify_hook
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(2))
+                .expect("hosted replacement test did not release the notification boundary");
+        })));
+
+        let mut replacement = Terminal::new(81, 24, 10_000, Callbacks::default()).unwrap();
+        replacement.resize(81, 24, 8, 16).unwrap();
+        let update_surface = surface.clone();
+        let update = std::thread::spawn(move || {
+            let pty = update_surface.as_pty().unwrap();
+            let mut geometry = pty.geometry.lock().unwrap();
+            let next_geometry = PtyGeometry { cols: 81, ..*geometry };
+            pty.with_terminal_stream_update(|term| {
+                *term = replacement;
+                *geometry = next_geometry;
+                term.vt_write(b"host-replacement");
+            });
+        });
+        notify_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("hosted replacement did not reach the notification boundary");
+
+        let (snapshot_entered_tx, snapshot_entered_rx) = sync_channel(1);
+        let (snapshot_tx, snapshot_rx) = sync_channel(1);
+        let snapshot_surface = surface.clone();
+        let snapshot_thread = std::thread::spawn(move || {
+            let snapshot = snapshot_surface.terminal_screen_snapshot().unwrap();
+            snapshot_entered_tx.send(()).unwrap();
+            snapshot_tx.send((snapshot.text, snapshot.revision)).unwrap();
+        });
+        let entered_during_notify =
+            snapshot_entered_rx.recv_timeout(Duration::from_millis(250)).is_ok();
+
+        release_notify_tx.send(()).unwrap();
+        update.join().unwrap();
+        snapshot_thread.join().unwrap();
+        assert!(
+            !entered_during_notify,
+            "hosted replacement unlocked terminal before revision publication"
+        );
+        let (text, revision) = snapshot_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("hosted replacement snapshot was not delivered");
+        assert!(text.contains("host-replacement"), "snapshot omitted replacement text: {text:?}");
+        assert!(revision > revision_before, "snapshot returned stale revision {revision}");
+        progress.set_before_notify_hook(None);
     }
 
     #[test]

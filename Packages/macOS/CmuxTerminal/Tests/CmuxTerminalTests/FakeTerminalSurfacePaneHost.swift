@@ -7,6 +7,7 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
     private let attachesThroughSurfaceModel: Bool
     private let onAttach: (() -> Void)?
     private(set) var explicitInputCount = 0
+    private(set) var runtimeReleaseCount = 0
 
     init(
         surfaceView: FakeTerminalSurfaceNativeView,
@@ -41,5 +42,9 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
 
     func terminalSurfaceDidReceiveExplicitInput() {
         explicitInputCount += 1
+    }
+
+    func terminalSurfaceRuntimeDidRelease() {
+        runtimeReleaseCount += 1
     }
 }

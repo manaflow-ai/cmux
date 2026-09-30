@@ -1,5 +1,4 @@
 internal import Foundation
-
 /// The surface-domain resume (`surface.resume.*`) and reporting
 /// (`surface.report_tty` / `report_pwd` / `report_shell_state` / `ports_kick`)
 /// bodies, plus the shared resume-binding payload helper, split out of
@@ -7,7 +6,6 @@ internal import Foundation
 /// budget. See that file's doc comment for the domain overview.
 extension ControlCommandCoordinator {
     // MARK: - resume target param validation
-
     /// The byte-faithful twin of `v2SurfaceResumeTargetValidationError`: an
     /// `invalid_params` error when any of `window_id` / `workspace_id` /
     /// `surface_id` / `terminal_id` / `tab_id` is present-but-non-null yet
@@ -22,16 +20,13 @@ extension ControlCommandCoordinator {
         }
         return nil
     }
-
     /// The legacy `v2PublicSurfaceResumeSource`: `process-detected` → `manual`.
     private func publicResumeSource(_ params: [String: JSONValue]) -> String? {
         let source = optionalTrimmedRawString(params, "source")
         return source == "process-detected" ? "manual" : source
     }
-
     // MARK: - resume.set
-
-    /// `surface.resume.set` — set (and run the approval flow for) a resume binding.
+    /// `surface.resume.set` — set a resume binding; never waits on approval UI (#13369).
     func surfaceResumeSet(_ params: [String: JSONValue]) -> ControlCallResult {
         if let error = surfaceResumeTargetValidationError(params) { return error }
         let routing = routingSelectors(params)
@@ -43,7 +38,6 @@ extension ControlCommandCoordinator {
             !command.isEmpty else {
             return .err(code: "invalid_params", message: "Missing command", data: nil)
         }
-
         let source = publicResumeSource(params)
         let remoteWorkspaceID = uuid(params, "_cmux_remote_workspace_id")
         if hasNonNull(params, "_cmux_remote_workspace_id"), remoteWorkspaceID == nil {
@@ -83,7 +77,6 @@ extension ControlCommandCoordinator {
             permissionMode: optionalTrimmedRawString(params, "permission_mode"),
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
             remoteWorkspaceID: remoteWorkspaceID,
-            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params,
             resumeEvidenceProvenance: optionalTrimmedRawString(params, "resume_evidence_provenance")
         )
         return surfaceResumeResult(
@@ -216,9 +209,8 @@ extension ControlCommandCoordinator {
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
                 "restore_record": surfaceRestoreRecordPayload(snapshot.restoreRecord),
             ]
-            if let resumeClaimed = snapshot.resumeClaimed {
-                result["resume_claimed"] = .bool(resumeClaimed)
-            }
+            result["resume_claimed"] = snapshot.resumeClaimed.map(JSONValue.bool)
+            result["approval_required"] = snapshot.approvalRequired.map(JSONValue.bool)
             return .ok(.object(result))
         }
     }
@@ -259,7 +251,14 @@ extension ControlCommandCoordinator {
               case .array(let rawArguments)? = object["arguments"] else {
             return nil
         }
-        for key in ["launcher", "executable_path", "working_directory", "verification_home", "source"] {
+        for key in [
+            "launcher",
+            "external_launcher",
+            "executable_path",
+            "working_directory",
+            "verification_home",
+            "source",
+        ] {
             switch object[key] {
             case nil, .null, .string:
                 break
@@ -293,14 +292,29 @@ extension ControlCommandCoordinator {
         guard arguments.count == rawArguments.count, !arguments.isEmpty else { return nil }
         return ControlAgentLaunchCommand(
             launcher: rawString(object, "launcher"),
+            // Trimmed on the way in: the id is compared against `agents.launchers` declarations,
+            // which are normalized, so a padded value would silently resolve to nothing.
+            externalLauncher: optionalTrimmedRawString(object, "external_launcher"),
             executablePath: rawString(object, "executable_path"),
             arguments: arguments,
             workingDirectory: rawString(object, "working_directory"),
             environment: stringMap(object, "environment"),
             verificationHome: rawString(object, "verification_home"),
             capturedAt: doubleValue(object["captured_at"]),
-            source: rawString(object, "source")
+            source: rawString(object, "source"),
+            launcherPrefix: launcherPrefix(object["launcher_prefix"])
         )
+    }
+
+    /// A non-empty array of strings, or nil for anything else.
+    private nonisolated func launcherPrefix(_ value: JSONValue?) -> [String]? {
+        guard case .array(let rawTokens) = value else { return nil }
+        let tokens = rawTokens.compactMap { value -> String? in
+            guard case .string(let token) = value else { return nil }
+            return token
+        }
+        guard tokens.count == rawTokens.count, !tokens.isEmpty else { return nil }
+        return tokens
     }
 
     private nonisolated func controlAgentLaunchCommandPayload(
@@ -312,6 +326,7 @@ extension ControlCommandCoordinator {
         } ?? .null
         return .object([
             "launcher": orNull(command.launcher),
+            "external_launcher": orNull(command.externalLauncher),
             "executable_path": orNull(command.executablePath),
             "arguments": .array(command.arguments.map(JSONValue.string)),
             "working_directory": orNull(command.workingDirectory),
@@ -319,6 +334,7 @@ extension ControlCommandCoordinator {
             "verification_home": orNull(command.verificationHome),
             "captured_at": command.capturedAt.map(JSONValue.double) ?? .null,
             "source": orNull(command.source),
+            "launcher_prefix": command.launcherPrefix.map { .array($0.map(JSONValue.string)) } ?? .null,
         ])
     }
 
@@ -345,6 +361,7 @@ extension ControlCommandCoordinator {
             "permission_mode": orNull(record.permissionMode),
             "legacy_command": orNull(record.legacyCommand),
             "fork_command": orNull(record.forkCommand),
+            "continuation_prompt": orNull(record.continuationPrompt),
         ])
     }
     private func doubleValue(_ value: JSONValue?) -> Double? {
@@ -440,7 +457,13 @@ extension ControlCommandCoordinator {
             workspaceID: workspaceID,
             requestedSurfaceID: requestedSurfaceID,
             terminalLifecycleID: terminalLifecycleID,
-            stateRawValue: stateRawValue
+            stateRawValue: stateRawValue,
+            remoteRelayOwnerWorkspaceID: params["_cmux_remote_workspace_id"].flatMap { value in
+                self.uuid(["value": value], "value")
+            },
+            remoteRelayConnectionID: params["_cmux_remote_connection_id"].flatMap { value in
+                self.uuid(["value": value], "value")
+            }
         ) ?? .pending
         switch resolution {
         case .explicit(let surfaceID, let published):

@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 
 extension TerminalController {
@@ -37,7 +38,7 @@ extension TerminalController {
             let recorder = await MainActor.run { AppDelegate.shared?.cloudOperations }
             guard let recorder else { return try await work() }
             if let context = await recorder.reference(operationID: operationID, traceID: traceID, spanID: parentSpanID) {
-                return try await CloudOperationContext.$current.withValue(context) {
+                return try await CloudOperationContext.withCurrent(context) {
                     try await context.withPhase(.operation, work)
                 }
             }

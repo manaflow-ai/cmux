@@ -1,7 +1,9 @@
+import CmuxComputerUse
 import AppKit
 import Combine
 import Darwin
 import Foundation
+import CmuxFoundation
 
 /// Owns the dedicated computer-use status item and renders value-only session snapshots.
 @MainActor
@@ -145,7 +147,7 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         )
         let viewTitle = String(
             localized: "computerUse.menu.focusTarget",
-            defaultValue: "Focus Computer Use"
+            defaultValue: "Focus cmux Computer Use"
         )
         let viewItem = NSMenuItem(
             title: viewTitle,

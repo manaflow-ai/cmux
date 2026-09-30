@@ -10,6 +10,8 @@ export type Environment = Cloudflare.Env & {
   PLANETSCALE_DATABASE_URL?: string;
   AXIOM_TOKEN?: string; AXIOM_DATASET?: string; AXIOM_INGEST_URL?: string;
   SENTRY_DSN?: string; SENTRY_ENVIRONMENT?: string;
+  /** Published by the deploy scripts (`--var CMUX_SOURCE_REVISION:<sha>`); absent on ad hoc deployments. */
+  CMUX_SOURCE_REVISION?: string;
 };
 
 export function environmentScope(env: Environment) {

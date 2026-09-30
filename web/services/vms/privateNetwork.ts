@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
 import type { ProviderId } from "./drivers";
+import { trace } from "@opentelemetry/api";
+import { setSpanAttributes } from "../telemetry";
 import { vmPrivateNetworkEnabled, type VmRuntimeEnv } from "./config";
 import {
   VmAccessGrantRevokedError,
@@ -16,6 +18,9 @@ import {
   type CloudVmTunnelRow,
   type VmRepositoryShape,
 } from "./repository";
+import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
+import { isProviderTunnelNetworkOverlap } from "./providerErrors";
+import type { ProviderNetwork, ProviderTunnel } from "./drivers";
 
 /**
  * Private networking: one provider network per cmux account, and one WireGuard
@@ -61,6 +66,12 @@ export type VmTunnelDescriptor = {
     readonly cidr: string | null;
     readonly cidrV6: string | null;
   };
+  readonly networks: ReadonlyArray<{
+    readonly id: string;
+    readonly cidr: string | null;
+    readonly cidrV6: string | null;
+    readonly scope: "user" | "team";
+  }>;
   /** True when this call created the tunnel rather than reading an existing one. */
   readonly created: boolean;
   /** True when the client's key did not match the record and the tunnel's keys were replaced. */
@@ -99,6 +110,16 @@ export function networkSlugForUser(userId: string): string {
   return `cmux-net-${accountHash("network", userId)}`;
 }
 
+/**
+ * The provider-side slug for a team's network. Hashed for the same reason as
+ * the account slug. Because it is derived from the team id, the provider's
+ * network list is the only record of team networks: finding one is a read by
+ * this slug, and no cmux table tracks them or their tunnel attachments.
+ */
+export function networkSlugForTeam(teamId: string): string {
+  return `cmux-team-net-${accountHash("team-network", teamId)}`;
+}
+
 /** The provider-side slug for one of an account's computers. Same reasoning as the network slug. */
 export function tunnelSlugForDevice(
   userId: string,
@@ -135,6 +156,7 @@ export function privateNetworkUnavailableReason(
 
 type PrivateNetworkGateway = {
   readonly ensureNetwork: NonNullable<VmProviderGatewayShape["ensureNetwork"]>;
+  readonly getNetwork?: NonNullable<VmProviderGatewayShape["getNetwork"]>;
 };
 
 type PrivateNetworkingGateway = PrivateNetworkGateway & {
@@ -142,6 +164,8 @@ type PrivateNetworkingGateway = PrivateNetworkGateway & {
   readonly getTunnel: NonNullable<VmProviderGatewayShape["getTunnel"]>;
   readonly rotateTunnelKey: NonNullable<VmProviderGatewayShape["rotateTunnelKey"]>;
   readonly deleteTunnel: NonNullable<VmProviderGatewayShape["deleteTunnel"]>;
+  readonly attachTunnelNetwork?: NonNullable<VmProviderGatewayShape["attachTunnelNetwork"]>;
+  readonly detachTunnelNetwork?: NonNullable<VmProviderGatewayShape["detachTunnelNetwork"]>;
 };
 
 type PrivateNetworkRepo = {
@@ -179,17 +203,17 @@ type PrivateAccessRepo = PrivateNetworkingRepo & {
  */
 function privateNetworkGateway(gateway: VmProviderGatewayShape, provider: ProviderId): PrivateNetworkGateway | null {
   if (!gateway.supportsPrivateNetworking?.(provider)) return null;
-  const { ensureNetwork } = gateway;
+  const { ensureNetwork, getNetwork } = gateway;
   if (!ensureNetwork) return null;
-  return { ensureNetwork };
+  return { ensureNetwork, getNetwork };
 }
 
 function privateNetworkingGateway(gateway: VmProviderGatewayShape, provider: ProviderId): PrivateNetworkingGateway | null {
   const network = privateNetworkGateway(gateway, provider);
   const { createTunnel, getTunnel, rotateTunnelKey, deleteTunnel } = gateway;
   if (!network || !createTunnel || !getTunnel || !rotateTunnelKey || !deleteTunnel) return null;
-  const { ensureNetwork } = network;
-  return { ensureNetwork, createTunnel, getTunnel, rotateTunnelKey, deleteTunnel };
+  const { ensureNetwork, getNetwork } = network;
+  return { ensureNetwork, getNetwork, createTunnel, getTunnel, rotateTunnelKey, deleteTunnel, attachTunnelNetwork: gateway.attachTunnelNetwork, detachTunnelNetwork: gateway.detachTunnelNetwork };
 }
 
 function privateNetworkRepo(repo: VmRepositoryShape): PrivateNetworkRepo | null {
@@ -278,13 +302,90 @@ function withAccessGrantMutationLease<A, E, R>(
   });
 }
 
+/** A team's network as the provider reports it. See {@link networkSlugForTeam}. */
+export type TeamNetwork = {
+  readonly providerNetworkId: string;
+  readonly slug: string;
+  readonly cidr: string | null;
+  readonly cidrV6: string | null;
+};
+
+function teamNetworkFromProvider(network: ProviderNetwork, slug: string): TeamNetwork {
+  return { providerNetworkId: network.id, slug: network.slug ?? slug, cidr: network.cidr, cidrV6: network.cidrV6 };
+}
+
+type TeamNetworkResolution = {
+  readonly network: TeamNetwork | null;
+  readonly fallbackReason: "no_capability" | "solo_team" | "not_member" | "directory_error" | "directory_timeout" | null;
+};
+
+function resolveTeamNetwork(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamDirectory?: VmTeamDirectory;
+  readonly directoryTimeoutMs?: number;
+  readonly provider: ProviderId;
+  readonly providers: PrivateNetworkGateway;
+}): Effect.Effect<TeamNetworkResolution, import("./errors").VmProviderOperationError> {
+  return Effect.gen(function* () {
+    if (!input.billingTeamId || input.billingTeamId === input.userId) return { network: null, fallbackReason: "solo_team" as const };
+    const getNetwork = input.providers.getNetwork;
+    if (!input.teamDirectory || !getNetwork) return { network: null, fallbackReason: "no_capability" as const };
+    // Membership is checked before the provider read, and on reuse as well as
+    // on create, so a caller who left the team never lands on its network.
+    const result = yield* listTeamMemberIdsWithTimeout(input.teamDirectory, input.billingTeamId, input.directoryTimeoutMs);
+    if ("error" in result) return { network: null, fallbackReason: result.error === "timeout" ? "directory_timeout" as const : "directory_error" as const };
+    if (result.memberIds === null) return { network: null, fallbackReason: "directory_error" as const };
+    if (!result.memberIds.includes(input.userId)) return { network: null, fallbackReason: "not_member" as const };
+    const slug = networkSlugForTeam(input.billingTeamId);
+    const existing = yield* getNetwork(input.provider, slug);
+    if (existing) return { network: teamNetworkFromProvider(existing, slug), fallbackReason: null };
+    if (result.memberIds.length <= 1) return { network: null, fallbackReason: "solo_team" as const };
+    // No members-reach-each-other rule: each team VM admits the team network
+    // itself, so tunnels reach team VMs but not each other's Macs.
+    const network = yield* input.providers.ensureNetwork(input.provider, {
+      slug,
+      displayName: slug,
+      membersRule: false,
+    });
+    return { network: teamNetworkFromProvider(network, slug), fallbackReason: null };
+  });
+}
+
 /**
- * The account's network, provisioning it on first use.
+ * The network a new machine joins: the billing team's network when the client
+ * routes team networks and the caller is a current member, otherwise the
+ * account's own network, provisioned on first use.
  *
  * Fails closed when private networking is unavailable. Cloud machines must not
  * be created with public ingress as a degraded path.
  */
 export function resolveOwnerNetwork(input: {
+  readonly userId: string;
+  readonly provider: ProviderId;
+  readonly billingTeamId?: string | null;
+  readonly teamDirectory?: VmTeamDirectory;
+  readonly directoryTimeoutMs?: number;
+}): Effect.Effect<
+  (CloudVmNetworkRow | TeamNetwork) & { readonly memberIngress: boolean; readonly scope: "user" | "team" },
+  VmDatabaseError | VmPrivateNetworkUnavailableError | import("./errors").VmProviderOperationError,
+  VmRepository | VmProviderGateway
+> {
+  return Effect.gen(function* () {
+    const { providers, repo } = yield* requireOwnerNetworkComposition(input.provider);
+    const teamResolution = yield* resolveTeamNetwork({ ...input, providers });
+    const span = trace.getActiveSpan();
+    if (span) setSpanAttributes(span, teamResolution.network
+      ? { "cmux.vm.network.scope": "team", "cmux.vm.network.team_fallback": false }
+      : { "cmux.vm.network.scope": "user", "cmux.vm.network.team_fallback": teamResolution.fallbackReason ?? "no_capability" });
+    if (teamResolution.network) return { ...teamResolution.network, memberIngress: true, scope: "team" as const };
+    const network = yield* resolveUserNetwork(input, providers, repo);
+    return { ...network, memberIngress: false, scope: "user" as const };
+  });
+}
+
+/** The account's own network, which every tunnel enrolls into as its home. */
+export function requireOwnerNetwork(input: {
   readonly userId: string;
   readonly provider: ProviderId;
 }): Effect.Effect<
@@ -293,18 +394,32 @@ export function resolveOwnerNetwork(input: {
   VmRepository | VmProviderGateway
 > {
   return Effect.gen(function* () {
-    const gateway = yield* VmProviderGateway;
-    const providers = privateNetworkGateway(gateway, input.provider);
+    const { providers, repo } = yield* requireOwnerNetworkComposition(input.provider);
+    return yield* resolveUserNetwork(input, providers, repo);
+  });
+}
+
+function requireOwnerNetworkComposition(provider: ProviderId) {
+  return Effect.gen(function* () {
+    const providers = privateNetworkGateway(yield* VmProviderGateway, provider);
     const repo = privateNetworkRepo(yield* VmRepository);
-    const reason = privateNetworkUnavailableReason(input.provider, !!providers);
+    const reason = privateNetworkUnavailableReason(provider, !!providers);
     if (!providers || !repo || reason) {
-      return yield* Effect.fail(
-        new VmPrivateNetworkUnavailableError({
-          provider: input.provider,
-          reason: reason ?? "the VM repository composition has no private-network state",
-        }),
-      );
+      return yield* Effect.fail(new VmPrivateNetworkUnavailableError({
+        provider,
+        reason: reason ?? "the VM repository composition has no private-network state",
+      }));
     }
+    return { providers, repo };
+  });
+}
+
+function resolveUserNetwork(
+  input: { readonly userId: string; readonly provider: ProviderId },
+  providers: PrivateNetworkGateway,
+  repo: PrivateNetworkRepo,
+) {
+  return Effect.gen(function* () {
     const existing = yield* repo.findNetwork(input.userId, input.provider);
     if (existing) return existing;
 
@@ -324,20 +439,6 @@ export function resolveOwnerNetwork(input: {
       cidr: network.cidr,
       cidrV6: network.cidrV6,
     });
-  });
-}
-
-/** Compatibility name for callers that need the owner's mandatory network. */
-export function requireOwnerNetwork(input: {
-  readonly userId: string;
-  readonly provider: ProviderId;
-}): Effect.Effect<
-  CloudVmNetworkRow,
-  VmDatabaseError | VmPrivateNetworkUnavailableError | import("./errors").VmProviderOperationError,
-  VmRepository | VmProviderGateway
-> {
-  return Effect.gen(function* () {
-    return yield* resolveOwnerNetwork(input);
   });
 }
 
@@ -370,6 +471,7 @@ export function enrollVmTunnel(input: {
   readonly stackSessionId?: string | null;
   readonly sessionIssuedAt?: Date | null;
   readonly clientPublicKey: string;
+  readonly teamIds?: readonly string[];
 }) {
   return Effect.gen(function* () {
     const providers = yield* requirePrivateNetworkingGateway(input.provider);
@@ -453,7 +555,8 @@ export function enrollVmTunnel(input: {
             addressV6: current.addressV6,
             configIssued: true,
           });
-          return describeTunnel(current, row, network, { created: false, rotated });
+          const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: current, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input) });
+          return describeTunnel(current, row, network, { created: false, rotated }, teamNetworks);
         }
         // The control plane has a row for a tunnel the provider no longer has.
         yield* repo.revokeTunnel(existing.id);
@@ -478,7 +581,8 @@ export function enrollVmTunnel(input: {
         addressV4: created.tunnel.addressV4,
         addressV6: created.tunnel.addressV6,
       });
-      return describeTunnel(created.tunnel, row, network, { created: true, rotated: created.rotated });
+      const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: created.tunnel, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input) });
+      return describeTunnel(created.tunnel, row, network, { created: true, rotated: created.rotated }, teamNetworks);
     }));
   });
 }
@@ -489,6 +593,7 @@ export function readVmTunnel(input: {
   readonly provider: ProviderId;
   readonly deviceFingerprint: string;
   readonly tunnelPurpose: "terminal" | "browser";
+  readonly teamIds?: readonly string[];
 }) {
   return Effect.gen(function* () {
     const providers = yield* requirePrivateNetworkingGateway(input.provider);
@@ -515,7 +620,12 @@ export function readVmTunnel(input: {
         new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }),
       );
     }
-    return describeTunnel(live, existing, network, { created: false, rotated: false });
+    // This read returns the config, so it is activity: the stale-tunnel reaper
+    // must not remove a tunnel a client still reads. Best effort, because a
+    // failed timestamp write must not fail the read.
+    yield* repo.updateTunnel({ id: existing.id, configIssued: true }).pipe(Effect.ignore);
+    const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: live, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input) });
+    return describeTunnel(live, existing, network, { created: false, rotated: false }, teamNetworks);
   });
 }
 
@@ -546,6 +656,111 @@ export function revokeVmTunnel(input: {
     const revoked = yield* repo.revokeTunnel(existing.id);
     return { revoked } as const;
   });
+}
+
+/** A tunnel replaced on its Mac is reaped after this many days with no enrollment or config read. */
+export const DEFAULT_VM_TUNNEL_STALE_AFTER_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const TUNNEL_REAP_BATCH_LIMIT = 25;
+// The reconcile cron runs other work first; this pass stays well inside a
+// 60-second function budget even when every provider call is slow.
+const TUNNEL_REAP_BUDGET_MS = 20_000;
+const TUNNEL_REAP_DELETE_TIMEOUT_MS = 10_000;
+
+/** The stale window, from `CMUX_VM_TUNNEL_STALE_AFTER_DAYS` when it is a positive number. */
+export function vmTunnelStaleAfterMs(env: Readonly<Record<string, string | undefined>> = process.env): number {
+  const days = Number(env.CMUX_VM_TUNNEL_STALE_AFTER_DAYS);
+  return (Number.isFinite(days) && days > 0 ? days : DEFAULT_VM_TUNNEL_STALE_AFTER_DAYS) * DAY_MS;
+}
+
+export type VmTunnelReapResult = {
+  readonly candidates: number;
+  readonly reaped: number;
+  readonly skipped: number;
+  readonly failed: number;
+  readonly budgetExhausted: boolean;
+};
+
+/** When a tunnel was last enrolled or had its config read; mirrors the repository query. */
+function tunnelLastActivityMs(row: CloudVmTunnelRow): number {
+  return Math.max(row.updatedAt.getTime(), (row.lastConfigIssuedAt ?? row.createdAt).getTime());
+}
+
+/**
+ * Frees private-network addresses held by abandoned tunnels. Every dogfood
+ * build and reinstall enrolls a new per-installation tunnel and nothing
+ * removed the old ones, so a network filled up. A tunnel is reaped only when
+ * it has had no enrollment or config read for the stale window AND a newer
+ * tunnel of the same purpose on the same Mac replaced it; the newest tunnel
+ * per Mac is never reaped. Removal holds the Mac's mutation lease, rechecks
+ * the row, and goes through {@link revokeVmTunnel}. Never fails: counts are
+ * returned and logged, and anything skipped is retried on the next run.
+ */
+export function reapStaleVmTunnels(input: {
+  readonly now?: () => number;
+  readonly staleAfterMs?: number;
+  readonly limit?: number;
+  readonly budgetMs?: number;
+} = {}): Effect.Effect<VmTunnelReapResult, never, VmRepository | VmProviderGateway> {
+  const empty: VmTunnelReapResult = { candidates: 0, reaped: 0, skipped: 0, failed: 0, budgetExhausted: false };
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const access = privateAccessRepo(repo);
+    const listCandidates = repo.listStaleTunnelCandidates;
+    if (!access || !listCandidates) return empty;
+    const now = input.now ?? Date.now;
+    const startedAt = now();
+    const inactiveBefore = new Date(startedAt - (input.staleAfterMs ?? vmTunnelStaleAfterMs()));
+    const candidates = yield* listCandidates({ inactiveBefore, limit: input.limit ?? TUNNEL_REAP_BATCH_LIMIT });
+    const counts = { reaped: 0, skipped: 0, failed: 0 };
+    let budgetExhausted = false;
+    for (const row of candidates) {
+      if (now() - startedAt >= (input.budgetMs ?? TUNNEL_REAP_BUDGET_MS)) {
+        budgetExhausted = true;
+        break;
+      }
+      const outcome = yield* reapStaleTunnel(access, row, inactiveBefore);
+      counts[outcome] += 1;
+    }
+    const result = { candidates: candidates.length, ...counts, budgetExhausted };
+    yield* Effect.logInfo("Cloud stale tunnel reap finished", result);
+    return result;
+  }).pipe(Effect.catchAllCause((cause) =>
+    Effect.logWarning("Cloud stale tunnel reap failed", { cause }).pipe(Effect.as(empty))));
+}
+
+function reapStaleTunnel(
+  repo: PrivateAccessRepo,
+  row: CloudVmTunnelRow,
+  inactiveBefore: Date,
+): Effect.Effect<"reaped" | "skipped" | "failed", never, VmRepository | VmProviderGateway> {
+  const reap = withAccessGrantMutationLease(repo, row.accessGrantId, Effect.gen(function* () {
+    // An enrollment can refresh the row between the query and the lease.
+    const current = yield* repo.findTunnel({
+      userId: row.userId,
+      deviceFingerprint: row.deviceFingerprint,
+      tunnelPurpose: row.tunnelPurpose,
+    });
+    if (!current || current.id !== row.id || tunnelLastActivityMs(current) >= inactiveBefore.getTime()) {
+      return "skipped" as const;
+    }
+    const { revoked } = yield* revokeVmTunnel({
+      userId: row.userId,
+      provider: row.provider,
+      deviceFingerprint: row.deviceFingerprint,
+      tunnelPurpose: row.tunnelPurpose,
+    }).pipe(Effect.timeoutFail({
+      duration: TUNNEL_REAP_DELETE_TIMEOUT_MS,
+      onTimeout: () => new Error("stale tunnel delete deadline"),
+    }));
+    return revoked ? "reaped" as const : "skipped" as const;
+  }));
+  return reap.pipe(Effect.catchAll((error) => error instanceof VmAccessGrantMutationBusyError
+    ? Effect.succeed("skipped" as const)
+    : Effect.logWarning("Cloud stale tunnel reap skipped a tunnel", {
+      tunnelId: row.id,
+      errorDescription: privateNetworkErrorDescription(error),
+    }).pipe(Effect.as("failed" as const))));
 }
 
 /** Revoke one Mac and every Freestyle peer owned by its Cloud access grant. */
@@ -734,11 +949,118 @@ function requirePrivateAccessRepo(provider: ProviderId) {
   });
 }
 
+export function privateNetworkErrorDescription(error: unknown): string {
+  const parts: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 8 && current && !seen.has(current); depth += 1) {
+    seen.add(current);
+    if (typeof current !== "object") {
+      if (typeof current === "string" && current.trim()) parts.push(current.trim());
+      break;
+    }
+    const record = current as {
+      readonly message?: unknown;
+      readonly cause?: unknown;
+      readonly code?: unknown;
+      readonly status?: unknown;
+      readonly statusCode?: unknown;
+      readonly body?: { readonly code?: unknown };
+      readonly response?: { readonly status?: unknown };
+    };
+    const status = [record.status, record.statusCode, record.response?.status].find((value): value is number => typeof value === "number");
+    const code = typeof record.code === "string" || typeof record.code === "number"
+      ? String(record.code)
+      : typeof record.body?.code === "string" || typeof record.body?.code === "number"
+        ? String(record.body.code)
+        : undefined;
+    const message = typeof record.message === "string" ? record.message.trim() : "";
+    const detail = [status === undefined ? undefined : `status=${status}`, code ? `code=${code}` : undefined, message || undefined]
+      .filter((value): value is string => value !== undefined)
+      .join(" ");
+    if (detail) parts.push(detail.slice(0, 300));
+    current = record.cause;
+  }
+  return (parts.join(" <- ") || "unknown provider failure").slice(0, 1_000);
+}
+
+/** The caller's teams whose networks a tunnel should join; the personal team has none. */
+function teamNetworkCandidates(input: { readonly userId: string; readonly teamIds?: readonly string[] }): readonly string[] | undefined {
+  return input.teamIds?.filter((teamId) => teamId !== input.userId);
+}
+
+/**
+ * Attach the tunnel to the network of every team the caller belongs to, and
+ * detach it from team networks the caller has left. The provider's attachment
+ * list is the record: a tunnel is attached exactly when Freestyle says so, and
+ * deleting a tunnel removes its attachments with it.
+ *
+ * A failed attach is logged and skipped so enrollment never fails on it. When a
+ * team network lookup fails, stale attachments are kept, because the failed
+ * lookup might have been a network the caller still belongs to.
+ */
+function reconcileTunnelTeamNetworks(input: {
+  readonly providers: PrivateNetworkingGateway;
+  readonly tunnel: ProviderTunnel;
+  readonly provider: ProviderId;
+  readonly homeNetworkId: string;
+  readonly teamIds?: readonly string[];
+}): Effect.Effect<TeamNetwork[], never> {
+  return Effect.gen(function* () {
+    const { getNetwork, attachTunnelNetwork } = input.providers;
+    if (!input.teamIds || !getNetwork || !attachTunnelNetwork) return [];
+    const lookups = yield* Effect.forEach(input.teamIds, (teamId) => {
+      const slug = networkSlugForTeam(teamId);
+      return getNetwork(input.provider, slug).pipe(
+        Effect.map((network) => network ? teamNetworkFromProvider(network, slug) : null),
+        Effect.either,
+      );
+    }, { concurrency: 4 });
+    const lookupFailed = lookups.some((lookup) => lookup._tag === "Left");
+    const desired = lookups.flatMap((lookup) => lookup._tag === "Right" && lookup.right ? [lookup.right] : []);
+    const live = new Set((input.tunnel.attachments ?? []).map((attachment) => attachment.networkId));
+    const attached: TeamNetwork[] = [];
+    for (const network of desired) {
+      if (live.has(network.providerNetworkId)) {
+        attached.push(network);
+        continue;
+      }
+      const ok = yield* attachTunnelNetwork(input.provider, input.tunnel.id, network.providerNetworkId).pipe(
+        Effect.as(true),
+        Effect.catchAll((error) => Effect.logWarning("Cloud team tunnel attachment skipped", {
+          networkId: network.providerNetworkId,
+          overlap: isProviderTunnelNetworkOverlap(error),
+          errorDescription: privateNetworkErrorDescription(error),
+          error,
+        }).pipe(Effect.as(false))),
+      );
+      if (ok) attached.push(network);
+    }
+    const detach = input.providers.detachTunnelNetwork;
+    if (lookupFailed || !detach) return attached;
+    // Only the home network and team networks are ever attached, so any other
+    // attachment belongs to a team the caller has left.
+    const keep = new Set([input.homeNetworkId, ...desired.map((network) => network.providerNetworkId)]);
+    for (const networkId of live) {
+      if (keep.has(networkId)) continue;
+      yield* detach(input.provider, input.tunnel.id, networkId).pipe(
+        Effect.catchAll((error) => Effect.logWarning("Cloud stale team tunnel attachment cleanup skipped", {
+          networkId,
+          errorDescription: privateNetworkErrorDescription(error),
+          error,
+        })),
+      );
+    }
+    return attached;
+  });
+}
+
 function describeTunnel(
   tunnel: import("./drivers").ProviderTunnel,
   row: CloudVmTunnelRow,
   network: CloudVmNetworkRow,
   flags: { readonly created: boolean; readonly rotated: boolean },
+  teamNetworks: readonly TeamNetwork[] = [],
 ): VmTunnelDescriptor {
   return {
     accessGrantId: row.accessGrantId,
@@ -760,6 +1082,10 @@ function describeTunnel(
       cidr: network.cidr,
       cidrV6: network.cidrV6,
     },
+    networks: [
+      { id: network.providerNetworkId, cidr: network.cidr, cidrV6: network.cidrV6, scope: "user" as const },
+      ...teamNetworks.map((team) => ({ id: team.providerNetworkId, cidr: team.cidr, cidrV6: team.cidrV6, scope: "team" as const })),
+    ],
     created: flags.created,
     rotated: flags.rotated,
   };

@@ -63,6 +63,7 @@ platform :ios do
     FileUtils.mkdir_p(screenshot_root)
     languages.each do |language|
       reset_screenshot_simulators(devices)
+      captured_before = Dir.glob(File.join(screenshot_root, "**", "*.png")).length
       capture_screenshots(
         scheme: "cmux-ios",
         # NOTE: do not pass `testplan:` here. With -testPlan, the UI test runs
@@ -81,6 +82,24 @@ platform :ios do
         # Capture in dark mode.
         dark_mode: true
       )
+      # capture_screenshots does not raise when the scheme's test build fails.
+      # It records the failure and returns, so a compile error in any test
+      # target of the cmux-ios scheme -- which the plain invocation above
+      # requires to build -- silently produces nothing, burns every remaining
+      # language, and then surfaces from the frame lane as "no localized raws
+      # ... run capture first", which points at the wrong thing. Release run
+      # 35225939389 spent 47 minutes that way on a test file missing its
+      # @testable import. Stop at the first language that captures nothing and
+      # name the real cause.
+      if Dir.glob(File.join(screenshot_root, "**", "*.png")).length == captured_before
+        UI.user_error!(
+          "No screenshots were captured for #{language}. This lane passes no " \
+          "testplan:, so every test target in the cmux-ios scheme has to " \
+          "compile before any screenshot is taken. Look for the first " \
+          "compiler error in the xcodebuild output above: exit status 65 is a " \
+          "build failure, not a flaky simulator."
+        )
+      end
     end
     UI.message("Screenshots written to ios/fastlane/screenshots/<lang>/")
     frame unless ENV["SNAPSHOT_SKIP_FRAME"] == "1"

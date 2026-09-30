@@ -40,7 +40,7 @@ public final class AuthCoordinator {
     /// Whether a cached session is being restored/validated at launch.
     public private(set) var isRestoringSession = false
     /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
-    public private(set) var availableTeams: [CMUXAuthTeam] = [] {
+    public internal(set) var availableTeams: [CMUXAuthTeam] = [] {
         didSet { publishAuthenticatedTeamScope() }
     }
     /// The user's selected team id. Writes persist through the injected
@@ -118,6 +118,12 @@ public final class AuthCoordinator {
     @ObservationIgnored var authenticatedTeamsSessionGeneration: UInt64?
     @ObservationIgnored var authenticatedTeamScopeGeneration: UInt64 = 0
     @ObservationIgnored var lastPublishedAuthenticatedTeamScope: AuthenticatedTeamScope?
+    /// The retry loop that restores a missing team scope; see
+    /// ``scheduleTeamScopeRecoveryIfNeeded()``.
+    @ObservationIgnored var teamScopeRecovery: (id: UUID, task: Task<Void, Never>)?
+    /// Team-list fetches in flight. A refresh that is still running owns the
+    /// outcome, so recovery waits for it instead of starting a second fetch.
+    @ObservationIgnored var activeTeamRefreshCount = 0
     /// Sign-in attempts that currently own a possible write to the token store.
     ///
     /// This ownership spans the whole flow, not just the credential-exchange
@@ -144,9 +150,16 @@ public final class AuthCoordinator {
     @ObservationIgnored var activeTokenTouchingPhases: [UUID: AuthTrackedTokenWork] = [:]
     @ObservationIgnored var timedOutTokenTouchingPhaseStates: [AuthPhase: AuthPhaseTimedOutState] = [:]
     @ObservationIgnored var tokenTouchingTimedOutResetNanoseconds: UInt64 = 30_000_000_000
+    @ObservationIgnored var teamMutationGeneration: UInt64 = 0
+    /// Whether a team switch is still waiting on its server request.
+    public internal(set) var isSelectingTeam = false
+    /// Whether a team create is still waiting on its server request.
+    public internal(set) var isCreatingTeam = false
+    /// Every switch remains here until its request returns, even if a later
+    /// switch replaces its pending UI projection.
+    @ObservationIgnored var activeTeamSwitches: Set<UUID> = []
     @ObservationIgnored var isCapturingSignOutCredentials = false
     @ObservationIgnored var signOutCredentialCaptureWaiters: [CheckedContinuation<Void, Never>] = []
-
     /// Begin a sign-in flow: register it as the newest attempt and capture
     /// the staleness context. Call before the flow's first await.
     private func beginSignInFlow() async throws -> SignInFlowContext {
@@ -617,7 +630,6 @@ public final class AuthCoordinator {
     }
 
     // MARK: - State helpers
-
     /// Why a signed-in user is being published, deciding whether the session
     /// generation advances.
     enum SessionPublication {
@@ -636,7 +648,6 @@ public final class AuthCoordinator {
         /// signed-out state) is still a transition and advances.
         case revalidation
     }
-
     func applySignedInUser(
         _ user: CMUXAuthUser,
         publication: SessionPublication
@@ -650,6 +661,8 @@ public final class AuthCoordinator {
         let shouldRunPostSignInHook: Bool
         switch publication {
         case .signIn:
+            // A new credential session owns a fresh recovery budget.
+            cancelTeamScopeRecovery()
             advanceSessionGeneration()
             shouldRunPostSignInHook = true
         case .revalidation:
@@ -685,26 +698,39 @@ public final class AuthCoordinator {
             await onSignedIn()
         }
     }
-
     /// Refresh ``availableTeams`` from the client, tolerating failure so a
     /// flaky team fetch never blocks or unwinds a successful sign-in. Drops
     /// the writes when a sign-out raced the fetch, so a signed-out shell does
     /// not get the old account's teams persisted back.
-    private func refreshTeams(generation: UInt64) async {
+    func refreshTeams(generation: UInt64) async {
+        activeTeamRefreshCount += 1
+        let result: Result<([CMUXAuthTeam], String?), any Error>
         do {
             let client = self.client
-            let teams = try await runPhase(.listTeams, timeout: timeouts.network) {
-                try await client.listTeams()
-            }
+            result = .success(try await runPhase(.listTeams, timeout: timeouts.network) {
+                async let teams = client.listTeams()
+                async let selectedTeamID: String? = try? await client.selectedTeamID()
+                return try await (teams, selectedTeamID)
+            })
+        } catch {
+            result = .failure(error)
+        }
+        activeTeamRefreshCount -= 1
+        switch result {
+        case let .success((teams, serverSelectedTeamID)):
             guard generation == sessionGeneration else { return }
             authenticatedTeamsSessionGeneration = generation
             availableTeams = teams
-            selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
-        } catch {
+            selectedTeamID = Self.resolveTeamID(
+                selectedTeamID: serverSelectedTeamID ?? selectedTeamID,
+                teams: teams
+            )
+        case let .failure(error):
             authLog.error("Failed to list teams: \(error.localizedDescription, privacy: .private)")
+            guard generation == sessionGeneration else { return }
+            scheduleTeamScopeRecoveryIfNeeded()
         }
     }
-
     private static func resolveTeamID(
         selectedTeamID: String?,
         teams: [CMUXAuthTeam]
@@ -718,12 +744,12 @@ public final class AuthCoordinator {
         }
         return teams.first?.id
     }
-
     func clearAuthState(
         preservePendingCode: Bool = false,
         sessionTransitionAlreadyAnnounced: Bool = false
     ) {
         advanceSessionGeneration(notifySessionWillTransition: !sessionTransitionAlreadyAnnounced)
+        cancelTeamScopeRecovery()
         latestSignInRefreshToken = nil
         if !preservePendingCode { pendingNonce = nil }
         userCache.clear()
@@ -773,6 +799,7 @@ public final class AuthCoordinator {
         isAuthenticated = cachedUser != nil
         isRestoringSession = false
         publishAuthenticatedSessionIdentity()
+        scheduleTeamScopeRecoveryIfNeeded()
     }
 
     func clearPersistedAuthForUITest() async {

@@ -37,13 +37,27 @@ private final class RecordingTerminalLinkContainer: TerminalLinkOpenContainer {
         return true
     }
 
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool {
         false
     }
 }
 
 @Suite("Terminal link locations and Dock controls", .serialized)
 struct TerminalLinkLocationAndDockTests {
+    @Test("Bare localhost links retain port, query and fragment", arguments: [
+        "localhost:8000",
+        "localhost:8000/probe?duplicate=1&duplicate=2#fragment",
+        "api.localhost:8000/probe?encoded=a%2Fb#fragment"
+    ])
+    func bareLocalhostLinksOpenEmbedded(_ raw: String) throws {
+        let target = try #require(resolveTerminalOpenURLTarget(raw))
+        guard case let .embeddedBrowser(url) = target else {
+            Issue.record("Expected a localhost web link, not an external URL scheme")
+            return
+        }
+        #expect(url.absoluteString == "http://\(raw)")
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "terminal-link-location-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -119,6 +133,28 @@ struct TerminalLinkLocationAndDockTests {
         #expect(browserPanels.count == 1)
         #expect(browserPanels.first?.preferredURLStringForOmnibar() == url.absoluteString)
         #expect(externallyOpened.isEmpty)
+    }
+
+    @Test("Dock treats a terminal it cannot place as remote")
+    @MainActor
+    func dockUnplacedTerminalIsRemote() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let store = DockSplitStore(
+            workspaceId: workspace.id,
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: false)
+        )
+
+        #expect(!store.terminalLinkIsRemoteTerminal(terminalPanelId))
+        #expect(store.terminalLinkIsRemoteTerminal(UUID()))
+        // Dock terminals report their workspace as owner; their paths stay local.
+        #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: terminalPanelId))
     }
 
     @Test("path:line Cmd-click forwards the location to the preferred editor")

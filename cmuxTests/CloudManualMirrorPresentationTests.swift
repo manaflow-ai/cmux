@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Foundation
 import Testing
@@ -10,6 +11,12 @@ import Testing
 
 @Suite("Cloud manual mirror presentation")
 struct CloudManualMirrorPresentationTests {
+    /// Every AppKit-backed view under `root`, in depth-first order.
+    @MainActor
+    private static func descendants(of root: NSView) -> [NSView] {
+        root.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
     @Test("Reconnect card and controls stay inside a narrow Cloud split")
     @MainActor
     func reconnectCardFitsAfterPaneResize() throws {
@@ -23,30 +30,63 @@ struct CloudManualMirrorPresentationTests {
         let content = try #require(window.contentView)
         let overlay = CloudTerminalReconnectOverlayView(frame: content.bounds)
         content.addSubview(overlay)
-        overlay.apply(.init(
-            title: "Cloud terminal could not start",
-            detail: "Check that the machine is connected, then retry this terminal.",
-            showsProgress: false, showsReconnectButton: true
-        ))
-        let card = try #require(overlay.subviews.first as? NSVisualEffectView)
-        let stack = try #require(card.subviews.compactMap { $0 as? NSStackView }.first)
-        let controls = stack.arrangedSubviews.compactMap { $0 as? NSControl }
-            + card.subviews.compactMap { $0 as? NSButton }
-
-        for width: CGFloat in [720, 190, 320, 190] {
-            overlay.frame.size.width = width
-            content.layoutSubtreeIfNeeded()
-            #expect(card.frame.minX >= 0)
-            #expect(card.frame.maxX <= width)
-            for control in controls where !control.isHidden {
-                let rect = control.convert(control.bounds, to: overlay)
-                #expect(rect.minX >= 0 && rect.maxX <= width)
+        // #12609 replaced the AppKit reconnect card with a SwiftUI one, so the
+        // card is a hosting view and its title, detail and Retry control are
+        // drawn by SwiftUI rather than exposed as NSControls. Locate the card by
+        // the identifier the overlay sets on it, never by its AppKit class.
+        let card = try #require(
+            Self.descendants(of: overlay).first {
+                $0.accessibilityIdentifier() == CloudTerminalReconnectOverlayView.cardAccessibilityIdentifier
             }
+        )
+
+        for showsProgress in [false, true] {
+            overlay.apply(.init(
+                title: "Cloud terminal could not start",
+                detail: "Check that the machine is connected, then retry this terminal.",
+                showsProgress: showsProgress, showsReconnectButton: true
+            ))
+            var cardWidthsByPaneWidth: [CGFloat: CGFloat] = [:]
+            for width: CGFloat in [720, 190, 320, 190] {
+                overlay.frame.size.width = width
+                overlay.needsLayout = true
+                content.layoutSubtreeIfNeeded()
+                cardWidthsByPaneWidth[width] = card.frame.width
+                #expect(card.frame.minX >= 0)
+                #expect(card.frame.maxX <= width)
+                // The card keeps a margin inside the pane at every width, so it
+                // can never be a fixed-width dialog that overflows a narrow one.
+                #expect(card.frame.width <= width - 24)
+                #expect(card.frame.height > 0)
+                #expect(card.frame.minY >= 0)
+                #expect(card.frame.maxY <= overlay.bounds.height)
+                for hosted in Self.descendants(of: card) where !hosted.isHidden {
+                    let rect = hosted.convert(hosted.bounds, to: overlay)
+                    #expect(rect.minX >= 0 && rect.maxX <= width)
+                }
+            }
+            // …and it genuinely tracks the pane rather than clamping to one size.
+            let narrow = cardWidthsByPaneWidth[190] ?? 0
+            let medium = cardWidthsByPaneWidth[320] ?? 0
+            let wide = cardWidthsByPaneWidth[720] ?? 0
+            #expect(narrow > 0)
+            #expect(narrow < medium)
+            #expect(medium <= wide)
         }
+
         var reconnects = 0
         overlay.onReconnect = { reconnects += 1 }
-        let reconnect = try #require(stack.arrangedSubviews.compactMap { $0 as? NSButton }.first)
-        reconnect.performClick(nil)
+        // `reconnectAction` is the closure the overlay hands to the card's Retry
+        // control, so invoking it exercises the same wiring the click does.
+        let reconnect = try #require(overlay.reconnectAction)
+        reconnect()
+        #expect(reconnects == 1)
+        overlay.apply(.init(
+            title: "Connecting", detail: "Waiting",
+            showsProgress: true, showsReconnectButton: false
+        ))
+        let stillOffersReconnect = overlay.reconnectAction != nil
+        #expect(!stillOffersReconnect)
         #expect(reconnects == 1)
     }
 
@@ -174,6 +214,25 @@ struct CloudManualMirrorPresentationTests {
     }
 
     @Test @MainActor
+    func explicitDisconnectCanPauseAndResumeALostSSHAttachment() {
+        var refreshes = 0
+        let session = CloudTuiManualMirrorSession(
+            machineID: "ssh:fixture", terminalID: "term_persistent", remoteSurfaceID: 17,
+            onNeedsReconnect: { refreshes += 1 }
+        )
+        defer { session.stop() }
+        session.markSurfaceResolutionUnavailable()
+        #expect(session.phase == .disconnected)
+        #expect(session.cancelConnectionAttempt())
+        session.visibilityChanged(true)
+        #expect(!session.allowsAutomaticReconnect)
+        #expect(refreshes == 0)
+        #expect(session.retryConnection())
+        #expect(session.allowsAutomaticReconnect)
+        #expect(refreshes == 1)
+    }
+
+    @Test @MainActor
     func progressCardDismissalInvokesCancellationCallback() throws {
         let owner = CloudTerminalOverlayCoordinator()
         let destination = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
@@ -223,10 +282,11 @@ struct CloudManualMirrorPresentationTests {
     func usableAttachmentClearsTheCardWithoutRendererObservations() async throws {
         let fixture = try CloudManualMirrorSocketFixture()
         defer { fixture.close() }
+        var reconnectRequests = 0
         let session = CloudTuiManualMirrorSession(
             machineID: "machine", terminalID: "term_live", remoteSurfaceID: 17,
             presentationPolicy: .immediate,
-            onNeedsReconnect: {}
+            onNeedsReconnect: { reconnectRequests += 1 }
         )
         defer { session.stop() }
         let frame = NSRect(x: 0, y: 0, width: 480, height: 320)
@@ -283,6 +343,7 @@ struct CloudManualMirrorPresentationTests {
 
         // A real transport failure must still be shown after successful use.
         fixture.send(["event": "detached", "surface": 17])
+        fixture.close()
         deadline = ContinuousClock.now + .seconds(5)
         while session.phase != .disconnected, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
@@ -293,6 +354,10 @@ struct CloudManualMirrorPresentationTests {
         #expect(error.showsReconnectButton)
         #expect(!error.showsProgress)
         #expect(!error.copyableError.isEmpty)
+        // The detached frame and the socket EOF can race. They are one outage,
+        // so the provider must receive one recovery request rather than a
+        // reconnect storm.
+        #expect(reconnectRequests == 1)
     }
 
     @Test @MainActor

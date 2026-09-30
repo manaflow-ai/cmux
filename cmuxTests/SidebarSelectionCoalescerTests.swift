@@ -126,6 +126,13 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
 
     var minimumResolution: Duration { .zero }
 
+    /// Sleeps registered and not yet resumed, for deadline-bounded polls.
+    var sleeperCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return sleepers.count
+    }
+
     var retainedCancellationMarkerCount: Int {
         lock.lock()
         defer { lock.unlock() }
@@ -300,7 +307,7 @@ struct SidebarSelectionCoalescerTests {
         #expect(applied == ["a"])
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func burstCollapsesToNewestOnTrailingEdge() async {
         let clock = SidebarTestManualClock()
         let coalescer = SidebarSelectionCoalescer(window: .milliseconds(100), clock: clock)
@@ -308,12 +315,18 @@ struct SidebarSelectionCoalescerTests {
         coalescer.request { applied.append("a") }
         clock.advance(by: .milliseconds(30))
         coalescer.request { applied.append("b") }
+        await clock.waitUntilSleeping(for: .milliseconds(70))
         clock.advance(by: .milliseconds(30))
-        coalescer.request { applied.append("c") }
+        let trailingApplied = AsyncStream<Void>.makeStream()
+        coalescer.request {
+            applied.append("c")
+            trailingApplied.continuation.yield(())
+            trailingApplied.continuation.finish()
+        }
         #expect(applied == ["a"])
 
         clock.advance(by: .milliseconds(100))
-        await drain()
+        for await _ in trailingApplied.stream { break }
         // Only the newest of the burst lands; the intermediate never applies.
         #expect(applied == ["a", "c"])
     }

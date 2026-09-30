@@ -1,8 +1,11 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
+import CmuxCloudTui
 import CmuxPanes
+import CmuxSurfaceCatalogModel
 import Testing
 import SwiftUI
 
@@ -187,7 +190,7 @@ import SwiftUI
         let failure = try #require(workspace.cloudMaterializationFailures[panelID])
         #expect(panelID == pendingPanelID)
         #expect(workspace.cloudPendingCreations[panelID]?.machine == machine)
-        #expect(failure.detail == error.errorDescription)
+        #expect(failure.detail == CloudDiagnosticFailure.classify(error).label)
         #expect(presentation.showsReconnectButton)
         let operation = try #require(recorder.operations.first)
         #expect(operation.operation == .terminal)
@@ -239,6 +242,25 @@ import SwiftUI
         let store = harness.workspace.cloudPaneCreationFailureStore
         let sourcePanelID = try #require(harness.workspace.focusedPanelId)
         let source = try #require(harness.workspace.terminalPanel(for: sourcePanelID))
+        // A new window inherits persisted geometry and chrome from earlier
+        // tests in the same app host, which can leave the terminal narrower
+        // than the card's 100pt floor (seen at 124pt in a 640pt window). The
+        // card is sized to `pane width - 24`, so give the pane room first.
+        // Restore before tearDown closes the window so any persisted geometry
+        // later tests inherit stays what it was.
+        let originalFrame = window.frame
+        defer { window.setFrame(originalFrame, display: false) }
+        window.setFrame(NSRect(x: 0, y: 0, width: 1280, height: 800), display: true)
+        let resizeDeadline = ContinuousClock.now + .seconds(3)
+        while source.hostedView.bounds.width < 300, ContinuousClock.now < resizeDeadline {
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(
+            source.hostedView.bounds.width >= 300,
+            "The source pane must be wide enough for the card before presenting it"
+        )
         let request = store.beginRequest()
         harness.workspace.presentCloudPaneCreationFailure(
             machine: .cloud("overlay-test"),
@@ -255,7 +277,25 @@ import SwiftUI
             await Task.yield()
         }
         let overlay = try #require(card())
-        #expect(overlay.frame.width > 100 && overlay.frame.height > 50)
+        let layoutDeadline = ContinuousClock.now + .seconds(3)
+        while (overlay.frame.width <= 100 || overlay.frame.height <= 50), ContinuousClock.now < layoutDeadline {
+            window.displayIfNeeded()
+            target.container.layoutSubtreeIfNeeded()
+            overlay.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        #expect(
+            overlay.frame.width > 100 && overlay.frame.height > 50,
+            """
+            card=\(overlay.frame) inContainer=\(overlay.superview === target.container) \
+            source=\(target.container.convert(source.hostedView.bounds, from: source.hostedView)) \
+            sourceVisible=\(source.hostedView.visibleRect) sourceHidden=\(source.hostedView.isHiddenOrHasHiddenAncestor) \
+            sourceWindowMatches=\(source.hostedView.window === window) \
+            reference=\(target.container.convert(target.reference.bounds, from: target.reference)) \
+            window=\(window.frame) visible=\(window.isVisible) key=\(window.isKeyWindow) \
+            mainWindows=\(NSApp.windows.filter { $0.identifier?.rawValue.hasPrefix("cmux.main.") == true }.map { "\($0.frame)" })
+            """
+        )
         let terminalFrame = target.container.convert(source.hostedView.bounds, from: source.hostedView)
         #expect(abs(overlay.frame.midX - terminalFrame.midX) < 2)
         #expect(abs(overlay.frame.midY - terminalFrame.midY) < 2)
@@ -445,6 +485,7 @@ import SwiftUI
         private(set) var createdWorkingDirectory: String?
         private(set) var createdRemoteWorkspaceID: String?
 
+        var materializePane: ((SurfaceResource, SurfaceDestination, Bool) throws -> SurfaceProjection)?
         let creationError: Error?
         let creationAttemptSignal = CreationAttemptSignal()
         let creationRequests = AsyncStream<UUID>.makeStream()
@@ -525,8 +566,9 @@ import SwiftUI
         }
 
         /// Returns a projection fixture for unrelated provider protocol calls.
-        func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus _: Bool) async throws -> SurfaceProjection {
-            SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
+        func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
+            if let materializePane { return try materializePane(resource, destination, focus) }
+            return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
         }
 
         /// Records no state when the test projection ends.
@@ -574,6 +616,31 @@ import SwiftUI
         #expect(workspace.paneId(forPanelId: created.panelID) != paneID)
     }
 
+    /// A focused Cloud split hands focus over like a local Cmd+D. SwiftUI reparents
+    /// the source terminal into the new split; unless that reparent is suppressed,
+    /// the source takes focus back and the new pane shows a hollow cursor.
+    @Test func focusedCloudSplitKeepsTheSourceFromTakingFocusBack() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let source = try #require(workspace.focusedPanelId.flatMap { workspace.terminalPanel(for: $0) })
+        let panel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+
+        _ = try workspace.insertCloudManualMirrorPanel(
+            panel,
+            at: .split(workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .right),
+            focus: true,
+            isLoading: false
+        )
+
+        #expect(workspace.focusedPanelId == panel.id)
+        #expect(workspace.paneId(forPanelId: panel.id) != paneID)
+#if DEBUG
+        #expect(source.hostedView.debugIsSuppressingReparentFocusForTesting())
+#endif
+    }
+
     /// A projected browser (VM desktop or port preview) goes through the same create
     /// handler as a terminal; `focus: true` must select it too.
     @Test func focusedBrowserTabIsSelected() throws {
@@ -593,6 +660,50 @@ import SwiftUI
         #expect(workspace.focusedPanelId == created.panelID)
         let selectedSurface = try #require(workspace.bonsplitController.selectedTab(inPane: paneID)?.id)
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
+    }
+
+    @Test("Cloud resource drop hands keyboard ownership to its first pane")
+    func cloudPaneFocusTransfersKeyboardOwnershipFromSidebar() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let window = try #require(harness.appDelegate.mainWindow(for: harness.windowId))
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let catalog = SurfaceCatalog()
+        let provider = CloudCreationProvider(machine: .cloud("drop-fixture"), workingDirectory: nil)
+        catalog.register(provider)
+        var created: [UUID] = []
+        provider.materializePane = { resource, destination, focus in
+            let panel = try SurfacePaneFactory.makeTerminalPane(
+                initialCommand: nil, workingDirectory: nil, at: destination, focus: focus
+            )
+            created.append(panel.panelID)
+            return SurfaceProjection(resource: resource.id, workspaceID: panel.workspaceID, panelID: panel.panelID)
+        }
+        let resources = ["first", "second"].map { name in
+            SurfaceResource(id: SurfaceResourceID(machine: provider.machine, kind: .terminal, key: name),
+                            title: name, detail: nil, lifecycle: .running, agent: nil,
+                            remoteWorkspace: nil, port: nil, url: nil)
+        }
+        catalog.replaceResources(resources, on: provider.machine)
+        harness.appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .machines, in: window)
+        #expect(harness.appDelegate.rightSidebarOwnsInputFocus(for: workspace))
+        #expect(workspace.handleSurfaceResourceDrop(
+            group: SurfaceResourceGroup(title: "drop", resources: resources.map(\.id)),
+            destination: .split(targetPane: paneID, orientation: .horizontal, insertFirst: false),
+            catalog: catalog
+        ))
+        let deadline = ContinuousClock.now + .seconds(3)
+        while ContinuousClock.now < deadline,
+              created.count < 2 || harness.appDelegate.rightSidebarOwnsInputFocus(for: workspace) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(created.count == 2)
+        let first = try #require(created.first)
+        #expect(workspace.focusedPanelId == first)
+        #expect(workspace.paneId(forPanelId: first) != paneID)
+        #expect(!harness.appDelegate.rightSidebarOwnsInputFocus(for: workspace))
+        #expect(harness.appDelegate.allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: first, in: window))
     }
 
     /// Inside a socket command whose policy forbids focus mutations, the factory must
@@ -636,7 +747,17 @@ import SwiftUI
             windowId = appDelegate.createMainWindow()
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             workspace = try #require(manager.selectedWorkspace)
+            // createMainWindow copies the size of the current main window, and
+            // earlier tests in the host leave 320-point windows behind. Split
+            // admission then correctly refuses a side-by-side split, so give
+            // the window and its split container a realistic size first.
+            let window = try #require(appDelegate.mainWindow(for: windowId))
+            window.setContentSize(Self.contentSize)
+            window.contentView?.layoutSubtreeIfNeeded()
+            workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: Self.contentSize))
         }
+
+        private static let contentSize = CGSize(width: 1_000, height: 700)
 
         func tearDown() {
             let identifier = "cmux.main.\(windowId.uuidString)"

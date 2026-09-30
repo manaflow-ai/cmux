@@ -407,14 +407,26 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         ) == PresenceClient.debugDefaultServiceURL)
     }
 
-    @Test func explicitPresenceOverrideStillBeatsChannelDefault() throws {
-        // Per-developer isolated workers keep working with --prod-auth.
+    @Test func productionAuthChannelIgnoresPresenceOverride() throws {
+        // A production-auth build must reach the production worker even when a
+        // stale env, defaults, or baked override names a staging worker (#11524).
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [PresenceClient.serviceURLEnvKey: "https://cmux-presence-dev-alice.acct.workers.dev"],
+            defaults: try freshDefaults(),
+            infoPlistValue: "https://cmux-presence-dev-alice.acct.workers.dev",
+            isDebugBuild: true,
+            isDevelopmentAuthChannel: false
+        ) == PresenceClient.productionServiceURL)
+    }
+
+    @Test func explicitPresenceOverrideStillBeatsDevelopmentChannelDefault() throws {
+        // Per-developer isolated workers keep working on development auth.
         #expect(PresenceClient.resolvedServiceBaseURL(
             environment: [PresenceClient.serviceURLEnvKey: "https://cmux-presence-dev-alice.acct.workers.dev"],
             defaults: try freshDefaults(),
             infoPlistValue: nil,
             isDebugBuild: true,
-            isDevelopmentAuthChannel: false
+            isDevelopmentAuthChannel: true
         ) == "https://cmux-presence-dev-alice.acct.workers.dev")
     }
 

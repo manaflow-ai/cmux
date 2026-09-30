@@ -1,0 +1,15 @@
+{
+  "cloudCliCommit": "dd4c9adb57187e8dff80776227202fb611d8bdc7",
+  "coderouterCommit": "1e1f137f1535a2e27768b77b654983663a2c89e9",
+  "archiveSha256": "c202cf3f528b6a442421d4ac53ee34680b7b85681261daa4db9fc27ad77df1c3",
+  "binaries": {
+    "cmux-cloud-cli": "49892e4d83ca003d975ca5e3c8260987e396a4b9831e9bb4bda4f52436ed908f",
+    "coderouter": "678bf7670d569ef5bd053aa9e8625a804729abe4d39b320ff1c69d0e458937fc"
+  },
+  "verification": {
+    "cloudCliRun": "https://github.com/manaflow-ai/cmux/actions/runs/35491305600",
+    "coderouterRun": "https://github.com/manaflow-ai/coderouter/actions/runs/35491402923",
+    "macFleetJob": "1e69fb5f03f648d4d64bf6fa"
+  },
+  "url": "https://github.com/manaflow-ai/coderouter-releases/releases/download/dev-cmux13100-1e1f137/cmux-cloud-cli-linux-x64.tar.gz"
+}

@@ -157,6 +157,7 @@
       "focus-direction",
       "focus-pane",
       "get-frontend-projection",
+      "get-size-state",
       "identify",
       "ids",
       "journal-frontend-event",
@@ -167,6 +168,7 @@
       "machine-listening-tcp",
       "machine-usage",
       "move-tab",
+      "move-tab-to-workspace",
       "move-terminal",
       "move-workspace",
       "new-browser-tab",
@@ -175,6 +177,7 @@
       "new-screen",
       "new-tab",
       "new-workspace",
+      "note-size-activity",
       "notify",
       "pane-neighbor",
       "paste-image",
@@ -204,7 +207,10 @@
       "set-client-sizing",
       "set-default-colors",
       "set-ratio",
+      "set-size-counts",
+      "set-size-policy",
       "set-split-ratio",
+      "set-terminal-idle-policy",
       "set-viewport-pane-width",
       "set-window-title",
       "split",
@@ -238,7 +244,10 @@
       "attach-surface",
       "resize-attached-view",
       "release-attached-view-size",
-      "detach-attached-view"
+      "detach-attached-view",
+      "url-open-subscribe",
+      "url-open-claim",
+      "url-open-result"
     ],
     "local-admin": [
       "server-stats",
@@ -246,7 +255,8 @@
       "get-browser-provider",
       "unregister-browser-provider",
       "shutdown-daemon",
-      "pairing-response"
+      "pairing-response",
+      "url-open"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -453,6 +463,14 @@
       ]
     },
     {
+      "name": "size-state",
+      "streams": [
+        "subscribe",
+        "attach-byte",
+        "attach-render"
+      ]
+    },
+    {
       "name": "status",
       "streams": [
         "subscribe"
@@ -552,6 +570,12 @@
       "name": "workspace-renamed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "url-open",
+      "streams": [
+        "control"
       ]
     }
   ],
@@ -1096,6 +1120,21 @@
       "route": "self: close frontend transport; peer: detach-client"
     },
     {
+      "variant": "SetSizeMode",
+      "classification": "direct",
+      "route": "set-size-policy"
+    },
+    {
+      "variant": "SetSizeCounts",
+      "classification": "direct",
+      "route": "set-size-counts participant"
+    },
+    {
+      "variant": "DisconnectSizeParticipant",
+      "classification": "composite",
+      "route": "self: close frontend transport; peer: detach-client participant"
+    },
+    {
       "variant": "SelectProviderScope",
       "classification": "external-protocol",
       "route": "machine-provider select_scope"
@@ -1124,6 +1163,11 @@
       "variant": "RunConfigured",
       "classification": "composite",
       "route": "frontend configured menu + the referenced action's own route"
+    },
+    {
+      "variant": "MoveTabToWorkspace",
+      "classification": "direct",
+      "route": "move-tab-to-workspace"
     }
   ],
   "feature_families": [
@@ -1215,7 +1259,7 @@
       "id": "plugins",
       "wire_status": "partial",
       "programmability": "partial",
-      "route": "sidebar-plugin-v0; proposed manifest, permissions, contributions, and transactional management"
+      "route": "sidebar-plugin-v0 plus userland journal agent plugins; proposed contribution points, permissions, and typed management"
     },
     {
       "id": "file-sidebar",

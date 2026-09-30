@@ -16,6 +16,7 @@ import SwiftUI
 @MainActor
 @Observable
 private final class ReorderDragModel {
+    @ObservationIgnored var feedback: ReorderDragFeedback?
     var draggedId: String?
     var sourceIndex = 0
     var targetIndex = 0
@@ -140,12 +141,24 @@ struct ReorderableColumnView: View {
         // (the JS reorders children the moment the drop dispatches) would
         // otherwise stay masked behind the frozen local order until the
         // slower socket echo arrived.
-        .onChange(of: node.children) { _, _ in
+        .onChange(of: node.children) { _, children in
+            if let draggedId = model.draggedId, !model.isSettling,
+               !children.contains(draggedId) {
+                cancelDrag()
+            }
             if model.draggedId == nil || model.isSettling { localOrder = nil }
         }
         // Suppress hover washes on every row but the dragged one while a
         // drag is in flight (see SceneBoxStyle).
         .environment(\.sceneDraggedNodeId, model.draggedId)
+        .onDisappear {
+            clearDragFeedback()
+            removeEscapeMonitor()
+            model.draggedId = nil
+            model.isSettling = false
+            model.isCancelling = false
+            localOrder = nil
+        }
     }
 
     /// Children in display order: mid-drag and just-dropped use the local
@@ -228,6 +241,7 @@ struct ReorderableColumnView: View {
                             model.targetIndex = target
                         }
                     }
+                    reportDragFeedback(childId: childId, order: order)
                     return
                 }
 
@@ -268,6 +282,7 @@ struct ReorderableColumnView: View {
                         model.projectedIndent = projected
                     }
                 }
+                reportDragFeedback(childId: childId, order: order)
             }
             .onEnded { _ in
                 guard model.draggedId == childId, !model.isCancelling else { return }
@@ -300,6 +315,7 @@ struct ReorderableColumnView: View {
 
     private func cancelDrag() {
         guard model.draggedId != nil, !model.isCancelling else { return }
+        clearDragFeedback()
         Self.debugLog("cancel drag")
         model.isCancelling = true
         removeEscapeMonitor()
@@ -323,6 +339,7 @@ struct ReorderableColumnView: View {
     /// their current visual displacement from the new slot, then spring that
     /// residual to zero.
     private func drop(childId: String) {
+        defer { clearDragFeedback() }
         removeEscapeMonitor()
         let order = displayOrder
         let isBlock = model.isBlockDrag
@@ -387,6 +404,31 @@ struct ReorderableColumnView: View {
             "side": model.boundarySide,
             "block": isBlock,
         ])
+    }
+
+    /// Publish discrete intent, never continuous pointer motion. The flat
+    /// index uses the same block expansion and item keys as the committed drop.
+    private func reportDragFeedback(childId: String, order: [String]) {
+        guard node.bool("reportsDrag") else { return }
+        let items = model.isBlockDrag ? coarseItems(order: order) : order.map { [$0] }
+        let source = model.isBlockDrag ? model.coarseSource : model.sourceIndex
+        let target = model.isBlockDrag ? model.coarseTarget : model.targetIndex
+        let projected = ReorderMath.reordered(items, from: source, to: target).flatMap { $0 }
+        let feedback = ReorderDragFeedback(
+            id: itemKey(forChild: childId),
+            index: projected.firstIndex(of: childId) ?? target,
+            side: model.boundarySide,
+            block: model.isBlockDrag
+        )
+        guard feedback != model.feedback else { return }
+        model.feedback = feedback
+        sink.send(node.id, "dragChange", feedback.payload)
+    }
+
+    private func clearDragFeedback() {
+        guard model.feedback != nil else { return }
+        model.feedback = nil
+        sink.send(node.id, "dragChange", [:])
     }
 
     /// Consecutive rows sharing a `block` prop value merge into one coarse

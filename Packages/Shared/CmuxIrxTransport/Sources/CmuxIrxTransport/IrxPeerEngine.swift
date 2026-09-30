@@ -53,8 +53,8 @@ public actor IrxPeerEngine {
         public init(
             initialBackoff: Duration = .milliseconds(400),
             maxBackoff: Duration = .seconds(5),
-            keepaliveInterval: Duration = IrxProtocol.keepaliveInterval,
-            keepaliveDeadline: Duration = IrxProtocol.keepaliveDeadline,
+            keepaliveInterval: Duration = IrxProtocol().keepaliveInterval,
+            keepaliveDeadline: Duration = IrxProtocol().keepaliveDeadline,
             foregroundProbeDeadline: Duration = .milliseconds(400)
         ) {
             self.initialBackoff = initialBackoff

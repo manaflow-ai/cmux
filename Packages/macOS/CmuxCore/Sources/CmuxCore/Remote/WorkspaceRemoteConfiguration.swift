@@ -12,6 +12,10 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public let transport: WorkspaceRemoteTransport
     /// Protocol used by the user-facing interactive terminal.
     public let terminalTransport: WorkspaceRemoteTerminalTransport
+    /// Original durable descriptor when restoring managed SSH. A legacy owner is
+    /// retained for recovery, never silently converted into a new TUI session.
+    public var restoredSSHSession: SessionRemoteWorkspaceSnapshot? = nil
+
     /// Durable program profile opened in the interactive terminal.
     public let terminalProfile: WorkspaceRemoteTerminalProfile
     /// Effective host-configured command chained after cmux's interactive bootstrap.
@@ -169,7 +173,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
 
     /// Compares user-visible connection settings while ignoring the runtime lease generation.
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.transport == rhs.transport &&
+        lhs.restoredSSHSession == rhs.restoredSSHSession &&
+            lhs.transport == rhs.transport &&
             lhs.terminalTransport == rhs.terminalTransport &&
             lhs.terminalProfile == rhs.terminalProfile &&
             lhs.configuredRemoteCommand == rhs.configuredRemoteCommand &&
@@ -363,7 +368,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     /// configuration. Remote CLI bridges use this to reject cross-workspace
     /// requests before they reach the app control socket.
     public func scopedToOwnerWorkspace(_ workspaceID: UUID) -> WorkspaceRemoteConfiguration {
-        WorkspaceRemoteConfiguration(
+        var copy = WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: terminalTransport,
             terminalProfile: terminalProfile,
@@ -387,6 +392,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             persistentDaemonSlot: persistentDaemonSlot,
             skipDaemonBootstrap: skipDaemonBootstrap
         )
+        copy.restoredSSHSession = restoredSSHSession
+        return copy
     }
 
     /// Returns a copy carrying the broker generation for one native-SSH lease.
@@ -396,7 +403,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public func withDaemonWebSocketEndpoint(
         _ endpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
     ) -> WorkspaceRemoteConfiguration {
-        WorkspaceRemoteConfiguration(
+        var copy = WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: terminalTransport,
             terminalProfile: terminalProfile,
@@ -421,10 +428,12 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             skipDaemonBootstrap: skipDaemonBootstrap,
             sshControlMasterLeaseGeneration: sshControlMasterLeaseGeneration
         )
+        copy.restoredSSHSession = restoredSSHSession
+        return copy
     }
 
     public func withSSHControlMasterLeaseGeneration(_ generation: UUID) -> WorkspaceRemoteConfiguration {
-        WorkspaceRemoteConfiguration(
+        var copy = WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: terminalTransport,
             terminalProfile: terminalProfile,
@@ -449,6 +458,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             skipDaemonBootstrap: skipDaemonBootstrap,
             sshControlMasterLeaseGeneration: generation
         )
+        copy.restoredSSHSession = restoredSSHSession
+        return copy
     }
 }
 
@@ -503,9 +514,10 @@ extension WorkspaceRemoteConfiguration {
         }
 
         guard transport == .ssh else { return nil }
+        if let restoredSSHSession { return restoredSSHSession }
         let retainsRelayNamespace = preserveAfterTerminalExit || terminalTransport == .mosh
 
-        return SessionRemoteWorkspaceSnapshot(
+        var snapshot = SessionRemoteWorkspaceSnapshot(
             transport: transport,
             terminalTransport: terminalTransport,
             terminalProfile: terminalProfile,
@@ -520,5 +532,12 @@ extension WorkspaceRemoteConfiguration {
             persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil,
             managedCloudVMID: managedCloudVMID
         )
+        // Same rule as the app's routesThroughSSHTui: a configuration carrying a
+        // cmuxd-remote relay or daemon endpoint runs the legacy lifecycle, so its
+        // snapshot must not claim cmux-tui ownership.
+        if terminalTransport == .ssh && !skipDaemonBootstrap && relayPort == nil && daemonWebSocketEndpoint == nil {
+            snapshot.sshSessionOwner = "cmux-tui"
+        }
+        return snapshot
     }
 }

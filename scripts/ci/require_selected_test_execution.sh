@@ -57,7 +57,7 @@ if [[ -z "$summary_count" ]]; then
 fi
 
 if [[ "$summary_count" -eq 0 ]]; then
-  echo "selected test filter matched zero tests; use target/class or target/class/method syntax" >&2
+  printf 'selected test filter %q matched zero tests; use target/class or target/class/method syntax\n' "$test_filter" >&2
   exit 1
 fi
 

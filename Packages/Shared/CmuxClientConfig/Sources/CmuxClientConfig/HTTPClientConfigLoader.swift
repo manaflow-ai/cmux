@@ -46,10 +46,10 @@ public struct HTTPClientConfigLoader: ClientConfigLoading {
             throw ClientConfigError.invalidResponse
         }
         if http.statusCode == 429 {
-            let seconds = CmxRetryAfterPolicy.seconds(
+            let seconds = CmxRetryAfterPolicy().seconds(
                 from: http,
-                defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-            ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+            ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
             await retryAfterGate.extend(by: seconds)
             throw ClientConfigError.rateLimited(retryAfterSeconds: seconds)
         }

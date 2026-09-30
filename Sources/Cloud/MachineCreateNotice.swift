@@ -1,9 +1,8 @@
 import Foundation
 
-/// What the person is told when a background create finishes: the words for
-/// the notification and, when the machine opened somewhere, the workspace the
-/// notification's click should land in. Built from the coordinator's
-/// ``MachineCreateCoordinator/Finished`` so the wording lives in one place.
+/// What the person is told when a background create needs an actionable
+/// notification. A successfully selected workspace is silent; a create whose
+/// workspace cannot be selected falls back to the Machines list.
 struct MachineCreateNotice: Equatable {
     let title: String
     let subtitle: String
@@ -29,9 +28,7 @@ struct MachineCreateNotice: Equatable {
                 name
             )
             self.subtitle = subtitle
-            body = workspaceID == nil
-                ? String(localized: "machines.notification.ready.body.list", defaultValue: "Find it in the Machines list.")
-                : String(localized: "machines.notification.ready.body", defaultValue: "It's open in its own workspace. Click to go there.")
+            body = String(localized: "machines.notification.ready.body.list", defaultValue: "Find it in the Machines list.")
             self.workspaceID = workspaceID
             isFailure = false
         case .createdButOpenFailed(let machineID, let output):
@@ -40,14 +37,14 @@ struct MachineCreateNotice: Equatable {
                     localized: "machines.notification.createdOpenFailed.title",
                     defaultValue: "%@ was created, but opening it failed"
                 ),
-                machineID
+                request.reservedWorkspaceID == nil ? machineID : request.displayName
             )
             self.subtitle = subtitle
             body = Self.body(
                 lead: String(localized: "machines.notification.createdOpenFailed.body", defaultValue: "Open it from the Machines list."),
                 output: output
             )
-            workspaceID = nil
+            workspaceID = request.presentationWorkspaceID
             isFailure = true
         case .failed(let output):
             title = request.failureLabel
@@ -56,7 +53,7 @@ struct MachineCreateNotice: Equatable {
                 lead: String(localized: "machines.notification.failed.body", defaultValue: "Retry or dismiss it from the Machines list."),
                 output: output
             )
-            workspaceID = request.baseWorkspaceID
+            workspaceID = request.presentationWorkspaceID
             isFailure = true
         }
     }

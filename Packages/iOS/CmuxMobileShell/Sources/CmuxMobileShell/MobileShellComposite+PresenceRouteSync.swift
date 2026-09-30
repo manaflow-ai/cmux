@@ -172,7 +172,7 @@ extension MobileShellComposite {
             // without refreshing this shell's display cache. Take one scoped
             // store snapshot per batch so every host is matched against current
             // authority without a database scan per instance.
-            await self.loadPairedMacs()
+            await self.loadPairedMacs(forceRefresh: true)
             guard await self.isScopeCurrent(scope) else { return }
             let pairedMacsByPairingID = Dictionary(
                 self.storedPairedMacsIncludingHidden.map {
@@ -190,9 +190,17 @@ extension MobileShellComposite {
                     macDeviceID: instance.deviceId,
                     instanceTag: instance.tag
                 )
+                // An untagged legacy row adopts its device's sole
+                // route-advertising build; `applyPushedRoutes` checks that
+                // this instance is that build before writing.
+                let legacyPairingID = MobilePairedMac.pairingID(
+                    macDeviceID: instance.deviceId,
+                    instanceTag: nil
+                )
                 if await self.applyPushedRoutes(
                     from: instance,
-                    pairedMac: pairedMacsByPairingID[pairingID],
+                    pairedMac: pairedMacsByPairingID[pairingID]
+                        ?? pairedMacsByPairingID[legacyPairingID],
                     scope: scope
                 ) {
                     persistedRoutes = true
@@ -200,7 +208,7 @@ extension MobileShellComposite {
             }
             guard await self.isScopeCurrent(scope) else { return }
             if persistedRoutes {
-                await self.loadPairedMacs()
+                await self.loadPairedMacs(forceRefresh: true)
             }
             guard await self.isScopeCurrent(scope) else { return }
             if self.connectionState != .connected {

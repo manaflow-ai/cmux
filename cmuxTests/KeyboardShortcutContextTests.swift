@@ -176,6 +176,41 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
 
+    /// Factory defaults may share a keystroke only when their built-in contexts or
+    /// router priority keep them apart, using the same collision rule the Settings
+    /// recorder applies. The one deliberate exception is Cmd+Shift+G:
+    /// groupSelectedWorkspaces consumes it only with two or more eligible selected
+    /// workspaces and otherwise falls through to toggleReactGrab in the dispatcher.
+    func testDefaultShortcutsDoNotCollideWithinAContext() {
+        let actions = KeyboardShortcutSettings.Action.allCases
+        let intentionalFallThroughPairs: Set<Set<KeyboardShortcutSettings.Action>> = [
+            [.groupSelectedWorkspaces, .toggleReactGrab],
+        ]
+
+        var collisions: Set<Set<KeyboardShortcutSettings.Action>> = []
+        for (index, lhs) in actions.enumerated() {
+            for rhs in actions[(index + 1)...] {
+                let collides = lhs.conflicts(
+                    with: rhs.defaultShortcut,
+                    proposedAction: rhs,
+                    configuredShortcut: lhs.defaultShortcut
+                )
+                if collides {
+                    collisions.insert([lhs, rhs])
+                }
+            }
+        }
+
+        let unexpected = collisions.subtracting(intentionalFallThroughPairs)
+        XCTAssertTrue(
+            unexpected.isEmpty,
+            "Default shortcuts collide in a shared context: " +
+                unexpected.map { $0.map(\.rawValue).sorted().joined(separator: " + ") }.sorted().joined(separator: ", ")
+        )
+        // Keep the exception list honest: drop a pair once it stops colliding.
+        XCTAssertEqual(collisions.intersection(intentionalFallThroughPairs), intentionalFallThroughPairs)
+    }
+
     func testBrowserFocusModeToggleIsBrowserScopedAndDoesNotCollideWithSplitZoom() {
         let focusMode = KeyboardShortcutSettings.Action.toggleBrowserFocusMode
 

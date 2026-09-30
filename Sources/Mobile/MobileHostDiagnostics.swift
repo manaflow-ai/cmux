@@ -6,7 +6,7 @@ import OSLog
 final class MobileHostDiagnostics {
     /// Remains readable off the main actor when a stalled UI needs diagnostics.
     nonisolated static let log = DiagnosticLog(
-        buildStamp: DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary),
+        buildStamp: DiagnosticReport.buildStamp(infoDictionary: Bundle.main.infoDictionary),
         role: .macHost
     )
 

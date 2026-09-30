@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Bonsplit
 import Combine
 import CmuxSimulatorUI
@@ -2012,26 +2013,6 @@ extension DockShortcutRoutingTests {
             prefix: "cmux-dock-shortcut-routing"
         )
         KeyboardShortcutSettings.resetAll()
-        let standardDefaults = UserDefaults.standard
-        let previousDockEnabledSetting = standardDefaults.object(
-            forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
-        )
-        standardDefaults.set(
-            true,
-            forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
-        )
-        defer {
-            if let previousDockEnabledSetting {
-                standardDefaults.set(
-                    previousDockEnabledSetting,
-                    forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
-                )
-            } else {
-                standardDefaults.removeObject(
-                    forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
-                )
-            }
-        }
 
         let appDelegate = AppDelegate()
         appDelegate.notificationStore = TerminalNotificationStore.shared
@@ -2117,10 +2098,8 @@ extension DockShortcutRoutingTests {
 
     @MainActor
     static func waitForSearchState(_ surface: TerminalSurface) async {
-        for _ in 0..<20 {
-            if surface.searchState != nil {
-                return
-            }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while surface.searchState == nil, ContinuousClock.now < deadline {
             await Task.yield()
         }
     }

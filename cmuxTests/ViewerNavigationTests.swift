@@ -280,6 +280,9 @@ struct ViewerNavigationTests {
         let nativeCalls = try #require(
             try await webView.evaluateJavaScript("window.__cmuxNativeNavigationCalls") as? [[String: Any]]
         )
+        // Four native scroll calls are asserted below by position; a short
+        // list must fail the expectation, not crash the app host.
+        try #require(nativeCalls.count >= 4)
         #expect(nativeCalls.count == 4)
         #expect(nativeCalls.map { $0["behavior"] as? String } == ["smooth", "smooth", "smooth", "smooth"])
         #expect((nativeCalls[0]["top"] as? NSNumber)?.doubleValue == 72)

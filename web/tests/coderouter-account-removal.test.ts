@@ -13,6 +13,7 @@ describe("coderouter account removal", () => {
           ok: true as const,
           value: {
             user: {} as never,
+            access: { kind: "user" as const, userId: "test-user" },
             team: {
               teamId: "team-1",
               teamName: "Team",
@@ -38,7 +39,7 @@ describe("coderouter account removal", () => {
       { params: Promise.resolve({ accountId }) },
     );
     expect(response.status).toBe(200);
-    expect(removed).toEqual({ teamId: "team-1", accountId });
+    expect(removed).toEqual({ teamId: "team-1", accountId, access: { kind: "user", userId: "test-user" } });
     expect(await response.json()).toEqual({
       removed: true,
       lastAccount: true,
@@ -53,6 +54,7 @@ describe("coderouter account removal", () => {
         ok: true as const,
         value: {
           user: {} as never,
+            access: { kind: "user" as const, userId: "test-user" },
           team: {
             teamId: "team-1",
             teamName: "Team",
