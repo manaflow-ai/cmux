@@ -8,7 +8,7 @@ export type AcpmuxHostConfig = {
   sessionId?: string;
 };
 
-type EventRecord = { sessionId?: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, any> };
+export type EventRecord = { sessionId?: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, any> };
 type Session = Record<string, any> & { sessionId: string };
 type Reply = { id: number; result?: any; error?: { message?: string } };
 type Notification = { method: string; params?: any };
@@ -41,6 +41,12 @@ export function settleOptimisticPrompt(rows: Map<string, AcpmuxRow>, promptRows:
   promptRows.delete(promptId);
 }
 
+export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
+  const bySequence = new Map<number, EventRecord>();
+  for (const event of batches.flat()) bySequence.set(event.seq, event);
+  return [...bySequence.values()].sort((left, right) => left.seq - right.seq);
+}
+
 function textFromContent(content: any): string {
   if (typeof content === "string") return content;
   if (content?.type === "text") return String(content.text ?? "");
@@ -66,6 +72,7 @@ export class AcpmuxDirectClient {
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
   private optimisticPromptRows = new Map<string, string>();
+  private optimisticPromptTexts = new Map<string, string>();
   private firstSeq?: number;
   private lastSeq = 0;
   private turnOpen = false;
@@ -152,7 +159,7 @@ export class AcpmuxDirectClient {
     const detail = result?.session ?? {};
     this.summary = detail;
     this.queue = (detail.queue ?? []).map((entry: any) => ({ id: String(entry.promptId), prompt: String(entry.prompt ?? "") }));
-    this.events = beforeSeq === undefined ? (result?.events ?? []) : [...(result?.events ?? []), ...this.events];
+    this.events = mergeEventRecords(result?.events ?? [], this.events);
     this.rebuild();
     this.emit("attached");
   }
@@ -185,7 +192,7 @@ export class AcpmuxDirectClient {
   }
 
   private rebuild(): void {
-    this.rows.clear(); this.optimisticPromptRows.clear(); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.streamingAssistant = undefined; this.streamingActivity = undefined; this.pendingPermission = undefined;
+    this.rows.clear(); this.optimisticPromptRows.clear(); this.optimisticPromptTexts.clear(); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.streamingAssistant = undefined; this.streamingActivity = undefined; this.pendingPermission = undefined;
     const events = [...this.events].sort((a, b) => a.seq - b.seq);
     for (const event of events) { this.lastSeq = Math.max(this.lastSeq, event.seq); this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq); this.reduce(event); }
   }
@@ -194,7 +201,14 @@ export class AcpmuxDirectClient {
     const msg = event.msg ?? {};
     const update = sessionUpdate(event);
     if (event.dir === "mux") {
-      if (event.kind === "user_message") { settleOptimisticPrompt(this.rows, this.optimisticPromptRows, msg); this.rows.set(`user-${event.seq}`, { id: `user-${event.seq}`, version: 1, at: event.at, kind: "user", text: String(msg.text ?? "") }); this.turnOpen = true; }
+      if (event.kind === "user_message") {
+        const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
+        const text = typeof msg.text === "string" ? msg.text : undefined;
+        const fallbackPromptId = promptId ?? (text ? [...this.optimisticPromptTexts.entries()].find(([, value]) => value === text)?.[0] : undefined);
+        settleOptimisticPrompt(this.rows, this.optimisticPromptRows, { ...msg, promptId: fallbackPromptId });
+        if (fallbackPromptId) this.optimisticPromptTexts.delete(fallbackPromptId);
+        this.rows.set(`user-${event.seq}`, { id: `user-${event.seq}`, version: 1, at: event.at, kind: "user", text: String(msg.text ?? "") }); this.turnOpen = true;
+      }
       else if (event.kind === "turn_started") { this.turnOpen = true; this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" }); }
       else if (event.kind === "turn_end" || event.kind === "turn_result") { this.turnOpen = false; if (this.streamingAssistant) { const row = this.rows.get(this.streamingAssistant); if (row) { row.streaming = false; row.version += 1; } } this.rows.delete("typing"); if (event.kind === "turn_result") this.rows.set(`summary-${event.seq}`, { id: `summary-${event.seq}`, version: 1, at: event.at, kind: "turnSummary", durationMs: undefined, toolCount: [...this.rows.values()].filter((row) => row.kind === "activity").length, status: String(msg.status ?? "completed"), error: msg.errorText }); this.streamingAssistant = undefined; this.streamingActivity = undefined; }
       else if (event.kind === "queued" || event.kind === "queue_updated") { const id = String(msg.promptId ?? ""); if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }]; }
@@ -227,7 +241,20 @@ export class AcpmuxDirectClient {
   }
 
   snapshot(): void { this.emit(); }
-  async send(text: string): Promise<void> { if (!this.selectedSessionId) return; const promptId = crypto.randomUUID(); const rowId = `local-${promptId}`; const at = Date.now(); this.optimisticPromptRows.set(promptId, rowId); this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true }); this.emit(); await this.request("session/prompt", { sessionId: this.selectedSessionId, prompt: [{ type: "text", text }], _meta: { acpmux: { promptId } } }); }
+  async send(text: string): Promise<void> {
+    if (!this.selectedSessionId) return;
+    const promptId = crypto.randomUUID(); const rowId = `local-${promptId}`; const at = Date.now();
+    this.optimisticPromptRows.set(promptId, rowId); this.optimisticPromptTexts.set(promptId, text);
+    this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true }); this.emit();
+    try {
+      await this.request("session/prompt", { sessionId: this.selectedSessionId, prompt: [{ type: "text", text }], _meta: { acpmux: { promptId } } });
+    } catch (error) {
+      const row = this.rows.get(rowId);
+      if (row) { row.pending = false; row.failed = true; row.version += 1; }
+      this.optimisticPromptRows.delete(promptId); this.optimisticPromptTexts.delete(promptId); this.emit("failed");
+      throw error;
+    }
+  }
   async cancel(): Promise<void> { if (this.selectedSessionId) this.socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.selectedSessionId } })); }
   async permission(permissionId: string, optionId: string): Promise<void> { if (this.selectedSessionId) await this.request("_acpmux/permission_respond", { sessionId: this.selectedSessionId, permissionId, optionId }); }
   async select(sessionId: string): Promise<void> { if (this.selectedSessionId) await this.request("_acpmux/detach", { sessionId: this.selectedSessionId }); this.events = []; this.rows.clear(); await this.attach(sessionId); }
