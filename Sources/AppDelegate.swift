@@ -7323,7 +7323,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.launchDiffViewerProcess(
                     cliURL: cliURL, socketPath: socketPath, cwd: directory,
                     workspaceId: workspaceId, surfaceId: surfaceId,
-                    useLastTurnSource: false, sessionId: nil, patchFile: patchURL
+                    useLastTurnSource: false, sessionId: nil, patchFile: patchURL,
+                    title: (result.repositoryRoot as NSString).lastPathComponent
                 )
             } catch {
                 NSSound.beep()
@@ -7369,7 +7370,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         useLastTurnSource: Bool,
         sessionId: String?,
         focus: Bool = true,
-        patchFile: URL? = nil
+        patchFile: URL? = nil,
+        title: String? = nil
     ) -> Bool {
         let process = Process()
         process.executableURL = cliURL
@@ -7383,6 +7385,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "--workspace", workspaceId.uuidString,
             "--focus", focus ? "true" : "false",
         ]
+        if let title, !title.isEmpty {
+            arguments += ["--title", title]
+        }
         if let surfaceId {
             arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
         }
