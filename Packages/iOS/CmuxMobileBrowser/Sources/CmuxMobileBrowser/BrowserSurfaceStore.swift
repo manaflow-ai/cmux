@@ -83,25 +83,53 @@ public final class BrowserSurfaceStore {
         return surface
     }
 
-    /// Streamed browser tabs the user switched to "On iPhone". The choice
-    /// belongs to each tab: reopening the tab opens it on the phone again.
-    private var onDevicePanelIDs: Set<String> = []
+    /// The phone-side browser of each streamed tab the user switched to "On
+    /// iPhone", keyed by the tab's panel id. The choice and the page belong
+    /// to each tab: while a tab is On iPhone, this surface (not the Mac tab's
+    /// URL) is the source of truth, so leaving the tab and coming back shows
+    /// the page last loaded on the phone.
+    private var onDeviceSurfacesByPanel: [String: BrowserSurfaceState] = [:]
 
     /// Whether the streamed tab `panelID` was last switched to "On iPhone".
     public func prefersOnDevice(panelID: String) -> Bool {
-        onDevicePanelIDs.contains(panelID)
+        onDeviceSurfacesByPanel[panelID] != nil
     }
 
-    /// Remembers a streamed tab's last mode.
-    public func rememberOnDevice(_ onDevice: Bool, panelID: String) {
-        if onDevice {
-            onDevicePanelIDs.insert(panelID)
-        } else {
-            onDevicePanelIDs.remove(panelID)
+    /// Shows streamed tab `panelID` "On iPhone" in a workspace and remembers
+    /// that mode for the tab.
+    ///
+    /// The tab's existing phone-side surface is revealed as is, so its last
+    /// page is restored (a fresh web view reloads its `currentURL`). The
+    /// first time, a new surface linked to the tab loads `url` (the Mac
+    /// tab's page), or ``defaultURL`` when that is not a web page.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The workspace's raw identifier string.
+    ///   - panelID: The streamed tab's panel id.
+    ///   - url: The Mac tab's current URL.
+    /// - Returns: The workspace's active browser surface, linked to the tab.
+    @discardableResult
+    public func openOnDevice(for workspaceID: String, panelID: String, url: URL?) -> BrowserSurfaceState {
+        if let existing = onDeviceSurfacesByPanel[panelID] {
+            surfacesByWorkspace[workspaceID] = existing
+            return existing
         }
+        let webURL = url.flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil }
+        let surface = BrowserSurfaceState(id: makeSurfaceID(), initialURL: webURL ?? defaultURL)
+        surface.linkedStreamPanelID = panelID
+        onDeviceSurfacesByPanel[panelID] = surface
+        surfacesByWorkspace[workspaceID] = surface
+        return surface
+    }
+
+    /// Forgets streamed tab `panelID`'s "On iPhone" mode and page, so it
+    /// opens streamed again.
+    public func forgetOnDevice(panelID: String) {
+        onDeviceSurfacesByPanel[panelID] = nil
     }
 
     /// Close the browser pane for a workspace, returning the UI to its terminal.
+    /// A streamed tab's "On iPhone" surface stays remembered for that tab.
     ///
     /// - Parameter workspaceID: The workspace's raw identifier string.
     public func closeBrowser(for workspaceID: String) {

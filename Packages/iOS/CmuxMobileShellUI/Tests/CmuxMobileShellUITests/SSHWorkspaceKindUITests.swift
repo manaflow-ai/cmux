@@ -62,7 +62,6 @@ import Testing
         let terminal = MobileTerminalPreview(id: .init(rawValue: row.id), name: "0:zsh · pane 1")
         let value = TerminalPickerMenuValue(
             liveTerminals: [terminal],
-            snapshotRows: [],
             selectedID: terminal.id,
             canCreateWorkspace: true,
             hasActiveBrowser: false,
@@ -81,10 +80,9 @@ import Testing
         #expect(MobileSSHSectionAction.allCases.map(\.title) == ["New Tab", "Split Right", "Split Down"])
         #expect(MobileSSHSectionAction.splitRight.accessibilityIdentifier(section: "3") == "MobileSSHSectionAction-splitRight-3")
         #expect(MobileSSHSectionAction.splitDown.accessibilityIdentifier(section: "3") == "MobileSSHSectionAction-splitDown-3")
-        // A different layout is a different menu value (the menu rebuilds).
+        // A different layout is available on the next menu opening.
         let flat = TerminalPickerMenuValue(
             liveTerminals: [terminal],
-            snapshotRows: [],
             selectedID: terminal.id,
             canCreateWorkspace: true,
             hasActiveBrowser: false

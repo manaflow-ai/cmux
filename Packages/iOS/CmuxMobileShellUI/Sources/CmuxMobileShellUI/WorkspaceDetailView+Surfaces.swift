@@ -170,16 +170,19 @@ extension WorkspaceDetailView {
 
     @ViewBuilder
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
+        let serverRoute = browserServerRoute
         MobileBrowserPane(
             state: browser,
-            serverRoute: sshBrowserRoute,
+            serverRoute: serverRoute,
             modePicker: onDeviceModePicker(browser),
             addressIdentifier: sshHostID == nil ? nil : "ssh.browser.address",
             onDiagnosticEvent: { event in
                 recordLocalBrowserDiagnostic(event, surfaceID: browser.id.rawValue)
             }
         )
-        .id(browser.id.rawValue)
+        // The route (proxy and data store) is fixed for a web view's
+        // lifetime, so a Mac that gains or loses the tunnel gets a new one.
+        .id("\(browser.id.rawValue)|\(serverRoute?.id ?? "")")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

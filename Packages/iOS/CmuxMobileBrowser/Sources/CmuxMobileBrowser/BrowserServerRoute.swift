@@ -3,16 +3,17 @@ public import Foundation
 import Network
 public import WebKit
 
-/// Sends a native browser's traffic through one SSH computer, so pages load
-/// as if browsed on it: its `localhost`, every port, and names only it can
-/// resolve, with each page's real origin.
+/// Sends a native browser's traffic through one computer (an SSH computer
+/// or a paired Mac), so pages load as if browsed on it: its `localhost`,
+/// every port, and names only it can resolve, with each page's real origin.
 ///
 /// One route per computer, shared by every native browser opened for it.
 /// Its website data store is non-persistent and private to that computer:
-/// cookies and storage never mix across computers or with Mac and local
-/// browsing, and they last until the app quits.
+/// cookies and storage never mix across computers or with local browsing,
+/// and they last until the app quits.
 ///
-/// The data store carries a SOCKS5 proxy (the computer's `ssh -D`). The
+/// The data store carries a SOCKS5 proxy on the phone whose connections
+/// leave from the computer (`ssh -D` for SSH, tunnel lanes for a Mac). The
 /// system never proxies loopback addresses, so for `localhost` pages the
 /// route also asks the computer to mirror its listening ports onto the
 /// phone's loopback (see `prepare`).

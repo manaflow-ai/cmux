@@ -7,6 +7,8 @@ import Foundation
 final class CloudWorkspaceCreationCoordinator {
     private weak var catalog: SurfaceCatalog?
     private(set) var operations: [UUID: CloudWorkspaceCreationOperation] = [:]
+    /// Tree reveals for creates their window selected, withdrawn when the create fails.
+    let reveals = CloudWorkspaceCreationReveals()
     init(catalog: SurfaceCatalog) {
         self.catalog = catalog
     }
@@ -76,6 +78,7 @@ final class CloudWorkspaceCreationCoordinator {
             // Creation committed; retain its identity and input for an explicit
             // reconnect. Only this request's retry may reuse its remote receipt.
             operation.failure = error
+            withdrawReveal(operation)
             operation.host?.fail(reservation, error: error)
             let id = operation.id
             reservation.retry = { [weak self] in self?.retry(id) }
@@ -113,6 +116,9 @@ final class CloudWorkspaceCreationCoordinator {
                 focus: focus
             )
             operation.reservation = reservation
+            if focus, let manager = host.manager, manager.selectedTabId == reservation.workspaceID {
+                operation.revealToken = reveals.begin(in: manager)
+            }
             let operationID = operation.id
             reservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: false) }
             // Bind the local workspace to its machine immediately. The remote
@@ -156,6 +162,14 @@ final class CloudWorkspaceCreationCoordinator {
                 remoteWorkspaceID: receipt.workspace.id,
                 generatedTitle: generatedTitle
             )
+            // Navigating away while the daemon allocated hands the tree back to the user.
+            if let token = operation.revealToken {
+                if host.manager?.selectedTabId == reservation.workspaceID {
+                    reveals.receive(token, machine: operation.machine, remoteWorkspaceID: receipt.workspace.id)
+                } else {
+                    reveals.withdraw(token)
+                }
+            }
         }
         // Retain the provider's identity receipt before the next cancellation
         // fence. A provider may return a committed remote resource after the
@@ -247,14 +261,14 @@ final class CloudWorkspaceCreationCoordinator {
                 if operation.isComplete, operation.isConfirmed(in: state) { operations[operation.id] = nil }
                 continue
             }
-            guard let cursor = state.cursor else { cancel(operation.id); continue }
+            guard let cursor = state.cursor else { reject(operation); continue }
             if cursor.generation != fence.generation || (cursor.revision >= fence.revision && !state.workspaceIDs.contains(receipt.workspace.id)) {
-                cancel(operation.id)
+                reject(operation)
             } else if operation.terminal != nil,
                       let terminalFence = operation.terminalCursor ?? (receipt.terminal == nil ? nil : receipt.cursor),
                       cursor.generation == terminalFence.generation, cursor.revision >= terminalFence.revision,
                       !operation.containsStarter(in: state) {
-                cancel(operation.id)
+                reject(operation)
             } else if operation.isComplete, operation.isConfirmed(in: state) {
                 operations[operation.id] = nil
             }
@@ -263,6 +277,8 @@ final class CloudWorkspaceCreationCoordinator {
 
     func cancel(_ id: UUID, discardLocal: Bool = true, discardRemote: Bool = true) {
         guard let operation = operations.removeValue(forKey: id), let catalog else { return }
+        // A finished create keeps its reveal through pane close or teardown.
+        if !operation.isComplete { withdrawReveal(operation) }
         operation.retryTask?.cancel()
         if discardLocal, let reservation = operation.reservation { operation.host?.discard(reservation, catalog: catalog) }
         if discardRemote, !operation.isComplete {
@@ -271,6 +287,17 @@ final class CloudWorkspaceCreationCoordinator {
             }
         }
         catalog.notifyChange()
+    }
+
+    /// The daemon rejected the create, even after it finished: it lost its cursor, changed
+    /// generation, or dropped the receipt's workspace or starter.
+    private func reject(_ operation: CloudWorkspaceCreationOperation) {
+        withdrawReveal(operation)
+        cancel(operation.id)
+    }
+
+    private func withdrawReveal(_ operation: CloudWorkspaceCreationOperation) {
+        if let token = operation.revealToken { reveals.withdraw(token) }
     }
 
     private func cleanupRemoteResources(_ operation: CloudWorkspaceCreationOperation) async {

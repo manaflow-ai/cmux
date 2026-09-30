@@ -39,8 +39,8 @@ each step covers live in [scripts/e2e/README.md](../../scripts/e2e/README.md).
 | Job | Runner | Timeout | Does |
 | --- | --- | --- | --- |
 | `route` | Linux (`blacksmith-4vcpu-ubuntu-2404`) | 5m | Decides `run_e2e` (stub: always true, `detect_ci_change_areas.py` integration pending) and `run_clients` (false for a `backend_only` dispatch). |
-| `backend` | Linux (`blacksmith-8vcpu-ubuntu-2404`) | 60m | Joins the tailnet as `cmux-e2e-backend-<run_id>-<attempt>`, runs `scripts/e2e/backend-up.sh up` (see [Per-run backend](#per-run-backend)), then holds on `/tmp/e2e-backend-done-<run_id>-<attempt>` (bounded 45m) and uploads its logs. |
-| `mac-host` | macOS (`MACOS_RUNNER_PR` or `blacksmith-6vcpu-macos-26`) | 45m | Downloads the prebuilt Mac app (reuse pending), joins the tailnet as `cmux-e2e-mac-<run_id>-<attempt>`, waits for the backend's health endpoints, execs the app with the per-run origins, signs into the CI Stack account, advertises, waits on `/tmp/e2e-done-<run_id>-<attempt>` (bounded ~25m). |
+| `backend` | Linux (`LINUX_RUNNER`, else `blacksmith-8vcpu-ubuntu-2404`) | 60m | Joins the tailnet as `cmux-e2e-backend-<run_id>-<attempt>`, runs `scripts/e2e/backend-up.sh up` (see [Per-run backend](#per-run-backend)), then holds on `/tmp/e2e-backend-done-<run_id>-<attempt>` (bounded 45m) and uploads its logs. |
+| `mac-host` | macOS (`MACOS_RUNNER_26` or `blacksmith-6vcpu-macos-26`) | 45m | Downloads the prebuilt Mac app (reuse pending), joins the tailnet as `cmux-e2e-mac-<run_id>-<attempt>`, waits for the backend's health endpoints, execs the app with the per-run origins, signs into the CI Stack account, advertises, waits on `/tmp/e2e-done-<run_id>-<attempt>` (bounded ~25m). |
 | `ios-e2e` | macOS (`MACOS_RUNNER_IOS` fallback chain) | 45m | Downloads the sim app product (pending), waits for the backend, boots a fresh per-run simulator, runs `scripts/e2e/ios-e2e-run.sh`, then ALWAYS signals both holders' done-files over Tailscale SSH, uploads evidence, deletes the sim. |
 | `ios-e2e-status` | Linux | 5m | `if: always()` aggregate; the only check to require. |
 

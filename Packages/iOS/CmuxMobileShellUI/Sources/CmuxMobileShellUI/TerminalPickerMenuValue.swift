@@ -14,7 +14,13 @@ struct TerminalPickerMenuValue: Equatable {
     let hasActiveBrowser: Bool
     let browserStreamRows: [BrowserStreamPickerRow]
     let supportsBrowserStream: Bool
+    /// Whether the current connection has published an authoritative browser
+    /// capability snapshot. A missing capability while reconnecting is unknown,
+    /// not evidence that the Mac needs an update.
+    let browserStreamSupportKnown: Bool
     let activeBrowserStreamPanelID: String?
+    /// The streamed tab the phone-local browser shows "On iPhone", if any.
+    let onDeviceBrowserStreamPanelID: String?
     let simulatorStreamRows: [SimulatorStreamPickerRow]
     let supportsSimulatorStream: Bool
     let activeSimulatorStreamPanelID: String?
@@ -29,7 +35,6 @@ struct TerminalPickerMenuValue: Equatable {
     init(
         liveTerminals: [MobileTerminalPreview],
         liveSurfaces: [MobileSurfacePreview] = [],
-        snapshotRows: [TerminalPickerMenuRow],
         selectedID: MobileTerminalPreview.ID?,
         selectedMacSurfaceID: MobileSurfacePreview.ID? = nil,
         canCreateWorkspace: Bool,
@@ -37,17 +42,17 @@ struct TerminalPickerMenuValue: Equatable {
         hasActiveBrowser: Bool,
         browserStreamRows: [BrowserStreamPickerRow] = [],
         supportsBrowserStream: Bool = false,
+        browserStreamSupportKnown: Bool = false,
         activeBrowserStreamPanelID: String? = nil,
+        onDeviceBrowserStreamPanelID: String? = nil,
         simulatorStreamRows: [SimulatorStreamPickerRow] = [],
         supportsSimulatorStream: Bool = false,
         activeSimulatorStreamPanelID: String? = nil,
         sshTabLayout: MobileSSHTabLayout? = nil,
         isSSHComputer: Bool = false
     ) {
-        let resolvedRows = snapshotRows.isEmpty
-            ? liveTerminals.map(TerminalPickerMenuRow.init)
-                + liveSurfaces.filter { !$0.kind.isTerminal }.map(TerminalPickerMenuRow.init)
-            : snapshotRows
+        let resolvedRows = liveTerminals.map(TerminalPickerMenuRow.init)
+            + liveSurfaces.filter { !$0.kind.isTerminal }.map(TerminalPickerMenuRow.init)
         rows = resolvedRows
         let selection = resolvedRows.resolvedTerminalPickerSelection(selectedID: selectedID)
         self.selectedID = selection?.id
@@ -60,7 +65,9 @@ struct TerminalPickerMenuValue: Equatable {
         self.hasActiveBrowser = hasActiveBrowser
         self.browserStreamRows = browserStreamRows
         self.supportsBrowserStream = supportsBrowserStream
+        self.browserStreamSupportKnown = browserStreamSupportKnown
         self.activeBrowserStreamPanelID = activeBrowserStreamPanelID
+        self.onDeviceBrowserStreamPanelID = onDeviceBrowserStreamPanelID
         self.simulatorStreamRows = simulatorStreamRows
         self.supportsSimulatorStream = supportsSimulatorStream
         self.activeSimulatorStreamPanelID = activeSimulatorStreamPanelID
@@ -79,7 +86,7 @@ struct TerminalPickerMenuValue: Equatable {
 
     /// The single row that carries the checkmark. Nil while the phone-local
     /// browser or a Mac browser stream overlays the workspace (the stream row
-    /// draws its own check from `activeBrowserStreamPanelID`); a Mac-surface
+    /// draws its own check from `checkedBrowserStreamPanelID`); a Mac-surface
     /// selection whose row has disappeared falls back to the resolved
     /// terminal, matching `selectedName`.
     var checkedRowID: TerminalPickerMenuRow.ID? {
@@ -91,6 +98,28 @@ struct TerminalPickerMenuValue: Equatable {
         return selectedID.map(TerminalPickerMenuRow.ID.terminal)
     }
 
+    /// The Mac Browsers row that carries the checkmark: the streamed tab on
+    /// screen, in either mode. "On iPhone" shows the tab through the
+    /// phone-local browser, but it is still that tab.
+    var checkedBrowserStreamPanelID: String? {
+        if let activeBrowserStreamPanelID { return activeBrowserStreamPanelID }
+        guard hasActiveBrowser, let onDeviceBrowserStreamPanelID,
+              browserStreamRows.contains(where: { $0.id == onDeviceBrowserStreamPanelID }) else { return nil }
+        return onDeviceBrowserStreamPanelID
+    }
+
+    /// Whether "New Browser" carries the checkmark: a phone-local browser is
+    /// up and it is not a streamed tab shown "On iPhone".
+    var checksNewBrowser: Bool {
+        hasActiveBrowser && checkedBrowserStreamPanelID == nil
+    }
+
+    /// The update hint is valid only after a connected Mac has reported its
+    /// capabilities. Reconnect teardown clears those capabilities temporarily.
+    var showsBrowserStreamUpdateHint: Bool {
+        browserStreamSupportKnown && !supportsBrowserStream
+    }
+
     var terminalRows: [TerminalPickerMenuRow] {
         rows.filter { if case .terminal = $0.id { true } else { false } }
     }
@@ -98,8 +127,7 @@ struct TerminalPickerMenuValue: Equatable {
     /// Mac-surface rows for the "Mac Surfaces" section. Browser panes are
     /// excluded whenever the Mac supports browser streaming — they get their
     /// own "Mac Browsers" section — and only fall back to a surface row on
-    /// Macs without streaming. Filtered here (not at row construction) so
-    /// snapshot-built rows obey the same policy as live ones.
+    /// Macs without streaming.
     var macSurfaceRows: [TerminalPickerMenuRow] {
         rows.filter {
             guard case .macSurface = $0.id else { return false }
