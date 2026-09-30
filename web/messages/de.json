@@ -407,7 +407,8 @@
       "signingOut": "Wird abgemeldet…",
       "signOutError": "Abmeldung fehlgeschlagen. Erneut versuchen.",
       "organizationSwitchError": "Organisation konnte nicht gewechselt werden. Erneut versuchen.",
-      "signIn": "Anmelden"
+      "signIn": "Anmelden",
+      "upgrade": "Upgraden"
     },
     "billing": {
       "plan": {
@@ -448,7 +449,98 @@
       "team": {
         "createCta": "Team erstellen"
       },
-      "title": "Plan & Abrechnung"
+      "title": "Plan & Abrechnung",
+      "picker": {
+        "current": "Aktueller Plan",
+        "upgradeTo": "Auf {plan} upgraden",
+        "switchTo": "Zu {plan} wechseln",
+        "cancelPlan": "Plan kündigen",
+        "resume": "{plan} fortsetzen",
+        "renewsOn": "Verlängert sich am {date}",
+        "endsOn": "Endet am {date}",
+        "perMonth": "pro Monat",
+        "perSeatMonth": "pro Platz und Monat",
+        "paymentMethod": "Zahlungsmethode verwalten",
+        "invoices": "Rechnungen",
+        "heading": "Pläne",
+        "actionError": "Der Plan konnte nicht geändert werden. Versuche es erneut.",
+        "unavailable": {
+          "cancelScheduled": "Setze deinen Plan fort, um ihn zu ändern.",
+          "granted": "Von cmux gewährt. Es gibt nichts zu ändern.",
+          "adminOnly": "Nur Team-Admins können den Plan ändern."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "Das vollständige cmux-Terminal für macOS",
+            "Jeder CLI-Agent mit deinen eigenen Schlüsseln",
+            "Lokaler Sitzungsverlauf"
+          ],
+          "go": [
+            "1 aktive Cloud VM",
+            "40 VM-Stunden pro Monat",
+            "2 gespeicherte VMs"
+          ],
+          "pro": [
+            "Cloud-Agenten auf Cloud VMs",
+            "24 GB RAM und 6 vCPUs für alle VMs",
+            "Die cmux iOS-App"
+          ],
+          "max": [
+            "64 GB RAM und 16 vCPUs für alle VMs",
+            "Größere Maschinengrößen",
+            "Alles aus Pro"
+          ],
+          "team": [
+            "Alles aus Pro für jedes Mitglied",
+            "Eine Rechnung für das ganze Team",
+            "Priorisierter Support"
+          ]
+        }
+      },
+      "change": {
+        "title": "Zu {plan} wechseln?",
+        "upgradeBody": "{plan} beginnt sofort. Du zahlst heute {amount} für den Rest dieses Abrechnungszeitraums. Ab dem {date} zahlst du {price} pro Monat.",
+        "downgradeBody": "{plan} beginnt sofort. Der ungenutzte Teil deines aktuellen Plans, {credit}, wird deinen nächsten Rechnungen gutgeschrieben. Deine nächste Rechnung am {date} beträgt {amount}.",
+        "confirm": "Zu {plan} wechseln",
+        "keep": "Aktuellen Plan behalten",
+        "switching": "Wird gewechselt…",
+        "previewError": "Der Preis konnte nicht berechnet werden. Versuche es erneut.",
+        "paymentFailed": "Deine Karte wurde abgelehnt. Aktualisiere deine Zahlungsmethode und versuche es erneut.",
+        "error": "Der Plan konnte nicht gewechselt werden. Versuche es erneut."
+      },
+      "cancelDialog": {
+        "title": "{plan} kündigen?",
+        "body": "Du behältst {plan} bis zum {date}. Danach verlierst du:",
+        "bodyNoDate": "Du behältst {plan} bis zum Ende dieses Abrechnungszeitraums. Danach verlierst du:",
+        "reasonLabel": "Warum kündigst du? (optional)",
+        "otherPlaceholder": "Erzähl uns mehr (optional)",
+        "confirm": "Plan kündigen",
+        "keep": "{plan} behalten",
+        "error": "Der Plan konnte nicht gekündigt werden. Versuche es erneut.",
+        "resumeError": "Der Plan konnte nicht fortgesetzt werden. Versuche es erneut.",
+        "reasons": {
+          "too_expensive": "Zu teuer",
+          "missing_feature": "Mir fehlt eine Funktion",
+          "not_using": "Ich nutze es zu selten",
+          "other": "Anderes"
+        }
+      },
+      "welcome": {
+        "title": "Willkommen bei {plan}",
+        "body": "Dein Plan ist aktiv. Das kannst du zuerst ausprobieren:",
+        "ios": "iOS-App installieren",
+        "cloud": "Cloud öffnen",
+        "team": "Team erstellen",
+        "banner": "Du nutzt jetzt {plan}.",
+        "bannerLink": "Plan & Abrechnung"
+      }
     },
     "mobileDevices": {
       "title": "Mobile Geräte",
@@ -1054,6 +1146,14 @@
       },
       "retry": "Erneut versuchen",
       "retrying": "Wird erneut versucht…"
+    },
+    "upgrade": {
+      "title": "Erfordert Pro",
+      "cloud": "Cloud VMs und Cloud-Agenten sind Teil von Pro.",
+      "testflight": "Die cmux iOS-App ist Teil von Pro.",
+      "mobileDevices": "Das Verbinden von Smartphone und Tablet ist Teil von Pro.",
+      "action": "Auf Pro upgraden",
+      "comparePlans": "Pläne vergleichen"
     }
   },
   "community": {

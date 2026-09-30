@@ -564,7 +564,8 @@
       "signOut": "Sign out",
       "signingOut": "Signing out…",
       "signOutError": "Could not sign out. Try again.",
-      "signIn": "Sign in"
+      "signIn": "Sign in",
+      "upgrade": "Upgrade"
     },
     "teamSwitcher": {
       "label": "Team",
@@ -673,6 +674,97 @@
           "max": "Max",
           "founders": "Founders"
         }
+      },
+      "picker": {
+        "current": "Current plan",
+        "upgradeTo": "Upgrade to {plan}",
+        "switchTo": "Switch to {plan}",
+        "cancelPlan": "Cancel plan",
+        "resume": "Resume {plan}",
+        "renewsOn": "Renews on {date}",
+        "endsOn": "Ends on {date}",
+        "perMonth": "per month",
+        "perSeatMonth": "per seat per month",
+        "paymentMethod": "Manage payment method",
+        "invoices": "Invoices",
+        "heading": "Plans",
+        "actionError": "Could not change the plan. Try again.",
+        "unavailable": {
+          "cancelScheduled": "Resume your plan to change it.",
+          "granted": "Granted by cmux. There is nothing to change.",
+          "adminOnly": "Only team admins can change the plan."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "The full cmux terminal for macOS",
+            "Any CLI agent with your own keys",
+            "Local session history"
+          ],
+          "go": [
+            "1 active Cloud VM",
+            "40 VM-hours each month",
+            "2 saved VMs"
+          ],
+          "pro": [
+            "Cloud agents on Cloud VMs",
+            "24 GB RAM and 6 vCPUs shared across VMs",
+            "The cmux iOS app"
+          ],
+          "max": [
+            "64 GB RAM and 16 vCPUs shared across VMs",
+            "Larger machine sizes",
+            "Everything in Pro"
+          ],
+          "team": [
+            "Everything in Pro for every member",
+            "One invoice for the whole team",
+            "Priority support"
+          ]
+        }
+      },
+      "change": {
+        "title": "Switch to {plan}?",
+        "upgradeBody": "{plan} starts now. You pay {amount} today for the rest of this billing period. From {date}, you pay {price} per month.",
+        "downgradeBody": "{plan} starts now. The unused part of your current plan, {credit}, is credited to your next invoices. Your next invoice, on {date}, is {amount}.",
+        "confirm": "Switch to {plan}",
+        "keep": "Keep current plan",
+        "switching": "Switching…",
+        "previewError": "Could not calculate the price. Try again.",
+        "paymentFailed": "Your card was declined. Update your payment method, then try again.",
+        "error": "Could not switch the plan. Try again."
+      },
+      "cancelDialog": {
+        "title": "Cancel {plan}?",
+        "body": "You keep {plan} until {date}. After that, you lose:",
+        "bodyNoDate": "You keep {plan} until the end of this billing period. After that, you lose:",
+        "reasonLabel": "Why are you canceling? (optional)",
+        "otherPlaceholder": "Tell us more (optional)",
+        "confirm": "Cancel plan",
+        "keep": "Keep {plan}",
+        "error": "Could not cancel the plan. Try again.",
+        "resumeError": "Could not resume the plan. Try again.",
+        "reasons": {
+          "too_expensive": "Too expensive",
+          "missing_feature": "Missing a feature I need",
+          "not_using": "Not using it enough",
+          "other": "Other"
+        }
+      },
+      "welcome": {
+        "title": "Welcome to {plan}",
+        "body": "Your plan is active. Things to try first:",
+        "ios": "Install the iOS app",
+        "cloud": "Open Cloud",
+        "team": "Create a team",
+        "banner": "You are on {plan} now.",
+        "bannerLink": "Plan & billing"
       }
     },
     "testflight": {
@@ -1275,6 +1367,14 @@
       },
       "retry": "Try again",
       "retrying": "Retrying…"
+    },
+    "upgrade": {
+      "title": "Requires Pro",
+      "cloud": "Cloud VMs and cloud agents are part of Pro.",
+      "testflight": "The cmux iOS app is part of Pro.",
+      "mobileDevices": "Connecting your phone and tablet is part of Pro.",
+      "action": "Upgrade to Pro",
+      "comparePlans": "Compare plans"
     }
   },
   "vault": {

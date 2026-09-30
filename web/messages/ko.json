@@ -407,7 +407,8 @@
       "signingOut": "로그아웃 중…",
       "signOutError": "로그아웃할 수 없습니다. 다시 시도하세요.",
       "organizationSwitchError": "조직을 전환할 수 없습니다. 다시 시도하세요.",
-      "signIn": "로그인"
+      "signIn": "로그인",
+      "upgrade": "업그레이드"
     },
     "billing": {
       "plan": {
@@ -448,7 +449,98 @@
       "team": {
         "createCta": "팀 만들기"
       },
-      "title": "요금제 및 결제"
+      "title": "요금제 및 결제",
+      "picker": {
+        "current": "현재 요금제",
+        "upgradeTo": "{plan}(으)로 업그레이드",
+        "switchTo": "{plan}(으)로 전환",
+        "cancelPlan": "요금제 해지",
+        "resume": "{plan} 재개",
+        "renewsOn": "{date}에 갱신",
+        "endsOn": "{date}에 종료",
+        "perMonth": "월",
+        "perSeatMonth": "좌석당 월",
+        "paymentMethod": "결제 수단 관리",
+        "invoices": "청구서",
+        "heading": "요금제",
+        "actionError": "요금제를 변경하지 못했습니다. 다시 시도하세요.",
+        "unavailable": {
+          "cancelScheduled": "변경하려면 먼저 요금제를 재개하세요.",
+          "granted": "cmux에서 제공한 요금제입니다. 변경할 항목이 없습니다.",
+          "adminOnly": "팀 관리자만 요금제를 변경할 수 있습니다."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "macOS용 cmux 터미널 전체 기능",
+            "내 키로 모든 CLI 에이전트 실행",
+            "로컬 세션 기록"
+          ],
+          "go": [
+            "실행 중인 Cloud VM 1대",
+            "매월 40 VM 시간",
+            "저장된 VM 2대"
+          ],
+          "pro": [
+            "Cloud VM의 클라우드 에이전트",
+            "VM 전체가 공유하는 24 GB RAM과 vCPU 6개",
+            "cmux iOS 앱"
+          ],
+          "max": [
+            "VM 전체가 공유하는 64 GB RAM과 vCPU 16개",
+            "더 큰 머신 크기",
+            "Pro의 모든 기능"
+          ],
+          "team": [
+            "모든 멤버에게 Pro의 모든 기능",
+            "팀 전체에 청구서 하나",
+            "우선 지원"
+          ]
+        }
+      },
+      "change": {
+        "title": "{plan}(으)로 전환할까요?",
+        "upgradeBody": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매월 {price}을(를) 결제합니다.",
+        "downgradeBody": "{plan}이(가) 지금 시작됩니다. 현재 요금제의 사용하지 않은 부분 {credit}은(는) 다음 청구서에 적립됩니다. {date}의 다음 청구 금액은 {amount}입니다.",
+        "confirm": "{plan}(으)로 전환",
+        "keep": "현재 요금제 유지",
+        "switching": "전환 중…",
+        "previewError": "가격을 계산하지 못했습니다. 다시 시도하세요.",
+        "paymentFailed": "카드가 거절되었습니다. 결제 수단을 업데이트한 후 다시 시도하세요.",
+        "error": "요금제를 전환하지 못했습니다. 다시 시도하세요."
+      },
+      "cancelDialog": {
+        "title": "{plan}을(를) 해지할까요?",
+        "body": "{date}까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
+        "bodyNoDate": "이번 결제 기간이 끝날 때까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
+        "reasonLabel": "해지하는 이유 (선택)",
+        "otherPlaceholder": "자세히 알려 주세요 (선택)",
+        "confirm": "요금제 해지",
+        "keep": "{plan} 유지",
+        "error": "요금제를 해지하지 못했습니다. 다시 시도하세요.",
+        "resumeError": "요금제를 재개하지 못했습니다. 다시 시도하세요.",
+        "reasons": {
+          "too_expensive": "너무 비쌈",
+          "missing_feature": "필요한 기능이 없음",
+          "not_using": "자주 사용하지 않음",
+          "other": "기타"
+        }
+      },
+      "welcome": {
+        "title": "{plan}에 오신 것을 환영합니다",
+        "body": "요금제가 활성화되었습니다. 먼저 해 볼 것:",
+        "ios": "iOS 앱 설치",
+        "cloud": "Cloud 열기",
+        "team": "팀 만들기",
+        "banner": "지금 {plan}을(를) 사용 중입니다.",
+        "bannerLink": "요금제 및 결제"
+      }
     },
     "mobileDevices": {
       "title": "모바일 기기",
@@ -1054,6 +1146,14 @@
       },
       "retry": "다시 시도",
       "retrying": "다시 시도하는 중…"
+    },
+    "upgrade": {
+      "title": "Pro 필요",
+      "cloud": "Cloud VM과 클라우드 에이전트는 Pro에 포함됩니다.",
+      "testflight": "cmux iOS 앱은 Pro에 포함됩니다.",
+      "mobileDevices": "휴대폰과 태블릿 연결은 Pro에 포함됩니다.",
+      "action": "Pro로 업그레이드",
+      "comparePlans": "요금제 비교"
     }
   },
   "community": {

@@ -214,9 +214,9 @@ describe("dashboard.teams.billing", () => {
       render: () => <TeamPanelFromQuery teamId="team-pro" />,
     });
 
-    expect(html).toContain("Team Pro renews on");
+    expect(html).toContain("Renews on");
     expect(html).toContain("6 of 4 used");
-    expect(html).toContain("Only team admins can change this plan.");
+    expect(html).toContain("Only team admins can change the plan.");
     expect(html).not.toContain("/api/billing/portal");
   });
 });
@@ -224,55 +224,37 @@ describe("dashboard.teams.billing", () => {
 describe("dashboard billing screen", () => {
   beforeEach(resetFixtures);
 
-  test("renders the Free plan state with pricing cards and TestFlight link", async () => {
+  test("a Free account sees the plan picker: Free current, Pro and Max through checkout", async () => {
     const html = await renderBillingPage();
 
-    expect(html).toContain("Free");
-    expect(html).toContain("You are currently on the Free plan.");
+    expect(html).toContain('data-testid="plan-picker"');
+    expect(html).toMatch(/data-plan="free"[^>]*aria-current="true"/);
+    expect(html).toContain("Current plan");
+    // Checkout returns to Plan & billing with a welcome.
     expect(html).toContain(
-      "Upgrade when you need cloud agents.",
+      'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=month&amp;cmux_source=dashboard_billing&amp;returnTo=%2Fdashboard%2Fbilling"',
     );
     expect(html).toContain(
-      'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;interval=month&amp;cmux_placement=dashboard_billing"',
+      'href="/api/billing/checkout?plan=max&amp;cmux_external_browser=1&amp;interval=month&amp;cmux_source=dashboard_billing&amp;returnTo=%2Fdashboard%2Fbilling"',
     );
-    // Personal accounts cannot buy Team; the card routes to team creation.
-    expect(html).toContain('href="/dashboard/teams/new"');
+    expect(html).toContain("Upgrade to Pro");
+    expect(html).toContain("Upgrade to Max");
+    expect(html).toContain("$50");
+    expect(html).toContain("$200");
+    expect(html).toContain("per month");
+    // Personal accounts cannot buy Team here; teams upgrade on their own Billing tab.
     expect(html).not.toContain("plan=team");
-    expect(html).toContain("Get Pro");
-    expect(html).toContain("Get Max");
-    expect(html).toContain("Create a team");
-    expect(html).toContain(
-      'href="/api/billing/checkout?plan=max&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;cmux_placement=dashboard_billing"',
-    );
-    expect(html).not.toMatch(/plan=max[^"]*interval=/);
-    expect(html).toContain("/mo");
-    expect(html).toContain("/user/mo");
-    expect(html).not.toContain("/mo.");
-    expect(html).not.toContain('style="min-height:4rem"');
-    expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
-    expect(html).toContain('href="/dashboard/testflight"');
-    expect(html).toContain("Join the iOS beta");
-    expect(html).toContain("active personal Pro subscribers");
     expect(html).not.toContain("/api/billing/subscription");
+    expect(html).not.toContain("/api/billing/portal");
   });
 
   test("keeps billing upsells monthly for old annual links", async () => {
     const html = await renderBillingPage({ interval: "year" });
 
     expect(html).toContain("$50");
-    expect(html).toContain("$60");
-    expect(html).toContain("/mo");
-    expect(html).toContain("/user/mo");
-    expect(html).not.toContain("/mo, billed yearly");
-    expect(html).not.toContain("/user/mo, billed yearly");
-    expect(html).not.toContain("/mo.");
+    expect(html).not.toContain("billed yearly");
     expect(html).not.toContain("$24");
-    expect(html).not.toContain("$28");
-    expect(html).toContain(
-      'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;interval=month&amp;cmux_placement=dashboard_billing"',
-    );
-    // Personal accounts cannot buy Team; the card routes to team creation.
-    expect(html).toContain('href="/dashboard/teams/new"');
+    expect(html).toContain("plan=pro&amp;cmux_external_browser=1&amp;interval=month");
     expect(html).not.toContain("plan=team");
   });
 
@@ -282,12 +264,15 @@ describe("dashboard billing screen", () => {
 
     const html = await renderBillingPage();
 
-    expect(html).toContain("cmux Pro");
-    expect(html).toContain("Your plan renews on");
+    expect(html).toMatch(/data-plan="pro"[^>]*aria-current="true"/);
+    expect(html).toContain("Renews on");
     expect(html).toContain("$50/mo");
+    // Cancel lives on the Free card; Max switches in place, never through the portal.
     expect(html).toContain("Cancel plan");
-    expect(html).toContain('action="/api/billing/subscription"');
+    expect(html).toContain("Switch to Max");
+    expect(html).not.toContain("flow=switch_plan");
     expect(html).toContain('href="/api/billing/portal"');
+    expect(html).toContain("Manage payment method");
   });
 
   test("prices every Stripe Pro subscription from its own price amount", async () => {
@@ -319,15 +304,14 @@ describe("dashboard billing screen", () => {
       stripeSubscriptionRow({ cancelAtPeriodEnd: false, unitAmount: null }),
     ];
     let html = await renderBillingPage();
-    expect(html).toContain("cmux Pro");
-    expect(html).not.toContain(">Price<");
+    expect(html).toMatch(/data-plan="pro"[^>]*aria-current="true"/);
+    expect(html).not.toContain("$50/mo");
 
     // 5000 JPY is not $50.
     subscriptionRows = [
       stripeSubscriptionRow({ cancelAtPeriodEnd: false, unitAmount: 5000, currency: "jpy" }),
     ];
     html = await renderBillingPage();
-    expect(html).not.toContain(">Price<");
     expect(html).not.toContain("$50/mo");
   });
 
@@ -337,10 +321,11 @@ describe("dashboard billing screen", () => {
 
     const html = await renderBillingPage();
 
-    expect(html).toContain("Your plan is scheduled to end on");
     expect(html).toContain("Ends on");
-    expect(html).toContain("Resume plan");
-    expect(html).not.toContain("Confirm cancellation");
+    expect(html).toContain("Resume Pro");
+    expect(html).toContain("Resume your plan to change it.");
+    expect(html).not.toContain("Switch to Max");
+    expect(html).not.toContain("Cancel plan");
   });
 
   test("renders a past-due banner that links to the Stripe portal", async () => {
@@ -374,17 +359,15 @@ describe("dashboard billing screen", () => {
     ];
     customerRows = [{ id: "cus_team" }];
 
-    const html = await renderBillingPage();
+    const html = await renderBillingPage({ team: "team-pro" });
 
-    expect(html).toContain("cmux Team");
-    expect(html).toContain("Team Pro renews on");
+    expect(html).toMatch(/data-plan="team"[^>]*aria-current="true"/);
+    expect(html).toContain("Renews on");
     expect(html).toContain("Seats");
     expect(html).toContain("3 of 4 used");
     expect(html).toContain("$60/seat/mo");
-    expect(html).toContain('name="scope" value="team"');
-    expect(html).toContain('name="teamId" value="team-pro"');
+    expect(html).toContain("Cancel plan");
     expect(html).toContain('href="/api/billing/portal?scope=team&amp;teamId=team-pro"');
-    expect(html).not.toContain("You are currently on the Free plan.");
     expect(proUser.hasPermission).toHaveBeenCalledWith(team, "team_admin");
   });
 
@@ -404,7 +387,7 @@ describe("dashboard billing screen", () => {
     ];
     customerRows = [{ id: "cus_team" }];
 
-    expect(await renderBillingPage()).toContain("$48/seat/mo, billed annually");
+    expect(await renderBillingPage({ team: "team-pro" })).toContain("$48/seat/mo, billed annually");
   });
 
   test("uses the current Stripe price interval over stale checkout metadata", async () => {
@@ -423,7 +406,7 @@ describe("dashboard billing screen", () => {
     ];
     customerRows = [{ id: "cus_team" }];
 
-    expect(await renderBillingPage()).toContain("$35/seat/mo");
+    expect(await renderBillingPage({ team: "team-pro" })).toContain("$35/seat/mo");
 
     subscriptionRows = [
       stripeSubscriptionRow({
@@ -436,7 +419,7 @@ describe("dashboard billing screen", () => {
         recurringInterval: "year",
       }),
     ];
-    expect(await renderBillingPage()).toContain("$28/seat/mo, billed annually");
+    expect(await renderBillingPage({ team: "team-pro" })).toContain("$28/seat/mo, billed annually");
   });
 
   test("nudges admins when members exceed paid seats without blocking", async () => {
@@ -444,7 +427,7 @@ describe("dashboard billing screen", () => {
     proUser.selectedTeam = team;
     subscriptionRows = [stripeSubscriptionRow({ cancelAtPeriodEnd: false, plan: "team", scope: "team", seats: 4 })];
 
-    const html = await renderBillingPage();
+    const html = await renderBillingPage({ team: "team-pro" });
 
     expect(html).toContain("6 of 4 used");
     expect(html).toContain("Team Pro has 6 members and 4 paid seats.");
@@ -457,10 +440,10 @@ describe("dashboard billing screen", () => {
     mockImplementation(proUser.hasPermission, async () => false);
     subscriptionRows = [stripeSubscriptionRow({ cancelAtPeriodEnd: false, plan: "team", scope: "team", seats: 4 })];
 
-    const html = await renderBillingPage();
+    const html = await renderBillingPage({ team: "team-pro" });
 
-    expect(html).toContain("Team Pro renews on");
-    expect(html).toContain("Only team admins can change this plan.");
+    expect(html).toContain("Renews on");
+    expect(html).toContain("Only team admins can change the plan.");
     expect(html).not.toContain("/api/billing/subscription");
     expect(html).not.toContain("/api/billing/portal");
     expect(html).not.toContain("paid seats");
@@ -472,10 +455,10 @@ describe("dashboard billing screen", () => {
 
     const html = await renderBillingPage({ team: "team-free" });
 
-    expect(html).toContain("Team Free is on the Free plan.");
-    expect(html).toContain("Upgrade this team");
+    expect(html).toMatch(/data-plan="free"[^>]*aria-current="true"/);
+    expect(html).toContain("Upgrade to Team");
     expect(html).toContain("/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;teamId=team-free");
-    expect(html).not.toContain("Get Pro");
+    expect(html).not.toContain("Upgrade to Pro");
   });
 
   test("asks members of a free team to contact an admin", async () => {
@@ -485,14 +468,15 @@ describe("dashboard billing screen", () => {
 
     const html = await renderBillingPage({ team: "team-free" });
 
-    expect(html).toContain("Ask an admin of Team Free to upgrade.");
+    expect(html).toContain("Only team admins can change the plan.");
     expect(html).not.toContain("plan=team");
   });
 
   test("ignores a ?team= the user does not belong to and shows the personal view", async () => {
     const html = await renderBillingPage({ team: "team-foreign" });
 
-    expect(html).toContain("You are currently on the Free plan.");
+    expect(html).toMatch(/data-plan="free"[^>]*aria-current="true"/);
+    expect(html).toContain("Upgrade to Pro");
     expect(proUser.hasPermission).not.toHaveBeenCalled();
   });
 
@@ -505,21 +489,16 @@ describe("dashboard billing screen", () => {
     expect(jaMessages.dashboard.billing.team.price).toBe("${amount}/シート/月");
   });
 
-  test("shows the personal view with a team list and plan badges when no team is selected", async () => {
-    mockImplementation(proUser.listTeams, async () => [
-      { id: "team-free", displayName: "Team Free", clientReadOnlyMetadata: { cmuxPlan: "free" } },
-      { id: "team-pro", displayName: "Team Pro", clientReadOnlyMetadata: { cmuxPlan: "team" } },
-    ]);
+  test("without ?team=, Plan & billing is personal even when Stack selected a team", async () => {
+    const team = teamWithMembers("team-pro", "Team Pro", 2);
+    proUser.selectedTeam = team;
+    mockImplementation(proUser.listTeams, async () => [team]);
 
     const html = await renderBillingPage();
 
-    expect(html).toContain("You are currently on the Free plan.");
-    expect(html).toContain("Billing scopes");
-    expect(html).toContain('href="/dashboard/billing?team=user-pro"');
-    expect(html).toContain('href="/dashboard/billing?team=team-free"');
-    expect(html).toContain('href="/dashboard/billing?team=team-pro"');
-    expect(html).toMatch(/Team Pro<\/a><span[^>]*>Team<\/span>/);
-    expect(html).not.toContain('name="scope" value="team"');
+    expect(html).toMatch(/data-plan="free"[^>]*aria-current="true"/);
+    expect(html).toContain("Upgrade to Pro");
+    expect(html).not.toContain('data-plan="team"');
   });
 
   test("renders Stack metadata-only Pro as Free", async () => {
@@ -527,8 +506,7 @@ describe("dashboard billing screen", () => {
 
     const html = await renderBillingPage();
 
-    expect(html).toContain("Free");
-    expect(html).toContain("You are currently on the Free plan.");
+    expect(html).toMatch(/data-plan="free"[^>]*aria-current="true"/);
     expect(html).not.toContain("/api/billing/subscription");
     expect(html).not.toContain("/api/billing/portal");
   });

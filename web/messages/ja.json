@@ -564,7 +564,8 @@
       "signOut": "サインアウト",
       "signingOut": "サインアウト中…",
       "signOutError": "サインアウトできませんでした。もう一度お試しください。",
-      "signIn": "サインイン"
+      "signIn": "サインイン",
+      "upgrade": "アップグレード"
     },
     "teamSwitcher": {
       "label": "チーム",
@@ -673,6 +674,97 @@
           "max": "Max",
           "founders": "Founders"
         }
+      },
+      "picker": {
+        "current": "現在のプラン",
+        "upgradeTo": "{plan} にアップグレード",
+        "switchTo": "{plan} に切り替え",
+        "cancelPlan": "プランを解約",
+        "resume": "{plan} を再開",
+        "renewsOn": "{date} に更新",
+        "endsOn": "{date} に終了",
+        "perMonth": "月額",
+        "perSeatMonth": "1 シートあたり月額",
+        "paymentMethod": "支払い方法を管理",
+        "invoices": "請求書",
+        "heading": "プラン",
+        "actionError": "プランを変更できませんでした。もう一度お試しください。",
+        "unavailable": {
+          "cancelScheduled": "変更するには、まずプランを再開してください。",
+          "granted": "cmux から付与されたプランです。変更できる項目はありません。",
+          "adminOnly": "プランを変更できるのはチーム管理者だけです。"
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "macOS 用の cmux ターミナルのすべての機能",
+            "自分のキーで任意の CLI エージェントを実行",
+            "ローカルのセッション履歴"
+          ],
+          "go": [
+            "稼働中の Cloud VM 1 台",
+            "毎月 40 VM 時間",
+            "保存できる VM 2 台"
+          ],
+          "pro": [
+            "Cloud VM 上のクラウドエージェント",
+            "VM 全体で共有する 24 GB RAM と 6 vCPU",
+            "cmux iOS アプリ"
+          ],
+          "max": [
+            "VM 全体で共有する 64 GB RAM と 16 vCPU",
+            "より大きなマシンサイズ",
+            "Pro のすべての機能"
+          ],
+          "team": [
+            "全メンバーに Pro のすべての機能",
+            "チーム全体で 1 つの請求書",
+            "優先サポート"
+          ]
+        }
+      },
+      "change": {
+        "title": "{plan} に切り替えますか？",
+        "upgradeBody": "{plan} はすぐに開始します。今回の請求期間の残り分として、本日 {amount} をお支払いいただきます。{date} からは月額 {price} です。",
+        "downgradeBody": "{plan} はすぐに開始します。現在のプランの未使用分 {credit} は、次回以降の請求に充当されます。{date} の次回請求額は {amount} です。",
+        "confirm": "{plan} に切り替え",
+        "keep": "現在のプランを続ける",
+        "switching": "切り替え中…",
+        "previewError": "料金を計算できませんでした。もう一度お試しください。",
+        "paymentFailed": "カードが拒否されました。支払い方法を更新してから、もう一度お試しください。",
+        "error": "プランを切り替えられませんでした。もう一度お試しください。"
+      },
+      "cancelDialog": {
+        "title": "{plan} を解約しますか？",
+        "body": "{date} まで {plan} を利用できます。その後、次の機能が使えなくなります:",
+        "bodyNoDate": "今回の請求期間の終了まで {plan} を利用できます。その後、次の機能が使えなくなります:",
+        "reasonLabel": "解約の理由（任意）",
+        "otherPlaceholder": "詳しく教えてください（任意）",
+        "confirm": "プランを解約",
+        "keep": "{plan} を続ける",
+        "error": "プランを解約できませんでした。もう一度お試しください。",
+        "resumeError": "プランを再開できませんでした。もう一度お試しください。",
+        "reasons": {
+          "too_expensive": "料金が高い",
+          "missing_feature": "必要な機能がない",
+          "not_using": "あまり使っていない",
+          "other": "その他"
+        }
+      },
+      "welcome": {
+        "title": "{plan} へようこそ",
+        "body": "プランが有効になりました。まず試してみましょう:",
+        "ios": "iOS アプリをインストール",
+        "cloud": "Cloud を開く",
+        "team": "チームを作成",
+        "banner": "{plan} をご利用中です。",
+        "bannerLink": "プランと請求"
       }
     },
     "testflight": {
@@ -1275,6 +1367,14 @@
       },
       "retry": "再試行",
       "retrying": "再試行中…"
+    },
+    "upgrade": {
+      "title": "Pro が必要です",
+      "cloud": "Cloud VM とクラウドエージェントは Pro に含まれます。",
+      "testflight": "cmux iOS アプリは Pro に含まれます。",
+      "mobileDevices": "スマートフォンやタブレットとの接続は Pro に含まれます。",
+      "action": "Pro にアップグレード",
+      "comparePlans": "プランを比較"
     }
   },
   "vault": {

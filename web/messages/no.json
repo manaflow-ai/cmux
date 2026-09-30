@@ -407,7 +407,8 @@
       "signingOut": "Logger ut…",
       "signOutError": "Kunne ikke logge ut. Prøv igjen.",
       "organizationSwitchError": "Kunne ikke bytte organisasjon. Prøv igjen.",
-      "signIn": "Logg inn"
+      "signIn": "Logg inn",
+      "upgrade": "Oppgrader"
     },
     "billing": {
       "plan": {
@@ -448,7 +449,98 @@
       "team": {
         "createCta": "Opprett et team"
       },
-      "title": "Plan og fakturering"
+      "title": "Plan og fakturering",
+      "picker": {
+        "current": "Nåværende plan",
+        "upgradeTo": "Oppgrader til {plan}",
+        "switchTo": "Bytt til {plan}",
+        "cancelPlan": "Avslutt plan",
+        "resume": "Gjenoppta {plan}",
+        "renewsOn": "Fornyes {date}",
+        "endsOn": "Avsluttes {date}",
+        "perMonth": "per måned",
+        "perSeatMonth": "per plass per måned",
+        "paymentMethod": "Administrer betalingsmåte",
+        "invoices": "Fakturaer",
+        "heading": "Planer",
+        "actionError": "Kunne ikke endre planen. Prøv igjen.",
+        "unavailable": {
+          "cancelScheduled": "Gjenoppta planen for å endre den.",
+          "granted": "Tildelt av cmux. Det er ingenting å endre.",
+          "adminOnly": "Bare teamadministratorer kan endre planen."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "Hele cmux-terminalen for macOS",
+            "Hvilken som helst CLI-agent med egne nøkler",
+            "Lokal økthistorikk"
+          ],
+          "go": [
+            "1 aktiv Cloud VM",
+            "40 VM-timer i måneden",
+            "2 lagrede VM-er"
+          ],
+          "pro": [
+            "Skyagenter på Cloud VMs",
+            "24 GB RAM og 6 vCPU-er delt mellom VM-er",
+            "cmux-appen for iOS"
+          ],
+          "max": [
+            "64 GB RAM og 16 vCPU-er delt mellom VM-er",
+            "Større maskinstørrelser",
+            "Alt i Pro"
+          ],
+          "team": [
+            "Alt i Pro for hvert medlem",
+            "Én faktura for hele teamet",
+            "Prioritert støtte"
+          ]
+        }
+      },
+      "change": {
+        "title": "Bytte til {plan}?",
+        "upgradeBody": "{plan} starter nå. Du betaler {amount} i dag for resten av denne faktureringsperioden. Fra {date} betaler du {price} per måned.",
+        "downgradeBody": "{plan} starter nå. Den ubrukte delen av nåværende plan, {credit}, krediteres de neste fakturaene. Neste faktura, {date}, er på {amount}.",
+        "confirm": "Bytt til {plan}",
+        "keep": "Behold nåværende plan",
+        "switching": "Bytter…",
+        "previewError": "Kunne ikke beregne prisen. Prøv igjen.",
+        "paymentFailed": "Kortet ble avvist. Oppdater betalingsmåten, og prøv igjen.",
+        "error": "Kunne ikke bytte plan. Prøv igjen."
+      },
+      "cancelDialog": {
+        "title": "Avslutte {plan}?",
+        "body": "Du beholder {plan} til {date}. Etter det mister du:",
+        "bodyNoDate": "Du beholder {plan} til slutten av denne faktureringsperioden. Etter det mister du:",
+        "reasonLabel": "Hvorfor avslutter du? (valgfritt)",
+        "otherPlaceholder": "Fortell oss mer (valgfritt)",
+        "confirm": "Avslutt plan",
+        "keep": "Behold {plan}",
+        "error": "Kunne ikke avslutte planen. Prøv igjen.",
+        "resumeError": "Kunne ikke gjenoppta planen. Prøv igjen.",
+        "reasons": {
+          "too_expensive": "For dyrt",
+          "missing_feature": "Mangler en funksjon jeg trenger",
+          "not_using": "Bruker det ikke nok",
+          "other": "Annet"
+        }
+      },
+      "welcome": {
+        "title": "Velkommen til {plan}",
+        "body": "Planen er aktiv. Prøv dette først:",
+        "ios": "Installer iOS-appen",
+        "cloud": "Åpne Cloud",
+        "team": "Opprett et team",
+        "banner": "Du bruker nå {plan}.",
+        "bannerLink": "Plan og fakturering"
+      }
     },
     "mobileDevices": {
       "title": "Mobile enheter",
@@ -1054,6 +1146,14 @@
       },
       "retry": "Prøv igjen",
       "retrying": "Prøver igjen …"
+    },
+    "upgrade": {
+      "title": "Krever Pro",
+      "cloud": "Cloud VMs og skyagenter er en del av Pro.",
+      "testflight": "cmux-appen for iOS er en del av Pro.",
+      "mobileDevices": "Tilkobling av telefon og nettbrett er en del av Pro.",
+      "action": "Oppgrader til Pro",
+      "comparePlans": "Sammenlign planer"
     }
   },
   "community": {

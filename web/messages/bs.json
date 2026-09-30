@@ -407,7 +407,8 @@
       "signingOut": "Odjava…",
       "signOutError": "Odjava nije uspjela. Pokušajte ponovo.",
       "organizationSwitchError": "Nije moguće promijeniti organizaciju. Pokušajte ponovo.",
-      "signIn": "Prijavi se"
+      "signIn": "Prijavi se",
+      "upgrade": "Nadogradi"
     },
     "billing": {
       "plan": {
@@ -448,7 +449,98 @@
       "team": {
         "createCta": "Kreiraj tim"
       },
-      "title": "Plan i naplata"
+      "title": "Plan i naplata",
+      "picker": {
+        "current": "Trenutni plan",
+        "upgradeTo": "Nadogradi na {plan}",
+        "switchTo": "Pređi na {plan}",
+        "cancelPlan": "Otkaži plan",
+        "resume": "Nastavi {plan}",
+        "renewsOn": "Obnavlja se {date}",
+        "endsOn": "Završava se {date}",
+        "perMonth": "mjesečno",
+        "perSeatMonth": "po mjestu mjesečno",
+        "paymentMethod": "Upravljaj načinom plaćanja",
+        "invoices": "Fakture",
+        "heading": "Planovi",
+        "actionError": "Plan nije moguće promijeniti. Pokušajte ponovo.",
+        "unavailable": {
+          "cancelScheduled": "Nastavite plan da biste ga promijenili.",
+          "granted": "Dodijelio cmux. Nema šta da se mijenja.",
+          "adminOnly": "Samo administratori tima mogu promijeniti plan."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "Kompletan cmux terminal za macOS",
+            "Bilo koji CLI agent s vašim ključevima",
+            "Lokalna historija sesija"
+          ],
+          "go": [
+            "1 aktivna Cloud VM",
+            "40 VM sati mjesečno",
+            "2 sačuvane VM"
+          ],
+          "pro": [
+            "Cloud agenti na Cloud VMs",
+            "24 GB RAM-a i 6 vCPU-a dijeljeno među VM-ovima",
+            "cmux aplikacija za iOS"
+          ],
+          "max": [
+            "64 GB RAM-a i 16 vCPU-a dijeljeno među VM-ovima",
+            "Veće mašine",
+            "Sve iz Pro"
+          ],
+          "team": [
+            "Sve iz Pro za svakog člana",
+            "Jedna faktura za cijeli tim",
+            "Prioritetna podrška"
+          ]
+        }
+      },
+      "change": {
+        "title": "Preći na {plan}?",
+        "upgradeBody": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} mjesečno.",
+        "downgradeBody": "{plan} počinje odmah. Neiskorišteni dio trenutnog plana, {credit}, uračunava se u sljedeće fakture. Sljedeća faktura, {date}, iznosi {amount}.",
+        "confirm": "Pređi na {plan}",
+        "keep": "Zadrži trenutni plan",
+        "switching": "Prelazak…",
+        "previewError": "Cijenu nije moguće izračunati. Pokušajte ponovo.",
+        "paymentFailed": "Kartica je odbijena. Ažurirajte način plaćanja pa pokušajte ponovo.",
+        "error": "Plan nije moguće promijeniti. Pokušajte ponovo."
+      },
+      "cancelDialog": {
+        "title": "Otkazati {plan}?",
+        "body": "{plan} zadržavate do {date}. Nakon toga gubite:",
+        "bodyNoDate": "{plan} zadržavate do kraja ovog obračunskog perioda. Nakon toga gubite:",
+        "reasonLabel": "Zašto otkazujete? (opcionalno)",
+        "otherPlaceholder": "Recite nam više (opcionalno)",
+        "confirm": "Otkaži plan",
+        "keep": "Zadrži {plan}",
+        "error": "Plan nije moguće otkazati. Pokušajte ponovo.",
+        "resumeError": "Plan nije moguće nastaviti. Pokušajte ponovo.",
+        "reasons": {
+          "too_expensive": "Preskupo",
+          "missing_feature": "Nedostaje funkcija koja mi treba",
+          "not_using": "Ne koristim dovoljno",
+          "other": "Drugo"
+        }
+      },
+      "welcome": {
+        "title": "Dobro došli u {plan}",
+        "body": "Vaš plan je aktivan. Isprobajte prvo:",
+        "ios": "Instalirajte iOS aplikaciju",
+        "cloud": "Otvorite Cloud",
+        "team": "Kreirajte tim",
+        "banner": "Sada koristite {plan}.",
+        "bannerLink": "Plan i naplata"
+      }
     },
     "mobileDevices": {
       "title": "Mobilni uređaji",
@@ -1054,6 +1146,14 @@
       },
       "retry": "Pokušaj ponovo",
       "retrying": "Ponovni pokušaj…"
+    },
+    "upgrade": {
+      "title": "Zahtijeva Pro",
+      "cloud": "Cloud VMs i cloud agenti dio su plana Pro.",
+      "testflight": "cmux aplikacija za iOS dio je plana Pro.",
+      "mobileDevices": "Povezivanje telefona i tableta dio je plana Pro.",
+      "action": "Nadogradi na Pro",
+      "comparePlans": "Uporedi planove"
     }
   },
   "community": {
