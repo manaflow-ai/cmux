@@ -35,7 +35,13 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
     private var hovered = false {
-        didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
+        didSet {
+            // An invisible overlay still participates in AppKit hit testing.
+            // Keep the row's full click target available until the pointer is
+            // actually over the row, then reveal the accessory controls.
+            buttonsHost?.alphaValue = hovered ? 1 : 0
+            buttonsHost?.isHidden = !hovered
+        }
     }
 
     override convenience init(frame frameRect: NSRect) {
@@ -172,7 +178,7 @@ final class CloudTreeCellView: NSTableCellView {
         if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
             let buttons = buttonsHost ?? makeButtonsHost(style: style)
             buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
-            buttons.isHidden = false
+            buttons.isHidden = !hovered
             buttons.alphaValue = hovered ? 1 : 0
             buttonsLeadingConstraint?.constant = -style.rowGrid.trailingGap
             buttonsTrailingConstraint?.constant = -style.rowGrid.trailingPadding
