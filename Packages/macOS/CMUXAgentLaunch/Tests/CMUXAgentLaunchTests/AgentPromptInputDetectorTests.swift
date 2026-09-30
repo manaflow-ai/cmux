@@ -200,7 +200,7 @@ struct AgentPromptInputDetectorTests {
 
     @Test("Text-only screen detection is available for remote panes")
     func textOnlyScreen() {
-        let snapshot = AgentPromptSubmissionSnapshot(screenText: "Working...\\n› Ask Codex to do anything\\n  Tab to queue")
+        let snapshot = AgentPromptSubmissionSnapshot(screenText: "Working...\n› Ask Codex to do anything\n  Tab to queue")
         #expect(snapshot.agentKind == .codex)
         #expect(snapshot.busy)
     }
