@@ -94,9 +94,17 @@ final class TerminalAccessibilityText {
         now: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) -> String {
         pruneVendedValues(at: now)
-        for vended in vendedValueHistory.reversed() {
-            if let inserted = Self.insertedText(settingValue: newValue, over: vended.value) {
-                return inserted
+        // An exact read anywhere in history beats a partial match against a
+        // newer screen, which would paste the older screen's differing tail.
+        for allowsPartialMatch in [false, true] {
+            for vended in vendedValueHistory.reversed() {
+                if let inserted = Self.insertedText(
+                    settingValue: newValue,
+                    over: vended.value,
+                    allowsPartialMatch: allowsPartialMatch
+                ) {
+                    return inserted
+                }
             }
         }
         return newValue
@@ -129,8 +137,13 @@ final class TerminalAccessibilityText {
     /// A pure insertion keeps all of `currentValue`. A longer value may also
     /// have lost a selection the client replaced, so it counts when most of
     /// it survives. Short values need a pure insertion, so a literal that
-    /// happens to end like a two-character prompt isn't trimmed.
-    static func insertedText(settingValue newValue: String, over currentValue: String) -> String? {
+    /// happens to end like a two-character prompt isn't trimmed. With
+    /// `allowsPartialMatch` false, only a pure insertion counts.
+    static func insertedText(
+        settingValue newValue: String,
+        over currentValue: String,
+        allowsPartialMatch: Bool = true
+    ) -> String? {
         let old = Array(currentValue.unicodeScalars)
         guard !old.isEmpty else { return nil }
         let new = Array(newValue.unicodeScalars)
@@ -145,7 +158,9 @@ final class TerminalAccessibilityText {
             suffix += 1
         }
         let kept = prefix + suffix
-        guard kept == old.count || (old.count >= 64 && kept >= old.count / 2) else { return nil }
+        guard kept == old.count || (allowsPartialMatch && old.count >= 64 && kept >= old.count / 2) else {
+            return nil
+        }
         var inserted = String.UnicodeScalarView()
         inserted.append(contentsOf: new[prefix..<(new.count - suffix)])
         return String(inserted)
