@@ -153,4 +153,29 @@ struct BrowserReplRenderHostTests {
         #expect(!attachment.isMirroringPane)
         #expect(visibleRenderWindows().isEmpty)
     }
+
+    /// Input to a tab that just moved into the render window must wait until
+    /// WebKit has applied the new window, visibility and focus state, or
+    /// the page sees keys while it is not yet focused.
+    @Test func movedTabIsFocusedOnceRenderingSettles() async throws {
+        let (window, anchor) = try makeWindow()
+        defer { window.orderOut(nil) }
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        let webView = panel.webView
+        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        panel.noteWebViewVisibility(false, reason: "test.hidden")
+        let sessionID = "render-host-test-\(UUID().uuidString)"
+        defer { BrowserReplTabAttachments.shared.detach(sessionID: sessionID) }
+        let attachment = BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID) { _, _ in }
+
+        await attachment.renderingSettled()
+        let state = try await webView.evaluateJavaScript("document.visibilityState + ':' + document.hasFocus()") as? String
+        #expect(state == "visible:true")
+    }
 }
