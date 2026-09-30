@@ -2033,7 +2033,8 @@
           "ampIntegration": "បើក ឬបិទ hook របស់ cmux សម្រាប់ Amp។ ពេលបិទ plugin ដែលភ្ជាប់មកជាមួយនៅតែត្រូវបានដំឡើង ប៉ុន្តែមិនធ្វើអ្វីទេ។",
           "suppressSubagentNotifications": "បិទការជូនដំណឹងបញ្ចប់ដែលបង្ហាញ និងការផ្លាស់ប្តូរស្ថានភាពពីភ្នាក់ងារកូន Codex ឬ Claude ដែលបានបង្កប់ ខណៈពេលរក្សាព្រឹត្តិការណ៍របស់វានៅក្នុងទេលេមេទ្រី Feed។",
           "workspaceAutoNaming": "ការដាក់ឈ្មោះស្វ័យប្រវត្តិដោយ AI សម្រាប់កន្លែងធ្វើការ និងផ្ទាំងនានា ពីខ្លឹមសារសន្ទនារបស់ភ្នាក់ងារ (ជាជម្រើស)។ នៅពេលបើកដំណើរការ cmux នឹងសង្ខេបវគ្គភ្នាក់ងារដែលគាំទ្រទៅជាចំណងជើងខ្លីៗ ដោយប្រើប្រាស់ binary ផ្ទាល់របស់ភ្នាក់ងារនីមួយៗ; ការប្ដូរឈ្មោះដោយដៃតែងតែមានអាទិភាពជានិច្ច។",
-          "autoNamingAgent": "ភ្នាក់ងារណាដែលបង្កើតឈ្មោះស្វ័យប្រវត្តិសម្រាប់រាល់សម័យ។ \"auto\" (លំនាំដើម) ដាក់ឈ្មោះសម័យនីមួយៗដោយភ្នាក់ងាររបស់សម័យនោះផ្ទាល់។ slug ភ្នាក់ងារណាមួយ (claude, codex, grok, opencode, pi, omp, …) នឹងជំនួសការដាក់ឈ្មោះសម្រាប់គ្រប់សម័យ រួមទាំងសម័យរបស់ភ្នាក់ងារផ្សេងទៀត។ ភ្នាក់ងារដែលមិនអាចដំណើរការ ឬមិនបានដំឡើង នឹងត្រឡប់ទៅភ្នាក់ងាររបស់សម័យផ្ទាល់ ដូច្នេះការដាក់ឈ្មោះមិនដែលបរាជ័យឡើយ។"
+          "autoNamingAgent": "ភ្នាក់ងារណាដែលបង្កើតឈ្មោះស្វ័យប្រវត្តិសម្រាប់រាល់សម័យ។ \"auto\" (លំនាំដើម) ដាក់ឈ្មោះសម័យនីមួយៗដោយភ្នាក់ងាររបស់សម័យនោះផ្ទាល់។ slug ភ្នាក់ងារណាមួយ (claude, codex, grok, opencode, pi, omp, …) នឹងជំនួសការដាក់ឈ្មោះសម្រាប់គ្រប់សម័យ រួមទាំងសម័យរបស់ភ្នាក់ងារផ្សេងទៀត។ ភ្នាក់ងារដែលមិនអាចដំណើរការ ឬមិនបានដំឡើង នឹងត្រឡប់ទៅភ្នាក់ងាររបស់សម័យផ្ទាល់ ដូច្នេះការដាក់ឈ្មោះមិនដែលបរាជ័យឡើយ។",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "កំណត់ពេលដែល cmux ស្នើសុំការបញ្ជាក់មុនពេលចាកចេញ។ កំណែ DEV តែងតែចាកចេញភ្លាមៗ ដោយមិនគិតពីការកំណត់នេះទេ។ app.warnBeforeQuit ចាស់នៅតែត្រូវបានទទួលយកជាជម្រើសបម្រុង boolean។",
@@ -2153,6 +2154,12 @@
       "actionTypeCommand": "រត់ shell text ក្នុង terminal។ ប្រើ target ដើម្បីជ្រើស terminal បច្ចុប្បន្ន ឬ tab ថ្មីក្នុង pane បច្ចុប្បន្ន។",
       "actionTypeAgent": "ចាប់ផ្តើម coding agent ដែលគាំទ្រ។ បច្ចុប្បន្នគាំទ្រ codex និង claude ជាមួយ args ជម្រើស។",
       "actionTypeWorkspaceCommand": "រត់ named workspace definition ពី commands។ ប្រើវាសម្រាប់ multi-pane layouts, working directories ផ្ទាល់ខ្លួន និង startup commands។",
+      "actionTypeSetting": "ប្តូរ setting មួយក្នុង cmux.json global របស់អ្នក ឧទាហរណ៍ បិទ/បើក setting true/false ឬប្តូរទៅតម្លៃបន្ទាប់ក្នុងបញ្ជីតម្លៃ។ មើល Action ការកំណត់ ខាងក្រោម។",
+      "actionTypeSettingPreset": "អនុវត្តក្រុម settings ដែលមានឈ្មោះពី settingPresets ក្នុងមួយជំហាន។",
+      "settingActions": "Action ការកំណត់",
+      "settingActionsDesc": "Action ការកំណត់មួយកំណត់ <path>path</path> របស់ setting និងមួយគត់ក្នុងចំណោម <set>set</set> (សរសេរតម្លៃ), <toggle>toggle: true</toggle> (បិទ/បើក setting true/false), <cycle>cycle</cycle> (ទៅតម្លៃបន្ទាប់ក្នុងបញ្ជី ហើយត្រឡប់ទៅតម្លៃដំបូងវិញក្រោយតម្លៃចុងក្រោយ) ឬ <unset>unset: true</unset> (លុប key ចេញពី cmux.json ដើម្បីឱ្យប្រើតម្លៃពីបង្អួច ការកំណត់ ឬតម្លៃលំនាំដើម)។ toggle និង cycle ចាប់ផ្តើមពីតម្លៃដែល cmux កំពុងប្រើ រួមទាំងតម្លៃដែលអ្នកកំណត់ក្នុងបង្អួច ការកំណត់។ Action settingPreset អនុវត្ត entry មួយពី <presets>settingPresets</presets> ដែលជា cmux.json មួយផ្នែក ហើយ nested objects របស់វាត្រូវ merge តាម key នីមួយៗ។ cmux ពិនិត្យការផ្លាស់ប្តូរនីមួយៗជាមួយ schema មុនរក្សាទុក រក្សា comments និង keys ផ្សេងទៀតរបស់អ្នក ហើយអនុវត្តភ្លាមៗ។ Action ការកំណត់ និង presets រត់បានតែពី cmux.json global របស់អ្នក និង packs ដែលវាយោងទៅប៉ុណ្ណោះ; project configs មិនអាចប្រកាសវាបានទេ។",
+      "settingActionsCli": "ការផ្លាស់ប្តូរដូចគ្នាអាចធ្វើពី terminal បានដែរ: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> និង <preset>cmux config preset sidebar.quiet</preset>។",
+      "settingActionsLimits": "ជាមួយ <confirm>confirm: true</confirm>, cmux សួរមុនរក្សាទុក ហើយបង្ហាញ command cmux config ដែលស្មើគ្នា។ Paths ត្រូវបំបែកនៅគ្រប់ \".\" ដូច្នេះ key ដែលមាន \".\" ក្នុងឈ្មោះខ្លួនឯង (ដូចជា entry <byCwd>workspaceGroups.byCwd</byCwd> សម្រាប់ ~/src/app.web) មិនអាចប្តូរតាមវិធីនេះបានទេ។ សូមកែវាដោយផ្ទាល់ក្នុង cmux.json។",
       "actionFields": "វាល action",
       "actionFieldTitle": "ចំណងជើង row ក្នុង Command Palette, label របស់ surface button, title របស់ menu item និង title របស់ trust prompt លុះត្រាតែ entry មួយ override វា។",
       "actionFieldSubtitle": "អត្ថបទ secondary ក្នុង Command Palette។ description អាចប្រើជា alias សម្រាប់ subtitle។",
