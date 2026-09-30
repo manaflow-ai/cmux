@@ -595,7 +595,7 @@ final class CloudTuiManualMirrorSession {
     private func handle(frame: CloudTuiManualIOFrame) {
         watchdog.noteFrame()
         switch frame {
-        case let .snapshot(surfaceID, columns, rows, bytes, colors):
+        case let .snapshot(surfaceID, columns, rows, bytes, colors, pending):
             // This dedicated connection has only one pending attachment. The
             // identity-capable daemon validates the receipt before sending its
             // initial frame; input still waits for the attachment acknowledgement.
@@ -606,14 +606,14 @@ final class CloudTuiManualMirrorSession {
                 inputRouter.updateSurfaceID(surfaceID)
             }
             guard surfaceID == remoteSurfaceID else { return }
-            applyReplacement(bytes, colors: colors, columns: columns, rows: rows)
+            applyReplacement(bytes, colors: colors, columns: columns, rows: rows, pending: pending)
         case let .output(surfaceID, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             surface?.processRemoteOutput(bytes)
             applyColors(colors)
-        case let .resized(surfaceID, columns, rows, bytes, colors):
+        case let .resized(surfaceID, columns, rows, bytes, colors, pending):
             guard surfaceID == remoteSurfaceID else { return }
-            applyReplacement(bytes, colors: colors, columns: columns, rows: rows)
+            applyReplacement(bytes, colors: colors, columns: columns, rows: rows, pending: pending)
         case let .colorsChanged(surfaceID, colors):
             guard surfaceID == remoteSurfaceID else { return }
             applyColors(colors)
@@ -647,9 +647,11 @@ final class CloudTuiManualMirrorSession {
     /// A snapshot or `resized` frame replaces the local VT state with a replay
     /// authored for the daemon's grid. Resetting first keeps the cells, cursor,
     /// alternate screen and SGR of a prior restore from surviving a shorter one.
-    private func applyReplacement(_ bytes: Data, colors: CloudTuiRemoteColors?, columns: Int, rows: Int) {
+    private func applyReplacement(
+        _ bytes: Data, colors: CloudTuiRemoteColors?, columns: Int, rows: Int, pending: Data
+    ) {
         lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
-        applyReplay(bytes, colors: colors, remote: lastRemoteGrid)
+        applyReplay(bytes, colors: colors, remote: lastRemoteGrid, pending: pending)
         hasReceivedRemoteReplay = true
         diagnosticReplayReceived = true
         if phase == .attached { finishDiagnostics() }
@@ -658,7 +660,9 @@ final class CloudTuiManualMirrorSession {
         if geometryClaimLossPending { geometryClaimLossPending = false; geometryClaimBlockedByPeer = !explicitGeometryClaimPending && lastRemoteGrid != resizeScheduler.desired; geometryClaimed = geometryClaimed && !geometryClaimBlockedByPeer }
         reconcileRemoteGrid()
     }
-    private func applyReplay(_ bytes: Data, colors: CloudTuiRemoteColors?, remote: CloudTuiManualIOGrid?) {
+    private func applyReplay(
+        _ bytes: Data, colors: CloudTuiRemoteColors?, remote: CloudTuiManualIOGrid?, pending: Data
+    ) {
         // A sidecar replaces authored colors; an absent sidecar preserves them.
         // Restore the authoritative set after resetting the replacement VT state.
         let replayColors = colors ?? appliedRemoteColors
@@ -666,6 +670,10 @@ final class CloudTuiManualMirrorSession {
         replay.append(Self.replayReset)
         replay.append(bytes)
         replay.append(replayColors.oscBytes)
+        // The daemon's parser is inside this sequence; the next output
+        // completes it. It goes last because the color OSCs above would
+        // otherwise land inside it.
+        replay.append(pending)
         appliedRemoteColors = replayColors
         let token = replayFidelity.replayQueued(remote: remote, local: settledGrid())
         guard let surface else { return }
