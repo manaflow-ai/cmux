@@ -67,10 +67,10 @@ final class SidePanelHeaderView: NSView {
     }
 
     private func updateColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             layer?.backgroundColor = Palette.pageBackground.cgColor
+            title.textColor = Palette.textPrimary
         }
-        title.textColor = Palette.textPrimary
     }
 
     @objc private func pressPin() { onPress?(.pin) }
