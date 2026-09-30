@@ -615,7 +615,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 #endif
         titleView.stringValue = boundedTitle
-        titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
+        let titleWeight: NSFont.Weight = model.settings.showsUnreadStyling && model.unreadCount > 0 ? .bold : .semibold
+        titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: titleWeight)
         titleView.textColor = palette.primaryText
         titleView.alphaValue = snapshot.isMuted ? 0.6 : 1
 
@@ -881,7 +882,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     private func configureCompactStatusGlyph(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
         let glyph = model.snapshot.compactStatusGlyph?.applyingUnread(
-            model.unreadCount,
+            model.settings.showsUnreadStyling ? model.unreadCount : 0,
             latestNotificationText: model.latestNotificationText
         )
         compactStatusGlyphView.isPresentationActive = isPresentationActive

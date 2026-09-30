@@ -4048,6 +4048,7 @@
 		9200A0019200A0019200A001 /* Workspace+RestoredWorkingDirectoryGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9200A0019200A0019200A002 /* Workspace+RestoredWorkingDirectoryGuard.swift */; };
 		381B026EFFAB40449AF805E8 /* Workspace+RightSidebarToolDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52ACFA4197424088998A76C0 /* Workspace+RightSidebarToolDrop.swift */; };
 		C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */; };
+		77864EB0DBAC0424EE04C1F8 /* Workspace+SessionUnread.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C33906F5E9EE13DEF0BDFBC /* Workspace+SessionUnread.swift */; };
 		C7268002000000000000001 /* Workspace+SidebarDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7268002000000000000002 /* Workspace+SidebarDirectories.swift */; };
 		C3744E100000000000000001 /* Workspace+SidebarStatusVisibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */; };
 		C51A710000000000000000C1 /* Workspace+SimulatorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A710000000000000000C2 /* Workspace+SimulatorPane.swift */; };
@@ -8211,6 +8212,7 @@
 		9200A0019200A0019200A002 /* Workspace+RestoredWorkingDirectoryGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RestoredWorkingDirectoryGuard.swift"; sourceTree = "<group>"; };
 		52ACFA4197424088998A76C0 /* Workspace+RightSidebarToolDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RightSidebarToolDrop.swift"; sourceTree = "<group>"; };
 		C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionRestoreIdentity.swift"; sourceTree = "<group>"; };
+		7C33906F5E9EE13DEF0BDFBC /* Workspace+SessionUnread.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionUnread.swift"; sourceTree = "<group>"; };
 		C7268002000000000000002 /* Workspace+SidebarDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SidebarDirectories.swift"; sourceTree = "<group>"; };
 		C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SidebarStatusVisibility.swift"; sourceTree = "<group>"; };
 		C51A710000000000000000C2 /* Workspace+SimulatorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SimulatorPane.swift"; sourceTree = "<group>"; };
@@ -11318,6 +11320,7 @@
 				4845BF2DCEA4B76EC0EBC410 /* BrowserWindowSlotView+PaneDropOverlay.swift */,
 				E7E4D51BF3365A4CB3A658E4 /* GhosttySurfaceScrollView+PaneDropOverlay.swift */,
 				2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */,
+				7C33906F5E9EE13DEF0BDFBC /* Workspace+SessionUnread.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15923,6 +15926,7 @@
 				9200A0019200A0019200A001 /* Workspace+RestoredWorkingDirectoryGuard.swift in Sources */,
 				381B026EFFAB40449AF805E8 /* Workspace+RightSidebarToolDrop.swift in Sources */,
 				C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */,
+				77864EB0DBAC0424EE04C1F8 /* Workspace+SessionUnread.swift in Sources */,
 				C7268002000000000000001 /* Workspace+SidebarDirectories.swift in Sources */,
 				C3744E100000000000000001 /* Workspace+SidebarStatusVisibility.swift in Sources */,
 				C51A710000000000000000C1 /* Workspace+SimulatorPane.swift in Sources */,

@@ -163,6 +163,7 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:notification-badge-position": localized("settings.search.alias.setting.app.notification-badge-position", defaultValue: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace"),
         "sidebarAppearance:show-metadata": localized("settings.search.alias.setting.app.show-metadata", defaultValue: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
         "sidebarAppearance:compact-agent-status": localized("settings.search.alias.setting.app.compact-agent-status", defaultValue: "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"),
+        "sidebarAppearance:show-unread-styling": localized("settings.search.alias.setting.app.show-unread-styling", defaultValue: "sidebar.showUnreadStyling unread session title emphasis attention agent notification"),
         "sidebarAppearance:right-max-width": localized("settings.search.alias.setting.sidebarAppearance.right-max-width", defaultValue: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
         "betaFeatures:feed": localized("settings.search.alias.setting.betaFeatures.feed", defaultValue: "feed right sidebar agent decisions permissions questions approval beta unstable"),
         "mobile:iOSPairingHost": localized("settings.search.alias.setting.mobile.iOSPairingHost", defaultValue: "ios iphone ipad mobile pairing local network permission sync"),

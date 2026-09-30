@@ -30,6 +30,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let loadingSpinnerPosition: SidebarIndicatorPosition
     let notificationBadgePosition: SidebarIndicatorPosition
+    let showsUnreadStyling: Bool
     let selectionColorHex: String?
     let subtleSelection: Bool
     let notificationBadgeColorHex: String?
@@ -100,6 +101,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         activeTabIndicatorStyle = settings.value(for: workspaceColors.indicatorStyle)
         loadingSpinnerPosition = settings.value(for: sidebar.loadingSpinnerPosition)
         notificationBadgePosition = settings.value(for: sidebar.notificationBadgePosition)
+        showsUnreadStyling = settings.value(for: sidebar.showUnreadStyling)
         selectionColorHex = settings.value(for: workspaceColors.selectionColorHex).nilIfEmpty
         subtleSelection = settings.value(for: workspaceColors.subtleSelection)
         notificationBadgeColorHex = settings.value(for: workspaceColors.notificationBadgeColorHex).nilIfEmpty

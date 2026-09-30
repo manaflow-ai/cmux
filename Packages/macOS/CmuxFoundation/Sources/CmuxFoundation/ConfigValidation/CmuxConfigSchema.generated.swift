@@ -1460,6 +1460,11 @@ enum CmuxEmbeddedConfigSchema {
           "descriptionKey": "schemaDescriptions.sidebar.compactAgentStatus",
           "description": "Show each workspace on one line: one colored icon before the title for agent, unread, and pull request state replaces the agent status rows (for example Running or Needs input), the branch and directory line, and the pull request rows, whose details move to the icon's tooltip. Other status entries keep their rows."
         },
+        "showUnreadStyling": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use title emphasis for workspace sessions with unread attention."
+        },
         "compactStatusIcons": {
           "type": "object",
           "default": {},

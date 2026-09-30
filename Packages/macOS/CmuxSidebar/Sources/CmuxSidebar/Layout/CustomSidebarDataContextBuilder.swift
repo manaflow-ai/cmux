@@ -158,6 +158,9 @@ public struct CustomSidebarDataContextBuilder {
         if let panelId = agent.panelId {
             fields["panelId"] = .string(panelId.uuidString)
         }
+        if agent.isUnread {
+            fields["unread"] = .bool(true)
+        }
         if let surfaceId = agent.surfaceId {
             // The id surface.* verbs accept (surface.focus etc.); panelId
             // above is the panel behind the tab.
@@ -204,6 +207,9 @@ public struct CustomSidebarDataContextBuilder {
             "focused": .bool(surface.isFocused),
             "pinned": .bool(surface.isPinned),
         ]
+        if surface.isUnread {
+            surfaceFields["unread"] = .bool(true)
+        }
         if let surfaceId = surface.surfaceId {
             // The id surface.* verbs accept (surface.focus etc.); `id` above
             // is the panel behind the tab.

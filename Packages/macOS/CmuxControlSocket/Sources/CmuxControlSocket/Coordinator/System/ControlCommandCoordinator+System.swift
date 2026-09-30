@@ -43,6 +43,10 @@ extension ControlCommandCoordinator {
             return extensionSidebarSnapshot(request.params)
         case "workspace.action":
             return workspaceAction(request.params)
+        case "workspace.mark_read":
+            return workspaceAction(request.params.merging(["action": .string("mark_read")]) { _, alias in alias })
+        case "workspace.mark_unread":
+            return workspaceAction(request.params.merging(["action": .string("mark_unread")]) { _, alias in alias })
         case "surface.action", "tab.action":
             return tabAction(request.params)
         case "surface.drag_to_split", "surface.split_off":

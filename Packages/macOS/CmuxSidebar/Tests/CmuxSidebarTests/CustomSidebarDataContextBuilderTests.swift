@@ -286,6 +286,7 @@ struct CustomSidebarDataContextBuilderTests {
             title: "editor",
             isFocused: true,
             isPinned: true,
+            isUnread: true,
             directory: "/src",
             gitBranch: "feat",
             gitIsDirty: false,
@@ -298,6 +299,7 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("title") == .string("editor"))
         #expect(value.member("focused") == .bool(true))
         #expect(value.member("pinned") == .bool(true))
+        #expect(value.member("unread") == .bool(true))
         #expect(value.member("directory") == .string("/src"))
         #expect(value.member("branch") == .string("feat"))
         #expect(value.member("dirty") == .bool(false))
@@ -323,6 +325,7 @@ struct CustomSidebarDataContextBuilderTests {
             kind: "claude",
             name: "Claude",
             status: "working",
+            isUnread: true,
             stateSince: Date(timeIntervalSince1970: 100),
             lastActivityAt: Date(timeIntervalSince1970: 160),
             title: "Fix the crash",
@@ -337,6 +340,7 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("kind") == .string("claude"))
         #expect(value.member("name") == .string("Claude"))
         #expect(value.member("status") == .string("working"))
+        #expect(value.member("unread") == .bool(true))
         #expect(value.member("sinceEpoch") == .int(100))
         #expect(value.member("lastActivityAt") == .int(160))
         #expect(value.member("title") == .string("Fix the crash"))

@@ -100,6 +100,16 @@ private struct WorkspacePanelContentHostView: View {
                 workspace.requestDeferredBrowserMaterialization(panelId: panel.id, isVisibleInUI: isVisibleInUI)
             }
         )
+        .onAppear {
+            if isVisibleInUI {
+                workspace.markVisibleAgentSessionRead(panelId: panel.id)
+            }
+        }
+        .onChange(of: isVisibleInUI) { _, visible in
+            if visible {
+                workspace.markVisibleAgentSessionRead(panelId: panel.id)
+            }
+        }
     }
 }
 

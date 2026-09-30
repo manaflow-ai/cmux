@@ -16116,7 +16116,7 @@ struct TabItemView: View, Equatable {
     }
 
     private var titleFontWeight: Font.Weight {
-        .semibold
+        settings.showsUnreadStyling && snapshot.unreadCount > 0 ? .bold : .semibold
     }
 
     private var fontScale: CGFloat {
@@ -16348,7 +16348,10 @@ struct TabItemView: View, Equatable {
         )
 
         // Compact status draws running and unread as its one glyph instead.
-        let compactStatusGlyph = workspaceSnapshot.compactStatusGlyph?.applyingUnread(unreadCount, latestNotificationText: latestNotificationText)
+        let compactStatusGlyph = workspaceSnapshot.compactStatusGlyph?.applyingUnread(
+            settings.showsUnreadStyling ? unreadCount : 0,
+            latestNotificationText: latestNotificationText
+        )
         let showsLoadingSpinner = compactStatusGlyph == nil
             && showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
         let showsUnreadBadge = compactStatusGlyph == nil && unreadCount > 0

@@ -77123,61 +77123,61 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace requires a subcommand. Try: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace requires a subcommand. Try: list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace にはサブコマンドが必要です。利用可能: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace にはサブコマンドが必要です。利用可能: list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace에는 하위 명령이 필요합니다. 사용 가능: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace에는 하위 명령이 필요합니다. 사용 가능: list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace потребує підкоманди. Доступні: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace потребує підкоманди. Доступні: list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace 需要一个子命令。可尝试：list、create、env、close、rename、select、status、reconnect、disconnect、loading、group"
+            "value": "workspace 需要一个子命令。可尝试：list、create、env、close、rename、select、mark-read、mark-unread、status、reconnect、disconnect、loading、group"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace erfordert einen Unterbefehl. Versuchen Sie: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace erfordert einen Unterbefehl. Versuchen Sie: list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace requiert une sous-commande. Essayez : list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace requiert une sous-commande. Essayez : list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتطلب workspace أمرًا فرعيًا. جرب: list، create، env، close، rename، select، status، reconnect، disconnect، loading، group"
+            "value": "تتطلب workspace أمرًا فرعيًا. جرب: list، create، env، close، rename، select، mark-read، mark-unread، status، reconnect، disconnect، loading، group"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace requiere un subcomando. Prueba con: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace requiere un subcomando. Prueba con: list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace 需要子命令。請試試：list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace 需要子命令。請試試：list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         }
       }
@@ -77188,61 +77188,61 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不明な workspace サブコマンド: %@。利用可能: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "不明な workspace サブコマンド: %@。利用可能: list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "알 수 없는 workspace 하위 명령: %@. 사용 가능: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "알 수 없는 workspace 하위 명령: %@. 사용 가능: list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Невідома підкоманда workspace: %@. Доступні: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "Невідома підкоманда workspace: %@. Доступні: list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未知的 workspace 子命令：%@。可尝试：list、create、env、close、rename、select、status、reconnect、disconnect、loading、group"
+            "value": "未知的 workspace 子命令：%@。可尝试：list、create、env、close、rename、select、mark-read、mark-unread、status、reconnect、disconnect、loading、group"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unbekannter workspace-Unterbefehl: %@. Versuche: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "Unbekannter workspace-Unterbefehl: %@. Versuche: list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sous-commande d'espace de travail inconnue : %@. Essayez : list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "Sous-commande d'espace de travail inconnue : %@. Essayez : list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أمر فرعي غير معروف لـ workspace: %@. جرب: list، create، env، close، rename، select، status، reconnect، disconnect، loading، group"
+            "value": "أمر فرعي غير معروف لـ workspace: %@. جرب: list، create، env، close، rename، select، mark-read، mark-unread، status، reconnect، disconnect، loading، group"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subcomando de espacio de trabajo desconocido: %@. Prueba con: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "Subcomando de espacio de trabajo desconocido: %@. Prueba con: list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未知的 workspace 子命令：%@。請試試：list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "未知的 workspace 子命令：%@。請試試：list, create, env, close, rename, select, mark-read, mark-unread, status, reconnect, disconnect, loading, group"
           }
         }
       }
@@ -586167,5 +586167,5 @@
       }
     }
   },
- "version": "1.0"
+  "version": "1.0"
 }

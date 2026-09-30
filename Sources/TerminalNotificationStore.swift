@@ -1607,6 +1607,14 @@ final class TerminalNotificationStore: ObservableObject {
         applySidebarOrdering(for: notification, effects: effects)
 
         updated.insert(notification, at: 0)
+        if !notification.isRead,
+           let workspace = AppDelegate.shared?.workspaceFor(tabId: notification.tabId),
+           let panelId = notification.panelId ?? notification.surfaceId {
+            // A concrete notification is the richer unread source for this
+            // event. Withdraw the quiet session marker so the count badge and
+            // the session state do not represent one turn twice.
+            workspace.clearRestoredUnreadIndicator(panelId: panelId)
+        }
         mutateWorkspaceManualUnread(false, forTabId: notification.tabId)
         if let surfaceId = notification.surfaceId {
             mutateSurfaceManualUnread(

@@ -316,7 +316,7 @@ with:
   current working/needs-input state began), `title` (first user prompt),
   `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
   tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
-  `transcriptPath`, `pid`, and `children` (nested subagent runs under the
+  `transcriptPath`, `pid`, and `unread` (Bool when the session needs a look), and `children` (nested subagent runs under the
   session, oldest first; omitted when none). Each `children[k]` has `id`
   (stable for the child's lifetime), `running` (Bool), and `startedEpoch`;
   when available it adds `label` and `endedEpoch` (set when the child
@@ -328,7 +328,8 @@ with:
   record, stop closes it by `agent_id` (or the oldest running child when the
   id is absent).
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
-  `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
+  `focused` (Bool), `pinned` (Bool). When a surface needs a look, `unread`
+  (Bool) is present. When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
