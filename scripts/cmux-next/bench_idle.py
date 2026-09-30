@@ -170,6 +170,9 @@ def measure(app_pid, bundle, seconds, control):
     for pid, kind in sorted(kinds.items(), key=lambda item: item[1]):
         before, after = start.get(pid), usage(pid)
         if before is None or after is None:
+            # Started or ended inside the window (a daemon restart shows here).
+            rows.append({"pid": pid, "kind": kind, "partial": True,
+                         "note": "appeared during the window" if before is None else "exited during the window"})
             continue
         rows.append({
             "pid": pid, "kind": kind,
@@ -210,6 +213,15 @@ def prepare(scenario, control, args, app_pid, bundle):
             return response.get("error") or "refused"
         return None
 
+    def run_action(name, **action_args):
+        # A loaded machine can miss the app's 2 s control deadline; retry.
+        for _ in range(3):
+            response = control.action(name, timeout=60, **action_args)
+            if (response.get("error") or {}).get("code") != "timeout":
+                return response
+            time.sleep(5)  # test script: back off before retrying the action
+        return response
+
     if scenario == "chromium-static":
         # The first Chromium tab starts CEF (slow on a loaded machine).
         reason = refused(control.action("openBrowser.chromium", timeout=90, url=args.url))
@@ -217,15 +229,19 @@ def prepare(scenario, control, args, app_pid, bundle):
             reason = "no Chromium renderer appeared within 90 s"
         return reason
     if scenario == "chromium-hidden":
-        return refused(control.action("workspace new"))
+        return refused(run_action("newTab"))
     if scenario == "minimized":
-        return refused(control.action("minimizeWindow"))
+        return refused(run_action("minimizeWindow"))
     return None
 
 
 def criteria(scenario, result, args):
     failures = []
     for row in result["processes"]:
+        if row.get("partial"):
+            if row["kind"] in ("app", "daemon"):
+                failures.append(f"{scenario}: {row['kind']} {row['pid']} {row['note']}")
+            continue
         kind, cpu, wake = row["kind"], row["cpu_percent"], row["wakeups_per_s"]
         if kind in ("app", "daemon"):
             limit_cpu, limit_wake = args.max_cpu, args.max_wakeups
@@ -297,6 +313,12 @@ def main():
         app_pid = identity.get("pid", app.pid)
         report["has_debug_wakeups"] = "error" not in control.call("debug.wakeups", timeout=30)
         for scenario in args.scenarios.split(","):
+            if app.poll() is not None:
+                # Negative: killed by that signal (a crash, or someone else's cleanup).
+                report["app_exit"] = app.returncode
+                failures.append(f"{scenario}: the app exited ({app.returncode}) before this scenario")
+                print(f"bench-idle: the app exited with {app.returncode}", file=sys.stderr)
+                break
             try:
                 skipped = prepare(scenario, control, args, app_pid, bundle)
             except (OSError, ValueError) as error:
@@ -311,7 +333,10 @@ def main():
             failures += criteria(scenario, result, args)
             print(f"== {scenario}")
             for row in result["processes"]:
-                print(f"   {row['kind']:<14} pid {row['pid']:<6} {row['cpu_percent']:>7.3f}% CPU {row['wakeups_per_s']:>8.2f} wakeups/s")
+                if row.get("partial"):
+                    print(f"   {row['kind']:<14} pid {row['pid']:<6} {row['note']}")
+                else:
+                    print(f"   {row['kind']:<14} pid {row['pid']:<6} {row['cpu_percent']:>7.3f}% CPU {row['wakeups_per_s']:>8.2f} wakeups/s")
             if result.get("ledger"):
                 top = ", ".join(f"{e['owner']}:{e['reason']}={e['per_second']}/s" for e in result["ledger"][:6])
                 print(f"   ledger: {top}")
