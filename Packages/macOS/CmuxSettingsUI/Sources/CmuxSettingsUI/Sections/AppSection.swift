@@ -3,7 +3,7 @@ import CmuxSettings
 import SwiftUI
 
 /// **App** section — mirrors the legacy in-app section row-for-row
-/// inside a single `SettingsCard`: Language, Appearance, App Icon,
+/// inside a single `SettingsCard`: Language, App Icon,
 /// New Workspace Placement, Inherit Working Directory, Minimal Mode,
 /// Keep Workspace Open When Closing Last Surface, Focus Pane on
 /// First Click, File Drops, Open Files With, Open Supported Files in
@@ -18,16 +18,14 @@ import SwiftUI
 public struct AppSection: View {
     private let catalog: SettingCatalog
     private let defaultsStore: UserDefaultsSettingsStore
+    private let jsonStore: JSONConfigStore
+    private let errorLog: SettingsErrorLog
     private let hostActions: SettingsHostActions
 
     // Every bound value-model lives here as view state, constructed once
     // and persisted across renders so the @Observable change tracking
     // actually drives invalidation.
     @State private var language: DefaultsValueModel<AppLanguage>
-    @State private var appearance: DefaultsValueModel<AppearanceMode>
-    @State private var accentColor: DefaultsValueModel<CmuxAccentColorMode>
-    @State private var accentColorCustomHex: DefaultsValueModel<String>
-    @State private var accentColorWriter: AccentColorSettingsFileWriter
     @State private var appIcon: DefaultsValueModel<AppIconMode>
     @State private var placement: DefaultsValueModel<WorkspacePlacement>
     @State private var inheritDir: DefaultsValueModel<Bool>
@@ -40,6 +38,7 @@ public struct AppSection: View {
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
+    @State private var agentSessionRenderer: JSONValueModel<String>
     @State private var globalFontMagnification: DefaultsValueModel<Int>
     @State private var markdownFontSize: DefaultsValueModel<Int>
     @State private var markdownFontFamily: DefaultsValueModel<String>
@@ -80,8 +79,6 @@ public struct AppSection: View {
     @State private var renameSelects: DefaultsValueModel<Bool>
     @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
 
-    @Environment(\.colorScheme) private var colorScheme
-
     @State private var languageAtAppear: AppLanguage?
     // Sticky: a picker change can rewrite the OS AppleLanguages override even when the selection returns to its starting value (clearing a preserved foreign override via an explicit pick, then System), so the restart hint must not rely on the value comparison alone.
     @State private var languageOverrideTouched = false
@@ -94,27 +91,17 @@ public struct AppSection: View {
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
-        errorLog: SettingsErrorLog,
         hostActions: SettingsHostActions,
+        errorLog: SettingsErrorLog,
         soundAgentCache: NotificationSoundAgentCache = NotificationSoundAgentCache()
     ) {
         self.catalog = catalog
         self.defaultsStore = defaultsStore
+        self.jsonStore = jsonStore
+        self.errorLog = errorLog
         self.hostActions = hostActions
         self.soundAgentCache = soundAgentCache
-        _accentColorWriter = State(initialValue: AccentColorSettingsFileWriter(
-            write: { value in
-                _ = try await jsonStore.setWithReceipt(value, for: AccentColorSettingsFileWriter.settingsFileKey)
-                hostActions.reloadSettingsFile()
-            },
-            didFail: { error in
-                errorLog.record(error, keyID: AccentColorSettingsFileWriter.settingsFileKey.id)
-            }
-        ))
         _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.language))
-        _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
-        _accentColor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.accentColor))
-        _accentColorCustomHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.accentColorCustomHex))
         _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
         _placement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement))
         _inheritDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory))
@@ -127,6 +114,7 @@ public struct AppSection: View {
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
+        _agentSessionRenderer = State(initialValue: JSONValueModel(store: jsonStore, key: catalog.app.agentSessionRenderer, errorLog: errorLog))
         _globalFontMagnification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.globalFontMagnification))
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
         _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
@@ -190,7 +178,7 @@ public struct AppSection: View {
             AppChannelSwitchCard(hostActions: hostActions)
         }
         .task {
-            startSettingsObservation([language, appearance, accentColor, accentColorCustomHex, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, agentSessionRenderer, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -209,34 +197,6 @@ public struct AppSection: View {
             localized: "settings.app.globalFontMagnification.subtitle",
             defaultValue: "Scales all text in cmux. Command-Plus and Command-Minus still zoom the focused pane."
         )
-    }
-
-    /// The accent the row shows: the newest choice still being written to
-    /// cmux.json, else the applied setting.
-    private var displayedAccentColor: CmuxAccentColor {
-        if let requested = accentColorWriter.requestedValue,
-           let parsed = CmuxAccentColorMode.parseSettingsFileValue(requested) {
-            return CmuxAccentColor(mode: parsed.mode, customHex: parsed.customHex ?? accentColorCustomHex.current)
-        }
-        return CmuxAccentColor(mode: accentColor.current, customHex: accentColorCustomHex.current)
-    }
-
-    /// Switching to Custom keeps the last custom color, or seeds it with the
-    /// accent currently drawn so the chrome does not jump before a color is
-    /// picked.
-    private func selectAccentColorMode(_ mode: CmuxAccentColorMode) {
-        let displayed = displayedAccentColor
-        let customHex = mode == .custom
-            ? displayed.customHex ?? displayed.nsColor(isDark: colorScheme == .dark).hexString()
-            : nil
-        requestAccentColor(mode: mode, customHex: customHex)
-    }
-
-    /// Writes the choice to cmux.json (`app.accentColor`); the host reload
-    /// then applies it to UserDefaults and the live chrome.
-    private func requestAccentColor(mode: CmuxAccentColorMode, customHex: String?) {
-        guard let value = CmuxAccentColorMode.settingsFileValue(mode: mode, customHex: customHex) else { return }
-        accentColorWriter.request(value)
     }
 
     private func setGlobalFontMagnification(_ percent: Int) {
@@ -261,44 +221,6 @@ public struct AppSection: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-            }
-            SettingsCardDivider()
-
-            // Theme — three-up visual picker mirroring legacy
-            ThemePickerRow(
-                selectedMode: appearance.current,
-                onSelect: { appearance.set($0) }
-            )
-            .settingsSearchAnchors(["setting:app:appearance"])
-            SettingsCardDivider()
-
-            // Accent Color
-            SettingsCardRow(
-                configurationReview: .json("app.accentColor"),
-                String(localized: "settings.app.accentColor", defaultValue: "Accent Color"),
-                subtitle: String(localized: "settings.app.accentColor.subtitle", defaultValue: "Color of the selected workspace, attention ring, agent status, and other cmux highlights. System follows the macOS accent color."),
-                controlWidth: Self.columnWidth
-            ) {
-                HStack(spacing: 8) {
-                    Picker("", selection: Binding(get: { displayedAccentColor.mode }, set: { selectAccentColorMode($0) })) {
-                        Text(String(localized: "settings.app.accentColor.cmux", defaultValue: "cmux Blue")).tag(CmuxAccentColorMode.cmux)
-                        Text(String(localized: "settings.app.accentColor.system", defaultValue: "System")).tag(CmuxAccentColorMode.system)
-                        Text(String(localized: "settings.app.accentColor.custom", defaultValue: "Custom")).tag(CmuxAccentColorMode.custom)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .accessibilityIdentifier("SettingsAccentColorPicker")
-                    if displayedAccentColor.mode == .custom {
-                        HexColorPicker(
-                            storedHex: displayedAccentColor.customHex ?? "",
-                            fallback: Color(nsColor: CmuxAccentColor.cmuxBlue(isDark: colorScheme == .dark)),
-                            reconcileRevision: accentColor.revision &+ accentColorCustomHex.revision
-                        ) { hex in
-                            requestAccentColor(mode: .custom, customHex: hex)
-                        }
-                        .accessibilityIdentifier("SettingsAccentColorCustomPicker")
-                    }
-                }
             }
             SettingsCardDivider()
 
@@ -514,6 +436,21 @@ public struct AppSection: View {
                 Toggle("", isOn: Binding(get: { openMarkdown.current }, set: { openMarkdown.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("agentSession.renderer"),
+                String(localized: "settings.agentSession.renderer", defaultValue: "Agent Session Renderer"),
+                subtitle: String(localized: "settings.agentSession.renderer.subtitle", defaultValue: "Choose the native pane or the TypeScript React renderer for new agent sessions."),
+                controlWidth: Self.columnWidth
+            ) {
+                Picker("", selection: Binding(get: { agentSessionRenderer.current }, set: { agentSessionRenderer.set($0) })) {
+                    Text(String(localized: "settings.agentSession.renderer.native", defaultValue: "Native")).tag("native")
+                    Text(String(localized: "settings.agentSession.renderer.typescript", defaultValue: "TypeScript (React)")).tag("typescript")
+                }
+                .labelsHidden()
+                .controlSize(.small)
             }
             SettingsCardDivider()
 

@@ -121,6 +121,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // routes it to the main-actor processV2Command switch, which lacks the
         // case, and the control socket returns method_not_found.
         "mobile.terminal.set_font",
+        // Shared terminal sizing verbs are dispatched by the worker switch and
+        // hop to MainActor for the one store mutation (TerminalSharingStore).
+        "terminal.size_state", "terminal.size_policy.set", "terminal.size_to_me",
+        "terminal.size_counts.set", "terminal.participant.disconnect",
+        "terminal.participants.disconnect_others",
         // Same profile as set_font: UserDefaults reads/writes plus a push
         // event through thread-safe MobileHostService statics.
         "mobile.compatible_tags.get",

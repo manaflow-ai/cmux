@@ -1,4 +1,30 @@
 {
+  "agentSession.renderer.typescript": {
+    "source": "TypeScript",
+    "identityLocales": {
+      "de": "TypeScript is the product and programming-language name.",
+      "fr": "TypeScript is the product and programming-language name.",
+      "ar": "TypeScript is the product and programming-language name.",
+      "es": "TypeScript is the product and programming-language name.",
+      "zh-Hant": "TypeScript is the product and programming-language name.",
+      "zh-Hans": "TypeScript is the product and programming-language name.",
+      "ko": "TypeScript is the product and programming-language name.",
+      "ja": "TypeScript is the product and programming-language name."
+    }
+  },
+  "settings.agentSession.renderer.typescript": {
+    "source": "TypeScript (React)",
+    "identityLocales": {
+      "de": "TypeScript and React are product and programming-language names.",
+      "fr": "TypeScript and React are product and programming-language names.",
+      "ar": "TypeScript and React are product and programming-language names.",
+      "es": "TypeScript and React are product and programming-language names.",
+      "zh-Hant": "TypeScript and React are product and programming-language names.",
+      "zh-Hans": "TypeScript and React are product and programming-language names.",
+      "ko": "TypeScript and React are product and programming-language names.",
+      "ja": "TypeScript and React are product and programming-language names."
+    }
+  },
   "mobile.ios106PairingUpdate.releaseLabel": {
     "source": "1.0.6 · September 2026",
     "identityLocales": {
@@ -3445,6 +3471,28 @@
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
   },
+  "cloudMenu.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Standard German UI term with the same spelling."
+    }
+  },
+  "cloudMenu.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Product name cmux Cloud keeps its English spelling in this language.",
+      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
+      "es": "Product name cmux Cloud keeps its English spelling in this language."
+    }
+  },
+  "menu.cloud.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Product name cmux Cloud keeps its English spelling in this language.",
+      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
+      "es": "Product name cmux Cloud keeps its English spelling in this language."
+    }
+  },
   "sidebar.agentStatus.glyph.tooltip": {
     "source": "%1$@: %2$@",
     "identityLocales": {
@@ -3452,6 +3500,37 @@
       "de": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
       "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
       "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
+    }
+  },
+  "terminalSharing.device.mac": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "terminalSharing.device.iphone": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "terminalSharing.device.ipad": {
+    "class": "brand",
+    "source": "iPad"
+  },
+  "terminalSharing.participant.personDevice": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
+  },
+  "terminalSharing.device.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Browser is the standard German UI term with the same spelling; a translated entry is still required."
+    }
+  },
+  "settings.section.textBox": {
+    "source": "TextBox",
+    "identityLocales": {
+      "fr": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "ko": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
     }
   }
 }

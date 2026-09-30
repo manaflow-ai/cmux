@@ -19,7 +19,7 @@ extension SettingsWindowRoot {
     @ViewBuilder
     func sectionStack(proxy: ScrollViewProxy) -> some View {
         // Top to bottom in ``SettingsSectionMountModel/displayOrder``, the
-        // order sections mount in: Account through Sleepy Mode, then Mobile,
+        // order sections mount in: Account, App, Themes, Terminal, TextBox, Sleepy Mode, then Mobile,
         // Cloud, Devices, Networking, the sidebar sections, Beta Features,
         // Automation, Computer Use, Browser (with embedded Import), Global
         // Hotkey, Keyboard Shortcuts, Workspace Colors, cmux.json, Reset.
@@ -36,9 +36,19 @@ extension SettingsWindowRoot {
                 defaultsStore: defaultsStore,
                 jsonStore: jsonStore,
                 catalog: catalog,
-                errorLog: runtime.errorLog,
                 hostActions: hostActions,
+                errorLog: runtime.errorLog,
                 soundAgentCache: soundAgentCache
+            )
+        }
+
+        slot(.themes, proxy: proxy) {
+            ThemesSection(
+                defaultsStore: defaultsStore,
+                jsonStore: jsonStore,
+                catalog: catalog,
+                errorLog: runtime.errorLog,
+                hostActions: hostActions
             )
         }
 

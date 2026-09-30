@@ -1,0 +1,9 @@
+# Acpmux React pane
+
+Swift is the WKWebView host only. On `ready`, the versioned host bridge returns the authenticated loopback WebSocket endpoint, a per-launch token, and the selected session id. The React client connects directly to acpmux, initializes, watches sessions, attaches with `{eventStream: true}`, pages older records with `beforeSeq`, and folds the event stream into its view model. Acpmux owns session state and business logic; the bridge carries only host configuration and native-only actions.
+
+Rows are measured before paint with [Pretext](https://github.com/chenglou/pretext) using the named `Helvetica Neue` font. Prepared markdown blocks are cached by row id, content version, and text. Layout stores exact tops and heights in typed arrays and finds the visible range with binary search. React mounts only that range; row components are memoized by id and content version, so a streaming update replaces one row.
+
+User customization files live in `~/.config/cmux/agent-pane/`: `theme.css`, `layout.json`, and `registry.js`. Registry components must provide a static `measure(row, width)` function returning a Pretext-based height. Components without it use post-mount measurement and scroll anchoring. `registry.js` can register or replace message, tool, edited-files, permission, and composer-chip components; Swift watches the files and replays them to the page.
+
+The virtualized DOM cannot provide selection or find across rows that are unmounted. The v1 pane keeps cmux find in the host, which can ask the direct client to page and mount a matching row in a future action. The preview harness is the iteration path: `cd webviews && bun run preview:dev` for Vite hot reload, or `bun run preview:build`, which writes static files to `webviews/dist/acpmux-agent-session-preview/`.
