@@ -91,13 +91,40 @@ extension CMUXCLI {
         guard !text.isEmpty else {
             throw CLIError(message: Self.pasteMissingTextMessage)
         }
-        try Self.ensureTextFitsSocketRequest(text, command: "paste")
+        try deliverTerminalPaste(
+            text: text,
+            command: "paste",
+            workspace: parsed.workspace,
+            surface: parsed.surface,
+            windowRaw: parsed.window ?? windowOverride,
+            submit: parsed.submit,
+            client: client,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat
+        )
+    }
 
-        let windowRaw = parsed.window ?? windowOverride
-        let workspaceArg = parsed.workspace
-            ?? Self.callerWorkspaceForSurfaceHandle(parsed.surface, windowRaw: windowRaw)
-        let surfaceArg = parsed.surface
-            ?? (parsed.workspace == nil && windowRaw == nil
+    /// Sends `text` unchanged through `terminal.paste` and prints the result.
+    /// Shared by `cmux paste` and `cmux send --paste`, so both resolve their
+    /// targets and report delivery the same way. `command` names the caller
+    /// in the size-limit error.
+    func deliverTerminalPaste(
+        text: String,
+        command: String,
+        workspace: String?,
+        surface: String?,
+        windowRaw: String?,
+        submit: Bool,
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        try Self.ensureTextFitsSocketRequest(text, command: command)
+
+        let workspaceArg = workspace
+            ?? Self.callerWorkspaceForSurfaceHandle(surface, windowRaw: windowRaw)
+        let surfaceArg = surface
+            ?? (workspace == nil && windowRaw == nil
                 ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
                 : nil)
 
@@ -105,7 +132,7 @@ extension CMUXCLI {
             "text": text,
             // `return` lets the host pick the agent-aware submit key (for
             // example ctrl+enter for a multi-line Claude Code prompt).
-            "submit_key": parsed.submit ? "return" : "none",
+            "submit_key": submit ? "return" : "none",
         ]
         let winId = try normalizeWindowHandle(windowRaw, client: client)
         if let winId { params["window_id"] = winId }
@@ -115,7 +142,7 @@ extension CMUXCLI {
         if let sfId { params["surface_id"] = sfId }
 
         let payload = try client.sendV2(method: "terminal.paste", params: params)
-        if parsed.submit, (payload["submitted"] as? Bool) != true {
+        if submit, (payload["submitted"] as? Bool) != true {
             // The text is already at the prompt, so this is a warning rather
             // than a failure: a caller that retried would paste it twice.
             let reason = (payload["submit_error"] as? String) ?? "unknown"
@@ -244,6 +271,69 @@ extension CMUXCLI {
             command,
             String(maximumEncodedTextBytes / (1024 * 1024))
         ))
+    }
+
+    // MARK: - cmux send --paste
+
+    /// Removes the leading `--paste` flags from `cmux send`'s text arguments.
+    /// Only flags before the text count, so `cmux send echo --paste` and
+    /// `cmux send -- --paste` still type `--paste` as text, as before.
+    static func splitSendPasteFlag(_ args: [String]) -> (usesPaste: Bool, textArgs: [String]) {
+        var rest = args[...]
+        var usesPaste = false
+        while rest.first == "--paste" {
+            usesPaste = true
+            rest = rest.dropFirst()
+        }
+        return (usesPaste, Array(rest))
+    }
+
+    /// `cmux send` without `--paste` suggests the paste path when the text is
+    /// more than this many UTF-8 bytes and has a line break. Both conditions
+    /// are required so ordinary commands (short, or one long line) never see
+    /// the hint.
+    static let sendPasteHintMinimumUTF8Bytes = 4096
+
+    /// Whether keystroke `send` text is large multi-line text: more than
+    /// ``sendPasteHintMinimumUTF8Bytes`` UTF-8 bytes with at least one line
+    /// break (a newline, or a `\n`/`\r` escape, both of which become Enter).
+    static func sendTextWarrantsPasteHint(_ text: String) -> Bool {
+        guard text.utf8.count > sendPasteHintMinimumUTF8Bytes else { return false }
+        return text.unicodeScalars.contains { $0 == "\n" || $0 == "\r" }
+    }
+
+    /// Prints a one-line hint on stderr after a keystroke `send` of large
+    /// multi-line text. Stdout and the exit status are unaffected.
+    static func printSendPasteHintIfNeeded(_ text: String) {
+        guard sendTextWarrantsPasteHint(text) else { return }
+        let hint = String(
+            localized: "cli.send.hint.usePaste",
+            defaultValue: "hint: each newline was typed as Enter; for large multi-line text use cmux send --paste or cmux paste to deliver it as one paste"
+        )
+        FileHandle.standardError.write(Data((hint + "\n").utf8))
+    }
+
+    static var sendHelp: String {
+        String(localized: "cli.help.send", defaultValue: """
+        Usage: cmux send [flags] [--] <text>
+
+        Send text to a terminal surface as keystrokes. Escape sequences: \\n and \\r send Enter, \\t sends Tab.
+
+        For large text (for example over 4 KB, or several lines going to an agent), use --paste or cmux paste. Keystrokes press Enter at every newline, which can submit each line on its own.
+
+        With --paste, the text goes through the same paste path as cmux paste and Cmd+V, unchanged: escape sequences such as \\n are not interpreted, and control characters are replaced with spaces. --paste must come before the text.
+
+        Flags:
+          --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+          --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
+          --window <id|ref|index>      Window context for workspace/surface refs and indexes
+          --paste                      Paste the text instead of typing it
+
+        Example:
+          cmux send "echo hello"
+          cmux send --surface surface:2 "ls -la\\n"
+          cmux send --paste --surface surface:2 "$(cat notes.md)"
+        """)
     }
 
     static var pasteHelp: String {

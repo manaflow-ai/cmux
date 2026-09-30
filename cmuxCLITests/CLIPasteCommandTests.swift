@@ -131,6 +131,98 @@ struct CLIPasteCommandTests {
         #expect(run.requests.last?["method"] as? String == "surface.send_text")
     }
 
+    // MARK: - cmux send --paste
+
+    @Test func sendPasteUsesTerminalPasteWithTheTextUnchanged() throws {
+        let text = "first line\nsecond line with a literal \\n escape"
+        for arguments in [
+            ["send", "--paste", "--surface", Self.targetSurfaceRef, text],
+            ["send", "--surface", Self.targetSurfaceRef, "--paste", "--", text],
+        ] {
+            let run = try runCLI(arguments: arguments)
+
+            #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
+            let request = try #require(run.requests.last)
+            #expect(request["method"] as? String == "terminal.paste")
+            #expect(run.requests.compactMap { $0["method"] as? String }.contains("surface.send_text") == false)
+            let params = try #require(request["params"] as? [String: Any])
+            #expect(params["text"] as? String == text)
+            #expect(params["submit_key"] as? String == "none")
+            #expect(params["surface_id"] as? String == Self.targetSurfaceRef)
+        }
+    }
+
+    @Test func sendWithoutPasteKeepsTheKeystrokePath() throws {
+        let run = try runCLI(arguments: ["send", "--surface", Self.targetSurfaceRef, "echo hi\\n"])
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
+        let request = try #require(run.requests.last)
+        #expect(request["method"] as? String == "surface.send_text")
+        #expect(run.requests.compactMap { $0["method"] as? String }.contains("terminal.paste") == false)
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["text"] as? String == "echo hi\r")
+        #expect(params["surface_id"] as? String == Self.targetSurfaceRef)
+        #expect(params["submit_key"] == nil)
+        #expect(run.result.stderr.isEmpty, Comment(rawValue: run.result.stderr))
+    }
+
+    @Test func sendTypesPasteAsTextWhenItIsNotALeadingFlag() throws {
+        for (arguments, expected) in [
+            (["send", "--surface", Self.targetSurfaceRef, "echo", "--paste"], "echo --paste"),
+            (["send", "--surface", Self.targetSurfaceRef, "--", "--paste"], "--paste"),
+        ] {
+            let run = try runCLI(arguments: arguments)
+
+            #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
+            let request = try #require(run.requests.last)
+            #expect(request["method"] as? String == "surface.send_text")
+            let params = try #require(request["params"] as? [String: Any])
+            #expect(params["text"] as? String == expected)
+        }
+    }
+
+    @Test func sendPasteWithoutTextFailsWithoutWriting() throws {
+        let run = try runCLI(arguments: ["send", "--paste", "--surface", Self.targetSurfaceRef])
+
+        #expect(run.result.status != 0)
+        #expect(run.requests.compactMap { $0["method"] as? String }.contains("terminal.paste") == false)
+        #expect(run.requests.compactMap { $0["method"] as? String }.contains("surface.send_text") == false)
+    }
+
+    @Test func sendHintsAtPasteOnlyForLargeMultiLineKeystrokeText() throws {
+        let large = String(repeating: "x", count: 4096) + "\nsecond line"
+        let hinted = try runCLI(arguments: ["send", "--surface", Self.targetSurfaceRef, "--", large])
+        #expect(hinted.result.status == 0, Comment(rawValue: hinted.result.stderr + hinted.result.stdout))
+        #expect(hinted.requests.last?["method"] as? String == "surface.send_text")
+        #expect(hinted.result.stderr.contains("cmux send --paste"), Comment(rawValue: hinted.result.stderr))
+        #expect(hinted.result.stdout.contains("cmux send --paste") == false)
+
+        // The hint goes to stderr only: stdout matches a send without it.
+        let small = try runCLI(arguments: ["send", "--surface", Self.targetSurfaceRef, "--", "echo hi\n"])
+        #expect(small.result.status == 0, Comment(rawValue: small.result.stderr + small.result.stdout))
+        #expect(small.result.stderr.isEmpty, Comment(rawValue: small.result.stderr))
+        #expect(hinted.result.stdout == small.result.stdout)
+
+        let longSingleLine = try runCLI(arguments: [
+            "send", "--surface", Self.targetSurfaceRef, "--", String(repeating: "y", count: 8192),
+        ])
+        #expect(longSingleLine.result.status == 0)
+        #expect(longSingleLine.result.stderr.isEmpty, Comment(rawValue: longSingleLine.result.stderr))
+
+        let pasted = try runCLI(arguments: ["send", "--paste", "--surface", Self.targetSurfaceRef, "--", large])
+        #expect(pasted.result.status == 0, Comment(rawValue: pasted.result.stderr + pasted.result.stdout))
+        #expect(pasted.requests.last?["method"] as? String == "terminal.paste")
+        #expect(pasted.result.stderr.isEmpty, Comment(rawValue: pasted.result.stderr))
+    }
+
+    @Test func sendPasteHintThresholdNeedsMoreThanTheLimitAndALineBreak() {
+        let limit = CMUXCLI.sendPasteHintMinimumUTF8Bytes
+        #expect(CMUXCLI.sendTextWarrantsPasteHint(String(repeating: "a", count: limit - 1) + "\n") == false)
+        #expect(CMUXCLI.sendTextWarrantsPasteHint(String(repeating: "a", count: limit) + "\n"))
+        #expect(CMUXCLI.sendTextWarrantsPasteHint(String(repeating: "a", count: limit) + "\r"))
+        #expect(CMUXCLI.sendTextWarrantsPasteHint(String(repeating: "a", count: limit + 1)) == false)
+    }
+
     // MARK: - Harness
 
     private struct Run {
