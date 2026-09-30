@@ -4265,7 +4265,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ///
     /// `isPlainBackspace` and `isBound` come from the caller, which has to
     /// classify the key before ghostty consumes it. A key a binding consumed
-    /// put nothing on the PTY, so it withdraws instead of predicting.
+    /// put nothing on the PTY, so it leaves the prediction run intact.
     private func recordPredictedEchoInput(
         _ keyEvent: ghostty_input_key_s,
         isPlainBackspace: Bool,
@@ -4282,8 +4282,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             TerminalPredictionCenter.shared.typedLineErase(surfaceID: surfaceID)
             return
         }
+        if isBound {
+            TerminalPredictionCenter.shared.typedNothing(surfaceID: surfaceID)
+            return
+        }
         TerminalPredictionCenter.shared.typed(
-            printableASCII: isBound ? nil : Self.predictedEchoByte(for: keyEvent),
+            printableASCII: Self.predictedEchoByte(for: keyEvent),
             surfaceID: surfaceID
         )
     }
