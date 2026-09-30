@@ -72,36 +72,35 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
     }
 
     @MainActor
-    func testSuggestionRefreshSchedulerInvalidatesQueuedRefreshOnCancel() async {
+    func testSuggestionRefreshSchedulerInvalidatesQueuedRefreshOnCancel() async throws {
         let clock = ManualOmnibarSuggestionRefreshClock()
         let scheduler = OmnibarSuggestionRefreshScheduler(
             debounceDelay: .milliseconds(40),
             clock: clock
         )
-        let staleRefresh = expectation(description: "queued refresh emitted")
-        var shouldProcessQueuedRefresh: Bool?
+        let queuedRefresh = expectation(description: "debounced refresh emitted")
+        var queuedGeneration: UInt64?
+        // Wait for the emission itself: two Task.yield() calls cannot order the
+        // refresh task's hop from the clock actor back to the main actor before
+        // cancelPendingRefresh(), and losing that race emits nothing.
+        let listener = Task { @MainActor in
+            var iterator = scheduler.refreshStream.makeAsyncIterator()
+            queuedGeneration = await iterator.next()
+            queuedRefresh.fulfill()
+        }
 
         scheduler.scheduleRefresh()
         await waitForPendingSleep(on: clock)
         await clock.advance()
-        await Task.yield()
-        await Task.yield()
-
-        scheduler.cancelPendingRefresh()
-
-        let listener = Task { @MainActor in
-            var iterator = scheduler.refreshStream.makeAsyncIterator()
-            guard let generation = await iterator.next() else { return }
-            shouldProcessQueuedRefresh = scheduler.shouldProcessRefresh(generation)
-            staleRefresh.fulfill()
-        }
-
-        await fulfillment(of: [staleRefresh], timeout: 1)
+        await fulfillment(of: [queuedRefresh], timeout: 1)
         listener.cancel()
 
-        XCTAssertEqual(
-            shouldProcessQueuedRefresh,
-            false,
+        // The consumer asks shouldProcessRefresh when it handles a generation, so
+        // cancelling after emission models a refresh queued behind Escape.
+        scheduler.cancelPendingRefresh()
+        let generation = try XCTUnwrap(queuedGeneration)
+        XCTAssertFalse(
+            scheduler.shouldProcessRefresh(generation),
             "A refresh already queued before cancellation should not run after Escape, hide, or focus loss."
         )
     }
