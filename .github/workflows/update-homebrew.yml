@@ -109,10 +109,13 @@ jobs:
         if: steps.version.outputs.skip != 'true'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          URL="https://github.com/manaflow-ai/cmux/releases/download/v${VERSION}/cmux-macos.dmg"
+          # A repair may replace the bytes behind an existing release URL.
+          # Bypass an already-cached redirect so the tap records the rebuilt
+          # asset's digest instead of the superseded DMG.
+          URL="https://github.com/manaflow-ai/cmux/releases/download/v${VERSION}/cmux-macos.dmg?homebrew_run=${GITHUB_RUN_ID}"
           MAX_RETRIES=5
           for i in $(seq 1 $MAX_RETRIES); do
-            HTTP_CODE=$(curl -sL -w '%{http_code}' "$URL" -o cmux.dmg)
+            HTTP_CODE=$(curl -sL -H 'Cache-Control: no-cache' -w '%{http_code}' "$URL" -o cmux.dmg)
             FILE_SIZE=$(stat --printf="%s" cmux.dmg 2>/dev/null || stat -f%z cmux.dmg)
             if [ "$HTTP_CODE" = "200" ] && [ "$FILE_SIZE" -gt 1000000 ]; then
               echo "Download OK: HTTP $HTTP_CODE, size $FILE_SIZE bytes"
