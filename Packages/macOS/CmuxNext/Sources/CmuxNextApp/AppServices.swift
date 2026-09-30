@@ -165,9 +165,12 @@ final class AppServices {
     }
 
     /// The pane controller showing `pane` in the active window, if any.
+    /// The controller showing `pane` itself. Handles are daemon-local
+    /// numbers that repeat across machines, so a handle match counts only
+    /// when the controller shows this very model.
     func paneController(for pane: PaneModel) -> PaneController? {
         for controller in windows.controllers {
-            if let found = controller.content?.pane(for: pane.handle) { return found }
+            if let found = controller.content?.pane(for: pane.handle), found.pane === pane { return found }
         }
         return nil
     }
