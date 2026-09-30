@@ -7,7 +7,8 @@ import Foundation
 /// section for the local daemon, loose workspaces first, then groups.
 public enum SidebarMapping {
     /// `statusLine` maps a workspace id to the status hooks reported
-    /// (`set_status`), shown in the row's subtitle slot instead of the cwd.
+    /// (`set_status`), the row's live second line. The cwd stays passive
+    /// detail (tooltip, accessibility).
     public static func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 statusLine: (String) -> String? = { _ in nil }) -> [SidebarRowSection] {
@@ -36,7 +37,8 @@ public enum SidebarMapping {
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
             title: workspace.displayName,
-            subtitle: status.flatMap { $0.isEmpty ? nil : $0 } ?? subtitle(tabs),
+            subtitle: subtitle(tabs),
+            status: status.flatMap { $0.isEmpty ? nil : $0 },
             icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? .symbol(workspace.icon ?? "terminal"),
             unread: unread > 0 ? .count(unread) : .none,
             activity: activity(tabs)

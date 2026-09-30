@@ -55,7 +55,7 @@ final class SidebarIconButton: NSButton {
 
     override func updateLayer() {
         layer?.cornerRadius = Metrics.itemCornerRadius
-        layer?.backgroundColor = hovering ? resolvedCGColor(Palette.selectionFill) : nil
+        layer?.backgroundColor = hovering ? resolvedCGColor(Palette.hoverFill) : nil
     }
 
     override func updateTrackingAreas() {

@@ -14,14 +14,18 @@ struct SidebarMappingTests {
         #expect(sections[0].workspaces[0].unread == .count(1))
     }
 
-    @Test func hookStatusFillsTheSubtitleSlot() throws {
+    @Test func hookStatusIsTheLiveLineAndCwdStaysPassive() throws {
         let store = try BridgeFixture.store()
         let machine = SidebarMachine(id: .local, name: "Mac", kind: .local)
         let beta = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.displayName == "beta" })
         let sections = SidebarMapping.sections(store.sidebarSections, machine: machine) { $0 == beta.id ? "Running · 50%" : nil }
-        #expect(sections[0].workspaces.first { $0.title == "beta" }?.subtitle == "Running · 50%")
+        let mappedBeta = try #require(sections[0].workspaces.first { $0.title == "beta" })
+        #expect(mappedBeta.status == "Running · 50%")
+        #expect(mappedBeta.liveDetail == "Running · 50%")
+        // The cwd never becomes a second line on its own.
         let plain = SidebarMapping.sections(store.sidebarSections, machine: machine)
-        #expect(plain[0].workspaces.first { $0.title == "gamma" }?.subtitle == sections[0].workspaces.first { $0.title == "gamma" }?.subtitle)
+        for ws in plain[0].workspaces { #expect(ws.liveDetail == nil) }
+        #expect(plain[0].workspaces.first { $0.title == "beta" }?.subtitle == mappedBeta.subtitle)
     }
 
     @Test func dropPositionMapsToRootIndexAfterRemoval() {

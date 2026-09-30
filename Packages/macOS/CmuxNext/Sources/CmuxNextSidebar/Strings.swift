@@ -2,12 +2,10 @@ import Foundation
 
 /// Localized strings. Keys live in Resources/Localizable.xcstrings (en, ja).
 enum Strings {
-    static var searchPlaceholder: String { String(localized: "sidebar.search.placeholder", defaultValue: "Search Workspaces", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
     static var pinned: String { String(localized: "sidebar.section.pinned", defaultValue: "Pinned", bundle: .module) }
     static var pinnedEmpty: String { String(localized: "sidebar.section.pinned.empty", defaultValue: "Drop here to pin", bundle: .module) }
     static var sectionEmpty: String { String(localized: "sidebar.section.empty", defaultValue: "No workspaces", bundle: .module) }
-    static var noMatches: String { String(localized: "sidebar.search.noMatches", defaultValue: "No matching workspaces", bundle: .module) }
     static var showIconsOnly: String { String(localized: "sidebar.presentation.iconsOnly", defaultValue: "Show Icons Only", bundle: .module) }
     static var showFull: String { String(localized: "sidebar.presentation.expanded", defaultValue: "Show Full Sidebar", bundle: .module) }
     static var statusConnected: String { String(localized: "sidebar.machine.connected", defaultValue: "Connected", bundle: .module) }
@@ -22,5 +20,4 @@ enum Strings {
     static func groupCount(_ value: Int) -> String { String(localized: "sidebar.a11y.groupCount", defaultValue: "\(value) workspaces", bundle: .module) }
     static var sidebarLabel: String { String(localized: "sidebar.a11y.sidebar", defaultValue: "Workspaces", bundle: .module) }
     static var resize: String { String(localized: "sidebar.a11y.resize", defaultValue: "Resize sidebar", bundle: .module) }
-    static var clearSearch: String { String(localized: "sidebar.search.clear", defaultValue: "Clear Search", bundle: .module) }
 }

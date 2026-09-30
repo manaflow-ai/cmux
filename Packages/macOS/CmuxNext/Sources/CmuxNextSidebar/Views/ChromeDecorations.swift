@@ -21,9 +21,7 @@ final class SidebarDecorationView: NSView {
             decoration.opacity = 0
             root.addSublayer(decoration)
         }
-        pill.borderWidth = Metrics.dividerThickness / 2
-        pill.shadowOpacity = 1
-        gap.borderWidth = Metrics.dividerThickness
+        // Flat gray pill and gap: no rim, no shadow, no border.
         updateColors()
     }
 
@@ -42,12 +40,7 @@ final class SidebarDecorationView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         pill.backgroundColor = resolvedCGColor(Palette.selectionFill)
-        pill.borderColor = resolvedCGColor(SidebarStyle.pillRim)
-        pill.shadowColor = NSColor(white: 0, alpha: 0.10).cgColor
-        pill.shadowRadius = Metrics.space1
-        pill.shadowOffset = CGSize(width: 0, height: Metrics.space1 / 2)
         gap.backgroundColor = resolvedCGColor(Palette.hoverFill)
-        gap.borderColor = resolvedCGColor(Palette.separator)
         pill.cornerRadius = SidebarStyle.rowCornerRadius
         gap.cornerRadius = SidebarStyle.rowCornerRadius
         CATransaction.commit()
@@ -86,10 +79,6 @@ final class SidebarDecorationView: NSView {
                 }
             }
             layer.frame = frame
-            layer.shadowPath = CGPath(
-                roundedRect: CGRect(origin: .zero, size: frame.size),
-                cornerWidth: SidebarStyle.rowCornerRadius, cornerHeight: SidebarStyle.rowCornerRadius, transform: nil
-            )
         }
         let opacity: Float = visible ? 1 : 0
         if layer.opacity != opacity {
