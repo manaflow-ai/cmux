@@ -96,6 +96,7 @@ import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
+import { detachNetworkTunnels } from "./teamNetworkAccess";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
@@ -420,6 +421,9 @@ export function renameVm(input: {
  * Detach tunnels from team networks their owner no longer belongs to. Freestyle
  * is the record of both the team networks (found by slug) and their attached
  * tunnels; candidate teams come from the live machines billed to them.
+ *
+ * This is the backstop. The Stack webhook (`app/api/webhooks/stack`) detaches
+ * a removed member at once; this pass catches missed or failed deliveries.
  */
 function reconcileTeamTunnelAttachments(
   repo: VmRepositoryShape,
@@ -437,15 +441,15 @@ function reconcileTeamTunnelAttachments(
       const membersResult = yield* listTeamMemberIdsWithTimeout(directory, owner.teamId, timeoutMs);
       if ("error" in membersResult) return;
       const members = membersResult.memberIds ? new Set(membersResult.memberIds) : null;
-      const tunnelIds = yield* providers.listNetworkTunnelIds!(owner.provider, network.id);
-      const rows = yield* repo.findTunnelsByProviderTunnelIds!(owner.provider, tunnelIds);
-      for (const row of rows) {
-        // Tunnels with no row are skipped: the provider account can hold
-        // tunnels another environment issued.
-        const remove = members === null || row.revokedAt !== null || !members.has(row.userId);
-        if (!remove) continue;
-        yield* providers.detachTunnelNetwork!(owner.provider, row.providerTunnelId, network.id).pipe(Effect.catchAll(() => Effect.void));
-      }
+      // Tunnels with no row are skipped inside detachNetworkTunnels; failed
+      // detaches are retried by the next run.
+      yield* detachNetworkTunnels({
+        repo: { findTunnelsByProviderTunnelIds: repo.findTunnelsByProviderTunnelIds! },
+        providers: { listNetworkTunnelIds: providers.listNetworkTunnelIds!, detachTunnelNetwork: providers.detachTunnelNetwork! },
+        provider: owner.provider,
+        networkId: network.id,
+        select: (row) => members === null || row.revokedAt !== null || !members.has(row.userId),
+      });
     }).pipe(Effect.catchAll(() => Effect.void));
   return Effect.gen(function* () {
     const startedAt = now();
