@@ -5046,9 +5046,19 @@ class TerminalController {
             }
 
             let windowId = v2ResolveWindowId(tabManager: tabManager)
+            let force = v2Bool(params, "force") ?? false
 
             @MainActor
-            func closeWorkspaces(_ workspaces: [Workspace]) -> Int {
+            func closeWorkspaces(_ workspaces: [Workspace]) -> Int? {
+                let activeWorkspaceIDs = workspaces
+                    .filter { $0.needsConfirmClose() }
+                    .map { $0.id }
+                guard force || activeWorkspaceIDs.isEmpty else {
+                    result = .err(code: "confirmation_required", message: "One or more workspaces have a running process; retry with force=true", data: [
+                        "workspace_ids": activeWorkspaceIDs.map { $0.uuidString }
+                    ])
+                    return nil
+                }
                 var closed = 0
                 // Drain non-anchor members before group anchors so a range close
                 // that targets a group promotes at most once per group instead of
@@ -5129,7 +5139,7 @@ class TerminalController {
 
             case "close_others":
                 let candidates = tabManager.tabs.filter { $0.id != workspace.id && !$0.isPinned }
-                let closed = closeWorkspaces(candidates)
+                guard let closed = closeWorkspaces(candidates) else { return }
                 finish(["closed": closed])
 
             case "close_above":
@@ -5138,7 +5148,7 @@ class TerminalController {
                     return
                 }
                 let candidates = Array(tabManager.tabs.prefix(index)).filter { !$0.isPinned }
-                let closed = closeWorkspaces(candidates)
+                guard let closed = closeWorkspaces(candidates) else { return }
                 finish(["closed": closed])
 
             case "close_below":
@@ -5152,7 +5162,7 @@ class TerminalController {
                 } else {
                     candidates = []
                 }
-                let closed = closeWorkspaces(candidates)
+                guard let closed = closeWorkspaces(candidates) else { return }
                 finish(["closed": closed])
 
             case "mark_read":
@@ -12804,10 +12814,21 @@ class TerminalController {
     }
 
     private func closeWindow(_ arg: String) -> String {
-        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
-        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
-        return ok ? "OK" : "ERROR: Window not found"
+        let parts = arg.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        guard let windowId = parts.first.flatMap(UUID.init(uuidString:)),
+              parts.dropFirst().allSatisfy({ $0 == "--force" }) else {
+            return "ERROR: Invalid window id"
+        }
+        let force = parts.dropFirst().contains("--force")
+        let outcome = v2MainSync { controlCloseWindow(id: windowId, force: force) }
+        switch outcome {
+        case .resolved:
+            return "OK"
+        case .notFound:
+            return "ERROR: Window not found"
+        case .confirmationRequired:
+            return "ERROR: \(controlWindowCloseStrings().confirmationRequired)"
+        }
     }
 
     private func moveWorkspaceToWindow(_ args: String) -> String {
@@ -14116,13 +14137,23 @@ class TerminalController {
 
     private func closeWorkspace(_ tabId: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-        guard let uuid = UUID(uuidString: tabId) else { return "ERROR: Invalid tab ID" }
+        let tokens = tabId.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        guard let rawID = tokens.first,
+              let uuid = UUID(uuidString: rawID) else { return "ERROR: Invalid tab ID" }
+        let force = tokens.contains("--force")
 
         var result = "ERROR: Tab not found"
         v2MainSync {
             if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
                 guard tabManager.canCloseWorkspace(tab) else {
                     result = "ERROR: \(workspaceCloseProtectedMessage())"
+                    return
+                }
+                if !force, tabManager.workspaceNeedsConfirmCloseForClose(tab) {
+                    result = "ERROR: " + String(
+                        localized: "cli.socket.error.workspaceCloseConfirmationRequired",
+                        defaultValue: "Workspace has a running process; retry with --force"
+                    )
                     return
                 }
                 let closeFailure = String(localized: "cli.socket.error.workspaceNotClosed", defaultValue: "Workspace not closed")
