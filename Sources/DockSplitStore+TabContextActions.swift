@@ -116,7 +116,17 @@ extension DockSplitStore {
              .forkConversationTop,
              .forkConversationBottom,
              .forkConversationNewTab,
-             .forkConversationNewWorkspace:
+             .forkConversationNewWorkspace,
+             // Dock terminals are local and never carry shared-terminal
+             // presence, so the sizing accessory never offers these.
+             .sizeToMyWindow,
+             .sizeModeLatest,
+             .sizeModeSmallest,
+             .sizeModeLargest,
+             .sizeModePriority,
+             .sizeModeFixed,
+             .toggleSizePanel,
+             .disconnectOtherClients:
             break
         @unknown default:
             break
