@@ -77,12 +77,14 @@ struct MobileTerminalReplayHibernationTests {
             let heldWorkspace = try #require(manager.addWorkspaceIfActive(
                 title: "Held remote replay",
                 initialTerminalStartupRestoreAgent: makeAgent(sessionID: "codex-first-visit-replay"),
+                initialTerminalInput: "echo restored-first-visit\n",
                 select: false,
                 eagerLoadTerminal: false,
                 initialTerminalStartsOnFirstVisit: true
             ))
             let panel = try #require(heldWorkspace.focusedTerminalPanel)
             #expect(heldWorkspace.startupRestorePanelIdsAwaitingFirstVisit.contains(panel.id))
+            #expect(panel.surface.isAwaitingStartupRestoreAdmission)
             let marker = "REMOTE_FIRST_VISIT_REPLAY_READY"
             panel.surface.onRuntimeReady = { [weak panel] in
                 guard let runtime = panel?.surface.surface else { return }
