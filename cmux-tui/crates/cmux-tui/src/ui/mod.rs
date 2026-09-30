@@ -12,6 +12,7 @@ pub(crate) mod pane;
 mod rail;
 mod scrollbar;
 mod sidebar;
+pub(crate) mod sizing;
 pub(crate) mod terminal_grid;
 
 use cmux_tui_core::Rect;

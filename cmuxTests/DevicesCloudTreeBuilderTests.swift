@@ -330,7 +330,7 @@ struct DevicesCloudTreeBuilderTests {
         #expect(emptyState == state)
     }
 
-    @Test("Discovering another Mac keeps this Mac's remaining opt-in control, and no empty controls row", arguments: [false, true])
+    @Test("Both actions stay below listed Macs in either incoming state", arguments: [false, true])
     func populatedDevicesRetainControls(incomingEnabled: Bool) throws {
         let snapshot = SurfaceCatalogSnapshot(
             machines: [info(studio, name: "Studio", online: true, linkState: .connected)],
@@ -344,14 +344,11 @@ struct DevicesCloudTreeBuilderTests {
         let section = try #require(nodes.first { $0.id == CloudTreeNodeBuilder.devicesSectionNodeID })
         #expect(section.children.contains { if case .device = $0.kind { true } else { false } })
         let controls = section.children.first { if case .devicesEmpty = $0.kind { true } else { false } }
-        guard !incomingEnabled else {
-            // Both opt-ins are on and a Mac is listed: the row would be blank.
-            #expect(controls == nil)
-            return
-        }
         guard case .devicesEmpty(let state) = try #require(controls).kind else { return }
         #expect(state.count == 1)
-        #expect(!state.incomingAccessEnabled)
+        #expect(state.incomingAccessEnabled == incomingEnabled)
+        #expect(state.inlineRowCount == 2)
+        #expect(section.children.last?.id == controls?.id)
     }
 
     @MainActor
@@ -511,7 +508,7 @@ struct DevicesCloudTreeBuilderTests {
         #expect(row(online: true, link: .connecting, error: "Relay unavailable").statusLabel(now: now).contains("Relay unavailable"))
         #expect(row(online: true, link: .unavailable, trust: .otherAccount).statusLabel(now: now) == String(localized: "cloudTree.device.status.otherAccount", defaultValue: "Another account"))
         #expect(row(online: false, link: .offline).statusLabel(now: now) == String(localized: "cloudTree.device.status.offline", defaultValue: "Offline"))
-        #expect(row(online: false, link: .offline, seen: now.addingTimeInterval(-300)).statusLabel(now: now) == String(format: String(localized: "cloudTree.device.status.offlineSince", defaultValue: "Offline \u{00B7} seen %@"), String(format: String(localized: "cloudTree.device.age.minutes", defaultValue: "%dm ago"), 5)))
+        #expect(row(online: false, link: .offline, seen: now.addingTimeInterval(-300)).statusLabel(now: now) == String(format: String(localized: "cloudTree.device.status.offlineSince", defaultValue: "Offline · seen %@"), String(format: String(localized: "cloudTree.device.age.minutes", defaultValue: "%dm ago"), 5)))
         #expect(row(online: false, link: .connected).statusLabel(now: now) == String(localized: "cloudTree.device.status.online", defaultValue: "Online"))
         let unknown = CloudTreeDeviceRow(
             instance: studio, name: "Studio",
@@ -591,7 +588,7 @@ struct DevicesCloudTreeBuilderTests {
         #expect(row(online: true, link: .connected).inlineStatus(now: now) == nil, "the undimmed row already says online")
         #expect(row(online: false, link: .connected).inlineStatus(now: now) == nil, "a live link is online whatever presence says")
         #expect(row(online: false, link: .offline).inlineStatus(now: now) == String(localized: "cloudTree.device.status.offline", defaultValue: "Offline"))
-        #expect(row(online: true, link: .connecting).inlineStatus(now: now) == String(localized: "cloudTree.device.status.connecting", defaultValue: "Connecting\u{2026}"))
+        #expect(row(online: true, link: .connecting).inlineStatus(now: now) == String(localized: "cloudTree.device.status.connecting", defaultValue: "Connecting…"))
         #expect(row(online: true, link: .error, error: "Handshake failed").inlineStatus(now: now) == "Handshake failed")
         #expect(row(online: true, link: .connected, trust: .otherAccount).inlineStatus(now: now) == String(localized: "cloudTree.device.status.otherAccount", defaultValue: "Another account"))
     }

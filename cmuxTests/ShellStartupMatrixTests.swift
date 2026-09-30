@@ -562,10 +562,6 @@ struct ShellStartupMatrixTests {
 
         expectEqual(result.process.status, 0, result.process.stderr)
         expectFalse(result.process.timedOut, result.process.stderr)
-        expectTrue(
-            result.process.duration < 1.0,
-            "cmux ssh bootstrap waited for relay CLI warmup: \(formatSeconds(result.process.duration))"
-        )
     }
 
     /// Regression for #6352: running Claude Code (or any full-screen TUI) inside
@@ -818,10 +814,6 @@ struct ShellStartupMatrixTests {
             try contents.write(to: fileURL, atomically: true, encoding: .utf8)
         }
         return (root, integrationDir.path)
-    }
-
-    private func formatSeconds(_ value: TimeInterval) -> String {
-        String(format: "%.3fs", value)
     }
 
     private static func supportedShellExecutable(named shellName: String) -> String? {

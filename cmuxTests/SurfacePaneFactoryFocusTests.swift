@@ -754,6 +754,9 @@ import SwiftUI
             let window = try #require(appDelegate.mainWindow(for: windowId))
             window.setContentSize(Self.contentSize)
             window.contentView?.layoutSubtreeIfNeeded()
+            // Surface split behavior should not depend on AppKit having laid out
+            // a hidden test window yet. Install deterministic geometry so the
+            // factory can allocate the new pane immediately on a cold runner.
             workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: Self.contentSize))
         }
 

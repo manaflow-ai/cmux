@@ -414,9 +414,9 @@ struct PaneDropZoneOverlayAnimationTests {
             #expect((overlay.layer?.animationKeys() ?? []).isEmpty, "the highlight started fading out")
             #expect(Probe.approximatelyEqual(overlay.frame, zoneFrame))
 
+            // Leaving the pane hides the preview at once (PaneDropTargetIdentityTests).
             target.draggingExited(draggingInfo)
-            let fadingOut = overlay.alphaValue < 1 || !(overlay.layer?.animationKeys() ?? []).isEmpty
-            #expect(fadingOut, "leaving the pane should still fade the highlight out")
+            #expect(overlay.isHidden, "leaving the pane should hide the highlight")
         }
     }
 }

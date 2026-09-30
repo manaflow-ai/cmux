@@ -157,6 +157,10 @@ jobs:
         env:
           PREFIX: ${{ steps.key.outputs.prefix }}
           GH_TOKEN: ${{ github.token }}
+          # A probe runs on a specific mini shape. Never make a 14-core root
+          # runner replay a seed emitted with another Swift-driver width;
+          # without its own-width chain it safely compiles cold.
+          CMUX_SEED_REQUIRE_OWN_WIDTH: "1"
         run: |
           python3 scripts/ci/seed_derived_data.py adopt \
             "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \

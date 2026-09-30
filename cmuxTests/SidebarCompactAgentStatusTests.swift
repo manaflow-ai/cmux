@@ -133,11 +133,10 @@ struct SidebarCompactAgentStatusTests {
     }
 
     @Test
-    func needsInputIsAYellowDotAboveRunningAndPullRequests() {
+    func needsInputIsAYellowDotAbovePullRequestsWhenNoActiveWork() {
         let glyph = Glyph.resolve(.init(
             agentEntries: [Self.entry("claude_code", "Needs input", icon: "bell.fill")],
-            lifecycleStates: [.running, .needsInput],
-            hasActiveAgent: true,
+            lifecycleStates: [.needsInput],
             pullRequests: [Self.openPR],
             branch: "main"
         ))
@@ -277,11 +276,11 @@ struct SidebarCompactAgentStatusTests {
 
     @Test
     func everyIconSlotHasADistinctState() {
-        #expect(Glyph.IconSlot.allCases.count == 11)
-        #expect(Set(Glyph.IconSlot.allCases.map(\.rawValue)).count == 11)
+        #expect(Glyph.IconSlot.allCases.count == 13)
+        #expect(Set(Glyph.IconSlot.allCases.map(\.rawValue)).count == 13)
         // Every slot is a state the app can actually reach.
         #expect(Set(Glyph.IconSlot.allCases) == Set([
-            .error, .needsInput, .running, .starting, .unseen,
+            .error, .needsInput, .running, .subagents, .waiting, .starting, .unseen,
             .pullRequestOpen, .pullRequestMerged, .pullRequestClosed,
             .idle, .branch, .terminal,
         ]))

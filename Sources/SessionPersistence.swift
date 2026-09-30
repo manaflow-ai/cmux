@@ -1487,6 +1487,11 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
+    /// Whether the terminal has received user input. Nil means unknown in older snapshots.
+    var hasReceivedExplicitInput: Bool?
+    /// Whether an update relaunch cut this panel's agent off mid-task, so its automatic resume
+    /// asks it to continue. Only the update relaunch saves set it; nil otherwise.
+    var resumeWithContinuation: Bool?
 
     init(
         workingDirectory: String? = nil,
@@ -1501,7 +1506,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
-        wasAgentRunning: Bool? = nil
+        wasAgentRunning: Bool? = nil,
+        hasReceivedExplicitInput: Bool? = nil,
+        resumeWithContinuation: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1516,6 +1523,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
+        self.hasReceivedExplicitInput = hasReceivedExplicitInput
+        self.resumeWithContinuation = resumeWithContinuation
     }
 }
 
@@ -1715,6 +1724,9 @@ struct SessionCloudVMBindingSnapshot: Codable, Sendable, Equatable {
     /// The machine's cmux-tui workspace this local workspace stands for; absent in
     /// legacy snapshots and for machine-only bindings (`vm shell`).
     var remoteWorkspaceID: String? = nil
+    /// The team that owns the machine. Absent in snapshots written before
+    /// multi-team Cloud; restore then adopts the selected team.
+    var teamID: String? = nil
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
@@ -1766,6 +1778,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Remote surfaces this workspace's panes projected (`SurfaceCatalog`); absent for
     /// workspaces that only ever showed local panes, so older manifests decode unchanged.
     var surfaceProjections: [SurfaceProjectionRecord]? = nil
+    /// The team that owns each Cloud machine this workspace shows, by machine
+    /// id. Restore reconnects those panes with that team even when another
+    /// team is selected. Absent in manifests written before multi-team Cloud.
+    var cloudMachineTeams: [String: String]? = nil
     /// Optional so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
     /// Manual task-status override raw values and the persisted checklist. Optional-with-nil-default
@@ -1857,6 +1873,10 @@ struct AppSessionSnapshot: Codable, Sendable {
     var version: Int
     var createdAt: TimeInterval
     var windows: [SessionWindowSnapshot]
+    /// Set when this save captured terminal scrollback (quit, power-off, update
+    /// relaunch); nil for the 8 s autosave. Lets crash restore tell a deliberately
+    /// empty scrollback from one that was never captured. Additive; older files decode as nil.
+    var scrollbackCapturedAt: TimeInterval? = nil
 }
 
 extension AppSessionSnapshot: SessionSnapshotRepresenting {

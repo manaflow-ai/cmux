@@ -2372,6 +2372,69 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(palette.map(\.hex), ["#2244FF", "#00F5D4"])
     }
 
+    @MainActor
+    func testSettingsFileStoreResolvesWorkspaceColorsSubtleSelection() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().workspaceColors.subtleSelection.userDefaultsKey
+        let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+        let isolatedKeys = [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]
+        let previousValues = isolatedKeys.reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in isolatedKeys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        isolatedKeys.forEach { defaults.removeObject(forKey: $0) }
+        XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).subtleSelection)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "subtleSelection": true
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertTrue(SidebarTabItemSettingsSnapshot(defaults: defaults).subtleSelection)
+
+        // A non-boolean value is rejected, so the setting reverts to its default.
+        let invalidSettingsURL = directoryURL.appendingPathComponent("invalid.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "subtleSelection": "yes"
+              }
+            }
+            """,
+            to: invalidSettingsURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: invalidSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).subtleSelection)
+    }
+
     func testManagedWorkspaceColorsRestoreLegacyPaletteWhenFileSettingIsRemoved() throws {
         let defaults = UserDefaults.standard
         let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]

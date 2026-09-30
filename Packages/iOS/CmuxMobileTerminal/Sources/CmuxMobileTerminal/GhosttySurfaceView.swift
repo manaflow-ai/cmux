@@ -345,12 +345,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             var dockedAtTail: Bool
         }
 
-        /// The last position the pixel pump applied. While pixel authority is
-        /// held this is the position AUTHORITY: batches rebase from it instead
-        /// of the live viewport, so a verified-replay bottom-reset between
-        /// batches is overwritten on the next frame instead of hijacking the
-        /// gesture. Cleared on dock/typing snaps and surface replacement,
-        /// where the live viewport becomes the truth again.
+        /// The last position the pixel pump applied. While a gesture is
+        /// active this is the position AUTHORITY: batches rebase from it
+        /// instead of the live viewport, so a verified-replay bottom-reset
+        /// between batches is overwritten on the next frame instead of
+        /// hijacking the gesture. Cleared on dock/typing snaps and surface
+        /// replacement, where the live viewport becomes the truth again.
         var lastApplied: Held?
         /// Device pixels of scroll-top reveal: how far the gesture has pulled
         /// into the clipped-top zone, realized by the host sliding the
@@ -423,10 +423,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
-    /// The native route is captured for a drag and remains stable through its
-    /// deceleration. A render-grid update must not turn a pixel gesture into a
-    /// line gesture halfway through the same motion.
-    private var scrollGestureRoute = TerminalScrollGestureRoute()
     private lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
@@ -683,7 +679,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// size during the attach / keyboard / zoom settle resized the Mac PTY
     /// repeatedly, so the shell redrew its prompt on each SIGWINCH and the
     /// initial scrollback filled with the prompt duplicated at every width.
-    private var pendingViewportReport: TerminalGridSize?
+    private var pendingViewportReport: TerminalGridSize? {
+        didSet {
+            guard (oldValue == nil) != (pendingViewportReport == nil) else { return }
+            viewportReportPendingChanged()
+        }
+    }
     private var viewportReportSettleFrames = 0
     /// Widest container this surface has actually rendered in the current
     /// window geometry. A phone split-view sidebar is an overlay, but UIKit can
@@ -713,7 +714,39 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `viewportSnapshot()`): `effectiveGrid` is about to be superseded by
     /// the grant answering this report, so layout decisions must not treat
     /// the outgoing value as final.
-    private var awaitingViewportEcho = false
+    private var awaitingViewportEcho = false {
+        didSet {
+            guard oldValue != awaitingViewportEcho else { return }
+            viewportReportPendingChanged()
+        }
+    }
+
+    /// Whether this surface has a viewport report queued or awaiting its
+    /// acknowledgement. Sizing chrome waits for it to settle
+    /// (`TerminalSizingChromeGate`).
+    var viewportReportPending: Bool {
+        pendingViewportReport != nil || awaitingViewportEcho
+    }
+
+    /// Re-evaluates the bounds chrome when a viewport report starts or
+    /// settles; the gate reads `viewportReportPending`.
+    private func viewportReportPendingChanged() {
+        refreshSizingChrome()
+    }
+
+    /// Redraws the letterbox border or the shared-sizing chrome from the last
+    /// render and viewport: after a viewport report settles, and whenever the
+    /// keyboard or the content above it moves the part of the viewport the
+    /// dock leaves visible.
+    func refreshSizingChrome() {
+        guard let viewportRect = lastLetterboxViewportRect, !lastRenderRect.isEmpty else { return }
+        updateLetterboxBorder(
+            renderRect: lastRenderRect,
+            isLetterboxed: lastRenderRect.width + 0.5 < viewportRect.width
+                || lastRenderRect.height + 0.5 < viewportRect.height,
+            viewportRect: viewportRect
+        )
+    }
     /// Frames of "no zoom in progress" required before the natural grid is
     /// reported to the Mac. Active zoom is already gated separately
     /// (`zoomSettleFrames != nil` holds the report during a pinch), so this is
@@ -736,10 +769,53 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// container is larger than the render target (i.e., this device is
     /// not the smallest). Added lazily on first letterbox.
     private var letterboxBorderLayer: CAShapeLayer?
+    /// Shared-sizing bounds drawn instead of the plain letterbox border when
+    /// the host publishes a size state. See `GhosttySurfaceView+SharedSizing`.
+    public var sharedSizingDecoration: TerminalSizingBoundsDecoration? {
+        didSet {
+            guard sharedSizingDecoration != oldValue else { return }
+            if (sharedSizingDecoration == nil) != (oldValue == nil), hostedAltScreenActive {
+                alternateScreenSizingModeChanged()
+                bottomDockHostView?.setNeedsLayout()
+            }
+            refreshSharedSizingLayers()
+        }
+    }
+    /// The size chip drawn at the grid's bottom-trailing corner while the
+    /// decoration shows. `nil` hides it.
+    public var sharedSizingChip: TerminalSizingChipContent? {
+        didSet {
+            guard sharedSizingChip != oldValue else { return }
+            refreshSharedSizingLayers()
+        }
+    }
+    /// Called when the size chip is tapped.
+    public var onSharedSizingChipTap: (@MainActor () -> Void)?
+    /// Layers owned by the shared-sizing decoration, created lazily.
+    var sharedSizingLayers: GhosttySurfaceSharedSizingLayers?
+    /// The last letterbox inputs, kept so a decoration change can redraw
+    /// without waiting for the next geometry pass.
+    var lastLetterboxViewportRect: CGRect?
     /// Last render rect used for the Ghostty surface inside the host view's
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
     var lastRenderRect: CGRect = .zero
+    /// The exact shared grid's rendered size in points while it is larger
+    /// than this phone and displayed scaled to fit (see
+    /// `TerminalGridFitMode.scaledToFit`); nil otherwise. `lastRenderRect`
+    /// is then the DISPLAYED rect, and the renderer layer keeps these
+    /// unscaled bounds under a scale transform so presents still match the
+    /// drawable.
+    var scaledGridRenderSize: CGSize?
+    /// The pinch magnification and pan of a scaled grid.
+    var scaledGridMagnification: CGFloat = 1
+    var scaledGridOffset: CGPoint = .zero
+    /// Displayed points per rendered point: below 1 only while a larger grid
+    /// is scaled to fit.
+    var gridDisplayScale: CGFloat = 1
+    /// The magnification when the current pinch began, and the last pinch
+    /// point, while a pinch drives a scaled grid.
+    var scaledGridPinchStart: (magnification: CGFloat, location: CGPoint)?
     private var viewportCoordinator = TerminalViewportCoordinator()
     /// The bounds size the last layout-driven geometry sync ran for. Layout
     /// passes with unchanged bounds (host keyboard animation, sibling churn)
@@ -1269,15 +1345,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var useLegacyTerminalSizing = false {
         didSet {
             guard useLegacyTerminalSizing != oldValue else { return }
-            if useLegacyTerminalSizing {
-                committedKeyboardHeight = 0
-            } else if !keyboardTransitionActiveForGeometry {
-                committedKeyboardHeight = max(0, keyboardHeight)
-            }
-            clearHostedScrollTopReveal()
-            resetAlternateScreenGeometryFence()
-            layoutRenderedTerminalForCurrentViewport()
-            setNeedsGeometrySync()
+            alternateScreenSizingModeChanged()
         }
     }
     /// Surface-owned host for the SwiftUI artifact chip. Keeping it beside the
@@ -1343,6 +1411,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         keyboardHeight = nextHeight
         layoutBottomDock(using: viewportSnapshot())
+        refreshSizingChrome()
         if keyboardTransitionActiveForGeometry, alternateScreenSizingEnabled {
             prepareHostedKeyboardGeometryTarget()
         } else if !keyboardTransitionActiveForGeometry {
@@ -1545,7 +1614,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @discardableResult
     private func commitHostedKeyboardGeometryIfNeeded() -> Bool {
-        let next = hostedAltScreenActive && !useLegacyTerminalSizing
+        let next = alternateScreenSizingEnabled
             ? max(0, keyboardHeight)
             : 0
         guard abs(next - committedKeyboardHeight) > 0.25 else { return false }
@@ -1605,11 +1674,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastRenderRect = aligned
         syncRendererLayerFrame(
             scale: preferredScreenScale,
-            renderRect: rendererLayerRect(forGridRenderRect: aligned)
+            gridRenderRect: aligned,
+            viewportRect: snapshot.layoutViewportRect
         )
         updateLetterboxBorder(
             renderRect: aligned,
-            isLetterboxed: snapshot.isLetterboxed(renderSize: aligned.size)
+            isLetterboxed: snapshot.isLetterboxed(renderSize: aligned.size),
+            viewportRect: snapshot.layoutViewportRect
         )
         alignVerifiedReplayFrozenPresentationToViewportTop(
             viewportRect: snapshot.layoutViewportRect
@@ -1755,22 +1826,39 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var hostedAltScreenActive = false {
         didSet {
             guard hostedAltScreenActive != oldValue else { return }
-            scrollGestureRoute.reset()
-            if !hostedAltScreenActive || useLegacyTerminalSizing {
-                committedKeyboardHeight = 0
-            } else if !keyboardTransitionActiveForGeometry {
-                committedKeyboardHeight = max(0, keyboardHeight)
-            }
-            clearHostedScrollTopReveal()
-            resetAlternateScreenGeometryFence()
-            layoutRenderedTerminalForCurrentViewport()
-            setNeedsGeometrySync()
+            alternateScreenSizingModeChanged()
             bottomDockHostView?.setNeedsLayout()
         }
     }
 
+    /// Whether a keyboard toggle resizes the alternate-screen grid. Not in
+    /// a shared-sizing session: this phone's viewport counts toward the
+    /// shared grid there ("Fit everyone" takes the minimum), so a
+    /// keyboard-sized report would shrink and regrow every other device's
+    /// grid on each toggle. The keyboard slide keeps the cursor row visible
+    /// instead, as on the primary screen.
     private var alternateScreenSizingEnabled: Bool {
-        hostedAltScreenActive && !useLegacyTerminalSizing
+        hostedAltScreenActive && !useLegacyTerminalSizing && sharedSizingDecoration == nil
+    }
+
+    /// Whether the alternate-screen grid itself resized for the keyboard, so
+    /// the viewport already ends at the dock.
+    var hostedAlternateScreenGridSizedForKeyboard: Bool {
+        alternateScreenSizingEnabled
+    }
+
+    /// Re-seats the keyboard geometry after `alternateScreenSizingEnabled`
+    /// flips, exactly as a screen or sizing-mode switch does.
+    private func alternateScreenSizingModeChanged() {
+        if !alternateScreenSizingEnabled {
+            committedKeyboardHeight = 0
+        } else if !keyboardTransitionActiveForGeometry {
+            committedKeyboardHeight = max(0, keyboardHeight)
+        }
+        clearHostedScrollTopReveal()
+        resetAlternateScreenGeometryFence()
+        layoutRenderedTerminalForCurrentViewport()
+        setNeedsGeometrySync()
     }
 
     /// Rows of the visible viewport that contain content, measured from the
@@ -1780,8 +1868,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// covering them with the keyboard hid real content.
     var hostedContentBottomRowCount: Int?
 
-    /// Points of blank render below the content bottom, or nil when it
-    /// cannot be trusted (alternate screen, nothing measured yet, no render).
+    /// Points of blank space below the content bottom down to the viewport
+    /// bottom, or nil when it cannot be trusted (alternate screen, nothing
+    /// measured yet, no render).
     /// Content bottom is the LOWER of the last non-blank screen row and the
     /// cursor row (the cursor can sit on a blank line below the last text).
     /// The host lets this blank band absorb the keyboard intrusion before
@@ -1802,7 +1891,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         case (nil, nil): contentBottom = nil
         }
         guard let contentBottom else { return nil }
-        return max(0, lastRenderRect.height - contentBottom)
+        // Includes the letterbox slack under a top-pinned grid, so a short
+        // shared grid stays put while its content fits above the keyboard.
+        return TerminalLetterboxGeometry.blankBelowContent(
+            renderRect: lastRenderRect,
+            viewportRect: lastLetterboxViewportRect ?? terminalViewportRect,
+            contentBottom: contentBottom,
+            displayScale: gridDisplayScale
+        )
     }
 
     /// Schedules an immediate off-main content-bottom measurement, bypassing
@@ -2135,7 +2231,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// exact pixel extent the renderer drew; changed insets converge
     /// through the next geometry pass.
     private(set) var appliedRenderTopInsetPts: CGFloat = 0
-    private var appliedRenderBottomInsetPts: CGFloat = 0
+    var appliedRenderBottomInsetPts: CGFloat = 0
 
     public func setTopContentInset(_ inset: CGFloat) {
         let clamped = max(0, inset)
@@ -2158,8 +2254,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// downward by the applied scroll-edge bands, matching the surface's
     /// inflated drawable.
     private func rendererLayerRect(forGridRenderRect renderRect: CGRect) -> CGRect {
-        let top = appliedRenderTopInsetPts
-        let bottom = appliedRenderBottomInsetPts
+        let top = appliedRenderTopInsetPts * gridDisplayScale
+        let bottom = appliedRenderBottomInsetPts * gridDisplayScale
         guard top > 0 || bottom > 0 else { return renderRect }
         return CGRect(
             x: renderRect.minX,
@@ -2188,7 +2284,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         topContentInset > 0 && !chromeHidden
     }
 
-    private func layoutRenderedTerminalForCurrentViewport() {
+    func layoutRenderedTerminalForCurrentViewport() {
         layoutRenderedTerminalForCurrentViewport(using: viewportSnapshot())
     }
 
@@ -2197,7 +2293,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutVerifiedReplayFrozenPresentation(viewportRect: snapshot.layoutViewportRect)
         enforceKeyboardTransitionPresentationHold()
         guard !lastRenderRect.isEmpty else { return }
-        let renderRect = snapshot.renderRect(forRenderSize: lastRenderRect.size)
+        let renderRect = resolveGridRenderRect(for: snapshot, renderSize: lastRenderRect.size)
         guard renderRect != lastRenderRect else { return }
         MobileDebugLog.anchormux(
             "kb.renderRect \(Int(lastRenderRect.minY))->\(Int(renderRect.minY)) h=\(Int(renderRect.height))"
@@ -2205,11 +2301,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastRenderRect = renderRect
         syncRendererLayerFrame(
             scale: preferredScreenScale,
-            renderRect: rendererLayerRect(forGridRenderRect: renderRect)
+            gridRenderRect: renderRect,
+            viewportRect: snapshot.layoutViewportRect
         )
         updateLetterboxBorder(
             renderRect: renderRect,
-            isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
+            isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size),
+            viewportRect: snapshot.layoutViewportRect
         )
     }
 
@@ -2220,7 +2318,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// always-visible toolbar must clear this much to avoid the home indicator.
     /// The window or captured outer inset owns the reservation: this surface
     /// slides for the keyboard, so its local inset changes with presentation.
-    private var safeAreaInsetsBottom: CGFloat {
+    var safeAreaInsetsBottom: CGFloat {
         TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
             viewInset: safeAreaInsets.bottom,
             windowInset: window?.safeAreaInsets.bottom,
@@ -2856,13 +2954,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // conversion macOS ghostty applies to precise trackpad deltas. The
         // 14pt fallback stands in for a typical cell height until metrics
         // land.
-        let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
+        // A grid scaled to fit shows each rendered point smaller, so finger
+        // travel converts through the displayed cell size.
+        let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1) * gridDisplayScale
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) : 14
         pendingScrollLines += -Double(deltaY) / divisor
         // Same direction in device pixels: the pixel position is the viewport
         // top's distance from the top of scrollback, so a finger drag DOWN
         // (negative deltaY, positive lines, older content) decreases it.
         pendingScrollPixels += Double(deltaY) * Double(max(preferredScreenScale, 1))
+            / Double(max(gridDisplayScale, 0.01))
         pendingScrollCell = scrollCell(at: touchPoint)
         pendingScrollInteractionGeneration = interactionGeneration
     }
@@ -2898,7 +2999,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
-        scrollGestureRoute.reset()
         pendingScrollLines = 0
         linePathFractionCarry = 0
         pendingScrollPixels = 0
@@ -2933,8 +3033,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// alt-screen mouse-wheel reports at the cell under the finger.
     private func scrollCell(at point: CGPoint) -> (col: Int, row: Int) {
         let scale = max(preferredScreenScale, 1)
-        let cellW = max(cellPixelSize.width / scale, 1)
-        let cellH = max(cellPixelSize.height / scale, 1)
+        let cellW = max(cellPixelSize.width / scale * gridDisplayScale, 1)
+        let cellH = max(cellPixelSize.height / scale * gridDisplayScale, 1)
         let col = max(0, Int((point.x - lastRenderRect.minX) / cellW))
         let row = max(0, Int((point.y - lastRenderRect.minY) / cellH))
         return (col, row)
@@ -2951,18 +3051,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingScrollLines = 0
         pendingScrollPixels = 0
         pendingScrollInteractionGeneration = nil
-        let route = scrollGestureRoute.resolve(
-            currentAuthority: scrollPresentationAuthority,
-            currentOwnsLocalPrimaryScreen: ownsLocalPrimaryScreenScroll
-        )
-        let appliedLocally = route.appliesLocally
+        let appliedLocally = scrollPresentationAuthority.appliesLocally
         var dispatchLines = lines
         if appliedLocally {
             // Pixel-precise local scroll only where the phone owns
             // primary-screen scrolling (the confirmed-primary condition that
             // also suppresses the Mac scroll RPC). Alt screens and legacy
             // transports keep the row-quantized line path.
-            if pixels != 0, route.usesPixelPath {
+            if pixels != 0, ownsLocalPrimaryScreenScroll {
                 // Entering the pixel path: drop any line-path residue so a
                 // sub-line fraction from an earlier alt gesture cannot leak
                 // into a later line-path dispatch.
@@ -3160,6 +3256,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        if handleScaledGridPinch(gesture) { return }
         switch gesture.state {
         case .began:
             pinchAccumulatedScale = 1.0
@@ -3933,7 +4030,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // The bottom snap resets Ghostty's fractional pixel offset; drop the
         // pixel batch, remainder, and held position so the next gesture
         // rebases from the bottom.
-        scrollGestureRoute.reset()
         pendingScrollPixels = 0
         pendingLocalScrollPixels = 0
         pendingLocalPixelScrollInteractionGeneration = nil
@@ -4464,7 +4560,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private var preferredScreenScale: CGFloat {
+    var preferredScreenScale: CGFloat {
         if let screen = window?.windowScene?.screen {
             return screen.scale
         }
@@ -5245,6 +5341,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         configBackgroundColor = themeBackground
         (bottomDockHostView as? GhosttySurfaceHostView)?.updateTerminalBackground(themeBackground)
         inputProxy.terminalTheme = terminalTheme
+        // The sizing chrome derives its colors from the theme.
+        if sharedSizingLayers != nil { refreshSharedSizingLayers() }
         needsDraw = true
     }
 
@@ -5498,6 +5596,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// Pinned render size in points when letterboxed to an effective
         /// grid; nil means fill the container.
         let pinnedSize: CGSize?
+        /// The shared grid is larger than this phone: `pinnedSize` is the
+        /// full rendered grid, displayed scaled to fit the viewport.
+        let scaledToFit: Bool
         /// The font size the surface was rendering at when `cellPixelSize`
         /// was measured. Capacity reports must normalize with THIS font, not
         /// the main-actor `liveFontSize` read at apply time: a zoom queued
@@ -5620,30 +5721,44 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
 
             var pinnedSize: CGSize?
+            var scaledToFit = false
             if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
-                let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
-                let exactGridFitsInsideNatural = eff.cols <= Int(measured.columns)
-                    && eff.rows <= Int(measured.rows)
-                let pinnedW = CGFloat(eff.cols) * cell.width / scale
-                let pinnedH = CGFloat(eff.rows) * cell.height / scale
                 // The producer's effective grid is the contract for every
                 // authoritative render-grid replay. Even a one-row/column
                 // difference must be fitted locally, otherwise the apply
                 // fence rejects every replay and the lane keeps reopening
-                // behind a fresh recovery cycle. Keep the fit bounded to
-                // grids that actually fit inside the measured surface; a
-                // larger effective grid still needs a normal geometry pass.
-                let shouldFitEffectiveGrid = !fillsNaturalGrid
-                    && exactGridFitsInsideNatural
-                if shouldFitEffectiveGrid,
-                   pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
-                    let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
+                // behind a fresh recovery cycle. A grid LARGER than this
+                // phone (Follow latest, Largest, Priority, Fixed) is fitted
+                // too, at its full size: leaving the surface at its natural
+                // grid parsed a 175-column stream into 54 columns (garbled
+                // wraps and cursor moves) and failed every replay's fence.
+                // The oversized render is then displayed scaled to fit.
+                let mode = TerminalGridFitMode(
+                    effectiveColumns: eff.cols,
+                    effectiveRows: eff.rows,
+                    measuredColumns: Int(measured.columns),
+                    measuredRows: Int(measured.rows),
+                    gridPointSize: CGSize(
+                        width: CGFloat(eff.cols) * cell.width / scale,
+                        height: CGFloat(eff.rows) * cell.height / scale
+                    ),
+                    container: CGSize(width: containerW, height: containerH)
+                )
+                if mode != .natural {
+                    let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, natural: measured)
                     let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
                     let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
-                    pinnedSize = CGSize(
-                        width: min(CGFloat(aw) / scale, containerW),
-                        height: min(CGFloat(ah) / scale, containerH)
-                    )
+                    if mode == .scaledToFit {
+                        scaledToFit = true
+                        pinnedSize = CGSize(width: CGFloat(aw) / scale, height: CGFloat(ah) / scale)
+                    } else {
+                        pinnedSize = TerminalLetterboxGeometry.clampPinnedSize(
+                            actualWidthPx: CGFloat(aw),
+                            actualHeightPx: CGFloat(ah),
+                            scale: scale,
+                            container: CGSize(width: containerW, height: containerH)
+                        )
+                    }
                 }
             }
 
@@ -5666,6 +5781,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 cellPixelSize: cell,
                 naturalSize: natural,
                 pinnedSize: pinnedSize,
+                scaledToFit: scaledToFit,
                 measuredFontSize: measuredFontSize,
                 appliedTopInsetPts: appliedTopInsetPts,
                 appliedBottomInsetPts: appliedBottomInsetPts
@@ -5722,13 +5838,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             ?? CGRect(origin: .zero, size: naturalRenderSize)
         let snapshot = result.viewportSnapshot
         layoutBottomDock(using: snapshot)
-        let renderRect = snapshot.renderRect(forRenderSize: measuredRenderRect.size)
-        lastRenderRect = renderRect
+        if result.scaledToFit {
+            scaledGridRenderSize = measuredRenderRect.size
+        } else {
+            scaledGridRenderSize = nil
+            scaledGridMagnification = 1
+            scaledGridOffset = .zero
+        }
         // The drawable this pass produced includes the scroll-edge bands;
         // the layer must grow by exactly that much or every present is
         // discarded on the size check.
         appliedRenderTopInsetPts = result.appliedTopInsetPts
         appliedRenderBottomInsetPts = result.appliedBottomInsetPts
+        let renderRect = resolveGridRenderRect(for: snapshot, renderSize: measuredRenderRect.size)
+        lastRenderRect = renderRect
         MobileDebugLog.anchormux(
             "geom container=\(Int(containerW))x\(Int(containerH)) scale=\(scale) "
             + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
@@ -5736,15 +5859,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
             + "pinned=\(result.pinnedSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") "
             + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))@\(Int(renderRect.minY)) "
+            + "displayScale=\(gridDisplayScale) "
             + "topInset=\(Int(result.appliedTopInsetPts))"
         )
         syncRendererLayerFrame(
             scale: scale,
-            renderRect: rendererLayerRect(forGridRenderRect: renderRect)
+            gridRenderRect: renderRect,
+            viewportRect: snapshot.layoutViewportRect
         )
         updateLetterboxBorder(
             renderRect: renderRect,
-            isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
+            isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size),
+            viewportRect: snapshot.layoutViewportRect
         )
         // UIKit may have delivered another layout pass while libghostty was
         // measuring off-main. Keep this pass internally consistent, then let
@@ -5851,7 +5977,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         delegate?.ghosttySurfaceView(self, didResize: report, reportID: viewportReportID)
     }
 
-    private func syncRendererLayerFrame(scale: CGFloat, renderRect: CGRect) {
+    /// Places the renderer layer for a grid displayed at `gridRenderRect`.
+    /// - Parameters:
+    ///   - scale: The screen scale.
+    ///   - gridRenderRect: Where the grid displays (`lastRenderRect`).
+    ///   - viewportRect: The visible terminal area.
+    private func syncRendererLayerFrame(scale: CGFloat, gridRenderRect: CGRect, viewportRect: CGRect) {
+        let renderRect = rendererLayerRect(forGridRenderRect: gridRenderRect)
         // Resize the render layer WITHOUT CoreAnimation's implicit ~0.25s
         // bounds/position animation. While that animation runs, the layer's
         // presentation size differs from the size libghostty just rendered, and
@@ -5869,19 +6001,37 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.setDisableActions(true)
         var geometryChanged = layer.contentsScale != scale
         layer.contentsScale = scale
+        // `renderRect` is where the layer DISPLAYS. A grid larger than this
+        // phone keeps its exact unscaled bounds (the drawable's size, which
+        // the present path compares against) under a scale transform.
+        let placement = rendererLayerPlacement(displayRect: renderRect)
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
-            if sublayer.frame != renderRect {
+            if !CATransform3DEqualToTransform(sublayer.transform, placement.transform) {
                 geometryChanged = true
-                sublayer.frame = renderRect
+                sublayer.transform = placement.transform
             }
-            if sublayer.bounds.size != renderRect.size {
+            if sublayer.bounds != CGRect(origin: .zero, size: placement.boundsSize) {
                 geometryChanged = true
-                sublayer.bounds = CGRect(origin: .zero, size: renderRect.size)
+                sublayer.bounds = CGRect(origin: .zero, size: placement.boundsSize)
+            }
+            let position = CGPoint(
+                x: renderRect.minX + renderRect.width * sublayer.anchorPoint.x,
+                y: renderRect.minY + renderRect.height * sublayer.anchorPoint.y
+            )
+            if sublayer.position != position {
+                geometryChanged = true
+                sublayer.position = position
             }
             if sublayer.contentsScale != scale {
                 geometryChanged = true
             }
             sublayer.contentsScale = scale
+            applyScrollEdgeBandClip(
+                to: sublayer,
+                boundsSize: placement.boundsSize,
+                gridRenderRect: gridRenderRect,
+                viewportRect: viewportRect
+            )
         }
         CATransaction.commit()
         if geometryChanged {
@@ -5956,8 +6106,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// attached to the shared PTY). Smallest-device layouts have
     /// `isLetterboxed == false` and the border layer is hidden. Uses a
     /// CAShapeLayer so the stroke doesn't intercept touches / key events.
-    private func updateLetterboxBorder(renderRect: CGRect, isLetterboxed: Bool) {
-        guard isLetterboxed else {
+    private func updateLetterboxBorder(renderRect: CGRect, isLetterboxed: Bool, viewportRect: CGRect) {
+        lastLetterboxViewportRect = viewportRect
+        if sharedSizingDecoration != nil {
+            // The shared-sizing decoration draws the one bounds border.
+            letterboxBorderLayer?.isHidden = true
+            refreshSharedSizingLayers()
+            return
+        }
+        sharedSizingLayers?.hide()
+        guard TerminalSizingChromeGate(viewportReportPending: viewportReportPending)
+            .drawsPlainLetterboxBorder(isLetterboxed: isLetterboxed) else {
             letterboxBorderLayer?.isHidden = true
             return
         }
@@ -6001,11 +6160,56 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         let pathInset = max(lineWidth / 2, 0.5 / scale)
         let outline = alignedRect.insetBy(dx: pathInset, dy: pathInset)
-        let path = UIBezierPath(rect: outline).cgPath
+        // Like the shared-sizing border: stroke only sides facing letterbox
+        // space, never one flush with the viewport edge.
+        let path = GhosttySurfaceSharedSizingLayers.borderPath(
+            edges: TerminalSizingBorderEdges(rect: alignedRect, in: sizingChromeViewportRect(for: viewportRect)),
+            around: outline
+        )
+        border.isHidden = path == nil
         if border.path != path {
             border.path = path
         }
     }
+
+    /// Hides each scroll-edge band whose grid edge sits inside the viewport
+    /// (`TerminalScrollEdgeBandClip`), so scrollback never renders in the
+    /// unused area the sizing chrome hatches.
+    private func applyScrollEdgeBandClip(
+        to renderer: CALayer,
+        boundsSize: CGSize,
+        gridRenderRect: CGRect,
+        viewportRect: CGRect
+    ) {
+        guard let visible = TerminalScrollEdgeBandClip(
+            topInset: appliedRenderTopInsetPts,
+            bottomInset: appliedRenderBottomInsetPts
+        ).visibleLayerRect(
+            layerSize: boundsSize,
+            gridDisplayRect: gridRenderRect,
+            viewportRect: viewportRect
+        ) else {
+            if renderer.mask?.name == Self.scrollEdgeBandClipName {
+                renderer.mask = nil
+            }
+            return
+        }
+        let mask: CALayer
+        if let existing = renderer.mask, existing.name == Self.scrollEdgeBandClipName {
+            mask = existing
+        } else {
+            mask = CALayer()
+            mask.name = Self.scrollEdgeBandClipName
+            mask.backgroundColor = UIColor.black.cgColor
+            mask.actions = ["bounds": NSNull(), "frame": NSNull(), "position": NSNull()]
+            renderer.mask = mask
+        }
+        if mask.frame != visible {
+            mask.frame = visible
+        }
+    }
+
+    private static let scrollEdgeBandClipName = "cmux.scrollEdgeBandClip"
 
     func isGhosttyRendererLayer(_ layer: CALayer) -> Bool {
         String(describing: type(of: layer)) == "IOSurfaceLayer"
@@ -6114,7 +6318,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// screen); a locally emulated one checks its own emulator: primary
     /// screen with history, and no app capturing the mouse.
     var ownsLocalPrimaryScreenScroll: Bool {
-        guard !hostedAltScreenActive else { return false }
         guard localEmulation != .mirror else {
             return delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true
         }
@@ -6361,7 +6564,6 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
 
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         guard scrollView === scrollMechanicsView else { return }
-        scrollGestureRoute.begin()
         // Reveal on touch-down and hold the chip (no linger) while the finger
         // is down; the end/deceleration callbacks arm the fade-out. Recorded
         // even before any chip content mounts (see noteArtifactChipScrollActivity).

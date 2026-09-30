@@ -39,11 +39,34 @@ extension SidebarCompactStatusGlyph {
 
     static func resolve(_ input: Input) -> SidebarCompactStatusGlyph {
         let kind: Kind
+        let workStates = input.agentEntries.compactMap(\.workState)
+        // Waiting reports a running lifecycle on purpose (a pane with live
+        // background work must not look hibernatable), so it has to be read
+        // off the entries before the lifecycle branch below, and only when
+        // every agent in the workspace reports it: one agent still working
+        // keeps the row running.
+        //
+        // Status entries are keyed per workspace, while lifecycle states are
+        // keyed per panel, so two Claude panes in one workspace share a single
+        // `claude_code` entry and the second one to report wins. Counting the
+        // running lifecycles closes that gap: an hourglass only goes up when
+        // every running agent is covered by a waiting report. A pane that is
+        // still working can never hide behind another pane's hourglass; the
+        // cost is that two panes both waiting under one key show as running.
+        let runningLifecycleCount = input.lifecycleStates.filter { $0 == .running }.count
+        let everyAgentIsWaiting = !workStates.isEmpty
+            && workStates.count == input.agentEntries.count
+            && workStates.allSatisfy { $0 == .waiting }
+            && runningLifecycleCount <= workStates.count
         if input.agentEntries.contains(where: Self.reportsError) {
             kind = .error
         } else if input.lifecycleStates.contains(.needsInput) {
             kind = .needsInput
-        } else if input.hasActiveAgent || input.lifecycleStates.contains(.running) {
+        } else if workStates.contains(.subagents) {
+            kind = .subagents
+        } else if everyAgentIsWaiting {
+            kind = .waiting
+        } else if input.hasActiveAgent || input.lifecycleStates.contains(.running) || input.lifecycleStates.contains(.backgroundWorkPending) {
             kind = .running
         } else if input.lifecycleStates.contains(.unknown) {
             kind = .pending
@@ -95,11 +118,14 @@ extension SidebarCompactStatusGlyph {
     }
 
     private static func lifecycleText(_ states: [AgentHibernationLifecycleState]) -> String? {
-        if states.contains(.needsInput) {
-            return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
-        }
         if states.contains(.running) {
             return String(localized: "agent.generic.status.running", defaultValue: "Running")
+        }
+        if states.contains(.backgroundWorkPending) {
+            return String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting")
+        }
+        if states.contains(.needsInput) {
+            return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
         }
         if states.contains(.idle) {
             return String(localized: "agentSession.web.status.idle", defaultValue: "Idle")

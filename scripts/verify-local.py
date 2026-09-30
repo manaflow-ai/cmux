@@ -108,7 +108,8 @@ def affected_checks(repo, base):
                    for pattern in (argv[1],) + CHECK_INPUTS[name]):
                 reasons[name].append(path)
                 matched = True
-        prose = (path in ("README.md", "CONTRIBUTING.md", "CLAUDE.md", "AGENTS.md", "STYLE.md")
+        prose = (path in ("README.md", "CONTRIBUTING.md", "CLAUDE.md", "AGENTS.md", "STYLE.md",
+                          "CODE_OF_CONDUCT.md", "SECURITY.md")
                  or (path.endswith(".md") and path.startswith(("docs/", "skills/"))))
         if not matched and not prose:
             unknown.append(path)

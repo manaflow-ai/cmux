@@ -453,8 +453,8 @@ struct SubrouterClaudeRestoreRoutingTests {
         #expect(invocation.environment["CLAUDE_CONFIG_DIR"] == nil)
     }
 
-    @Test("When sr cannot be resolved on the restore PATH the plain replay is kept")
-    func missingLauncherOnPathKeepsThePlainReplay() throws {
+    @Test("When sr cannot be resolved on the restore PATH the restore fails instead of replaying plain claude")
+    func missingLauncherOnPathRefusesThePlainReplay() throws {
         let request = resumeRequest(
             environment: routedLaunchEnvironment(
                 baseURL: localPoolBaseURL,
@@ -464,14 +464,14 @@ struct SubrouterClaudeRestoreRoutingTests {
         )
         let planner = AgentRestorePlanner(isExecutableFile: { $0 == "/shim/claude" })
 
-        let invocation = try #require(planner.invocation(
+        // A plain `claude --resume` without Subrouter's private settings starts
+        // "Not logged in"; the caller must report the missing launcher instead.
+        #expect(planner.invocation(for: request, ambientEnvironment: ambientEnvironment) == nil)
+        #expect(planner.missingRoutedLauncher(for: request, ambientEnvironment: ambientEnvironment) == "sr")
+        #expect(plannerWithSubrouterOnPath().missingRoutedLauncher(
             for: request,
             ambientEnvironment: ambientEnvironment
-        ))
-
-        expectPlainClaudeReplay(invocation, baseURL: localPoolBaseURL, "sr missing")
-        // The fallback is reported, so the user knows why the session is not routed.
-        #expect(invocation.notices == [.routedLauncherUnavailable(executable: "sr")])
+        ) == nil)
     }
 
     @Test("A cmux launcher such as claude-teams is never rerouted through Subrouter")
