@@ -89,6 +89,9 @@ jobs:
       macos_runner: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
 
   publish:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     name: publish to R2
     # PR runs of this workflow only validate the build; publishing is
     # main-push or manual dispatch.
