@@ -83,7 +83,9 @@ struct CmuxTaskManagerSnapshot {
         }
         let agentRows = Self.codingAgentRows(
             from: payload["coding_agents"] as? [[String: Any]] ?? [],
-            hierarchyRows: rows
+            hierarchyRows: rows,
+            agentPanels: payload["agent_panels"] as? [[String: Any]] ?? [],
+            now: self.sampledAt ?? Date()
         )
         self.rows = Self.rowsWithAgentAssets(
             rows,
@@ -627,7 +629,7 @@ struct CmuxTaskManagerSnapshot {
         return UUID(uuidString: value)
     }
 
-    private static func agentAssetName(for candidates: [String?]) -> String? {
+    static func agentAssetName(for candidates: [String?]) -> String? {
         for candidate in candidates.compactMap({ $0?.lowercased() }) {
             if candidate.contains("opencode") {
                 return SessionAgent.opencode.assetName

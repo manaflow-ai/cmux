@@ -48,7 +48,14 @@ extension CmuxTopProcessSnapshot {
                 "surface_id": owner.surfaceID?.uuidString as Any? ?? NSNull(),
                 "surface_ref": owner.surfaceRef as Any? ?? NSNull(),
                 "surface_type": owner.surfaceType as Any? ?? NSNull(),
-                "resources": summaryPayload(for: ownerPIDs)
+                "resources": summaryPayload(for: ownerPIDs),
+                // The OS process name is what Activity Monitor lists (for
+                // Claude Code, its version number), so the Task Manager can
+                // map an Activity Monitor row back to a workspace.
+                "processes": ownerPIDs.sorted().compactMap { pid -> [String: Any]? in
+                    guard let process = process(pid: pid) else { return nil }
+                    return ["pid": pid, "name": process.name]
+                }
             ]
         }
     }

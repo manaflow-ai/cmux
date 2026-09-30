@@ -83,6 +83,9 @@ struct TaskManagerCodingAgentInstanceTests {
         #expect(first["workspace_id"] as? String == workspaceID.uuidString)
         #expect(firstResources["pids"] as? [Int] == [101, 102])
         #expect(firstResources["resident_bytes"] as? Int64 == 300)
+        let firstProcesses = try #require(first["processes"] as? [[String: Any]])
+        #expect(firstProcesses.compactMap { $0["pid"] as? Int } == [101, 102])
+        #expect(firstProcesses.compactMap { $0["name"] as? String } == ["claude", "claude"])
         let second = try #require(instances.first { $0["surface_id"] as? String == otherSurfaceID.uuidString })
         let secondResources = try #require(second["resources"] as? [String: Any])
         #expect(secondResources["pids"] as? [Int] == [103])
@@ -109,6 +112,23 @@ struct TaskManagerCodingAgentInstanceTests {
         let totals = try #require(payload["resources"] as? [String: Any])
         #expect(instances.count == 1)
         #expect(totals["pids"] as? [Int] == [101])
+    }
+
+    @Test func agentRowNamesThePIDAndProcessNameActivityMonitorShows() throws {
+        let detail = try #require(CmuxTaskManagerSnapshot.processIdentityDetail([
+            ["pid": 61879, "name": "2.1.283"],
+        ]))
+        #expect(detail.contains("61879"))
+        #expect(detail.contains("2.1.283"))
+
+        let unnamed = try #require(CmuxTaskManagerSnapshot.processIdentityDetail([
+            ["pid": 61879, "name": "pid-61879"],
+        ]))
+        #expect(!unnamed.contains("pid-"))
+
+        let crowded = (1...4).map { ["pid": $0 + 100, "name": "claude"] as [String: Any] }
+        #expect(CmuxTaskManagerSnapshot.processIdentityDetail(crowded) == nil)
+        #expect(CmuxTaskManagerSnapshot.processIdentityDetail([]) == nil)
     }
 
     private func process(pid: Int, residentBytes: Int64) -> CmuxTopProcessInfo {

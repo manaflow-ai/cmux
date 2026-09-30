@@ -1393,6 +1393,7 @@
 		C01E00AA00000000000000A3 /* CmuxSyntaxHighlighting in Frameworks */ = {isa = PBXBuildFile; productRef = C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */; };
 		C01E00AA00000000000000A4 /* CmuxSyntaxHighlighting in Frameworks */ = {isa = PBXBuildFile; productRef = C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */; };
 		0A1107110000000000000016 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000017 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift */; };
+		302A87D7E978CAEB55EB3DEA /* CmuxTaskManagerCodingAgentDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC2DA07343E5C17923C1BF2 /* CmuxTaskManagerCodingAgentDefinition.swift */; };
 		906901000000000000000004 /* CmuxTaskManagerMemoryAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000003 /* CmuxTaskManagerMemoryAttribution.swift */; };
 		906901000000000000000006 /* CmuxTaskManagerMemoryGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000005 /* CmuxTaskManagerMemoryGroup.swift */; };
 		90690100000000000000000C /* CmuxTaskManagerMemoryGroupAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90690100000000000000000B /* CmuxTaskManagerMemoryGroupAttribution.swift */; };
@@ -3427,8 +3428,11 @@
 		C06552030000000000000001 /* TabManagerTitleUpdateStalenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */; };
 		C06552020000000000000001 /* TabManagerTitleUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */; };
 		B6BF3DC98DB1495E57900199 /* TabManagerUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */; };
+		BF89808E6495D0284CA3750B /* TaskManagerAgentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8304C461BD18E48C24EA9492 /* TaskManagerAgentStatus.swift */; };
+		9FC6064833F3C3A1A1198B3D /* TaskManagerAgentStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85404B078AC2F4C17111BE22 /* TaskManagerAgentStatusTests.swift */; };
 		929E390B6DED35D284958C5A /* TaskManagerCodingAgentInstanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCE9D695295AC62F78D76B67 /* TaskManagerCodingAgentInstanceTests.swift */; };
 		C7A507000000000000000002 /* TaskManagerResourcesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A507000000000000000001 /* TaskManagerResourcesTests.swift */; };
+		90EAFBF62F693307AE1B38E5 /* TaskManagerRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12C6B258A96D6C43534DAA8 /* TaskManagerRowView.swift */; };
 		1794F1A2946DE26CEAD71C41 /* TaskManagerSnapshot+CodingAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 280C2D21C39151ECE7A3F2DB /* TaskManagerSnapshot+CodingAgents.swift */; };
 		C7A503000000000000000002 /* TaskManagerSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A503000000000000000001 /* TaskManagerSnapshot.swift */; };
 		C7A504000000000000000002 /* TaskManagerTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A504000000000000000001 /* TaskManagerTypes.swift */; };
@@ -4030,6 +4034,7 @@
 		F9219DE12AF2E4D9CFFC66CF /* Workspace+SurfaceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BBA1A8703756FDDFD53CF3 /* Workspace+SurfaceCatalog.swift */; };
 		CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */; };
 		7DD5BF8AB5B84491BC89EEE9 /* Workspace+SurfaceOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7305B43543CF4AF29D9966C8 /* Workspace+SurfaceOwnership.swift */; };
+		B254B9C8D138C3657E5C09E3 /* Workspace+TaskManagerAgentPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C7C28AD1286B0CA305D4694 /* Workspace+TaskManagerAgentPanels.swift */; };
 		85911000000000000000000B /* Workspace+TerminalLinkOpening.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85911000000000000000000C /* Workspace+TerminalLinkOpening.swift */; };
 		822900000000000000000001 /* Workspace+TerminalResizeInteraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822900000000000000000002 /* Workspace+TerminalResizeInteraction.swift */; };
 		26EA95250C2D46BCAD9B5CE6 /* Workspace+TerminalRespawn.swift in Sources */ = {isa = PBXBuildFile; fileRef = F42B6D13319C42CFBF4628B5 /* Workspace+TerminalRespawn.swift */; };
@@ -5573,6 +5578,7 @@
 		C0DE43000000000000000004 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSurfaceTabBarBuiltInAction+Codable.swift"; sourceTree = "<group>"; };
 		C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSurfaceTabBarBuiltInAction.swift; sourceTree = "<group>"; };
 		0A1107110000000000000017 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift"; sourceTree = "<group>"; };
+		DAC2DA07343E5C17923C1BF2 /* CmuxTaskManagerCodingAgentDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTaskManagerCodingAgentDefinition.swift; sourceTree = "<group>"; };
 		906901000000000000000003 /* CmuxTaskManagerMemoryAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTaskManagerMemoryAttribution.swift; sourceTree = "<group>"; };
 		906901000000000000000005 /* CmuxTaskManagerMemoryGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTaskManagerMemoryGroup.swift; sourceTree = "<group>"; };
 		90690100000000000000000B /* CmuxTaskManagerMemoryGroupAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTaskManagerMemoryGroupAttribution.swift; sourceTree = "<group>"; };
@@ -7562,8 +7568,11 @@
 		C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerTitleUpdateStalenessTests.swift; sourceTree = "<group>"; };
 		C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerTitleUpdateTests.swift; sourceTree = "<group>"; };
 		42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerUnitTests.swift; sourceTree = "<group>"; };
+		8304C461BD18E48C24EA9492 /* TaskManagerAgentStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerAgentStatus.swift; sourceTree = "<group>"; };
+		85404B078AC2F4C17111BE22 /* TaskManagerAgentStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TaskManagerAgentStatusTests.swift"; sourceTree = "<group>"; };
 		FCE9D695295AC62F78D76B67 /* TaskManagerCodingAgentInstanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TaskManagerCodingAgentInstanceTests.swift"; sourceTree = "<group>"; };
 		C7A507000000000000000001 /* TaskManagerResourcesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerResourcesTests.swift; sourceTree = "<group>"; };
+		D12C6B258A96D6C43534DAA8 /* TaskManagerRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerRowView.swift; sourceTree = "<group>"; };
 		280C2D21C39151ECE7A3F2DB /* TaskManagerSnapshot+CodingAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TaskManagerSnapshot+CodingAgents.swift"; sourceTree = "<group>"; };
 		C7A503000000000000000001 /* TaskManagerSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerSnapshot.swift; sourceTree = "<group>"; };
 		C7A504000000000000000001 /* TaskManagerTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerTypes.swift; sourceTree = "<group>"; };
@@ -8162,6 +8171,7 @@
 		47BBA1A8703756FDDFD53CF3 /* Workspace+SurfaceCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceCatalog.swift"; sourceTree = "<group>"; };
 		CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceNavigation.swift"; sourceTree = "<group>"; };
 		7305B43543CF4AF29D9966C8 /* Workspace+SurfaceOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceOwnership.swift"; sourceTree = "<group>"; };
+		8C7C28AD1286B0CA305D4694 /* Workspace+TaskManagerAgentPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TaskManagerAgentPanels.swift"; sourceTree = "<group>"; };
 		85911000000000000000000C /* Workspace+TerminalLinkOpening.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TerminalLinkOpening.swift"; sourceTree = "<group>"; };
 		822900000000000000000002 /* Workspace+TerminalResizeInteraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TerminalResizeInteraction.swift"; sourceTree = "<group>"; };
 		F42B6D13319C42CFBF4628B5 /* Workspace+TerminalRespawn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TerminalRespawn.swift"; sourceTree = "<group>"; };
@@ -11227,6 +11237,10 @@
 				01AFEB5B2588D6391DC94892 /* WorkspaceActivityReorderController.swift */,
 				F64D66F5236609AC22E95FDA /* CmuxTopProcessSnapshot+CodingAgentInstances.swift */,
 				280C2D21C39151ECE7A3F2DB /* TaskManagerSnapshot+CodingAgents.swift */,
+				DAC2DA07343E5C17923C1BF2 /* CmuxTaskManagerCodingAgentDefinition.swift */,
+				8304C461BD18E48C24EA9492 /* TaskManagerAgentStatus.swift */,
+				D12C6B258A96D6C43534DAA8 /* TaskManagerRowView.swift */,
+				8C7C28AD1286B0CA305D4694 /* Workspace+TaskManagerAgentPanels.swift */,
 				FFFCEC5E783F29C91BC6A8EE /* Workspace+SplitSpace.swift */,
 				F2A8C8F36CBB9D59049A238F /* SidebarResizerAccessibilityModifier.swift */,
 				60FA3A8B7182AEE47EC38033 /* DiffViewerPreferencesStore.swift */,
@@ -12651,6 +12665,7 @@
 				FCE9D695295AC62F78D76B67 /* TaskManagerCodingAgentInstanceTests.swift */,
 				751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */,
 				D0C6C5413708B2C95D6C1CC3 /* NarrowWindowSidePanelFitTests.swift */,
+				85404B078AC2F4C17111BE22 /* TaskManagerAgentStatusTests.swift */,
 				2D4316FCA6BA8B1260D8FFB6 /* CloudEqualCursorConflictRecoveryTests.swift */,
 				1E57F1AD01A2B2E01B4FCA5F /* CloudTeamPickerPresentationTests.swift */,
 				484CB271A3C1390F5A544FBF /* MobileTerminalInputRoutingTests.swift */,
@@ -14039,6 +14054,7 @@
 				C0DE43000000000000000003 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift in Sources */,
 				C10D00030000000000000003 /* CmuxSurfaceTabBarBuiltInAction.swift in Sources */,
 				0A1107110000000000000016 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift in Sources */,
+				302A87D7E978CAEB55EB3DEA /* CmuxTaskManagerCodingAgentDefinition.swift in Sources */,
 				906901000000000000000004 /* CmuxTaskManagerMemoryAttribution.swift in Sources */,
 				906901000000000000000006 /* CmuxTaskManagerMemoryGroup.swift in Sources */,
 				90690100000000000000000C /* CmuxTaskManagerMemoryGroupAttribution.swift in Sources */,
@@ -15346,6 +15362,8 @@
 				736200000000000000000004 /* TabManager+WorkspaceCustomTitle.swift in Sources */,
 				C9A57701C9A57701C9A57701 /* TabManager+WorkspaceGroupRename.swift in Sources */,
 				A5001003 /* TabManager.swift in Sources */,
+				BF89808E6495D0284CA3750B /* TaskManagerAgentStatus.swift in Sources */,
+				90EAFBF62F693307AE1B38E5 /* TaskManagerRowView.swift in Sources */,
 				1794F1A2946DE26CEAD71C41 /* TaskManagerSnapshot+CodingAgents.swift in Sources */,
 				C7A503000000000000000002 /* TaskManagerSnapshot.swift in Sources */,
 				C7A504000000000000000002 /* TaskManagerTypes.swift in Sources */,
@@ -15821,6 +15839,7 @@
 				F9219DE12AF2E4D9CFFC66CF /* Workspace+SurfaceCatalog.swift in Sources */,
 				CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */,
 				7DD5BF8AB5B84491BC89EEE9 /* Workspace+SurfaceOwnership.swift in Sources */,
+				B254B9C8D138C3657E5C09E3 /* Workspace+TaskManagerAgentPanels.swift in Sources */,
 				85911000000000000000000B /* Workspace+TerminalLinkOpening.swift in Sources */,
 				822900000000000000000001 /* Workspace+TerminalResizeInteraction.swift in Sources */,
 				26EA95250C2D46BCAD9B5CE6 /* Workspace+TerminalRespawn.swift in Sources */,
@@ -17294,6 +17313,7 @@
 				C06552030000000000000001 /* TabManagerTitleUpdateStalenessTests.swift in Sources */,
 				C06552020000000000000001 /* TabManagerTitleUpdateTests.swift in Sources */,
 				B6BF3DC98DB1495E57900199 /* TabManagerUnitTests.swift in Sources */,
+				9FC6064833F3C3A1A1198B3D /* TaskManagerAgentStatusTests.swift in Sources */,
 				929E390B6DED35D284958C5A /* TaskManagerCodingAgentInstanceTests.swift in Sources */,
 				C7A507000000000000000002 /* TaskManagerResourcesTests.swift in Sources */,
 				C7A507000000000000004529 /* TaskManagerViewSnapshotBoundaryTests.swift in Sources */,

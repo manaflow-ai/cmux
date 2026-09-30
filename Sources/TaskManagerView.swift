@@ -191,6 +191,7 @@ struct CmuxTaskManagerRowActions {
     let viewWorkspace: @MainActor (CmuxTaskManagerRow) -> Void
     let viewTerminal: @MainActor (CmuxTaskManagerRow) -> Void
     let killProcess: @MainActor (CmuxTaskManagerRow) -> Void
+    let closeTerminal: @MainActor (CmuxTaskManagerRow) -> Void
     let activate: @MainActor (CmuxTaskManagerRow) -> Void
 
     @MainActor
@@ -199,6 +200,7 @@ struct CmuxTaskManagerRowActions {
             viewWorkspace: { row in model.viewWorkspace(for: row) },
             viewTerminal: { row in model.viewTerminal(for: row) },
             killProcess: { row in model.killProcess(for: row) },
+            closeTerminal: { row in model.closeTerminal(for: row) },
             activate: { row in model.viewBestTarget(for: row) }
         )
     }
@@ -244,7 +246,8 @@ struct CmuxTaskManagerListView: View {
                                 onViewWorkspace: { actions.viewWorkspace(row) },
                                 onViewTerminal: { actions.viewTerminal(row) },
                                 onKillProcess: { actions.killProcess(row) },
-                                onActivate: { actions.activate(row) }
+                                onActivate: { actions.activate(row) },
+                                onCloseTerminal: { actions.closeTerminal(row) }
                             ).equatable()
                             Divider()
                                 .padding(.leading, 16)
@@ -353,127 +356,5 @@ private struct CmuxTaskManagerMessageView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(32)
-    }
-}
-
-/// Row view rendered inside the lazy list subtree. Conforms to
-/// `Equatable` so SwiftUI can skip body re-evaluation when the `row`
-/// snapshot is unchanged, even if the parent rebuilt the closure
-/// bundle on a refresh tick. Closures are intentionally excluded from
-/// `==`; they're expected to be stable in semantics (capture the same
-/// model above the snapshot boundary) but their identity changes every
-/// render. Comparing closure identity would defeat the optimization
-/// and re-introduce the 0.64.8 memory leak (issue #4529).
-struct CmuxTaskManagerRowView: View, Equatable {
-    let row: CmuxTaskManagerRow
-    let onViewWorkspace: @MainActor () -> Void
-    let onViewTerminal: @MainActor () -> Void
-    let onKillProcess: @MainActor () -> Void
-    let onActivate: @MainActor () -> Void
-
-    static func == (lhs: CmuxTaskManagerRowView, rhs: CmuxTaskManagerRowView) -> Bool {
-        // Closures excluded on purpose: the parent rebuilds the action
-        // bundle on every render tick, but the row payload is what
-        // actually drives visible state. Comparing closure identity
-        // would defeat `.equatable()` at the ForEach call site and
-        // re-introduce the 0.64.8 memory leak.
-        lhs.row == rhs.row
-    }
-
-    var body: some View {
-        Group {
-            if row.canViewWorkspace || row.canViewTerminal {
-                Button(action: onActivate) {
-                    rowContent
-                }
-                .buttonStyle(.plain)
-            } else {
-                rowContent
-            }
-        }
-        .contextMenu {
-            if row.canViewWorkspace {
-                Button {
-                    onViewWorkspace()
-                } label: {
-                    Label(
-                        String(localized: "taskManager.contextMenu.viewWorkspace", defaultValue: "View Workspace"),
-                        systemImage: "rectangle.stack"
-                    )
-                }
-            }
-            if row.canViewTerminal {
-                Button {
-                    onViewTerminal()
-                } label: {
-                    Label(
-                        String(localized: "taskManager.contextMenu.viewTerminal", defaultValue: "View Terminal"),
-                        systemImage: "terminal"
-                    )
-                }
-            }
-            if row.canKillProcess {
-                if row.canViewWorkspace || row.canViewTerminal {
-                    Divider()
-                }
-                Button {
-                    onKillProcess()
-                } label: {
-                    Label(
-                        String(localized: "taskManager.contextMenu.killProcess", defaultValue: "Kill Process..."),
-                        systemImage: "xmark.octagon"
-                    )
-                }
-            }
-        }
-    }
-
-    private var rowContent: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 5) {
-                Color.clear
-                    .frame(width: CGFloat(row.level) * 14)
-                rowIcon
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(row.title)
-                        .cmuxFont(size: 12.5)
-                        .lineLimit(1)
-                    if !row.detail.isEmpty {
-                        Text(row.detail)
-                            .cmuxFont(size: 11)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(CmuxTaskManagerFormat.cpu(row.resources.cpuPercent))
-                .frame(width: 82, alignment: .trailing)
-            Text(CmuxTaskManagerFormat.bytes(row.resources.memoryBytes))
-                .frame(width: 96, alignment: .trailing)
-            Text("\(row.resources.processCount)")
-                .frame(width: 70, alignment: .trailing)
-        }
-        .cmuxFont(size: 12.5, design: .default)
-        .monospacedDigit()
-        .padding(.horizontal, 16)
-        .padding(.vertical, 3)
-        .opacity(row.isDimmed ? 0.68 : 1)
-        .contentShape(Rectangle())
-    }
-
-    @ViewBuilder
-    private var rowIcon: some View {
-        if let agentAssetName = row.agentAssetName {
-            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
-                source: .asset(name: agentAssetName, bundle: .main),
-                size: NSSize(width: 14, height: 14)
-            ))
-            .frame(width: 14, height: 14)
-        } else {
-            CmuxSystemSymbolImage(magnified: row.kind.systemImage, pointSize: 12, tint: row.kind.tint)
-                .frame(width: 14)
-        }
     }
 }
