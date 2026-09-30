@@ -32,9 +32,6 @@ final class NoActivateKeyboardGuard {
 
     /// Input this recent counts as the user choosing the app.
     static let userInputWindow: Duration = .seconds(1)
-    /// Notifications this close together belong to one activation
-    /// (didBecomeKey and didBecomeActive arrive a few ms apart).
-    static let sameActivation: Duration = .milliseconds(20)
 
     /// Most recent give-backs (bounded), for `debug.focus`.
     private(set) var giveBacks: [GiveBack] = []
@@ -52,7 +49,10 @@ final class NoActivateKeyboardGuard {
     }
 
     private var lastUserInput: ContinuousClock.Instant?
-    private var lastGiveBack: ContinuousClock.Instant?
+    /// A give-back was counted and the app has not resigned active since:
+    /// further notifications of that activation (didBecomeKey,
+    /// didBecomeActive) step aside again without counting.
+    private var inGivenBackActivation = false
 
     /// Another app became frontmost: that is where the keyboard goes back.
     func otherAppActivated(_ pid: pid_t) { previousApp = pid }
@@ -66,8 +66,8 @@ final class NoActivateKeyboardGuard {
     /// window in an inactive app is left alone.
     func windowDidBecomeKey() { check(.windowKey) }
 
-    /// Not implemented yet (red).
-    func appDidResignActive() {}
+    /// The app really resigned active: the next activation is a new one.
+    func appDidResignActive() { inGivenBackActivation = false }
 
     /// The user chose this app: a click on its window (the mouse is still
     /// down at activation), Cmd-Tab (Command held), or input this recent.
@@ -79,13 +79,12 @@ final class NoActivateKeyboardGuard {
 
     private func check(_ trigger: Trigger) {
         guard host.isAppActive, !userIntends else { return }
-        let now = host.now
-        if let lastGiveBack, now - lastGiveBack < Self.sameActivation {
+        if inGivenBackActivation {
             // The same activation's other notification: step aside again, count once.
             host.giveActivationBack(to: previousApp)
             return
         }
-        lastGiveBack = now
+        inGivenBackActivation = true
         let giveBack = GiveBack(trigger: trigger, cause: "no_user_input", restoredTo: previousApp)
         host.giveActivationBack(to: previousApp)
         giveBacks.append(giveBack)
