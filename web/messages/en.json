@@ -3249,7 +3249,8 @@
           "ampIntegration": "Turns the cmux hooks for Amp on or off. Turning them off leaves the bundled plugin installed but idle.",
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry.",
           "workspaceAutoNaming": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win.",
-          "autoNamingAgent": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks."
+          "autoNamingAgent": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
@@ -3396,6 +3397,12 @@
       "actionTypeAgent": "Start a coding agent in a new terminal tab. Any CLI name works (claude, codex, opencode, or your own binary), with optional args.",
       "actionTypeWorkspaceCommand": "Run a named workspace definition from commands. Use this for multi-pane layouts, custom working directories, and startup commands.",
       "actionTypeWorkspace": "Create a workspace from an inline workspace definition, with optional restart behavior. Offered in the new-workspace plus-button menu automatically.",
+      "actionTypeSetting": "Change one setting in your global cmux.json, for example toggle a true/false setting or cycle through a list of values. See Setting actions below.",
+      "actionTypeSettingPreset": "Apply a named group of settings from settingPresets in one step.",
+      "settingActions": "Setting actions",
+      "settingActionsDesc": "A setting action names a settings <path>path</path> and exactly one of <set>set</set> (write a value), <toggle>toggle: true</toggle> (flip a true/false setting), <cycle>cycle</cycle> (move to the next value in a list, wrapping around), or <unset>unset: true</unset> (remove the key from cmux.json, so the value from the Settings window or the default applies). toggle and cycle start from the value cmux is using, including one you set in the Settings window. A settingPreset action applies an entry from <presets>settingPresets</presets>, a partial cmux.json whose nested objects merge key by key. cmux checks each change against the schema before saving, keeps your comments and other keys, and applies it right away. Setting actions and presets only run from your global cmux.json and the packs it references; project configs can't declare them.",
+      "settingActionsCli": "The same changes work from a terminal: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle>, and <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "With <confirm>confirm: true</confirm>, cmux asks before saving and shows the equivalent cmux config command. Paths split on every \".\", so a key that itself contains \".\" (such as a <byCwd>workspaceGroups.byCwd</byCwd> entry for ~/src/app.web) can't be changed this way. Edit it in cmux.json directly.",
       "actionFields": "Action fields",
       "actionFieldTitle": "Command Palette row title, surface button label, menu item title, and trust prompt title unless an entry overrides it.",
       "actionFieldSubtitle": "Command Palette secondary text. description is accepted as an alias for subtitle.",
@@ -6999,6 +7006,22 @@
     "signedOutTitle": "Sign in to authorize coderouter",
     "signedOutBody": "A command line application is waiting for you to sign in. Sign in with your cmux account to finish connecting this terminal. If you did not start this request, close this page.",
     "signInButton": "Sign in"
+  },
+  "mobile": {
+    "agentFeed": {
+      "fullText": {
+        "seeMore": "See more"
+      },
+      "search": {
+        "placeholder": "Search Feed"
+      },
+      "openWorkspace": "Open workspace",
+      "openTab": "Open tab",
+      "openFailed": {
+        "title": "Couldn’t open event",
+        "message": "The event’s computer, workspace, or tab is no longer available."
+      }
+    }
   },
   "MobileRelease106": {
     "title": "What's New in 1.0.6",

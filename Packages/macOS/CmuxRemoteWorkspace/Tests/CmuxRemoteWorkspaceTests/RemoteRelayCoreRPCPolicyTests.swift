@@ -145,6 +145,21 @@ struct RemoteRelayCoreRPCPolicyTests {
         #expect(decision(method, [:]) != .allowed)
     }
 
+    @Test("window capture is never reachable from a relay", arguments: [
+        "window.record.start", "window.record.stop", "window.record.status",
+        "window.record.note", "window.record.list", "window.screenshot"
+    ])
+    func windowCaptureIsDenied(method: String) {
+        // Recording films the local screen and a still photographs it. A relay
+        // peer is authorized for the objects of one workspace, not for whatever
+        // the local user has on display, so these verbs stay off the allowlist
+        // entirely.
+        #expect(decision(method, [:]) == .denied(code: "remote_relay_method_denied",
+            message: "Relay method is not permitted"))
+        #expect(decision(method, ["workspace_id": owner.uuidString]) != .allowed)
+        #expect(RemoteRelayCommandPolicy().permittedMethods(from: [method]).isEmpty)
+    }
+
     @Test("remote reconnect remains withheld until its surface execution is scoped")
     func reconnectIsDenied() {
         #expect(decision("workspace.remote.reconnect", [
