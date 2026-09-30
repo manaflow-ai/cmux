@@ -32,8 +32,8 @@ final class SiteSettingsWindow: PageInfoWindow {
         grid.rowSpacing = PageInfoStyle.spacing * 2
         grid.columnSpacing = PageInfoStyle.inset
         for kind in SitePermissionKind.allCases where provider.supportedSitePermissions.contains(kind) {
-            let icon = NSImageView(image: PageInfoStyle.symbol(PageInfoPages.symbol(kind, blocked: false)) ?? NSImage())
-            icon.contentTintColor = PageInfoStyle.text
+            let icon = ThemedImageView(image: PageInfoStyle.symbol(PageInfoPages.symbol(kind, blocked: false)) ?? NSImage())
+            icon.themeTint = { PageInfoStyle.text }
             let name = PageInfoStyle.label(PageInfoStrings.name(kind), font: PageInfoStyle.bodyFont, color: PageInfoStyle.text)
             let menu = NSPopUpButton()
             for choice in kind.choices {

@@ -19,6 +19,11 @@ public struct PaletteSources {
     /// action that asks for input runs on these, not on whatever has focus
     /// once the palette closes.
     public var context: (@MainActor () -> [ActionTargetRef])?
+    /// Live preview of an enumeration argument page (theme pickers): called
+    /// with the highlighted option's value as the selection or hover moves,
+    /// and with nil when the page is left without choosing. Choosing runs the
+    /// action, which commits; no nil follows it.
+    public var argumentPreview: PaletteArgumentPreview?
 
     public init(
         workspaces: (any PaletteWorkspaceSource)? = nil,
@@ -28,7 +33,8 @@ public struct PaletteSources {
         recentDirectories: (any PaletteRecentDirectorySource)? = nil,
         targets: (any PaletteTargetSource)? = nil,
         extraProviders: [any PaletteProvider] = [],
-        context: (@MainActor () -> [ActionTargetRef])? = nil
+        context: (@MainActor () -> [ActionTargetRef])? = nil,
+        argumentPreview: PaletteArgumentPreview? = nil
     ) {
         self.workspaces = workspaces
         self.tabs = tabs
@@ -38,8 +44,12 @@ public struct PaletteSources {
         self.targets = targets
         self.extraProviders = extraProviders
         self.context = context
+        self.argumentPreview = argumentPreview
     }
 }
+
+/// `(action, argument name, highlighted value or nil to revert, target)`.
+public typealias PaletteArgumentPreview = @MainActor (ActionID, String, String?, ActionTargetRef?) -> Void
 
 // MARK: - Providers over the sources
 

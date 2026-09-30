@@ -36,11 +36,3 @@ enum SidebarStyle {
 
 }
 
-extension NSView {
-    /// Resolves a dynamic color for this view's appearance.
-    func resolvedCGColor(_ color: NSColor) -> CGColor {
-        var result = color.cgColor
-        effectiveAppearance.performAsCurrentDrawingAppearance { result = color.cgColor }
-        return result
-    }
-}

@@ -11,8 +11,6 @@ final class LoadErrorView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        titleLabel.textColor = Palette.textPrimary
-        messageLabel.textColor = Palette.textSecondary
         messageLabel.alignment = .center
         let retry = ChromeTextButton(title: Strings.tryAgain, prominent: true, action: #selector(retry), target: self)
         let stack = NSStackView(views: [titleLabel, messageLabel, retry])
@@ -31,6 +29,7 @@ final class LoadErrorView: NSView {
             stack.spacing = BrowserMetrics.overlayPadding
         }
         density.start()
+        updateColors()
     }
 
     @available(*, unavailable)
@@ -49,8 +48,10 @@ final class LoadErrorView: NSView {
 
     /// Opaque theme color: the failed page must not show through.
     private func updateColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             layer?.backgroundColor = Palette.pageBackground.cgColor
+            titleLabel.textColor = Palette.textPrimary
+            messageLabel.textColor = Palette.textSecondary
         }
     }
 

@@ -22,6 +22,8 @@ enum TabHoverCardContent: Equatable {
 /// the pointer moves across tabs.
 final class TabHoverCardController {
     weak var previewProvider: (any TabPreviewProvider)?
+    /// The view cards describe (the tab strip); cards draw in its theme scope.
+    weak var themeAnchor: NSView?
     /// Samples CPU and memory of the hovered tab while its card is pending
     /// or shown (first sample at hover start), never otherwise.
     let resources = ResourceCardSampler(source: nil)
@@ -136,7 +138,7 @@ final class TabHoverCardController {
         panel.configure(content)
         if case .tab = content { panel.setResources(resources.report) }
         panel.setThumbnail(thumbnails[content.id])
-        panel.present(below: anchor, parent: parent, sliding: wasVisible)
+        panel.present(below: anchor, parent: parent, themeAnchor: themeAnchor, sliding: wasVisible)
         if case .tab(let item) = content { loadThumbnail(for: item.id) }
     }
 

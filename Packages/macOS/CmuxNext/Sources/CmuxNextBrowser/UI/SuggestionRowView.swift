@@ -16,8 +16,12 @@ final class SuggestionRowView: NSView {
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
     private var tracking: NSTrackingArea?
+    private let title: String
+    private let detail: String
 
     init(suggestion: BrowserSuggestion) {
+        title = suggestion.title
+        detail = suggestion.detail
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = OmnibarStyle.rowCornerRadius
@@ -31,20 +35,7 @@ final class SuggestionRowView: NSView {
         }
         icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: OmnibarStyle.iconPointSize, weight: .regular))
-        icon.contentTintColor = OmnibarStyle.textSecondary
         icon.imageScaling = .scaleNone
-
-        let text = NSMutableAttributedString(string: suggestion.title, attributes: [
-            .font: OmnibarStyle.font,
-            .foregroundColor: OmnibarStyle.textPrimary,
-        ])
-        if !suggestion.detail.isEmpty {
-            text.append(NSAttributedString(string: " – " + suggestion.detail, attributes: [
-                .font: OmnibarStyle.rowDetailFont,
-                .foregroundColor: OmnibarStyle.textSecondary,
-            ]))
-        }
-        label.attributedStringValue = text
         label.lineBreakMode = .byTruncatingTail
         label.cell?.truncatesLastVisibleLine = true
         addSubview(icon)
@@ -53,7 +44,7 @@ final class SuggestionRowView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel([suggestion.title, suggestion.detail].filter { !$0.isEmpty }.joined(separator: ", "))
-        updateFill()
+        applyColors()
     }
 
     @available(*, unavailable)
@@ -93,11 +84,34 @@ final class SuggestionRowView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            icon.contentTintColor = OmnibarStyle.textSecondary
+            let text = NSMutableAttributedString(string: title, attributes: [
+                .font: OmnibarStyle.font,
+                .foregroundColor: OmnibarStyle.textPrimary,
+            ])
+            if !detail.isEmpty {
+                text.append(NSAttributedString(string: " – " + detail, attributes: [
+                    .font: OmnibarStyle.rowDetailFont,
+                    .foregroundColor: OmnibarStyle.textSecondary,
+                ]))
+            }
+            label.attributedStringValue = text
+        }
         updateFill()
     }
 
     private func updateFill() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             layer?.backgroundColor = (isHighlighted ? OmnibarStyle.rowSelectedFill : .clear).cgColor
         }
     }

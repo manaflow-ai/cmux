@@ -205,7 +205,7 @@ final class PaletteTableView: NSTableView {
 /// Section title row.
 final class PaletteSectionHeaderCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("palette.header")
-    private let label = PaletteText.label(Typography.header, color: Palette.textSecondary)
+    private let label = PaletteText.label(Typography.header, tone: .secondary)
 
     var title: String {
         get { label.stringValue }

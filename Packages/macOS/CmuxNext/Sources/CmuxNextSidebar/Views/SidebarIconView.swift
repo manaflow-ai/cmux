@@ -36,7 +36,6 @@ final class SidebarIconView: NSView {
             let config = SidebarStyle.glyphConfig
             imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
                 ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)?.withSymbolConfiguration(config)
-            imageView.contentTintColor = tint.map(SidebarStyle.color) ?? Palette.textSecondary
             imageView.isHidden = false
         case .swatch?, nil:
             imageView.isHidden = true
@@ -48,11 +47,16 @@ final class SidebarIconView: NSView {
     override func updateLayer() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if case let .swatch(color)? = icon {
-            swatch.isHidden = false
-            swatch.backgroundColor = resolvedCGColor(SidebarStyle.color(color))
-        } else {
-            swatch.isHidden = true
+        performWithTheme {
+            if case let .symbol(_, tint)? = icon {
+                imageView.contentTintColor = tint.map(SidebarStyle.color) ?? Palette.textSecondary
+            }
+            if case let .swatch(color)? = icon {
+                swatch.isHidden = false
+                swatch.backgroundColor = SidebarStyle.color(color).cgColor
+            } else {
+                swatch.isHidden = true
+            }
         }
         CATransaction.commit()
     }

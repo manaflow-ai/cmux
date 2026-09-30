@@ -95,7 +95,7 @@ extension CEFTab {
     }
 
     private func makeDevToolsWindow() -> CEFDevToolsWindow {
-        let window = CEFDevToolsWindow(frame: CEFDevToolsWindow.frame(near: container.window))
+        let window = CEFDevToolsWindow(frame: CEFDevToolsWindow.frame(near: container.window), owner: container.window)
         window.title = Strings.devToolsWindowTitle(state.title)
         window.onClose = { [weak self] in self?.performDevTools(.close) }
         devToolsWindow = window

@@ -390,7 +390,7 @@ public final class BrowserChromeView: NSView {
     }
 
     private func updateColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             layer?.backgroundColor = Palette.contentBackground.cgColor
             toolbar.layer?.backgroundColor = OmnibarStyle.toolbarBackground.cgColor
             separator.layer?.backgroundColor = Palette.separator.cgColor

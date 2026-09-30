@@ -112,7 +112,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func attach(browser: Int32) {
         browserID = browser
         isCreationPending = false
-        if pastFirstRealPage { applyPageBackground() }
+        applyPageBackground()
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if
@@ -149,10 +149,20 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         applyPageBackground()
     }
 
+    /// The tab's view moved or its theme scope changed: a page still on
+    /// the theme color takes the new scope's color.
+    func pageThemeDidChange() {
+        guard !pastFirstRealPage else { return }
+        applyPageBackground()
+    }
+
+    /// Every attached tab owns its background (theme color of its own
+    /// scope until the first real page, then white), so a theme change of
+    /// another room or workspace never repaints it.
     private func applyPageBackground() {
         guard let browser = browserID, let shim = runtime.shim else { return }
         _ = shim.browserSetBackgroundColor(browser, PageBackground.chromiumARGB(pastFirstRealPage: pastFirstRealPage,
-                                                                                 theme: PageBackground.themeARGB))
+                                                                                 theme: PageBackground.themeARGB(in: container)))
     }
 
     func creationFailed() {

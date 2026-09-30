@@ -43,11 +43,9 @@ final class DragLiftView: NSView {
             countBadge.stringValue = "\(count)"
             countBadge.font = SidebarStyle.badgeFont
             countBadge.alignment = .center
-            countBadge.textColor = Palette.textOnPrimary
             addSubview(badgeBackground)
             addSubview(countBadge)
         }
-        layer?.shadowColor = Palette.shadow.cgColor
         layer?.shadowOpacity = 0
         layer?.shadowOffset = CGSize(width: 0, height: Metrics.space1)
         layer?.shadowRadius = Metrics.space2
@@ -82,14 +80,22 @@ final class DragLiftView: NSView {
         updateColors()
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateColors()
+    }
+
     private func updateColors() {
-        card.layer?.backgroundColor = resolvedCGColor(Palette.elevatedBackground)
-        layer?.shadowColor = resolvedCGColor(Palette.shadow)
-        for back in stack {
-            back.layer?.backgroundColor = resolvedCGColor(Palette.elevatedBackground.withAlphaComponent(0.85))
-            back.layer?.borderColor = resolvedCGColor(Palette.separator)
+        performWithTheme {
+            card.layer?.backgroundColor = Palette.elevatedBackground.cgColor
+            layer?.shadowColor = Palette.shadow.cgColor
+            for back in stack {
+                back.layer?.backgroundColor = Palette.elevatedBackground.withAlphaComponent(0.85).cgColor
+                back.layer?.borderColor = Palette.separator.cgColor
+            }
+            badgeBackground.layer?.backgroundColor = Palette.textPrimary.cgColor
+            countBadge.textColor = Palette.textOnPrimary
         }
-        badgeBackground.layer?.backgroundColor = resolvedCGColor(Palette.textPrimary)
     }
 
     /// Lifted: deeper shadow. Landing: shadow fades as the card settles.

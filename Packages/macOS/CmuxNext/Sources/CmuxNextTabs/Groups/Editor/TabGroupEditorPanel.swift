@@ -11,13 +11,15 @@ final class TabGroupEditorController {
 
     var isVisible: Bool { shownGroupID != nil }
 
-    func show(group: TabGroupItem, anchor: CGRect, parent: NSWindow) {
+    /// `themeAnchor` is the tab strip; the editor draws in its theme scope.
+    func show(group: TabGroupItem, anchor: CGRect, parent: NSWindow, themeAnchor: NSView) {
         let panel = panel ?? TabGroupEditorPanel()
         self.panel = panel
         panel.onCommand = { [weak self] command in self?.onCommand?(command) }
         panel.onClose = { [weak self] in self?.shownGroupID = nil }
         shownGroupID = group.id
         panel.configure(group)
+        panel.adoptThemeScope(of: themeAnchor)
         panel.present(below: anchor, parent: parent)
     }
 
@@ -39,6 +41,8 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     var onClose: (() -> Void)?
 
     private let nameField = NSTextField()
+    private let field = NSView()
+    private var glass: NSGlassEffectView?
     private var swatches: [TabGroupSwatchView] = []
     private var saveRow: TabGroupEditorRow?
     private var group: TabGroupItem?
@@ -46,7 +50,6 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        ThemeStore.shared.adopt(self)
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
@@ -54,10 +57,13 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         hidesOnDeactivate = true
         animationBehavior = .none
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
-        let content = NSView()
+        let content = ThemeHookView()
         let glass = Glass.makePanel(content: content, cornerRadius: Metrics.panelCornerRadius)
         glass.translatesAutoresizingMaskIntoConstraints = true
         contentView = glass
+        self.glass = glass
+        // Adopting a scope and every theme change of it repaint the content.
+        content.onThemeChange = { [weak self] in self?.applyColors() }
         build(in: content)
         setAccessibilityLabel(Strings.axGroupEditor)
         // Shown without the keys (app inactive): close once another window takes them.
@@ -69,17 +75,14 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     private func build(in content: NSView) {
         nameField.placeholderString = Strings.editorNamePlaceholder
         nameField.font = Typography.body
-        nameField.textColor = Palette.textPrimary
         nameField.isBezeled = false
         nameField.drawsBackground = false
         nameField.focusRingType = .none
         nameField.delegate = self
         nameField.lineBreakMode = .byTruncatingTail
-        let field = NSView()
         field.wantsLayer = true
         field.layer?.cornerRadius = Metrics.itemCornerRadius
         field.layer?.cornerCurve = .continuous
-        field.layer?.backgroundColor = Palette.hoverFill.cgColor
         nameField.translatesAutoresizingMaskIntoConstraints = false
         field.addSubview(nameField)
 
@@ -123,6 +126,16 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             nameField.trailingAnchor.constraint(equalTo: field.trailingAnchor, constant: -Metrics.space4),
             nameField.centerYAnchor.constraint(equalTo: field.centerYAnchor),
         ] + ([field, swatchRow, separator] + rows).map { $0.widthAnchor.constraint(equalTo: stack.widthAnchor) })
+    }
+
+    private func applyColors() {
+        guard let glass else { return }
+        glass.performWithTheme {
+            glass.tintColor = Palette.glassTint
+            nameField.textColor = Palette.textPrimary
+            field.layer?.backgroundColor = Palette.hoverFill.cgColor
+        }
+        styleFieldEditor()
     }
 
     private func row(_ title: String, command: @escaping (TabGroupItem) -> TabGroupCommand) -> TabGroupEditorRow {
@@ -180,7 +193,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     /// Gray selection and caret: the system accent (blue) never shows in chrome.
     private func styleFieldEditor() {
         guard let editor = nameField.currentEditor() as? NSTextView else { return }
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        nameField.performWithTheme {
             editor.selectedTextAttributes = [.backgroundColor: Palette.selectionFill.blended(withFraction: 0.5, of: Palette.textSecondary) ?? Palette.selectionFill]
             editor.insertionPointColor = Palette.textPrimary
         }

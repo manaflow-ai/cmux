@@ -192,7 +192,7 @@ extension TabStripView {
         // Layers are flipped; CoreGraphics is not.
         context.translateBy(x: 0, y: CGFloat(height))
         context.scaleBy(x: scale, y: -scale)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             context.setFillColor(Palette.windowBackground.cgColor)
         }
         let radius = metrics.cornerRadius

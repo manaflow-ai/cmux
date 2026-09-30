@@ -31,8 +31,10 @@ extension SidebarListView {
         field.font = view.titleFont
         field.isBordered = false
         field.drawsBackground = true
-        field.backgroundColor = Palette.hoverFill
-        field.textColor = Palette.textPrimary
+        performWithTheme {
+            field.backgroundColor = Palette.hoverFill
+            field.textColor = Palette.textPrimary
+        }
         field.focusRingType = .none
         field.usesSingleLineMode = true
         field.lineBreakMode = .byClipping

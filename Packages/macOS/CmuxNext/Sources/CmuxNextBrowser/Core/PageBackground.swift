@@ -36,10 +36,21 @@ nonisolated enum PageBackground {
     /// New Tab page).
     static func isRealPage(_ url: URL?) -> Bool { !isBlank(url) }
 
-    /// `Palette.pageBackground` as opaque 0xAARRGGBB, the form
+    /// `Palette.pageBackground` of `view`'s theme scope (its room,
+    /// workspace or terminal theme) as opaque 0xAARRGGBB, the form
     /// `CefBrowserSettings.background_color` takes.
-    @MainActor static var themeARGB: UInt32 {
-        let color = Palette.pageBackground.usingColorSpace(.sRGB) ?? .black
+    @MainActor static func themeARGB(in view: NSView) -> UInt32 {
+        argb(view.performWithTheme { Palette.pageBackground })
+    }
+
+    /// The app theme's (Ghostty config) page background: Chromium's
+    /// process default for a browser before it joins a scoped view.
+    @MainActor static var appThemeARGB: UInt32 {
+        argb(ThemeScope.app.perform { Palette.pageBackground })
+    }
+
+    static func argb(_ color: NSColor) -> UInt32 {
+        let color = color.usingColorSpace(.sRGB) ?? .black
         func byte(_ value: CGFloat) -> UInt32 { UInt32((min(max(value, 0), 1) * 255).rounded()) }
         return 0xFF00_0000 | byte(color.redComponent) << 16 | byte(color.greenComponent) << 8 | byte(color.blueComponent)
     }

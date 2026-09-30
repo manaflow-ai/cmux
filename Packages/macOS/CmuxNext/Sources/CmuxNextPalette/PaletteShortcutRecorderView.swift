@@ -11,10 +11,10 @@ final class PaletteShortcutRecorderView: NSView {
 
     private let glass = Glass.makePanel(cornerRadius: PaletteLayout.cornerRadius)
     private let content = FlippedView()
-    private let title = PaletteText.label(Typography.header, color: Palette.textSecondary)
+    private let title = PaletteText.label(Typography.header, tone: .secondary)
     private let action = PaletteText.label(Typography.bodyEmphasized)
     private let current = PaletteKeycapsView()
-    private let noneLabel = PaletteText.label(Typography.caption, color: Palette.textTertiary)
+    private let noneLabel = PaletteText.label(Typography.caption, tone: .tertiary)
     private let recorded = PaletteKeycapsView()
     private let message = NSTextField(wrappingLabelWithString: "")
     private var rowViews: [PaletteMenuRow] = []
@@ -24,7 +24,6 @@ final class PaletteShortcutRecorderView: NSView {
         glass.translatesAutoresizingMaskIntoConstraints = true
         glass.contentView = content
         message.font = Typography.body
-        message.textColor = Palette.textSecondary
         message.maximumNumberOfLines = 4
         title.stringValue = PaletteStrings.recorderTitle
         noneLabel.stringValue = PaletteStrings.noShortcut
@@ -35,6 +34,23 @@ final class PaletteShortcutRecorderView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            glass.tintColor = Palette.glassTint
+            message.textColor = Palette.textSecondary
+        }
+    }
 
     static var messageHeight: CGFloat { Typography.body.pointSize * 1.3 * 3 }
 

@@ -27,9 +27,10 @@ final class TabCell {
             updateColors(animated: false)
         }
     }
-    /// The strip's effective appearance; colors resolve against it.
-    var appearance = NSAppearance.currentDrawing() {
-        didSet { if oldValue !== appearance { updateColors(animated: false) } }
+    /// The strip's theme scope; colors resolve against it. The strip sets it
+    /// again on every theme change, so each assignment re-applies colors.
+    var themeScope: ThemeScope = .app {
+        didSet { updateColors(animated: false) }
     }
     /// Backing scale of the strip's window. Starts at 1 to match a new
     /// layer's `contentsScale`, so the first real assignment (2 on Retina)
@@ -68,6 +69,7 @@ final class TabCell {
     var closeGlyphLayer: CAShapeLayer?
     /// The machine badge, created while the item names a remote machine.
     var machineLayer: ChromeTextLayer?
+    var themeBadgeLayer: CALayer?
 
     var hasSpinnerLayer: Bool { spinnerLayer != nil }
     var hasBadgeLayer: Bool { badgeLayer != nil }
@@ -143,6 +145,7 @@ final class TabCell {
         }
         if previous?.isBusy != item.isBusy { updateSpinner() }
         if previous?.machineBadge != item.machineBadge { updateMachineBadge() }
+        if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         updateColors(animated: false)
         updateAccessibility()
         layoutLayers()
@@ -163,7 +166,7 @@ final class TabCell {
     }
 
     private func updateLift() {
-        backgroundLayer.shadowColor = Palette.shadow.cgColor
+        themeScope.perform { backgroundLayer.shadowColor = Palette.shadow.cgColor }
         backgroundLayer.shadowRadius = Metrics.space3
         backgroundLayer.shadowOffset = CGSize(width: 0, height: Metrics.space1)
         backgroundLayer.shadowOpacity = isLifted ? 0.22 : 0
@@ -190,7 +193,8 @@ final class TabCell {
     }
 
     private func applyColors() {
-        appearance.performAsCurrentDrawingAppearance {
+        themeScope.perform {
+            backgroundLayer.shadowColor = Palette.shadow.cgColor
             let fill: NSColor? = (isSelected || isLifted) ? Palette.selectionFill : (isHovered ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
             if isLifted {
@@ -208,6 +212,7 @@ final class TabCell {
         applyBadgeColor()
     }
 
+    /// theme-scoped: resolved by callers inside `themeScope.perform`.
     var badgeColor: NSColor? {
         switch item.status {
         case .needsInput: return Palette.attention
@@ -287,6 +292,7 @@ final class TabCell {
         let iconFrame = CGRect(x: pixel(iconX), y: pixel(midY - iconSide / 2), width: iconSide, height: iconSide)
         let showsIconArt = visibility.showsIcon && !item.isBusy
         iconLayer.frame = iconFrame
+        layoutThemeBadge(iconFrame: iconFrame, visible: visibility.showsIcon)
         // A hibernated page's icon is dimmed until it is selected.
         iconLayer.opacity = showsIconArt ? (item.isDormant && !isSelected ? 0.55 : 1) : 0
         if let spinnerLayer {

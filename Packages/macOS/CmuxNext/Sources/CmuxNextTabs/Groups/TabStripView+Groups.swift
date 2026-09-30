@@ -36,12 +36,12 @@ extension TabStripView {
             let chip = TabGroupChipCell(group: item, memberCount: count)
             chip.metrics = metrics
             chip.font = Typography.caption
-            chip.appearance = effectiveAppearance
+            chip.themeScope = themeScope
             chip.scale = window?.backingScaleFactor ?? 2
             chip.accessibility.setAccessibilityParent(self)
             chip.accessibility.onPress = { [weak self] in self?.model.send(.toggleGroupCollapsed(group)) }
             let band = TabGroupBandCell(color: item.colorToken)
-            band.appearance = effectiveAppearance
+            band.themeScope = themeScope
             if let clip = tabsClip.layer {
                 band.addTo(clip)
                 clip.addSublayer(chip.layer)
@@ -143,7 +143,7 @@ extension TabStripView {
         guard let item = groups.byID[group], let chip = groups.chips[group], let window else { return }
         hoverCard.hide(allowsQuickReshow: false)
         let anchor = window.convertToScreen(tabsClip.convert(chip.frame, to: nil))
-        groupEditor.show(group: item, anchor: anchor, parent: window)
+        groupEditor.show(group: item, anchor: anchor, parent: window, themeAnchor: self)
     }
 
     /// Click-and-hold on a chip opens the editor (Chrome).

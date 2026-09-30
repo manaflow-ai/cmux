@@ -17,7 +17,7 @@ extension TabCell {
         spinner.strokeStart = 0
         spinner.strokeEnd = 0.72
         spinner.contentsScale = scale
-        appearance.performAsCurrentDrawingAppearance { spinner.strokeColor = Palette.textSecondary.cgColor }
+        themeScope.perform { spinner.strokeColor = Palette.textSecondary.cgColor }
         layer.insertSublayer(spinner, above: iconLayer)
         spinnerLayer = spinner
         return spinner
@@ -35,7 +35,7 @@ extension TabCell {
 
     func applyBadgeColor() {
         guard let badgeLayer else { return }
-        appearance.performAsCurrentDrawingAppearance { badgeLayer.backgroundColor = badgeColor?.cgColor }
+        themeScope.perform { badgeLayer.backgroundColor = badgeColor?.cgColor }
     }
 
     func makeCloseLayers() -> (background: CALayer, glyph: CAShapeLayer) {
@@ -59,7 +59,7 @@ extension TabCell {
 
     func applyCloseColors() {
         guard let closeBackgroundLayer, let closeGlyphLayer else { return }
-        appearance.performAsCurrentDrawingAppearance {
+        themeScope.perform {
             closeGlyphLayer.strokeColor = (isCloseHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
             closeBackgroundLayer.backgroundColor = isClosePressed
                 ? Palette.selectionFill.cgColor

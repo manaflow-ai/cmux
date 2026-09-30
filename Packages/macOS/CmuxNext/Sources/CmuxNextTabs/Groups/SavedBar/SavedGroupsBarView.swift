@@ -82,7 +82,8 @@ public final class SavedGroupsBarView: NSView {
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        for chip in chips.values { chip.appearance = effectiveAppearance }
+        let scope = themeScope
+        for chip in chips.values { chip.themeScope = scope }
     }
 
     public override func viewDidChangeBackingProperties() {
@@ -111,7 +112,7 @@ public final class SavedGroupsBarView: NSView {
     private func makeChip(_ item: TabGroupItem, count: Int) -> TabGroupChipCell {
         let chip = TabGroupChipCell(group: item, memberCount: count)
         chip.alwaysShowsCount = true
-        chip.appearance = effectiveAppearance
+        chip.themeScope = themeScope
         chip.accessibility.setAccessibilityParent(self)
         chip.accessibility.setAccessibilityRole(.button)
         let id = item.id

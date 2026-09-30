@@ -147,8 +147,9 @@ final class CEFPaneHost {
             windowTab = tab
             window = .creating(request: request)
             runtime.pendingWindows[request] = self
-            // The theme may have changed since CEF started.
-            shim.setBackgroundColor(PageBackground.themeARGB)
+            // The first frame takes this pane's theme scope (room,
+            // workspace), which may differ from the app theme.
+            shim.setBackgroundColor(PageBackground.themeARGB(in: hostView))
             let started = shim.createWindow(
                 request, Unmanaged.passUnretained(hostView).toOpaque(),
                 max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32,

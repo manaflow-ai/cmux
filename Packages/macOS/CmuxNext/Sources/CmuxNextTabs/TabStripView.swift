@@ -176,6 +176,7 @@ public final class TabStripView: NSView {
         super.init(frame: CGRect(x: 0, y: 0, width: 600, height: Self.preferredHeight))
         wantsLayer = true
         layerContentsRedrawPolicy = .never
+        hoverCard.themeAnchor = self
 
         switch background {
         case .none:
@@ -274,19 +275,19 @@ public final class TabStripView: NSView {
         applyFrames()
     }
 
-    /// Layers do not inherit the view's appearance or scale; push both.
+    /// Layers do not inherit theme scope or scale; push both (re-applies colors).
     func applyAppearance() {
-        let appearance = effectiveAppearance
+        let scope = themeScope
         let scale = window?.backingScaleFactor ?? 2
         for cell in cells.values {
-            cell.appearance = appearance
+            cell.themeScope = scope
             cell.scale = scale
         }
         for chip in groups.chips.values {
-            chip.appearance = appearance
+            chip.themeScope = scope
             chip.scale = scale
         }
-        for band in groups.bands.values { band.appearance = appearance }
+        for band in groups.bands.values { band.themeScope = scope }
     }
 
     func startObserving() {

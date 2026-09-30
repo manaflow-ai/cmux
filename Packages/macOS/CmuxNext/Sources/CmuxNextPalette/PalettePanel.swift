@@ -16,7 +16,8 @@ final class PalettePanel: ActiveAppKeyPanel {
             // so the window-server window is made then, not on open.
             defer: false
         )
-        ThemeStore.shared.adopt(self)
+        // Takes the scope of the window it opens over (`PaletteController.present`).
+        ThemeScope.app.adopt(self)
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false

@@ -71,18 +71,19 @@ enum OmnibarStyle {
 
     // Helium's geometry, the terminal theme's colors (`Palette`): the
     // toolbar is the same surface as the tab strip and terminal, the bar a
-    // faint lift of it, the popup a floating card.
-    static var toolbarBackground: NSColor { Palette.windowBackground }
-    static var barFill: NSColor { Palette.chromeBackground }
-    static var barHoverFill: NSColor { Palette.elevatedBackground }
+    // faint lift of it, the popup a floating card. Read them only inside
+    // `performWithTheme` (theme-scoped).
+    static var toolbarBackground: NSColor { Palette.windowBackground } // theme-scoped
+    static var barFill: NSColor { Palette.chromeBackground } // theme-scoped
+    static var barHoverFill: NSColor { Palette.elevatedBackground } // theme-scoped
     /// Editing fill and popup card.
-    static var cardFill: NSColor { Palette.elevatedBackground }
+    static var cardFill: NSColor { Palette.elevatedBackground } // theme-scoped
     /// Neutral ring while editing with the popup closed (Helium: blue).
-    static var ring: NSColor { Palette.focusRing }
-    static var rowSelectedFill: NSColor { Palette.selectionFill }
-    static var chipHoverFill: NSColor { Palette.hoverFill }
+    static var ring: NSColor { Palette.focusRing } // theme-scoped
+    static var rowSelectedFill: NSColor { Palette.selectionFill } // theme-scoped
+    static var chipHoverFill: NSColor { Palette.hoverFill } // theme-scoped
     /// Text selection inside the field (Helium: blue tint).
-    static var selection: NSColor { Palette.textSelection }
-    static var textPrimary: NSColor { Palette.textPrimary }
-    static var textSecondary: NSColor { Palette.textSecondary }
+    static var selection: NSColor { Palette.textSelection } // theme-scoped
+    static var textPrimary: NSColor { Palette.textPrimary } // theme-scoped
+    static var textSecondary: NSColor { Palette.textSecondary } // theme-scoped
 }

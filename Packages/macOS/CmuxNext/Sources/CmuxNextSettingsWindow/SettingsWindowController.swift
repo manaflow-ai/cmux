@@ -24,14 +24,22 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 640, height: 420)
-        window.backgroundColor = Palette.windowBackground
         window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
         window.setFrameAutosaveName("cmux.settings")
         window.model = model
-        ThemeStore.shared.adopt(window)
         super.init(window: window)
         window.delegate = self
-        window.contentView = NSHostingView(rootView: SettingsRootView(model: model))
+        window.contentView = SettingsContentView(rootView: SettingsRootView(model: model))
+        setThemeScope(SettingsTheme.shared.scope)
+    }
+
+    /// Draws the window in `scope`: the App passes the scope of the main
+    /// window Settings was opened from (its room theme). Default: the app
+    /// theme (the Ghostty config).
+    public func setThemeScope(_ scope: ThemeScope) {
+        SettingsTheme.shared.follow(scope)
+        guard let window else { return }
+        scope.adopt(window)
     }
 
     @available(*, unavailable)
@@ -44,13 +52,31 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
             model.selection = section
         }
         guard let window else { return }
-        ThemeStore.shared.adopt(window)
+        SettingsTheme.shared.scope.adopt(window)
         WindowPlacement.present(window)
     }
 
     public func windowWillClose(_ notification: Notification) {
         model.cancelRecording()
         onClose?()
+    }
+}
+
+/// The hosting view; it repaints the window background with the scope's
+/// colors on every theme change.
+final class SettingsContentView: NSHostingView<SettingsRootView> {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme { window?.backgroundColor = Palette.windowBackground }
     }
 }
 

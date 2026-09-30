@@ -28,6 +28,8 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// Explains the machine badge in the hover card and to VoiceOver (a
     /// remote-localhost browser tab: "localhost is build-box").
     public var machineBadgeHelp: String?
+    /// The terminal's own theme, when it has one: a subtle swatch dot.
+    public var themeBadge: TabThemeBadge?
 
     public init(
         id: TabID,

@@ -18,11 +18,7 @@ final class PageGoneView: NSView {
         wantsLayer = true
         setAccessibilityIdentifier(BrowserChromeView.Identifier.pageGone)
         symbol.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)
-        symbol.contentTintColor = Palette.textSecondary
-        titleLabel.textColor = Palette.textPrimary
-        messageLabel.textColor = Palette.textSecondary
         messageLabel.alignment = .center
-        codeLabel.textColor = Palette.textTertiary
         codeLabel.isSelectable = true
         let reload = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: self)
         reload.setAccessibilityIdentifier(BrowserChromeView.Identifier.pageGoneReload)
@@ -69,8 +65,12 @@ final class PageGoneView: NSView {
     }
 
     private func updateColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             layer?.backgroundColor = Palette.pageBackground.cgColor
+            symbol.contentTintColor = Palette.textSecondary
+            titleLabel.textColor = Palette.textPrimary
+            messageLabel.textColor = Palette.textSecondary
+            codeLabel.textColor = Palette.textTertiary
         }
     }
 

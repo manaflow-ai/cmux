@@ -260,12 +260,12 @@ final class SidebarResizeHandle: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        line.backgroundColor = resolvedCGColor(Palette.separator)
+        performWithTheme { line.backgroundColor = Palette.separator.cgColor }
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        line.backgroundColor = resolvedCGColor(Palette.separator)
+        performWithTheme { line.backgroundColor = Palette.separator.cgColor }
     }
 
     override func updateTrackingAreas() {

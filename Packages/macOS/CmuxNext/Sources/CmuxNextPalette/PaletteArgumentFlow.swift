@@ -11,6 +11,8 @@ struct PaletteArgumentFlow {
     let targets: (any PaletteTargetSource)?
     /// Captured when the palette opened (`PaletteSources.context`).
     var captured: [ActionTargetRef] = []
+    /// Previews the highlighted option of an enumeration page.
+    var preview: PaletteArgumentPreview?
 
     func effect(collected: ActionInvocation) -> PaletteEffect {
         let registry = registry
@@ -34,7 +36,17 @@ struct PaletteArgumentFlow {
             ], collected: collected))
         case .enumeration(let cases):
             let options = cases.map { PaletteTargetOption(id: $0.value, title: $0.title, symbol: descriptor.symbol) }
-            return .push(listPage(for: argument, options: options, collected: collected))
+            var page = listPage(for: argument, options: options, collected: collected)
+            if let preview {
+                let id = descriptor.id
+                let name = argument.name
+                let target = collected.target
+                page.onHighlight = { item in
+                    preview(id, name, item.flatMap(Self.optionValue), target)
+                }
+                page.onLeave = { preview(id, name, nil, target) }
+            }
+            return .push(page)
         case .target(let kind):
             guard let targets else { return .textInput(textSpec(for: argument, collected: collected)) }
             return .push(listPage(for: argument, options: targets.targets(of: kind), collected: collected))
@@ -102,6 +114,11 @@ struct PaletteArgumentFlow {
             providers: [StaticPaletteProvider(id: "argument", items: items)],
             showsRecent: true
         )
+    }
+
+    /// The option value behind a list row (`option:<value>`).
+    static func optionValue(_ item: PaletteItem) -> String? {
+        item.id.hasPrefix("option:") ? String(item.id.dropFirst("option:".count)) : nil
     }
 
     /// "Set Tab Group Color: Color" reads badly; use the action title for

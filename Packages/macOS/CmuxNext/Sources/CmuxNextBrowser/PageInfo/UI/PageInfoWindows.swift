@@ -49,21 +49,31 @@ final class PageInfoWindows {
     }
 
     private func present(_ window: NSWindow) {
-        ThemeStore.shared.adopt(window)
+        // The shell window's theme scope (its room).
+        let scope = parentWindow()?.themeScope ?? .app
+        scope.adopt(window)
+        if let window = window as? PageInfoWindow {
+            scope.addResponder(window)
+            window.themeDidChange()
+        }
         WindowPlacement.present(window, parent: parentWindow())
     }
 }
 
 /// Shared window chrome for the page info windows: titled, closable,
 /// theme background, not released on close.
-class PageInfoWindow: NSWindow {
+class PageInfoWindow: NSWindow, ThemeResponsive {
     init(title: String, size: CGSize) {
         super.init(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: true)
         self.title = title
         isReleasedWhenClosed = false
         minSize = NSSize(width: size.width * 0.8, height: size.height * 0.6)
-        backgroundColor = Palette.windowBackground
         animationBehavior = .utilityWindow
+    }
+
+    /// The background of the adopted theme scope, again on every change.
+    func themeDidChange() {
+        backgroundColor = themeScope.perform { Palette.windowBackground }
     }
 
     /// Escape closes, as in Chrome's dialogs.

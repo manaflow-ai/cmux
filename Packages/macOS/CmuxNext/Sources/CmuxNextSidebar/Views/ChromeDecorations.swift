@@ -36,11 +36,18 @@ final class SidebarDecorationView: NSView {
         updateColors()
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateColors()
+    }
+
     private func updateColors() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        pill.backgroundColor = resolvedCGColor(Palette.selectionFill)
-        gap.backgroundColor = resolvedCGColor(Palette.hoverFill)
+        performWithTheme {
+            pill.backgroundColor = Palette.selectionFill.cgColor
+            gap.backgroundColor = Palette.hoverFill.cgColor
+        }
         pill.cornerRadius = SidebarStyle.rowCornerRadius
         gap.cornerRadius = SidebarStyle.rowCornerRadius
         CATransaction.commit()

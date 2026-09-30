@@ -53,20 +53,23 @@ final class ProfileBarView: NSView {
     // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
-        let rects = slotRects()
-        for (offset, profile) in model.profiles.enumerated() {
-            var rect = rects[offset]
-            if let drag, drag.index == offset { rect.origin.x = drag.x - rect.width / 2 }
-            let active = profile.id == model.activeProfileID
-            if hovered == offset || active {
-                (active ? Palette.selectionFill : Palette.hoverFill).setFill()
-                NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: Metrics.itemCornerRadius, yRadius: Metrics.itemCornerRadius).fill()
+        performWithTheme {
+            let rects = slotRects()
+            for (offset, profile) in model.profiles.enumerated() {
+                var rect = rects[offset]
+                if let drag, drag.index == offset { rect.origin.x = drag.x - rect.width / 2 }
+                let active = profile.id == model.activeProfileID
+                if hovered == offset || active {
+                    (active ? Palette.selectionFill : Palette.hoverFill).setFill()
+                    NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: Metrics.itemCornerRadius, yRadius: Metrics.itemCornerRadius).fill()
+                }
+                draw(profile, in: rect, active: active)
             }
-            draw(profile, in: rect, active: active)
+            drawPlus(in: rects[model.profiles.count])
         }
-        drawPlus(in: rects[model.profiles.count])
     }
 
+    // theme-scoped: called only from draw(_:) inside performWithTheme
     private func tint(for profile: SidebarProfile, active: Bool) -> NSColor {
         if let color = profile.color { return active ? color.swatch : color.swatch.withAlphaComponent(0.7) }
         return active ? Palette.textPrimary : Palette.textTertiary
@@ -95,6 +98,7 @@ final class ProfileBarView: NSView {
         NSBezierPath(ovalIn: NSRect(x: rect.midX - diameter / 2, y: rect.midY - diameter / 2, width: diameter, height: diameter)).fill()
     }
 
+    // theme-scoped: called only from draw(_:) inside performWithTheme
     private func drawPlus(in rect: NSRect) {
         if hovered == Self.plusIndex {
             Palette.hoverFill.setFill()

@@ -32,8 +32,11 @@ extension TabStripView {
         field.font = Typography.body
         field.isBordered = false
         field.drawsBackground = true
-        field.backgroundColor = Palette.windowBackground
-        field.textColor = Palette.textPrimary
+        // A short-lived editor: colored once, in the strip's theme scope.
+        performWithTheme {
+            field.backgroundColor = Palette.windowBackground
+            field.textColor = Palette.textPrimary
+        }
         field.focusRingType = .none
         field.lineBreakMode = .byClipping
         field.cell?.isScrollable = true

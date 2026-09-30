@@ -98,6 +98,7 @@ extension PaletteController {
         if shortcutRecorder.editor != nil { provider.editShortcut = { [weak self] in self?.shortcutRecorder.begin($0) } }
         provider.targets = sources.targets
         provider.capturedTargets = capturedTargets
+        provider.argumentPreview = sources.argumentPreview
         provider.effectOverrides["palette.searchShortcuts"] = { [weak self] in
             self.map { .push($0.keyboardShortcutsPage()) }
         }

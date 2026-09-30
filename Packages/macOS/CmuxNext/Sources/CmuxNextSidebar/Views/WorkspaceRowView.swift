@@ -4,8 +4,8 @@ import QuartzCore
 
 final class WorkspaceRowView: SidebarRowView {
     private let icon = SidebarIconView()
-    private let title = SidebarRowView.label(font: SidebarStyle.titleFont, color: Palette.textPrimary)
-    private let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont, color: Palette.textSecondary)
+    private let title = SidebarRowView.label(font: SidebarStyle.titleFont)
+    private let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private let activity = ActivityIndicatorView()
     private let badge = UnreadBadgeView()
     let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .bold, label: Strings.closeButton)
@@ -101,15 +101,19 @@ final class WorkspaceRowView: SidebarRowView {
 
     override func updateLayer() {
         guard let layer else { return }
-        // Fills only, no borders: drop target, multi-selection, hover.
-        if isDropTarget {
-            layer.backgroundColor = resolvedCGColor(Palette.selectionFill)
-        } else if isSecondarySelected {
-            layer.backgroundColor = resolvedCGColor(Palette.secondarySelectionFill)
-        } else if isHovered {
-            layer.backgroundColor = resolvedCGColor(Palette.hoverFill)
-        } else {
-            layer.backgroundColor = nil
+        performWithTheme {
+            title.textColor = Palette.textPrimary
+            subtitle.textColor = Palette.textSecondary
+            // Fills only, no borders: drop target, multi-selection, hover.
+            if isDropTarget {
+                layer.backgroundColor = Palette.selectionFill.cgColor
+            } else if isSecondarySelected {
+                layer.backgroundColor = Palette.secondarySelectionFill.cgColor
+            } else if isHovered {
+                layer.backgroundColor = Palette.hoverFill.cgColor
+            } else {
+                layer.backgroundColor = nil
+            }
         }
     }
 

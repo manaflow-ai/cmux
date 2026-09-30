@@ -14,6 +14,13 @@ final class PageState {
     /// Rows last shown on this page, restored instantly when the page comes
     /// back into view (popping) while a fresh search runs.
     var lastSections: [PaletteResultSection]?
+    /// Item last reported to the page's `onHighlight`.
+    /// False until the page reported its first highlight: the row selected
+    /// when the page opens is not a choice yet, so it previews nothing.
+    var hasInitialHighlight = false
+    var highlightedItemID: String?
+    /// A closing command of this page ran: leaving it is not a cancel.
+    var committed = false
 
     /// Merged provider items, their section table, and the Sendable search
     /// entries handed to the searcher. `version` bumps on every rebuild so

@@ -4,22 +4,22 @@ import QuartzCore
 
 final class SectionHeaderRowView: SidebarRowView {
     private let glyph = NSImageView()
-    private let name = SidebarRowView.label(font: SidebarStyle.headerFont, color: Palette.textTertiary)
+    private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let status = CALayer()
     /// "Update needed" after the status dot, for a machine whose cmux-tui
     /// is too old (the tooltip says why).
-    private let badge = SidebarRowView.label(font: SidebarStyle.headerFont, color: Palette.textTertiary)
+    private let badge = SidebarRowView.label(font: SidebarStyle.headerFont)
     private var badgeText: String?
     private let chevron = NSImageView()
     let addButton = SidebarIconButton(symbol: "plus", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .semibold, label: Strings.newWorkspace)
-    private var statusColor: NSColor?
+    /// The machine status dot's color, resolved in `updateLayer`.
+    private enum StatusTone { case success, attention, quiet, danger }
+    private var statusTone: StatusTone?
     private var collapsed = false
     var onAdd: (() -> Void)?
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        glyph.contentTintColor = Palette.textSecondary
-        chevron.contentTintColor = Palette.textTertiary
         layer?.addSublayer(status)
         [glyph, name, badge, chevron, addButton].forEach(addSubview)
         addButton.onPress = { [weak self] in self?.onAdd?() }
@@ -49,7 +49,7 @@ final class SectionHeaderRowView: SidebarRowView {
         case .pinned:
             symbol = "pin.fill"
             title = Strings.pinned
-            statusColor = nil
+            statusTone = nil
             badgeText = nil
             toolTip = nil
         case let .machine(machine):
@@ -60,11 +60,11 @@ final class SectionHeaderRowView: SidebarRowView {
             }
             title = machine.name
             switch (machine.kind, machine.status) {
-            case (.local, .connected): statusColor = nil
-            case (_, .connected), (_, .updateAvailable): statusColor = Palette.success
-            case (_, .connecting), (_, .installing), (_, .installRequired): statusColor = Palette.attention
-            case (_, .offline): statusColor = Palette.textTertiary
-            case (_, .updateRequired), (_, .authFailed), (_, .unreachable): statusColor = Palette.danger
+            case (.local, .connected): statusTone = nil
+            case (_, .connected), (_, .updateAvailable): statusTone = .success
+            case (_, .connecting), (_, .installing), (_, .installRequired): statusTone = .attention
+            case (_, .offline): statusTone = .quiet
+            case (_, .updateRequired), (_, .authFailed), (_, .unreachable): statusTone = .danger
             }
             var label = machine.name
             switch machine.status {
@@ -113,10 +113,26 @@ final class SectionHeaderRowView: SidebarRowView {
     override func updateLayer() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        status.backgroundColor = statusColor.map(resolvedCGColor)
-        status.isHidden = statusColor == nil
+        performWithTheme {
+            name.textColor = Palette.textTertiary
+            badge.textColor = Palette.textTertiary
+            glyph.contentTintColor = Palette.textSecondary
+            chevron.contentTintColor = Palette.textTertiary
+            status.backgroundColor = statusTone.map(Self.color)?.cgColor
+        }
+        status.isHidden = statusTone == nil
         CATransaction.commit()
         layer?.backgroundColor = nil
+    }
+
+    // theme-scoped: called only inside performWithTheme
+    private static func color(_ tone: StatusTone) -> NSColor {
+        switch tone {
+        case .success: Palette.success
+        case .attention: Palette.attention
+        case .quiet: Palette.textTertiary
+        case .danger: Palette.danger
+        }
     }
 
     override func layout() {

@@ -27,11 +27,10 @@ final class TabHoverCardPanel: NSPanel {
     static let maxGroupLines = 8
 
     init() {
-        let content = NSView()
+        let content = ThemeHookView()
         glass = Glass.makePanel(content: content, cornerRadius: Metrics.panelCornerRadius)
         glass.translatesAutoresizingMaskIntoConstraints = true
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        ThemeStore.shared.adopt(self)
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
@@ -42,14 +41,13 @@ final class TabHoverCardPanel: NSPanel {
         animationBehavior = .none
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
         contentView = glass
+        content.onThemeChange = { [weak self] in self?.applyColors() }
 
         titleLabel.font = Typography.bodyEmphasized
-        titleLabel.textColor = Palette.textPrimary
         titleLabel.maximumNumberOfLines = 2
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding
         subtitleLabel.font = Typography.caption
-        subtitleLabel.textColor = Palette.textSecondary
         subtitleLabel.lineBreakMode = .byTruncatingMiddle
         subtitleLabel.maximumNumberOfLines = 1
         subtitleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding
@@ -86,6 +84,17 @@ final class TabHoverCardPanel: NSPanel {
         NSLayoutConstraint.activate([top, height])
         thumbnailTop = top
         thumbnailHeight = height
+    }
+
+    /// Label colors in the scope of the strip the card belongs to; runs on
+    /// adopt and on every theme change of that scope.
+    private func applyColors() {
+        glass.performWithTheme {
+            glass.tintColor = Palette.glassTint
+            titleLabel.textColor = Palette.textPrimary
+            subtitleLabel.textColor = Palette.textSecondary
+            thumbnail.layer?.backgroundColor = Palette.hoverFill.cgColor
+        }
     }
 
     override var canBecomeKey: Bool { false }
@@ -139,13 +148,17 @@ final class TabHoverCardPanel: NSPanel {
 
     func setThumbnail(_ image: CGImage?) {
         guard let layer = thumbnail.layer else { return }
-        glass.effectiveAppearance.performAsCurrentDrawingAppearance {
+        glass.performWithTheme {
             layer.backgroundColor = Palette.hoverFill.cgColor
         }
         Motion.transaction(.crossfade) { layer.contents = image }
     }
 
-    func present(below anchor: CGRect, parent: NSWindow, sliding: Bool) {
+    /// `themeAnchor` is the view the card describes (the tab strip); the
+    /// card draws in its theme scope (room or workspace theme).
+    func present(below anchor: CGRect, parent: NSWindow, themeAnchor: NSView?, sliding: Bool) {
+        if let themeAnchor { adoptThemeScope(of: themeAnchor) } else { parent.themeScope.adopt(self) }
+        applyColors()
         if parentWindowRef !== parent {
             parentWindowRef?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)

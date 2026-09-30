@@ -13,7 +13,6 @@ final class DropHighlightView: NSView {
         glass = Glass.makePanel(content: content, style: .clear, cornerRadius: Metrics.panelCornerRadius)
         super.init(frame: frameRect)
         label.font = Typography.bodyEmphasized
-        label.textColor = Palette.textPrimary
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(label)
@@ -38,6 +37,23 @@ final class DropHighlightView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            label.textColor = Palette.textPrimary
+            glass.tintColor = Palette.glassTint
+        }
+    }
 
     /// Moves the highlight to `rect` (superview coordinates). Returns true if
     /// an animation frame is needed. Design tokens are re-read on every call

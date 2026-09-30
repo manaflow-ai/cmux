@@ -8,8 +8,8 @@ struct SettingsRootView: View {
     @Bindable var model: SettingsWindowModel
 
     var body: some View {
-        // Reading the theme generation re-renders on a Ghostty theme change.
-        let _ = ThemeStore.shared.generation
+        // Reading the tokens re-renders on a theme change of the window's scope.
+        let _ = SettingsTheme.shared.tokens
         HStack(spacing: 0) {
             SettingsSidebar(model: model)
                 .frame(width: Metrics.sidebarWidth - Metrics.space6 * 2)

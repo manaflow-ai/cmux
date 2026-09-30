@@ -42,7 +42,7 @@ final class OverlayBackingView: NSView {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             layer?.backgroundColor = Palette.elevatedBackground.withAlphaComponent(0.64).cgColor
         }
     }

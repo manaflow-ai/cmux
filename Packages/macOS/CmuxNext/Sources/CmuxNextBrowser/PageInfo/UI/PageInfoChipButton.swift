@@ -50,14 +50,19 @@ final class PageInfoChipButton: NSView {
         }
     }
 
-    private var tint: NSColor { indicator.tone == .danger ? PageInfoStyle.danger : OmnibarStyle.textPrimary }
+    private func applyTint() {
+        performWithTheme {
+            let tint = indicator.tone == .danger ? PageInfoStyle.danger : OmnibarStyle.textPrimary
+            icon.contentTintColor = tint
+            text.textColor = tint
+        }
+    }
 
     private func apply() {
         icon.image = NSImage(systemSymbolName: indicator.symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: OmnibarStyle.iconPointSize, weight: .regular))
-        icon.contentTintColor = tint
+        applyTint()
         text.font = OmnibarStyle.font
-        text.textColor = tint
         text.stringValue = labelText ?? ""
         text.isHidden = labelText == nil
         toolTip = indicator.isTriggerable ? PageInfoStrings.viewSiteInformation : nil
@@ -147,9 +152,9 @@ final class PageInfoChipButton: NSView {
     private var showsFocus = false { didSet { refreshFill() } }
 
     private func refreshFill() {
-        let fill: NSColor = isPressed ? PageInfoStyle.pressed : (isHovering ? OmnibarStyle.chipHoverFill : .clear)
         layer?.borderWidth = showsFocus ? 1.5 : 0
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
+            let fill: NSColor = isPressed ? PageInfoStyle.pressed : (isHovering ? OmnibarStyle.chipHoverFill : .clear)
             layer?.backgroundColor = fill.cgColor
             layer?.borderColor = PageInfoStyle.focusRing.cgColor
         }
@@ -158,5 +163,6 @@ final class PageInfoChipButton: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refreshFill()
+        applyTint()
     }
 }
