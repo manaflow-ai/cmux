@@ -69,6 +69,7 @@ void ghostty_surface_free_text(void);
 float ghostty_surface_font_size(void *surface);
 bool ghostty_surface_font_size_adjusted(void *surface);
 uint64_t ghostty_surface_foreground_pid(void *surface);
+bool ghostty_surface_grid_metrics(void *surface, void *metrics);
 void ghostty_surface_has_selection(void);
 void ghostty_surface_key(void);
 void ghostty_surface_mouse_button(void);

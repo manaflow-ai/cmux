@@ -4955,6 +4955,124 @@
           }
         }
       }
+    },
+    "cli.sshPtyAttach.launchAcknowledgementTimeoutLimitReached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH pane could not contact cmux to start the remote session after %s attempts; reconnect to try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Das SSH-Fenster konnte cmux nach %s Versuchen nicht erreichen, um die Remotesitzung zu starten; verbinden Sie sich erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Le panneau SSH n’a pas pu joindre cmux pour démarrer la session distante après %s tentatives ; reconnectez-vous pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] تعذر على لوحة SSH الاتصال بـ cmux لبدء الجلسة البعيدة بعد %s محاولات؛ أعد الاتصال للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] El panel SSH no pudo contactar con cmux para iniciar la sesión remota después de %s intentos; vuelve a conectarte para intentarlo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH 窗格嘗試 %s 次後仍無法聯絡 cmux 以啟動遠端工作階段；請重新連線再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH 窗格尝试 %s 次后仍无法联系 cmux 以启动远程会话；请重新连接再试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH 패널이 %s번 시도 후에도 원격 세션을 시작하기 위해 cmux에 연결하지 못했습니다. 다시 연결해 보세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH ペインは %s 回試行しても cmux に接続してリモートセッションを開始できませんでした。再接続してください。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.retryReason.launchAcknowledgementTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux did not acknowledge the SSH launch"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat den SSH-Start nicht bestätigt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas confirmé le démarrage SSH"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يؤكد cmux بدء SSH"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no confirmó el inicio de SSH"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未確認 SSH 啟動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未确认 SSH 启动"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 SSH 시작을 확인하지 않음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が SSH の起動を確認できませんでした"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

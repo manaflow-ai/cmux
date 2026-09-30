@@ -17,6 +17,15 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: CmuxAccentColorMode.userDefaultsKey
     )
 
+    /// `#RRGGBB` color drawn when ``accentColor`` is
+    /// ``CmuxAccentColorMode/custom``. cmux.json sets it through a hex
+    /// `app.accentColor` value.
+    public let accentColorCustomHex = DefaultsKey<String>(
+        id: "app.accentColorCustomHex",
+        defaultValue: "",
+        userDefaultsKey: CmuxAccentColorMode.customHexUserDefaultsKey
+    )
+
     public let language = DefaultsKey<AppLanguage>(
         id: "app.language",
         defaultValue: .system,
@@ -159,6 +168,15 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sendAnonymousTelemetry"
     )
 
+    /// Whether updates download in the background and install at a quiet moment. The updater
+    /// registers the default per release channel (on for nightly), so this fallback applies
+    /// only where the updater never ran.
+    public let installUpdatesAutomatically = DefaultsKey<Bool>(
+        id: "app.installUpdatesAutomatically",
+        defaultValue: false,
+        userDefaultsKey: "updateInstallAutomatically"
+    )
+
     public let confirmQuitMode = DefaultsKey<ConfirmQuitMode>(
         id: "app.confirmQuit",
         defaultValue: .always,
@@ -263,6 +281,15 @@ public struct AppCatalogSection: SettingCatalogSection {
                 )
             ))
         )
+    )
+
+    /// Pane tab bar visibility. Maps to bonsplit's `TabBarVisibility` at
+    /// the split-controller boundary; `.multipleTabs` hides the bar until a
+    /// pane has two or more tabs.
+    public let tabBarVisibility = DefaultsKey<PaneTabBarVisibility>(
+        id: "app.tabBarVisibility",
+        defaultValue: .always,
+        userDefaultsKey: "paneTabBarVisibility"
     )
 
     public let renameSelectsExistingName = DefaultsKey<Bool>(

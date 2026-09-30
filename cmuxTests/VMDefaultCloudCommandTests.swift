@@ -185,7 +185,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertEqual(params["remote_workspace_id"] as? String, "ws_cloud")
                 XCTAssertEqual(params["remote_tab_id"] as? String, "tab_cloud")
                 XCTAssertEqual(params["reuse"] as? Bool, false)
-                XCTAssertEqual(params["focus"] as? Bool, true)
+                // No terminal on the CLI's stdio (a script): the machine opens in the background.
+                XCTAssertEqual(params["focus"] as? Bool, false)
                 return self.v2Response(
                     id: id,
                     ok: true,

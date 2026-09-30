@@ -185,12 +185,6 @@ public struct WorkspaceActivityReorderGate: Sendable {
             .min()
     }
 
-    /// Drops all state for a workspace, for example after it closes.
-    public mutating func forget(workspaceId: UUID) {
-        lastMoveAt.removeValue(forKey: workspaceId)
-        pendingSince.removeValue(forKey: workspaceId)
-    }
-
     private func isCoolingDown(_ workspaceId: UUID, now: Date) -> Bool {
         guard let last = lastMoveAt[workspaceId] else { return false }
         return now < last.addingTimeInterval(cooldown)
