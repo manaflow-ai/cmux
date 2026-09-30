@@ -2086,7 +2086,12 @@
           "compactAgentStatus": "Mostrar cada workspace em uma única linha: um ícone colorido antes do título indica o estado do agente, dos não lidos e da pull request e substitui as linhas de status dos agentes (por exemplo, Em execução ou Precisa de entrada), a linha de branch e diretório e as linhas de pull request, cujos detalhes passam para a dica do ícone. As outras entradas de status mantêm suas linhas.",
           "compactStatusIcons": "Nomes de SF Symbols que substituem o glifo de compactAgentStatus para cada estado, por exemplo {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Estados não definidos mantêm o símbolo integrado, e um nome que não pode ser exibido volta para ele.",
           "notificationMessageLineLimit": "Número máximo de linhas exibidas para a notificação mais recente abaixo do título de cada espaço de trabalho.",
-          "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica."
+          "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica.",
+          "beta": {
+            "conversations": {
+              "enabled": "Mostrar a visualização unificada de conversas no seletor da barra lateral."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Configurações do explorador de arquivos (árvore de arquivos) na barra lateral direita.",
@@ -2292,7 +2297,8 @@
         "wn-reload": "Recarregar configuração",
         "wn-quit": "Sair"
       },
-      "metaTitle": "Atalhos de teclado"
+      "metaTitle": "Atalhos de teclado",
+      "fileEditorWordWrap": "Alternar quebra de linha no editor de arquivos (Option+Z)."
     },
     "api": {
       "title": "Referência da CLI",
@@ -2731,7 +2737,8 @@
       "maxLinesSetting": "TextBox Max Lines limita a altura do TextBox antes que o conteúdo comece a rolar.",
       "configTitle": "cmux.json",
       "configDesc": "Defina os mesmos padrões em ~/.config/cmux/cmux.json dentro de terminal:",
-      "focusNote": "Sessões restauradas mantêm a visibilidade e o estado de foco do TextBox salvos. Esses padrões se aplicam apenas a superfícies de terminal recém-criadas."
+      "focusNote": "Sessões restauradas mantêm a visibilidade e o estado de foco do TextBox salvos. Esses padrões se aplicam apenas a superfícies de terminal recém-criadas.",
+      "betaCallout": "TextBox é um recurso beta. Seus padrões e comportamento podem mudar durante os testes."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multiagente no cmux",

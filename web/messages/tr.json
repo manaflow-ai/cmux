@@ -2086,7 +2086,12 @@
           "compactAgentStatus": "Her çalışma alanını tek satırda göster: başlığın önündeki tek bir renkli simge ajan, okunmamış ve pull request durumunu gösterir; ajan durum satırlarının (örneğin Çalışıyor veya Girdi gerekiyor), dal ve dizin satırının ve pull request satırlarının yerini alır, ayrıntılar simgenin ipucuna taşınır. Diğer durum girdileri kendi satırlarını korur.",
           "compactStatusIcons": "Her durum için compactAgentStatus glifinin yerine geçen SF Symbol adları, örneğin {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Ayarlanmamış durumlar yerleşik sembolü korur ve görüntülenemeyen bir ad da ona geri döner.",
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
-          "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
+          "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır.",
+          "beta": {
+            "conversations": {
+              "enabled": "Kenar çubuğu seçicisinde birleştirilmiş konuşma görünümünü göster."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Sağ kenar çubuğundaki dosya gezgini (dosya ağacı) ayarları.",
@@ -2292,7 +2297,8 @@
         "wn-reload": "Yapılandırmayı yeniden yükle",
         "wn-quit": "Çık"
       },
-      "metaTitle": "Klavye kısayolları"
+      "metaTitle": "Klavye kısayolları",
+      "fileEditorWordWrap": "Dosya düzenleyicisinde sözcük kaydırmayı değiştir (Option+Z)."
     },
     "api": {
       "title": "CLI Referansı",
@@ -2730,7 +2736,8 @@
       "maxLinesSetting": "TextBox Max Lines, içerik kaymaya başlamadan önce TextBox yüksekliğini sınırlar.",
       "configTitle": "cmux.json",
       "configDesc": "Aynı varsayılanları ~/.config/cmux/cmux.json içinde terminal altında ayarlayın:",
-      "focusNote": "Geri yüklenen oturumlar kayıtlı TextBox görünürlüğünü ve odak durumunu korur. Bu varsayılanlar yalnızca yeni oluşturulan terminal yüzeylerine uygulanır."
+      "focusNote": "Geri yüklenen oturumlar kayıtlı TextBox görünürlüğünü ve odak durumunu korur. Bu varsayılanlar yalnızca yeni oluşturulan terminal yüzeylerine uygulanır.",
+      "betaCallout": "TextBox bir beta özelliğidir. Varsayılanlar ve davranış test süresince değişebilir."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: cmux içinde OpenCode çoklu ajan",

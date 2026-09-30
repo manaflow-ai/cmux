@@ -23,7 +23,7 @@ def test_watcher_is_requested_ci_workflow_run() -> None:
     assert document["env"]["SOURCE_WORKFLOW_PATHS"] == ".github/workflows/ci.yml"
     assert document["permissions"] == {}
     watcher_env = document["jobs"]["guard"]["steps"][-1]["env"]
-    for key in ("SOURCE_EVENT_NAME", "SOURCE_REPOSITORY", "SOURCE_REF_NAME", "SOURCE_SHA", "SOURCE_RUN_ID"):
+    for key in ("SOURCE_EVENT_NAME", "SOURCE_REPOSITORY", "SOURCE_REF_NAME", "SOURCE_SHA", "SOURCE_RUN_ID", "SOURCE_COVERAGE_FINGERPRINT"):
         assert key in watcher_env
     assert "GITHUB_EVENT_NAME" not in watcher_env
 
@@ -33,6 +33,8 @@ def test_full_suite_coverage_marker_is_only_for_full_suite() -> None:
     marker = document["jobs"]["full-suite-coverage"]
     assert marker["needs"] == "changes"
     assert "needs.changes.outputs.full_suite == 'true'" in marker["if"]
+    assert marker.get("name", "full-suite-coverage") == "full-suite-coverage"
+    assert "coverage_fingerprint" in document["jobs"]["changes"]["outputs"]
 
 
 def test_only_manual_dispatches_get_a_writer() -> None:

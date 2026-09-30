@@ -2086,7 +2086,12 @@
           "compactAgentStatus": "Mostra ogni workspace su una sola riga: un’icona colorata prima del titolo indica lo stato dell’agente, dei non letti e della pull request e sostituisce le righe di stato degli agenti (per esempio In esecuzione o Input richiesto), la riga di branch e directory e le righe delle pull request, i cui dettagli passano nel tooltip dell’icona. Le altre voci di stato mantengono le proprie righe.",
           "compactStatusIcons": "Nomi di SF Symbol che sostituiscono il glifo di compactAgentStatus per ogni stato, per esempio {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Gli stati non impostati mantengono il simbolo integrato, e un nome che non viene visualizzato torna a quello.",
           "notificationMessageLineLimit": "Numero massimo di righe mostrate per la notifica più recente sotto il titolo di ogni area di lavoro.",
-          "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
+          "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato.",
+          "beta": {
+            "conversations": {
+              "enabled": "Mostra la vista unificata delle conversazioni nel selettore della barra laterale."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Impostazioni dell’esplora file (albero dei file) nella barra laterale destra.",
@@ -2292,7 +2297,8 @@
         "wn-reload": "Ricarica configurazione",
         "wn-quit": "Esci"
       },
-      "metaTitle": "Scorciatoie da tastiera"
+      "metaTitle": "Scorciatoie da tastiera",
+      "fileEditorWordWrap": "Attiva o disattiva il ritorno a capo nell’editor di file (Option+Z)."
     },
     "api": {
       "title": "Riferimento CLI",
@@ -2731,7 +2737,8 @@
       "maxLinesSetting": "TextBox Max Lines limita l'altezza di TextBox prima che il contenuto inizi a scorrere.",
       "configTitle": "cmux.json",
       "configDesc": "Imposta gli stessi valori predefiniti in ~/.config/cmux/cmux.json sotto terminal:",
-      "focusNote": "Le sessioni ripristinate mantengono la visibilità e lo stato del focus di TextBox salvati. Questi valori si applicano solo alle nuove superfici terminale."
+      "focusNote": "Le sessioni ripristinate mantengono la visibilità e lo stato del focus di TextBox salvati. Questi valori si applicano solo alle nuove superfici terminale.",
+      "betaCallout": "TextBox è una funzionalità beta. Valori predefiniti e comportamento possono cambiare durante i test."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multi-agente in cmux",
