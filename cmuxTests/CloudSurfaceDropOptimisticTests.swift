@@ -316,13 +316,13 @@ private final class DropFixture {
     /// time limit when it never arrives.
     func signal(_ value: CloudLinkFirstValue<Bool>) async -> Bool {
         let outcome = CloudLinkFirstValue<Bool>()
-        let waiter = Task { outcome.resolve(await value.result) }
+        let waiter = Task { outcome.resolve(await value.result ?? false) }
         let deadline = Task {
             try? await Task.sleep(for: .seconds(5))
             outcome.resolve(false)
         }
         defer { waiter.cancel(); deadline.cancel() }
-        return await outcome.result
+        return await outcome.result == true
     }
 
     /// Bounded so a missing transition fails here, not at the suite's time limit.
