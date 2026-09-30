@@ -1,7 +1,27 @@
 import { describe, expect, test } from "bun:test";
+import { preconnectFreestyle } from "../services/vms/drivers/freestyle";
 import { freestyleRequestFetch, type FreestyleRequestTiming } from "../services/vms/drivers/freestyleRequestTiming";
 
 describe("Freestyle enrollment request timings", () => {
+  test("coalesces concurrent cold connection warm-ups", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let calls = 0;
+    const fetch = (async () => {
+      calls += 1;
+      await gate;
+      return new Response(null, { status: 204 });
+    }) as typeof globalThis.fetch;
+
+    const first = preconnectFreestyle({ baseUrl: "https://provider.example.test", fetch });
+    const second = preconnectFreestyle({ baseUrl: "https://provider.example.test", fetch });
+    expect(second).toBe(first);
+    expect(calls).toBe(1);
+
+    release();
+    await Promise.all([first, second]);
+  });
+
   test.each(["workflow", "init", "request"])("forwards %s cancellation alongside the provider timeout", async (source) => {
     const controller = new AbortController();
     const reason = new DOMException("synthetic cancellation", "AbortError");
