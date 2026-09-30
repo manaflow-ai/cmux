@@ -105,6 +105,8 @@ extension DaemonStore {
         let failure = await pump.value
         drain()
         if let failure { markFailed(failure) }
+        resyncRetry?.cancel()
+        resyncRetry = nil
         self.driver = nil
     }
 
@@ -120,23 +122,48 @@ extension DaemonStore {
     }
 
     /// Fetches and applies a snapshot, then flushes events held meanwhile.
+    ///
+    /// A failed snapshot (the daemon busy past the deadline, a transient
+    /// error) is retried with a bounded backoff until one applies or the
+    /// driver ends. Without the retry the tree stayed stale until some later
+    /// event needed another resync, which may never come.
     func resync(seedAgents: Bool = false) {
         guard let driver, !isResyncing else { return }
         isResyncing = true
+        resyncRetry?.cancel()
+        resyncRetry = nil
         driver.inbox.hold()
         // task-owner: at most one resync at a time (isResyncing); its snapshot request has a deadline
         Task { @MainActor in
+            var failed = false
             do {
                 let (tree, barrier) = try await driver.connection.snapshot()
                 apply(snapshot: tree)
                 snapshotBarrier = max(snapshotBarrier, barrier)
                 advanceAppliedSequence(to: barrier)
+                resyncFailures = 0
                 if seedAgents { apply(agents: try await driver.connection.agents()) }
             } catch {
                 logger.error("resync failed: \(String(describing: error), privacy: .public)")
+                failed = true
             }
             isResyncing = false
+            if failed { scheduleResyncRetry(seedAgents: seedAgents) }
             drain()
+        }
+    }
+
+    private func scheduleResyncRetry(seedAgents: Bool) {
+        // While disconnected the reconnect's `connected` event resyncs anyway.
+        guard driver != nil, case .connected = connectionState else { return }
+        resyncFailures += 1
+        let attempt = resyncFailures
+        let delay = resyncRetryDelay
+        resyncRetry = Task { @MainActor [weak self] in
+            await delay(attempt)
+            guard !Task.isCancelled, let self, self.driver != nil else { return }
+            self.resyncRetry = nil
+            self.resync(seedAgents: seedAgents)
         }
     }
 }

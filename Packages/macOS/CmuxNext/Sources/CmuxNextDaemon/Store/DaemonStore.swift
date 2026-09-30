@@ -60,6 +60,15 @@ public final class DaemonStore {
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
     @ObservationIgnored var isResyncing = false
+    /// Consecutive failed snapshots; reset by the next applied one.
+    @ObservationIgnored var resyncFailures = 0
+    /// The pending retry of a failed snapshot (cancelled when the driver ends).
+    @ObservationIgnored var resyncRetry: Task<Void, Never>?
+    /// Backoff before retrying the `attempt`-th failed snapshot. A bounded,
+    /// cancellable delay (architecture.md 5a); tests inject a yield.
+    @ObservationIgnored public var resyncRetryDelay: @Sendable (_ attempt: Int) async -> Void = { attempt in
+        try? await Task.sleep(for: .milliseconds(min(2_000, 100 << min(attempt, 5))))
+    }
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.store")
 
     public init() {}
