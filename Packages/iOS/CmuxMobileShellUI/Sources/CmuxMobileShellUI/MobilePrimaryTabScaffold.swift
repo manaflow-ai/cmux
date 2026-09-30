@@ -132,38 +132,30 @@ struct MobilePrimaryTabScaffold<
                 .background(Color.clear)
                 .accessibilityIdentifier("MobilePrimaryTabs")
                 .animation(nil, value: selection)
-                // Each tab owns a NavigationStack. SwiftUI's tab transition
-                // otherwise crossfades the stacks before the incoming stack's
-                // toolbar items are installed, leaving a blank frame at the
-                // top of the screen.
                 .transaction { transaction in
                     transaction.disablesAnimations = true
                 }
                 .overlay(alignment: .top) {
-                    // Keep every navigation stack mounted outside the system
-                    // tab content transition so tab-local state, scroll positions,
-                    // and pushed paths survive a switch. Only the selected stack
-                    // is visible and interactive. Its bottom inset leaves the
-                    // native tab bar on top.
+                    // Keep the selected navigation stack outside the system
+                    // tab content transition. iOS 26 crossfades a tab's
+                    // hosted NavigationStack before its toolbar items have
+                    // been laid out, which produces a blank top frame. Mounting
+                    // only the selected stack keeps feed refresh and navigation
+                    // lifecycle work scoped to the visible tab. Its bottom
+                    // inset leaves the native tab bar on top.
                     GeometryReader { geometry in
-                        ZStack {
-                            workspaces
-                                .opacity(selection == .workspaces ? 1 : 0)
-                                .allowsHitTesting(selection == .workspaces)
-                                .accessibilityHidden(selection != .workspaces)
-                            feed
-                                .opacity(selection == .feed ? 1 : 0)
-                                .allowsHitTesting(selection == .feed)
-                                .accessibilityHidden(selection != .feed)
-                            notifications
-                                .opacity(selection == .notifications ? 1 : 0)
-                                .allowsHitTesting(selection == .notifications)
-                                .accessibilityHidden(selection != .notifications)
-                            search
-                                .environment(\.mobilePrimarySearchDestination, true)
-                                .opacity(selection == .search ? 1 : 0)
-                                .allowsHitTesting(selection == .search)
-                                .accessibilityHidden(selection != .search)
+                        Group {
+                            switch selection {
+                            case .workspaces:
+                                workspaces
+                            case .feed:
+                                feed
+                            case .notifications:
+                                notifications
+                            case .search:
+                                search
+                                    .environment(\.mobilePrimarySearchDestination, true)
+                            }
                         }
                         .frame(
                             width: geometry.size.width,
