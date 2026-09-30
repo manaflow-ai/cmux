@@ -46,6 +46,21 @@ final class KeyRouter: BrowserKeyRouting {
         }
     }
 
+    /// Like ``allows(_:focus:)`` for action `id`. The DevTools actions
+    /// (Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C) are not editing chords: as in
+    /// Chrome they run from the page, the address bar, the find bar and
+    /// DevTools itself (where other content chords belong to DevTools).
+    /// Browser focus mode still gives them to the page.
+    nonisolated static func allows(_ tier: ActionKeyTier, id: ActionID, focus: FocusState) -> Bool {
+        if tier == .content, devToolsActions.contains(id), BrowserChordTable.isBrowserContext(focus.resolved),
+           !focus.isBrowserFocusModeActive { return true }
+        return allows(tier, focus: focus)
+    }
+
+    /// The actions DevTools runs itself before its frontend sees the key.
+    nonisolated static let devToolsActions: Set<ActionID> = ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole",
+                                                             "inspectBrowserElement"]
+
     // MARK: App-wide interception (tiers 0 and 1)
 
     /// A shortcut a key-down resolves to, before the tier check.
@@ -133,7 +148,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// app-wide already. Returns whether the key was consumed.
     func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState) -> Bool {
         if let resolved = registry.resolveShortcut(for: event), resolved.tier == .content,
-           Self.allows(.content, focus: focus) {
+           Self.allows(.content, id: resolved.id, focus: focus) {
             return registry.runShortcut(resolved.id, argument: resolved.argument)
         }
         return runExtensionShortcut(event, focus: focus)
@@ -171,14 +186,14 @@ final class KeyRouter: BrowserKeyRouting {
     func allowsMenuKeyEquivalent(_ id: ActionID) -> Bool {
         let (controller, kind) = keyWindowFocus()
         guard let controller else { return true }
-        return Self.allowsMenu(registry.keyTier(for: id), focus: controller.focus.state, keyWindow: kind)
+        return Self.allowsMenu(registry.keyTier(for: id), id: id, focus: controller.focus.state, keyWindow: kind)
     }
 
-    nonisolated static func allowsMenu(_ tier: ActionKeyTier, focus: FocusState, keyWindow: KeyWindowKind) -> Bool {
+    nonisolated static func allowsMenu(_ tier: ActionKeyTier, id: ActionID? = nil, focus: FocusState, keyWindow: KeyWindowKind) -> Bool {
         switch keyWindow {
         case .other: true
         case .textPanel: tier != .content
-        case .content: allows(tier, focus: focus)
+        case .content: id.map { allows(tier, id: $0, focus: focus) } ?? allows(tier, focus: focus)
         }
     }
 
@@ -218,7 +233,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// Tiers 0 and 1 ran app-wide already; content chords (Copy, Reload)
     /// belong to the DevTools frontend.
     func browserTab(_ tab: any BrowserTab, devToolsKeyEquivalent event: NSEvent) -> BrowserKeyDisposition {
-        guard let resolved = registry.resolveShortcut(for: event), WebInspector.devToolsActions.contains(resolved.id.rawValue),
+        guard let resolved = registry.resolveShortcut(for: event), Self.devToolsActions.contains(resolved.id),
               let devTools = tab as? any BrowserDevToolsHosting else { return .passToPage }
         switch resolved.id.rawValue {
         case "toggleBrowserDeveloperTools": devTools.performDevTools(.toggle)

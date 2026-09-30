@@ -88,4 +88,16 @@ struct FocusDevToolsTests {
         #expect(!services.keyRouter.routeContentKeyEquivalent(reload, focus: Self.devTools))
         #expect(!ran.contains("browserReload"))
     }
+
+    /// The main menu's key equivalent gate lets the DevTools actions through
+    /// while DevTools has the keyboard, and no other content action.
+    @Test func menuGateAllowsOnlyDevToolsActionsInDevTools() {
+        #expect(KeyRouter.allowsMenu(.content, id: "toggleBrowserDeveloperTools", focus: Self.devTools, keyWindow: .content))
+        #expect(!KeyRouter.allowsMenu(.content, id: "browserReload", focus: Self.devTools, keyWindow: .content))
+        // From the address bar and the find bar too (not editing chords).
+        #expect(KeyRouter.allowsMenu(.content, id: "toggleBrowserDeveloperTools", focus: K.omnibar, keyWindow: .content))
+        #expect(KeyRouter.allowsMenu(.content, id: "inspectBrowserElement", focus: K.find, keyWindow: .content))
+        #expect(!KeyRouter.allowsMenu(.content, id: "browserReload", focus: K.omnibar, keyWindow: .content))
+        #expect(!KeyRouter.allowsMenu(.content, id: "toggleBrowserDeveloperTools", focus: K.focusMode, keyWindow: .content))
+    }
 }

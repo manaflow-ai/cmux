@@ -30,10 +30,6 @@ enum WebInspector {
         inspector.perform(Selector(("show")))
     }
 
-    /// The actions a DevTools window runs itself before its frontend sees
-    /// the key (Cmd-Opt-I closes it, as in Chrome).
-    static let devToolsActions: Set<String> = ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement"]
-
     private static func inspector(of tab: any BrowserTab) -> NSObject? {
         guard let webView = (tab as? WebKitTab)?.webView, webView.responds(to: Selector(("_inspector"))) else { return nil }
         return webView.perform(Selector(("_inspector")))?.takeUnretainedValue() as? NSObject

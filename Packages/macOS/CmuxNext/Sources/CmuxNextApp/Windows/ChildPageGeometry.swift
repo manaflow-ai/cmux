@@ -34,9 +34,14 @@ enum ChildPageGeometry {
         return problems
     }
 
-    /// Where the Chromium windows of one pane must be: its tab content.
+    /// Where the Chromium windows of one pane must be: the tab content, or,
+    /// with DevTools docked, the page area and the DevTools area of the
+    /// dock layout (each is its own child window). An undocked DevTools
+    /// window is top-level, not a child of the cmux window, so it is not
+    /// checked here.
     static func expectedHosts(pane: String, contentRect: CGRect, devTools: (page: CGRect, devTools: CGRect?)?) -> [Host] {
-        [Host(pane: pane, screenRect: contentRect)]
+        guard let devTools, let docked = devTools.devTools else { return [Host(pane: pane, screenRect: contentRect)] }
+        return [Host(pane: pane, screenRect: devTools.page), Host(pane: "\(pane) devtools", screenRect: docked)]
     }
 
     /// The window's Chromium hosts (visible, in this window) and page windows now.
