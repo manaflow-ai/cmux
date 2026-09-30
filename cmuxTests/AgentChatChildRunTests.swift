@@ -33,12 +33,13 @@ struct AgentChatChildRunTests {
         tool: String? = nil,
         input: String? = nil,
         requestId: String? = nil,
+        source: String = "claude",
         at seconds: TimeInterval
     ) -> WorkstreamEvent {
         WorkstreamEvent(
             sessionId: "sess",
             hookEventName: name,
-            source: "claude",
+            source: source,
             toolName: tool,
             toolInputJSON: input,
             requestId: requestId,
@@ -111,13 +112,34 @@ struct AgentChatChildRunTests {
     @Test func subagentStartStopTrackChildren() {
         var rec = record()
         AgentChatSessionRegistry.applyChildRunEvent(
-            &rec, event: event(.subagentStart, requestId: "c1", at: 5)
+            &rec, event: event(.subagentStart, requestId: "c1", source: "codex", at: 5)
         )
         #expect(rec.children.count == 1)
         AgentChatSessionRegistry.applyChildRunEvent(
-            &rec, event: event(.subagentStop, requestId: "c1", at: 25)
+            &rec, event: event(.subagentStop, requestId: "c1", source: "codex", at: 25)
         )
         #expect(rec.children[0].endedAt == Date(timeIntervalSince1970: 25))
+    }
+
+    @Test func claudeSubagentStopDoesNotCloseSiblingAfterSpawnTool() {
+        var rec = record()
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec, event: event(.preToolUse, tool: "Task", at: 10)
+        )
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec, event: event(.preToolUse, tool: "Task", at: 20)
+        )
+
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec, event: event(.postToolUse, tool: "Task", at: 30)
+        )
+        #expect(rec.children[0].endedAt == Date(timeIntervalSince1970: 30))
+        #expect(rec.children[1].isRunning)
+
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec, event: event(.subagentStop, at: 31)
+        )
+        #expect(rec.children[1].isRunning)
     }
 
     @Test func stopClosesAllOpenChildren() {
