@@ -2852,6 +2852,48 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertNil(session)
     }
 
+    func testDetectsRecognizedEternalTerminalLongOptions() {
+        let valueSession = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: ["et", "--username=lawrence", "example.com"],
+            ]
+        )
+        XCTAssertEqual(valueSession?.destination, "lawrence@example.com")
+
+        let flagSession = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: ["et", "--help", "example.com"],
+            ]
+        )
+        XCTAssertEqual(flagSession?.destination, "example.com")
+    }
+
+    func testRejectsValuesAttachedToEternalTerminalNoArgumentOptions() {
+        let cases = [
+            ["et", "--help=value", "example.com"],
+            ["et", "--forward-ssh-agent=value", "example.com"],
+        ]
+
+        for arguments in cases {
+            let session = TerminalSSHSessionDetector.detectForTesting(
+                ttyName: "/dev/ttys004",
+                processes: [
+                    .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+                ],
+                argumentsByPID: [2145: arguments]
+            )
+            XCTAssertNil(session)
+        }
+    }
+
     func testDetectsEternalTerminalSessionWithoutTreatingETPortAsSSHPort() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
