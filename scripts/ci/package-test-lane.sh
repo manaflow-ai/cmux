@@ -380,6 +380,15 @@ run_package_tests() {
       --sample-seconds 5 --label "$pkg" --log "$log" \
       -- swift test "${swift_test_args[@]}" < /dev/null || test_status=$?
   }
+  has_other_error() {
+    awk '
+      /unexpected binary/ { next }
+      /^[[:space:]]*warning:/ { next }
+      /:[0-9]+:[0-9]+:[[:space:]]+warning:/ { next }
+      /(^|[^a-zA-Z])error:/ { found = 1 }
+      END { exit found ? 0 : 1 }
+    ' "$log"
+  }
   if grep -qxF CmuxCommandPalette "$selected"; then
     # CmuxCommandPalette's nucleo FFI tests load the Rust dylib through
     # CMUX_NUCLEO_FFI_LIB (they skip when it is absent, so build it here
@@ -410,7 +419,7 @@ run_package_tests() {
           && python3 scripts/ci/require_swift_test_execution.py --log "$log" \
           && ! grep -Eq 'with [1-9][0-9]* failures?' "$log" \
           && ! grep -Fq 'Exited with unexpected signal code' "$log" \
-          && ! grep -Eq '(^|[^a-zA-Z])error:' <<<"$(grep -v 'unexpected binary' "$log")"; then
+          && ! has_other_error; then
           echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."
         else
           return "$test_status"
