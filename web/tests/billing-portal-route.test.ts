@@ -17,8 +17,12 @@ const signedInUser = {
   clientReadOnlyMetadata: {},
   selectedTeam: null as null | { id: string; displayName?: string },
   listTeams: mock(async () => [] as Array<{ id: string; displayName?: string }>),
+  hasPermission: mock(async (team: { id: string }, permission: string) =>
+    teamPermissions.has(`${team.id}:${permission}`)),
   update: mock(async () => undefined),
 };
+// Team-scoped Stack permissions held by signedInUser, as "<teamId>:<permission>".
+const teamPermissions = new Set<string>();
 const anonymousUser = {
   id: "anonymous-pro",
   isAnonymous: true,
@@ -105,6 +109,8 @@ describe("billing portal route", () => {
     stripeSubscriptionRows = [];
     signedInUser.selectedTeam = null;
     signedInUser.listTeams.mockClear();
+    signedInUser.hasPermission.mockClear();
+    teamPermissions.clear();
     getUser.mockClear();
     signedInUser.update.mockClear();
     anonymousUser.update.mockClear();
@@ -237,6 +243,7 @@ describe("billing portal route", () => {
 
   test("opens the Team customer portal when scope is team", async () => {
     signedInUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
+    teamPermissions.add("team-pro:$update_team");
     customerRows = [{ id: "cus_team" }];
 
     const response = await GET(
@@ -251,6 +258,22 @@ describe("billing portal route", () => {
       customer: "cus_team",
       return_url: "https://cmux.test/dashboard/billing",
     });
+  });
+
+  test("refuses the Team portal to a member without team billing permission", async () => {
+    signedInUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
+    customerRows = [{ id: "cus_team" }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal?scope=team"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/billing?billing=team_admin_only",
+    );
+    expect(signedInUser.hasPermission).toHaveBeenCalledWith({ id: "team-pro" }, "$update_team");
+    expect(createPortalSession).not.toHaveBeenCalled();
   });
 
   test("falls back to user scope when Team scope is requested without a billing team", async () => {

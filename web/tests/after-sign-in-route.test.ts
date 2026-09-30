@@ -235,6 +235,34 @@ describe("after sign-in native handoff", () => {
     expect(afterSignInTarget.searchParams.get("web_return_to")).toBe(webReturnTo);
   });
 
+  test("returns to a same-origin after_auth_return_to path", async () => {
+    const response = await GET(
+      new NextRequest(
+        `https://cmux.test/handler/after-sign-in?after_auth_return_to=${encodeURIComponent("/dashboard/billing?tab=team")}`,
+      ),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?tab=team");
+  });
+
+  test.each([
+    "/\\evil.example/phish",
+    "/\\/evil.example",
+    "/\t/evil.example",
+    "/\n/evil.example",
+  ])("never redirects after_auth_return_to %p off-origin", async (afterAuth) => {
+    const response = await GET(
+      new NextRequest(
+        `https://cmux.test/handler/after-sign-in?after_auth_return_to=${encodeURIComponent(afterAuth)}`,
+        { headers: { "accept-language": "en" } },
+      ),
+    );
+
+    const location = response.headers.get("location");
+    if (location) expect(new URL(location).origin).toBe("https://cmux.test");
+  });
+
   test("omits account switching when there is no native return target to preserve", async () => {
     const response = await GET(
       new NextRequest("https://cmux.test/handler/after-sign-in", {

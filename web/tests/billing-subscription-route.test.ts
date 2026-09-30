@@ -15,7 +15,11 @@ const signedInUser = {
   isAnonymous: false,
   selectedTeam: null as null | { id: string },
   listTeams: mock(async () => [] as Array<{ id: string }>),
+  hasPermission: mock(async (team: { id: string }, permission: string) =>
+    teamPermissions.has(`${team.id}:${permission}`)),
 };
+// Team-scoped Stack permissions held by signedInUser, as "<teamId>:<permission>".
+const teamPermissions = new Set<string>();
 const anonymousUser = {
   id: "anonymous-pro",
   isAnonymous: true,
@@ -101,6 +105,8 @@ describe("billing subscription route", () => {
     dbUpdates.length = 0;
     signedInUser.selectedTeam = null;
     signedInUser.listTeams.mockClear();
+    signedInUser.hasPermission.mockClear();
+    teamPermissions.clear();
     getUser.mockClear();
     updateSubscription.mockClear();
     mockImplementation(updateSubscription, stripeSubscriptionUpdateResult);
@@ -169,6 +175,7 @@ describe("billing subscription route", () => {
 
   test("cancels the current user's Team subscription from the derived billing team", async () => {
     signedInUser.selectedTeam = { id: "team-pro" };
+    teamPermissions.add("team-pro:$update_team");
     subscriptionRows = [{ id: "sub_team" }];
 
     const response = await postAction("cancel", {
@@ -184,6 +191,21 @@ describe("billing subscription route", () => {
       cancel_at_period_end: true,
     });
     expect(dbUpdates[0].values.cancelAtPeriodEnd).toBe(true);
+  });
+
+  test.each(["cancel", "resume"])("refuses a Team %s from a member without team billing permission", async (action) => {
+    signedInUser.selectedTeam = { id: "team-pro" };
+    subscriptionRows = [{ id: "sub_team" }];
+
+    const response = await postAction(action, { scope: "team", teamId: "team-pro" });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/billing?billing=team_admin_only",
+    );
+    expect(signedInUser.hasPermission).toHaveBeenCalledWith({ id: "team-pro" }, "$update_team");
+    expect(updateSubscription).not.toHaveBeenCalled();
+    expect(dbUpdates).toHaveLength(0);
   });
 
   test("rejects Team subscription changes for a posted team outside the user's billing team", async () => {

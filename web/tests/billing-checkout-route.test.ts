@@ -884,6 +884,43 @@ describe("billing checkout route", () => {
     });
   });
 
+  test("does not create a team for a cross-site Team checkout navigation", async () => {
+    stripeConfigured = true;
+    const createTeam = mock(async () => teamCustomer);
+    userResponses = [{ ...signedInUser, selectedTeam: null, listTeams: async () => [], createTeam }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=team&utm_campaign=launch", {
+        headers: { "sec-fetch-site": "cross-site" },
+      }),
+    );
+
+    expect(response.status).toBe(307);
+    const location = new URL(response.headers.get("location")!);
+    expect(location.origin).toBe("https://cmux.test");
+    expect(location.pathname).toBe("/pricing");
+    expect(location.searchParams.get("utm_campaign")).toBe("launch");
+    expect(location.hash).toBe("#team-enterprise-pricing-category");
+    expect(createTeam).not.toHaveBeenCalled();
+    expect(createStripeCustomer).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  test("creates a team for a same-origin Team checkout by a teamless user", async () => {
+    stripeConfigured = true;
+    const createTeam = mock(async () => teamCustomer);
+    userResponses = [{ ...signedInUser, selectedTeam: null, listTeams: async () => [], createTeam }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=team&format=json", {
+        headers: { "sec-fetch-site": "same-origin" },
+      }),
+    );
+
+    expect((await response.json()).url).toBe("https://checkout.stripe.com/c/session");
+    expect(createTeam).toHaveBeenCalledWith({ displayName: "cmux Team" });
+  });
+
   test("records monthly Team checkout metadata", async () => {
     stripeConfigured = true;
     signedInUser.selectedTeam = teamCustomer;

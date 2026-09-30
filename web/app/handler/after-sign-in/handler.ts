@@ -482,8 +482,13 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     }
 
     const afterAuth = request.nextUrl.searchParams.get("after_auth_return_to");
-    if (afterAuth && afterAuth.startsWith("/") && !afterAuth.startsWith("//")) {
-      return NextResponse.redirect(new URL(afterAuth, requestOrigin(request)));
+    const afterAuthURL = afterAuth ? relativeAfterAuthURL(afterAuth, requestOrigin(request)) : null;
+    // Decide on the parsed origin, never on the raw string: the URL parser
+    // reads a backslash as `/` and drops tabs and newlines, so a value such as
+    // `/\evil.example` passes a "starts with one slash" check yet resolves to
+    // another host.
+    if (afterAuthURL && afterAuthURL.origin === requestOrigin(request)) {
+      return NextResponse.redirect(afterAuthURL);
     }
 
     if (refreshToken && accessCookie) {
@@ -493,4 +498,14 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
 
     return NextResponse.redirect(new URL("/", requestOrigin(request)));
   };
+}
+
+/** Resolve a path-relative post-sign-in return value, or null if it is not one. */
+function relativeAfterAuthURL(value: string, origin: string): URL | null {
+  if (!value.startsWith("/")) return null;
+  try {
+    return new URL(value, origin);
+  } catch {
+    return null;
+  }
 }

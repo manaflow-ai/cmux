@@ -340,7 +340,8 @@ async function stripeTeamCheckout(
     }
     const stackUserId = checkoutPrincipalId(user.id, "user");
     captureCheckoutAuthenticated(request, user.id, "team", attribution);
-    const team = await checkoutTeamCustomer(user);
+    const team = await checkoutTeamCustomer(user, request);
+    if (!team) return teamCheckoutConfirmationRedirect(request);
     const resolvedTeamId = checkoutPrincipalId(team.id, "team");
     teamId = resolvedTeamId;
 
@@ -450,6 +451,13 @@ function captureCheckoutDecision(
   });
 }
 
+function teamCheckoutConfirmationRedirect(request: NextRequest): NextResponse {
+  const pricingURL = new URL("/pricing", requestOrigin(request));
+  forwardCheckoutAttribution(request.nextUrl.searchParams, pricingURL);
+  pricingURL.hash = "team-enterprise-pricing-category";
+  return NextResponse.redirect(pricingURL);
+}
+
 function accountDeletionCheckoutRedirect(request: NextRequest) {
   return NextResponse.redirect(
     new URL("/pricing?billing=account_deletion_in_progress", requestOrigin(request)),
@@ -509,13 +517,23 @@ type CheckoutTeamUser = {
   createTeam?(data: { displayName: string }): Promise<CheckoutTeamCustomer>;
 };
 
-async function checkoutTeamCustomer(user: CheckoutTeamUser): Promise<CheckoutTeamCustomer> {
+/**
+ * The team a Team checkout bills, creating one for a teamless user. Creation
+ * writes persistent account state from a cookie-authenticated GET, so a
+ * cross-site navigation (a link or auto-submitted page on another site) never
+ * creates a team: it returns null and the caller sends the user to the Team
+ * card, whose same-origin button repeats the request.
+ */
+async function checkoutTeamCustomer(
+  user: CheckoutTeamUser,
+  request: NextRequest,
+): Promise<CheckoutTeamCustomer | null> {
   if (user.selectedTeam) return user.selectedTeam;
 
   const teams = user.listTeams ? await user.listTeams() : [];
-  if (teams.length === 1) return teams[0];
-  if (teams.length > 1) return teams[0];
+  if (teams.length > 0) return teams[0];
 
+  if (request.headers.get("sec-fetch-site")?.trim().toLowerCase() === "cross-site") return null;
   if (!user.createTeam) {
     throw new Error("Stack Auth user cannot create a team checkout customer");
   }

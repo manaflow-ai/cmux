@@ -24,8 +24,11 @@ const proUser = {
   clientReadOnlyMetadata: {},
   selectedTeam: null as null | { id: string; displayName?: string; clientReadOnlyMetadata?: unknown },
   listTeams: mock(async () => [] as Array<{ id: string; displayName?: string; clientReadOnlyMetadata?: unknown }>),
+  hasPermission: mock(async (_team: { id: string }, permission: string) =>
+    teamBillingAdmin && permission === "$update_team"),
   update: mock(async () => undefined),
 };
+let teamBillingAdmin = true;
 
 mock.module("next-intl/server", () => ({
   getTranslations: async (input?: string | { namespace?: string }) =>
@@ -90,6 +93,7 @@ describe("dashboard billing page", () => {
     proUser.selectedTeam = null;
     proUser.listTeams.mockClear();
     mockImplementation(proUser.listTeams, async () => []);
+    teamBillingAdmin = true;
     proUser.update.mockClear();
   });
 
@@ -255,6 +259,25 @@ describe("dashboard billing page", () => {
     expect(html).toContain("$60/seat/mo");
     expect(html).toContain('name="scope" value="team"');
     expect(html).toContain('href="/api/billing/portal?scope=team"');
+  });
+
+  test("shows a Team member the plan without cancel, resume, or portal controls", async () => {
+    teamBillingAdmin = false;
+    proUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
+    subscriptionResults = [
+      [],
+      [],
+      [],
+      [stripeSubscriptionRow({ cancelAtPeriodEnd: false, plan: "team", scope: "team", seats: 4 })],
+    ];
+    customerRows = [{ id: "cus_team" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("Team Pro renews on");
+    expect(html).toContain("Only a team admin can cancel, resume, or manage this team");
+    expect(html).not.toContain('name="scope" value="team"');
+    expect(html).not.toContain('href="/api/billing/portal?scope=team"');
   });
 
   test("labels annual Stripe Team subscriptions", async () => {

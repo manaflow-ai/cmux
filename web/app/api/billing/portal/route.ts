@@ -18,6 +18,7 @@ import {
 import { personalPortalSession } from "../../../../services/billing/personalPortal";
 import { checkoutAttributionFromRequest } from "../../../../services/analytics/checkoutAttribution";
 import { resolveBillingTeam } from "../../../../services/billing/teamResolution";
+import { canManageTeamBilling } from "../../../../services/billing/teamBillingPermission";
 import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 
 
@@ -56,6 +57,12 @@ export async function GET(request: NextRequest) {
 
     const requestedScope = billingPortalScope(request.nextUrl.searchParams.get("scope"));
     const team = requestedScope === "team" ? await resolveBillingTeam(user) : null;
+    if (team && !(await canManageTeamBilling(user, team.id))) {
+      return NextResponse.redirect(
+        new URL("/dashboard/billing?billing=team_admin_only", requestOrigin(request)),
+        302,
+      );
+    }
     const customerId = team?.id
       ? await stripeCustomerIdForStackTeam(team.id)
       : await stripeCustomerIdForStackUser(user.id);
