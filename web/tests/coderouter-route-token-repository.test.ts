@@ -212,6 +212,8 @@ describe("coderouter route token VM binding", () => {
     const { sql, params } = rendered(statement?.where ?? null);
     expect(sql).toContain('"coderouter_route_tokens"."team_id" = $1');
     expect(sql).toContain('"coderouter_route_tokens"."stack_user_id" = $2');
+    // VM-bound tokens belong to the VM's lifecycle, which revokes them itself.
+    expect(sql).toContain('"coderouter_route_tokens"."vm_id" is null');
     expect(sql).toContain('"coderouter_route_tokens"."revoked_at" is null');
     expect(params).toEqual(["team-1", "user-1"]);
   });
