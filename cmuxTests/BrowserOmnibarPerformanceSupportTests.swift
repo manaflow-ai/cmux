@@ -94,11 +94,15 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
         await clock.advance()
         await fulfillment(of: [queuedRefresh], timeout: 1)
         listener.cancel()
+        let generation = try XCTUnwrap(queuedGeneration)
+        XCTAssertTrue(
+            scheduler.shouldProcessRefresh(generation),
+            "An emitted refresh should run while nothing has cancelled it."
+        )
 
         // The consumer asks shouldProcessRefresh when it handles a generation, so
         // cancelling after emission models a refresh queued behind Escape.
         scheduler.cancelPendingRefresh()
-        let generation = try XCTUnwrap(queuedGeneration)
         XCTAssertFalse(
             scheduler.shouldProcessRefresh(generation),
             "A refresh already queued before cancellation should not run after Escape, hide, or focus loss."
