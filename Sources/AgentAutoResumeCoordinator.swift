@@ -259,32 +259,7 @@ final class AgentAutoResumeCoordinator {
             let typedRow = rows[index].filter { !$0.faint }.map(\.text).joined()
                 .trimmingCharacters(in: .whitespaces)
             guard !typedRow.isEmpty else { continue }
-            let lowered = typedRow.lowercased()
-            let contextParts = lowered.components(separatedBy: " · ctx ")
-            let isClaudeModelStatus = contextParts.count == 2
-                && ["sonnet ", "opus ", "haiku "].contains(where: contextParts[0].hasPrefix)
-                && contextParts[1].hasSuffix("%")
-                && Int(contextParts[1].dropLast()) != nil
-            let isClaudeModeStatus = lowered.hasPrefix("⏵⏵ auto mode on (shift+tab to cycle)")
-            let codexStatusParts = lowered.components(separatedBy: " · ")
-            let codexPathField: Bool
-            if codexStatusParts.count == 2 {
-                codexPathField = codexStatusParts[1].hasPrefix("/")
-            } else {
-                let contextField = codexStatusParts[1]
-                let percentageContext = contextField.hasSuffix("% context left")
-                codexPathField = codexStatusParts.count >= 3
-                    && (contextField.hasPrefix("context ") || percentageContext)
-                    && codexStatusParts[2].hasPrefix("/")
-            }
-            let isCodexModelStatus = codexStatusParts.first?.hasPrefix("gpt-") == true
-                && codexStatusParts.first?.contains(" ") == true
-                && codexPathField
-            let isStalledFooter = lowered.hasSuffix("goal stalled (/goal resume)")
-            let isStatusRow = isClaudeModelStatus || isClaudeModeStatus || isCodexModelStatus || isStalledFooter
-            if !isStatusRow {
-                return .draft
-            }
+            return .draft
         }
         return stalledFooter ? .codexGoalResume : .emptyPrompt
     }
@@ -336,7 +311,7 @@ final class AgentAutoResumeCoordinator {
                   binding.kind == nil
                       || binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == agent.lowercased()
             else { return false }
-            guard let sessionId, !sessionId.isEmpty else { return currentSessionId == nil }
+            guard let sessionId, !sessionId.isEmpty else { return false }
             guard let currentSessionId else { return false }
             return currentSessionId == sessionId
         }
