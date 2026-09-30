@@ -664,6 +664,7 @@
         return rows.map((r) => ({ url: r.url, title: r.title || "", dateVisited: new Date(r.dateVisited).toISOString() }));
       },
       async open(url, options = {}) {
+        if (url !== undefined && url !== null && url !== "") ns.checkNavigableURL("tabs.open", url);
         const page = await session.newPage(url, { background: !!options.background });
         if (url) await page.waitForLoadState("load").catch(() => {});
         await page._syncInfo().catch(() => {});
@@ -722,6 +723,15 @@
       enumerable: true,
       configurable: true,
     });
+    // Site tools (docs/browser-repl/site-tools.md), built on first use.
+    if (ns.sites) {
+      let sites = null;
+      Object.defineProperty(globals, "sites", {
+        get: () => sites || (sites = ns.sites.createSites({ session, host, fetch: fetchWithCookies, fs, path, Buffer, URL: core.URL, currentPage, snapshot })),
+        enumerable: true,
+        configurable: true,
+      });
+    }
     return { globals, show, importModule, state };
   }
 

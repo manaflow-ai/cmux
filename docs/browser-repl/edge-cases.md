@@ -90,7 +90,7 @@ processes or on a person's window run in the cmux app only.
 | `window-open-features` | `window.open(url, name, "width=...")` | A `popup` event with a page that has an opener | `edge.window-open` |
 | `window-open-noopener` | `window.open(url, "_blank", "noopener")` | A `popup` event; the popup has no opener | `edge.window-open` |
 | `window-close` | A popup calls `window.close()` | The page emits `close` and leaves `tabs.list()` | `edge.window-open` |
-| `beforeunload` | Navigation from a page with a beforeunload handler | The prompt is held for the agent (`page.dialog()`); dismissing it stays | `dialogs.beforeunload` |
+| `beforeunload` | Leaving a page with a beforeunload handler | A navigation the agent starts leaves without a prompt, as in both references; `page.close({ runBeforeUnload: true })` holds the prompt for the agent (`page.dialog()`) and dismissing it keeps the tab | `dialogs.beforeunload` |
 | `alert-during-navigation` | `alert()` while the document loads | The dialog is held; answering it lets the navigation finish | `edge.alert-during-navigation` |
 | `large-page` | 5,000 rows with 10,000 controls | The snapshot value holds everything; locators act on any row | `edge.large-page` |
 | `main-thread-blocked` | A click handler that blocks the main thread for 2.5 s | Calls wait for the page and then succeed | `edge.main-thread-blocked` |

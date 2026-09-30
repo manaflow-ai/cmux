@@ -35,6 +35,7 @@ struct BrowserReplKeyStrokeTests {
         Case(key: "b", code: "KeyB", text: "", modifiers: ["Meta"], keyCode: 11, characters: "b", ignoring: "b", flags: [.command], command: "bold"),
         Case(key: "i", code: "KeyI", text: "", modifiers: ["Meta"], keyCode: 34, characters: "i", ignoring: "i", flags: [.command], command: "italic"),
         Case(key: "u", code: "KeyU", text: "", modifiers: ["Meta"], keyCode: 32, characters: "u", ignoring: "u", flags: [.command], command: "underline"),
+        Case(key: "K", code: "KeyK", text: nil, modifiers: ["Alt", "Shift"], keyCode: 40, characters: "", ignoring: "k", flags: [.option, .shift], command: nil),
     ]
 
     @Test("Playwright keys resolve to the AppKit event WebKit receives", arguments: cases)

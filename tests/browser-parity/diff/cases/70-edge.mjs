@@ -24,7 +24,7 @@ return { result: out ?? "pending", settledMs: Date.now() - t0, dialog: false };`
   compare: ["result"],
   better: Object.fromEntries(["aside", "chatgpt"].map((ref) => [ref, {
     reason: "a driven tab answers the permission request at once (denied) instead of leaving a prompt nobody can answer",
-    check: (c, r) => c.result !== "pending" && c.settledMs < 2000 && (r.result === "pending" || r.settledMs > 2 * c.settledMs + 1000),
+    check: (c, r) => c.result !== "pending" && r.result === "pending",
   }])),
 });
 

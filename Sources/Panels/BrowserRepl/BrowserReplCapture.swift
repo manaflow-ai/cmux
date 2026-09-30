@@ -223,7 +223,14 @@ enum BrowserReplCapture {
         guard host == bare || host.hasSuffix("." + bare) else { return false }
         let path = url.path.isEmpty ? "/" : url.path
         guard path.hasPrefix(cookie.path) else { return false }
-        return !cookie.isSecure || url.scheme == "https" || host == "localhost"
+        return !cookie.isSecure || url.scheme == "https" || isLoopback(host)
+    }
+
+    /// Loopback hosts are potentially trustworthy origins, so a Secure
+    /// cookie goes to them over http, as the page's own requests send it.
+    static func isLoopback(_ host: String) -> Bool {
+        let bare = host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
+        return bare == "localhost" || bare.hasSuffix(".localhost") || bare == "::1" || bare.hasPrefix("127.")
     }
 }
 

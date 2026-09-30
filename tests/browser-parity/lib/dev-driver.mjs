@@ -488,6 +488,11 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       await handle.dispose();
       return child ? { frameId: frameId(tab, child) } : null;
     },
+    "frame.contentFrames": async ({ targetId, frameId: id, elements = [] }) => {
+      const out = [];
+      for (const element of elements) out.push(await methods["frame.contentFrame"]({ targetId, frameId: id, element }).catch(() => null));
+      return out;
+    },
     "input.mouse": async ({ targetId, type, x, y, button = "left", clickCount = 1, modifiers, deltaX = 0, deltaY = 0 }) => {
       const page = tabFor(targetId).page;
       await withModifiers(page, modifiers, async () => {

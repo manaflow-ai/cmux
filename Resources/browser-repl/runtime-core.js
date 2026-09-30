@@ -30,6 +30,7 @@
   })();
   const AGENT = 'globalThis[Symbol.for("cmux.browserRepl.agent")]';
   const DEFAULT_TIMEOUT = 30000;
+  const UNDEFINED_MARK = "__cmuxUndefined__";
 
   // ---------------------------------------------------------------------------
   // Errors
@@ -898,6 +899,14 @@
         awaitPromise: true,
       }), true);
     }
+    // A user function in the page world. JSON has no undefined, so a function
+    // that returns undefined sends a marker the result turns back into it,
+    // as Playwright's evaluate returns undefined.
+    async _evalPage(source, args, handles) {
+      const wrapped = `async (...a) => { const v = await (${source})(...a); return v === undefined ? { ${JSON.stringify(UNDEFINED_MARK)}: 1 } : v; }`;
+      const r = await this._call("page", wrapped, args, handles);
+      return r && typeof r === "object" && !Array.isArray(r) && r[UNDEFINED_MARK] === 1 && Object.keys(r).length === 1 ? undefined : r;
+    }
     _agent(method, ...args) {
       return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
     }
@@ -927,7 +936,7 @@
       return { x: parent.x + box.x, y: parent.y + box.y };
     }
     async evaluate(fn, arg) {
-      return this._call("page", functionSource(fn), [arg]);
+      return this._evalPage(functionSource(fn), [arg]);
     }
     async evaluateHandle(fn, arg) {
       return this.evaluate(fn, arg);
@@ -1491,7 +1500,7 @@
     }
     async evaluate(fn, arg, options) {
       return this._withElement(options || {}, "locator.evaluate", [], (frame, handle) =>
-        frame._call("page", `(el, arg) => (${functionSource(fn)})(el, arg)`, [arg], [handle]));
+        frame._evalPage(`(el, arg) => (${functionSource(fn)})(el, arg)`, [arg], [handle]));
     }
     async evaluateHandle(fn, arg, options) {
       return this.evaluate(fn, arg, options);
@@ -1500,7 +1509,7 @@
       const r = await this._resolveAll();
       const frame = r ? r.frame : this._frame;
       const handles = r ? r.handles : [];
-      return frame._call("page", `(...xs) => (${functionSource(fn)})(xs.slice(0, ${handles.length}), xs[${handles.length}])`, [arg], handles);
+      return frame._evalPage(`(...xs) => (${functionSource(fn)})(xs.slice(0, ${handles.length}), xs[${handles.length}])`, [arg], handles);
     }
     async allTextContents() {
       return this.evaluateAll((els) => els.map((e) => e.textContent || ""));
@@ -1620,7 +1629,7 @@
     }
     async $$eval(selector, fn, arg) {
       const ids = await this._pinnedFrame._agent("queryAll", selector, this._handle);
-      return this._pinnedFrame._call("page", `(...xs) => (${functionSource(fn)})(xs.slice(0, ${ids.length}), xs[${ids.length}])`, [arg], ids);
+      return this._pinnedFrame._evalPage(`(...xs) => (${functionSource(fn)})(xs.slice(0, ${ids.length}), xs[${ids.length}])`, [arg], ids);
     }
     toString() {
       return "JSHandle@node";
@@ -1732,6 +1741,16 @@
       }
     }
   }
+
+  // Like Playwright's goto: an absolute URL with a scheme, or a bare host
+  // that the driver completes; words with spaces are not a URL.
+  function checkNavigableURL(title, url) {
+    if (typeof url !== "string" || !url.trim()) throw new Error(`${title}: url: expected a non-empty string, got ${JSON.stringify(url)}`);
+    if (/\s/.test(url.trim()) || !/^[a-z][a-z0-9+.-]*:|^[\w.-]+(:\d+)?(\/|$)/i.test(url.trim())) {
+      throw new Error(`${title}: Cannot navigate to invalid URL: expected an absolute URL, got ${JSON.stringify(url)}`);
+    }
+  }
+  ns.checkNavigableURL = checkNavigableURL;
 
   function checkPoint(title, x, y) {
     if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`${title}: x and y: expected numbers, got ${JSON.stringify(x)}, ${JSON.stringify(y)}`);
@@ -2458,6 +2477,9 @@
       return this._closed;
     }
     async _navigate(method, params, options = {}) {
+      if (options && options.waitUntil !== undefined && !["load", "domcontentloaded", "networkidle", "commit"].includes(options.waitUntil)) {
+        throw new Error(`${method === "tab.navigate" ? "page.goto" : method === "tab.reload" ? "page.reload" : "page.goBack"}: waitUntil: expected one of (load|domcontentloaded|networkidle|commit), got ${JSON.stringify(options.waitUntil)}`);
+      }
       const r = await this._session.call(method, {
         targetId: this._targetId,
         waitUntil: options.waitUntil || "load",
@@ -2469,6 +2491,7 @@
       return r;
     }
     async goto(url, options) {
+      checkNavigableURL("page.goto", url);
       const r = await this._navigate("tab.navigate", { url }, options);
       const status = r && r.status;
       return status === undefined ? null : new Response(this, { url: this._url, status }, null);

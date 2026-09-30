@@ -12,6 +12,10 @@ const clickOptions = (method) => ({
   id: `loc.${method}.options`,
   members: [`aside:Locator.${method}`, `chatgpt:PlaywrightLocator.${method}`],
   path: LAB,
+  // Control+click on macOS: Chrome drops the click after contextmenu; WebKit
+  // (Safari, Playwright WebKit, cmux) delivers it. An engine difference, so
+  // the Control variant is recorded but not compared.
+  compare: { chatgpt: ["left", "right", "middle", "force", "timeout", "alt", "controlOrMeta", "meta", "shift"] },
   better: {
     aside: {
       reason: "button and modifier options reach the page (right, middle, Alt, Control, Meta, Shift); Aside sends a plain left click for every option",

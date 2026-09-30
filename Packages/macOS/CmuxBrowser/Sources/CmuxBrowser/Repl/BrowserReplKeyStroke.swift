@@ -78,6 +78,11 @@ public struct BrowserReplKeyStroke: Equatable, Sendable {
         if let text, !text.isEmpty, isPrintable(ignoring) {
             characters = text
         }
+        // Playwright inserts no text while Alt is held; without this the
+        // event would carry the base letter and WebKit would type it.
+        if text == nil, flags.contains(.option), !flags.contains(.command), !flags.contains(.control), isPrintable(ignoring) {
+            characters = ""
+        }
         if flags.contains(.control),
            let scalar = ignoring.unicodeScalars.first,
            ignoring.unicodeScalars.count == 1,

@@ -116,14 +116,24 @@ return { shows: typeof s.value === "string" && /dialog/i.test(s.value) && s.valu
     members: ["chatgpt:BeforeUnloadDialog.type", "chatgpt:BeforeUnloadDialog.dismiss"],
     edge: "beforeunload",
     path: DIALOGS,
+    // A navigation the agent starts leaves without a beforeunload prompt in
+    // all three (browsers skip it for navigations that do not come from the
+    // page's user); closing the tab with runBeforeUnload holds it in cmux.
     code: `await page.locator("#unload").click();
 const nav = page.goto(U("/diff/next.html")).catch((e) => e);
-let d; for (let i = 0; i < 100 && !d; i++) { d = page.dialog(); if (!d) await sleep(20); }
+let d; for (let i = 0; i < 60 && !d; i++) { d = page.dialog(); if (!d) await sleep(20); }
 const type = d ? d.type : null;
 if (d) await d.dismiss();
 await nav;
-const stayed = page.url();
-return { type, stayed: stayed.endsWith("dialogs.html") };`,
+const stayed = page.url().endsWith("dialogs.html");
+await page.goto(U("/dialogs.html"));
+await page.locator("#unload").click();
+const closing = page.close({ runBeforeUnload: true });
+let c2; for (let i = 0; i < 100 && !c2; i++) { c2 = page.dialog(); if (!c2) await sleep(20); }
+const onClose = c2 ? c2.type : null;
+if (c2) await c2.dismiss();
+await closing;
+return { type, stayed, onClose, openAfterDismiss: !page.isClosed() };`,
     chatgpt: `await $P.locator("#unload").click();
 const nav = t.goto(U("/diff/next.html")).catch((e) => e);
 let d; for (let i = 0; i < 60 && !d; i++) { d = await t.getJsDialog(); if (!d) await pause(50); }
@@ -136,17 +146,8 @@ let type = null;
 page.on("dialog", async (dd) => { type = dd.type(); await dd.dismiss(); });
 await E(() => page.goto(U("/diff/next.html"), { timeout: 5000 }));
 return { type, stayed: page.url().endsWith("dialogs.html") };`,
-    better: {
-      chatgpt: {
-        reason: "a beforeunload prompt is held for the agent to answer; Chrome accepts it by itself, so ChatGPT's agent never sees it",
-        check: (c, r) => c.type === "beforeunload" && c.stayed && r.type !== "beforeunload",
-      },
-      aside: {
-        reason: "a beforeunload prompt is held for the agent to answer; Aside's navigation proceeds without it",
-        check: (c, r) => c.type === "beforeunload" && c.stayed && r.type !== "beforeunload",
-      },
-    },
-    expect: { type: "beforeunload", stayed: true },
+    compare: ["type", "stayed"],
+    expect: { type: null, stayed: false, onClose: "beforeunload", openAfterDismiss: true },
   },
   {
     id: "filechooser.event",

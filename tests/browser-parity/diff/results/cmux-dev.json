@@ -1,7 +1,7 @@
 {
  "meta": {
   "backend": "cmux-dev",
-  "recordedAt": "2026-09-30T10:49:03.480Z"
+  "recordedAt": "2026-09-30T12:09:11.032Z"
  },
  "cases": {
   "page.goto.basic": {
@@ -28,11 +28,11 @@
      "url": "<primary>/slow"
     },
     "bad": {
-     "error": "waitUntil: expected one of (load|domcontentloaded|networkidle|commit)",
+     "error": "page.goto: waitUntil: expected one of (load|domcontentloaded|networkidle|commit), got \"bogus\"",
      "name": "Error"
     }
    },
-   "ms": 1959
+   "ms": 2328
   },
   "page.goto.timeout": {
    "value": {
@@ -47,15 +47,15 @@
   "page.goto.errors": {
    "value": {
     "empty": {
-     "error": "page.goto: Protocol error (Playwright.navigate): Cannot navigate to invalid URL",
+     "error": "page.goto: url: expected a non-empty string, got \"\"",
      "name": "Error"
     },
     "junk": {
-     "error": "page.goto: Protocol error (Playwright.navigate): Cannot navigate to invalid URL",
+     "error": "page.goto: Cannot navigate to invalid URL: expected an absolute URL, got \"not a url\"",
      "name": "Error"
     }
    },
-   "ms": 189
+   "ms": 261
   },
   "page.reload": {
    "value": {
@@ -132,7 +132,7 @@
      "name": "Error"
     }
    },
-   "ms": 252
+   "ms": 319
   },
   "page.evaluate.mutation": {
    "value": {
@@ -2083,12 +2083,12 @@
   "tabs.open-errors": {
    "value": {
     "bad": {
-     "error": "page.goto: Protocol error (Playwright.navigate): Cannot navigate to invalid URL\nCall log:\n\u001b[2m  - navigating to \"not a url\", waiting until \"commit\"\u001b[22m\n",
+     "error": "tabs.open: Cannot navigate to invalid URL: expected an absolute URL, got \"not a url\"",
      "name": "Error"
     },
     "session": "string"
    },
-   "ms": 160
+   "ms": 6
   },
   "session.name-docs": {
    "value": {
@@ -2541,9 +2541,11 @@
   "dialogs.beforeunload": {
    "value": {
     "type": null,
-    "stayed": false
+    "stayed": false,
+    "onClose": null,
+    "openAfterDismiss": true
    },
-   "ms": 2305
+   "ms": 3899
   },
   "filechooser.event": {
    "value": {

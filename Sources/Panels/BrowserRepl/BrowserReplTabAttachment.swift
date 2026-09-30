@@ -133,7 +133,10 @@ final class BrowserReplTabAttachment {
         if challenge.previousFailureCount == 0, let credential = httpCredentials[key] {
             return (.useCredential, credential)
         }
-        return (.rejectProtectionSpace, nil)
+        // No credential: load the 401 response. (Rejecting the protection
+        // space would stick for the session and ignore credentials given in
+        // a later URL.)
+        return (.useCredential, nil)
     }
     /// Finished downloads by id.
     private(set) var downloadPaths: [String: String] = [:]
@@ -548,6 +551,12 @@ final class BrowserReplTabAttachment {
             return nil
         }
         let url = request.url ?? URL(string: "about:blank")!
+        // WebKit's popup configuration shares the opener's user content
+        // controller; the new panel installs its own scripts and message
+        // handlers, so it gets a controller of its own (a shared one would
+        // register the same handler names twice). The opener link does not
+        // depend on the controller.
+        configuration.userContentController = WKUserContentController()
         BrowserPanel.configureWebViewConfiguration(configuration, websiteDataStore: panel.websiteDataStore)
         let webView = CmuxWebView(frame: .zero, configuration: configuration, host: CmuxWebViewAppHost())
         webView.allowsBackForwardNavigationGestures = true
