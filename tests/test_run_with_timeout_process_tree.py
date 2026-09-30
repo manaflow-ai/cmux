@@ -123,13 +123,11 @@ class RunWithTimeoutProcessTreeTests(unittest.TestCase):
                 self.assertTrue(record.exists(), "child did not start")
                 tree = json.loads(record.read_text())
                 helper, command_pid = tree["helper"], tree["command"]
-                started = time.monotonic()
                 os.kill(runner.pid, signal.SIGINT)
                 # A repeated cancellation signal must not recurse into cleanup.
                 time.sleep(0.1)
                 os.kill(runner.pid, signal.SIGTERM)
                 self.assertEqual(runner.wait(timeout=7), 130)
-                self.assertLess(time.monotonic() - started, 7.5)
                 self.assertTrue(wait_for_exit(helper))
                 self.assertIsNone(unrelated.poll(), "cleanup killed an unrelated process")
             finally:
