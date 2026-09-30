@@ -42,6 +42,7 @@ extension CloudTreeOutlineView.Coordinator {
                     actions.setAgentUpdates(id, !agentUpdates.keepsAgentsUpdated)
                 }
                 keepUpdated.state = agentUpdates.keepsAgentsUpdated ? .on : .off
+                keepUpdated.toolTip = CloudAgentUpdatesExplainer.text
                 items.append(keepUpdated)
             }
         }

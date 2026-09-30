@@ -6,22 +6,29 @@ import Observation
 struct MachineSizeOption: Equatable, Sendable {
     let memoryMb: Int
     let diskMb: Int
+    let vcpus: Int
 
-    init?(memoryMb: Int) {
+    /// `servedVcpus` is the server's `limits.vcpusByMemoryMb` entry for this
+    /// size. The table's vCPUs mirror `VM_IMAGE_SIZES`
+    /// (web/services/vms/images/sizes.ts) only for a control plane that
+    /// predates that field.
+    init?(memoryMb: Int, servedVcpus: Int? = nil) {
+        let vcpus = servedVcpus.flatMap { $0 > 0 ? $0 : nil }
         switch memoryMb {
-        case 4096: self.init(memoryMb: memoryMb, diskMb: 16384)
-        case 8192: self.init(memoryMb: memoryMb, diskMb: 32768)
-        case 16384: self.init(memoryMb: memoryMb, diskMb: 65536)
-        case 24576: self.init(memoryMb: memoryMb, diskMb: 98304)
-        case 32768: self.init(memoryMb: memoryMb, diskMb: 131072)
-        case 65536: self.init(memoryMb: memoryMb, diskMb: 131072)
+        case 4096: self.init(memoryMb: memoryMb, diskMb: 16384, vcpus: vcpus ?? 2)
+        case 8192: self.init(memoryMb: memoryMb, diskMb: 32768, vcpus: vcpus ?? 4)
+        case 16384: self.init(memoryMb: memoryMb, diskMb: 65536, vcpus: vcpus ?? 8)
+        case 24576: self.init(memoryMb: memoryMb, diskMb: 98304, vcpus: vcpus ?? 12)
+        case 32768: self.init(memoryMb: memoryMb, diskMb: 131072, vcpus: vcpus ?? 16)
+        case 65536: self.init(memoryMb: memoryMb, diskMb: 131072, vcpus: vcpus ?? 32)
         default: return nil
         }
     }
 
-    private init(memoryMb: Int, diskMb: Int) {
+    private init(memoryMb: Int, diskMb: Int, vcpus: Int) {
         self.memoryMb = memoryMb
         self.diskMb = diskMb
+        self.vcpus = vcpus
     }
 
     /// The localized RAM value shown as the selected picker title.
@@ -51,7 +58,8 @@ struct MachineSizeOption: Equatable, Sendable {
     /// The localized, compact row title shown in the size menu.
     var menuTitle: String {
         String(
-            format: String(localized: "machines.new.size.menu", defaultValue: "%1$d GB RAM · %2$d GB disk"),
+            format: String(localized: "machines.new.size.menu.vcpu", defaultValue: "%1$d vCPU · %2$d GB RAM · %3$d GB disk"),
+            vcpus,
             memoryMb / 1024,
             diskMb / 1024
         )
@@ -153,6 +161,8 @@ final class NewMachineModel {
     /// The plan that sells the locked sizes; nil when nothing is locked.
     private(set) var memoryUpgradePlanId: String?
     private(set) var memoryUpgradePlansByMb: [String: String]?
+    /// The server's vCPUs per size; nil from an older control plane.
+    private(set) var vcpusByMemoryMb: [String: Int]?
     /// The server advertised a ladder, but every size is locked for this plan.
     /// Creation must stay disabled until the server returns an allowed size.
     private(set) var hasNoAllowedMemoryOptions = false
@@ -267,6 +277,7 @@ final class NewMachineModel {
             lockedMemoryOptionsMb: limits.lockedMemoryOptionsMb,
             memoryUpgradePlanId: limits.memoryUpgradePlanId,
             memoryUpgradePlansByMb: limits.memoryUpgradePlansByMb,
+            vcpusByMemoryMb: limits.vcpusByMemoryMb,
             selectionWindowID: selectionWindowID,
             defaults: defaults,
             submit: submit
@@ -276,6 +287,7 @@ final class NewMachineModel {
         lockedMemoryOptionsMb = updated.lockedMemoryOptionsMb
         memoryUpgradePlanId = updated.memoryUpgradePlanId
         memoryUpgradePlansByMb = updated.memoryUpgradePlansByMb
+        vcpusByMemoryMb = updated.vcpusByMemoryMb
         hasNoAllowedMemoryOptions = updated.hasNoAllowedMemoryOptions
         if !availableMemoryOptionsMb.contains(storedMemoryMb) { storedMemoryMb = updated.memoryMb }
     }
@@ -292,6 +304,7 @@ final class NewMachineModel {
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
+        vcpusByMemoryMb: [String: Int]? = nil,
         selectionWindowID: UUID? = nil,
         defaults: UserDefaults = .standard,
         submit: @escaping Submit
@@ -299,6 +312,7 @@ final class NewMachineModel {
         self.defaults = defaults
         self.keepsAgentsUpdated = defaults.object(forKey: Self.keepsAgentsUpdatedDefaultsKey) as? Bool ?? true
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
+        self.vcpusByMemoryMb = vcpusByMemoryMb
         self.mode = mode
         self.plan = plan
         let serverOptions = Set(memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }).sorted()
@@ -372,7 +386,12 @@ final class NewMachineModel {
     /// Sizes the plan cannot start, ascending; the sheet lists them disabled.
     var lockedMemoryOptions: [Int] { lockedMemoryOptionsMb }
 
-    var selectedSize: MachineSizeOption? { MachineSizeOption(memoryMb: memoryMb) }
+    var selectedSize: MachineSizeOption? { sizeOption(memoryMb: memoryMb) }
+
+    /// A ladder size labeled with the server's vCPUs when it sent them.
+    func sizeOption(memoryMb: Int) -> MachineSizeOption? {
+        MachineSizeOption(memoryMb: memoryMb, servedVcpus: vcpusByMemoryMb?[String(memoryMb)])
+    }
 
     /// "Max" for the plan that unlocks the locked sizes; nil when nothing is locked.
     var memoryUpgradePlanName: String? {

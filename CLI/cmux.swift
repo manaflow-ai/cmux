@@ -18944,6 +18944,7 @@ struct CMUXCLI {
                                         \(String(localized: "cli.vm.help.newDevboxScreen", defaultValue: "coding agents and a VNC screen. The server picks"))
                                         \(String(localized: "cli.vm.help.newDevboxImage", defaultValue: "the image for the size; --image <id> is an"))
                                         \(String(localized: "cli.vm.help.newDevboxOverride", defaultValue: "explicit override you normally omit."))
+                                        \(String(localized: "cli.vm.help.newSizesVcpu", defaultValue: "vCPUs follow --size: 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."))
                                         --no-focus opens the machine without
                                         switching to its workspace (what the New
                                         Machine sheet does).

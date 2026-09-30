@@ -1527,6 +1527,9 @@ extension CMUXCLI {
 
         let status = (machine["status"] as? String) ?? "unknown"
         var facts: [String] = []
+        if let cpus = vmTreeNumber(machine["cpus"]), cpus > 0 {
+            facts.append(String(format: String(localized: "cli.vm.tree.vcpu", defaultValue: "%.0f vCPU"), cpus))
+        }
         if let memoryMb = vmTreeNumber(machine["memory_mb"]), memoryMb > 0 {
             facts.append(String(format: "%.0f GB", memoryMb / 1024))
         }

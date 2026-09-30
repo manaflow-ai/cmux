@@ -1939,6 +1939,8 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     public var privateAddress: String? = nil
     /// Account presence for another Mac's app instance; nil for local and cloud machines.
     public var presence: SurfaceDevicePresence? = nil
+    /// vCPUs the cloud machine reports; nil for the local Mac and when unknown.
+    public var cpus: Int? = nil
 
     public init(
         id: SurfaceMachineID,
@@ -1955,7 +1957,8 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         diskUsedMb: Int? = nil,
         remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil,
         privateAddress: String? = nil,
-        presence: SurfaceDevicePresence? = nil
+        presence: SurfaceDevicePresence? = nil,
+        cpus: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -1972,6 +1975,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         self.remoteWorkspaces = remoteWorkspaces
         self.privateAddress = privateAddress
         self.presence = presence
+        self.cpus = cpus
     }
 }
 

@@ -1173,6 +1173,7 @@ extension TerminalController {
             "image": info.image ?? NSNull(),
             "has_desktop": info.hasDesktop,
             "memory_mb": info.memoryMb ?? NSNull(),
+            "cpus": info.cpus ?? NSNull(),
             "disk_mb": info.diskMb ?? NSNull(),
             "link_state": info.linkState.rawValue,
             "link_error": info.linkError ?? NSNull(),

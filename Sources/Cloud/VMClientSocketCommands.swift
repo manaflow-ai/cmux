@@ -60,6 +60,7 @@ extension TerminalController {
                         "lockedMemoryOptionsMb": limits.lockedMemoryOptionsMb.map { $0 as Any } ?? NSNull(),
                         "memoryUpgradePlanId": limits.memoryUpgradePlanId.map { $0 as Any } ?? NSNull(),
                         "memoryUpgradePlansByMb": limits.memoryUpgradePlansByMb.map { $0 as Any } ?? NSNull(),
+                        "vcpusByMemoryMb": limits.vcpusByMemoryMb.map { $0 as Any } ?? NSNull(),
                     ]
                 }
                 return payload

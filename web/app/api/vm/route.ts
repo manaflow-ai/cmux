@@ -44,6 +44,7 @@ import {
   type VmEntitlements,
   vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
+import { vcpusByMemoryMb } from "../../../services/vms/images/sizes";
 import {
   inferVmProviderForImage,
   resolveVmImage,
@@ -222,6 +223,11 @@ export async function GET(request: Request): Promise<Response> {
               const plan = upgradePlanForMemory(mb, listEntitlements.planId);
               return plan ? [[String(mb), plan]] : [];
             })),
+          // vCPUs for every size above, so a client labels a size without its own table.
+          vcpusByMemoryMb: vcpusByMemoryMb([
+            ...memoryOptionsMbForPlan(listEntitlements.planId, process.env),
+            ...lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
+          ]),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
           imageKinds: listVmImageKinds(defaultProviderId(), process.env, {

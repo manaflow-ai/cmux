@@ -178,6 +178,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
+        vcpusByMemoryMb: [String: Int]? = nil,
         preferredWindow: NSWindow?,
         coordinator: MachineCreateCoordinator? = nil
     ) {
@@ -195,6 +196,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             lockedMemoryOptionsMb: lockedMemoryOptionsMb,
             memoryUpgradePlanId: memoryUpgradePlanId,
             memoryUpgradePlansByMb: memoryUpgradePlansByMb,
+            vcpusByMemoryMb: vcpusByMemoryMb,
             selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
             submit: { request in
                 guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
@@ -262,6 +264,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
                     lockedMemoryOptionsMb: limits?.lockedMemoryOptionsMb,
                     memoryUpgradePlanId: limits?.memoryUpgradePlanId,
                     memoryUpgradePlansByMb: limits?.memoryUpgradePlansByMb,
+                    vcpusByMemoryMb: limits?.vcpusByMemoryMb,
                     selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
                     submit: { [weak self] request in
                         guard let self, self.pendingSelectionID == selectionID else { return false }

@@ -359,6 +359,7 @@ public struct VMPlanLimits: Sendable {
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
+        vcpusByMemoryMb: [String: Int]? = nil,
         activeVmCount: Int? = nil,
         imageKinds: [VMImageKindOption] = []
     ) {
@@ -370,6 +371,7 @@ public struct VMPlanLimits: Sendable {
         self.lockedMemoryOptionsMb = lockedMemoryOptionsMb
         self.memoryUpgradePlanId = memoryUpgradePlanId
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
+        self.vcpusByMemoryMb = vcpusByMemoryMb
         self.activeVmCount = activeVmCount
         self.imageKinds = imageKinds
     }
@@ -391,6 +393,9 @@ public struct VMPlanLimits: Sendable {
     /// The plan that sells the locked sizes ("max"); nil when nothing is locked.
     public var memoryUpgradePlanId: String? = nil
     public var memoryUpgradePlansByMb: [String: String]? = nil
+    /// vCPUs per size, keyed by the size in MB as a string; nil when the
+    /// control plane predates the field and the client's ladder table decides.
+    public var vcpusByMemoryMb: [String: Int]? = nil
     var activeVmCount: Int? = nil
     /// The kinds the default provider can serve and the image each resolves to;
     /// informational (`vm.limits` echoes it): one snapshot serves every kind.
@@ -1138,6 +1143,7 @@ public actor VMClient {
                     memoryUpgradePlanId: (rawLimits["memoryUpgradePlanId"] as? String)
                         .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
                     memoryUpgradePlansByMb: rawLimits["memoryUpgradePlansByMb"] as? [String: String],
+                    vcpusByMemoryMb: Self.decodePositiveIntMap(rawLimits["vcpusByMemoryMb"]),
                     activeVmCount: rawLimits["activeVmCount"] as? Int,
                     imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
                 )
@@ -1521,6 +1527,13 @@ public actor VMClient {
             guard let value, value > 0 else { return nil }
             return value
         }
+    }
+
+    /// `limits.vcpusByMemoryMb: {"8192": 4}`; entries that are not positive
+    /// integers are skipped, and an absent or non-object value is nil.
+    private static func decodePositiveIntMap(_ raw: Any?) -> [String: Int]? {
+        guard let object = raw as? [String: Any] else { return nil }
+        return object.compactMapValues { decodeIntArray([$0]).first }
     }
 
     /// JSON numbers arrive as Int64 or Double depending on magnitude; `null`/absent → nil.

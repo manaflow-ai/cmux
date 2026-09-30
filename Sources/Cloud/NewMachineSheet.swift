@@ -134,12 +134,7 @@ struct NewMachineSheet: View {
     private var networkLabel: String { String(localized: "cloud.network.section.label", defaultValue: "Network") }
     private var agentsLabel: String { String(localized: "machines.new.row.agents.short", defaultValue: "Agents") }
     private var agentsTitle: String { String(localized: "machines.new.agentUpdates.label", defaultValue: "Keep coding agents up to date") }
-    private var agentsHelp: String {
-        String(
-            localized: "machines.new.agentUpdates.help",
-            defaultValue: "Updates Claude Code, Codex, OpenCode, and Pi to the newest release when you connect, at most once a day. A new release installs only after it has been public for 3 days."
-        )
-    }
+    private var agentsHelp: String { CloudAgentUpdatesExplainer.text }
 
     // MARK: A. Grid
 
@@ -252,6 +247,7 @@ struct NewMachineSheet: View {
                 if model.supportsAgentUpdates {
                     agentsMenu
                     agentsNetworkWarning
+                    CloudAgentUpdatesExplainer()
                 }
                 Spacer(minLength: 4)
                 if model.supportsNetworkPolicy {
@@ -321,6 +317,7 @@ struct NewMachineSheet: View {
                 groupedRow(agentsTitle) {
                     HStack(spacing: 6) {
                         agentsNetworkWarning
+                        CloudAgentUpdatesExplainer()
                         Toggle(isOn: $model.keepsAgentsUpdated) { EmptyView() }
                             .toggleStyle(.switch)
                             .controlSize(.mini)
@@ -387,7 +384,7 @@ struct NewMachineSheet: View {
                 }
             )) {
                 ForEach(model.memoryOptions, id: \.self) { memoryMb in
-                    if let size = MachineSizeOption(memoryMb: memoryMb) {
+                    if let size = model.sizeOption(memoryMb: memoryMb) {
                         Text(size.menuTitle).tag(memoryMb)
                     }
                 }
@@ -395,7 +392,7 @@ struct NewMachineSheet: View {
                     Divider()
                 }
                 ForEach(model.lockedMemoryOptions, id: \.self) { memoryMb in
-                    if let size = MachineSizeOption(memoryMb: memoryMb) {
+                    if let size = model.sizeOption(memoryMb: memoryMb) {
                         Label(model.lockedSizeMenuTitle(size), systemImage: "lock.fill")
                             .tag(memoryMb)
                             .accessibilityIdentifier("NewMachineSheet.size.locked.\(memoryMb)")
@@ -414,7 +411,7 @@ struct NewMachineSheet: View {
             // The sentence layout's token: a borderless menu with checkmarks.
             Menu {
                 ForEach(model.memoryOptions, id: \.self) { memoryMb in
-                    if let size = MachineSizeOption(memoryMb: memoryMb) {
+                    if let size = model.sizeOption(memoryMb: memoryMb) {
                         Button { model.selectSize(memoryMb) } label: {
                             if memoryMb == model.memoryMb {
                                 Label(size.menuTitle, systemImage: "checkmark")
@@ -428,7 +425,7 @@ struct NewMachineSheet: View {
                     Divider()
                 }
                 ForEach(model.lockedMemoryOptions, id: \.self) { memoryMb in
-                    if let size = MachineSizeOption(memoryMb: memoryMb) {
+                    if let size = model.sizeOption(memoryMb: memoryMb) {
                         Button { model.selectSize(memoryMb) } label: {
                             Label(model.lockedSizeMenuTitle(size), systemImage: "lock.fill")
                         }
@@ -545,12 +542,13 @@ struct NewMachineSheet: View {
             )
             .help(agentsHelp)
             .accessibilityIdentifier("NewMachineSheet.agentUpdates")
+            CloudAgentUpdatesExplainer()
             agentsNetworkWarning
         }
     }
 
-    /// Shown when the chosen network blocks the npm registry the updates
-    /// download from; the explanation is the tooltip.
+    /// Shown when the chosen network blocks a host the updates download
+    /// from (the catalog's `agentUpdateDomains`); the explanation is the tooltip.
     @ViewBuilder
     private var agentsNetworkWarning: some View {
         if let note = model.agentUpdatesNetworkNote {

@@ -470864,127 +470864,127 @@
         }
       }
     },
-    "machines.new.size.menu": {
+    "machines.new.size.menu.vcpu": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB ذاكرة · قرص %2$d GB"
+            "value": "%1$d vCPU · %2$d GB ذاكرة · قرص %3$d GB"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB RAM · %2$d GB disk"
+            "value": "%1$d vCPU · %2$d GB RAM · %3$d GB disk"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB RAM · %2$d GB disk"
+            "value": "%1$d vCPU · %2$d GB RAM · %3$d GB disk"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB RAM · %2$d GB Festplatte"
+            "value": "%1$d vCPU · %2$d GB RAM · %3$d GB Festplatte"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB RAM · %2$d GB disk"
+            "value": "%1$d vCPU · %2$d GB RAM · %3$d GB disk"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB de RAM · %2$d GB de disco"
+            "value": "%1$d vCPU · %2$d GB de RAM · %3$d GB de disco"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d Go de RAM · disque de %2$d Go"
+            "value": "%1$d vCPU · %2$d Go de RAM · disque de %3$d Go"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB di RAM · %2$d GB di disco"
+            "value": "%1$d vCPU · %2$d GB di RAM · %3$d GB di disco"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM %1$d GB · ディスク %2$d GB"
+            "value": "vCPU %1$d 個 · RAM %2$d GB · ディスク %3$d GB"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB RAM · ថាស %2$d GB"
+            "value": "%1$d vCPU · %2$d GB RAM · ថាស %3$d GB"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM %1$dGB · 디스크 %2$dGB"
+            "value": "vCPU %1$d개 · RAM %2$dGB · 디스크 %3$dGB"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB RAM · %2$d GB disk"
+            "value": "%1$d vCPU · %2$d GB RAM · %3$d GB disk"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB RAM · dysk %2$d GB"
+            "value": "%1$d vCPU · %2$d GB RAM · dysk %3$d GB"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB de RAM · disco de %2$d GB"
+            "value": "%1$d vCPU · %2$d GB de RAM · disco de %3$d GB"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d ГБ ОЗУ · диск %2$d ГБ"
+            "value": "%1$d vCPU · %2$d ГБ ОЗУ · диск %3$d ГБ"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM %1$d GB · ดิสก์ %2$d GB"
+            "value": "%1$d vCPU · RAM %2$d GB · ดิสก์ %3$d GB"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB RAM · %2$d GB disk"
+            "value": "%1$d vCPU · %2$d GB RAM · %3$d GB disk"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d ГБ ОЗП · диск %2$d ГБ"
+            "value": "%1$d vCPU · %2$d ГБ ОЗП · диск %3$d ГБ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB 内存 · %2$d GB 磁盘"
+            "value": "%1$d 个 vCPU · %2$d GB 内存 · %3$d GB 磁盘"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d GB 記憶體 · %2$d GB 磁碟"
+            "value": "%1$d 個 vCPU · %2$d GB 記憶體 · %3$d GB 磁碟"
           }
         }
       }
@@ -569956,65 +569956,7 @@
         }
       }
     },
-    "machines.new.agentUpdates.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Updates Claude Code, Codex, OpenCode, and Pi to the newest release when you connect, at most once a day. A new release installs only after it has been public for 3 days."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يحدّث Claude Code وCodex وOpenCode وPi إلى أحدث إصدار عند الاتصال، مرة واحدة يوميًا على الأكثر. لا يُثبَّت الإصدار الجديد إلا بعد مرور 3 أيام على نشره."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktualisiert Claude Code, Codex, OpenCode und Pi beim Verbinden auf das neueste Release, höchstens einmal am Tag. Ein neues Release wird erst installiert, wenn es seit 3 Tagen veröffentlicht ist."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Actualiza Claude Code, Codex, OpenCode y Pi a la versión más reciente al conectarte, como máximo una vez al día. Una versión nueva solo se instala cuando lleva 3 días publicada."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Met à jour Claude Code, Codex, OpenCode et Pi vers la dernière version à la connexion, au plus une fois par jour. Une nouvelle version ne s'installe qu'après 3 jours de publication."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続時に Claude Code、Codex、OpenCode、Pi を最新リリースに更新します（1 日に最大 1 回）。新しいリリースは公開から 3 日経過した後にインストールされます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "연결할 때 Claude Code, Codex, OpenCode, Pi를 최신 릴리스로 업데이트하며, 하루에 최대 한 번입니다. 새 릴리스는 공개된 지 3일이 지난 후에만 설치됩니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "连接时将 Claude Code、Codex、OpenCode 和 Pi 更新到最新版本，每天最多一次。新版本发布满 3 天后才会安装。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "連線時將 Claude Code、Codex、OpenCode 和 Pi 更新到最新版本，每天最多一次。新版本發布滿 3 天後才會安裝。"
-          }
-        }
-      }
-    },
+
     "machines.new.agentUpdates.label": {
       "extractionState": "manual",
       "localizations": {
@@ -577084,6 +577026,242 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$d/%2$d"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.vcpu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.0f vCPU"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.0f وحدة معالجة مركزية افتراضية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.0f vCPU"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.0f vCPU"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.0f vCPU"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.0f 個の vCPU"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU %.0f개"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.0f 个 vCPU"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.0f 個 vCPU"
+          }
+        }
+      }
+    },
+    "cli.vm.help.newSizesVcpu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPUs follow --size: 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدد --size عدد وحدات vCPU: 4g 2، 8g 4، 16g 8، 24g 12، 32g 16، 64g 32."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPUs richten sich nach --size: 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las vCPU dependen de --size: 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les vCPU suivent --size : 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 数は --size で決まります: 4g 2、8g 4、16g 8、24g 12、32g 16、64g 32。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 수는 --size를 따릅니다: 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 数量取决于 --size：4g 2、8g 4、16g 8、24g 12、32g 16、64g 32。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 數量取決於 --size：4g 2、8g 4、16g 8、24g 12、32g 16、64g 32。"
+          }
+        }
+      }
+    },
+    "cloud.agentUpdates.explainer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you connect, at most once a day, the machine updates Claude Code, Codex, OpenCode, Pi, and agent-browser from each tool's official GitHub release. A release installs only after it has been public for 3 days, and never as a downgrade."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الاتصال، مرة واحدة يوميًا على الأكثر، يحدّث الجهاز Claude Code وCodex وOpenCode وPi وagent-browser من إصدار GitHub الرسمي لكل أداة. لا يُثبَّت الإصدار إلا بعد مرور 3 أيام على نشره، ولا يُثبَّت أبدًا كإصدار أقدم."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Verbinden, höchstens einmal am Tag, aktualisiert die Maschine Claude Code, Codex, OpenCode, Pi und agent-browser aus dem offiziellen GitHub-Release des jeweiligen Tools. Ein Release wird erst installiert, wenn es seit 3 Tagen veröffentlicht ist, und nie als Downgrade."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al conectarte, como máximo una vez al día, la máquina actualiza Claude Code, Codex, OpenCode, Pi y agent-browser desde la versión oficial de GitHub de cada herramienta. Una versión solo se instala cuando lleva 3 días publicada, y nunca como una versión anterior."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À la connexion, au plus une fois par jour, la machine met à jour Claude Code, Codex, OpenCode, Pi et agent-browser depuis la version GitHub officielle de chaque outil. Une version ne s'installe qu'après 3 jours de publication, et jamais en rétrogradation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続時に（1 日に最大 1 回）、マシンは各ツールの公式 GitHub リリースから Claude Code、Codex、OpenCode、Pi、agent-browser を更新します。リリースは公開から 3 日経過した後にのみインストールされ、ダウングレードはしません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결할 때 하루에 최대 한 번, 머신이 각 도구의 공식 GitHub 릴리스에서 Claude Code, Codex, OpenCode, Pi, agent-browser를 업데이트합니다. 릴리스는 공개된 지 3일이 지난 후에만 설치되며, 다운그레이드되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接时（每天最多一次），机器会从各工具的官方 GitHub 版本更新 Claude Code、Codex、OpenCode、Pi 和 agent-browser。版本发布满 3 天后才会安装，且绝不降级。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線時（每天最多一次），機器會從各工具的官方 GitHub 版本更新 Claude Code、Codex、OpenCode、Pi 和 agent-browser。版本發布滿 3 天後才會安裝，且絕不降級。"
+          }
+        }
+      }
+    },
+    "cloud.agentUpdates.info": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How agents stay up to date"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كيف تبقى الوكلاء محدّثة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie Agents aktuell bleiben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo se mantienen actualizados los agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment les agents restent à jour"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントを最新に保つ仕組み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트를 최신 상태로 유지하는 방식"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理如何保持最新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式如何保持最新"
           }
         }
       }
