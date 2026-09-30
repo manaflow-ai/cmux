@@ -684,16 +684,21 @@ function startTranscriptTail(sess: Session, source: TranscriptSource) {
     const payload = JSON.stringify({ kind: "session-title", sessionId: sess.id, title });
     for (const ws of sess.sockets) ws.send(payload);
   }, { onTick: () => refreshTranscriptAttention(sess, source) });
+  // Seed attention before the first history replay. Hook state is independent
+  // of the JSONL transcript, so a reload while a terminal is waiting can have
+  // no file tick to trigger the callback.
+  refreshTranscriptAttention(sess, source);
 }
 
 // Permission prompts, questions, and pickers live in the terminal and are not
 // in the transcript until answered; the hook store says when the agent waits.
 function refreshTranscriptAttention(sess: Session, source: TranscriptSource) {
-  if (!sess.transcript || !sess.sockets.size) return;
-  refreshQueuedMessages(sess);
+  if (!sess.transcript) return;
+  if (sess.sockets.size) refreshQueuedMessages(sess);
   const attention = transcriptAttention(source.agent, source.sessionId);
   if ((sess.transcript.attention ?? null) === attention) return;
   sess.transcript.attention = attention;
+  if (!sess.sockets.size) return;
   const payload = JSON.stringify({ kind: "session-attention", sessionId: sess.id, attention });
   for (const ws of sess.sockets) ws.send(payload);
 }
@@ -728,6 +733,17 @@ function refreshQueuedMessages(sess: Session) {
     .finally(() => {
       transcript.queuedInflight = false;
     });
+}
+
+function refreshExistingTranscriptSession(sess: Session): Session {
+  if (!sess.transcript) return sess;
+  const target = sess.internal.transcriptTarget as { agentSessionId?: string } | undefined;
+  if (!target?.agentSessionId) return sess;
+  const source = resolveSessionTranscript(target.agentSessionId);
+  if (!source) return sess;
+  const refreshed = ensureTranscriptSession(source);
+  refreshTranscriptAttention(refreshed, source);
+  return refreshed;
 }
 
 function resolveTranscriptSessionById(id: string): Session | undefined {
@@ -2290,7 +2306,10 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
     }
     case "subscribe": {
       const sessionId = String(msg.sessionId);
-      const sess = sessions.get(sessionId) ?? resolveTranscriptSessionById(sessionId);
+      const existing = sessions.get(sessionId);
+      const sess = existing
+        ? refreshExistingTranscriptSession(existing)
+        : resolveTranscriptSessionById(sessionId);
       if (!sess) {
         ws.send(JSON.stringify({ kind: "no-session", sessionId: msg.sessionId }));
         return;
