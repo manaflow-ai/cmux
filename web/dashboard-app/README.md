@@ -94,3 +94,59 @@ outage or wait looks the same on every page.
 Row actions in tables use `ActionMenu` (the "…" trigger), not inline selects.
 An action the viewer cannot take stays in the menu, disabled, with its reason
 (for example, "A team needs at least one admin").
+
+## Navigation
+
+The sidebar has four groups, all title case: **Cloud** (Mac access),
+**Coderouter** (Overview), **Remote control** (Mobile devices, iOS
+TestFlight), and **Account** (Settings). Page titles are title case too
+("Dashboard", "Billing", "Coderouter"). Other locales capitalize the first
+letter where their script has case.
+
+**Settings is the single hub** for the account, billing, and teams. Its
+subnav groups:
+
+- **Account:** Profile, Emails & auth, Notifications, Sessions, API keys
+  (when the project allows them), Account.
+- **Billing:** Plan & billing.
+- **Teams:** one entry per team, then Create team.
+
+Team pages open inside Settings, with the team header and tabs (General,
+Members, Billing, API keys). The public URLs do not change:
+`/dashboard/billing`, `/dashboard/teams`, and `/dashboard/teams/$teamId/...`
+still resolve, render inside the Settings layout, and highlight Settings in
+the sidebar. Email, Stripe, and the native apps keep linking to them.
+
+## Plans and billing
+
+Plan & billing (personal) and a team's Billing tab use one plan picker.
+
+- **Picker:** cards for Free, Pro, and Max (Team for a team), each with the
+  price and three plain lines on what it includes. The current plan is
+  marked; the others carry one action each.
+- **Upgrade from Free:** opens Stripe Checkout, returning to Plan & billing
+  (or to the page that sent the user, see below).
+- **Switch between paid plans (Pro and Max):** in the app. A confirm dialog
+  shows the new price, the prorated amount due today (from a Stripe invoice
+  preview), and the next renewal date. An upgrade takes effect now and
+  charges the prorated difference now; a downgrade takes effect now and the
+  unused part is credited to later invoices.
+- **Cancel:** a dialog that states the end date, lists in plain words what
+  stops then (Cloud VM pool size, the iOS app, team seats for a team), and
+  asks one optional question: why (too expensive, missing a feature, not using
+  it, other with text). The answer goes to analytics and is never required.
+  Access continues to the end date; Plan & billing shows "Ends on <date>"
+  with Resume until then.
+- **Payment method and invoices:** "Manage payment method" and "Invoices"
+  open the Stripe portal. Plan changes never go through the portal.
+- **Welcome:** after a successful checkout the user lands on Plan & billing
+  with a welcome state: what just unlocked, and links to the first things to
+  try (install the iOS app, open Cloud, create a team).
+
+Upgrade prompts, for a Free user:
+
+- The plan picker on Plan & billing.
+- Pages that need a paid plan (Cloud, iOS TestFlight, Mobile devices) show a
+  short "Requires Pro" panel with Upgrade; checkout returns to that page.
+- The account menu shows the plan (Free, Pro, Max) and, for Free, an
+  Upgrade link.
