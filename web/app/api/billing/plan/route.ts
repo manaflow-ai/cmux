@@ -6,7 +6,6 @@ import {
   FREE_PLAN_ID,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
-  hasActiveTeamSubscriptionForTeam,
   isPaidPlanId,
   isStripePortalRecoverable,
   manualVmPlanOverride,
@@ -18,6 +17,11 @@ import {
   resolveBillingTeam,
   type BillingTeamUserLike,
 } from "../../../../services/billing/teamResolution";
+import {
+  resolveTeamSeatEntitlement,
+  teamSeatMemberListingAvailable,
+  type TeamSeatResolverOptions,
+} from "../../../../services/billing/teamSeats";
 import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 
 
@@ -74,7 +78,7 @@ export async function GET(request: NextRequest) {
   }
 
   const status = await resolveProPlanStatus(user);
-  const teamStatus = await resolveTeamPlanStatus(user);
+  const teamStatus = await resolveTeamPlanStatus(user, stackServerApp);
   return jsonResponse({
     authenticated: !user.isAnonymous,
     billingAvailable,
@@ -102,13 +106,30 @@ type TeamPlanStatus = {
   readonly billingManagement: BillingManagementKind;
 };
 
-async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPlanStatus> {
+async function resolveTeamPlanStatus(
+  user: BillingTeamUserLike,
+  stackApp: TeamSeatResolverOptions["stackApp"],
+): Promise<TeamPlanStatus> {
   const team = await resolveBillingTeam(user);
   if (!team?.id) {
     return { planId: FREE_PLAN_ID, billingManagement: "none" };
   }
-  const stripeActive = await hasActiveTeamSubscriptionForTeam(team.id);
-  if (stripeActive) {
+  const teamBilling = await stripeBillingStatusForTeam(team.id);
+  if (teamBilling.hasActiveSubscription) {
+    const seatOptions: TeamSeatResolverOptions = {
+      stackApp,
+      stackTeam: team,
+      subscription: {
+        active: true,
+        seats: teamBilling.seats,
+      },
+    };
+    if (user.id && teamSeatMemberListingAvailable(seatOptions)) {
+      const seat = await resolveTeamSeatEntitlement(team.id, user.id, seatOptions);
+      if (!seat.entitled) {
+        return { planId: FREE_PLAN_ID, billingManagement: "stripe" };
+      }
+    }
     return { planId: TEAM_PLAN_ID, billingManagement: "stripe" };
   }
   // An operator team grant (`cmuxVmPlan` on the team) is the Team plan
@@ -119,7 +140,6 @@ async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPla
   // Mirror the personal-plan rule: the portal is only useful when it has a
   // recoverable subscription to manage. Terminally canceled teams and
   // customer-only rows must keep the checkout path.
-  const teamBilling = await stripeBillingStatusForTeam(team.id);
   return {
     planId: FREE_PLAN_ID,
     billingManagement: isStripePortalRecoverable(teamBilling) ? "stripe" : "none",

@@ -30,8 +30,15 @@ import {
 } from "../billing/teamResolution";
 import {
   isDevelopmentProAccessEnabled,
+  FREE_PLAN_ID,
+  TEAM_PLAN_ID,
   PRO_PLAN_ID,
 } from "../billing/pro";
+import {
+  resolveTeamSeatEntitlement,
+  teamSeatMemberListingAvailable,
+  type TeamSeatResolverOptions,
+} from "../billing/teamSeats";
 
 export type AuthedUser = {
   id: string;
@@ -528,7 +535,7 @@ export async function verifyRequest(
     "get_user",
   );
   if (user) {
-    const resolved = await authedUserFromStackUser(user, options);
+    const resolved = await authedUserFromStackUser(user, options, stackServerApp);
     if (resolved) recordAuthResolution({ source: "cookie", providerCalled: true });
     return resolved?.user ?? null;
   }
@@ -573,7 +580,7 @@ async function verifyNativeRequest(
     throw error;
   }
   if (user) {
-    const resolved = await authedUserFromStackUser(user, options);
+    const resolved = await authedUserFromStackUser(user, options, stackServerApp);
     if (resolved && cacheKey) {
       writeNativeAuthCache(cacheKey, resolved.user, tokens, authCacheTtlMs());
     }
@@ -802,6 +809,7 @@ async function resolveStackTeamMembership(
 async function authedUserFromStackUser(
   user: StackUserLike,
   options: VerifyRequestOptions,
+  stackApp: TeamSeatResolverOptions["stackApp"],
 ): Promise<ResolvedStackUser | null> {
   if (!options.allowDeletingAccount && await isAccountDeletionAuthBlocked(user)) {
     return null;
@@ -812,9 +820,18 @@ async function authedUserFromStackUser(
     ...listedTeams.map((team) => team.id),
   ]);
   const teams = uniqueTeams([selectedTeam, ...listedTeams]);
+  const seatCheckedTeams = await Promise.all(
+    teams.map((team) => teamWithSeatCheckedPlan(team, user.id, stackApp)),
+  );
+  const seatCheckedTeamsById = new Map(
+    seatCheckedTeams.map((team) => [team.id, team]),
+  );
   const billingTeam = await resolveBillingTeam({
-    selectedTeam,
-    listTeams: async () => listedTeams,
+    selectedTeam: selectedTeam
+      ? seatCheckedTeamsById.get(selectedTeam.id) ?? selectedTeam
+      : null,
+    listTeams: async () => listedTeams.map((team) =>
+      seatCheckedTeamsById.get(team.id) ?? team),
   });
   const developmentPro = !user.isAnonymous && isDevelopmentProAccessEnabled();
   const userBillingPlanId = developmentPro
@@ -824,7 +841,7 @@ async function authedUserFromStackUser(
     ? PRO_PLAN_ID
     : billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
   const billingSeats = billingSeatsFromMetadata(billingTeam?.clientReadOnlyMetadata);
-  const authedTeams = teams.map((team) => ({
+  const authedTeams = seatCheckedTeams.map((team) => ({
     id: team.id,
     displayName: team.displayName,
     billingPlanId: developmentPro
@@ -850,6 +867,33 @@ async function authedUserFromStackUser(
     },
     completeTeamList,
   };
+}
+
+async function teamWithSeatCheckedPlan(
+  team: BillingTeamLike,
+  userId: string,
+  stackApp: TeamSeatResolverOptions["stackApp"],
+): Promise<BillingTeamLike> {
+  if (billingPlanIdFromMetadata(team.clientReadOnlyMetadata)?.toLowerCase() !== TEAM_PLAN_ID) {
+    return team;
+  }
+  const seatOptions: TeamSeatResolverOptions = { stackApp, stackTeam: team };
+  if (!teamSeatMemberListingAvailable(seatOptions)) return team;
+
+  const seat = await resolveTeamSeatEntitlement(team.id, userId, seatOptions);
+  if (seat.status === "inactive" || seat.entitled) return team;
+  return {
+    ...team,
+    clientReadOnlyMetadata: freeTeamPlanMetadata(team.clientReadOnlyMetadata),
+  };
+}
+
+function freeTeamPlanMetadata(metadata: unknown): Record<string, unknown> {
+  const record = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? { ...(metadata as Record<string, unknown>) }
+    : {};
+  record.cmuxPlan = FREE_PLAN_ID;
+  return record;
 }
 
 const MAX_STACK_TEAM_PAGES = 100;
