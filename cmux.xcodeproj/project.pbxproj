@@ -2237,7 +2237,6 @@
 		08F746099657B74737EFC1C3 /* MachinesPanelViewModel+MachineDeletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED2C0C087F0298473CB156E7 /* MachinesPanelViewModel+MachineDeletion.swift */; };
 		C1257500000000000000001A /* MachinesPanelViewModel+MachinePins.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1257500000000000000001B /* MachinesPanelViewModel+MachinePins.swift */; };
 		F9ADD9F062DEA2BC5924BC38 /* MachinesPanelViewModel+Refresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8DCA0BDC648E6CDCFD3E228 /* MachinesPanelViewModel+Refresh.swift */; };
-		89CBF958352FF7E4677501AC /* MachinesPanelViewModel+RefreshResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27570269A8FDFA881A9C2520 /* MachinesPanelViewModel+RefreshResult.swift */; };
 		D7E6477A2FC01DCCF353840D /* MachinesPanelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68672B3C63D4E348AFA4DEF7 /* MachinesPanelViewModel.swift */; };
 		D1F0A00100000000000000C1 /* MacPairedMacBackupPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000C2 /* MacPairedMacBackupPublisher.swift */; };
 		A7C0F0010000000000000002 /* MacPairedMacBackupPublisherScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0F0010000000000000001 /* MacPairedMacBackupPublisherScopeTests.swift */; };
@@ -6378,7 +6377,6 @@
 		ED2C0C087F0298473CB156E7 /* MachinesPanelViewModel+MachineDeletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelViewModel+MachineDeletion.swift"; sourceTree = "<group>"; };
 		C1257500000000000000001B /* MachinesPanelViewModel+MachinePins.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelViewModel+MachinePins.swift"; sourceTree = "<group>"; };
 		E8DCA0BDC648E6CDCFD3E228 /* MachinesPanelViewModel+Refresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelViewModel+Refresh.swift"; sourceTree = "<group>"; };
-		27570269A8FDFA881A9C2520 /* MachinesPanelViewModel+RefreshResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelViewModel+RefreshResult.swift"; sourceTree = "<group>"; };
 		68672B3C63D4E348AFA4DEF7 /* MachinesPanelViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesPanelViewModel.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000C2 /* MacPairedMacBackupPublisher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacPairedMacBackupPublisher.swift; sourceTree = "<group>"; };
 		A7C0F0010000000000000001 /* MacPairedMacBackupPublisherScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPairedMacBackupPublisherScopeTests.swift; sourceTree = "<group>"; };
@@ -9082,7 +9080,6 @@
 				DBF12EF9962B6C396CFCFC9D /* CloudTreeDevicesSection+Controls.swift */,
 				347D1CC32D12CFA9B39A67CB /* CloudTreeCreateActionLabel.swift */,
 				E9F1AC4DB302C65ABFE57B89 /* CloudTreeCreateActionView.swift */,
-				27570269A8FDFA881A9C2520 /* MachinesPanelViewModel+RefreshResult.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -14523,7 +14520,6 @@
 				08F746099657B74737EFC1C3 /* MachinesPanelViewModel+MachineDeletion.swift in Sources */,
 				C1257500000000000000001A /* MachinesPanelViewModel+MachinePins.swift in Sources */,
 				F9ADD9F062DEA2BC5924BC38 /* MachinesPanelViewModel+Refresh.swift in Sources */,
-				89CBF958352FF7E4677501AC /* MachinesPanelViewModel+RefreshResult.swift in Sources */,
 				D7E6477A2FC01DCCF353840D /* MachinesPanelViewModel.swift in Sources */,
 				D1F0A00100000000000000C1 /* MacPairedMacBackupPublisher.swift in Sources */,
 				D1F0A00500000000000000E1 /* MacPresenceDecisionCache.swift in Sources */,
