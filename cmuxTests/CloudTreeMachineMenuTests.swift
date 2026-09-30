@@ -260,7 +260,7 @@ struct CloudTreeMachineMenuTests {
         coordinator.apply(nodes: [node])
 
         let menu = try #require(coordinator.contextMenu(forRow: 0))
-        let closeTitle = Self.title("cloudTree.menu.closeTab", "Close Tab\u{2026}")
+        let closeTitle = Self.title("cloudTree.menu.closeTab", "Close Tab…")
         #expect(menu.items.contains { $0.title == closeTitle })
         #expect(!menu.items.contains { $0.title == Self.title("cloudTree.menu.killTerminal", "Kill Terminal\u{2026}") })
         try Self.choose(closeTitle, in: menu)
