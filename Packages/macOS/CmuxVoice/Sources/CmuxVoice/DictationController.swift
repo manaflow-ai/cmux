@@ -342,7 +342,6 @@ public final class DictationController {
                   self.phase == .stopping else {
                 return
             }
-            self.finishTask?.cancel()
             self.fail(
                 .transcriptionFailed("dictation stop timed out"),
                 generation: generation
