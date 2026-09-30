@@ -167,7 +167,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         content = controller
         // One synchronous swap: the old view leaves (its panes stay mounted,
         // paused) and the new one draws in the same frame.
-        root.show(controller.layoutView)
+        root.show(controller.contentView)
         trimParked()
         startupObservation?.cancel()
         startupObservation = nil

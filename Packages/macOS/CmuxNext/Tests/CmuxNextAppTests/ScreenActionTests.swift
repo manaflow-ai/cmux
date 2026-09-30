@@ -43,12 +43,9 @@ struct ScreenActionTests {
 
     @Test func screenActionsWithoutAWorkspaceAreRefused() {
         let services = Coverage.boundServices()
-        for id in ["screen.new", "screen.next", "screen.rename", "screen.setColor", "screen.togglePin", "screen.moveLeft",
-                   "screen.closeOthers", "screenGroup.create"] {
-            guard case .refused = Coverage.run(services, id) else {
-                Issue.record("\(id) ran without a workspace")
-                continue
-            }
+        for id in ["screen.new", "screen.next", "screen.rename", "screen.clearColor", "screen.togglePin", "screen.moveLeft",
+                   "screen.duplicate", "screenGroup.create"] {
+            #expect(Coverage.run(services, id) == .refused(RefusalStrings.noWindowShowsWorkspace), "\(id)")
         }
         let missing = ActionTargetRef(kind: .screen, id: "screen_missing")
         #expect(Coverage.run(services, "screen.close", target: missing) == .refused(RefusalStrings.noScreen("screen_missing")))
@@ -57,8 +54,8 @@ struct ScreenActionTests {
     @Test func screenGroupActionsNeedAKnownGroup() {
         let services = Coverage.boundServices()
         let group = ActionTargetRef(kind: .screenGroup, id: "sgrp_missing")
-        for id in ["screenGroup.rename", "screenGroup.color.red", "screenGroup.moveLeft", "screenGroup.save", "screenGroup.close"] {
-            #expect(Coverage.run(services, id, target: group) == .refused(RefusalStrings.noScreenGroup("sgrp_missing")), "\(id)")
+        for id in ["screenGroup.rename", "screenGroup.color.red", "screenGroup.moveLeft", "screenGroup.save", "screenGroup.ungroup"] {
+            #expect(Coverage.run(services, id, target: group) == .refused(ScreenStrings.noScreenGroup("sgrp_missing")), "\(id)")
         }
     }
 

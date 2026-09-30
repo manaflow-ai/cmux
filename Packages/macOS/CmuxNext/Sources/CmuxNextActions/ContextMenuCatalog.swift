@@ -14,6 +14,8 @@ public enum ContextMenuCatalog {
         switch context {
         case .tab: tab
         case .tabGroup: tabGroup
+        case .screen: screen
+        case .screenGroup: screenGroup
         case .pane: pane
         case .column: column
         case .workspaceRow: workspaceRow
@@ -70,6 +72,23 @@ public enum ContextMenuCatalog {
         + actions("tabGroup.moveLeft", "tabGroup.moveRight", "tabGroup.moveToNewSplit", "tabGroup.moveToNewColumn", "tabGroup.moveToNewWorkspace",
                   "tabGroup.moveToWorkspace", "tabGroup.moveToNewWindow")
         + [.separator] + actions("tabGroup.ungroup", "tabGroup.close")
+
+    /// A screen tab in the bottom screen bar.
+    static let screen: [ContextMenuEntry] =
+        actions("screen.new", "screen.duplicate") + [.separator]
+        + actions("screen.rename") + [.submenu("screen.setColor", colors("screen") + actions("screen.clearColor"))]
+        + actions("screen.setIcon", "screen.clearIcon", "screen.togglePin") + [.separator]
+        + actions("screenGroup.create", "screenGroup.addScreen", "screenGroup.removeScreen") + [.separator]
+        + actions("screen.moveLeft", "screen.moveRight", "screen.moveToWorkspace", "screen.moveToNewWorkspace", "screen.moveToNewWindow")
+        + [.separator] + actions("screen.close", "screen.closeOthers", "screen.closeToRight", "screen.closeToLeft")
+
+    /// A screen group chip in the screen bar.
+    static let screenGroup: [ContextMenuEntry] =
+        actions("screenGroup.newScreen", "screenGroup.rename") + [.submenu("screenGroup.setColor", colors("screenGroup"))]
+        + actions("screenGroup.toggleCollapsed") + [.separator] + actions("screenGroup.save", "screenGroup.unsave") + [.separator]
+        + actions("screenGroup.moveLeft", "screenGroup.moveRight", "screenGroup.moveToWorkspace", "screenGroup.moveToNewWorkspace",
+                  "screenGroup.moveToNewWindow")
+        + [.separator] + actions("screenGroup.ungroup", "screenGroup.close")
 
     static let pane: [ContextMenuEntry] =
         actions("splitRight", "splitDown", "splitLeft", "splitUp", "newColumn", "splitBrowserRight", "splitBrowserDown")

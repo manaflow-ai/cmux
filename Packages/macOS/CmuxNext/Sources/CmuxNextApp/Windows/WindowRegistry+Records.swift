@@ -48,7 +48,6 @@ extension WindowRegistry {
             isFullScreen: isFullScreen,
             sidebarWidth: state?.sidebarWidth,
             sidebarHidden: state?.sidebarHidden ?? false,
-            showsScreenSwitcher: state?.showsScreenSwitcher ?? false,
             selectedTabs: selectedTabs,
             order: order,
             profile: state.flatMap { $0.profileID == .defaultProfile ? nil : $0.profileID },

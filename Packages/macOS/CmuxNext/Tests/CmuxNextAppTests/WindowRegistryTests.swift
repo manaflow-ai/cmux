@@ -163,7 +163,6 @@ struct WindowRegistryTests {
         let stateA = WindowState(id: "a", workspaceID: "w2")
         stateA.sidebarWidth = 250
         stateA.sidebarHidden = true
-        stateA.showsScreenSwitcher = true
         let records = [
             try #require(registry.record("a", state: stateA, order: 1, selectedTabs: ["p1": "t1"])),
             try #require(registry.record("b", state: nil, order: 0)),
@@ -181,7 +180,6 @@ struct WindowRegistryTests {
         #expect(state.workspaceID == "w2")
         #expect(state.sidebarWidth == 250)
         #expect(state.sidebarHidden)
-        #expect(state.showsScreenSwitcher)
         #expect(state.selection.selection(in: "p1") == "t1")
         #expect(restored.violations().isEmpty)
     }

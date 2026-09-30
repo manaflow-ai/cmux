@@ -5,7 +5,7 @@ import CmuxNextDesign
 ///
 /// Keys: Cmd-Arrows focus, Cmd-N new column, Cmd-D split right,
 /// Cmd-Shift-D split down, Cmd-R / Cmd-Shift-R cycle column width presets,
-/// Cmd-W close pane, Cmd-1...9 screens, Cmd-S toggle the screen switcher,
+/// Cmd-W close pane, Cmd-1...9 screens,
 /// Cmd-I toggle inactive dimming, Cmd-E toggle centered focus.
 /// Drag the "Tab" chip onto panes or column gaps.
 public final class LayoutDemoController: NSObject {
@@ -80,7 +80,6 @@ public final class LayoutDemoController: NSObject {
             case "d": model.splitFocusedPane(axis: shift ? .vertical : .horizontal)
             case "r": model.cycleColumnWidthPreset(forward: !shift)
             case "w": if let pane = model.focusedPane { source.closePane(pane) }
-            case "s": model.showsScreenSwitcher.toggle()
             case "i": model.dimsInactivePanes.toggle()
             case "e":
                 let modes = CenterFocusedColumn.allCases

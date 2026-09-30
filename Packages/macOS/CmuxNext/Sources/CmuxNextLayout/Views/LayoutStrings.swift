@@ -8,9 +8,6 @@ enum LayoutStrings {
     static var columnEdgeAccessibility: String {
         String(localized: "layout.columnEdge.accessibility", defaultValue: "Column Width", bundle: .module)
     }
-    static var screenSwitcherAccessibility: String {
-        String(localized: "layout.screenSwitcher.accessibility", defaultValue: "Screens", bundle: .module)
-    }
     static func screenFallbackName(_ number: Int) -> String {
         String(localized: "layout.screen.fallbackName", defaultValue: "Screen \(number)", bundle: .module)
     }

@@ -21,7 +21,6 @@ public final class LayoutRootView: NSView {
     weak var planeHost: (any OverlayPlaneHosting)?
     var reportedInteractiveRects: [CGRect] = []
     var reportedDividerMouseAreas: [LayoutMouseArea] = []
-    let switcher = ScreenSwitcherView()
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
     private var eventMonitor: Any?
@@ -37,7 +36,6 @@ public final class LayoutRootView: NSView {
         var screens: [LayoutScreen]
         var activeScreen: ScreenID?
         var focused: PaneID?
-        var showsSwitcher: Bool
         var dimsInactive: Bool
         var style: LayoutStyle
         var gestureActive: Bool
@@ -58,12 +56,6 @@ public final class LayoutRootView: NSView {
         context.overlayNeedsSync = { [weak self] in self?.syncOverlay() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
-        addSubview(switcher)
-        NSLayoutConstraint.activate([
-            switcher.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.space4),
-            switcher.centerXAnchor.constraint(equalTo: centerXAnchor),
-        ])
-        switcher.onSelect = { [weak self] id in self?.model.selectScreen(id) }
         registerForDraggedTypes([LayoutTabDrag.pasteboardType])
         sync(snapshot())
         observe()
@@ -118,7 +110,6 @@ public final class LayoutRootView: NSView {
             screens: model.screens,
             activeScreen: model.activeScreenID,
             focused: model.focusedPane,
-            showsSwitcher: model.showsScreenSwitcher,
             dimsInactive: model.dimsInactivePanes,
             style: model.style,
             gestureActive: model.isGestureActive,
@@ -136,8 +127,7 @@ public final class LayoutRootView: NSView {
                     screens: model.screens,
                     activeScreen: model.activeScreenID,
                     focused: model.focusedPane,
-                    showsSwitcher: model.showsScreenSwitcher,
-                    dimsInactive: model.dimsInactivePanes,
+                            dimsInactive: model.dimsInactivePanes,
                     style: model.style,
                     gestureActive: model.isGestureActive,
                     centerRequest: model.centerRequest,
@@ -178,7 +168,11 @@ public final class LayoutRootView: NSView {
                 view = ScreenContentView(screenID: screen.id, layout: screen.layout, context: context)
                 view.frame = bounds
                 view.isHidden = !isActive
-                addSubview(view, positioned: .below, relativeTo: overlayPlane.isHome ? overlayPlane : switcher)
+                if overlayPlane.isHome {
+                    addSubview(view, positioned: .below, relativeTo: overlayPlane)
+                } else {
+                    addSubview(view)
+                }
                 screenViews[screen.id] = view
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
@@ -208,10 +202,6 @@ public final class LayoutRootView: NSView {
             }
         }
 
-        switcher.isHidden = !snapshot.showsSwitcher
-        if snapshot.showsSwitcher {
-            switcher.update(screens: snapshot.screens, active: snapshot.activeScreen)
-        }
         updateVisibility()
         syncOverlay()
         // Pane padding or corners changed: pages drawn as child windows

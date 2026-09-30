@@ -6,6 +6,7 @@ public nonisolated enum ActionCategory: String, CaseIterable, Sendable, Hashable
     case window
     case workspace
     case pane
+    case screen
     case tab
     case terminal
     case browser
@@ -23,6 +24,7 @@ public nonisolated enum ActionCategory: String, CaseIterable, Sendable, Hashable
         case .window: String(localized: "category.window", defaultValue: "Window", bundle: .module)
         case .workspace: String(localized: "category.workspace", defaultValue: "Workspace", bundle: .module)
         case .pane: String(localized: "category.pane", defaultValue: "Panes", bundle: .module)
+        case .screen: String(localized: "category.screen", defaultValue: "Screens", table: "ScreenActions", bundle: .module)
         case .tab: String(localized: "category.tab", defaultValue: "Tabs", bundle: .module)
         case .terminal: String(localized: "category.terminal", defaultValue: "Terminal", bundle: .module)
         case .browser: String(localized: "category.browser", defaultValue: "Browser and Viewers", bundle: .module)

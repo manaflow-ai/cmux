@@ -6,6 +6,7 @@ public nonisolated enum ActionTargetKind: String, CaseIterable, Sendable, Hashab
     case pane
     case column
     case screen
+    case screenGroup = "screen-group"
     case workspace
     case workspaceGroup = "workspace-group"
     case window
@@ -45,6 +46,10 @@ public nonisolated struct ActionTargetRef: Sendable, Hashable, Codable, CustomSt
 public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hashable, Codable {
     case tab
     case tabGroup
+    /// A screen tab in the workspace's screen bar.
+    case screen
+    /// A screen group chip in the screen bar.
+    case screenGroup
     case pane
     case column
     case workspaceRow
@@ -65,6 +70,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         switch self {
         case .tab: .tab
         case .tabGroup: .tabGroup
+        case .screen: .screen
+        case .screenGroup: .screenGroup
         case .pane, .terminalSelection, .browserPage, .link, .newTab: .pane
         case .column: .column
         case .workspaceRow: .workspace

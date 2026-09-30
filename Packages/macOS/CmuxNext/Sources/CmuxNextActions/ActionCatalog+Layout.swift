@@ -4,7 +4,7 @@
 
 nonisolated extension ActionCatalog {
     static func layoutActions() -> [ActionDescriptor] {
-        tabMoveActions() + paneExtraActions() + columnActions() + screenActions() + terminalExtraActions()
+        tabMoveActions() + paneExtraActions() + columnActions() + terminalExtraActions()
     }
 
     private static func row(
@@ -85,28 +85,6 @@ nonisolated extension ActionCatalog {
                 .pane, "arrow.left.and.right", cli: "column cycle-width", keywords: ["column", "niri", "width", "preset"], targets: targets),
             row("column.cycleWidthBack", String(localized: "action.column.cycleWidthBack", defaultValue: "Cycle Column Width Backward", table: "LayoutActions", bundle: .module),
                 .pane, "arrow.right.and.line.vertical.and.arrow.left", cli: "column cycle-width-back", keywords: ["column", "niri", "width"], targets: targets),
-        ]
-    }
-
-    private static func screenActions() -> [ActionDescriptor] {
-        [
-            row("screen.new", String(localized: "action.screen.new", defaultValue: "New Screen", table: "LayoutActions", bundle: .module),
-                .pane, "rectangle.stack.badge.plus", cli: "screen new", keywords: ["screen", "tmux", "window", "create"], targets: [.screen],
-                startsTerminal: true),
-            row("screen.next", String(localized: "action.screen.next", defaultValue: "Next Screen", table: "LayoutActions", bundle: .module),
-                .pane, "chevron.right.2", cli: "screen next", keywords: ["screen", "switch"], targets: [.screen]),
-            row("screen.previous", String(localized: "action.screen.previous", defaultValue: "Previous Screen", table: "LayoutActions", bundle: .module),
-                .pane, "chevron.left.2", cli: "screen previous", keywords: ["screen", "switch"], targets: [.screen]),
-            row("screen.select", String(localized: "action.screen.select", defaultValue: "Select Screen 1…9", table: "LayoutActions", bundle: .module),
-                .pane, "number.square", cli: "screen select", keywords: ["screen", "switch", "index"], targets: [.screen],
-                arguments: [CatalogArgument.indexNumber]),
-            row("screen.rename", String(localized: "action.screen.rename", defaultValue: "Rename Screen…", table: "LayoutActions", bundle: .module),
-                .pane, "pencil", cli: "screen rename", keywords: ["screen", "title"], targets: [.screen],
-                arguments: [CatalogArgument.nameString.optional]),
-            row("screen.close", String(localized: "action.screen.close", defaultValue: "Close Screen", table: "LayoutActions", bundle: .module),
-                .pane, "xmark.rectangle.portrait", cli: "screen close", keywords: ["screen", "remove"], targets: [.screen]),
-            row("screen.toggleSwitcher", String(localized: "action.screen.toggleSwitcher", defaultValue: "Show/Hide Screen Switcher", table: "LayoutActions", bundle: .module),
-                .pane, "rectangle.3.group", cli: "screen toggle-switcher", keywords: ["screen", "switcher", "tabs"], targets: []),
         ]
     }
 

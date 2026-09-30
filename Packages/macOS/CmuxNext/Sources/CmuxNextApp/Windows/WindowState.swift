@@ -54,7 +54,6 @@ final class WindowState {
     /// The sidebar is fully hidden (Toggle Sidebar). Per window, persisted.
     var sidebarHidden = false
     /// The screen switcher is shown (kept across workspace switches).
-    var showsScreenSwitcher = false
     /// Profile this window shows (plans/cmux-next/data-model.md 4). Its
     /// sidebar lists only the window's workspaces of this profile.
     var profileID: ProfileID = .defaultProfile
@@ -87,7 +86,6 @@ extension WindowState {
         for (pane, tab) in record.selectedTabs { selection.select(tab, in: pane) }
         sidebarWidth = record.sidebarWidth
         sidebarHidden = record.sidebarHidden
-        showsScreenSwitcher = record.showsScreenSwitcher
         profileID = record.profile ?? .defaultProfile
         profileWorkspaces = Dictionary(record.profileWorkspaces.map { (ProfileID(rawValue: $0.key), $0.value.rawValue) },
                                        uniquingKeysWith: { first, _ in first })

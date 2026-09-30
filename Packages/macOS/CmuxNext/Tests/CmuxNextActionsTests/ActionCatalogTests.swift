@@ -61,7 +61,9 @@ import Testing
     /// palette providers and appear here once as their parent list action.
     /// Workspace and tab include the group families (architecture.md section 7).
     /// Pane, tab, and terminal also count the cmux-next rows in
-    /// `ActionCatalog+Layout.swift` (26 pane/column/screen, 6 tab, 10 terminal).
+    /// `ActionCatalog+Layout.swift` (19 pane/column, 6 tab, 10 terminal).
+    /// Screen counts the screen and screen group families
+    /// (`ActionCatalog+Screens.swift`, `ActionCatalog+ScreenGroups.swift`).
     /// Settings counts the pane border, padding and corner toggles and the
     /// two titlebar styles, the focus ring and border width toggles and the
     /// border color reset. Window
@@ -69,7 +71,8 @@ import Testing
     static let expectedCounts: [ActionCategory: Int] = [
         .window: 23,
         .workspace: 135, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs
-        .pane: 73, // + Move Pane to New Workspace
+        .pane: 66, // + Move Pane to New Workspace
+        .screen: 62,
         .tab: 74,
         .terminal: 33,
         .browser: 78,

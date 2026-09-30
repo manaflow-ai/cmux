@@ -53,6 +53,8 @@ final class AppServices {
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Reopen Closed Tab history; set when the tab handlers bind.
     var closedTabs: ClosedTabTracker?
+    /// Recently closed screens (Reopen Closed Screen).
+    let closedScreens = ClosedScreenHistory()
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
     let terminalDelegate = TerminalHostDelegate()

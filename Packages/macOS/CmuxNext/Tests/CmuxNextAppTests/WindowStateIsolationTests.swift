@@ -67,17 +67,12 @@ struct WindowStateIsolationTests {
         #expect(b.state.workspaceID == Self.id(3))
 
         await Self.settle { a.content?.workspace.id == Self.id(2) }
-        Self.run(services, "screen.toggleSwitcher")
-        #expect(a.state.showsScreenSwitcher)
-        #expect(!b.state.showsScreenSwitcher)
-
         Self.run(services, "toggleSidebar")
         #expect(a.sidebar.model.presentation != b.sidebar.model.presentation)
 
-        // The switcher stays with the window across a workspace switch.
         Self.run(services, "prevSidebarTab")
         await Self.settle { a.content?.workspace.id == Self.id(1) }
-        #expect(a.content?.layoutModel.showsScreenSwitcher == true)
+        #expect(b.state.workspaceID == Self.id(3))
         for controller in [a, b] { controller.window?.close() }
     }
 
@@ -86,7 +81,7 @@ struct WindowStateIsolationTests {
         let a = try #require(services.windows.openWindow(workspaces: [Self.id(1), Self.id(2)]))
         let b = try #require(services.windows.openWindow(workspaces: [Self.id(3)]))
         let c = try #require(services.windows.openWindow(workspaces: [Self.id(4)]))
-        c.state.showsScreenSwitcher = true
+        c.state.sidebarHidden = true
         services.windows.didActivate(a)
         Self.run(services, "moveWorkspaceToWindow", ActionInvocation(
             target: ActionTargetRef(kind: .workspace, id: Self.id(2)),
@@ -98,7 +93,7 @@ struct WindowStateIsolationTests {
         #expect(registry.members(of: c.state.id) == [Self.id(4)])
         #expect(b.state.workspaceID == Self.id(2))
         #expect(a.state.workspaceID == Self.id(1))
-        #expect(c.state.workspaceID == Self.id(4) && c.state.showsScreenSwitcher)
+        #expect(c.state.workspaceID == Self.id(4) && c.state.sidebarHidden)
         #expect(registry.value.violations().isEmpty)
         for controller in [a, b, c] { controller.window?.close() }
     }

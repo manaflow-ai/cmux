@@ -49,6 +49,8 @@ enum ActionRouting {
             return daemons.first { panes($0).contains { $0.tabGroups.contains { $0.id.rawValue == target.id } } }
         case .screen:
             return daemons.first { $0.store.workspaces.flatMap(\.screens).contains { $0.id == target.id } }
+        case .screenGroup:
+            return daemons.first { $0.store.workspaces.contains { $0.screenGroups.contains { $0.id.rawValue == target.id } } }
         case .column:
             return nil
         case .profile:

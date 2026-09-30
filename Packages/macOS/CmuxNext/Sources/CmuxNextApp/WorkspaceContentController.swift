@@ -13,6 +13,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let daemon: DaemonService
     let layoutModel = LayoutModel()
     private(set) var layoutView: LayoutRootView!
+    /// Layout plus the bottom screen bar; what the window shows.
+    private(set) var contentView: WorkspaceContentView!
+    private(set) var screenBar: ScreenBarController!
     unowned let services: AppServices
     unowned let state: WindowState
     private(set) var handles = LayoutHandleMap()
@@ -54,18 +57,22 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
-        layoutModel.showsScreenSwitcher = state.showsScreenSwitcher
         layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
         observe()
+        screenBar = ScreenBarController(content: self)
+        contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
+        contentView.showsBar = screenBar.isVisible
+        screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
     }
 
     func teardown() {
         observation?.cancel()
         connectionObservation?.cancel()
         attentionObservation?.cancel()
+        screenBar.teardown()
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
-        layoutView.removeFromSuperview()
+        contentView.removeFromSuperview()
     }
 
     private func observe() {
