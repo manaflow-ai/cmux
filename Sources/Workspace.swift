@@ -6842,6 +6842,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         } else {
             remoteTmuxWindowMirrors.removeValue(forKey: panelId)
         }
+        syncRemoteRelayIDAliasesToController()
     }
 
     var isRestorableInSessionSnapshot: Bool {
@@ -7409,6 +7410,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             remotePTYSessionIDsByPanelId[panelId] = Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
         }
         let inserted = activeRemoteTerminalSurfaceIds.insert(panelId).inserted
+        syncRemoteRelayIDAliasesToController()
         guard inserted else {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
             return
@@ -7514,7 +7516,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return trimmed
     }
 
-    func syncRemoteRelayIDAliasesToController() {
+    func remoteRelayIDAliasesForController() -> (
+        workspaceAliases: [UUID: UUID],
+        surfaceAliases: [UUID: UUID]
+    ) {
         var workspaceAliases = remoteRelayWorkspaceIDAliases
         var surfaceAliases = remoteRelaySurfaceIDAliases
         if isRemoteWorkspace {
@@ -7529,9 +7534,24 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 surfaceAliases[panelId] = panelId
             }
         }
+        for mirror in remoteTmuxWindowMirrors.values {
+            for surfaceID in mirror.surfaceIDsInLayoutOrder {
+                surfaceAliases[surfaceID] = surfaceID
+            }
+        }
+        if let sessionMirror = remoteTmuxSessionMirror {
+            for location in sessionMirror.controlPaneLocations() {
+                surfaceAliases[location.pane.panel.id] = location.pane.panel.id
+            }
+        }
+        return (workspaceAliases, surfaceAliases)
+    }
+
+    func syncRemoteRelayIDAliasesToController() {
+        let aliases = remoteRelayIDAliasesForController()
         remoteSessionController?.updateRemoteRelayIDAliases(
-            workspaceAliases: workspaceAliases,
-            surfaceAliases: surfaceAliases
+            workspaceAliases: aliases.workspaceAliases,
+            surfaceAliases: aliases.surfaceAliases
         )
     }
 
