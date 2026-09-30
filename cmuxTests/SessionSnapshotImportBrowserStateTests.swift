@@ -22,13 +22,15 @@ struct SessionSnapshotImportBrowserStateTests {
             developerToolsVisible: false,
             backHistoryURLStrings: nil,
             forwardHistoryURLStrings: nil,
-            interactionState: Data("file:///etc/passwd".utf8)
+            interactionState: Data("file:///etc/passwd".utf8),
+            keepsPageActive: true
         )
 
         let (sanitized, changed) = SessionSnapshotImportTrust.sanitizedBrowserPanel(browser)
 
         #expect(changed)
         #expect(sanitized.interactionState == nil)
+        #expect(sanitized.keepsPageActive == nil)
         #expect(sanitized.urlString == "https://example.com")
     }
 }

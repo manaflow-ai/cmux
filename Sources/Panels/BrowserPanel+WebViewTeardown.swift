@@ -24,6 +24,10 @@ extension BrowserPanel {
             forName: BrowserSSLTrustBypassMessageHandler.name
         )
         sslTrustBypassMessageHandler = nil
+        oldWebView.configuration.userContentController.removeScriptMessageHandler(
+            forName: MobileBrowserDirtyMessageHandler.name
+        )
+        mobileBrowserStreamMessageHandler = nil
 
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
