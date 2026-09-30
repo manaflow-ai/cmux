@@ -16,6 +16,9 @@ public final class TerminalHostView: NSView {
     var theme: GhosttyThemeConfig? {
         didSet { paintBackground() }
     }
+    /// Shown over the last screen while the link is down (click-through).
+    private let banner = TerminalStatusBanner()
+    private var shownStatus: TerminalConnectionStatus = .connected
 
     /// Ghostty's default `window-padding-x`.
     static let ghosttyDefaultPaddingX: CGFloat = 2
@@ -33,6 +36,21 @@ public final class TerminalHostView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
         paintBackground()
+        banner.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(banner)
+        NSLayoutConstraint.activate([
+            banner.centerXAnchor.constraint(equalTo: centerXAnchor),
+            banner.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            banner.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -24),
+        ])
+    }
+
+    /// The link status label over the terminal (hidden while connected).
+    var statusText: String? { banner.isHidden ? nil : TerminalStatusBanner.text(for: shownStatus) }
+
+    func showStatus(_ status: TerminalConnectionStatus) {
+        shownStatus = status
+        banner.show(status)
     }
 
     @available(*, unavailable)
@@ -44,7 +62,8 @@ public final class TerminalHostView: NSView {
         let old = current
         surfaceView.autoresizingMask = []
         surfaceView.frame = Self.surfaceFrame(in: bounds, contentInset: Metrics.paneContentInset)
-        addSubview(surfaceView)
+        // Below the status banner, which stays over every swapped-in surface.
+        addSubview(surfaceView, positioned: .below, relativeTo: banner)
         current = surfaceView
         old?.removeFromSuperview()
     }

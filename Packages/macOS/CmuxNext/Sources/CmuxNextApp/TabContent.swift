@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTerminal
 
@@ -36,17 +37,21 @@ final class TerminalEntry {
     /// This surface's theme scope, under its pane's workspace scope.
     let themeScope = ThemeScope(level: .terminal)
     let themeBinding: TerminalThemeBinding
+    /// Tab `dead` and connection changes for this view.
+    private let watch: TerminalLinkWatch
 
-    init(validity: String, session: TerminalSession, io: DaemonTerminalIO, themeKey: String) {
+    init(validity: String, session: TerminalSession, io: DaemonTerminalIO, themeKey: String, store: DaemonStore, surface: SurfaceID) {
         self.validity = validity
         self.session = session
         self.io = io
         self.themeKey = themeKey
         themeBinding = TerminalThemeBinding(scope: themeScope, session: session)
         themeScope.root(session.view)
+        watch = TerminalLinkWatch(store: store, surface: surface, io: io)
     }
 
     func close() {
+        watch.stop()
         session.close()
         io.close()
     }

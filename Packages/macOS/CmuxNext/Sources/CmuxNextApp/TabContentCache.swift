@@ -126,14 +126,16 @@ final class TabContentCache {
         let target = DaemonTerminalIO.Target(
             attachment: TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                   generation: daemon.store.generation),
-            initialSize: tab.size ?? CellSize(cols: 80, rows: 24)
+            initialSize: tab.size ?? CellSize(cols: 80, rows: 24), cursorDefault: .user
         )
         // Paused (and not claiming geometry) until a visible pane presents it.
         let render = ledger.isRendering(tab.id)
         let io = DaemonTerminalIO(target: target, visible: render, endpoint: { try await daemon.endpoint() })
         let session = TerminalSession(io: io, ownsGeometry: true)
         session.delegate = sessionDelegate
-        let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeStore.key(machine: daemon.machineID, tab: tab.id))
+        let entry = TerminalEntry(validity: validity, session: session, io: io,
+                                  themeKey: TerminalThemeStore.key(machine: daemon.machineID, tab: tab.id),
+                                  store: daemon.store, surface: tab.surface)
         terminals[tab.id] = entry
         session.isRenderingSuspended = !render
         contentDidMount(tab.id)

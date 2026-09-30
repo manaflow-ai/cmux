@@ -30,6 +30,8 @@ public final class TerminalSurfaceModel {
     public internal(set) var isFocused = false
     /// True after the terminal's process exited.
     public internal(set) var hasExited = false
+    /// The view's link to its terminal (a daemon IO reports it).
+    public internal(set) var connection: TerminalConnectionStatus = .connected
     public internal(set) var isRendererHealthy = true
     public internal(set) var isReadOnly = false
     /// A multi-key Ghostty binding is waiting for its next key.

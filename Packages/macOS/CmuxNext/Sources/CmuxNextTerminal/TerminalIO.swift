@@ -37,11 +37,16 @@ public nonisolated protocol TerminalIO: Sendable {
     /// A daemon IO takes canonical geometry back if another client took it
     /// (tmux "window-size latest").
     func focusGained() async
+
+    /// The user clicked a disconnected terminal (``TerminalConnectionStatus``).
+    /// A daemon IO re-attaches. Ordered with `write`.
+    func reconnectRequested() async
 }
 
 public extension TerminalIO {
     var answersTerminalQueries: Bool { true }
     func focusGained() async {}
+    func reconnectRequested() async {}
 }
 
 /// One event from a ``TerminalIO``.
@@ -63,6 +68,8 @@ public nonisolated enum TerminalIOEvent: Sendable, Equatable {
     case resize(cols: Int, rows: Int)
     /// The terminal's process exited. The surface stays readable.
     case exited
+    /// The view's link to its terminal changed; the last screen stays.
+    case status(TerminalConnectionStatus)
 }
 
 /// Kitty graphics state that accompanies a replay (daemon `vt-state` /

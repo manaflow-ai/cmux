@@ -99,6 +99,8 @@ public final class TerminalSession {
                     await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
                 case .focusGained:
                     await io.focusGained()
+                case .reconnect:
+                    await io.reconnectRequested()
                 }
             }
         }
@@ -186,7 +188,17 @@ public final class TerminalSession {
             await applyCanonicalGrid(TerminalGridSize(columns: columns, rows: rows))
         case .exited:
             model.hasExited = true
+        case .status(let status):
+            model.connection = status
+            if status == .exited { model.hasExited = true }
+            view.showStatus(status)
         }
+    }
+
+    /// A click in the surface: a disconnected terminal re-attaches.
+    func surfaceClicked() {
+        guard case .disconnected(_, reconnecting: false) = model.connection else { return }
+        input.reconnect()
     }
 
     /// `ghostty_surface_restore_kitty_replay` (ghostty.h:1614-1628) runs on

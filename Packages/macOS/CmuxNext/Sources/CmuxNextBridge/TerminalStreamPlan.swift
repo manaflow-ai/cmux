@@ -14,6 +14,11 @@ public import Foundation
 /// its unfinished bytes follow the replay as output, so the next live chunk
 /// completes the sequence. A `resized` replay's pending bytes are dropped with
 /// it: the mirror already parsed them from the live stream.
+///
+/// The replay omits DECSCUSR: the cursor shape it reports is restored before
+/// the pending bytes, unless it is the user's own default
+/// (``TerminalCursorDefault``). A stream's end is not a terminal exit here:
+/// the attach machine decides between disconnected and exited.
 public nonisolated enum TerminalStreamPlan {
     public enum Step: Sendable, Equatable {
         /// Canonical grid for the mirror, ordered with the byte stream.
@@ -23,21 +28,28 @@ public nonisolated enum TerminalStreamPlan {
         case output(Data)
         /// The terminal's process is gone.
         case exited
+        /// The view's link changed (disconnected, reconnecting, back).
+        case status(TerminalLinkStatus)
     }
 
-    public static func steps(for event: TerminalChannelEvent) -> [Step] {
+    public static func steps(for event: TerminalChannelEvent, cursorDefault: TerminalCursorDefault = .ghostty) -> [Step] {
         switch event {
         case .replay(let replay):
             [.grid(columns: replay.cols, rows: replay.rows), .replay(replay)]
-                + (replay.pending.isEmpty ? [] : [.output(replay.pending)])
+                + tail(replay, cursorDefault: cursorDefault)
         case .resized(let replay):
             [.grid(columns: replay.cols, rows: replay.rows)]
         case .output(let data, _):
             [.output(data)]
-        case .closed(.surfaceGone):
-            [.exited]
         case .closed, .colorsChanged, .scrollChanged:
             []
         }
+    }
+
+    /// Cursor shape, then the unfinished sequence, written after a replay.
+    private static func tail(_ replay: TerminalReplay, cursorDefault: TerminalCursorDefault) -> [Step] {
+        var bytes = cursorDefault.restore(style: replay.colors?.cursorStyle, blink: replay.colors?.cursorBlink)
+        bytes.append(replay.pending)
+        return bytes.isEmpty ? [] : [.output(bytes)]
     }
 }

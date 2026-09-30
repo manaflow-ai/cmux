@@ -40,7 +40,7 @@ import Testing
     @Test func outputAndLifecycle() {
         let bytes = Data("ls\r\n".utf8)
         #expect(TerminalStreamPlan.steps(for: .output(bytes, colors: nil)) == [.output(bytes)])
-        #expect(TerminalStreamPlan.steps(for: .closed(.surfaceGone)) == [.exited])
+        #expect(TerminalStreamPlan.steps(for: .closed(.surfaceGone)).isEmpty)
         #expect(TerminalStreamPlan.steps(for: .closed(.overflow)).isEmpty)
         #expect(TerminalStreamPlan.steps(for: .scrollChanged(offset: 3, atBottom: false)).isEmpty)
     }
