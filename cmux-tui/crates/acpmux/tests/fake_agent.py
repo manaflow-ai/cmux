@@ -136,6 +136,11 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": msg}})
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": msg}})
         return
+    # "hang" starts a turn that never ends: a busy agent.
+    if text == "hang":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
+        time.sleep(3600)
+        return
     if text == "slow":
         for i in range(3):
             if sid in cancelled:
@@ -152,6 +157,10 @@ def handle_prompt(rid, params):
 
 
 def main():
+    # FAKE_IGNORE_TERM=1: behave like an agent that ignores SIGTERM.
+    if os.environ.get("FAKE_IGNORE_TERM") == "1":
+        import signal
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
     sessions = 0
     for line in sys.stdin:
         line = line.strip()
