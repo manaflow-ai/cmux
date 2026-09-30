@@ -14,15 +14,18 @@ public enum AgentArtifactInventory {
         public var maximumRuns: Int
         public var maximumFilesPerRun: Int
         public var maximumBytesPerRun: Int64
+        public var maximumVisitedEntriesPerRun: Int
 
         public init(
             maximumRuns: Int = 1_000,
             maximumFilesPerRun: Int = 10_000,
-            maximumBytesPerRun: Int64 = 1_073_741_824
+            maximumBytesPerRun: Int64 = 1_073_741_824,
+            maximumVisitedEntriesPerRun: Int = 100_000
         ) {
             self.maximumRuns = max(0, maximumRuns)
             self.maximumFilesPerRun = max(0, maximumFilesPerRun)
             self.maximumBytesPerRun = max(0, maximumBytesPerRun)
+            self.maximumVisitedEntriesPerRun = max(0, maximumVisitedEntriesPerRun)
         }
     }
 
@@ -81,7 +84,8 @@ public enum AgentArtifactInventory {
     public static func scan(
         homeDirectory: URL,
         fileManager: FileManager = .default,
-        limits: Limits = Limits()
+        limits: Limits = Limits(),
+        providerFilter: String? = nil
     ) -> Report {
         let root = canonicalRoot(homeDirectory: homeDirectory)
         guard safeCanonicalRoot(homeDirectory: homeDirectory) != nil else {
@@ -93,14 +97,20 @@ public enum AgentArtifactInventory {
 
         var entries: [Entry] = []
         var inspectedRuns = 0
+        let normalizedProviderFilter = providerFilter?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         for providerURL in directoryContents(root, fileManager: fileManager) {
             guard inspectedRuns < limits.maximumRuns,
                   safePathComponent(providerURL.lastPathComponent),
                   isDirectory(providerURL, fileManager: fileManager) else { continue }
+            if let normalizedProviderFilter,
+               providerURL.lastPathComponent.lowercased() != normalizedProviderFilter {
+                continue
+            }
             for sessionURL in directoryContents(providerURL, fileManager: fileManager) {
                 guard inspectedRuns < limits.maximumRuns,
                       safePathComponent(sessionURL.lastPathComponent),
                       isDirectory(sessionURL, fileManager: fileManager) else { continue }
+                guard isOwnedRun(sessionURL, fileManager: fileManager) else { continue }
                 inspectedRuns += 1
                 if let entry = inspect(
                     provider: providerURL.lastPathComponent,
@@ -149,15 +159,25 @@ public enum AgentArtifactInventory {
         var bytes: Int64 = 0
         var fileCount = 0
         var truncated = false
-        let urls = directoryContents(root, fileManager: fileManager)
-        var pending = urls
-        var nextIndex = 0
-        while nextIndex < pending.count {
-            let url = pending[nextIndex]
-            nextIndex += 1
-            guard !isSymbolicLink(url, fileManager: fileManager) else { continue }
+        var visitedEntries = 0
+        guard let enumerator = fileManager.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey],
+            options: []
+        ) else {
+            return Entry(provider: provider, sessionID: sessionID, root: root, modifiedAt: modifiedAt ?? nil, bytes: 0, fileCount: 0, scanTruncated: false, unavailableReason: nil)
+        }
+        while let url = enumerator.nextObject() as? URL {
+            guard visitedEntries < limits.maximumVisitedEntriesPerRun else {
+                truncated = true
+                break
+            }
+            visitedEntries += 1
+            if isSymbolicLink(url, fileManager: fileManager) {
+                enumerator.skipDescendants()
+                continue
+            }
             if isDirectory(url, fileManager: fileManager) {
-                pending.append(contentsOf: directoryContents(url, fileManager: fileManager))
                 continue
             }
             guard isRegularFile(url, fileManager: fileManager), url.path != marker.path else { continue }
@@ -171,6 +191,12 @@ public enum AgentArtifactInventory {
             bytes += fileSize
         }
         return Entry(provider: provider, sessionID: sessionID, root: root, modifiedAt: modifiedAt ?? nil, bytes: bytes, fileCount: fileCount, scanTruncated: truncated, unavailableReason: nil)
+    }
+
+    private static func isOwnedRun(_ root: URL, fileManager: FileManager) -> Bool {
+        let marker = root.appendingPathComponent(ownershipMarkerName)
+        return isRegularFile(marker, fileManager: fileManager)
+            && (try? String(contentsOf: marker, encoding: .utf8))?.hasPrefix(ownershipMarkerPrefix) == true
     }
 
     private static func safePathComponent(_ value: String) -> Bool {

@@ -65,4 +65,29 @@ struct AgentArtifactInventoryTests {
 
         #expect(AgentArtifactInventory.scan(homeDirectory: home, fileManager: fileManager).entries.isEmpty)
     }
+
+    @Test func scanBoundsDirectoryOnlyTraversal() throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = home.appendingPathComponent(".local/state/cmux/agent-artifacts/codex/run-1", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+        try Data("cmux-agent-artifact-v1\n".utf8).write(to: root.appendingPathComponent(".cmux-owned"))
+        for index in 0..<10 {
+            try fileManager.createDirectory(
+                at: root.appendingPathComponent("nested-\(index)/child", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+
+        let report = AgentArtifactInventory.scan(
+            homeDirectory: home,
+            fileManager: fileManager,
+            limits: .init(maximumVisitedEntriesPerRun: 3)
+        )
+
+        #expect(report.entries.count == 1)
+        #expect(report.entries[0].scanTruncated)
+        #expect(report.entries[0].fileCount == 0)
+    }
 }

@@ -572,13 +572,14 @@ extension CMUXCLI {
             fileURLWithPath: processEnv["HOME"] ?? NSHomeDirectory(),
             isDirectory: true
         )
+        let agentFilter = agentRaw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let report = AgentArtifactInventory.scan(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
-            limits: .init(maximumRuns: limit)
+            limits: .init(maximumRuns: limit),
+            providerFilter: agentFilter
         )
-        let agentFilter = agentRaw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let entries = report.entries.filter { agentFilter == nil || $0.provider.lowercased() == agentFilter }
+        let entries = report.entries
         if localJSONOutput {
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
