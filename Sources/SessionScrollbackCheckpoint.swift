@@ -101,14 +101,28 @@ enum SessionScrollbackCheckpointPolicy {
                 pending.append(candidate.panelId)
             }
         }
-        pending.sort { lhs, rhs in
+        let captureLimit = max(0, maxCaptures)
+        func isEarlier(_ lhs: UUID, than rhs: UUID) -> Bool {
             let lhsAt = lastCapturedAt[lhs] ?? -.infinity
             let rhsAt = lastCapturedAt[rhs] ?? -.infinity
             if lhsAt != rhsAt { return lhsAt < rhsAt }
             return lhs.uuidString < rhs.uuidString
         }
+        var selected: [UUID] = []
+        if captureLimit > 0 {
+            for panelId in pending {
+                let insertionIndex = selected.firstIndex { isEarlier(panelId, than: $0) }
+                    ?? selected.count
+                if selected.count < captureLimit {
+                    selected.insert(panelId, at: insertionIndex)
+                } else if let last = selected.last, isEarlier(panelId, than: last) {
+                    selected.removeLast()
+                    selected.insert(panelId, at: insertionIndex)
+                }
+            }
+        }
         return Plan(
-            captures: Array(pending.prefix(max(0, maxCaptures))),
+            captures: selected,
             removals: removals,
             livePanelIds: Set(candidates.map(\.panelId))
         )
@@ -117,10 +131,12 @@ enum SessionScrollbackCheckpointPolicy {
 
 /// Per-runtime output flags, set from the Ghostty PTY tee.
 final class TerminalScrollbackOutputFlags: Sendable {
-    /// Output since the last capture began.
-    let pending = AtomicBooleanGate(true)
-    /// Output since the checkpoint planned this terminal's capture.
-    let recent = AtomicBooleanGate(false)
+    /// Monotonically advances for every PTY output callback.
+    let outputGeneration = AtomicUInt64Generation(1)
+    /// The generation consumed by the last capture attempt.
+    let capturedGeneration = AtomicUInt64Value()
+    /// The generation observed when the checkpoint opened its settle window.
+    let settledGeneration = AtomicUInt64Value()
 }
 
 /// Per-surface "output since last checkpoint" flags.
@@ -148,15 +164,10 @@ final class TerminalScrollbackCheckpointActivity: @unchecked Sendable {
         }
     }
 
-    /// Called on the PTY read thread for every output chunk. Stores only on clear-to-set transitions.
+    /// Called on the PTY read thread for every output chunk.
     @inline(__always)
     static func recordOutput(_ flags: TerminalScrollbackOutputFlags) {
-        if !flags.pending.loadRelaxed() {
-            flags.pending.storeRelease(true)
-        }
-        if !flags.recent.loadRelaxed() {
-            flags.recent.storeRelease(true)
-        }
+        _ = flags.outputGeneration.advanceRelaxed()
     }
 
     private func registration(_ surfaceID: UUID) -> TerminalScrollbackOutputFlags? {
@@ -164,12 +175,15 @@ final class TerminalScrollbackCheckpointActivity: @unchecked Sendable {
     }
 
     func hasPendingOutput(surfaceID: UUID) -> Bool? {
-        registration(surfaceID)?.pending.loadAcquire()
+        guard let registration = registration(surfaceID) else { return nil }
+        return registration.outputGeneration.loadRelaxed()
+            > registration.capturedGeneration.loadRelaxed()
     }
 
     /// Marks the start of the settle window, at least one main-queue turn before the capture.
     func clearRecentOutput(surfaceID: UUID) {
-        registration(surfaceID)?.recent.storeRelease(false)
+        guard let registration = registration(surfaceID) else { return }
+        registration.settledGeneration.storeRelaxed(registration.outputGeneration.loadRelaxed())
     }
 
     /// Clears the pending flag before a capture, so output that races the capture marks the
@@ -177,13 +191,14 @@ final class TerminalScrollbackCheckpointActivity: @unchecked Sendable {
     /// before Ghostty parses those bytes, so they may be missing from this capture.
     func beginCapture(surfaceID: UUID) -> Bool {
         guard let registration = registration(surfaceID) else { return false }
-        registration.pending.storeRelease(false)
-        return registration.recent.loadAcquire()
+        let captureGeneration = registration.outputGeneration.loadRelaxed()
+        registration.capturedGeneration.storeRelaxed(captureGeneration)
+        return captureGeneration > registration.settledGeneration.loadRelaxed()
     }
 
     /// Leaves the terminal for the next checkpoint (failed capture, write, or unsettled output).
     func markPending(surfaceID: UUID) {
-        registration(surfaceID)?.pending.storeRelease(true)
+        registration(surfaceID)?.capturedGeneration.storeRelaxed(0)
     }
 }
 

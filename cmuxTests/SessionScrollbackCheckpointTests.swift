@@ -106,15 +106,11 @@ struct TerminalScrollbackCheckpointActivityTests {
         let flags = activity.register(surfaceID: surface)
         activity.clearRecentOutput(surfaceID: surface)
 
-        // Reproduce the PTY callback interleaving: it reads pending first,
-        // capture clears pending and samples recent, then the callback writes recent.
-        let callbackSawPending = flags.pending.loadRelaxed()
-        flags.pending.storeRelease(false)
-        #expect(flags.recent.loadAcquire() == false)
-        if !callbackSawPending {
-            flags.pending.storeRelease(true)
-        }
-        flags.recent.storeRelease(true)
+        // Reproduce the PTY callback interleaving: capture snapshots the
+        // generation, output advances it, then capture records its snapshot.
+        let captureGeneration = flags.outputGeneration.loadRelaxed()
+        TerminalScrollbackCheckpointActivity.recordOutput(flags)
+        flags.capturedGeneration.storeRelaxed(captureGeneration)
 
         #expect(activity.hasPendingOutput(surfaceID: surface) == true)
     }

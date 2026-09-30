@@ -16,8 +16,9 @@ extension AppDelegate {
         previousLaunchWasUnclean: Bool,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
-        guard SessionScrollbackCheckpointPolicy.isEnabled(environment: environment) else { return }
-        sessionScrollbackCheckpointStore()?.prepareForLaunch(previousLaunchWasUnclean: previousLaunchWasUnclean)
+        guard !SessionRestorePolicy.isRunningUnderAutomatedTests(environment: environment) else { return }
+        guard environment["CMUX_DISABLE_SESSION_RESTORE"] == "1" || !previousLaunchWasUnclean else { return }
+        sessionScrollbackCheckpointStore()?.prepareForLaunch(previousLaunchWasUnclean: false)
     }
 
     func startSessionScrollbackCheckpointsIfNeeded(environment: [String: String]) {
@@ -89,18 +90,38 @@ extension AppDelegate {
         func append(
             panelId: UUID,
             terminal: TerminalPanel,
-            shellActivityState: PanelShellActivityState?
+            shellActivityState: PanelShellActivityState?,
+            resumeBinding: SurfaceResumeBindingSnapshot?,
+            restorableAgent: SessionRestorableAgentSnapshot?,
+            autoResumeAgentSessions: Bool
         ) {
             guard seen.insert(panelId).inserted else { return }
-            // Mirrors the snapshot gates: a running command or a hibernated
-            // agent does not persist scrollback (see `sessionPanelSnapshot`).
-            // `snapshotNeedsConfirmClose` is the lock-free variant (#6381).
+            let localTmuxStartCommand = restorePolicy.localTmuxStartCommand(
+                terminal.surface.debugTmuxStartCommand()
+            )
+            let restorableTmuxStartCommand = localTmuxStartCommand
+                ?? (restorableAgent == nil
+                    ? restorePolicy.restorableTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
+                    : nil)
+            let resumeStartupInput = localTmuxStartCommand == nil
+                ? restorePolicy.surfaceResumeStartupInput(
+                    resumeBinding,
+                    autoResumeAgentSessions: autoResumeAgentSessions,
+                    promptForApproval: false,
+                    approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+                )
+                : nil
             let closeConfirmationRequired = Workspace.resolveCloseConfirmation(
                 shellActivityState: shellActivityState,
                 fallbackNeedsConfirmClose: terminal.surface.snapshotNeedsConfirmClose()
             )
             let isEligible = restorePolicy
                 .shouldPersistSessionScrollback(closeConfirmationRequired: closeConfirmationRequired)
+                && restorePolicy.shouldReplaySessionScrollback(
+                    hasRestorableAgent: restorableAgent != nil,
+                    tmuxStartCommand: restorableTmuxStartCommand,
+                    hasResumeStartupWork: resumeStartupInput != nil
+                )
                 && terminal.agentHibernationState == nil
             candidates.append(SessionScrollbackCheckpointCoordinator.Candidate(
                 panelId: panelId,
@@ -118,7 +139,26 @@ extension AppDelegate {
         func appendTerminals(from dock: DockSplitStore) {
             for (panelId, panel) in dock.panels {
                 guard let terminal = panel as? TerminalPanel else { continue }
-                append(panelId: panelId, terminal: terminal, shellActivityState: terminal.shellActivity.state)
+                let resumeBinding = dock.managedAgentResumeBindingsByPanelId[panelId]
+                    ?? dock.surfaceResumeBindingsByPanelId[panelId]
+                let restorableAgent = dock.restoredAgentLifecycle.resumeStatesByPanelId[panelId]
+                    == .completedAgentExit
+                    ? nil
+                    : Workspace.restorableAgentForSessionRestore(
+                        dock.restoredAgentLifecycle.snapshotsByPanelId[panelId]
+                            ?? terminal.agentHibernationState?.agent,
+                        resumeBinding: resumeBinding
+                    )
+                append(
+                    panelId: panelId,
+                    terminal: terminal,
+                    shellActivityState: terminal.shellActivity.state,
+                    resumeBinding: resumeBinding,
+                    restorableAgent: restorableAgent,
+                    autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
+                        defaults: dock.agentSessionAutoResumeDefaults
+                    )
+                )
             }
         }
         func appendTerminals(from manager: TabManager) {
@@ -126,7 +166,25 @@ extension AppDelegate {
                 let shellActivityStates = workspace.panelShellActivityStates
                 for (panelId, panel) in workspace.panels {
                     guard let terminal = panel as? TerminalPanel else { continue }
-                    append(panelId: panelId, terminal: terminal, shellActivityState: shellActivityStates[panelId])
+                    let resumeBinding = workspace.surfaceResumeBindingsByPanelId[panelId]
+                    let restorableAgent = workspace.restoredAgentResumeStatesByPanelId[panelId]
+                        == .completedAgentExit
+                        ? nil
+                        : Workspace.restorableAgentForSessionRestore(
+                            workspace.restoredAgentSnapshotsByPanelId[panelId]
+                                ?? terminal.agentHibernationState?.agent,
+                            resumeBinding: resumeBinding
+                        )
+                    append(
+                        panelId: panelId,
+                        terminal: terminal,
+                        shellActivityState: shellActivityStates[panelId],
+                        resumeBinding: resumeBinding,
+                        restorableAgent: restorableAgent,
+                        autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
+                            defaults: workspace.agentSessionAutoResumeDefaults
+                        )
+                    )
                 }
                 if let dock = workspace._dockSplit {
                     appendTerminals(from: dock)
