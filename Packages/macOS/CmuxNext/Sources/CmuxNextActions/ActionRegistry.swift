@@ -55,6 +55,13 @@ public final class ActionRegistry {
     /// here) and then calls `perform(_:invocation:)` again. When nil, the
     /// handler runs with what it has.
     @ObservationIgnored public var argumentCollector: (@MainActor (ActionID, ActionInvocation) -> Void)?
+    /// Called while a choices submenu (`ContextMenuEntry.choices`) is open:
+    /// with the hovered value (action, argument name, value, target), and
+    /// with a nil value when the menu closes. The App previews themes here.
+    @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?) -> Void)?
+    /// The current value of a choices submenu's argument for a target, shown
+    /// with a checkmark.
+    @ObservationIgnored public var choiceState: (@MainActor (ActionID, ActionTargetRef?) -> String?)?
 
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
@@ -355,6 +362,8 @@ public final class ActionRegistry {
     }
 
     @ObservationIgnored lazy var menuTarget = ActionMenuTarget(registry: self)
+    /// Delegates of open choices submenus, released with their menu.
+    @ObservationIgnored let choiceCoordinators = NSMapTable<NSMenu, ActionChoicesMenuCoordinator>(keyOptions: .weakMemory, valueOptions: .strongMemory)
 
     static func synthesizedDescriptor(for action: Action) -> ActionDescriptor {
         ActionDescriptor(

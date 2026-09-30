@@ -50,9 +50,9 @@ final class IncognitoBadgeView: NSView {
 
     /// Theme tokens only: secondary text on the hover gray.
     func applyColors() {
-        icon.contentTintColor = Palette.textSecondary
-        label.textColor = Palette.textSecondary
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
+            icon.contentTintColor = Palette.textSecondary
+            label.textColor = Palette.textSecondary
             layer?.backgroundColor = Palette.hoverFill.cgColor
         }
     }

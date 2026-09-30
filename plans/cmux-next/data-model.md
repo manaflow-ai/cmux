@@ -314,9 +314,28 @@ profile deletion does not exist yet; add it there).
 
 Precedence: terminal, workspace, room, Ghostty config. A theme is a Ghostty
 theme spec (`theme` syntax, `light:A,dark:B`), resolved like the global
-config. Room and workspace themes are personal. `Palette` resolves colors
-from one process-wide snapshot today; room and workspace themes need a
-window- and view-scoped `ThemeScope` in CmuxNextDesign (own stage).
+config: the user's config files, then `theme = <name>` for the current
+light/dark variant, so explicit config colors, opacity and blur still win.
+Room and workspace themes are personal (`profiles.theme`,
+`personal_workspaces.theme`). Terminal themes are app-local
+(`<Application Support>/<bundle id>/terminal-themes.json`, keyed
+`<machine>:<tab id>`) because `profiles-v1` has no per-terminal column.
+
+Stage 5 (landed): `ThemeScope` in CmuxNextDesign is a tree under
+`ThemeScope.app` (the Ghostty config): each window adopts a room scope, each
+workspace content view roots a workspace scope, each terminal host view a
+terminal scope. A scope recomputes only when its theme or an ancestor's
+changes and repaints only what it roots, behind a `Motion` `theme`
+crossfade. Views resolve `Palette` inside `performWithTheme` (the nearest
+scope); `scripts/cmux-next/check-theme-scope.sh` refuses any other color
+read in a module. Every terminal surface takes the spec in effect for it
+through `ghostty_surface_update_config` (palette, background, foreground,
+cursor, selection) with no restart. A terminal with its own theme shows a
+small swatch dot on its tab icon. Actions: `room.setTheme`,
+`room.clearTheme`, `workspace.setTheme`, `workspace.clearTheme`,
+`terminal.setTheme`, `terminal.clearTheme` (palette with live preview,
+context submenus with hover preview, CLI, bindable, Settings). Pickers list
+the onboarding themes plus "Use Ghostty Config".
 
 ## 7. App surfaces (action contract)
 

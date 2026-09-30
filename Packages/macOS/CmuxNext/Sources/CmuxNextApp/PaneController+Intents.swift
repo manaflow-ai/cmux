@@ -262,7 +262,9 @@ extension PaneController {
             }
             // A browser tab offers the engine it is not on.
             let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
-            let entries = ContextMenuCatalog.entries(for: .tab).filter { $0 != .action(other) }
+            // Terminal themes do not apply to a page.
+            let hidden: Set<ContextMenuEntry> = [.action(other), .choices("terminal.setTheme"), .action("terminal.clearTheme")]
+            let entries = ContextMenuCatalog.entries(for: .tab).filter { !hidden.contains($0) }
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
         case .group(let group), .savedGroup(let group):
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue))

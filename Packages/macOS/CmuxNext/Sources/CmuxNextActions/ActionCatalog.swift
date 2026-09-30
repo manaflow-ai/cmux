@@ -29,6 +29,7 @@ public nonisolated enum ActionCatalog {
         all += workspaceVerbActions()
         all += workspaceGroupsActions()
         all += profileActions()
+        all += themeActions()
         all += paneActions()
         all += tabActions()
         all += resourceActions()

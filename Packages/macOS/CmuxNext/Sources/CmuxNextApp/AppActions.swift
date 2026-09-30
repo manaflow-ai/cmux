@@ -21,6 +21,7 @@ enum AppActions {
         WorkspaceMetadataHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
         RoomHandlers.bind(into: registry, context: context)
+        ThemeHandlers.bind(into: registry, context: context)
         WindowMembershipHandlers.bind(into: registry, context: context)
         SidebarHandlers.bind(into: registry, context: context)
         SettingsHandlers.bind(into: registry, context: context)

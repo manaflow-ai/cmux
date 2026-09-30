@@ -209,7 +209,7 @@ final class WindowOverlayLayer {
     private func showPanel() {
         let panel = panel ?? WindowOverlayPanel()
         self.panel = panel
-        ThemeStore.shared.adopt(panel)
+        window.themeScope.adopt(panel)
         panel.setFrame(window.frame, display: false)
         if panel.parent !== window { window.addChildWindow(panel, ordered: .above) }
     }

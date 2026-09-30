@@ -14,7 +14,6 @@ final class TitlebarView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         label.font = Typography.bodyEmphasized
-        label.textColor = Palette.textSecondary
         label.lineBreakMode = .byTruncatingMiddle
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -30,6 +29,16 @@ final class TitlebarView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        performWithTheme { label.textColor = Palette.textSecondary }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        viewDidChangeEffectiveAppearance()
+    }
 
     override var mouseDownCanMoveWindow: Bool { true }
 

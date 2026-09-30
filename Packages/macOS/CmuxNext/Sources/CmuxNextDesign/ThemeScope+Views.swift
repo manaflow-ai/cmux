@@ -57,6 +57,14 @@ extension NSView {
     /// or `ThemeScope.app`).
     public var themeScope: ThemeScope { ThemeScopeRegistry.resolve(self) }
 
+    /// When this view roots a scope (a workspace's content, a terminal
+    /// surface), makes the scope inherit from wherever the view now sits.
+    /// Call after installing the view.
+    public func reparentRootedThemeScope() {
+        guard let scope = ThemeScopeRegistry.scope(of: self), let superview else { return }
+        scope.setParent(superview.themeScope)
+    }
+
     /// This view's scope colors, for code that reads tokens directly.
     public var themeTokens: ThemeTokens { themeScope.tokens }
 
@@ -84,5 +92,22 @@ extension NSWindow {
     /// `view`'s scope, like the window under it.
     public func adoptThemeScope(of view: NSView) {
         view.themeScope.adopt(self)
+    }
+}
+
+/// A plain container that runs `onThemeChange` whenever its colors must be
+/// re-resolved (moved into a window, appearance change, theme scope
+/// repaint), for panels built from stock AppKit controls.
+public final class ThemeChangeView: NSView {
+    public var onThemeChange: (() -> Void)?
+
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onThemeChange?()
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onThemeChange?()
     }
 }

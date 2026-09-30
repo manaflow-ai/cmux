@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextTerminal
@@ -30,6 +31,8 @@ final class SettingsWindowService: SettingsWindowHost {
             controller.onClose = { [weak self] in self?.controller = nil }
             self.controller = controller
         }
+        // Settings draws in the theme of the window it was opened from.
+        controller?.setThemeScope(services.windows.active?.themeScope ?? .app)
         controller?.present(section: section)
     }
 

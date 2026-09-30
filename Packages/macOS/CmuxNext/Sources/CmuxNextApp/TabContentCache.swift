@@ -126,7 +126,7 @@ final class TabContentCache {
         let io = DaemonTerminalIO(target: target, visible: render, endpoint: { try await daemon.endpoint() })
         let session = TerminalSession(io: io, ownsGeometry: true)
         session.delegate = sessionDelegate
-        let entry = TerminalEntry(validity: validity, session: session, io: io)
+        let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeStore.key(machine: daemon.machineID, tab: tab.id))
         terminals[tab.id] = entry
         session.isRenderingSuspended = !render
         contentDidMount(tab.id)

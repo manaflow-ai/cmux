@@ -24,6 +24,12 @@ public final class GhosttyRuntime {
     /// `background-opacity` from the user's config (not the surface override).
     private var configuredBackgroundOpacity: Double = 1
 
+    /// The user's config with one theme applied, per theme name, built on
+    /// demand (`themeConfig(named:)`) and dropped on every config change.
+    var themeConfigs: [String: GhosttyThemeConfig] = [:]
+    /// Bumps on every config change (reload, conditional theme switch).
+    public private(set) var configGeneration = 0
+
     /// Messages from the last config load (unknown keys, bad values).
     public private(set) var configDiagnostics: [String] = []
 
@@ -109,6 +115,9 @@ public final class GhosttyRuntime {
         if let config { ghostty_config_free(config) }
         config = fresh
         hostKeybindCache.binds = nil
+        // Themed configs were built on the old files; rebuild on demand.
+        themeConfigs.removeAll()
+        configGeneration += 1
         onConfigChange?()
     }
 
@@ -133,7 +142,9 @@ public final class GhosttyRuntime {
         return "theme = \(value)"
     }
 
-    private static func loadConfig(diagnostics: inout [String], opacity: inout Double) -> ghostty_config_t? {
+    /// Loads the user's config. `theme` replaces `themeOverride` (a room,
+    /// workspace or terminal theme; see `themeConfig(named:)`).
+    static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil) -> ghostty_config_t? {
         guard let config = ghostty_config_new() else { return nil }
         if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
             ghostty_config_load_file(config, path)
@@ -141,7 +152,7 @@ public final class GhosttyRuntime {
             ghostty_config_load_default_files(config)
         }
         ghostty_config_load_recursive_files(config)
-        if let line = themeOverrideLine(themeOverride) {
+        if let line = themeOverrideLine(theme ?? themeOverride) {
             ghostty_config_load_string(config, line, UInt(line.utf8.count), "cmux.json")
         }
         // In a translucent window the root view paints the one translucent

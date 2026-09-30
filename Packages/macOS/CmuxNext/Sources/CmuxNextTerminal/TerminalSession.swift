@@ -41,6 +41,23 @@ public final class TerminalSession {
         didSet { surfaceView.isRenderingSuspended = isRenderingSuspended }
     }
 
+    /// This terminal's theme when it differs from the Ghostty config (its
+    /// own, its workspace's or its room's); nil uses the config. Applied to
+    /// the live surface in place (`ghostty_surface_update_config`: palette,
+    /// background, foreground, cursor, selection), with no restart and no
+    /// grid change, and to every surface a later replay swaps in.
+    public private(set) var theme: GhosttyThemeConfig?
+
+    /// Sets ``theme``. `force` re-applies an unchanged one, after a config
+    /// reload pushed the app config to every surface.
+    public func setTheme(_ config: GhosttyThemeConfig?, force: Bool = false) {
+        let previous = theme
+        guard force || config !== previous else { return }
+        theme = config
+        view.theme = config
+        applyTheme(to: surfaceView, clearing: previous != nil && config == nil)
+    }
+
     /// Mirrors currently shown. Forwarded to whichever surface is live so a
     /// hover preview stays live across a surface swap.
     var mirrorDemand = 0 {
@@ -244,10 +261,23 @@ public final class TerminalSession {
         fresh.mirrorDemand = mirrorDemand
         surfaceView = fresh
         view.install(fresh)
+        applyTheme(to: fresh, clearing: false)
         // Nothing was parsed into the fresh surface yet: no drain needed.
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
         if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }
         surfaceHasContent = false
+    }
+
+    /// A new surface starts from the app config, so only a theme needs
+    /// applying; clearing one re-applies the app config (Ghostty resolves
+    /// its light/dark variant per surface).
+    private func applyTheme(to surfaceView: TerminalSurfaceView, clearing: Bool) {
+        guard let surface = surfaceView.surface else { return }
+        if let theme {
+            ghostty_surface_update_config(surface, theme.config)
+        } else if clearing, let config = GhosttyRuntime.shared.config {
+            ghostty_surface_update_config(surface, config)
+        }
     }
 
     // MARK: From the surface view
@@ -263,15 +293,19 @@ public final class TerminalSession {
 }
 
 /// Container the App embeds. Holds the current surface view (swapped on
-/// replay) and paints the config background behind an announced grid that is
-/// smaller than the view.
+/// replay) and paints the terminal's background (its theme's, else the
+/// config's) behind an announced grid that is smaller than the view.
 public final class TerminalHostView: NSView {
     private weak var current: TerminalSurfaceView?
+    /// The session's theme; nil paints the config background.
+    var theme: GhosttyThemeConfig? {
+        didSet { paintBackground() }
+    }
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
-        layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor
+        paintBackground()
     }
 
     @available(*, unavailable)
@@ -290,6 +324,17 @@ public final class TerminalHostView: NSView {
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor
+        paintBackground()
+    }
+
+    /// Opaque windows only, like `GhosttyRuntime.backgroundColor`: in a
+    /// translucent window the window root paints the one sheet.
+    private func paintBackground() {
+        let runtime = GhosttyRuntime.shared
+        guard let rgb = theme?.colors?.background, runtime.backgroundOpacity >= 1 else {
+            layer?.backgroundColor = runtime.backgroundColor.cgColor
+            return
+        }
+        layer?.backgroundColor = CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
     }
 }

@@ -27,12 +27,12 @@ public nonisolated enum SettingsSchema {
     public static func actions(in section: SettingsSection) -> [ActionID] {
         switch section {
         case .general: ["palette.welcomeChecklist", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
-        case .appearance: ["palette.openGhosttySettings"]
+        case .appearance: ["room.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .browser: ["browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
         case .keyboard: ["palette.searchShortcuts"]
         case .notifications: []
-        case .rooms: ["room.new", "room.switch", "room.rename"]
+        case .rooms: ["room.new", "room.switch", "room.rename", "room.setTheme", "room.clearTheme"]
         case .machines: ["remote.connect", "newCloudMachine", "palette.auth.signIn"]
         case .advanced: ["palette.openCmuxSettingsFile", "reloadConfiguration"]
         }

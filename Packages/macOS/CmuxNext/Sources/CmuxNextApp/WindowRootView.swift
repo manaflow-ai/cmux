@@ -130,6 +130,8 @@ final class WindowRootView: NSView {
         view.autoresizingMask = [.width, .height]
         contentHost.addSubview(view)
         content = view
+        // A workspace's theme scope inherits this window's room theme.
+        view.reparentRootedThemeScope()
     }
 
     override func viewDidMoveToWindow() {
@@ -147,15 +149,14 @@ final class WindowRootView: NSView {
     /// Ghostty.app, with its `background-blur` radius behind it
     /// (`WindowBackdrop`).
     func themeDidChange() {
-        let tokens = ThemeStore.shared.tokens
+        let tokens = themeTokens
         let backdrop = WindowBackdrop(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Palette.windowBackground.cgColor
-        }
+        let background = performWithTheme { Palette.windowBackground }
+        layer?.backgroundColor = background.cgColor
         guard let window else { return }
         window.isOpaque = backdrop.isOpaque
         window.backgroundColor = backdrop.isOpaque
-            ? Palette.windowBackground
+            ? background
             : NSColor.white.withAlphaComponent(backdrop.windowBackgroundAlpha)
         if backdrop.appliesBlur { GhosttyRuntime.shared.applyBackgroundBlur(to: window) }
     }

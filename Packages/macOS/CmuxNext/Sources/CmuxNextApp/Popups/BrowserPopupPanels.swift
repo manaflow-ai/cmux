@@ -60,6 +60,7 @@ final class BrowserPopupPanels {
         panel.onClose = { [weak self] in self?.panelClosed(id) }
         observeParent(parent)
         parent.addChildWindow(panel, ordered: .above)
+        parent.themeScope.adopt(panel)
         guard ordersPanelsIn else { return }
         WindowActivation.show(panel, .raise)
         if panel.isKeyWindow { page.setFocused(true) }

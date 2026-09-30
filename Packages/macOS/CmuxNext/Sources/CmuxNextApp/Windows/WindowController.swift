@@ -28,6 +28,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
     private var startupObservation: Task<Void, Never>?
+    /// The room theme: the whole window (sidebar, chrome, and every
+    /// workspace without its own theme).
+    let themeScope = ThemeScope(level: .room)
+    private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
 
@@ -47,8 +51,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        window.backgroundColor = Palette.windowBackground
-        ThemeStore.shared.adopt(window)
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
@@ -56,12 +58,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
         super.init(window: window)
+        themeScope.adopt(window)
         window.delegate = self
         window.focus = focus
         focusApplier = FocusEffectApplier(controller: self)
         focus.applier = focusApplier
         focus.send(.appActive(NSApp.isActive))
         observeWorkspace()
+        observeRoom()
     }
 
     @available(*, unavailable)
@@ -74,6 +78,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         badgeObservation?.cancel()
         titleObservation?.cancel()
         startupObservation?.cancel()
+        roomObservation?.cancel()
         content?.teardown()
         content = nil
         parked.forEach { $0.teardown() }
@@ -82,6 +87,20 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     // MARK: Workspace
+
+    /// The window recolors when it switches room.
+    private func observeRoom() {
+        let state = state
+        roomObservation = Task { [weak self] in
+            for await _ in Observations({ state.profileID }) {
+                guard let self else { return }
+                services.themes.windowDidChange(self)
+            }
+        }
+    }
+
+    /// The shown workspace and the parked ones, each with its theme scope.
+    var mountedContents: [WorkspaceContentController] { (content.map { [$0] } ?? []) + parked }
 
     private func observeWorkspace() {
         let machines = services.machines
@@ -169,6 +188,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // One synchronous swap: the old view leaves (its panes stay mounted,
         // paused) and the new one draws in the same frame.
         root.show(controller.contentView)
+        services.themes.contentDidShow(controller)
         trimParked()
         startupObservation?.cancel()
         startupObservation = nil

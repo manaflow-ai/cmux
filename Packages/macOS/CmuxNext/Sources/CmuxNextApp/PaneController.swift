@@ -105,6 +105,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             item.isDormant = services.cache.dormantTabs.contains(tab.id)
             if tab.kind != .browser {
                 item.machineBadge = machine
+                item.themeBadge = services.themes.badge(forTerminal: TerminalThemeStore.key(machine: daemon.machineID, tab: tab.id))
             } else {
                 // A browser tab names the machine whose localhost it sees.
                 let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
@@ -220,7 +221,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard let tab = pane.tabs.first(where: { $0.id == key }) else { return nil }
         switch tab.kind {
         case .pty:
-            return .terminal(services.cache.terminal(for: tab, daemon: daemon))
+            let entry = services.cache.terminal(for: tab, daemon: daemon)
+            services.themes.terminalDidMount(entry)
+            return .terminal(entry)
         case .browser where tab.isFrontendOwned:
             return services.cache.browser(for: tab).map(TabContent.browser)
         default:

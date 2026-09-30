@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextLayout
 import Observation
 
@@ -16,6 +17,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) var contentView: WorkspaceContentView!
     private(set) var screenBar: ScreenBarController!
+    /// The workspace theme: only this content area, under the window's
+    /// room theme.
+    let themeScope = ThemeScope(level: .workspace)
     unowned let services: AppServices
     unowned let state: WindowState
     private(set) var handles = LayoutHandleMap()
@@ -59,6 +63,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         observe()
         screenBar = ScreenBarController(content: self)
         contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
+        themeScope.root(contentView)
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
     }

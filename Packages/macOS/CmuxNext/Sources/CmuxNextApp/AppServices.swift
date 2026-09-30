@@ -72,6 +72,8 @@ final class AppServices {
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
     let terminalTheme = TerminalThemeSetting()
+    /// Room, workspace and terminal themes.
+    private(set) var themes: ThemeCoordinator!
     /// Browser tabs of remote machines reach that machine's localhost.
     private(set) var remoteLocalhost: RemoteLocalhostService!
     var chromiumLikelyObservations: [Task<Void, Never>] = []
@@ -85,6 +87,7 @@ final class AppServices {
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
         ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
         cache = TabContentCache(daemon: daemon)
+        themes = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))
         remoteLocalhost = RemoteLocalhostService(machines: machines)
         cache.configureBrowser = { [weak self] tab, url, base in
             await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base

@@ -18,6 +18,7 @@ final class BrowserPopupPanel: NSPanel {
     private let titleLabel = NSTextField(labelWithString: "")
     private let originLabel = NSTextField(labelWithString: "")
     private var observation: Task<Void, Never>?
+    private let separator = NSBox()
 
     init(page: any BrowserTab, frame: CGRect) {
         self.page = page
@@ -33,8 +34,6 @@ final class BrowserPopupPanel: NSPanel {
         standardWindowButton(.miniaturizeButton)?.isHidden = true
         standardWindowButton(.zoomButton)?.isHidden = true
         standardWindowButton(.closeButton)?.toolTip = Strings.popupCloseHelp
-        backgroundColor = Palette.windowBackground
-        ThemeStore.shared.adopt(self)
         minSize = CGSize(width: BrowserPopupPanelGeometry.minimumContent.width,
                          height: BrowserPopupPanelGeometry.minimumContent.height + Self.titleHeight)
         animationBehavior = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? .none : .utilityWindow
@@ -71,14 +70,13 @@ final class BrowserPopupPanel: NSPanel {
     }
 
     private func makeContent() -> NSView {
-        let root = NSView()
+        let root = ThemeChangeView()
+        root.onThemeChange = { [weak self] in self?.applyColors() }
         let titleBar = NSView()
         titleBar.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        titleLabel.textColor = Palette.textPrimary
         titleLabel.lineBreakMode = .byTruncatingTail
         originLabel.font = .systemFont(ofSize: 11)
-        originLabel.textColor = Palette.textSecondary
         originLabel.lineBreakMode = .byTruncatingMiddle
         let labels = NSStackView(views: [titleLabel, originLabel])
         labels.orientation = .horizontal
@@ -87,10 +85,8 @@ final class BrowserPopupPanel: NSPanel {
         labels.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         titleBar.addSubview(labels)
-        let separator = NSBox()
         separator.boxType = .custom
         separator.borderWidth = 0
-        separator.fillColor = Palette.separator
         separator.translatesAutoresizingMaskIntoConstraints = false
         let pageView = page.contentView
         pageView.translatesAutoresizingMaskIntoConstraints = false
@@ -116,6 +112,18 @@ final class BrowserPopupPanel: NSPanel {
             pageView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
         ])
         return root
+    }
+
+    /// Theme colors of the opener's scope (the panel is its window's child
+    /// and adopts that window's scope when it opens).
+    private func applyColors() {
+        guard let root = contentView else { return }
+        root.performWithTheme {
+            backgroundColor = Palette.windowBackground
+            titleLabel.textColor = Palette.textPrimary
+            originLabel.textColor = Palette.textSecondary
+            separator.fillColor = Palette.separator
+        }
     }
 
     /// Escape reaches the panel only when the page did not handle it (a

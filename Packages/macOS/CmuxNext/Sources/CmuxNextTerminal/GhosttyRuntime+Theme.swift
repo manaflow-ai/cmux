@@ -29,6 +29,10 @@ extension GhosttyRuntime {
     /// libghostty failed to load a config.
     public var themeColors: GhosttyThemeColors? {
         guard let config else { return nil }
+        return Self.themeColors(of: config, backgroundOpacity: backgroundOpacity)
+    }
+
+    static func themeColors(of config: ghostty_config_t, backgroundOpacity: Double) -> GhosttyThemeColors? {
         guard let background = Self.color(config, "background"), let foreground = Self.color(config, "foreground") else {
             return nil
         }

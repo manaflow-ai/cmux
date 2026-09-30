@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextTerminal
 
 /// What a pane shows for its selected tab.
@@ -30,11 +31,19 @@ final class TerminalEntry {
     let validity: String
     let session: TerminalSession
     let io: DaemonTerminalIO
+    /// `<machine>:<tab id>`, the key of this terminal's own theme.
+    let themeKey: String
+    /// This surface's theme scope, under its pane's workspace scope.
+    let themeScope = ThemeScope(level: .terminal)
+    let themeBinding: TerminalThemeBinding
 
-    init(validity: String, session: TerminalSession, io: DaemonTerminalIO) {
+    init(validity: String, session: TerminalSession, io: DaemonTerminalIO, themeKey: String) {
         self.validity = validity
         self.session = session
         self.io = io
+        self.themeKey = themeKey
+        themeBinding = TerminalThemeBinding(scope: themeScope, session: session)
+        themeScope.root(session.view)
     }
 
     func close() {

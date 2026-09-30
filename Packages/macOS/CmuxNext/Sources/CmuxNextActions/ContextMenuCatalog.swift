@@ -4,6 +4,10 @@ public enum ContextMenuEntry: Sendable, Hashable {
     case separator
     /// A submenu titled by an action's title (without its ellipsis).
     case submenu(ActionID, [ContextMenuEntry])
+    /// A submenu titled by an action, one item per value of its first
+    /// enumeration argument (Set Room Theme > Nord, Vesper, ...). Hovering
+    /// an item previews it (`ActionRegistry.choicePreview`).
+    case choices(ActionID)
 }
 
 /// Right-click menus declared as ordered action ID lists per context. The
@@ -38,6 +42,7 @@ public enum ContextMenuCatalog {
             case .action(let id): [id]
             case .separator: []
             case .submenu(let id, let children): [id] + referencedIDs(children)
+            case .choices(let id): [id]
             }
         }
     }
@@ -60,6 +65,7 @@ public enum ContextMenuCatalog {
         actions("newSurface", "openBrowser.webkit", "openBrowser.chromium", "duplicateTab", "reloadTab") + [.separator]
         + actions("browser.openInChromium", "browser.openInWebKit") + [.separator]
         + actions("renameTab", "palette.clearTabName", "palette.toggleTabPin", "palette.toggleTabUnread", "toggleTabAudioMute")
+        + [.choices("terminal.setTheme")] + actions("terminal.clearTheme")
         + [.separator] + actions("tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab") + [.separator]
         + actions("moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
                   "tab.moveToNewSplit", "tab.moveToNewColumn", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow",
@@ -108,7 +114,8 @@ public enum ContextMenuCatalog {
                 "workspace.duplicate", "workspace.duplicateTerminalsOnly")
         + [.separator]
         + actions("renameWorkspace", "editWorkspaceDescription", "palette.workspaceStatus", "markWorkspaceDone",
-                "palette.workspaceColor", "palette.resetWorkspaceColor", "workspace.setIcon", "workspace.clearIcon",
+                "palette.workspaceColor", "palette.resetWorkspaceColor", "workspace.setIcon", "workspace.clearIcon")
+        + [.choices("workspace.setTheme")] + actions("workspace.clearTheme",
                 "palette.toggleWorkspacePin", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
                 "notifications.toggleWorkspaceMute")
         + [.separator]
@@ -139,7 +146,8 @@ public enum ContextMenuCatalog {
         actions("room.newWindow", "room.newWorkspace") + [.separator]
         + actions("room.rename")
         + [.submenu("room.setColor", colors("room") + [.separator] + actions("room.clearColor"))]
-        + actions("room.setIcon", "room.clearIcon", "room.setDefaults") + [.separator]
+        + actions("room.setIcon", "room.clearIcon")
+        + [.choices("room.setTheme")] + actions("room.clearTheme", "room.setDefaults") + [.separator]
         + actions("room.moveLeft", "room.moveRight") + [.separator]
         + actions("room.new") + [.separator] + actions("room.delete")
 
