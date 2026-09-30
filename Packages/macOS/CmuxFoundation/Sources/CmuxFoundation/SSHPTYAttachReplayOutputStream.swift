@@ -43,7 +43,9 @@ public struct SSHPTYAttachReplayOutputStream: Sendable {
     /// indefinitely.
     ///
     /// - Parameter discardingPendingReplay: Drop an unvalidated replay prefix
-    ///   candidate, as ``finish(discardingPendingReplay:)`` would.
+    ///   candidate because another managed attempt will follow. Pass the
+    ///   decision later given to ``finish(discardingPendingReplay:)``: this
+    ///   call clears the candidate, so that one can no longer drop it.
     /// - Returns: Buffered replay output that must still reach the terminal.
     public mutating func endStalledReplay(discardingPendingReplay: Bool = false) -> Data {
         queryFilter.filter(progress.endReplay(discarding: discardingPendingReplay))

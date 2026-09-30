@@ -188,13 +188,22 @@ public struct SSHPTYAttachOutputProgress: Sendable {
     /// input forwarding resumes; everything after this call is live output.
     /// The completed fingerprint then covers only the delivered prefix.
     ///
-    /// - Parameter discarding: Not yet honored.
+    /// A reconnect prefix candidate shorter than the validated length is
+    /// still unproven here. Once this returns, the pending state is gone, so
+    /// ``finishPendingReplay(discarding:)`` can no longer drop it; the caller
+    /// passes the same retry decision now.
+    ///
+    /// - Parameter discarding: When another managed attempt will follow, drop
+    ///   an unvalidated prefix candidate, which repeats bytes an earlier
+    ///   attempt rendered. Output after a validated prefix is always
+    ///   returned: the replay state recorded after this call covers it, so no
+    ///   later attempt would render it.
     /// - Returns: Buffered replay output that must still reach the terminal.
     public mutating func endReplay(discarding: Bool = false) -> Data {
         guard replayBytesRemaining > 0 else { return Data() }
         replayBytesRemaining = 0
         completedReplayFingerprint = replayFingerprintHash
-        return finishPendingReplay()
+        return finishPendingReplay(discarding: discarding && !replayPrefixValidationComplete)
     }
 
     /// Finishes a buffered candidate when the bridge closes before replay ends.

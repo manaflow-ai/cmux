@@ -15901,7 +15901,11 @@ struct CMUXCLI {
         // forwarding off indefinitely.
         var replayDeadline = SSHPTYAttachReplayDeadline(startedAt: bridgeReadyUptime)
         func endStalledReplay() throws {
-            try writeTerminalOutput(replayOutput.endStalledReplay())
+            // Same retry decision as the deferred finish: ending the replay
+            // clears the prefix candidate that finish would otherwise drop.
+            try writeTerminalOutput(replayOutput.endStalledReplay(
+                discardingPendingReplay: sshPTYAttachWrapperRetryPending()
+            ))
             storeReplayStateIfComplete()
             try startInputForwardingAfterReplay()
         }
