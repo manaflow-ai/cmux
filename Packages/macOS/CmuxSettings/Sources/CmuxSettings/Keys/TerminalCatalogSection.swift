@@ -72,6 +72,30 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.textEditingGestures"
     )
 
+    /// Whether text-editing gestures use the browser-style layout: Command
+    /// moves and deletes by word like Option, and Control+Left/Right move to
+    /// the line start and end. Only consulted while ``textEditingGestures`` is
+    /// on. Off by default, which keeps the macOS text-field convention of
+    /// Command for lines and Option for words.
+    public let textEditingCommandMovesByWord = DefaultsKey<Bool>(
+        id: "terminal.textEditingCommandMovesByWord",
+        defaultValue: false,
+        userDefaultsKey: "terminal.textEditingCommandMovesByWord"
+    )
+
+    /// Whether text-editing gestures stay active while a full-screen
+    /// application has the terminal on the alternate screen. Off by default,
+    /// so vim, less and htop get keys as if gestures were off (Ghostty's own
+    /// key bindings still apply). tmux, screen and
+    /// zellij keep the outer terminal on the alternate screen the whole time,
+    /// so people who work inside a multiplexer turn this on to keep gestures
+    /// at the multiplexed shell prompt.
+    public let textEditingGesturesInFullScreenApps = DefaultsKey<Bool>(
+        id: "terminal.textEditingGesturesInFullScreenApps",
+        defaultValue: false,
+        userDefaultsKey: "terminal.textEditingGesturesInFullScreenApps"
+    )
+
     /// Whether cmux supplies its appearance-adaptive managed palette for an
     /// Ghostty config without authored themes or terminal colors. Font and
     /// behavior settings preserve the managed palette; it is enabled by default.
@@ -79,6 +103,21 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         id: "terminal.adaptiveDefaultTheme",
         defaultValue: true,
         userDefaultsKey: "terminal.adaptiveDefaultTheme"
+    )
+
+    /// Predictive local echo: draw typed characters over a terminal whose
+    /// shell runs on another machine before the remote echoes them, and
+    /// withdraw them if the remote disagrees. Only engages at a shell prompt
+    /// on a link slow enough to notice, never in a full-screen application,
+    /// never in a local terminal, and never until the remote has been seen
+    /// echoing, so a password prompt displays nothing. On by default.
+    ///
+    /// Stored under its former Beta Features key, so a choice made while it
+    /// was a beta carries over.
+    public let predictiveLocalEcho = DefaultsKey<Bool>(
+        id: "terminal.predictiveLocalEcho",
+        defaultValue: true,
+        userDefaultsKey: "terminal.beta.predictedEcho.enabled"
     )
 
     /// Whether cmux shows a lock badge in the terminal chrome while the
