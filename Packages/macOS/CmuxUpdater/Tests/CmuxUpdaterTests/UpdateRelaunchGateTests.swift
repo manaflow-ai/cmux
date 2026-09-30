@@ -410,8 +410,8 @@ private final class CallCounter: @unchecked Sendable {
         installing?.dismiss()
         #expect(model.text == "Restart to Complete Update")
 
-        // Restart Now is the user's choice: once nothing is risky it relaunches right away.
-        host.blockers = blockers(care: 1)
+        // Restart Now is the user's explicit choice, even while a risky agent remains active.
+        host.blockers = blockers(risky: 1, commands: 0)
         host.idle = .zero
         let restartPrompt = installing
         restartPrompt?.retryTerminatingApplication()
