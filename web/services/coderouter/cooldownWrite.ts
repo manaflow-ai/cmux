@@ -8,6 +8,7 @@ export function isNonTransientFailureCode(failureCode: string | null | undefined
 }
 
 export function nonTransientFailureCodePredicate(column: SQLWrapper): SQL {
+  if (NON_TRANSIENT_FAILURE_CODES.size === 0) return sql`false`;
   return sql.join(
     [...NON_TRANSIENT_FAILURE_CODES].map(code => sql`${column} IS NOT DISTINCT FROM ${code}`),
     sql` OR `,
@@ -32,9 +33,12 @@ export function buildCooldownWriteExpressions(
 ): { cooldownUntil: SQL; lastFailureCode: SQL } {
   const cooldownUntilIso = until.toISOString();
   const storedReasonIsNonTransient = nonTransientFailureCodePredicate(lastFailureCodeColumn);
+  // A missing deadline is not live. COALESCE keeps this precedence check NULL-safe.
+  const storedReasonOutranks = sql`(${storedReasonIsNonTransient})
+    AND COALESCE(${cooldownUntilColumn} > now(), false)`;
   const newReasonWins = isNonTransientFailureCode(failureCode)
     ? sql`true`
-    : sql`NOT (${storedReasonIsNonTransient})
+    : sql`NOT (${storedReasonOutranks})
         AND (${cooldownUntilColumn} IS NULL
           OR ${cooldownUntilIso}::timestamptz > ${cooldownUntilColumn})`;
   return {

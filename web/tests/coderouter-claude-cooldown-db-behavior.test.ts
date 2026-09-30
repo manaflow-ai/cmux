@@ -47,6 +47,8 @@ beforeEach(async () => {
 
 afterAll(async () => {
   if (!enabled) return;
+  await sql`delete from coderouter_claude_accounts where team_id = ${CLAUDE_TEAM}`;
+  await sql`delete from coderouter_accounts where team_id = ${NATIVE_TEAM}`;
   await closeCloudDbForTests();
   await sql.end();
 });
@@ -154,9 +156,9 @@ type StoredCooldown = {
 
 async function readCooldown(pool: "claude" | "native", accountId: string): Promise<StoredCooldown> {
   const rows = pool === "claude"
-    ? await sql<StoredCooldown[]>`select extract(epoch from cooldown_until) * 1000 as deadline_ms,
+    ? await sql<StoredCooldown[]>`select round(extract(epoch from cooldown_until) * 1000)::bigint as deadline_ms,
       last_failure_code, updated_at from coderouter_claude_accounts where id = ${accountId}`
-    : await sql<StoredCooldown[]>`select extract(epoch from cooldown_until) * 1000 as deadline_ms,
+    : await sql<StoredCooldown[]>`select round(extract(epoch from cooldown_until) * 1000)::bigint as deadline_ms,
       last_failure_code, updated_at from coderouter_accounts where id = ${accountId}`;
   if (!rows[0]) throw new Error("missing cooldown fixture");
   return rows[0];
