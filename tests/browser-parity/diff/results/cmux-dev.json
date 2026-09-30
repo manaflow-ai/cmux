@@ -1,7 +1,7 @@
 {
  "meta": {
   "backend": "cmux-dev",
-  "recordedAt": "2026-09-30T13:15:59.762Z"
+  "recordedAt": "2026-09-30T13:49:01.625Z"
  },
  "cases": {
   "page.goto.basic": {
@@ -2667,10 +2667,10 @@
      401,
      "401 basic"
     ],
-    "noCredsMs": 185,
+    "noCredsMs": 510,
     "withCreds": "Authed as parity"
    },
-   "ms": 218
+   "ms": 605
   },
   "edge.auth-digest": {
    "value": {
@@ -2680,7 +2680,7 @@
     ],
     "withCreds": "Digest authed as parity"
    },
-   "ms": 339
+   "ms": 309
   },
   "edge.permission-geolocation": {
    "value": {
@@ -3017,7 +3017,7 @@
     "vanish": "clicked",
     "gone": 0
    },
-   "ms": 1516
+   "ms": 537
   },
   "edge.overlay-intercepts": {
    "value": {

@@ -51,7 +51,7 @@ return { noCreds: noCreds.value ?? noCreds, noCredsMs: noCreds.ms, withCreds: wi
         check: (c, r) => c.withCreds === 'Authed as parity' && r.withCreds !== 'Authed as parity',
       },
     },
-    expect: { noCreds: { error: "auth" }, noCredsMs: "instant", withCreds: "Authed as parity" },
+    expect: { noCreds: [401, "401 basic"], noCredsMs: "instant", withCreds: "Authed as parity" },
   },
   {
     id: "edge.auth-digest",
@@ -74,7 +74,7 @@ return { noCreds: noCreds.value ?? noCreds, withCreds: withCreds.value ?? withCr
         check: (c, r) => c.withCreds === 'Digest authed as parity' && r.withCreds !== c.withCreds,
       },
     },
-    expect: { noCreds: { error: "auth" }, withCreds: "Digest authed as parity" },
+    expect: { noCreds: [401, "401 digest"], withCreds: "Digest authed as parity" },
   },
   permission("geolocation", "geo"),
   permission("notifications", "notify"),

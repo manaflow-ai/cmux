@@ -362,6 +362,11 @@
     return joined.startsWith("/") ? joined : "/" + joined;
   }
 
+  // The userinfo percent-encode set of the URL standard.
+  function encodeUserinfo(v) {
+    return Array.from(String(v), (ch) => (/[A-Za-z0-9\-._~!$&'()*+,;=]/.test(ch) ? ch : encodeURIComponent(ch))).join("").replace(/%25([0-9A-Fa-f]{2})/g, "%$1");
+  }
+
   class MiniURL {
     constructor(input, base) {
       input = String(input).trim();
@@ -457,11 +462,51 @@
     get hash() {
       return this._hash === "#" ? "" : this._hash;
     }
+    // Setters as in WHATWG URL for the common parts (credentials above all:
+    // `u.username = "a"; page.goto(u.href)` signs in to HTTP auth).
     get username() {
       return this._username;
     }
+    set username(v) {
+      if (this._opaque || !this._hostname) return;
+      this._username = encodeUserinfo(v);
+    }
     get password() {
       return this._password;
+    }
+    set password(v) {
+      if (this._opaque || !this._hostname) return;
+      this._password = encodeUserinfo(v);
+    }
+    set hash(v) {
+      v = String(v);
+      this._hash = v ? (v.startsWith("#") ? v : "#" + v) : "";
+    }
+    set pathname(v) {
+      if (this._opaque) return;
+      v = String(v);
+      this._pathname = removeDotSegments(v.startsWith("/") ? v : "/" + v);
+    }
+    set hostname(v) {
+      if (this._opaque) return;
+      this._hostname = String(v).toLowerCase();
+    }
+    set port(v) {
+      if (this._opaque) return;
+      v = String(v);
+      if (v === "" || v === DEFAULT_PORTS[this._protocol]) this._port = "";
+      else if (/^\d+$/.test(v)) this._port = String(Number(v));
+    }
+    set host(v) {
+      const m = /^(\[[^\]]*\]|[^:]*)(?::(\d*))?$/.exec(String(v));
+      if (!m || this._opaque) return;
+      this.hostname = m[1];
+      if (m[2] !== undefined) this.port = m[2];
+    }
+    set href(v) {
+      const next = new MiniURL(String(v));
+      Object.assign(this, next);
+      this._params = null;
     }
     get searchParams() {
       if (!this._params) {
@@ -472,7 +517,7 @@
     }
     get href() {
       if (this._opaque) return this._protocol + this._pathname + this._search + this._hash;
-      const cred = this._username ? this._username + (this._password ? ":" + this._password : "") + "@" : "";
+      const cred = this._username || this._password ? this._username + (this._password ? ":" + this._password : "") + "@" : "";
       return `${this._protocol}//${cred}${this.host}${this._pathname}${this._search}${this._hash}`;
     }
     toString() {
@@ -1213,7 +1258,7 @@
         const { frame, handle } = r;
         if (!options.force) {
           const st = await frame._agent("checkStates", handle, states);
-          if (st === "error:notconnected") return { log: "element is not attached to the DOM" };
+          if (st === "error:notconnected") return { log: "element is not attached to the DOM", now: true };
           if (st !== "done") return { log: `element is not ${st.missingState}` };
         }
         await this._scrollIntoView(frame, handle);
@@ -1255,8 +1300,15 @@
         if (options.force) break;
         const hit = await target.frame._agent("hitTarget", target.handle, target.local, "button-link").catch(() => "error:notconnected");
         if (hit === "done") break;
-        // Replaced by a re-render since the check: find it again at once.
+        // The page re-rendered the target since the check. When the locator
+        // now matches the element under the pointer, that element is the
+        // target: act on it at this point (as a person clicking there would).
         if (hit === "error:notconnected" || !(await target.frame._agent("rect", target.handle).catch(() => null))) {
+          const again = await this._resolveOne(true).catch(() => null);
+          if (again && again.frame === target.frame && (await again.frame._agent("hitTarget", again.handle, target.local, "button-link").catch(() => "")) === "done") {
+            target = { ...target, handle: again.handle };
+            break;
+          }
           if (this._session.now() >= deadline) throw new TimeoutError(`${title}: Timeout ${this._timeout(options)}ms exceeded.\n  - element was detached from the DOM`);
           attempt--;
           continue;
@@ -2293,6 +2345,11 @@
     // fail until the page navigates or reloads, which starts a new process.
     _onCrashed() {
       this._crashed = true;
+      // The next web process has new frame ids; address the main frame by
+      // default until frames are read again.
+      this._mainFrame._id = null;
+      for (const [, frame] of this._frames) frame._detached = true;
+      this._frames.clear();
       this.emit("crash", this);
     }
     _onClosed() {
@@ -2518,6 +2575,7 @@
         // load replacing ours is the recovery we asked for.
         if (!recovering || !/interrupted by another navigation/.test(String(e && e.message))) throw e;
         await this.waitForLoadState("load", options);
+        await this._refreshFrames().catch(() => {});
         return null;
       }
       const status = r && r.status;

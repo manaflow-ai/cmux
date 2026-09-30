@@ -18,7 +18,7 @@ processes or on a person's window run in the cmux app only.
 
 | Id | Scenario | cmux behavior | Case |
 | --- | --- | --- | --- |
-| `auth-basic` | HTTP Basic challenge, with and without credentials in the URL | Without credentials `goto` fails at once and names the challenge (no prompt blocks the tab); `user:pass@` in the URL answers it | `edge.auth-basic` |
+| `auth-basic` | HTTP Basic challenge, with and without credentials in the URL | Without credentials `goto` resolves at once with the 401 response (no prompt blocks the tab); `user:pass@` in the URL answers the challenge | `edge.auth-basic` |
 | `auth-digest` | HTTP Digest challenge | Same as Basic; `user:pass@` in the URL answers the digest challenge | `edge.auth-digest` |
 | `tls-self-signed` | HTTPS with a self-signed certificate | `goto` rejects with a certificate error; the tab is not left on an interstitial | `edge.tls-self-signed` |
 | `nav-dns` | Host that does not resolve | `goto` rejects with a DNS error and the tab stays on the previous page | `edge.nav-dns` |

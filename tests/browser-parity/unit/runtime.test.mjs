@@ -322,3 +322,13 @@ test("keyboard: ControlOrMeta is Meta on macOS; empty and non-string keys fail",
   assert.throws(() => describeKey("", new Set()), /expected a non-empty string/);
   assert.throws(() => splitKeyCombo(42), /expected a non-empty string/);
 });
+
+test("url: the JavaScriptCore fallback's setters match WHATWG URL", () => {
+  for (const [field, value] of [["username", "parity"], ["password", "s3cr t@"], ["hash", "x"], ["pathname", "a/../b"], ["port", "8080"], ["port", "80"], ["hostname", "Example.ORG"], ["host", "example.net:81"]]) {
+    const a = new MiniURL("http://127.0.0.1:5000/p?q=1");
+    const b = new URL("http://127.0.0.1:5000/p?q=1");
+    a[field] = value;
+    b[field] = value;
+    assert.equal(a.href, b.href, `${field} = ${value}`);
+  }
+});
