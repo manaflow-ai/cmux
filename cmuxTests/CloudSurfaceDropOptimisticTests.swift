@@ -237,7 +237,6 @@ private final class DropFixture {
         window.contentView?.layoutSubtreeIfNeeded()
         workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: size))
         catalog.register(provider)
-        try publish()
         pane = try #require(workspace.bonsplitController.allPaneIds.first)
         original = try #require(workspace.focusedPanelId)
         if secondTab {
@@ -254,6 +253,7 @@ private final class DropFixture {
         panelCount = workspace.panels.count
         layout = Self.shape(workspace.bonsplitController.treeSnapshot())
         focused = workspace.focusedPanelId
+        try publish()
     }
 
     private func publish() throws {
