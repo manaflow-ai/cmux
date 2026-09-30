@@ -87,12 +87,7 @@ WAKEUP_RULES = [
 WAKEUP_ALLOW = re.compile(r"//\s*wakeup-allow:\s*\S")
 # Files another agent is rewriting right now, so they cannot take an inline
 # comment without a conflict. Temporary: remove the entry when that work lands.
-WAKEUP_PENDING_FILES = {
-    # The CEF pump rework (demand-driven, no fixed safety-net period) is in
-    # flight on feat-cmux-next-cef-pump; its CFRunLoopTimer gets an inline
-    # `wakeup-allow` (one-shot at the delay CEF requests) there.
-    "CmuxNextBrowser/CEF/CEFMessagePump.swift",
-}
+WAKEUP_PENDING_FILES: set[str] = set()
 
 # A task group whose body sleeps within this many lines is a deadline race.
 TASK_GROUP_WINDOW = 8

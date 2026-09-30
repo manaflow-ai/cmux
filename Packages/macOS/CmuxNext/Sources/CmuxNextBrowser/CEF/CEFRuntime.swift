@@ -260,10 +260,7 @@ final class CEFRuntime {
         self.shim = shim
         self.layout = layout
 
-        let pump = CEFMessagePump(
-            work: { [weak self] in self?.shim?.doWork() },
-            liveBrowsers: { [weak self] in self?.tabsByBrowser.count ?? 0 }
-        )
+        let pump = CEFMessagePump(work: { [weak self] in self?.shim?.doWork() })
         self.pump = pump
         pump.start()
 

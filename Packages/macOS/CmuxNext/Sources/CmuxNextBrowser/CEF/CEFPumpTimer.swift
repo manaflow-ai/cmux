@@ -28,6 +28,7 @@ final class CEFRunLoopPumpTimer: CEFPumpTimer {
     private static let parkedInterval: CFTimeInterval = 1.0e10
 
     init() {
+        // wakeup-allow: CEF external pump, one-shot at the delay CEF requests (parked between arms)
         let timer = CFRunLoopTimerCreateWithHandler(
             kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + Self.parkedInterval, Self.parkedInterval, 0, 0
         ) { [weak self] _ in
@@ -40,6 +41,7 @@ final class CEFRunLoopPumpTimer: CEFPumpTimer {
     func arm(after delay: TimeInterval, tolerance: TimeInterval) {
         guard let timer else { return }
         CFRunLoopTimerSetTolerance(timer, tolerance)
+        // wakeup-allow: CEF external pump, one-shot at the delay CEF requests
         CFRunLoopTimerSetNextFireDate(timer, CFAbsoluteTimeGetCurrent() + max(0, delay))
     }
 

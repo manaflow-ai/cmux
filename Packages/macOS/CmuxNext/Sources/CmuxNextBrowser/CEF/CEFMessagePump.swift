@@ -1,34 +1,40 @@
+import CmuxNextWakeups
 import CoreFoundation
 import Foundation
 
-/// Drives `CefDoMessageLoopWork` from one timer on the main run loop in
-/// common modes (so it keeps running during menu tracking, live resize, and
-/// scrolling). CEF asks for work through `OnScheduleMessagePumpWork`, which
-/// may arrive on any thread; the request moves to the main run loop and
-/// resets the timer's fire date.
+/// Drives `CefDoMessageLoopWork` on the main thread when CEF asks for it
+/// (`OnScheduleMessagePumpWork`), from one timer on the main run loop in
+/// common modes, so it keeps running during menu tracking, live resize and
+/// modal panels. `CEFPumpSchedule` decides each fire date; see there for
+/// the safety net CEF's pump needs.
 ///
-/// The timer is owned and invalidated by `stop()`; there is no `asyncAfter`.
+/// A request for "now" runs on the next run loop pass, never synchronously
+/// inside the CEF call that made it. The timer is owned, re-armed for each
+/// request and invalidated by `stop()`; there is no `asyncAfter`.
 final class CEFMessagePump {
     private let work: () -> Void
-    private let liveBrowsers: () -> Int
     private let timer: any CEFPumpTimer
     private let clock: () -> TimeInterval
+    private let ledger: WakeupLedger
+    private var schedule: CEFPumpSchedule
     private var isRunning = false
-    private var isWorking = false
-    private var rescheduledDuringWork = false
+    /// Why the timer is armed (for the wakeup ledger).
+    private var armedReason = CEFPumpSchedule.Wake.Reason.scheduled
     private(set) var stats = CEFPumpStats()
 
     /// `clock` is monotonic seconds (tests inject one).
     init(
         work: @escaping () -> Void,
-        liveBrowsers: @escaping () -> Int = { 1 },
+        safetyNet: CEFPumpSchedule.SafetyNet = CEFPumpSchedule.standard,
         timer: any CEFPumpTimer = CEFRunLoopPumpTimer(),
-        clock: @escaping () -> TimeInterval = CEFMessagePump.uptime
+        clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
+        ledger: WakeupLedger = .shared
     ) {
         self.work = work
-        self.liveBrowsers = liveBrowsers
         self.timer = timer
         self.clock = clock
+        self.ledger = ledger
+        schedule = CEFPumpSchedule(safetyNet: safetyNet)
     }
 
     nonisolated static func uptime() -> TimeInterval {
@@ -38,56 +44,74 @@ final class CEFMessagePump {
     func start() {
         guard !isRunning else { return }
         isRunning = true
-        timer.onFire = { [weak self] in self?.fire() }
-        schedule(after: 0)
+        timer.onFire = { [weak self] in self?.timerFired() }
+        schedule.request(milliseconds: 0, now: clock())
+        rearm()
     }
 
+    /// Cancels the timer for good; no `CefDoMessageLoopWork` runs after this
+    /// (CefShutdown may follow).
     func stop() {
         isRunning = false
         timer.invalidate()
     }
 
-    /// Main thread: run the pump after `delay` seconds (0 = on the next
-    /// run loop pass).
-    func schedule(after delay: TimeInterval) {
-        guard isRunning else { return }
-        if isWorking { rescheduledDuringWork = true }
-        timer.arm(after: delay, tolerance: 0)
-    }
-
     /// Main thread: a CEF `OnScheduleMessagePumpWork(delay_ms)` request.
     func request(milliseconds: Int64) {
+        guard isRunning else { return }
         if milliseconds <= 0 { stats.immediateRequests += 1 } else { stats.delayedRequests += 1 }
-        schedule(after: CEFPumpPolicy.delay(forRequestedMilliseconds: milliseconds))
+        schedule.request(milliseconds: milliseconds, now: clock())
+        rearm()
     }
 
-    /// Runs one pump iteration now (quit path drains without the timer).
+    /// Main thread: cmux changed CEF state outside a CEF callback and wants
+    /// the result processed on the next run loop pass.
+    func scheduleNow() {
+        request(milliseconds: 0)
+    }
+
+    /// Runs one pump pass now (the quit path drains without the timer).
     func pumpNow() {
         fire()
     }
 
+    private func timerFired() {
+        guard isRunning else { return }
+        ledger.record("CEFMessagePump", reason: armedReason.rawValue)
+        if armedReason == .fallback { stats.followUpRuns += 1 }
+        fire()
+    }
+
     private func fire() {
-        // CefDoMessageLoopWork can re-enter through nested run loops (menus,
-        // modal panels). A nested fire only reschedules.
-        guard !isWorking else {
+        guard isRunning else { return }
+        let started = clock()
+        guard schedule.beginWork(now: started) else {
+            // CefDoMessageLoopWork re-entered through a nested run loop (menu,
+            // modal panel). The outer pass runs the pump again when it returns.
             stats.reentrantFires += 1
-            schedule(after: CEFPumpPolicy.maxDelay)
+            rearm()
             return
         }
-        isWorking = true
-        rescheduledDuringWork = false
-        let started = clock()
+        rearm()
         work()
-        let elapsed = clock() - started
+        let finished = clock()
+        let elapsed = finished - started
         stats.workRuns += 1
         stats.workSeconds += elapsed
-        if elapsed >= 0.01 { stats.longWorkRuns += 1 }
-        isWorking = false
-        if !rescheduledDuringWork {
-            let fallback = CEFPumpPolicy.fallback(liveBrowsers: liveBrowsers())
-            stats.fallbackInterval = fallback
-            schedule(after: fallback)
+        if elapsed >= CEFPumpSchedule.timeSlice { stats.longWorkRuns += 1 }
+        schedule.endWork(now: finished, elapsed: elapsed)
+        rearm()
+    }
+
+    private func rearm() {
+        guard isRunning else { return }
+        stats.fallbackInterval = schedule.armedSafetyNetInterval ?? 0
+        guard let wake = schedule.nextWake else {
+            timer.disarm()
+            return
         }
+        armedReason = wake.reason
+        timer.arm(after: max(0, wake.deadline - clock()), tolerance: wake.tolerance)
     }
 }
 

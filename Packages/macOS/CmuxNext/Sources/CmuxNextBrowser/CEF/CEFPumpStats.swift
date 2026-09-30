@@ -18,8 +18,11 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     public var longWorkRuns = 0
     /// Total time inside `CefDoMessageLoopWork`, in seconds.
     public var workSeconds: Double = 0
-    /// The current safety-net interval after a `CefDoMessageLoopWork` with
-    /// no newer request, in seconds.
+    /// Timer fires that were follow-up wakes after a pass (the safety net
+    /// for delayed work CEF does not report), not CEF requests.
+    public var followUpRuns = 0
+    /// The gap of the pending follow-up wake in seconds, 0 when none is
+    /// pending (the pump then sleeps until CEF asks).
     public var fallbackInterval: Double = 0
 
     public init() {}

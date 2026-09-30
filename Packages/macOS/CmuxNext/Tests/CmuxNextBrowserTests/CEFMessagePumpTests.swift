@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextBrowser
+import CmuxNextWakeups
 
 /// Stands in for the run loop timer: records the armed delay and fires on
 /// demand, the way the run loop would once that delay passes.
@@ -184,6 +185,7 @@ private func close(_ value: TimeInterval?, _ expected: TimeInterval) -> Bool {
             #expect(close(delay, value), "\(delays)")
         }
         #expect(harness.timer.delay == nil)
+        #expect(harness.pump.stats.followUpRuns == expected.count)
     }
 
     @Test func followUpWakesMayCoalesce() {
@@ -207,5 +209,19 @@ private func close(_ value: TimeInterval?, _ expected: TimeInterval) -> Bool {
         var wakeups = 0
         while harness.now < end, harness.advanceToFire() != nil { wakeups += 1 }
         #expect(wakeups <= 6, "\(wakeups) wakeups in an idle minute")
+    }
+
+    @Test func timerWakeupsGoToTheLedger() {
+        let ledger = WakeupLedger()
+        let timer = FakePumpTimer()
+        var now: TimeInterval = 100
+        let pump = CEFMessagePump(work: {}, timer: timer, clock: { now }, ledger: ledger)
+        pump.start()
+        timer.fire()
+        now += 1.0 / 30
+        timer.fire()
+        let reasons = Dictionary(uniqueKeysWithValues: ledger.snapshot()
+            .filter { $0.owner == "CEFMessagePump" }.map { ($0.reason, $0.count) })
+        #expect(reasons == ["scheduled": 1, "fallback": 1])
     }
 }

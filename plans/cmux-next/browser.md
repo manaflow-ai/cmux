@@ -476,3 +476,11 @@ Open:
 - Chrome Web Store install: the store answers "Switch to Chrome to install extensions and themes" (client-hint brands are Chromium only). Needs a decision: claim the Google Chrome brand, or fetch CRX files from the update server and hand them to Chromium's `CrxInstaller` from a cmux install action.
 - Permission prompts (`chrome.permissions.request`), side panels (`chrome.sidePanel`): no host yet.
 - Popup latency: 16-45 ms from click to popup navigation in cmux; the rest is the extension renderer starting (1.0-1.2 s at load 200-400, up to 26 s at load 667 while Chromium builds ran). Not measured on an idle machine.
+
+### External message pump (2026-09-30)
+
+The pump is demand-driven (`CEFPumpSchedule`, `CEFMessagePump`). `OnScheduleMessagePumpWork(0)` runs `CefDoMessageLoopWork` on the next run loop pass. A delay arms the one timer for exactly that delay and replaces an earlier delayed request, but never postpones pending immediate work. Nothing runs after `stop()`. A timer fire inside a pass (a nested run loop) is deferred until the outer pass returns, and the timer is disarmed while a pass runs.
+
+The pinned fork's `MessagePumpExternal` (libcef/browser/browser_message_loop.cc) has two gaps, so pure request-driven pumping loses work. It drops the next delayed-task time that `DoWork` returns, so a delayed task posted during a pass is not reported. It also stops after a 10 ms slice with work left, and Chromium's `WorkDeduplicator` then does not ask again. The pump therefore runs again at once after a pass that used the whole slice. After each pass it arms a finite chain of one-shot follow-ups (1/30, 2/30, 4/30, 8/30, 16/30 and 1 s), and then sleeps until CEF asks. A fork change that reports the next run time from `MessagePumpExternal::Run` makes the pump purely demand-driven (`SafetyNet.none`).
+
+Measured on tagged builds with one static Chromium tab, 60 s windows: the old pump made 28.8-31.4 wakeups/s at 0.58-1.33% app CPU. The new pump makes 0.0-0.9 wakeups/s after Chromium settles, and up to 2.7/s in the first minutes, at 0.02-0.27% app CPU. With CEF started and no browser, it makes 0.27 wakeups/s at 0.07% CPU. `debug.cef` `pump` reports the counters.

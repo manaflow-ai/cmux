@@ -83,6 +83,7 @@ enum DebugCEF {
             "delayed_requests": .number(Double(stats.delayedRequests)),
             "reentrant_fires": .number(Double(stats.reentrantFires)),
             "long_work_runs": .number(Double(stats.longWorkRuns)),
+            "follow_up_runs": .number(Double(stats.followUpRuns)),
             "work_ms": .number(stats.workSeconds * 1_000),
             "fallback_ms": .number(stats.fallbackInterval * 1_000),
         ])
