@@ -99,7 +99,7 @@ extension MobileIrxRuntimeComposition {
                         _ = try await supervisor.readyEndpoint(credentials: credentials)
                         guard self.epoch == expectedEpoch,
                               await auth.cachedTeamIdentity == cachedIdentity else { return }
-                        await self?.recordEndpointReady(cached: true)
+                        await self.recordEndpointReady(cached: true)
                     } catch {
                         // Authoritative provisioning retries through the same
                         // supervisor after Stack validation completes.
@@ -198,10 +198,11 @@ extension MobileIrxRuntimeComposition {
             let credentials = Self.credentials(restored)
             if credentials.contains(where: { $0.isUsable(at: Date()) }) {
                 endpointWarmupTask = Task { [weak self] in
+                    guard let self else { return }
                     do {
                         _ = try await supervisor.readyEndpoint(credentials: credentials)
-                        try await self?.assertScope(scope, epoch: currentEpoch)
-                        await self?.recordEndpointReady(cached: true)
+                        try await self.assertScope(scope, epoch: currentEpoch)
+                        await self.recordEndpointReady(cached: true)
                     } catch { /* The next dial/credential update retries through the same supervisor. */ }
                 }
             }
