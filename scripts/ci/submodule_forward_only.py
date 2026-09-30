@@ -56,6 +56,11 @@ def local_relation(path: str, base: str, new: str) -> str | None:
         return "forward"
     if backward.returncode == 0:
         return "backward"
+    # A shallow clone can hold both commits without the history joining
+    # them, so neither ancestry check succeeding proves nothing there.
+    shallow = run("git", "-C", path, "rev-parse", "--is-shallow-repository")
+    if shallow.returncode != 0 or shallow.stdout.strip() != "false":
+        return None
     base_exists = run("git", "-C", path, "cat-file", "-e", f"{base}^{{commit}}")
     new_exists = run("git", "-C", path, "cat-file", "-e", f"{new}^{{commit}}")
     if base_exists.returncode == 0 and new_exists.returncode == 0:
