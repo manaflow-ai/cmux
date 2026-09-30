@@ -163,19 +163,32 @@ def parse_xcresult_tests(data: Any) -> dict[str, str]:
 
 
 def load_json(path: Path) -> Any:
-    """Read one UTF-8 JSON document, naming the file when it cannot be read.
+    """Read one UTF-8 JSON document, naming the file whenever it cannot be read.
 
-    An aborted app-host batch leaves a zero-length typed result behind, and a
-    bare decoder message ("Expecting value: line 1 column 1 (char 0)") is the
-    last line the step prints before its exit code. Say which file was empty.
+    An aborted app-host batch leaves a partial typed result behind, and a bare
+    decoder message ("Expecting value: line 1 column 1 (char 0)") is the last
+    line the step prints before its exit code. Name the file for every way the
+    read can fail: empty, not JSON, and not UTF-8. A write cut inside a
+    multi-byte character fails as the third rather than the second.
     """
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path}: not valid UTF-8 ({error})") from error
     if not text.strip():
         raise ValueError(f"{path}: empty file, expected a JSON document")
     try:
         return json.loads(text)
     except json.JSONDecodeError as error:
         raise ValueError(f"{path}: not valid JSON ({error})") from error
+
+
+def read_text_file(path: Path) -> str:
+    """Read one UTF-8 text file, naming it when the bytes are not UTF-8."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path}: not valid UTF-8 ({error})") from error
 
 
 def load_inventory(path: Path) -> set[str]:
@@ -189,7 +202,7 @@ def load_inventory(path: Path) -> set[str]:
 def load_selectors(path: Path) -> list[str]:
     """Load normalized non-empty selectors from a line-oriented file."""
     selectors = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in read_text_file(path).splitlines():
         line = line.strip()
         if line:
             selectors.append(selector_value(line))
