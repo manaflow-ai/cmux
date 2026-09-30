@@ -191,6 +191,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_local_backend_mode.sh
 
+      - name: Validate per-run iOS E2E backend script contracts
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_e2e_backend_scripts.py
+
       - name: Validate release SDK build lane
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_release_sdk_lane.sh
