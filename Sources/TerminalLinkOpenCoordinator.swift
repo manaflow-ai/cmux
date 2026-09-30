@@ -172,8 +172,15 @@ struct TerminalLinkOpenCoordinator {
             log("link.openURL refused remote-initiated non-public url=\(target.url)")
             return false
         }
-        guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
-            return openExternally(destinations.externalURL, reason: "cmux browser disabled")
+        switch request.destination {
+        case .systemBrowser:
+            return openExternally(destinations.externalURL, reason: "requested system browser")
+        case .cmuxBrowser:
+            break
+        case .followsSetting:
+            guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
+                return openExternally(destinations.externalURL, reason: "cmux browser disabled")
+            }
         }
         switch target {
         case .external:
