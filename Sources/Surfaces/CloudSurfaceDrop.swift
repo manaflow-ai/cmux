@@ -80,7 +80,7 @@ extension SurfaceCatalog.OptimisticPaneHost {
             reserve: { [weak workspace] machine, destination, focus in
                 // A provider that cannot adopt would replace the pane it was given.
                 guard let workspace, destination.workspaceID == workspace.id,
-                      catalog.provider(for: machine)?.adoptsTerminalReservations == true,
+                      catalog.provider(for: machine) is CmuxTuiSurfaceProvider,
                       let reservation = workspace.reserveCloudTerminalPane(machine: machine, at: destination, focus: focus)
                 else { return nil }
                 reservation.dropRollback = rollback

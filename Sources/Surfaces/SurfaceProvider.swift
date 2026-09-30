@@ -13,9 +13,6 @@ protocol SurfaceProvider: AnyObject {
     /// Providers with a direct private-network URL may report true even when no
     /// control-plane `openPort` call is needed.
     var supportsPortPreviews: Bool { get }
-    /// Whether `materialize(…, adopting:)` binds a terminal to the reserved pane itself.
-    /// Only such providers get a pane before their round trip; others create their own.
-    var adoptsTerminalReservations: Bool { get }
     /// Re-sync from the source of truth (machine list, link snapshot, local panels).
     func refresh() async
     /// Re-sync this provider, optionally bypassing provider-side caches. The
@@ -97,8 +94,6 @@ extension SurfaceProvider {
     /// Legacy providers predate the capability bit and are assumed to support
     /// previews until their concrete implementation says otherwise.
     var supportsPortPreviews: Bool { true }
-
-    var adoptsTerminalReservations: Bool { false }
 
     func refresh(force: Bool) async {
         await refresh()

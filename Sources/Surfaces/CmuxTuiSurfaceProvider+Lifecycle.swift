@@ -11,8 +11,6 @@ extension CmuxTuiSurfaceProvider {
     var supportsPortPreviews: Bool {
         capabilities.ports || summary.preferredPrivateAddress != nil
     }
-    /// Manual-mirror attachments adopt the reserved pane in place.
-    var adoptsTerminalReservations: Bool { true }
 
     /// Retire synchronously, then join mutations before releasing shared transport access.
     func stop() async {

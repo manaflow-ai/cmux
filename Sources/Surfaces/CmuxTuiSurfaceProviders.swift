@@ -1706,7 +1706,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     continue
                 }
                 if let reservation = workspace.cloudPendingCreations[projection.panelID] {
-                    if reservation.dropRollback == nil { attachReservedTerminalPane(reservation, resource: terminal, remoteTabID: projection.remoteTabID) } // A drop attaches its own pane.
+                    attachReservedTerminalPane(reservation, resource: terminal, remoteTabID: projection.remoteTabID)
                     continue
                 }
                 // Claimed before any async hop so a burst of refreshes cannot re-project twice.
