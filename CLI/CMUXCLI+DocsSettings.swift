@@ -364,6 +364,7 @@ extension CMUXCLI {
             commands: [
                 "cmux identify --json",
                 "cmux tree --all",
+                "cmux palette list --window <id>",
             ]
         ),
         DocsReference(

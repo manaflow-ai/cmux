@@ -41,6 +41,12 @@ Output defaults to short refs (`window:N`, `workspace:N`, `pane:N`, `surface:N`)
 
 `new-workspace`, `new-split`, `new-pane`, and `new-surface` accept `--command <text>`. cmux starts the terminal's normal interactive shell and delivers the text plus one Enter at spawn time, so the command runs immediately and the shell stays alive after it exits. No follow-up `send` or `send-key enter` is needed, and the text is passed literally (quoting, `&&`, pipes, and `$VARS` are interpreted by the new shell). The flag is terminal-only: it is rejected with `--type browser|simulator|agent-session`, blank text is ignored, and `new-workspace --layout` ignores it because layout surfaces define their own commands. Details: [references/panes-surfaces.md](references/panes-surfaces.md).
 
+## Command palette
+
+`cmux palette list --window <id>` reports the command rows the palette would show in that window, each with its id, title, subtitle and whether it is enabled right now. It reads: nothing opens, closes or runs. Disabled rows are listed and marked disabled, so "not available yet" is distinguishable from "no such command". Switcher rows (windows, workspaces, surfaces, Find Work) are a different family and are not reported. A handful of human-only rows are excluded on purpose.
+
+There is no command that runs a palette entry. Use the object commands above for topology and the dedicated verbs for everything else.
+
 ## Settings
 
 cmux-owned settings live in `~/.config/cmux/cmux.json`. `cmux docs settings` prints the docs URL, schema URL, raw GitHub resources, cmux.json paths, and reload command. `cmux settings`, `cmux settings cmux-json`, and `cmux settings shortcuts` open the UI.
