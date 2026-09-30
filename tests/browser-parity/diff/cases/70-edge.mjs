@@ -673,6 +673,12 @@ const click = await E(() => $P.locator("#b").click({ timeoutMs: 3000 }));
 const text = await $P.locator("#b").innerText();
 return { dcl: "ok", text };`,
     compare: { aside: ["dcl", "text", "load", "loadMs"], chatgpt: ["dcl", "text"] },
+    better: {
+      aside: {
+        reason: "the partial page takes the click and a load that never finishes times out at the given timeout; Aside's click has no effect and its goto reports a load that never happened",
+        check: (c, r, h) => c.text === 'pressed' && h.classifyError(c.load?.error) === 'timeout' && (r.text !== 'pressed' || r.load === 'ok'),
+      },
+    },
     expect: { dcl: "ok", text: "pressed", load: { error: "timeout" }, loadMs: "short" },
   },
   {

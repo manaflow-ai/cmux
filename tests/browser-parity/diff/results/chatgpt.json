@@ -1,7 +1,7 @@
 {
  "meta": {
   "backend": "chatgpt",
-  "recordedAt": "2026-09-30T10:32:39.152Z"
+  "recordedAt": "2026-09-30T13:18:21.272Z"
  },
  "cases": {
   "page.goto.basic": {
@@ -2654,7 +2654,7 @@
     "dcl": "ok",
     "text": "pressed"
    },
-   "ms": 10793,
+   "ms": 10730,
    "mode": "ax"
   },
   "edge.main-thread-blocked": {

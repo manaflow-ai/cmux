@@ -1,7 +1,7 @@
 {
  "meta": {
   "backend": "aside",
-  "recordedAt": "2026-09-30T10:51:32.240Z",
+  "recordedAt": "2026-09-30T13:18:08.483Z",
   "version": "1.26.916.1741"
  },
  "cases": {
@@ -2550,9 +2550,9 @@
     "dcl": "ok",
     "text": "Press",
     "load": "ok",
-    "loadMs": 3649
+    "loadMs": 3665
    },
-   "ms": 5434
+   "ms": 4857
   },
   "edge.main-thread-blocked": {
    "value": {
