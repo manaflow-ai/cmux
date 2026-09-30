@@ -140,7 +140,7 @@ struct FocusReducerTests {
 
     @Test func removedFocusedPaneWithoutHistoryFallsToTheNextSurvivingPane() {
         var state = Self.loaded()
-        state.history = []
+        state.history = [:]
         var topology = Self.topology()
         topology.panes.removeFirst()
         state = Self.run([.topology(topology)], from: state).0
@@ -149,7 +149,7 @@ struct FocusReducerTests {
 
     @Test func removedLastPaneWithoutHistoryFallsToThePreviousPane() {
         var state = Self.run([.focusPane("c", source: .mouse)], from: Self.loaded()).0
-        state.history = ["c"]
+        state.history = ["w": ["c"]]
         var topology = Self.topology()
         topology.panes.removeLast()
         state = Self.run([.topology(topology)], from: state).0

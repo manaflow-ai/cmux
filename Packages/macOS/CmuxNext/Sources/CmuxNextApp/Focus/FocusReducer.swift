@@ -15,7 +15,7 @@ nonisolated enum FocusReducer {
         case .focusPane(let pane, let workspace, let source):
             if source.isUserIntent { bump(&next) }
             if let workspace, workspace != next.topology.workspace {
-                next.remembered[workspace] = pane
+                remember(pane, in: workspace, &next)
             } else if next.topology.contains(pane: pane) {
                 next.pane = pane
                 next.target = .content
@@ -25,7 +25,7 @@ nonisolated enum FocusReducer {
             if source.isUserIntent { bump(&next) }
             if let workspace, workspace != next.topology.workspace {
                 effects.append(.select(pane: pane, tab: tab))
-                next.remembered[workspace] = pane
+                remember(pane, in: workspace, &next)
             } else if !next.topology.contains(pane: pane) {
                 // A pane this window does not show: remembered selection only.
                 effects.append(.select(pane: pane, tab: tab))
@@ -132,7 +132,7 @@ nonisolated enum FocusReducer {
             if state.target != .sidebar(keyboard: true) || state.sidebarHidden { state.target = .content }
             state.drag = nil
         } else if let pane = state.pane, !topology.contains(pane: pane) {
-            state.pane = successor(of: pane, history: state.history, in: old.panes.map(\.id), surviving: topology)
+            state.pane = successor(of: pane, history: state.recentPanes, in: old.panes.map(\.id), surviving: topology)
                 ?? topology.panes.first?.id
             if state.target.isPaneScoped { state.target = .content }
         } else if state.pane == nil {
@@ -162,6 +162,18 @@ nonisolated enum FocusReducer {
     }
 
     // MARK: Helpers
+
+    /// `pane` is now the focused pane of `workspace`: restored on switching
+    /// back, and newest in that workspace's history.
+    private static func remember(_ pane: String, in workspace: String, _ state: inout FocusState) {
+        state.remembered[workspace] = pane
+        var recent = state.history[workspace] ?? []
+        guard recent.first != pane else { return }
+        recent.removeAll { $0 == pane }
+        recent.insert(pane, at: 0)
+        if recent.count > FocusState.historyLimit { recent.removeLast(recent.count - FocusState.historyLimit) }
+        state.history[workspace] = recent
+    }
 
     /// A user intent that did not come from the drag's own mouse events.
     private static func overridesDrag(_ event: FocusEvent) -> Bool {
@@ -257,12 +269,7 @@ nonisolated enum FocusReducer {
             new.target = .content
         }
         if let workspace = new.topology.workspace, let pane = new.pane, new.topology.contains(pane: pane) {
-            new.remembered[workspace] = pane
-            if new.history.first != pane {
-                new.history.removeAll { $0 == pane }
-                new.history.insert(pane, at: 0)
-                if new.history.count > FocusState.historyLimit { new.history.removeLast() }
-            }
+            remember(pane, in: workspace, &new)
         }
         if let pane = new.pane, pane != old.pane || forceResponder, new.topology.contains(pane: pane) {
             effects.append(.revealPane(pane))
