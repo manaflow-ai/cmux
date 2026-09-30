@@ -7,6 +7,12 @@
     "Packages/macOS/CmuxSettings/*",
     "dogfood/scenarios/setting-actions-tour.json"
   ],
+  "launch": {
+    "env": {
+      "HOME": "/tmp/cmux-setting-actions-tour",
+      "CFFIXED_USER_HOME": "/tmp/cmux-setting-actions-tour"
+    }
+  },
   "steps": [
     {
       "socket": "workspace.create",
