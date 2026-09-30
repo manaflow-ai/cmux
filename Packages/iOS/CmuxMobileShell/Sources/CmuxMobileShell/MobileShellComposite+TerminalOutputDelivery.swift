@@ -436,6 +436,7 @@ extension MobileShellComposite {
         surfaceID: String,
         bypassReplayBarrier: Bool = false
     ) -> Bool {
+        let hadOutputSink = hasTerminalOutputSink(surfaceID: surfaceID)
         let hasCurrentThemeRevision = hasCurrentTerminalThemeRevision(frame)
         recordTerminalTheme(frame)
         let deliveryFrame: MobileTerminalRenderGridFrame
@@ -463,7 +464,11 @@ extension MobileShellComposite {
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
         )
-        if delivered, frame.full {
+        // A full frame received before a surface mounts still makes a useful
+        // overview thumbnail. Once a sink exists, only cache frames admitted
+        // to that sink so replay-barrier drops and queue overflows cannot
+        // replace the last accepted preview.
+        if frame.full && (delivered || !hadOutputSink) {
             let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
             terminalOverviewPreviewLinesByID[terminalID] =
                 Self.terminalOverviewPreviewLines(from: frame)
