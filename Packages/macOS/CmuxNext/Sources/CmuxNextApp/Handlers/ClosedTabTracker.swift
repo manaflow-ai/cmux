@@ -72,6 +72,7 @@ final class ClosedTabTracker {
             var record = record
             record.cwd = previous[record.tabID]?.cwd
             record.url = previous[record.tabID]?.url
+            record.engine = previous[record.tabID]?.browserEngine
             record.terminalResourceID = previous[record.tabID]?.terminalResourceID?.rawValue
             return record
         }
@@ -97,7 +98,8 @@ final class ClosedTabTracker {
                 services.registry.refuse(RefusalStrings.browserReopenNeedsWindow)
                 return
             }
-            controller.newBrowserTab(url: record.url.flatMap(URL.init(string:)))
+            // The engine its record named (WebKit with a notice when Chromium is missing).
+            controller.newBrowserTab(url: record.url.flatMap(URL.init(string:)), inherited: record.engine)
         case .terminal:
             let daemon = services.daemon(for: paneModel)
             guard restorer.isAvailable() else {

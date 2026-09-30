@@ -44,7 +44,9 @@ enum TabHandlers {
         registry.bind("duplicateTab", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
             if let tab = pane.tab(id), tab.kind == .browser {
-                pane.newBrowserTab(url: tab.url.flatMap(URL.init(string:)))
+                // Same engine as the original (cookies live in one engine).
+                let live = ctx.services.cache.existingBrowser(tab.id)?.tab.state.url
+                pane.newBrowserTab(url: live ?? tab.url.flatMap(URL.init(string:)), inherited: tab.browserEngine)
             } else if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
             } else {

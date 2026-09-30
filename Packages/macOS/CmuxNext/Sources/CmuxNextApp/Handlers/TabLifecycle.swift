@@ -35,8 +35,8 @@ enum TabLifecycle {
         guard let tab = pane.tab(id), tab.kind == .browser else { return ctx.refuse(RefusalStrings.notABrowserTab) }
         let current = BrowserEngineTag(rawValue: tab.browserEngine ?? "") ?? .webkit
         guard current != engine else { return }
-        if engine == .cef, let browserTabs = ctx.services.cache.browserTabs, !browserTabs.cefAvailable() {
-            return ctx.refuse(browserTabs.cefUnavailableReason() ?? RefusalStrings.chromiumUnavailable)
+        if engine == .cef, let reason = ctx.services.cache.browserTabs?.cefUnavailableReason() {
+            return ctx.refuse(reason)
         }
         let live = ctx.services.cache.existingBrowser(tab.id)?.tab.state.url
         let url = live ?? tab.url.flatMap(URL.init(string:))
@@ -44,6 +44,9 @@ enum TabLifecycle {
         pane.close([id])
     }
 
+    /// `openBrowser` (`engine` optional: `browser.defaultEngine` when
+    /// absent, see `BrowserEngineResolver`). An explicit Chromium request
+    /// never silently becomes WebKit.
     static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
         var url: URL?
         if let text = invocation["url"]?.stringValue {
@@ -52,18 +55,19 @@ enum TabLifecycle {
         }
         guard let pane = ctx.daemonPane(invocation) else { return }
         let engine = invocation["engine"]?.stringValue
-        // An explicit Chromium request never silently becomes WebKit.
-        if engine == BrowserEngineTag.cef.rawValue, let browserTabs = ctx.services.cache.browserTabs, !browserTabs.cefAvailable() {
-            return ctx.refuse(browserTabs.cefUnavailableReason() ?? RefusalStrings.chromiumUnavailable)
-        }
         if let controller = ctx.services.paneController(for: pane) { return controller.newBrowserTab(url: url, engine: engine) }
         let browserTabs = ctx.services.cache.browserTabs!
         guard browserTabs.isAvailable() else { return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.frontendBrowserTabs)) }
-        let handle = pane.handle, tag = browserTabs.engine(requested: engine), address = url?.absoluteString ?? "about:blank"
+        let choice: BrowserEngineChoice
+        switch browserTabs.resolve(requested: engine) {
+        case .refuse(let reason): return ctx.refuse(BrowserTabService.message(reason))
+        case .open(let resolved): choice = resolved
+        }
+        let handle = pane.handle, address = url?.absoluteString ?? "about:blank"
         let logger = ctx.services.daemon.logger
         ctx.registry.track(Task {
             do {
-                _ = try await browserTabs.create(handle, address, tag)
+                _ = try await browserTabs.open(choice, in: handle, url: address)
                 return nil
             } catch {
                 logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")

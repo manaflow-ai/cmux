@@ -98,9 +98,16 @@ enum WorkspaceHandlers {
     /// A workspace whose only tab is a blank browser tab.
     private static func newBrowserWorkspace(_ context: AppActionContext) throws {
         try context.require(DaemonCapabilities.frontendBrowserTabs)
+        let browserTabs = context.services.cache.browserTabs!
+        guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
+        let fallbacks = browserTabs.fallbacks
         createAndShow(context) { connection, terminal in
             guard let pane = terminal.pane else { return }
-            _ = try await connection.newFrontendBrowserTab(url: "about:blank", engine: .webkit, in: pane)
+            // On the active machine's connection (it may be a Cloud machine).
+            let created = try await connection.newFrontendBrowserTab(url: "about:blank", engine: choice.engine, in: pane)
+            if let reason = choice.fallback {
+                await fallbacks.record(reason, source: .newTab, surface: created.surface)
+            }
             if let surface = terminal.surface { try await connection.closeTab(surface) }
         }
     }

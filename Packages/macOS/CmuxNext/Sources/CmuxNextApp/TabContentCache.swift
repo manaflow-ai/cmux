@@ -27,6 +27,8 @@ final class TabContentCache {
     let history = InMemoryBrowserHistory()
     private(set) lazy var suggestionEngine = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)])
     private(set) var browserTabs: BrowserTabService!
+    /// Page-originated tab requests (new-tab links, popups, window.close).
+    let pageRequests = BrowserPageRequests()
     private var pendingBrowsers: Set<String> = []
     /// A CEF page finished its asynchronous creation; panes showing `key` re-show.
     var onBrowserReady: ((String) -> Void)?
@@ -98,10 +100,7 @@ final class TabContentCache {
     func browser(for key: String, url: URL?) -> BrowserEntry {
         if let entry = browsers[key] { return entry }
         let tab = webKit.makeWebKitTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
-        let entry = BrowserEntry(tab: tab, suggestionEngine: suggestionEngine, history: history)
-        entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
-        browsers[key] = entry
-        return entry
+        return install(tab, for: key)
     }
 
     func existingBrowser(_ key: String) -> BrowserEntry? { browsers[key] }
@@ -109,28 +108,79 @@ final class TabContentCache {
     /// The page for a daemon browser tab on the engine its record names,
     /// written back to the record (url, title, favicon) while it lives.
     /// CEF starts lazily and creates tabs asynchronously: nil until ready.
-    /// Falls back to WebKit when the CEF runtime is not bundled.
+    /// A Chromium record opens in WebKit when CEF is missing or fails to
+    /// start (`ChromiumFallbackLog`: typed reason, one notice per process);
+    /// the record keeps naming Chromium, so a build with CEF restores it.
     func browser(for tab: TabModel) -> BrowserEntry? {
         let key = tab.id
-        let url = tab.url.flatMap(URL.init(string:))
-        guard tab.browserEngine == BrowserEngineTag.cef.rawValue, browserTabs.cefAvailable() else {
-            let entry = browser(for: key, url: url)
-            browserTabs.track(entry.tab, for: tab)
-            return entry
-        }
         if let entry = browsers[key] { return entry }
+        if let adopted = pageRequests.takeAdoption(for: tab.surface) {
+            return tracked(install(adopted, for: key), tab)
+        }
+        let url = tab.url.flatMap(URL.init(string:))
+        guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browser(for: key, url: url), tab) }
+        if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
         guard pendingBrowsers.insert(key).inserted else { return nil }
         Task { [weak tab] in
             defer { pendingBrowsers.remove(key) }
-            guard let page = try? await cef.makeTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url)) else { return }
-            page.keyRouter = keyRouter
-            let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
-            entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
-            browsers[key] = entry
+            let page: any BrowserTab
+            do {
+                page = try await cef.makeTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
+            } catch {
+                guard let tab, browsers[key] == nil else { return }
+                _ = fallBack(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
+                onBrowserReady?(key)
+                return
+            }
+            install(page, for: key)
             if let tab { browserTabs.track(page, for: tab) }
             onBrowserReady?(key)
         }
         return nil
+    }
+
+    /// A WebKit page for a Chromium record, with the fallback recorded and
+    /// the one-time notice shown when this is the first.
+    private func fallBack(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {
+        let fallbacks = browserTabs.fallbacks
+        fallbacks.record(reason, source: .recordedTab, surface: tab.surface)
+        return tracked(browser(for: tab.id, url: url), tab)
+    }
+
+    /// Starts the record write-back and shows a pending fallback notice.
+    private func tracked(_ entry: BrowserEntry, _ tab: TabModel) -> BrowserEntry {
+        browserTabs.track(entry.tab, for: tab)
+        if let notice = browserTabs.fallbacks.takeNotice(for: tab.surface) { entry.chrome.showNotice(notice) }
+        return entry
+    }
+
+    /// Wraps a live page in chrome, keyed by tab id. Pages route their
+    /// requests (links in new tabs, popups, `window.close()`) to
+    /// `pageRequests`; Chromium pages route app shortcuts to `keyRouter`
+    /// (their page window is key, so `ShellWindow` never sees the key).
+    @discardableResult
+    private func install(_ page: any BrowserTab, for key: String) -> BrowserEntry {
+        page.delegate = pageRequests
+        if page.engineKind == .cef { page.keyRouter = keyRouter }
+        let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
+        entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
+        browsers[key] = entry
+        return entry
+    }
+
+    /// Swaps `tab`'s page for `page` (an adopted popup that arrived after
+    /// the tab's placeholder page was created).
+    func replacePage(of tab: TabModel, with page: any BrowserTab) {
+        let key = tab.id
+        browserTabs.untrack(key)
+        browsers.removeValue(forKey: key)?.close()
+        _ = tracked(install(page, for: key), tab)
+        onBrowserReady?(key)
+    }
+
+    /// The tab id whose page is `page`.
+    func key(of page: any BrowserTab) -> String? {
+        browsers.first { $0.value.tab === page }?.key
     }
 
     // MARK: Presentation and lifetime

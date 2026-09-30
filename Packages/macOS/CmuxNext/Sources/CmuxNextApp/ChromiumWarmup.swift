@@ -8,16 +8,25 @@ import CmuxNextBrowser
 ///
 /// - A few seconds after launch the framework is mapped on a background
 ///   thread (`CEFEngine.preload`, no Chromium code runs).
-/// - When a Chromium tab is likely (a restored Chromium tab in any window,
-///   the "+" engine menu, the palette's Chromium entry), `CefInitialize` runs
-///   at the next idle moment: no key or mouse input to this app for
-///   `Policy.idleInput` and no menu tracking. Otherwise CEF stays lazy.
+/// - When a Chromium tab is likely, `CefInitialize` runs at the next idle
+///   moment: no key or mouse input to this app for `Policy.idleInput` and no
+///   menu tracking. Likely means a Chromium tab in any window (restored or
+///   not), the "+" menu, the palette's Chromium entries, and while Chromium
+///   is the default engine (`browser.defaultEngine`) also any browser tab in
+///   any window, the palette's default browser entries (New Browser Tab,
+///   Split Browser, New Browser Workspace), or switching the default to
+///   Chromium. Otherwise CEF stays lazy: a user who never browses never pays
+///   for it (AppServices+Chromium).
 @MainActor
 final class ChromiumWarmup {
     enum Reason: String, Sendable {
         case restoredTab
         case newTabMenu
         case palette
+        /// A browser tab exists and new ones default to Chromium.
+        case browserTab
+        /// The default engine was just switched to Chromium.
+        case defaultEngine
     }
 
     struct Policy: Sendable {

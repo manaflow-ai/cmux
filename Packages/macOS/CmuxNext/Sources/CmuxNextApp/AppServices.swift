@@ -45,7 +45,7 @@ final class AppServices {
     var closedTabs: ClosedTabTracker?
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
-    private let terminalDelegate = TerminalHostDelegate()
+    let terminalDelegate = TerminalHostDelegate()
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     private(set) var keyRouter: KeyRouter!
     var paletteObservation: Task<Void, Never>?
@@ -59,6 +59,7 @@ final class AppServices {
         cache = TabContentCache(daemon: daemon)
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
         cache.sessionDelegate = terminalDelegate
+        cache.pageRequests.services = self
         keyRouter = KeyRouter(registry: registry)
         keyRouter.services = self
         cache.keyRouter = keyRouter
@@ -102,6 +103,11 @@ final class AppServices {
             }
         }
         return nil
+    }
+
+    /// The tab on `surface` (the local daemon's surfaces).
+    func locateTab(surface: SurfaceID) -> TabModel? {
+        daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.surface == surface }
     }
 
     func workspace(id: String) -> WorkspaceModel? {

@@ -50,6 +50,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tabBar: SurfaceTabBarConfig = .defaults
     /// Runnable `actions.<name>` entries plus inline command buttons.
     public var commandActions: [ConfigCommandAction] = []
+    /// `browser.defaultEngine`; Chromium when unset or invalid.
+    public var browserDefaultEngine: BrowserDefaultEngine = .fallback
     public var diagnostics: [SettingsDiagnostic]
 
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
@@ -74,6 +76,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.tabBar = tabBar.tabBar
         snapshot.commandActions = tabBar.actions
         snapshot.diagnostics += tabBar.diagnostics
+        let (engine, engineDiagnostic) = BrowserDefaultEngine.parse(root)
+        snapshot.browserDefaultEngine = engine
+        if let engineDiagnostic { snapshot.diagnostics.append(engineDiagnostic) }
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {

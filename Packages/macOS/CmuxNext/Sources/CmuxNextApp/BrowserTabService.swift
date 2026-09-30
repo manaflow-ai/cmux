@@ -6,7 +6,7 @@ import Foundation
 typealias BrowserEngineTag = CmuxNextDaemon.BrowserEngine
 
 /// Daemon-owned browser tabs (`frontend-browser-tabs-v1`): creation with an
-/// engine choice, and the debounced url/title/favicon write-back that lets
+/// engine choice (`resolve`, `open`), and the debounced url/title/favicon write-back that lets
 /// the daemon restore them after relaunch. The command closures are seams
 /// for tests.
 final class BrowserTabService {
@@ -16,10 +16,13 @@ final class BrowserTabService {
     var update: @MainActor (SurfaceID, BrowserRecordUpdate) async -> Bool
     /// Whether the daemon serves `frontend-browser-tabs-v1`.
     var isAvailable: @MainActor () -> Bool
-    /// Whether the CEF runtime is bundled and can start.
-    var cefAvailable: @MainActor () -> Bool
-    /// Why Chromium cannot open a tab (localized), nil when it can.
-    var cefUnavailableReason: @MainActor () -> String?
+    /// Why Chromium cannot open a tab now; nil when it can (or may still
+    /// start).
+    var cefUnavailable: @MainActor () -> CEFUnavailableReason?
+    /// `browser.defaultEngine`, live.
+    let preference = BrowserEnginePreference()
+    /// Chromium-to-WebKit fallbacks and the one-time notice.
+    let fallbacks = ChromiumFallbackLog()
     var writeBackDelay: Duration = .milliseconds(500)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
     private var writers: [String: BrowserRecordWriter] = [:]
@@ -35,18 +38,36 @@ final class BrowserTabService {
             } ?? false
         }
         isAvailable = { [weak daemon] in daemon?.supports(DaemonCapabilities.frontendBrowserTabs) ?? false }
-        cefAvailable = { [weak cef] in cef?.availability == .available }
-        cefUnavailableReason = { [weak cef] in
-            guard let cef else { return nil }
-            if case .unavailable(let reason) = cef.availability { return reason }
-            return nil
-        }
+        cefUnavailable = { [weak cef] in cef?.unavailableReason ?? .notBundled }
     }
 
-    /// The engine for a request: CEF only when asked for and available,
-    /// else WebKit (the default).
-    func engine(requested: String?) -> BrowserEngineTag {
-        requested == BrowserEngineTag.cef.rawValue && cefAvailable() ? .cef : .webkit
+    func cefAvailable() -> Bool { cefUnavailable() == nil }
+
+    /// Why Chromium cannot open a tab (localized), nil when it can.
+    func cefUnavailableReason() -> String? {
+        cefUnavailable().map(Self.message)
+    }
+
+    static func message(_ reason: CEFUnavailableReason) -> String {
+        reason.detail ?? RefusalStrings.chromiumUnavailable
+    }
+
+    /// The engine for a new tab (`BrowserEngineResolver`): an explicit
+    /// engine, else an inherited one, else `browser.defaultEngine`, with the
+    /// WebKit fallback for the last two.
+    func resolve(requested: String?, inherited: String? = nil) -> BrowserEngineResolver.Outcome {
+        BrowserEngineResolver.resolve(requested: requested, inherited: inherited,
+                                      defaultEngine: preference.defaultEngine, cefUnavailable: cefUnavailable())
+    }
+
+    /// Creates the daemon record for `choice` in `pane` and records a
+    /// fallback against the new surface (its page shows the notice).
+    func open(_ choice: BrowserEngineChoice, in pane: PaneID, url: String) async throws -> SurfaceID {
+        let surface = try await create(pane, url, choice.engine)
+        if let reason = choice.fallback {
+            fallbacks.record(reason, source: choice.inherited ? .recordedTab : .newTab, surface: surface)
+        }
+        return surface
     }
 
     /// Starts writing `page` back to the daemon record of `tab` (keyed by

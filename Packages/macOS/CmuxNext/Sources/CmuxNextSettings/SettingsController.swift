@@ -116,6 +116,11 @@ public final class SettingsController {
         try await file.remove(["shortcuts", id.rawValue])
     }
 
+    /// Writes `browser.defaultEngine`.
+    public func setBrowserDefaultEngine(_ engine: BrowserDefaultEngine) async throws {
+        try await file.set(.string(engine.rawValue), at: BrowserDefaultEngine.configPath)
+    }
+
     public func setDensity(_ density: Density) async throws {
         try await file.set(.string(density.rawValue), at: ["appearance", "density"])
     }

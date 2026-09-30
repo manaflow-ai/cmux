@@ -42,7 +42,7 @@ struct BrowserTabTests {
         let recorder = Recorder()
         let browserTabs = try #require(services.cache.browserTabs)
         browserTabs.isAvailable = { true }
-        browserTabs.cefAvailable = { false }
+        browserTabs.cefUnavailable = { .notBundled }
         browserTabs.create = { pane, url, engine in
             recorder.created.append((pane, url, engine))
             return SurfaceID(rawValue: 9)
@@ -61,11 +61,16 @@ struct BrowserTabTests {
         let pane = try #require(content.panes[paneID])
         content.layoutModel.focus(paneID)
 
-        pane.newBrowserTab(engine: "cef")
+        // An explicit Chromium request is refused while CEF is missing.
+        let refusal = services.registry.capturingRefusal { pane.newBrowserTab(engine: "cef") }
+        #expect(refusal == RefusalStrings.chromiumUnavailable)
+        // No engine: default Chromium falls back to WebKit with the reason.
+        pane.newBrowserTab()
         await Self.settle { !recorder.created.isEmpty }
         #expect(recorder.created.count == 1)
         #expect(recorder.created.first?.1 == "about:blank")
-        #expect(recorder.created.first?.2 == .webkit, "cef falls back to webkit when the runtime is missing")
+        #expect(recorder.created.first?.2 == .webkit, "default Chromium falls back to webkit when the runtime is missing")
+        #expect(browserTabs.fallbacks.lastReason == .notBundled)
 
         // The daemon reports the new tab.
         store.apply(snapshot: try Self.tree(frontendSurface: 9))
@@ -89,8 +94,7 @@ struct BrowserTabTests {
         let recorder = Recorder()
         let browserTabs = try #require(services.cache.browserTabs)
         browserTabs.isAvailable = { true }
-        browserTabs.cefAvailable = { false }
-        browserTabs.cefUnavailableReason = { "no CEF here" }
+        browserTabs.cefUnavailable = { .startFailed("no CEF here") }
         browserTabs.create = { pane, url, engine in
             recorder.created.append((pane, url, engine))
             return SurfaceID(rawValue: 9)
@@ -113,24 +117,12 @@ struct BrowserTabTests {
         await Self.settle { !recorder.created.isEmpty }
         #expect(recorder.created.first?.2 == .webkit)
 
-        browserTabs.cefAvailable = { true }
-        browserTabs.cefUnavailableReason = { nil }
+        browserTabs.cefUnavailable = { nil }
         #expect(registry.canPerform("openBrowser.chromium"))
         registry.perform("openBrowser.chromium", invocation: ActionInvocation(target: pane))
         await Self.settle { recorder.created.count == 2 }
         #expect(recorder.created.last?.2 == .cef)
         withExtendedLifetime(services) {}
-    }
-
-    @Test func cefIsChosenOnlyWhenRequestedAndAvailable() {
-        let services = ActionBindingCoverageTests.boundServices()
-        let browserTabs = services.cache.browserTabs!
-        browserTabs.cefAvailable = { true }
-        #expect(browserTabs.engine(requested: nil) == .webkit)
-        #expect(browserTabs.engine(requested: "webkit") == .webkit)
-        #expect(browserTabs.engine(requested: "cef") == .cef)
-        browserTabs.cefAvailable = { false }
-        #expect(browserTabs.engine(requested: "cef") == .webkit)
     }
 
     @Test func recordUpdateSendsOnlyWhatChanged() {

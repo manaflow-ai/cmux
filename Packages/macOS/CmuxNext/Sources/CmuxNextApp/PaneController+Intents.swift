@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextTabs
 
@@ -97,33 +98,50 @@ extension PaneController {
         })
     }
 
-    /// New browser tab: daemon-owned when supported (engine `requested`,
-    /// WebKit by default, CEF when asked for and bundled), else
+    /// New browser tab: daemon-owned when supported, on the engine
+    /// `BrowserTabService.resolve` picks (an explicit engine, else
+    /// `browser.defaultEngine`, Chromium, with the WebKit fallback), else
     /// session-local. The new tab is selected and focused when it lands; a
     /// blank tab focuses its address bar so the user can type a URL.
-    func newBrowserTab(url: URL? = nil, engine requested: String? = nil) {
+    /// `inherited` is a reopened or duplicated tab's engine or a popup
+    /// opener's (falls back instead of refusing). `adopting` is a popup page
+    /// the engine already created (`BrowserPageRequests`). `background` (a
+    /// page's Cmd-click) creates the tab without selecting it.
+    func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
+                       adopting child: (any BrowserTab)? = nil, background: Bool = false) {
         let browserTabs = services.cache.browserTabs!
         if browserTabs.isAvailable() {
-            let engine = browserTabs.engine(requested: requested)
+            var choice: BrowserEngineChoice
+            switch browserTabs.resolve(requested: requested, inherited: inherited) {
+            case .refuse(let reason): return services.registry.refuse(BrowserTabService.message(reason))
+            case .open(let resolved): choice = resolved
+            }
+            if child != nil { choice = BrowserPageRequests.choice(adopting: child, inherited: inherited, browserTabs: browserTabs) }
+            let pageRequests = services.cache.pageRequests
             let handle = pane.handle
-            let intent = workspace?.beginFocusIntent()
+            let intent = background ? nil : workspace?.beginFocusIntent()
             services.registry.track(Task {
                 do {
-                    let surface = try await browserTabs.create(handle, url?.absoluteString ?? "about:blank", engine)
+                    let surface = try await browserTabs.open(choice, in: handle, url: url?.absoluteString ?? "about:blank")
+                    if let child { pageRequests.adopt(child, surface: surface) }
+                    guard !background else { return nil }
                     pendingSelectSurface = surface
                     apply(snapshot())
                     workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
                     return nil
                 } catch {
+                    child?.close()
                     daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
                     return "new-frontend-browser-tab: \(error)"
                 }
             })
             return
         }
+        child?.close()  // Session-local tabs are WebKit pages made on demand.
         let local = LocalBrowserTab.make(url: url)
         state.localBrowserTabs[paneKey, default: []].append(local)
         apply(snapshot())
+        if background { return }
         select(StripTabID(local.id))
         if url == nil { workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
     }

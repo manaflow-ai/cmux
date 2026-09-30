@@ -22,6 +22,8 @@ enum SettingsHandlers {
             Task { await settings.reload() }
         })
         registry.bind("palette.toggleSetting", run: { invocation in try toggleSetting(invocation, context) })
+        registry.bind("browser.defaultEngine.chromium", run: { _ in setDefaultEngine(.chromium, context) })
+        registry.bind("browser.defaultEngine.webkit", run: { _ in setDefaultEngine(.webkit, context) })
         registry.bind("sendFeedback", run: { _ in try context.open(URL(string: "https://github.com/manaflow-ai/cmux/issues/new")!) })
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
         UpdateHandlers.bind(into: registry, updater: context.services.updater)
@@ -85,6 +87,19 @@ enum SettingsHandlers {
                 try await settings.set(.bool(explicit ?? !current), at: path)
             } catch {
                 logger.error("toggle setting \(setting, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// `browser.defaultEngine`: applies at once (the next new tab uses it),
+    /// then writes cmux.json; the watcher reapplies the same value.
+    private static func setDefaultEngine(_ engine: BrowserDefaultEngine, _ context: AppActionContext) {
+        context.services.cache.browserTabs?.preference.defaultEngine = engine
+        if engine == .chromium { context.services.chromiumWarmup.chromiumLikely(.defaultEngine) }
+        guard let settings = context.services.settings else { return }
+        Task {
+            do { try await settings.setBrowserDefaultEngine(engine) } catch {
+                logger.error("set browser.defaultEngine failed: \(String(describing: error), privacy: .public)")
             }
         }
     }

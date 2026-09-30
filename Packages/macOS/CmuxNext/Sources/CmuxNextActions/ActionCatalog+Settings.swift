@@ -134,6 +134,18 @@ extension ActionCatalog {
                 symbol: "rectangle.expand.vertical", surfaces: [.palette], cliName: "settings use-comfortable-density"
             ),
             ActionDescriptor(
+                id: "browser.defaultEngine.chromium",
+                title: String(localized: "action.browser.defaultEngine.chromium", defaultValue: "Use Chromium for New Browser Tabs", bundle: .module),
+                keywords: ["browser", "engine", "default", "chrome", "chromium", "cef"], category: .settings,
+                symbol: "circle.circle", surfaces: [.palette], cliName: "settings use-chromium-by-default"
+            ),
+            ActionDescriptor(
+                id: "browser.defaultEngine.webkit",
+                title: String(localized: "action.browser.defaultEngine.webkit", defaultValue: "Use WebKit for New Browser Tabs", bundle: .module),
+                keywords: ["browser", "engine", "default", "safari", "webkit"], category: .settings,
+                symbol: "safari", surfaces: [.palette], cliName: "settings use-webkit-by-default"
+            ),
+            ActionDescriptor(
                 id: "appearance.interfaceSize.increase",
                 title: String(localized: "action.appearance.interfaceSize.increase", defaultValue: "Increase Interface Size", bundle: .module),
                 keywords: ["appearance", "font", "chrome", "bigger", "zoom"], category: .settings,

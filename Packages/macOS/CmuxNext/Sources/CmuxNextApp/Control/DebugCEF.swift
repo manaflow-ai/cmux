@@ -3,7 +3,9 @@ import CmuxNextSettings
 import Darwin
 
 /// `debug.cef`: how Chromium started in this process (lazy tab, or a warm
-/// start and why), its timings, and the app's memory footprint. Helper
+/// start and why), its timings, the app's memory footprint, the default
+/// engine, why Chromium is unavailable (`unavailable`: `notBundled`,
+/// `startFailed`, `shutDown`) and the WebKit fallbacks so far. Helper
 /// processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
@@ -16,10 +18,26 @@ enum DebugCEF {
             "trigger": report.trigger.map { .string($0) } ?? .null,
             "footprint_mb": .number(footprintMegabytes()),
         ]
+        if let browserTabs = services.cache.browserTabs {
+            object["default_engine"] = .string(browserTabs.preference.defaultEngine.rawValue)
+            object["unavailable"] = unavailable(browserTabs.cefUnavailable())
+            let fallbacks = browserTabs.fallbacks
+            object["fallback"] = fallbacks.count == 0 ? .null : .object([
+                "count": .number(Double(fallbacks.count)),
+                "reason": unavailable(fallbacks.lastReason),
+                "source": fallbacks.lastSource.map { .string($0.rawValue) } ?? .null,
+                "notified": .bool(fallbacks.notified),
+            ])
+        }
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
         return .object(object)
+    }
+
+    private static func unavailable(_ reason: CEFUnavailableReason?) -> JSONValue {
+        guard let reason else { return .null }
+        return .object(["code": .string(reason.code), "detail": reason.detail.map { .string($0) } ?? .null])
     }
 
     private static func milliseconds(_ duration: Duration) -> Double {

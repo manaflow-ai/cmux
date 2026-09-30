@@ -77,11 +77,12 @@ enum BrowserHandlers {
                 let handle = pane.pane.handle
                 let connection = try context.requireConnection()
                 let browserTabs = context.services.cache.browserTabs!
-                let engine = browserTabs.engine(requested: nil)
+                // The default engine (never refused: no engine is requested).
+                guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
                 let intent = pane.workspace?.beginFocusIntent()
                 Task {
                     do {
-                        let surface = try await browserTabs.create(handle, "about:blank", engine)
+                        let surface = try await browserTabs.open(choice, in: handle, url: "about:blank")
                         try await connection.split(handle, direction: direction, movingTab: surface)
                         // The new pane takes focus and its address bar the keyboard.
                         pane.workspace?.expectFocus(on: surface, target: .addressBar, generation: intent)

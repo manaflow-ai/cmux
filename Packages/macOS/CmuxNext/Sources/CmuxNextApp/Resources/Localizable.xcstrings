@@ -3537,6 +3537,268 @@
           }
         }
       }
+    },
+    "browser.engine.fallback.notBundled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium isn’t in this build, so this tab uses WebKit."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium غير موجود في هذا الإصدار، لذا تستخدم علامة التبويب هذه WebKit."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium nije u ovoj verziji, pa ova kartica koristi WebKit."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium er ikke med i denne build, så fanen bruger WebKit."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium ist in diesem Build nicht enthalten, daher nutzt dieser Tab WebKit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium no está en esta compilación, así que esta pestaña usa WebKit."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium n’est pas inclus dans cette version ; cet onglet utilise WebKit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium non è incluso in questa build, quindi questa scheda usa WebKit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このビルドには Chromium がないため、このタブは WebKit を使用しています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែនេះគ្មាន Chromium ទេ ដូច្នេះផ្ទាំងនេះប្រើ WebKit។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드에는 Chromium이 없어 이 탭은 WebKit을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium finnes ikke i denne versjonen, så fanen bruker WebKit."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tej kompilacji brakuje Chromium, więc ta karta używa WebKit."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Chromium não está nesta versão, então esta aba usa o WebKit."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этой сборке нет Chromium, поэтому вкладка использует WebKit."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์นี้ไม่มี Chromium แท็บนี้จึงใช้ WebKit"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu derlemede Chromium yok, bu yüzden bu sekme WebKit kullanıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У цій збірці немає Chromium, тому вкладка використовує WebKit."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản dựng này không có Chromium nên tab này dùng WebKit."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本不含 Chromium，因此此标签页使用 WebKit。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本不含 Chromium，因此此分頁使用 WebKit。"
+          }
+        }
+      }
+    },
+    "browser.engine.fallback.startFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium couldn’t start, so this tab uses WebKit."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تشغيل Chromium، لذا تستخدم علامة التبويب هذه WebKit."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium se nije mogao pokrenuti, pa ova kartica koristi WebKit."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium kunne ikke starte, så fanen bruger WebKit."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium konnte nicht starten, daher nutzt dieser Tab WebKit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium no pudo iniciarse, así que esta pestaña usa WebKit."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium n’a pas pu démarrer ; cet onglet utilise WebKit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile avviare Chromium, quindi questa scheda usa WebKit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium を起動できなかったため、このタブは WebKit を使用しています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium មិនអាចចាប់ផ្តើមបានទេ ដូច្នេះផ្ទាំងនេះប្រើ WebKit។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium을 시작할 수 없어 이 탭은 WebKit을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium kunne ikke starte, så fanen bruker WebKit."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się uruchomić Chromium, więc ta karta używa WebKit."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível iniciar o Chromium, então esta aba usa o WebKit."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось запустить Chromium, поэтому вкладка использует WebKit."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่ม Chromium ไม่ได้ แท็บนี้จึงใช้ WebKit"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium başlatılamadı, bu yüzden bu sekme WebKit kullanıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося запустити Chromium, тому вкладка використовує WebKit."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể khởi động Chromium nên tab này dùng WebKit."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium 无法启动，因此此标签页使用 WebKit。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium 無法啟動，因此此分頁使用 WebKit。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -11,13 +11,15 @@ public nonisolated struct ClosedTabHistory: Sendable {
         public var index: Int
         public var cwd: String?
         public var url: String?
+        /// A browser tab's engine tag (`webkit`, `cef`); reopening keeps it.
+        public var engine: String?
         /// The closed tab's terminal (`term_…`). Closing a tab only detaches
         /// it; the daemon ends it after its reap grace period, so reopening
         /// within that window shows the same live terminal.
         public var terminalResourceID: String?
 
         public init(kind: Kind, tabID: String, paneID: String, workspaceID: String, index: Int,
-                    cwd: String? = nil, url: String? = nil, terminalResourceID: String? = nil) {
+                    cwd: String? = nil, url: String? = nil, engine: String? = nil, terminalResourceID: String? = nil) {
             self.kind = kind
             self.tabID = tabID
             self.paneID = paneID
@@ -25,6 +27,7 @@ public nonisolated struct ClosedTabHistory: Sendable {
             self.index = index
             self.cwd = cwd
             self.url = url
+            self.engine = engine
             self.terminalResourceID = terminalResourceID
         }
     }

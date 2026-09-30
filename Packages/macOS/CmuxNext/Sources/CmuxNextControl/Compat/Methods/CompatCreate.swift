@@ -35,6 +35,8 @@ enum CompatCreate {
         case .browser:
             var arguments: [String: ControlValue] = [:]
             if let url = call.string("url"), !url.isEmpty { arguments["url"] = .string(url) }
+            // No engine: the App's `browser.defaultEngine` (Chromium unless set).
+            if let engine = browserEngine(call) { arguments["engine"] = .string(engine) }
             try await call.service.runAction("openBrowser", target: CompatTargets.pane(pane), arguments: arguments, call: call)
         case .terminal:
             var arguments: [String: ControlValue] = [:]
@@ -45,6 +47,16 @@ enum CompatCreate {
         let surface = try await created(since: before, in: pane.workspaceUUID, call: call)
         if kind == .terminal { try await runInitial(call, surface: surface) }
         return surface
+    }
+
+    /// An explicit `engine` param as an `openBrowser` engine tag
+    /// (`chromium`/`cef`, `webkit`); nil when absent or unknown.
+    static func browserEngine(_ call: CompatCall) -> String? {
+        switch call.string("engine")?.lowercased().trimmingCharacters(in: .whitespaces) {
+        case "chromium", "chrome", "cef": "cef"
+        case "webkit", "safari": "webkit"
+        default: nil
+        }
     }
 
     /// A new pane beside `pane` holding a new tab: the `split<Edge>` actions

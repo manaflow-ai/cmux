@@ -27,6 +27,13 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     }
 
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
+        openLink(url)
+    }
+
+    /// Cmd-click on a web URL: a browser tab in the focused pane on the
+    /// default engine (`browser.defaultEngine`, Chromium). Other schemes, or
+    /// no window, go to the system.
+    func openLink(_ url: URL) -> Bool {
         guard let pane = services?.windows.active?.focusedPane, url.scheme == "http" || url.scheme == "https" else {
             return NSWorkspace.shared.open(url)
         }

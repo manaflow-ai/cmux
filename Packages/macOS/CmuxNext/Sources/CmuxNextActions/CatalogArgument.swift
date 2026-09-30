@@ -128,8 +128,8 @@ enum CatalogArgument {
         ActionArgument(name: "url", title: String(localized: "argument.url", defaultValue: "URL", bundle: .module), kind: .string, isRequired: false)
     }
 
-    /// Optional browser engine (`openBrowser`): WebKit by default, Chromium
-    /// (CEF) when requested and its runtime is bundled.
+    /// Optional browser engine (`openBrowser`). Without it the tab uses
+    /// `browser.defaultEngine` (Chromium unless set to WebKit).
     static var engineChoice: ActionArgument {
         ActionArgument(name: "engine", title: String(localized: "argument.engine", defaultValue: "Engine", bundle: .module),
                        kind: .enumeration([choice("webkit"), choice("cef")]), isRequired: false)

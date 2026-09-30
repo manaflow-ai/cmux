@@ -30,6 +30,17 @@ public final class CEFEngine: BrowserEngine {
         return .available
     }
 
+    /// Why Chromium cannot open a tab now, nil when it can (or may still
+    /// start: idle or loading).
+    public var unavailableReason: CEFUnavailableReason? {
+        guard layout != nil else { return .notBundled }
+        switch CEFRuntime.shared.state {
+        case .failed(let message): return .startFailed(message)
+        case .shutDown: return .shutDown
+        case .idle, .loading, .ready: return nil
+        }
+    }
+
     /// True once CEF has been initialized in this process.
     public var isRunning: Bool { CEFRuntime.shared.state == .ready }
 
