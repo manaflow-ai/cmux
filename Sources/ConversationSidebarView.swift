@@ -518,17 +518,24 @@ struct ConversationSidebarView: View {
                 .nilIfEmpty
                 ?? agent.displayName
 
+            let dock = DockSplitStore.liveStore(containingPanel: panelID)
+            guard let liveDestination = projection.liveSurfaceDestination(
+                panelID: panelID,
+                workspaceByPanelID: workspaceByPanelID,
+                dockPanelIDs: dock.map { Set($0.panels.keys) } ?? []
+            ) else {
+                return nil
+            }
             let destination: Destination
             let isFocused: Bool
-            if let workspace = workspaceByPanelID[panelID] {
-                destination = .live(workspaceID: workspace.id, panelID: panelID)
-                isFocused = tabManager.selectedTabId == workspace.id
-                    && workspace.focusedPanelId == panelID
-            } else if let dock = DockSplitStore.liveStore(containingPanel: panelID) {
+            switch liveDestination {
+            case .workspace(let workspaceID):
+                destination = .live(workspaceID: workspaceID, panelID: panelID)
+                isFocused = tabManager.selectedTabId == workspaceID
+                    && workspaceByPanelID[panelID]?.focusedPanelId == panelID
+            case .dock:
                 destination = .dock(panelID: panelID)
-                isFocused = dock.focusedPanelId == panelID
-            } else {
-                return nil
+                isFocused = dock?.focusedPanelId == panelID
             }
 
             return Row(

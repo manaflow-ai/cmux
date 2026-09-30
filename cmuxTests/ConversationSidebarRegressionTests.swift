@@ -16,6 +16,25 @@ struct ConversationSidebarRegressionTests {
     private let projection = ConversationSidebarProjection()
 
     @Test
+    func dockHostedLiveSessionResolvesAsLiveSurface() {
+        let panelID = UUID()
+        #expect(
+            projection.liveSurfaceDestination(
+                panelID: panelID,
+                workspaceByPanelID: [:],
+                dockPanelIDs: [panelID]
+            ) == .dock
+        )
+        #expect(
+            projection.liveSurfaceDestination(
+                panelID: UUID(),
+                workspaceByPanelID: [:],
+                dockPanelIDs: []
+            ) == nil
+        )
+    }
+
+    @Test
     func pendingClaudeAliasDeduplicatesAgainstHistoryIdentity() {
         let surfaceID = UUID().uuidString
         let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)

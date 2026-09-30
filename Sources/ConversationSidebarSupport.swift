@@ -4,6 +4,22 @@ import Observation
 import SwiftUI
 
 struct ConversationSidebarProjection {
+    enum LiveSurfaceDestination: Equatable {
+        case workspace(UUID)
+        case dock
+    }
+
+    func liveSurfaceDestination(
+        panelID: UUID,
+        workspaceByPanelID: [UUID: Workspace],
+        dockPanelIDs: Set<UUID>
+    ) -> LiveSurfaceDestination? {
+        if let workspace = workspaceByPanelID[panelID] {
+            return .workspace(workspace.id)
+        }
+        return dockPanelIDs.contains(panelID) ? .dock : nil
+    }
+
     let historyPagePerAgent = 30
 
     func liveSessionKey(for record: AgentChatSessionRecord) -> String {
