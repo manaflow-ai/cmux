@@ -13300,6 +13300,7 @@
 				C11757000000000000000036 /* CLIWorkspaceGroupSafetyTests.swift in Sources */,
 				C11757000000000000000048 /* CLIWorkspaceStableIDMockServer.swift in Sources */,
 				C11757000000000000000037 /* CLIWorkspaceStableIDTests.swift in Sources */,
+				0CB4E9797AD54D3BB9CF06F9 /* CMUXCLI+AutoNaming.swift in Sources */,
 				C11757000000000000000038 /* CMUXOpenHTMLFocusTests.swift in Sources */,
 				1606FB10C21C603790FEE7D3 /* CodexAutoNamingArgumentsTests.swift in Sources */,
 				C1175700000000000000004A /* CodexHookCapturedSocketCommands.swift in Sources */,
