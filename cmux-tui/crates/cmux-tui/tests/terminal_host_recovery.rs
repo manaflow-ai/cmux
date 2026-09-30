@@ -3647,6 +3647,55 @@ fn close_terminal_replies_without_waiting_for_the_host_termination_receipt() {
     wait_for_no_host_records(&harness.host_root());
 }
 
+/// Ending many terminals never waits for each host's termination receipt:
+/// the host-close pool asks every host to end and then waits for the durable
+/// exit receipts. With eight pool workers and receipts that arrive late, a
+/// receipt wait per host serialized the batch (the close_tabs 100-terminal
+/// test took 4.2 s on macOS, run 36769176794).
+#[test]
+fn batch_close_ends_hosts_without_waiting_for_termination_receipts() {
+    const COUNT: usize = 16;
+    let mut harness = RecoveryHarness::start_unstarted("batch-close-ack-late");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS", "3000");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    let mut surfaces = Vec::with_capacity(COUNT);
+    for index in 0..COUNT {
+        let created = request(
+            &harness.socket,
+            serde_json::json!({
+                "id": index + 1,
+                "cmd": "run",
+                "argv": ["/bin/cat"],
+                "new_workspace": true,
+                "name": format!("batch-ack-{index}"),
+            }),
+        );
+        surfaces.push(created["surface"].as_u64().unwrap());
+    }
+    wait_for_host_records(&harness.host_root(), COUNT);
+
+    let started = Instant::now();
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1_000,
+            "cmd": "close-tabs",
+            "surfaces": surfaces,
+            "end_terminals": true,
+        }),
+    );
+    wait_for_no_host_records_within(&harness.host_root(), test_timeout(Duration::from_secs(10)));
+    let hosts_in = started.elapsed();
+    // Sixteen hosts on eight workers: waiting for each late receipt (up to
+    // the 2 s control timeout) takes at least 4 s.
+    assert!(
+        hosts_in < Duration::from_secs(3),
+        "ending {COUNT} hosts waited for their termination receipts: {hosts_in:?}"
+    );
+}
+
 /// A close commits and updates the tree before its host exits, and many
 /// closes end their hosts in parallel instead of one after another.
 #[test]
