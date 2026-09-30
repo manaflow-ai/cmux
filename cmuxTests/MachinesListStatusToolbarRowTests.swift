@@ -41,10 +41,25 @@ struct MachinesListStatusToolbarRowTests {
     /// explicitly so punctuation changes cannot make the surfaces drift.
     @Test("Each failure renders its own line and symbol, not the panel headline")
     func failuresReadDifferently() throws {
+        // Resolve the expected copy through the catalog using the host locale,
+        // matching String(localized:defaultValue:) in the presentation. This
+        // keeps the strong copy assertion green on non-English development Macs.
         let expected: [(MachinesPanelViewModel.CloudListProblem, String, String)] = [
-            (.unreachable, "Machine list unavailable \u{2014} showing last known", "exclamationmark.icloud"),
-            (.sessionRejected, "Sign-in needs a refresh \u{2014} showing last known", "person.crop.circle.badge.exclamationmark"),
-            (.requiresPro, "Cloud machines need cmux Pro \u{2014} showing last known", "sparkles"),
+            (
+                .unreachable,
+                String(localized: "machines.listUnavailable.stale", defaultValue: "Machine list unavailable — showing last known", locale: .current),
+                "exclamationmark.icloud"
+            ),
+            (
+                .sessionRejected,
+                String(localized: "machines.sessionRejected.stale", defaultValue: "Sign-in needs a refresh — showing last known", locale: .current),
+                "person.crop.circle.badge.exclamationmark"
+            ),
+            (
+                .requiresPro,
+                String(localized: "machines.requiresPro.stale", defaultValue: "Cloud machines need cmux Pro — showing last known", locale: .current),
+                "sparkles"
+            ),
         ]
         for (problem, expectedStale, expectedSymbol) in expected {
             let presentation = MachineListStatusPresentation(.failed(problem))
@@ -59,7 +74,7 @@ struct MachinesListStatusToolbarRowTests {
             let paragraph = try #require(presentation.subtitle, "\(problem) has no panel subtitle")
             #expect(!text.contains(paragraph), "\(problem) rendered the panel subtitle in the toolbar")
         }
-        let lines = expected.map(\.1)
+        let lines = Self.problems.compactMap { MachineListStatusPresentation(.failed($0)).staleTitle }
         #expect(Set(lines).count == Self.problems.count, "two failures share a stale line: \(lines)")
     }
 
