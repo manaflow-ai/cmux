@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 
 @MainActor
@@ -73,9 +74,24 @@ struct CmuxConfigExecutor {
         tabManager: TabManager,
         baseCwd: String,
         globalConfigPath: String,
+        settingPresets: [String: CmuxSettingValue] = [:],
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
+        if case .setting(let change) = action.action {
+            let didStart = CmuxSettingActionRunner.run(
+                change,
+                actionSourcePath: action.actionSourcePath,
+                globalConfigPath: globalConfigPath,
+                settingPresets: settingPresets,
+                confirm: action.confirm ?? false,
+                title: action.title,
+                presentingWindow: presentingWindow
+            )
+            if didStart { onExecuted?() }
+            return didStart
+        }
+
         if let syntheticCommand = action.inlineWorkspaceSyntheticCommand {
             // Inline `type: "workspace"` actions reuse the named-command path via a
             // synthetic definition so trust, restart, confirm, and layout behavior
