@@ -212,7 +212,7 @@ extension AgentNotificationRegressionTests {
         #expect(recorder.unreadWhenBannerPosted)
     }
     @Test(arguments: ["claude", "codex"])
-    func feedToolResultDoesNotReopenSettledCompletion(source: String) throws {
+    func feedLateToolResultKeepsSettledCompletionIdle(source: String) throws {
         let workspace = UUID().uuidString
         let surface = UUID().uuidString
         var reconciler = AgentNotificationReconciler()
@@ -230,6 +230,70 @@ extension AgentNotificationRegressionTests {
         let result = AgentJournalEvent(sequence: 2, committedAtMs: 200, draft: draft)
         #expect(reconciler.apply(result).invalidatedCorrelationKeys.isEmpty)
         #expect(reconciler.lifecycleEvent(result).draft.declaredPhase == .idle)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func feedIdentitylessLateToolResultKeepsSettledCompletionIdle(source: String) throws {
+        let workspace = UUID().uuidString
+        let surface = UUID().uuidString
+        var reconciler = AgentNotificationReconciler()
+        let completed = AgentJournalEvent(sequence: 1, committedAtMs: 100,
+            draft: AgentJournalEventDraft(kind: .turnCompleted, occurredAtMs: 100,
+                source: source, agentKey: source, sessionId: "session",
+                workspaceId: workspace, surfaceId: surface,
+                attention: AgentAttentionContext(turnIdentity: "turn")))
+        _ = reconciler.apply(completed)
+        let event = WorkstreamEvent(sessionId: "session", hookEventName: .postToolUse,
+            source: source, workspaceId: workspace, surfaceId: surface,
+            toolName: "Tool", extraFieldsJSON: "{\"turn_id\":\"turn\"}")
+        let draft = try #require(AgentFeedSemanticInput(event: event, agentKey: source).draft())
+        #expect(draft.kind == .stateChanged)
+        #expect(draft.attention?.requestIdentity == nil)
+        let result = AgentJournalEvent(sequence: 2, committedAtMs: 200, draft: draft)
+        _ = reconciler.apply(result)
+        #expect(reconciler.lifecycleEvent(result).draft.declaredPhase == .idle)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func feedToolActivityReopensAContinuation(source: String) throws {
+        let workspace = UUID().uuidString
+        let surface = UUID().uuidString
+        var reconciler = AgentNotificationReconciler()
+        let completed = AgentJournalEvent(sequence: 1, committedAtMs: 100,
+            draft: AgentJournalEventDraft(kind: .turnCompleted, occurredAtMs: 100,
+                source: source, agentKey: source, sessionId: "session",
+                workspaceId: workspace, surfaceId: surface,
+                attention: AgentAttentionContext(turnIdentity: "turn")))
+        _ = reconciler.apply(completed)
+        let event = WorkstreamEvent(sessionId: "session", hookEventName: .postToolUse,
+            source: source, workspaceId: workspace, surfaceId: surface,
+            toolName: "Tool", extraFieldsJSON: "{\"tool_use_id\":\"ordinary-tool\",\"turn_id\":\"continuation\"}")
+        let draft = try #require(AgentFeedSemanticInput(event: event, agentKey: source).draft())
+        let result = AgentJournalEvent(sequence: 2, committedAtMs: 200, draft: draft)
+        _ = reconciler.apply(result)
+        #expect(reconciler.lifecycleEvent(result).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func feedPreToolActivityReopensSettledCompletion(source: String) throws {
+        let workspace = UUID().uuidString
+        let surface = UUID().uuidString
+        var reconciler = AgentNotificationReconciler()
+        let completed = AgentJournalEvent(sequence: 1, committedAtMs: 100,
+            draft: AgentJournalEventDraft(kind: .turnCompleted, occurredAtMs: 100,
+                source: source, agentKey: source, sessionId: "session",
+                workspaceId: workspace, surfaceId: surface,
+                attention: AgentAttentionContext(turnIdentity: "turn")))
+        _ = reconciler.apply(completed)
+        let event = WorkstreamEvent(sessionId: "session", hookEventName: .preToolUse,
+            source: source, workspaceId: workspace, surfaceId: surface,
+            toolName: "Tool", extraFieldsJSON: "{\"turn_id\":\"continuation\"}")
+        let draft = try #require(AgentFeedSemanticInput(event: event, agentKey: source).draft())
+        #expect(draft.kind == .stateChanged)
+        #expect(draft.declaredPhase == .running)
+        let result = AgentJournalEvent(sequence: 2, committedAtMs: 200, draft: draft)
+        _ = reconciler.apply(result)
+        #expect(reconciler.lifecycleEvent(result).draft.declaredPhase == .running)
     }
 
     @Test(arguments: ["claude", "codex"])
