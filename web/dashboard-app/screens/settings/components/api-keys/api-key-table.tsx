@@ -2,6 +2,7 @@
 
 import { useFormatter, useTranslations } from "next-intl";
 import { useState } from "react";
+import { EmptyState } from "@/dashboard-app/components/page-states";
 import {
   ActionMenu,
   Badge,
@@ -81,9 +82,7 @@ export function ApiKeyTable({ apiKeys }: { readonly apiKeys: readonly ApiKeyRow[
         </div>
       </div>
       {rows.length === 0 ? (
-        <p className="border border-border p-4 text-center text-muted">
-          {apiKeys.length === 0 ? t("empty") : t("noMatches")}
-        </p>
+        <EmptyState title={apiKeys.length === 0 ? t("empty") : t("noMatches")} />
       ) : (
         <ApiKeyList rows={rows} onRevoke={setRevoking} />
       )}

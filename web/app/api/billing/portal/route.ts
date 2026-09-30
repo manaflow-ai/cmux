@@ -70,8 +70,10 @@ export async function GET(request: NextRequest) {
       ? explicitTeamId(request.nextUrl.searchParams.get("teamId"))
       : null;
     if (requestedTeamId) return await explicitTeamPortal(request, user, requestedTeamId);
-    // Legacy `?scope=team` without a team id: the implicit billing team.
+    // Legacy `?scope=team` without a team id: the implicit billing team, which
+    // still needs the caller to be its admin.
     const team = requestedScope === "team" ? await resolveBillingTeam(user) : null;
+    if (team?.id) return await explicitTeamPortal(request, user, team.id);
     const customerId = team?.id
       ? await stripeCustomerIdForStackTeam(team.id)
       : await stripeCustomerIdForStackUser(user.id);

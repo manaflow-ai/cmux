@@ -43,7 +43,7 @@ describe("last-admin guard", () => {
 
   test("the sole admin cannot leave", async () => {
     const stack = standardTeam();
-    const error = await rejection(removeMember(await accessFor(stack, ADMIN_ID), ADMIN_ID, { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync() }));
+    const error = await rejection(removeMember(await accessFor(stack, ADMIN_ID), ADMIN_ID, { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync(), store: new MemoryInviteStore() }));
     expect(error.code).toBe("last_admin");
     expect(stack.calls.some((call) => call.startsWith("removeUser"))).toBe(false);
   });
@@ -79,7 +79,7 @@ describe("last-admin guard", () => {
 describe("member mutations", () => {
   test("a member may leave but may not remove someone else", async () => {
     const stack = standardTeam();
-    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync() };
+    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync(), store: new MemoryInviteStore() };
     const forbidden = await rejection(removeMember(await accessFor(stack, MEMBER_ID), ADMIN_ID, deps));
     expect(forbidden.code).toBe("forbidden");
     await removeMember(await accessFor(stack, MEMBER_ID), MEMBER_ID, deps);
@@ -88,7 +88,7 @@ describe("member mutations", () => {
 
   test("an admin removes a member and gets member_not_found for a non-member", async () => {
     const stack = standardTeam();
-    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync() };
+    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync(), store: new MemoryInviteStore() };
     const missing = await rejection(removeMember(await accessFor(stack, ADMIN_ID), OUTSIDER_ID, deps));
     expect(missing.code).toBe("member_not_found");
     await removeMember(await accessFor(stack, ADMIN_ID), MEMBER_ID, deps);

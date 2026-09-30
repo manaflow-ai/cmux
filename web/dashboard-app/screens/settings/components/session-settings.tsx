@@ -14,6 +14,7 @@ import {
   useAsyncAction,
 } from "@/dashboard-app/components/settings-ui";
 import { DashboardSectionSkeleton } from "@/dashboard-app/components/dashboard-skeleton";
+import { EmptyState, SectionError } from "@/dashboard-app/components/page-states";
 import { type SettingsSession, settingsSessionsQuery } from "@/dashboard-app/queries/settings";
 
 /** A session with its timestamps as dates, for formatting. */
@@ -84,9 +85,9 @@ export function SessionSettings() {
       }
     >
       {sessions.isPending ? (
-        <DashboardSectionSkeleton variant="rows" />
+        <DashboardSectionSkeleton variant="table" columns={4} />
       ) : sessions.isError ? (
-        <InlineError message={t("loadError")} />
+        <SectionError error={sessions.error} section={t("heading")} onRetry={() => sessions.refetch()} />
       ) : (
         <SessionList sessions={sessions.data} pending={revokeState.pending} onRevoke={(id) => void revoke(id)} />
       )}
@@ -115,7 +116,7 @@ function SessionList({
 }) {
   const t = useTranslations("dashboard.settings.sessions");
   if (sessions.length === 0) {
-    return <p className="border border-border p-4 text-center text-muted">{t("empty")}</p>;
+    return <EmptyState title={t("empty")} />;
   }
   return (
     <div className="border border-border">

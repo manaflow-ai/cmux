@@ -1,34 +1,40 @@
 import { createRoute, lazyRouteComponent } from "@tanstack/react-router";
 import { z } from "zod";
-import { DashboardSectionSkeleton, DashboardSkeleton } from "../components/dashboard-skeleton";
+import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 import { teamBillingQuery } from "../queries/billing";
-import { teamCatalogQuery, teamDetailQuery } from "../queries/teams";
+import { teamApiKeysQuery, teamCatalogQuery, teamDetailQuery } from "../queries/teams";
+import { TeamBillingRouteError, TeamShellPending, TeamsPageFrame, TeamsRouteError } from "../screens/teams/teams-frame";
 import { shellRoute } from "./root";
+import { settingsHubRoute } from "./settings";
 
 const teamsList = () => import("../screens/teams/teams-list");
 const teamShell = () => import("../screens/teams/team-shell");
 
 const teamsRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => settingsHubRoute,
   path: "/dashboard/teams",
   loader: ({ context }) => context.queryClient.ensureQueryData(teamCatalogQuery),
-  pendingComponent: () => <DashboardSkeleton variant="rows" />,
+  pendingComponent: () => (
+    <TeamsPageFrame namespace="dashboard.teams.list">
+      <DashboardSectionSkeleton variant="list" rows={3} />
+    </TeamsPageFrame>
+  ),
   component: lazyRouteComponent(teamsList, "TeamsPage"),
-  errorComponent: lazyRouteComponent(teamsList, "TeamsPageError"),
+  errorComponent: TeamsRouteError,
 });
 
 const newTeamRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => settingsHubRoute,
   path: "/dashboard/teams/new",
   component: lazyRouteComponent(() => import("../screens/teams/new-team-flow"), "NewTeamPage"),
 });
 
 /** Team layout: header and tabs. 403/404 from the detail render "not found". */
 const teamRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => settingsHubRoute,
   path: "/dashboard/teams/$teamId",
   loader: ({ context, params }) => context.queryClient.ensureQueryData(teamDetailQuery(params.teamId)),
-  pendingComponent: () => <DashboardSkeleton variant="rows" />,
+  pendingComponent: TeamShellPending,
   component: lazyRouteComponent(teamShell, "TeamShell"),
   errorComponent: lazyRouteComponent(teamShell, "TeamShellError"),
 });
@@ -48,6 +54,9 @@ const teamMembersRoute = createRoute({
 const teamApiKeysRoute = createRoute({
   getParentRoute: () => teamRoute,
   path: "/api-keys",
+  // A refusal (no permission) renders inside the panel, so the prefetch never throws.
+  loader: ({ context, params }) => context.queryClient.prefetchQuery(teamApiKeysQuery(params.teamId)),
+  pendingComponent: () => <DashboardSectionSkeleton variant="table" columns={5} rows={3} />,
   component: lazyRouteComponent(() => import("../screens/teams/team-api-keys"), "TeamApiKeys"),
 });
 
@@ -56,8 +65,9 @@ const teamBillingRoute = createRoute({
   path: "/billing",
   validateSearch: z.object({ welcome: z.string().optional() }),
   loader: ({ context, params }) => context.queryClient.ensureQueryData(teamBillingQuery(params.teamId)),
-  // The team header and tabs stay; only the billing panel waits.
-  pendingComponent: () => <DashboardSectionSkeleton />,
+  // The team header and tabs stay; only the billing panel waits or fails.
+  pendingComponent: () => <DashboardSectionSkeleton variant="panel" />,
+  errorComponent: TeamBillingRouteError,
   component: lazyRouteComponent(() => import("../screens/teams/team-billing"), "TeamBillingTab"),
 });
 
@@ -69,9 +79,11 @@ const acceptRoute = createRoute({
   component: lazyRouteComponent(() => import("../screens/teams/accept-invite"), "AcceptInvitePage"),
 });
 
-export const teamsRoutes = [
+/** Team pages live inside the Settings hub; the invitation landing does not. */
+export const hubTeamsRoutes = [
   teamsRoute,
   newTeamRoute,
   teamRoute.addChildren([teamGeneralRoute, teamMembersRoute, teamApiKeysRoute, teamBillingRoute]),
-  acceptRoute,
 ] as const;
+
+export const teamsRoutes = [acceptRoute] as const;

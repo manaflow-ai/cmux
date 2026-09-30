@@ -9,6 +9,7 @@ import { noteTeamMembershipChanged } from "../services/teams/seatSync";
 import {
   ADMIN_ID,
   MEMBER_ID,
+  MemoryInviteMailer,
   MemoryInviteStore,
   MemoryTeamSeatQueue,
   MemoryTeamSeatSync,
@@ -80,7 +81,7 @@ describe("membership facts mark the seat queue", () => {
   test("removing a member and leaving both mark the team; refusals do not", async () => {
     const stack = standardTeam().addMember(TEAM_ID, OUTSIDER_ID, ["team_member", "$read_members"]);
     const seats = new MemoryTeamSeatSync();
-    const deps = { stack: stack.app(), lock: noLock, seats };
+    const deps = { stack: stack.app(), lock: noLock, seats, store: new MemoryInviteStore() };
     await removeMember(await accessFor(stack, ADMIN_ID), OUTSIDER_ID, deps);
     await removeMember(await accessFor(stack, MEMBER_ID), MEMBER_ID, deps);
     await expect(removeMember(await accessFor(stack, ADMIN_ID), ADMIN_ID, deps)).rejects.toThrow();
@@ -91,7 +92,7 @@ describe("membership facts mark the seat queue", () => {
     const stack = standardTeam();
     const seats = new MemoryTeamSeatSync();
     const access = await accessFor(stack, ADMIN_ID);
-    await inviteTeamMembers(access, { emails: ["new@example.com"], role: "member", callbackUrl: "https://cmux.test/accept" }, { store: new MemoryInviteStore() });
+    await inviteTeamMembers(access, { emails: ["new@example.com"], role: "member", acceptUrl: (token) => `https://cmux.test/join/${token}` }, { store: new MemoryInviteStore(), mailer: new MemoryInviteMailer() });
     await changeMemberRole(access, MEMBER_ID, "admin", { stack: stack.app(), lock: noLock, seats });
     expect(seats.changed).toEqual([]);
   });

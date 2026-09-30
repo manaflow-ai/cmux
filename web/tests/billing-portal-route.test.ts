@@ -17,6 +17,8 @@ const signedInUser = {
   clientReadOnlyMetadata: {},
   selectedTeam: null as null | { id: string; displayName?: string },
   listTeams: mock(async () => [] as Array<{ id: string; displayName?: string }>),
+  // Admin of any team it selects; legacy `?scope=team` requires team admin.
+  hasPermission: mock(async () => true),
   update: mock(async () => undefined),
 };
 const anonymousUser = {

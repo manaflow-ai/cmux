@@ -83,6 +83,38 @@ public struct CloudTeamInvitation: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+/// An invitation addressed to the signed-in user (`GET /api/teams/invitations`).
+public struct CloudReceivedInvitation: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var teamId: String
+    public var teamName: String
+    public var email: String
+    public var role: CloudTeamRole
+    /// The inviter as the team knows them; nil when unknown.
+    public var invitedBy: String?
+    public var expiresAt: Date
+
+    public init(id: String, teamId: String, teamName: String, email: String, role: CloudTeamRole, invitedBy: String?, expiresAt: Date) {
+        self.id = id
+        self.teamId = teamId
+        self.teamName = teamName
+        self.email = email
+        self.role = role
+        self.invitedBy = invitedBy
+        self.expiresAt = expiresAt
+    }
+}
+
+public struct CloudTeamAcceptResult: Codable, Equatable, Sendable {
+    public var teamId: String
+    public var role: CloudTeamRole
+
+    public init(teamId: String, role: CloudTeamRole) {
+        self.teamId = teamId
+        self.role = role
+    }
+}
+
 public struct CloudTeamInviteLink: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var role: CloudTeamRole

@@ -25,6 +25,8 @@ mock.module("@/app/lib/stack", () => ({
   ...realAppStack,
   isStackConfigured: () => stackConfigured,
   getStackServerApp: () => ({}),
+  // Billing procedures import purchase code that names this export.
+  promoteStackUserFromAnonymousViaApi: async () => undefined,
 }));
 
 mock.module("next-intl", () => ({

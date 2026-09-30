@@ -353,26 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "oversigt",
-      "team": "team",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Oversigt",
+      "team": "Team",
       "mobileDevices": "Mobile enheder",
-      "settings": "indstillinger",
-      "teams": "teams"
+      "settings": "Indstillinger",
+      "teams": "Teams"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Send LLM-anmodninger på tværs af udbyderkonti med failover og forbrugsbevidst planlægning.",
-      "coderouterLink": "åbn coderouter",
+      "coderouterLink": "Åbn coderouter",
       "iosAppName": "iOS-app",
       "iosAppDescription": "Installer cmux iOS-appen via TestFlight (beta-adgang).",
       "iosLink": "Åbn iOS-app"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Administrer delte AI-konti, og send anmodninger med coderouter.",
-      "title": "coderouter",
-      "description": "coderouter sender LLM-anmodninger på tværs af udbyderkonti med failover og forbrugsbevidst planlægning.",
+      "title": "Coderouter",
+      "description": "Coderouter sender LLM-anmodninger på tværs af udbyderkonti med failover og forbrugsbevidst planlægning.",
       "machines": {
         "title": "Maskiner",
         "description": "coderouter-forbrug pr. maskine for {team} i de seneste {days} dage.",
@@ -407,14 +407,14 @@
       "signingOut": "Logger ud…",
       "signOutError": "Kunne ikke logge ud. Prøv igen.",
       "organizationSwitchError": "Kunne ikke skifte organisation. Prøv igen.",
-      "signIn": "Log ind"
+      "signIn": "Log ind",
+      "upgrade": "Opgrader"
     },
     "billing": {
       "plan": {
         "heading": "Din personlige plan",
         "free": "Gratis",
-        "pro": "Pro",
-        "loading": "Indlæser…"
+        "pro": "Pro"
       },
       "teamPanel": {
         "notFound": "Dette team er ikke tilgængeligt. Du har måske forladt det, eller det er blevet slettet.",
@@ -426,7 +426,8 @@
         "memberReadOnly": "Kun teamadministratorer kan ændre denne plan.",
         "grantedBody": "cmux-teamet har givet {team} adgang til Team. Der er intet abonnement at administrere.",
         "seatsUsed": "{members} af {seats} brugt",
-        "overSeat": "{team} har {members} medlemmer og {seats} betalte pladser. Pladser følger antallet af medlemmer, så abonnementet opdateres af sig selv."
+        "overSeat": "{team} har {members} medlemmer og {seats} betalte pladser. Man kan stadig blive medlem; tilføj pladser, så alle er dækket.",
+        "addSeats": "Tilføj pladser"
       },
       "teamList": {
         "heading": "Faktureringsområder",
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "Opret et team"
+      },
+      "title": "Plan og fakturering",
+      "picker": {
+        "current": "Nuværende plan",
+        "upgradeTo": "Opgrader til {plan}",
+        "switchTo": "Skift til {plan}",
+        "cancelPlan": "Opsig plan",
+        "resume": "Genoptag {plan}",
+        "renewsOn": "Fornyes den {date}",
+        "endsOn": "Slutter den {date}",
+        "perMonth": "pr. måned",
+        "perSeatMonth": "pr. plads pr. måned",
+        "paymentMethod": "Administrer betalingsmetode",
+        "invoices": "Fakturaer",
+        "heading": "Planer",
+        "actionError": "Planen kunne ikke ændres. Prøv igen.",
+        "unavailable": {
+          "cancelScheduled": "Genoptag din plan for at ændre den.",
+          "granted": "Tildelt af cmux. Der er intet at ændre.",
+          "adminOnly": "Kun teamadministratorer kan ændre planen."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "Hele cmux-terminalen til macOS",
+            "Enhver CLI-agent med dine egne nøgler",
+            "Lokal sessionshistorik"
+          ],
+          "go": [
+            "1 aktiv Cloud VM",
+            "40 VM-timer om måneden",
+            "2 gemte VM'er"
+          ],
+          "pro": [
+            "Cloud-agenter på Cloud VMs",
+            "24 GB RAM og 6 vCPU'er delt mellem VM'er",
+            "cmux-appen til iOS"
+          ],
+          "max": [
+            "64 GB RAM og 16 vCPU'er delt mellem VM'er",
+            "Større maskinstørrelser",
+            "Alt i Pro"
+          ],
+          "team": [
+            "Alt i Pro til hvert medlem",
+            "Én faktura til hele teamet",
+            "Prioriteret support"
+          ]
+        },
+        "billedAnnually": "faktureres årligt"
+      },
+      "change": {
+        "title": "Skift til {plan}?",
+        "upgradeBody": "{plan} starter nu. Du betaler {amount} i dag for resten af denne faktureringsperiode. Fra den {date} betaler du {price} om måneden.",
+        "downgradeBody": "{plan} starter nu. Den ubrugte del af din nuværende plan, {credit}, krediteres dine næste fakturaer. Din næste faktura den {date} er på {amount}.",
+        "confirm": "Skift til {plan}",
+        "keep": "Behold nuværende plan",
+        "switching": "Skifter…",
+        "previewError": "Prisen kunne ikke beregnes. Prøv igen.",
+        "paymentFailed": "Dit kort blev afvist. Opdater din betalingsmetode, og prøv igen.",
+        "error": "Planen kunne ikke skiftes. Prøv igen."
+      },
+      "cancelDialog": {
+        "title": "Opsig {plan}?",
+        "body": "Du beholder {plan} indtil den {date}. Derefter mister du:",
+        "bodyNoDate": "Du beholder {plan} til slutningen af denne faktureringsperiode. Derefter mister du:",
+        "reasonLabel": "Hvorfor opsiger du? (valgfrit)",
+        "otherPlaceholder": "Fortæl os mere (valgfrit)",
+        "confirm": "Opsig plan",
+        "keep": "Behold {plan}",
+        "error": "Planen kunne ikke opsiges. Prøv igen.",
+        "resumeError": "Planen kunne ikke genoptages. Prøv igen.",
+        "reasons": {
+          "too_expensive": "For dyrt",
+          "missing_feature": "Mangler en funktion, jeg har brug for",
+          "not_using": "Bruger det ikke nok",
+          "other": "Andet"
+        }
+      },
+      "welcome": {
+        "title": "Velkommen til {plan}",
+        "body": "Din plan er aktiv. Prøv først:",
+        "ios": "Installer iOS-appen",
+        "cloud": "Åbn Cloud",
+        "team": "Opret et team",
+        "banner": "Du bruger nu {plan}.",
+        "bannerLink": "Plan og fakturering"
       }
     },
     "mobileDevices": {
@@ -457,7 +551,6 @@
       "loading": "Indlæser enheder…",
       "empty": "Der er ingen registrerede enheder for dette team.",
       "unavailable": "Dine enheder kunne ikke indlæses. Opdater siden, og prøv igen.",
-      "retry": "Prøv igen",
       "mutationError": "Enhedsændringen kunne ikke gennemføres.",
       "revoke": "Tilbagekald adgang",
       "deviceId": "Enhed",
@@ -468,7 +561,7 @@
       "relaySettings": "Relayindstillinger",
       "relaySettingsDescription": "Vælg de relayservere, som dette team bruger. Indtast én URL pr. linje.",
       "saveRelaySettings": "Gem relayindstillinger",
-      "eyebrow": "cloud / enheder",
+      "eyebrow": "Cloud / enheder",
       "scopeActive": "Viser dette team",
       "emptyTitle": "Ingen tilsluttede enheder endnu",
       "emptyDescription": "Når en cmux-enhed parres med dette team, vises den her med platform, version og adgangskontrol.",
@@ -489,7 +582,10 @@
         "account": "Konto",
         "billing": "Fakturering",
         "teamsGroup": "Teams",
-        "createTeam": "Opret team"
+        "createTeam": "Opret team",
+        "accountGroup": "Konto",
+        "billingGroup": "Fakturering",
+        "planBilling": "Plan og fakturering"
       },
       "ui": {
         "save": "Gem",
@@ -675,7 +771,6 @@
         "revokeAllConfirm": "Tilbagekald sessioner",
         "revokeAllError": "Ikke alle sessioner kunne tilbagekaldes. Listen viser, hvad der er tilbage.",
         "revokeError": "Sessionen kunne ikke tilbagekaldes. Prøv igen.",
-        "loadError": "Sessionerne kunne ikke indlæses. Genindlæs siden for at prøve igen.",
         "empty": "Ingen aktive sessioner fundet.",
         "columns": {
           "session": "Session",
@@ -814,9 +909,7 @@
         "count": "{count, plural, one {# team} other {# teams}}",
         "selected": "Aktuelt",
         "emptyTitle": "Ingen teams endnu",
-        "emptyBody": "Opret et team for at invitere personer og dele én plan.",
-        "loadError": "Dine teams kunne ikke indlæses.",
-        "retry": "Prøv igen"
+        "emptyBody": "Opret et team for at invitere personer og dele én plan."
       },
       "new": {
         "title": "Opret et team",
@@ -849,7 +942,7 @@
         "featurePrioritySupport": "Prioriteret support",
         "chooseFree": "Fortsæt med Gratis",
         "chooseTeam": "Opgrader til Team (${price}/plads/måned)",
-        "upgradeLater": "Pladser følger antallet af medlemmer: hvert medlem faktureres, og totalen opdateres, når folk kommer til eller forlader teamet.",
+        "upgradeLater": "Pladser er fleksible: Du kan invitere flere personer, end du betaler for, og tilføje pladser senere.",
         "inviteTitle": "Inviter personer til {team}",
         "inviteDescription": "Valgfrit. Du kan også invitere personer senere fra teamets side Medlemmer.",
         "inviteByEmail": "Inviter via e-mail",
@@ -900,7 +993,8 @@
         "usesUnlimited": "{count, plural, one {# brug} other {# brug}}",
         "revoke": "Tilbagekald",
         "revokeTitle": "Vil du tilbagekalde dette invitationslink?",
-        "revokeBody": "Personer med linket kan ikke længere blive medlem. Personer, der allerede er medlem, forbliver medlemmer."
+        "revokeBody": "Personer med linket kan ikke længere blive medlem. Personer, der allerede er medlem, forbliver medlemmer.",
+        "actionsFor": "Handlinger for linket ({created})"
       },
       "shell": {
         "allTeams": "Alle teams",
@@ -913,9 +1007,7 @@
         },
         "notFoundTitle": "Teamet blev ikke fundet",
         "notFoundBody": "Dette team findes ikke, eller du er ikke medlem af det.",
-        "backToTeams": "Tilbage til teams",
-        "loadError": "Teamet kunne ikke indlæses.",
-        "retry": "Prøv igen"
+        "backToTeams": "Tilbage til teams"
       },
       "general": {
         "imageTitle": "Teambillede",
@@ -950,9 +1042,6 @@
         "memberColumn": "Medlem",
         "roleColumn": "Rolle",
         "actionsColumn": "Handlinger",
-        "roleFor": "Rolle for {name}",
-        "roleMember": "Medlem",
-        "roleAdmin": "Administrator",
         "you": "Dig",
         "unnamed": "Unavngivet medlem",
         "remove": "Fjern",
@@ -969,12 +1058,27 @@
         "resent": "Sendt",
         "revoke": "Tilbagekald",
         "linksTitle": "Invitationslinks",
-        "linksDescription": "Et genanvendeligt link, som alle kan bruge til at blive medlem."
+        "linksDescription": "Et genanvendeligt link, som alle kan bruge til at blive medlem.",
+        "seatNudge": "{used} personer er medlemmer eller inviteret, men planen har {seats} pladser. Invitationer virker stadig; tilføj {over, plural, one {# plads} other {# pladser}}, så alle er dækket.",
+        "seatNudgeAction": "Administrer pladser",
+        "actions": {
+          "makeAdmin": "Gør til administrator",
+          "makeMember": "Gør til medlem",
+          "remove": "Fjern fra team",
+          "leave": "Forlad team"
+        },
+        "actionsFor": "Handlinger for {name}",
+        "lastAdminReason": "Et team skal have mindst én administrator. Forfrem en anden først.",
+        "demoteSelfTitle": "Stop med at være administrator?",
+        "demoteSelfBody": "Du mister administratoradgangen til dette team. En anden administrator kan give dig den igen.",
+        "demoteSelfConfirm": "Gør mig til medlem"
       },
       "apiKeys": {
         "title": "Teamets API-nøgler",
         "description": "Nøgler, der handler på vegne af dette team. Alle med en nøgle kan bruge teamets adgang, så opbevar nøglerne sikkert.",
-        "create": "Opret API-nøgle til teamet"
+        "create": "Opret API-nøgle til teamet",
+        "disabled": "Team-API-nøgler er ikke aktiveret for dette projekt.",
+        "forbidden": "Du skal have tilladelsen Administrer API-nøgler i dette team for at se dets nøgler."
       }
     },
     "coderouterAccounts": {
@@ -1002,18 +1106,14 @@
       "apiKeysTitle": "API-nøgler",
       "apiKeysDescription": "Opret langvarige nøgler til scripts og agenter. Hemmeligheden vises én gang.",
       "apiKeysCount": "{count, plural, one {# nøgle} other {# nøgler}}",
-      "apiKeysLoading": "Indlæser API-nøgler…",
-      "apiKeysLoadError": "API-nøgler kunne ikke indlæses. Prøv igen snart.",
-      "apiKeysRetry": "Prøv igen",
-      "apiKeysEmptyBody": "Ingen API-nøgler endnu. Opret en for at godkende en CodeRouter-klient.",
       "apiKeyPrefixColumn": "Nøgle",
       "apiKeyStatusColumn": "Tilstand",
       "apiKeySecretTitle": "Kopiér denne nøgle nu",
       "apiKeySecretBody": "Hemmeligheden vises ikke igen.",
       "apiKeyCopy": "Kopiér API-nøgle",
       "apiKeyCopied": "Kopieret",
-      "apiKeyCreatedAt": "oprettet {at}",
-      "apiKeyLastUsed": "sidst brugt {at}",
+      "apiKeyCreatedAt": "Oprettet {at}",
+      "apiKeyLastUsed": "Sidst brugt {at}",
       "apiKeyRevoked": "Tilbagekaldt",
       "apiKeyLabelPlaceholder": "For eksempel CI eller produktion",
       "createApiKeyAction": "Opret API-nøgle",
@@ -1023,14 +1123,40 @@
       "revokingApiKeyAction": "Tilbagekalder",
       "apiKeyRevokeError": "API-nøglen kunne ikke tilbagekaldes.",
       "revokeApiKeyConfirmTitle": "Tilbagekald denne API-nøgle?",
-      "apiKeyUsageDetail": "sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
+      "apiKeyUsageDetail": "Sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
       "apiKeyUsageUnavailable": "Brug er ikke tilgængelig",
-      "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen."
+      "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen.",
+      "apiKeysEmptyTitle": "Ingen API-nøgler endnu",
+      "apiKeysEmptyHint": "Opret en for at godkende en CodeRouter-klient.",
+      "unavailableTitle": "Delte konti er ikke tilgængelige",
+      "unavailableBody": "cmux kan ikke nå tjenesten for delte konti lige nu. Konti tilføjet med cr add samt Anthropic- og Bedrock-konti virker stadig."
     },
     "notFound": {
       "title": "Siden blev ikke fundet",
       "body": "Denne dashboardside findes ikke eller er blevet flyttet.",
       "home": "Gå til dashboard"
+    },
+    "states": {
+      "errorTitle": "Kunne ikke indlæse {section}",
+      "errorTitleGeneric": "Kunne ikke indlæse denne sektion",
+      "reason": {
+        "network": "Tjek din forbindelse, og prøv igen.",
+        "unavailable": "cmux er midlertidigt utilgængelig. Prøv igen om lidt.",
+        "forbidden": "Du har ikke adgang til dette.",
+        "notFound": "Dette findes ikke længere, eller du har ikke adgang.",
+        "rateLimited": "For mange anmodninger. Vent et øjeblik, og prøv igen.",
+        "generic": "Noget gik galt. Prøv igen."
+      },
+      "retry": "Prøv igen",
+      "retrying": "Prøver igen…"
+    },
+    "upgrade": {
+      "title": "Kræver Pro",
+      "cloud": "Cloud VMs og cloud-agenter er en del af Pro.",
+      "testflight": "cmux-appen til iOS er en del af Pro.",
+      "mobileDevices": "Tilslutning af telefon og tablet er en del af Pro.",
+      "action": "Opgrader til Pro",
+      "comparePlans": "Sammenlign planer"
     }
   },
   "community": {
@@ -1906,8 +2032,10 @@
         "automation": {
           "ampIntegration": "Slår cmux-hooks til Amp til eller fra. Når de er slået fra, forbliver det medfølgende plugin installeret, men inaktivt.",
           "suppressSubagentNotifications": "Skjul synlige fuldførelsesnotifikationer og statusændringer fra indlejrede Codex- eller Claude-underagenter, mens deres hændelser bevares i Feed-telemetri.",
+          "agentAutoResume": "Sender `continue` med backoff til en agent startet af cmux, hvis tur sluttede med en upstream-fejl, der kan prøves igen (model uden kapacitet, overbelastet eller mistet forbindelse). Ture, der venter på et menneske, genoptages aldrig.",
           "workspaceAutoNaming": "Valgfri AI-baseret automatisk navngivning af arbejdsområder og faner ud fra agentens samtaleindhold. Når den er aktiveret, opsummerer cmux understøttede agentsessioner til korte titler med hver agents egen binær; manuelle omdøbninger vinder altid.",
-          "autoNamingAgent": "Hvilken agent der genererer automatiske navne for hver session. \"auto\" (standard) navngiver hver session med dens egen agent; et hvilket som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) tilsidesætter navngivningen for alle sessioner, også andre agenters. Agenter, der ikke kan styres eller ikke er installeret, falder tilbage til sessionens egen agent, så navngivningen aldrig fejler."
+          "autoNamingAgent": "Hvilken agent der genererer automatiske navne for hver session. \"auto\" (standard) navngiver hver session med dens egen agent; et hvilket som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) tilsidesætter navngivningen for alle sessioner, også andre agenters. Agenter, der ikke kan styres eller ikke er installeret, falder tilbage til sessionens egen agent, så navngivningen aldrig fejler.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Styrer hvornår cmux beder om bekræftelse før afslutning. DEV-builds afsluttes altid straks uanset denne indstilling. Den ældre app.warnBeforeQuit accepteres stadig som boolesk fallback.",
@@ -1926,8 +2054,8 @@
           "sessionContentAlignment": "Vandret placering af terminalindhold og den indbyggede agentchat, når sessionContentMaxWidth er aktiveret.",
           "copyOnSelect": "Når værdien er true, kopieres markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes. Når værdien er false, udsender cmux ikke en Ghostty copy-on-select-tilsidesættelse; Ghostty-konfiguration og standarder styrer markeringsudklipsholderens adfærd.",
           "scrollSpeed": "Skalerer, hvor langt terminalen flytter sig ved hver rullehændelse fra musehjul eller pegefelt. Værdier over 1 gør rulningen hurtigere, og værdier under 1 gør den langsommere.",
-          "showTextBoxOnNewTerminals": "Viser beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",
-          "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits. Fokus viser også TextBox."
+          "showTextBoxOnNewTerminals": "Viser TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",
+          "focusTextBoxOnNewTerminals": "Fokuserer TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits. Fokus viser også TextBox."
         },
         "notifications": {
           "soundWhenFocused": "Afspil notifikationslyden, selv når ruden, der sendte notifikationen, allerede har fokus. Slået fra som standard, så en rude med fokus kun viser sin ring og sit blink.",
@@ -1958,7 +2086,12 @@
           "compactAgentStatus": "Vis hvert workspace på én linje: ét farvet ikon før titlen viser agent-, ulæst- og pull request-status og erstatter agentstatuslinjerne (for eksempel Kører eller Kræver input), gren- og mappelinjen og pull request-linjerne, hvis detaljer flytter til ikonets værktøjstip. Andre statusposter beholder deres egne linjer.",
           "compactStatusIcons": "SF Symbol-navne, der erstatter compactAgentStatus-glyffen for hver tilstand, for eksempel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Tilstande uden værdi beholder det indbyggede symbol, og et navn, der ikke kan vises, falder tilbage til det.",
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
-          "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
+          "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse.",
+          "beta": {
+            "conversations": {
+              "enabled": "Vis den samlede samtalevisning i sidebjælkens vælger."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Indstillinger for filoversigten (filtræet) i højre sidepanel.",
@@ -1968,7 +2101,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler.",
+          "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler.",
           "showModifierHoldHints": "Vis genvejstipchips, mens Cmd eller Control holdes nede."
         },
         "fileEditor": {
@@ -2022,9 +2155,17 @@
       "customActionsDesc": "En <actions>actions</actions>-post er den genbrugelige ting, som cmux kører. Brug handlinger, når den samme adfærd skal være tilgængelig fra Command Palette, overfladens fanelinje, genveje eller plusknappens menu. Behold <commands>commands</commands> til genbrugelige shell-kommandoer og arbejdsområdelayouts. Sæt <palette>palette</palette> til false, når en handling ikke skal vises i Command Palette.",
       "actionTypes": "Handlingstyper",
       "actionTypeBuiltin": "Opret et alias til en indbygget cmux-handling som cmux.newTerminal, cmux.newBrowser, cmux.splitRight eller cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Indbyggede kopihandlinger: cmux.copyWorkingDirectory kopierer terminalens arbejdsmappe, cmux.copyProjectRoot kopierer roden af dens git-repository (eller arbejdsmappen uden for et) og cmux.copyScreen kopierer den synlige skærm.",
+      "actionTypeBuiltinCopyRemote": "I et SSH-, cloud- eller fjern-tmux-arbejdsområde kopierer cmux.copyProjectRoot fjernarbejdsmappen, fordi cmux ikke kan slå git-repositoriet op på den anden vært.",
       "actionTypeCommand": "Kør shelltekst i en terminal. Brug target til at vælge den aktuelle terminal eller en ny fane i den aktuelle rude.",
       "actionTypeAgent": "Start en understøttet kodeagent. I dag understøttes codex og claude med valgfrie argumenter.",
       "actionTypeWorkspaceCommand": "Kør en navngiven arbejdsområdedefinition fra commands. Brug dette til layouts med flere ruder, brugerdefinerede arbejdsmapper og startkommandoer.",
+      "actionTypeSetting": "Ændr én indstilling i din globale cmux.json, for eksempel slå en true/false-indstilling til eller fra eller skift gennem en liste af værdier. Se Indstillingshandlinger nedenfor.",
+      "actionTypeSettingPreset": "Anvend en navngiven gruppe indstillinger fra settingPresets i ét trin.",
+      "settingActions": "Indstillingshandlinger",
+      "settingActionsDesc": "En indstillingshandling angiver en <path>path</path> til en indstilling og præcis én af <set>set</set> (skriv en værdi), <toggle>toggle: true</toggle> (slå en true/false-indstilling om), <cycle>cycle</cycle> (gå til næste værdi i en liste og start forfra efter den sidste) eller <unset>unset: true</unset> (fjern nøglen fra cmux.json, så værdien fra Indstillinger-vinduet eller standardværdien gælder). toggle og cycle tager udgangspunkt i den værdi, cmux bruger, også en du har sat i Indstillinger-vinduet. En settingPreset-handling anvender en post fra <presets>settingPresets</presets>, en delvis cmux.json, hvis indlejrede objekter flettes nøgle for nøgle. cmux kontrollerer hver ændring mod skemaet, før den gemmes, bevarer dine kommentarer og andre nøgler og anvender ændringen med det samme. Indstillingshandlinger og presets kører kun fra din globale cmux.json og de pakker, den henviser til; projektkonfigurationer kan ikke erklære dem.",
+      "settingActionsCli": "De samme ændringer kan laves fra en terminal: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> og <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "Med <confirm>confirm: true</confirm> spørger cmux, før der gemmes, og viser den tilsvarende cmux config-kommando. Stier deles ved hvert \".\", så en nøgle, der selv indeholder \".\" (f.eks. en <byCwd>workspaceGroups.byCwd</byCwd>-post for ~/src/app.web), kan ikke ændres på denne måde. Rediger den direkte i cmux.json.",
       "actionFields": "Handlingsfelter",
       "actionFieldTitle": "Titel i Command Palette, etiket på overfladeknap, menupunkttitel og titel i tillidsdialogen, medmindre en post tilsidesætter den.",
       "actionFieldSubtitle": "Sekundær tekst i Command Palette. description accepteres som alias for subtitle.",
@@ -2156,7 +2297,8 @@
         "wn-reload": "Genindlæs konfiguration",
         "wn-quit": "Afslut"
       },
-      "metaTitle": "Tastaturgenveje"
+      "metaTitle": "Tastaturgenveje",
+      "fileEditorWordWrap": "Slå linjeombrydning i fileditoren til eller fra (Option+Z)."
     },
     "api": {
       "title": "CLI-reference",
@@ -2420,7 +2562,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (beta)",
+      "textBox": "TextBox",
       "ios": "iOS-app",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Oversigt",
@@ -2434,7 +2576,11 @@
       "automationSection": "Automatisering",
       "remoteSection": "Fjernadgang",
       "customizeSection": "Tilpasning og administration",
-      "basicsSection": "Grundlæggende"
+      "basicsSection": "Grundlæggende",
+      "coderouterSection": "CodeRouter",
+      "coderouterOverview": "Oversigt",
+      "coderouterAgents": "Agenter og modeller",
+      "coderouterCli": "CLI og fejlfinding"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -2579,11 +2725,10 @@
       "daemonPath": "Den binære dæmon er gemt på ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote på fjernværten og verificeret mod et SHA-256-manifest, der er indlejret i appen."
     },
     "textBox": {
-      "title": "TextBox (beta)",
-      "metaTitle": "TextBox (beta)",
-      "metaDescription": "Konfigurer cmux' beta-TextBox-input for nye terminalfaner, splits og arbejdsområder.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Konfigurer cmux' TextBox-input for nye terminalfaner, splits og arbejdsområder.",
       "intro": "TextBox er cmux' rige terminalinputflade til at skrive prompts, før de sendes til en terminal.",
-      "betaCallout": "TextBox er en beta-funktion. Standarder og adfærd kan ændre sig under test.",
       "defaultsTitle": "Standarder",
       "defaultsDesc": "TextBox-indstillingerne findes under Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals åbner nye arbejdsområder, terminalfaner og terminalsplits med TextBox synlig, mens fokus bliver i terminalen.",
@@ -2591,7 +2736,8 @@
       "maxLinesSetting": "TextBox Max Lines begrænser TextBox-højden, før indholdet ruller.",
       "configTitle": "cmux.json",
       "configDesc": "Sæt de samme standarder i ~/.config/cmux/cmux.json under terminal:",
-      "focusNote": "Gendannede sessioner bevarer deres gemte TextBox-synlighed og fokusstatus. Disse standarder gælder kun for nyoprettede terminalflader."
+      "focusNote": "Gendannede sessioner bevarer deres gemte TextBox-synlighed og fokusstatus. Disse standarder gælder kun for nyoprettede terminalflader.",
+      "betaCallout": "TextBox er en beta-funktion. Standarder og adfærd kan ændre sig under test."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multi-agent i cmux",
@@ -2753,7 +2899,8 @@
       "guestDesc": "Inde i en maskine styrer kommandoen cmux den maskines session. Den understøtter tree, new-workspace, new-split, send, send-key, read-screen, terminal, layout, env, notify, open-url og self. cmux self viser ejeren, maskinen og dine andre maskiner. cmux vm verb peer styrer dine andre maskiner inde fra en maskine.",
       "guestHostOnly": "Login, upload af AI-konti og kommandoer til maskinens livsforløb som new, delete, checkpoint, fork, resize, pause, domains, open og vpn kører kun på din Mac.",
       "iosTitle": "iPhone",
-      "iosDesc": "cmux-appen til iOS administrerer ikke Cloud-maskiner. En maskine, der er ved at starte, vises som et pladsholderkort."
+      "iosDesc": "cmux-appen til iOS administrerer ikke Cloud-maskiner. En maskine, der er ved at starte, vises som et pladsholderkort.",
+      "coderouterLink": "CodeRouter-dokumentation: understøttede konti, deling og forbrug"
     },
     "cloudNetworking": {
       "title": "Cloud-filer og netværk",
@@ -2818,7 +2965,8 @@
       "accountsTitle": "AI-konti og modelrouting",
       "accountsDesc": "Upload agentkonti til dit team, og tjek modelrouting.",
       "preflightTitle": "Tjekliste til scripts",
-      "preflightDesc": "Før et script opretter eller bruger maskiner, skal du køre disse skrivebeskyttede kontroller. De bekræfter, at du er logget ind, viser dine maskiner og abonnementsgrænser og viser, hvilken maskine en mappe bruger."
+      "preflightDesc": "Før et script opretter eller bruger maskiner, skal du køre disse skrivebeskyttede kontroller. De bekræfter, at du er logget ind, viser dine maskiner og abonnementsgrænser og viser, hvilken maskine en mappe bruger.",
+      "coderouterLink": "Fuld CodeRouter-kommandoreference"
     },
     "cloudTroubleshooting": {
       "title": "Cloud-sikkerhed og fejlfinding",
@@ -2897,6 +3045,155 @@
       "closeNavigation": "Luk navigation",
       "searchShortcut": "Søg i dokumentationen (⌘K)",
       "navigation": "Dokumentation"
+    },
+    "coderouterOverview": {
+      "title": "CodeRouter",
+      "metaTitle": "CodeRouter modelrouting",
+      "metaDescription": "CodeRouter fordeler Codex, Claude Code, OpenCode og Pi på dit teams AI-abonnementer og API-nøgler og skifter konto ved en grænse.",
+      "intro": "CodeRouter er modelrouteren bag cmux. Dine kodningsagenter sender anmodninger til CodeRouter, som videresender hver anmodning til et abonnement eller en API-nøgle, som dit team har tilføjet. Når en konto er hastighedsbegrænset, afvist eller nede, flytter CodeRouter arbejdet til en anden konto, så agenterne kører videre.",
+      "whyTitle": "Hvorfor bruge det",
+      "whyPool": "Saml flere ChatGPT-, Claude- og OpenCode Go-abonnementer og API-nøgler, og del dem med dit team.",
+      "whyFailover": "Hold en agent i gang, når en konto når sin forbrugsgrænse.",
+      "whyCloud": "Giv cmux Cloud-maskiner adgang til modeller uden at gemme legitimationsoplysninger på maskinen.",
+      "whyUsage": "Se tokenforbrug pr. konto, pr. API-nøgle og pr. Cloud-maskine.",
+      "accountsTitle": "Understøttede konti",
+      "accountsDesc": "Hver konto betjener de agenter, der taler udbyderens API. Codex og Pi deler én pulje; Claude Code bruger en separat pulje af Claude-konti.",
+      "accountColumn": "Konto",
+      "servesColumn": "Betjener",
+      "addColumn": "Sådan tilføjes den",
+      "accountChatgpt": "ChatGPT-abonnement (personligt eller team-arbejdsområde)",
+      "accountOpenAiKey": "OpenAI API-nøgle",
+      "accountOpenRouterKey": "OpenRouter API-nøgle",
+      "accountOpencodeGo": "OpenCode Go-abonnement",
+      "accountClaudeSubscription": "Claude Max eller Pro (Claude Code-opsætningstoken)",
+      "accountAnthropicKey": "Anthropic API-nøgle",
+      "accountBedrock": "Amazon Bedrock-legitimationsoplysninger",
+      "addDashboard": "CodeRouter-dashboard",
+      "accountsDashboard": "CodeRouter-dashboardet kan også tilføje API-nøgler, Claude-tokens og Bedrock-legitimationsoplysninger. Det viser alle konti med deres tilstand, nedkøling og aktive sessioner:",
+      "routingTitle": "Sådan fungerer routing",
+      "routingSticky": "Hver agentsession bliver på én konto, så længe kontoen er sund, hvilket holder udbyderens prompt-cache varm. En ny session går til kontoen med færrest aktive sessioner.",
+      "routingFailover": "Når en udbyder returnerer en hastighedsbegrænsning, afviser legitimationsoplysninger eller ikke svarer, sætter CodeRouter kontoen i nedkøling og prøver anmodningen igen på en anden konto. Den prøver kun igen, før noget modeloutput når din agent, så et svar, der er begyndt at streame, sendes aldrig to gange.",
+      "routingProvider": "CodeRouters hostede tjeneste sender anmodningen til udbyderen. Trafik til udbyderen kommer derfor fra CodeRouter, ikke fra din Mac eller din Cloud-maskine.",
+      "quickstartTitle": "Hurtig start på en Mac",
+      "stepInstall": "Installer CodeRouter CLI. Den installeres som både coderouter og cr. Du kan også køre cmux cr, som tilbyder at installere den første gang.",
+      "stepLogin": "Log ind med din cmux-konto. cr login åbner din browser; godkend den kode, den viser.",
+      "stepAdd": "Tilføj et abonnement. cr add åbner en menu med udbydere, og cr add codex logger ind på ChatGPT i din browser.",
+      "stepRun": "Kør en agent gennem CodeRouter med cr codex, cr opencode eller cr pi. Argumenter efter agentens navn sendes videre til den.",
+      "cloudTitle": "På cmux Cloud-maskiner",
+      "cloudDesc": "Hver Cloud-maskine forbindes til CodeRouter, når den oprettes. Claude Code, Codex, OpenCode og Pi på maskinen bruger dit teams konti uden login og uden opsætning.",
+      "cloudLink": "Sådan konfigureres agenter på Cloud-maskiner",
+      "teamsTitle": "Teams og deling",
+      "teamsScope": "Konti tilhører det team, du er logget ind på. cr org list viser dine teams, og cr org switch skifter det team, som cr bruger. cmux coderouter-kommandoer tager --team '<id>'.",
+      "teamsPrivate": "En ny konto er privat for den person, der tilføjede den. I dashboardet gør \"Del med teamet\" den tilgængelig for alle medlemmer og for teamets Cloud-maskiner, og \"Gør privat\" fortryder det.",
+      "teamsPersonal": "I dit personlige team betjener dine private konti også dine egne Cloud-maskiner. En organisations Cloud-maskiner bruger kun delte konti, så del en konto, før du forventer, at en maskine bruger den.",
+      "teamsManage": "Alle teammedlemmer kan tilføje, omdøbe, deaktivere, overføre og fjerne teamets delte konti. cr transfer flytter en konto til et andet team, efter du har bekræftet.",
+      "usageTitle": "Forbrug og grænser",
+      "usageLimits": "Hver udbyder måler forbruget på den konto, der betjente en anmodning, under den kontos egen plan og grænser. CodeRouter fordeler arbejdet på konti, men hæver ikke nogen enkelt kontos grænse.",
+      "usageCr": "cr viser kvotetilstanden for hvert abonnement. Tilføj --watch for at opdatere hvert 30. sekund, eller --json til scripts.",
+      "usageMachines": "cmux coderouter machines viser tokenforbrug og API-tilsvarende værdi for de seneste 30 dage for hver Cloud-maskine. Inde i en maskine opdeler cmux coderouter usage maskinens forbrug efter dag, arbejdsområde, agent og model.",
+      "usageEstimate": "API-tilsvarende værdi er et skøn ud fra offentlige listepriser. Det er ikke en regning.",
+      "privacyTitle": "Legitimationsoplysninger og privatliv",
+      "privStored": "Udbyderes legitimationsoplysninger krypteres, før de gemmes. Intet CodeRouter-API eller dashboardvisning returnerer gemte legitimationsoplysninger; konti viser kun en etiket, en e-mail eller en maskeret nøgle.",
+      "privArgv": "cr add og cmux coderouter claude add tager aldrig udbyderens legitimationsoplysninger som kommandoargument, hvor de ville havne i shell-historikken. De læser dem fra en miljøvariabel, standardinput eller en skjult prompt.",
+      "privLocal": "cr add codex og cr add opencode logger ind hos udbyderen i din browser. cr codex giver CodeRouter-indstillinger til Codex kun for den kørsel og lader dit normale Codex-login og din konfiguration være uændret.",
+      "privCloud": "Cloud-maskiner har ingen legitimationsoplysninger. Agenter på en maskine sender en offentlig pladsholdernøgle til en privat CodeRouter-adresse, og maskinens netværkskant tilføjer signerede legitimationsoplysninger, der er bundet til maskinen. CodeRouter afviser disse legitimationsoplysninger fra alle andre maskiner og tilbagekalder dem, når maskinen slettes.",
+      "privRequestId": "Hvert svar fra CodeRouter har en x-coderouter-request-id-header, der identificerer anmodningen.",
+      "nextTitle": "Næste trin",
+      "nextAgents": "Agenter og modeller: konfigurer hver agent på en Mac og på Cloud-maskiner",
+      "nextCli": "CLI og fejlfinding: alle kommandoer og almindelige fejl",
+      "nextCloud": "cmux Cloud"
+    },
+    "coderouterAgents": {
+      "title": "CodeRouter-agenter og -modeller",
+      "metaTitle": "CodeRouter-agenter og -modeller",
+      "metaDescription": "Kør Claude Code, Codex, OpenCode og Pi gennem CodeRouter på en Mac og på cmux Cloud-maskiner, og vælg, hvilken model hver agent bruger.",
+      "intro": "Denne side viser, hvordan hver agent når CodeRouter på din Mac og på en cmux Cloud-maskine, og hvordan hver agent vælger en model.",
+      "agentColumn": "Agent",
+      "macColumn": "På din Mac",
+      "cloudColumn": "På en Cloud-maskine",
+      "automatic": "Automatisk",
+      "experimental": "(eksperimentel)",
+      "claudeMacCell": "CodeRouter API-nøgle",
+      "macTitle": "På din Mac",
+      "macDesc": "cr starter den agent, du allerede har installeret, og peger den mod CodeRouter for den kørsel. Agenten skal være på din PATH. Alt efter agentens navn sendes uændret videre.",
+      "codexDesc": "cr codex kører Codex med en CodeRouter-modeludbyder. Underkommandoer som exec, review og resume fungerer på samme måde. cr naked kører almindelig Codex uden om CodeRouter.",
+      "opencodeDesc": "cr opencode indlæser modellerne fra dit teams OpenCode Go-konti og bruger den første, medmindre du angiver --model. En --model-værdi skal være en af disse modeller; kør almindelig opencode for enhver anden udbyder.",
+      "piDesc": "cr pi tilføjer en coderouter-udbyder til Pi med de samme modeller som Codex og bruger den første model, medmindre du angiver --model. Udbyderen er fast, så --provider afvises. Pi-understøttelse er eksperimentel.",
+      "claudeTitle": "Claude Code og andre API-klienter",
+      "claudeDesc": "cr har ingen Claude Code-starter. For at route Claude Code på din Mac, eller ethvert værktøj, der taler Anthropic Messages API eller OpenAI Responses API, skal du oprette en CodeRouter API-nøgle og pege værktøjet mod coderouter.dev.",
+      "apiKeyCreate": "Opret en nøgle i sektionen API keys i CodeRouter-dashboardet. Nøglen starter med crk_ og vises én gang. Oprettelse eller tilbagekaldelse af en nøgle kræver tilladelse til at administrere API-nøgler i teamet, som du altid har i dit personlige team:",
+      "apiKeyScope": "En organisations API-nøgle bruger kun teamets delte konti. En nøgle i dit personlige team kan også bruge dine private konti. CodeRouter betjener OpenAI Responses API, ikke Chat Completions.",
+      "apiKeyLogin": "På en maskine, der ikke kan åbne en browser, logger cr login --api-key cr ind med en nøgle, og CODEROUTER_API_KEY giver en nøgle til en enkelt kommando. Tilbagekald en nøgle i dashboardet, eller kør cr logout på den maskine, der bruger den.",
+      "cloudTitle": "På cmux Cloud-maskiner",
+      "cloudDesc": "Cloud-maskiner kræver ingen opsætning. Maskinens miljø peger OPENAI_BASE_URL og ANTHROPIC_BASE_URL mod en privat CodeRouter-adresse, og cmux skriver hver agents konfiguration, første gang en shell eller agenten starter:",
+      "cloudClaude": "Claude Code læser ANTHROPIC_BASE_URL og en pladsholder-ANTHROPIC_API_KEY fra miljøet. Spørgsmålene ved første kørsel er allerede besvaret.",
+      "cloudCodex": "Codex får en cmux-modeludbyder i ~/.codex/config.toml.",
+      "cloudPi": "Pi får en udbydertilsidesættelse i ~/.pi/agent/models.json.",
+      "cloudOpencode": "OpenCode henter sin udbyderliste fra CodeRouter første gang, den starter, og gemmer den i ~/.config/opencode/opencode.json.",
+      "cloudYours": "cmux skriver kun hver fil, når den mangler, så dine ændringer bevares. En Codex-konfiguration, der allerede angiver en anden modeludbyder, lades uændret.",
+      "cloudRun": "Kør agenter som normalt. cmux coderouter agent gør en ren prompt til agentens engangsform; inde i en maskine kører den i den aktuelle terminal, og på din Mac starter den agenten på den maskine, du angiver, ligesom cmux vm agent.",
+      "cloudAccounts": "Cloud-maskiner bruger konti fra det team, der ejer dem. Hvis en agent melder, at ingen konto er tilgængelig, så tilføj en, eller del en eksisterende med teamet.",
+      "modelsTitle": "Modeller",
+      "modelsCodex": "Codex og Pi bruger modelkataloget fra den konto, CodeRouter vælger, leveret på /v1/models, så Codex' modelvælger viser, hvad dine konti kan bruge. Vælg en model med Codex' -m-flag eller dens /model-kommando. For en OpenRouter-nøgle sender CodeRouter et rent OpenAI-model-id som openai/'<model>'.",
+      "modelsOpencode": "OpenCode viser modellerne fra teamets OpenCode Go-konti.",
+      "modelsClaude": "Claude Code sender den model, du vælger med --model eller /model, og CodeRouter videresender den til den valgte konto. Abonnements- og API-nøglekonti betjener de modeller, som Anthropic tillader for kontoen.",
+      "modelsBedrock": "Bedrock-konti oversætter Claude-model-id'er til Bedrock-model-id'er med en indbygget tabel, og Bedrock-id'er sendes uændret videre. En model uden en tilknytning returnerer not_found_error. Tilføj kontoen med --model for at tilknytte en anden model:",
+      "modelsList": "Inde i en Cloud-maskine udskriver cmux coderouter models Codex-modelkataloget som JSON."
+    },
+    "coderouterCli": {
+      "title": "CodeRouter CLI og fejlfinding",
+      "metaTitle": "CodeRouter CLI og fejlfinding",
+      "metaDescription": "Kommandoer til cr CLI og cmux coderouter, hvad der virker inde i en cmux Cloud-maskine, og løsninger på almindelige CodeRouter-fejl.",
+      "intro": "CodeRouter har to sæt kommandoer. cr, også installeret som coderouter, logger dig ind, administrerer abonnementer og starter agenter. cmux coderouter administrerer teamets Claude-konti og Cloud-maskinernes forbrug gennem den cmux-app, der er logget ind, og sender alle andre verber videre til cr.",
+      "installTitle": "Installer og log ind",
+      "installDesc": "Installationsprogrammet henter en checksumverificeret binærfil til ~/.coderouter/bin, linker cr til den og tilføjer mappen til din shells PATH. Kør det igen for at opdatere. Det understøtter macOS og Linux på arm64 og x64. Den samme CLI er udgivet på npm og PyPI.",
+      "loginDesc": "cr login åbner din browser og udskriver et reservelink. Uden en lokal browser kan du bruge --device-auth og åbne linket på en anden enhed, eller cr login --code for at indsætte en kode eller et magisk link.",
+      "crTitle": "cr",
+      "crDesc": "Uden en kommando viser cr dine konti og deres forbrug. Routing af agenter er altid eksplicit: almindelig codex, opencode og pi virker fortsat uden CodeRouter.",
+      "crAddCodex": "Et personligt og et team-ChatGPT-arbejdsområde kan dele én e-mail. Kør cr add codex én gang pr. arbejdsområde, og vælg arbejdsområdet i browseren; CodeRouter holder dem som separate konti.",
+      "cmuxTitle": "cmux coderouter",
+      "cmuxDesc": "Disse verber kører gennem cmux-appen, som skal køre og være logget ind (cmux auth login). Tilføj --json for maskinlæsbart output og --team '<id>' for at bruge et andet team end det valgte.",
+      "claudeAddDesc": "claude add oauth-token læser CLAUDE_CODE_OAUTH_TOKEN eller --stdin. I en terminal uden nogen af dem kører den claude setup-token og læser det token, som kommandoen udskriver. claude add api-key læser ANTHROPIC_API_KEY, --stdin eller en skjult prompt. claude add bedrock læser AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY og den valgfrie AWS_SESSION_TOKEN og tager regionen fra --region, AWS_REGION eller AWS_DEFAULT_REGION.",
+      "accountSelector": "En '<account>' kan være dens id, dens etiket eller dens maskerede identifikator. disable tager en konto ud af rotation, indtil du aktiverer den igen.",
+      "passthroughDesc": "Alle andre cmux coderouter-verber og alle cmux cr-kommandoer kører cr uændret. Når cr mangler, tilbyder cmux at køre installationsprogrammet. cmux giver ikke sine egne miljøvariabler eller sit login videre til cr.",
+      "guestTitle": "Inde i en Cloud-maskine",
+      "guestDesc": "Hver Cloud-maskine har sin egen cmux med CodeRouter-verber, der ikke kræver login. Kontoadministration forbliver på din Mac, så claude, login og logout afvises inde i en maskine.",
+      "troubleTitle": "Fejlfinding",
+      "troubleDesc": "Meddelelserne i første kolonne er det, som agenten, cr eller cmux udskriver.",
+      "symptomColumn": "Meddelelse eller symptom",
+      "fixColumn": "Løsning",
+      "errSignIn": "Sign in with `cr login` and retry. (Også: Missing coderouter route token.)",
+      "fixSignIn": "Kør cr login. For en API-klient skal du tjekke, at nøglen er sat og starter med crk_.",
+      "errExpired": "Your coderouter session expired or was revoked.",
+      "fixExpired": "Kør cr login igen. En tilbagekaldt API-nøgle holder op med at virke med det samme; opret en ny.",
+      "errNoCodex": "No healthy Codex subscription is currently available.",
+      "fixNoCodex": "Kør cr for at se hver kontos tilstand. Tilføj en konto med cr add, eller vent på, at en nedkøling slutter. For en organisations Cloud-maskiner skal du dele kontoen med teamet.",
+      "errNoClaude": "No Claude upstream account is configured for this team.",
+      "fixNoClaude": "Tilføj en med cr add claude eller cmux coderouter claude add. For en organisations Cloud-maskiner skal du dele den med teamet.",
+      "errClaudeCooling": "Every Claude upstream account of this team is cooling down or disabled.",
+      "fixClaudeCooling": "Prøv igen efter nedkølingen, aktiver en deaktiveret konto med cmux coderouter claude enable, eller tilføj en anden konto.",
+      "errBedrockModel": "not_found_error fra en Bedrock-konto",
+      "fixBedrockModel": "Modellen har ingen Bedrock-tilknytning. Fjern kontoen, og tilføj den igen med --model '<claude-id>=<bedrock-id>'.",
+      "errBedrockRegion": "The team's Bedrock account is missing a region.",
+      "fixBedrockRegion": "Fjern kontoen, og tilføj den igen med --region, eller med AWS_REGION sat.",
+      "errNotInstalled": "CodeRouter CLI is not installed.",
+      "fixNotInstalled": "Kør installationsprogrammet, eller svar y, når cmux cr tilbyder at installere den.",
+      "errAgentMissing": "Codex is not installed or is not on PATH (eller OpenCode, eller Pi).",
+      "fixAgentMissing": "Installer agenten. cr starter den kopi, den finder på din PATH.",
+      "errCodexLoop": "`codex` resolves back to coderouter.",
+      "fixCodexLoop": "Din codex-kommando peger på cr. Sæt den rigtige Codex-eksekverbare fil først på din PATH.",
+      "errOpencodeModel": "`'<model>'` is not a coderouter OpenCode model.",
+      "fixOpencodeModel": "Vælg en model fra dine OpenCode Go-konti, eller kør almindelig opencode for en anden udbyder.",
+      "errOpencodeMachine": "cmux: OpenCode provider configuration is unavailable; retry in one minute.",
+      "fixOpencodeMachine": "Maskinen kunne ikke hente OpenCode-udbyderlisten. Vent et minut, og start OpenCode igen.",
+      "errEdge": "CodeRouter: TLS edge unreachable, eller route rejected, i cmux auth status inde i en maskine.",
+      "fixEdge": "Maskinen kan ikke nå CodeRouter, eller CodeRouter afviste maskinens legitimationsoplysninger. Prøv igen om lidt. Hvis det fortsætter, så kontakt support med maskinens navn og outputtet fra cmux auth status --json.",
+      "errUnavailable": "coderouter is temporarily unavailable. Retry shortly.",
+      "fixUnavailable": "CodeRouter eller kontolageret er kortvarigt utilgængeligt. Prøv igen; hvis fejlen fortsætter, så rapporter den med anmodnings-id'et.",
+      "diagnoseTitle": "Diagnosticer",
+      "diagnoseDesc": "cr doctor udskriver, om cr er logget ind, og hvilke CodeRouter-endpoints den bruger. cmux coderouter status viser cmux-login, det valgte team og teamets Claude-konti.",
+      "supportTitle": "Få hjælp",
+      "supportDesc": "Når du rapporterer en mislykket anmodning, så medtag værdien af svarheaderen x-coderouter-request-id. Den identificerer netop den anmodning i CodeRouters registreringer."
     }
   },
   "legal": {

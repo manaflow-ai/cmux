@@ -140,6 +140,39 @@ extension CMUXCLI {
             } else {
                 print(String(localized: "cli.auth.team.revoked", defaultValue: "Revoked."))
             }
+        case "invitations":
+            let response = try client.sendV2(method: "auth.team.invitations", params: [:], responseTimeout: 60)
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                let invitations = response["invitations"] as? [[String: Any]] ?? []
+                if invitations.isEmpty {
+                    print(String(localized: "cli.auth.team.noInvitations", defaultValue: "No pending invitations."))
+                }
+                for invitation in invitations {
+                    print(String(format: String(
+                        localized: "cli.auth.team.invitationRow",
+                        defaultValue: "%1$@  %2$@ (%3$@) invited by %4$@"
+                    ), invitation["id"] as? String ?? "?", invitation["team_name"] as? String ?? "?",
+                       invitation["role"] as? String ?? "member", invitation["invited_by"] as? String ?? "?"))
+                }
+            }
+        case "accept", "decline":
+            guard commandArgs.count >= 2, !commandArgs[1].isEmpty else {
+                throw CLIError(message: String(
+                    localized: "cli.auth.team.acceptUsage",
+                    defaultValue: "Usage: cmux auth team accept|decline <invitation-id>"
+                ))
+            }
+            let method = commandArgs[0] == "accept" ? "auth.team.accept_invite" : "auth.team.decline_invite"
+            let response = try client.sendV2(method: method, params: ["invitation_id": commandArgs[1]], responseTimeout: 60)
+            if jsonOutput {
+                print(jsonString(response))
+            } else if commandArgs[0] == "accept" {
+                print(String(localized: "cli.auth.team.joined", defaultValue: "Joined."))
+            } else {
+                print(String(localized: "cli.auth.team.declined", defaultValue: "Declined."))
+            }
         case "remove":
             guard commandArgs.count >= 2, !commandArgs[1].isEmpty else {
                 throw CLIError(message: String(
@@ -158,7 +191,7 @@ extension CMUXCLI {
         default:
             throw CLIError(message: String(
                 localized: "cli.auth.team.usage",
-                defaultValue: "Usage: cmux auth team <list|use <team-id>|create <name>|members|invite <email>...|link|revoke-invite <id>|remove <user-id>>"
+                defaultValue: "Usage: cmux auth team <list|use <team-id>|create <name>|members|invite <email>...|link|revoke-invite <id>|remove <user-id>|invitations|accept <id>|decline <id>>"
             ))
         }
     }

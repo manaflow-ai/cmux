@@ -67,4 +67,22 @@ struct TeamsClientModelsTests {
         #expect(throws: TeamsClientError.invalidIdentifier) { try TeamsClient.pathSegment("  ") }
         #expect(throws: TeamsClientError.invalidIdentifier) { try TeamsClient.pathSegment("a/b") }
     }
+
+    @Test("decodes received invitations and an accept result")
+    func decodesReceivedInvitation() throws {
+        let json = """
+        {"invitations": [{ "id": "inv-9", "teamId": "22222222-2222-4222-8222-222222222222", "teamName": "Acme",
+          "email": "me@example.com", "role": "admin", "invitedBy": "Ada", "expiresAt": "2026-10-07T00:00:00.000Z" }]}
+        """
+        struct Envelope: Decodable { let invitations: [CloudReceivedInvitation] }
+        let invitations = try TeamsClient.decoder.decode(Envelope.self, from: Data(json.utf8)).invitations
+        #expect(invitations.map(\.teamName) == ["Acme"])
+        #expect(invitations.first?.invitedBy == "Ada")
+        #expect(invitations.first?.role == .admin)
+        let accepted = try TeamsClient.decoder.decode(
+            CloudTeamAcceptResult.self,
+            from: Data(#"{"teamId": "22222222-2222-4222-8222-222222222222", "role": "member"}"#.utf8)
+        )
+        #expect(accepted.role == .member)
+    }
 }

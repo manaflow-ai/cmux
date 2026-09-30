@@ -15,6 +15,17 @@ enum CloudTeamPickerMenu {
     static let loadingTeamsIdentifier = "CloudTeamPickerLoadingTeams"
     static let pendingTeamIdentifier = "CloudTeamPickerPendingTeam"
     static let createTeamIdentifier = "CloudTeamPickerCreateTeamButton"
+    static let invitedHeaderIdentifier = "CloudTeamPickerInvitedHeader"
+
+    static func invitationIdentifier(_ invitationID: String) -> String {
+        "CloudTeamPickerInvitation_\(invitationID)"
+    }
+
+    /// One invitation the signed-in user received, as the menu shows it.
+    struct Invitation: Equatable, Sendable {
+        let id: String
+        let teamName: String
+    }
 
     static func teamIdentifier(_ teamID: String) -> String {
         "CloudTeamPickerTeam_\(teamID)"
@@ -28,7 +39,9 @@ enum CloudTeamPickerMenu {
         onSelect: @escaping (AccountTeamSummary) -> Void,
         onCreate: @escaping () -> Void,
         onInvite: (() -> Void)? = nil,
-        onMembers: (() -> Void)? = nil
+        onMembers: (() -> Void)? = nil,
+        invitations: [Invitation] = [],
+        onJoin: ((Invitation) -> Void)? = nil
     ) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -87,6 +100,24 @@ enum CloudTeamPickerMenu {
             members.identifier = NSUserInterfaceItemIdentifier("CloudTeamPickerMembersButton")
             members.isEnabled = !isBusy
             menu.addItem(members)
+        }
+        if !invitations.isEmpty, let onJoin {
+            menu.addItem(.separator())
+            menu.addItem(statusItem(
+                String(localized: "cloud.teamPicker.invitedTo", defaultValue: "Invited to"),
+                identifier: invitedHeaderIdentifier
+            ))
+            for invitation in invitations {
+                let item = SidebarRowClosureMenuItem(
+                    title: String(
+                        format: String(localized: "cloud.teamPicker.join", defaultValue: "Join %@"),
+                        invitation.teamName
+                    )
+                ) { onJoin(invitation) }
+                item.identifier = NSUserInterfaceItemIdentifier(invitationIdentifier(invitation.id))
+                item.isEnabled = !isBusy
+                menu.addItem(item)
+            }
         }
         menu.addItem(.separator())
         let create = SidebarRowClosureMenuItem(

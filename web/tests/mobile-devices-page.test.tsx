@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { withDashboardRouter } from "./helpers/dashboard-router";
 import { NextIntlClientProvider } from "next-intl";
 import { loadMessages } from "../i18n/messages";
 import { locales } from "../i18n/routing";
@@ -62,7 +63,7 @@ describe("mobile devices dashboard", () => {
 
     expect(render(<EmptyDevices />)).toContain("No connected devices yet");
     expect(render(<LoadingState label="Loading devices…" />)).toContain('role="status"');
-    expect(render(<ConnectionError message="Could not load your devices." onRetry={() => {}} />)).toContain("Try again");
+    expect(render(<ConnectionError onRetry={() => {}} />)).toContain("Try again");
     const relay = render(<RelaySettings relayURLs={["https://relay.example"]} controllerRef={{ current: null }} />);
     expect(relay).toContain("<details");
     expect(relay).toContain("Relay settings");
@@ -71,11 +72,13 @@ describe("mobile devices dashboard", () => {
 
   test.each(locales)("renders product naming in %s", async (locale) => {
     const messages = await loadMessages(locale);
-    const html = renderToStaticMarkup(
+    const { element } = await withDashboardRouter(
       <NextIntlClientProvider locale={locale} messages={messages} timeZone="UTC">
         <MobileDevicesPage userId="fixture-user" />
       </NextIntlClientProvider>,
+      "/dashboard/mobile-devices",
     );
+    const html = renderToStaticMarkup(element);
     expect(html).toContain('data-testid="mobile-devices-dashboard"');
     expect(html).not.toMatch(/iroh|Stack|Cloudflare|Durable Object/i);
     const title = (messages.dashboard as Record<string, Record<string, string>>).mobileDevices!.title!;

@@ -4,7 +4,9 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { formatBytes, formatDate } from "@/services/vault/format";
 import type { VaultSummary } from "@/services/vault/summary";
+import { EmptyState } from "../../components/page-states";
 import { vaultSummaryQuery } from "../../queries/vault";
+import { VaultOverviewFrame } from "./vault-frame";
 
 /** `/dashboard/vault`: totals across the user's synced transcripts. */
 export function VaultOverview() {
@@ -20,21 +22,17 @@ export function VaultOverviewView({ summary }: { readonly summary: VaultSummary 
     .join(" · ");
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-3 py-4">
-      <div className="mb-4 border-b border-border pb-3">
-        <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
-        <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
-        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
-      </div>
-
+    <VaultOverviewFrame>
       {summary.agents.length === 0 ? (
-        <div className="border border-border p-3">
-          <h2 className="text-sm font-medium">{t("emptyTitle")}</h2>
-          <p className="mt-1 text-muted">{t("emptyBody")}</p>
-          <code className="mt-3 inline-block border border-border bg-code-bg px-3 py-1.5 font-mono text-xs">
-            cmux-vault sync
-          </code>
-        </div>
+        <EmptyState
+          title={t("emptyTitle")}
+          body={t("emptyBody")}
+          action={
+            <code className="inline-block border border-border bg-code-bg px-3 py-1.5 font-mono text-xs">
+              cmux-vault sync
+            </code>
+          }
+        />
       ) : (
         <>
           <div className="grid border border-border sm:grid-cols-2 lg:grid-cols-4">
@@ -49,7 +47,7 @@ export function VaultOverviewView({ summary }: { readonly summary: VaultSummary 
           <p className="mt-2 font-mono text-xs text-muted">{agentCounts}</p>
         </>
       )}
-    </div>
+    </VaultOverviewFrame>
   );
 }
 

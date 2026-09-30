@@ -10,7 +10,7 @@ import { settingsButtonClass, settingsInputClass, settingsLabelClass } from "@/d
 import { InviteLinkCreator, InviteMembersForm } from "./invite-panel";
 import { useCreateTeam } from "@/dashboard-app/queries/teams";
 import { TEAM_NAME_MAX_LENGTH, teamCheckoutHref, validateTeamName } from "./team-logic";
-import { TeamsPageFrame } from "./teams-list";
+import { TeamsPageFrame } from "./teams-frame";
 import { useTeamErrorText } from "./team-ui";
 
 type CreatedTeam = { readonly id: string; readonly displayName: string };

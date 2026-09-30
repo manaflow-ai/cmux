@@ -1,14 +1,16 @@
 import { adminCount, loadTeamAccess, memberRole, type TeamAccess } from "./access";
 import { TeamApiError } from "./errors";
 import { TEAM_ADMIN_PERMISSION } from "./permissions";
-import { withTeamAdminLock } from "./repository";
+import { databaseTeamInviteStore, type TeamInviteStore, type TeamLockDb, withTeamAdminLock } from "./repository";
 import { defaultTeamSeatSync, type TeamSeatSync } from "./seatSync";
 import { defaultTeamStackApp, withStackDeadline, type TeamStackApp } from "./stack";
 import type { TeamRole } from "./types";
 
 export type MemberMutationDependencies = {
   readonly stack?: TeamStackApp;
-  readonly lock?: <T>(teamId: string, operation: () => Promise<T>) => Promise<T>;
+  /** Runs the operation under the team's admin lock, handing it the lock's transaction when there is one. */
+  readonly lock?: <T>(teamId: string, operation: (db?: TeamLockDb) => Promise<T>) => Promise<T>;
+  readonly store?: TeamInviteStore;
   readonly seats?: TeamSeatSync;
 };
 
@@ -20,14 +22,14 @@ export type MemberMutationDependencies = {
 async function withFreshTeam<T>(
   access: TeamAccess,
   dependencies: MemberMutationDependencies,
-  operation: (fresh: TeamAccess, stack: TeamStackApp) => Promise<T>,
+  operation: (fresh: TeamAccess, stack: TeamStackApp, db: TeamLockDb | undefined) => Promise<T>,
 ): Promise<T> {
   const stack = dependencies.stack ?? defaultTeamStackApp();
   const lock = dependencies.lock ?? withTeamAdminLock;
-  return lock(access.team.id, async () => {
+  return lock(access.team.id, async (db) => {
     const fresh = await loadTeamAccess(access.userId, access.team.id, stack);
     if (!fresh) throw new TeamApiError("team_not_found", 403);
-    return operation(fresh, stack);
+    return operation(fresh, stack, db);
   });
 }
 
@@ -73,7 +75,7 @@ export async function removeMember(
   targetUserId: string,
   dependencies: MemberMutationDependencies = {},
 ): Promise<void> {
-  await withFreshTeam(access, dependencies, async (fresh) => {
+  await withFreshTeam(access, dependencies, async (fresh, _stack, db) => {
     const leaving = targetUserId === fresh.userId;
     if (!leaving && (fresh.role !== "admin" || !fresh.permissions.removeMembers)) {
       throw new TeamApiError("forbidden", 403);
@@ -82,6 +84,10 @@ export async function removeMember(
       throw new TeamApiError("member_not_found", 404);
     }
     assertNotLastAdmin(fresh, targetUserId);
+    // On the lock's transaction, before the Stack removal: if that removal
+    // fails the delete rolls back and they stay a member; if it succeeds they
+    // are never a former member who can reopen a link they already used.
+    await (dependencies.store ?? databaseTeamInviteStore).forgetLinkRedemptions(fresh.team.id, targetUserId, db);
     await withStackDeadline(() => fresh.team.removeUser(targetUserId));
   });
   // Outside the admin lock: the seat fact is recorded after the membership write commits.

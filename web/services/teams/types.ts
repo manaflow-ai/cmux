@@ -30,6 +30,17 @@ export type TeamInvitation = {
   readonly expiresAt: string;
 };
 
+/** An invitation addressed to the signed-in user (`GET /api/teams/invitations`). */
+export type ReceivedTeamInvitation = {
+  readonly id: string;
+  readonly teamId: string;
+  readonly teamName: string;
+  readonly email: string;
+  readonly role: TeamRole;
+  readonly invitedBy: string | null;
+  readonly expiresAt: string;
+};
+
 export type TeamInviteLink = {
   readonly id: string;
   readonly role: "member";

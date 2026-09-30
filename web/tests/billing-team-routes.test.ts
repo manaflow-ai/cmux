@@ -151,6 +151,58 @@ describe("team subscription cancel and resume", () => {
   });
 });
 
+// Regression: older forms and links name no team, so the routes resolve the
+// selected team. That path skipped the admin check, and a plain member who
+// selected a paid team could cancel its subscription or open its portal.
+describe("legacy team billing without teamId", () => {
+  function post(fields: Record<string, string>) {
+    return subscriptionPOST(new NextRequest("https://cmux.test/api/billing/subscription", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: "https://cmux.test",
+        referer: "https://cmux.test/dashboard/billing",
+      },
+      body: new URLSearchParams(fields),
+    }));
+  }
+
+  test("a member of the selected team cannot cancel it", async () => {
+    dbRows.subscriptions = [{ id: "sub_team_a" }];
+
+    const response = await post({ action: "cancel", scope: "team" });
+
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/billing?team=team-a&billing=team_admin_required",
+    );
+    expect(updateSubscription).not.toHaveBeenCalled();
+  });
+
+  test("a member of the selected team cannot open its portal", async () => {
+    dbRows.customers = [{ id: "cus_team_a" }];
+
+    const response = await portalGET(new NextRequest("https://cmux.test/api/billing/portal?scope=team"));
+
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/billing?team=team-a&billing=team_admin_required",
+    );
+    expect(createPortal).not.toHaveBeenCalled();
+  });
+
+  test("an admin of the selected team keeps the legacy cancel and portal", async () => {
+    currentUser = fixtureStackUser({ id: USER_ID, teams: [teamA, teamB], adminTeamIds: ["team-b"], selectedTeam: teamB });
+    dbRows.subscriptions = [{ id: "sub_team_b" }];
+    dbRows.customers = [{ id: "cus_team_b" }];
+
+    const cancel = await post({ action: "cancel", scope: "team" });
+    expect(cancel.headers.get("location")).toBe("https://cmux.test/dashboard/billing?team=team-b&billing=cancelled");
+    expect(updateSubscription).toHaveBeenCalledWith("sub_team_b", { cancel_at_period_end: true });
+
+    const portal = await portalGET(new NextRequest("https://cmux.test/api/billing/portal?scope=team"));
+    expect(portal.headers.get("location")).toBe("https://billing.stripe.com/p/team");
+  });
+});
+
 describe("plan status for an explicit team", () => {
   async function plan(teamId: string) {
     return planGET(new NextRequest(`https://cmux.test/api/billing/plan?teamId=${encodeURIComponent(teamId)}`));

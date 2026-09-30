@@ -45,6 +45,7 @@ V2_BASE_URL_WAS_EXPLICIT=0
 PRINT_PLAN=0
 SOAK_PROFILE=""
 REPORT_TIMEOUT=480
+PHASE_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS:-1500}"
 DOGFOOD_CREDENTIALS_FILE=""
 
 while [[ $# -gt 0 ]]; do
@@ -70,6 +71,11 @@ done
 
 [[ -n "$MODE" ]] || { echo "error: --mode is required" >&2; exit 2; }
 [[ -n "$TAG" ]] || { echo "error: --tag is required" >&2; exit 2; }
+[[ "$PHASE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "error: CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 2
+}
+export CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS="$PHASE_TIMEOUT_SECONDS"
 if [[ "$PRODUCTION" -eq 1 && "$BASE_URL_WAS_EXPLICIT" -eq 1 ]]; then
   echo "error: --production cannot be combined with --staging-base-url" >&2
   exit 2
@@ -176,6 +182,42 @@ fi
 
 ACTIVE_BUILD_WRAPPER_PID=""
 
+run_phase_with_timeout() {
+  local label="$1"
+  shift
+  PHASE_TIMEOUT_SECONDS="$PHASE_TIMEOUT_SECONDS" /usr/bin/python3 - "$label" "$@" <<'PY_PHASE'
+import os
+import signal
+import subprocess
+import sys
+
+label, *command = sys.argv[1:]
+timeout_seconds = int(os.environ["PHASE_TIMEOUT_SECONDS"])
+process = subprocess.Popen(command, start_new_session=True)
+try:
+    return_code = process.wait(timeout=timeout_seconds)
+except subprocess.TimeoutExpired:
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+    raise SystemExit(
+        f"Iroh release gate phase '{label}' timed out after {timeout_seconds}s"
+    )
+if return_code < 0:
+    raise SystemExit(128 - return_code)
+raise SystemExit(return_code)
+PY_PHASE
+}
+
 # Hosted logs are bounded, while a cold optimized iOS build can emit several
 # megabytes before it links. Keep the full build output on the runner, expose a
 # heartbeat to the job log, and print a bounded diagnostic tail only on failure.
@@ -195,8 +237,11 @@ import sys
 import time
 
 label, build_log, *command = sys.argv[1:]
+phase_timeout = int(os.environ.get("CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS", "1500"))
+start_time = time.monotonic()
 interrupted_by = None
 termination_deadline = None
+timed_out = False
 process = None
 
 def forward_signal(signum, _frame):
@@ -228,14 +273,14 @@ with open(build_log, "wb") as output:
             pass
 
     while True:
-        timeout = 60
+        timeout = min(60, int(os.environ.get("CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS", "1500")))
         if termination_deadline is not None:
             timeout = max(0.1, termination_deadline - time.monotonic())
         try:
             return_code = process.wait(timeout=timeout)
             break
         except subprocess.TimeoutExpired:
-            if termination_deadline is None:
+            if termination_deadline is None and time.monotonic() - start_time < phase_timeout:
                 print(f"==> {label} build still running", flush=True)
                 continue
             try:
@@ -243,10 +288,15 @@ with open(build_log, "wb") as output:
             except ProcessLookupError:
                 pass
             return_code = process.wait()
+            if termination_deadline is None:
+                timed_out = True
+                print(f"{label} build phase timed out after {phase_timeout}s", file=sys.stderr)
             break
 
 if interrupted_by is not None:
     raise SystemExit(128 + interrupted_by)
+if timed_out:
+    raise SystemExit(124)
 if return_code < 0:
     raise SystemExit(128 - return_code)
 raise SystemExit(return_code)
@@ -805,7 +855,7 @@ fi
 if [[ -n "$SOAK_PROFILE" ]]; then
   echo "==> prewarming cached Stack and v2 state before the measured launch"
   CMUX_DEV_AUTH_REPLACE_SESSION=1 \
-    ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}"
+    run_phase_with_timeout prewarm ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}"
   # The first launch verified sign-in and pairing. The measured launch must
   # restore those saved values through the same startup path as a user launch.
   # --ensure-mac would otherwise inject a new URL and bypass that path entirely.
@@ -852,7 +902,9 @@ except subprocess.TimeoutExpired:
         except ProcessLookupError:
             pass
         process.wait()
-    raise SystemExit("Iroh release gate report signal timed out")
+    raise SystemExit(
+        f"Iroh release gate phase 'report' timed out after {os.environ['REPORT_TIMEOUT']}s"
+    )
 if process.returncode != 0:
     raise SystemExit(f"Iroh release gate report waiter exited with {process.returncode}")
 PY
@@ -958,7 +1010,7 @@ fi
 run_release_gate_launch() {
   local log_path="$1"
   shift
-/usr/bin/python3 - "$log_path" "$((REPORT_TIMEOUT + 30))" "$@" <<'PY_LAUNCH'
+/usr/bin/python3 - "$log_path" "$PHASE_TIMEOUT_SECONDS" "$@" <<'PY_LAUNCH'
 import os
 import signal
 import subprocess
@@ -987,7 +1039,9 @@ with open(log_path, "wb") as output:
             except ProcessLookupError:
                 pass
             process.wait()
-        raise SystemExit("Iroh release gate launcher timed out")
+        raise SystemExit(
+            f"Iroh release gate phase 'launch' timed out after {timeout_seconds}s"
+        )
 
 if return_code < 0:
     raise SystemExit(128 - return_code)

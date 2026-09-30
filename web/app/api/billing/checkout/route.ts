@@ -15,6 +15,7 @@ import {
 } from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
+import { dashboardReturnPath } from "../../../../services/billing/returnTo";
 import {
   MAX_PLAN_ID,
   GO_PLAN_ID,
@@ -363,14 +364,20 @@ async function stripePersonalCheckout(
     const successUrl =
       `${requestOrigin(request)}/api/billing/complete` +
       `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
-    const cancelUrl = new URL("/pricing?billing=cancelled", requestOrigin(request));
-    cancelUrl.searchParams.set("interval", interval);
+    // A dashboard upgrade returns to the page that asked for it; only a
+    // validated same-origin /dashboard path is kept.
+    const returnTo = dashboardReturnPath(request.nextUrl.searchParams.get("returnTo"));
+    const cancelUrl = returnTo
+      ? new URL(returnTo, requestOrigin(request))
+      : new URL("/pricing?billing=cancelled", requestOrigin(request));
+    if (!returnTo) cancelUrl.searchParams.set("interval", interval);
     const metadata = {
       stackUserId,
       plan,
       app: "cmux",
       billingInterval: interval,
       nativeCallbackScheme: callbackScheme,
+      ...(returnTo ? { returnTo } : {}),
       ...checkoutAttributionMetadata(attribution),
     };
 
@@ -632,20 +639,22 @@ async function teamCheckoutCustomer(
   user: CheckoutTeamUser,
   teamId: string | null,
 ): Promise<TeamCheckoutCustomerResult> {
-  if (!teamId) return { ok: true, team: await legacyCheckoutTeamCustomer(user) };
+  if (!teamId) return legacyCheckoutTeamCustomer(user);
   const access = await resolveTeamBillingAccess(user, teamId, { requireAdmin: true });
   return access.ok ? { ok: true, team: access.team } : access;
 }
 
 /**
  * Implicit team resolution for macOS clients that predate explicit team ids:
- * the selected team, else the first team, else a new "cmux Team".
+ * the selected team, else the first team, else a new "cmux Team". An existing
+ * team needs the caller to be its admin, as an explicit team id does.
  */
-async function legacyCheckoutTeamCustomer(user: CheckoutTeamUser): Promise<CheckoutTeamCustomer> {
-  if (user.selectedTeam) return user.selectedTeam;
-
-  const teams = user.listTeams ? await user.listTeams() : [];
-  if (teams.length > 0) return teams[0];
+async function legacyCheckoutTeamCustomer(user: CheckoutTeamUser): Promise<TeamCheckoutCustomerResult> {
+  const existing = user.selectedTeam ?? (user.listTeams ? await user.listTeams() : [])[0];
+  if (existing?.id) {
+    const access = await resolveTeamBillingAccess(user, existing.id, { requireAdmin: true });
+    return access.ok ? { ok: true, team: existing } : access;
+  }
 
   if (!user.createTeam) {
     throw new Error("Stack Auth user cannot create a team checkout customer");
@@ -653,7 +662,7 @@ async function legacyCheckoutTeamCustomer(user: CheckoutTeamUser): Promise<Check
 
   const team = await user.createTeam({ displayName: "cmux Team" });
   await grantCreatorTeamAdmin(user, team);
-  return team;
+  return { ok: true, team };
 }
 
 /**

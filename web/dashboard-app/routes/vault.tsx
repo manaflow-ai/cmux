@@ -1,6 +1,6 @@
 import { createRoute, lazyRouteComponent, notFound } from "@tanstack/react-router";
 import { z } from "zod";
-import { DashboardSkeleton } from "../components/dashboard-skeleton";
+import { DashboardSectionSkeleton, DashboardSkeleton } from "../components/dashboard-skeleton";
 import { isRefusal } from "../lib/refusal";
 import type { DashboardSessionResponse } from "../lib/session-types";
 import {
@@ -11,6 +11,7 @@ import {
   vaultSummaryQuery,
   vaultTranscriptHeadQuery,
 } from "../queries/vault";
+import { VaultOverviewFrame, VaultOverviewRouteError } from "../screens/vault/vault-frame";
 import { shellRoute } from "./root";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -32,6 +33,12 @@ const vaultRoute = createRoute({
   beforeLoad: requireVault,
   loader: ({ context }) =>
     context.queryClient.ensureQueryData(vaultSummaryQuery).catch(notFoundOn404),
+  pendingComponent: () => (
+    <VaultOverviewFrame>
+      <DashboardSectionSkeleton variant="table" columns={4} rows={1} />
+    </VaultOverviewFrame>
+  ),
+  errorComponent: VaultOverviewRouteError,
   component: lazyRouteComponent(() => import("../screens/vault/vault-overview"), "VaultOverview"),
 });
 
@@ -48,7 +55,7 @@ export const vaultSessionsRoute = createRoute({
   beforeLoad: requireVault,
   // Only the first visit waits on the list: the screen owns later filter
   // changes so typing never suspends the search box.
-  pendingComponent: () => <DashboardSkeleton variant="rows" />,
+  pendingComponent: () => <DashboardSkeleton variant="table" columns={4} />,
   loader: ({ context, location }) => {
     const search = sessionsSearch.parse(location.search);
     return context.queryClient

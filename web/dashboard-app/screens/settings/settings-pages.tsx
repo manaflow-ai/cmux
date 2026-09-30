@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, type ReactNode } from "react";
-import { IsolatedErrorBoundary, SectionUnavailable } from "@/app/components/error-boundary";
+import { useTranslations } from "next-intl";
+import type { ReactNode } from "react";
 import { DashboardSectionSkeleton } from "@/dashboard-app/components/dashboard-skeleton";
+import { QuerySection } from "@/dashboard-app/components/page-states";
 import { AccountActions } from "./components/account-actions";
 import { ApiKeySettings } from "./components/api-key-settings";
 import { AuthSettings } from "./components/auth-settings";
@@ -12,16 +13,18 @@ import { SessionSettings } from "./components/session-settings";
 import { SettingsHeader, type SettingsHeaderSection } from "./settings-header";
 
 /**
- * A static header, then the section's Stack-backed content behind its own
- * error boundary, so one failing section leaves the navigation usable.
+ * A static header, then the section's data behind `QuerySection`: a skeleton
+ * while it loads, and `SectionError` with Try again if it fails, so one
+ * failing section leaves the navigation usable.
  */
 function SettingsPage({ section, children }: { readonly section: SettingsHeaderSection; readonly children: ReactNode }) {
+  const t = useTranslations(`dashboard.settings.${section}`);
   return (
     <>
       <SettingsHeader section={section} />
-      <IsolatedErrorBoundary name={`dashboard-settings-${section}`} fallback={<SectionUnavailable />}>
-        <Suspense fallback={<DashboardSectionSkeleton variant="rows" />}>{children}</Suspense>
-      </IsolatedErrorBoundary>
+      <QuerySection name={`dashboard-settings-${section}`} section={t("title")} skeleton={<DashboardSectionSkeleton variant="settings" />}>
+        {children}
+      </QuerySection>
     </>
   );
 }

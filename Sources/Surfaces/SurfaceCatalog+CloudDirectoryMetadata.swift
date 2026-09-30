@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -67,7 +68,11 @@ extension SurfaceCatalog {
             (id, machines[SurfaceMachineID(rawValue: id)]?.name ?? id)
         })
         let previous = workspace.cloudBindingState.projectedResources
+        let previousHostLabel = workspace.hostLabel
         workspace.cloudBindingState.updateCatalogMetadata(resources: resourcesByPanel, machineNames: names)
+        if workspace.hostLabel != previousHostLabel {
+            workspace.owningTabManager?.workspaceHostLabelDidChange(workspace)
+        }
         for panelID in previous.keys where resourcesByPanel[panelID] == nil && workspace.panels[panelID] != nil {
             workspace.clearRemotePanelDirectory(panelId: panelID)
         }

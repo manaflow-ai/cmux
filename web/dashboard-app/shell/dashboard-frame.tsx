@@ -1,8 +1,9 @@
 "use client";
 
 import { Outlet, useLocation, type ErrorComponentProps } from "@tanstack/react-router";
-import { IsolatedErrorBoundary, RouteErrorView } from "@/app/components/error-boundary";
+import { IsolatedErrorBoundary } from "@/app/components/error-boundary";
 import { DashboardAuthRecovery, SignInRedirect } from "../components/auth-recovery";
+import { RouteSectionError } from "../components/route-section-error";
 import { isRefusal } from "../lib/refusal";
 import { shellRoute } from "../routes/root";
 import { DashboardAccountMenu, DashboardAccountMenuFallback } from "./dashboard-account-menu";
@@ -28,15 +29,27 @@ export function DashboardFrame() {
   );
 }
 
-/** Session failures: 401 goes to sign-in, a Stack outage renders recovery. */
-export function DashboardFrameError({ error, reset }: ErrorComponentProps) {
+/**
+ * Failures of the session load itself (the shell's `beforeLoad`): 401 goes to
+ * sign-in, a Stack outage renders sign-in recovery. Data failures below the
+ * shell never reach here; each route shows `SectionError` in its own frame.
+ */
+export function DashboardFrameError(props: ErrorComponentProps) {
   const location = useLocation();
-  if (isRefusal(error, 401)) return <SignInRedirect returnPath={location.href} />;
-  if (isRefusal(error, 503)) return <DashboardAuthRecovery returnPath={location.href} />;
-  return <RouteErrorView boundary="dashboard-session" error={error} retry={reset} />;
+  if (isRefusal(props.error, 401)) return <SignInRedirect returnPath={location.href} />;
+  if (isRefusal(props.error, 503)) return <DashboardAuthRecovery returnPath={location.href} />;
+  return <DashboardRouteError {...props} />;
 }
 
-/** Route-level failure inside the frame, so the sidebar stays usable. */
-export function DashboardRouteError({ error, reset }: ErrorComponentProps) {
-  return <RouteErrorView boundary="dashboard-route" error={error} retry={reset} />;
+/**
+ * Default route failure inside the frame for routes without their own page
+ * frame: the sidebar stays usable and the failure reads like every other
+ * data region.
+ */
+export function DashboardRouteError(props: ErrorComponentProps) {
+  return (
+    <div className="mx-auto w-full max-w-5xl px-3 py-4">
+      <RouteSectionError {...props} />
+    </div>
+  );
 }

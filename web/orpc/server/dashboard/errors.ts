@@ -8,10 +8,13 @@ const CODE_BY_STATUS: Readonly<Record<number, DashboardErrorCode>> = {
   400: "BAD_REQUEST",
   401: "UNAUTHORIZED",
   403: "FORBIDDEN",
+  402: "PAYMENT_REQUIRED",
   404: "NOT_FOUND",
   409: "CONFLICT",
+  410: "GONE",
   413: "PAYLOAD_TOO_LARGE",
   429: "RATE_LIMITED",
+  501: "NOT_IMPLEMENTED",
   502: "BAD_GATEWAY",
   503: "UNAVAILABLE",
 };

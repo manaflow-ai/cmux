@@ -21,10 +21,13 @@ export const DASHBOARD_ERRORS = {
   UNAUTHORIZED: { status: 401, data: refusal },
   FORBIDDEN: { status: 403, data: refusal },
   NOT_FOUND: { status: 404, data: refusal },
+  PAYMENT_REQUIRED: { status: 402, data: refusal },
   CONFLICT: { status: 409, data: refusal },
+  GONE: { status: 410, data: refusal },
   PAYLOAD_TOO_LARGE: { status: 413, data: refusal },
   RATE_LIMITED: { status: 429, data: refusal },
   BAD_GATEWAY: { status: 502, data: refusal },
+  NOT_IMPLEMENTED: { status: 501, data: refusal },
   UNAVAILABLE: { status: 503, data: refusal },
 } as const;
 
@@ -72,7 +75,9 @@ export const TEAM_ERRORS = {
   UNAUTHORIZED: { status: 401, data: teamRefusal },
   FORBIDDEN: { status: 403, data: teamRefusal },
   NOT_FOUND: { status: 404, data: teamRefusal },
+  PAYMENT_REQUIRED: { status: 402, data: teamRefusal },
   CONFLICT: { status: 409, data: teamRefusal },
+  GONE: { status: 410, data: teamRefusal },
   PAYLOAD_TOO_LARGE: { status: 413, data: teamRefusal },
   RATE_LIMITED: { status: 429, data: teamRefusal },
   UNAVAILABLE: { status: 503, data: teamRefusal },

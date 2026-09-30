@@ -41,7 +41,9 @@ test("create a team, share an invite link, revoke it, delete the team", async ({
   await page.getByRole("button", { name: "Create link" }).click();
   await expect(page.getByText("Copy this link now. It is shown only once.")).toBeVisible();
   await expect(page.locator("text=/\\/join\\/[A-Za-z0-9_-]{20,}/").first()).toBeVisible();
-  await page.getByRole("button", { name: "Revoke" }).first().click();
+  // Row actions live in each row's "…" menu.
+  await page.getByRole("button", { name: /^Actions for the link/ }).first().click();
+  await page.getByRole("menuitem", { name: "Revoke" }).click();
   await page.getByRole("dialog").getByRole("button", { name: /revoke/i }).click();
   await expect(page.getByText("No active invite links.")).toBeVisible();
 

@@ -15,6 +15,8 @@ const signedInUser = {
   isAnonymous: false,
   selectedTeam: null as null | { id: string },
   listTeams: mock(async () => [] as Array<{ id: string }>),
+  // Admin of any team it selects; team subscription changes require team admin.
+  hasPermission: mock(async () => true),
 };
 const anonymousUser = {
   id: "anonymous-pro",

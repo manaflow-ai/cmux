@@ -9,16 +9,17 @@ import {
   revokeTeamInvitation,
 } from "../services/teams/invitations";
 import { acceptBody, createLinkBody, inviteBody, updateTeamBody } from "../services/teams/schemas";
-import { ADMIN_ID, MemoryInviteStore, standardTeam, TEAM_ID } from "./teams-fixture";
+import { ADMIN_ID, MemoryInviteMailer, MemoryInviteStore, standardTeam, TEAM_ID } from "./teams-fixture";
 
-const CALLBACK = "https://cmux.com/en/dashboard/team/accept";
+const acceptUrl = (token: string) => `https://cmux.com/en/join/${token}`;
 
 async function adminSetup() {
   const stack = standardTeam();
   const store = new MemoryInviteStore();
+  const mailer = new MemoryInviteMailer();
   const access = await requireTeamAccess({ id: ADMIN_ID }, TEAM_ID, { stack: stack.app() });
   if (!access.ok) throw new Error("access refused");
-  return { stack, store, access: access.access };
+  return { stack, store, mailer, access: access.access, deps: { store, mailer } };
 }
 
 function jsonRequest(body: string): Request {
@@ -79,92 +80,72 @@ describe("invite request validation", () => {
 });
 
 describe("email invitations", () => {
-  test("stores the role before Stack sends, skips members, and reports per-email results", async () => {
-    const { stack, store, access } = await adminSetup();
+  test("writes the row, sends one email per new address, skips members, and reports per-email results", async () => {
+    const { stack, mailer, access, deps } = await adminSetup();
     const memberEmail = stack.users.get(access.members.find((member) => member.id !== ADMIN_ID)!.id)!.email!;
     const result = await inviteTeamMembers(access, {
       emails: ["New@Example.com", "new@example.com", memberEmail.toUpperCase()],
       role: "admin",
-      callbackUrl: CALLBACK,
-    }, { store });
+      acceptUrl,
+    }, deps);
 
     expect(result.failed).toEqual([{ email: memberEmail, code: "already_member" }]);
-    expect(result.invitations).toEqual([
-      expect.objectContaining({ email: "new@example.com", role: "admin" }),
-    ]);
-    expect(store.events).toEqual(["upsert:new@example.com:admin"]);
-    expect(stack.calls.filter((call) => call.startsWith("inviteUser:"))).toEqual([
-      `inviteUser:${TEAM_ID}:new@example.com:${CALLBACK}`,
-    ]);
+    expect(result.invitations).toEqual([expect.objectContaining({ email: "new@example.com", role: "admin" })]);
+    expect(mailer.sent).toHaveLength(1);
+    expect(mailer.sent[0]).toMatchObject({ to: "new@example.com", teamName: "Acme", role: "admin", inviterName: "Name aaaa" });
+    expect(mailer.sent[0]!.acceptUrl).toMatch(/^https:\/\/cmux\.com\/en\/join\/[A-Za-z0-9_-]{43}$/);
+    expect(stack.calls.filter((call) => call.startsWith("inviteUser:"))).toEqual([]);
   });
 
-  test("re-inviting overwrites the role and leaves one pending invitation", async () => {
-    const { stack, store, access } = await adminSetup();
-    await inviteTeamMembers(access, { emails: ["x@example.com"], role: "admin", callbackUrl: CALLBACK }, { store });
-    await inviteTeamMembers(access, { emails: ["x@example.com"], role: "member", callbackUrl: CALLBACK }, { store });
-    const invitations = await listTeamInvitations(access, { store });
+  test("re-inviting leaves one pending invitation with the new role", async () => {
+    const { access, deps } = await adminSetup();
+    await inviteTeamMembers(access, { emails: ["x@example.com"], role: "admin", acceptUrl }, deps);
+    await inviteTeamMembers(access, { emails: ["x@example.com"], role: "member", acceptUrl }, deps);
+    const invitations = await listTeamInvitations(access, deps);
     expect(invitations).toHaveLength(1);
     expect(invitations[0]!.role).toBe("member");
-    expect(stack.invitations).toHaveLength(1);
   });
 
-  test("a failed send is reported and does not revoke the previous invitation", async () => {
-    const { stack, store, access } = await adminSetup();
-    await inviteTeamMembers(access, { emails: ["y@example.com"], role: "member", callbackUrl: CALLBACK }, { store });
-    (access.team as { inviteUser: typeof access.team.inviteUser }).inviteUser = async () => {
-      throw new Error("stack down");
-    };
-    const result = await inviteTeamMembers(access, { emails: ["y@example.com"], role: "member", callbackUrl: CALLBACK }, { store });
+  test("a failed send deletes its row and keeps the previous invitation", async () => {
+    const { store, mailer, access, deps } = await adminSetup();
+    await inviteTeamMembers(access, { emails: ["y@example.com"], role: "admin", acceptUrl }, deps);
+    mailer.failFor.add("y@example.com");
+    const result = await inviteTeamMembers(access, { emails: ["y@example.com"], role: "member", acceptUrl }, deps);
     expect(result).toEqual({ invitations: [], failed: [{ email: "y@example.com", code: "invite_failed" }] });
-    expect(stack.invitations).toHaveLength(1);
-  }, 15_000);
-
-  test("a failed re-invite keeps the previous invitation's stored role", async () => {
-    const { store, access } = await adminSetup();
-    await inviteTeamMembers(access, { emails: ["w@example.com"], role: "admin", callbackUrl: CALLBACK }, { store });
-    (access.team as { inviteUser: typeof access.team.inviteUser }).inviteUser = async () => {
-      throw new Error("stack down");
-    };
-    await inviteTeamMembers(access, { emails: ["w@example.com"], role: "member", callbackUrl: CALLBACK }, { store });
-    const invitations = await listTeamInvitations(access, { store });
+    const invitations = await listTeamInvitations(access, deps);
     expect(invitations.map((invitation) => invitation.role)).toEqual(["admin"]);
-  }, 15_000);
-
-  test("a failed first invite stores no role", async () => {
-    const { store, access } = await adminSetup();
-    (access.team as { inviteUser: typeof access.team.inviteUser }).inviteUser = async () => {
-      throw new Error("stack down");
-    };
-    await inviteTeamMembers(access, { emails: ["v@example.com"], role: "admin", callbackUrl: CALLBACK }, { store });
-    expect(store.roles.size).toBe(0);
-  }, 15_000);
-
-  test("a failed resend keeps the original invitation", async () => {
-    const { stack, store, access } = await adminSetup();
-    const [sent] = (await inviteTeamMembers(access, { emails: ["u@example.com"], role: "admin", callbackUrl: CALLBACK }, { store })).invitations;
-    (access.team as { inviteUser: typeof access.team.inviteUser }).inviteUser = async () => {
-      throw new Error("stack down");
-    };
-    await resendTeamInvitation(access, sent!.id, CALLBACK, { store }).catch(() => undefined);
-    expect(stack.invitations.map((invitation) => invitation.id)).toEqual([sent!.id]);
-  }, 15_000);
-
-  test("resend replaces the invitation and keeps its stored role", async () => {
-    const { stack, store, access } = await adminSetup();
-    const [sent] = (await inviteTeamMembers(access, { emails: ["z@example.com"], role: "admin", callbackUrl: CALLBACK }, { store })).invitations;
-    const resent = await resendTeamInvitation(access, sent!.id, CALLBACK, { store });
-    expect(resent.id).not.toBe(sent!.id);
-    expect(resent).toEqual(expect.objectContaining({ email: "z@example.com", role: "admin" }));
-    expect(stack.invitations.map((invitation) => invitation.id)).toEqual([resent.id]);
+    expect(store.emailInvitations).toHaveLength(1);
   });
 
-  test("revoke removes the invitation and its stored role; unknown ids are not found", async () => {
-    const { stack, store, access } = await adminSetup();
-    const [sent] = (await inviteTeamMembers(access, { emails: ["r@example.com"], role: "admin", callbackUrl: CALLBACK }, { store })).invitations;
-    await revokeTeamInvitation(access, sent!.id, { store });
-    expect(stack.invitations).toHaveLength(0);
-    expect(store.roles.size).toBe(0);
-    const error = await revokeTeamInvitation(access, sent!.id, { store }).catch((caught: unknown) => caught);
+  test("a failed first invite leaves nothing pending", async () => {
+    const { store, mailer, access, deps } = await adminSetup();
+    mailer.failFor.add("v@example.com");
+    await inviteTeamMembers(access, { emails: ["v@example.com"], role: "admin", acceptUrl }, deps);
+    expect(store.emailInvitations).toHaveLength(0);
+  });
+
+  test("resend sends again with a fresh token and keeps the row and role; a failed resend keeps the old token", async () => {
+    const { store, mailer, access, deps } = await adminSetup();
+    const [sent] = (await inviteTeamMembers(access, { emails: ["z@example.com"], role: "admin", acceptUrl }, deps)).invitations;
+    const before = store.emailInvitations[0]!.tokenHash;
+    const resent = await resendTeamInvitation(access, sent!.id, acceptUrl, deps);
+    expect(resent.id).toBe(sent!.id);
+    expect(resent.role).toBe("admin");
+    expect(mailer.sent).toHaveLength(2);
+    expect(store.emailInvitations[0]!.tokenHash).not.toBe(before);
+    const after = store.emailInvitations[0]!.tokenHash;
+    mailer.failFor.add("z@example.com");
+    await expect(resendTeamInvitation(access, sent!.id, acceptUrl, deps)).rejects.toThrow("mail down");
+    expect(store.emailInvitations[0]!.tokenHash).toBe(after);
+  });
+
+  test("revoke hides the invitation; unknown and revoked-twice ids are not found or idempotent", async () => {
+    const { access, deps } = await adminSetup();
+    const [sent] = (await inviteTeamMembers(access, { emails: ["r@example.com"], role: "admin", acceptUrl }, deps)).invitations;
+    await revokeTeamInvitation(access, sent!.id, deps);
+    expect(await listTeamInvitations(access, deps)).toHaveLength(0);
+    await revokeTeamInvitation(access, sent!.id, deps);
+    const error = await revokeTeamInvitation(access, "99999999-9999-4999-8999-999999999999", deps).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(TeamApiError);
     expect((error as TeamApiError).code).toBe("invitation_not_found");
   });
@@ -178,51 +159,49 @@ describe("personal plan member limit", () => {
     stack.teams.get(TEAM_ID)!.metadata = { cmuxPlan: "pro" };
     for (const id of extraMembers) stack.addUser({ id }).addMember(TEAM_ID, id, ["team_member"]);
     const store = new MemoryInviteStore();
+    const mailer = new MemoryInviteMailer();
     const access = await requireTeamAccess({ id: ADMIN_ID }, TEAM_ID, { stack: stack.app() });
     if (!access.ok) throw new Error("access refused");
-    return { stack, store, access: access.access };
+    return { stack, store, mailer, access: access.access, deps: { store, mailer } };
   }
 
   test("a Pro team of two admits one more invitation, and pending invitations hold the seat", async () => {
-    const { store, access } = await proTeam();
-    const first = await inviteTeamMembers(access, { emails: ["one@example.com"], role: "member", callbackUrl: CALLBACK }, { store });
+    const { access, deps } = await proTeam();
+    const first = await inviteTeamMembers(access, { emails: ["one@example.com"], role: "member", acceptUrl }, deps);
     expect(first.invitations.map((invitation) => invitation.email)).toEqual(["one@example.com"]);
     await expect(
-      inviteTeamMembers(access, { emails: ["two@example.com"], role: "member", callbackUrl: CALLBACK }, { store }),
+      inviteTeamMembers(access, { emails: ["two@example.com"], role: "member", acceptUrl }, deps),
     ).rejects.toMatchObject({ code: "seat_limit", status: 409 });
     // Re-inviting the pending email consumes no extra seat.
-    const again = await inviteTeamMembers(access, { emails: ["one@example.com"], role: "admin", callbackUrl: CALLBACK }, { store });
+    const again = await inviteTeamMembers(access, { emails: ["one@example.com"], role: "admin", acceptUrl }, deps);
     expect(again.invitations).toHaveLength(1);
   });
 
-  test("a full Pro roster refuses new invitations but still reports existing members", async () => {
-    const { store, access } = await proTeam([THIRD_MEMBER]);
+  test("a full Pro roster refuses new invitations", async () => {
+    const { access, deps } = await proTeam([THIRD_MEMBER]);
     await expect(
-      inviteTeamMembers(access, { emails: ["late@example.com"], role: "member", callbackUrl: CALLBACK }, { store }),
+      inviteTeamMembers(access, { emails: ["late@example.com"], role: "member", acceptUrl }, deps),
     ).rejects.toMatchObject({ code: "seat_limit", status: 409 });
-    const members = await inviteTeamMembers(access, { emails: ["outsider@example.com"], role: "member", callbackUrl: CALLBACK }, { store })
-      .catch((error: unknown) => error);
-    expect(members).toMatchObject({ code: "seat_limit" });
   });
 
   test("a batch larger than the free seats is refused before any email is sent", async () => {
-    const { stack, store, access } = await proTeam();
+    const { mailer, access, deps } = await proTeam();
     await expect(
-      inviteTeamMembers(access, { emails: ["a@example.com", "b@example.com"], role: "member", callbackUrl: CALLBACK }, { store }),
+      inviteTeamMembers(access, { emails: ["a@example.com", "b@example.com"], role: "member", acceptUrl }, deps),
     ).rejects.toMatchObject({ code: "seat_limit" });
-    expect(stack.invitations).toHaveLength(0);
+    expect(mailer.sent).toHaveLength(0);
   });
 
   test("teams without a personal plan keep soft seats", async () => {
     const stack = standardTeam();
     stack.teams.get(TEAM_ID)!.metadata = { cmuxPlan: "team", cmuxSeats: 2 };
-    const store = new MemoryInviteStore();
+    const deps = { store: new MemoryInviteStore(), mailer: new MemoryInviteMailer() };
     const access = await requireTeamAccess({ id: ADMIN_ID }, TEAM_ID, { stack: stack.app() });
     if (!access.ok) throw new Error("access refused");
     const result = await inviteTeamMembers(
       access.access,
-      { emails: ["a@example.com", "b@example.com", "c@example.com"], role: "member", callbackUrl: CALLBACK },
-      { store },
+      { emails: ["a@example.com", "b@example.com", "c@example.com"], role: "member", acceptUrl },
+      deps,
     );
     expect(result.invitations).toHaveLength(3);
   });

@@ -2,6 +2,8 @@
 
 import { useFormatter, useTranslations } from "next-intl";
 import { useState } from "react";
+import { EmptyState } from "@/dashboard-app/components/page-states";
+import { ActionMenu } from "@/dashboard-app/components/settings-ui/action-menu";
 import { ConfirmDialog } from "@/dashboard-app/components/settings-ui/confirm-dialog";
 import { InlineError } from "@/dashboard-app/components/settings-ui/feedback";
 import { settingsButtonClass, settingsInputClass, settingsLabelClass } from "@/dashboard-app/components/settings-ui/styles";
@@ -279,12 +281,14 @@ export function InviteLinksTable({
   return (
     <div className="grid gap-1">
       {links.length === 0 ? (
-        <p className="text-xs text-muted">{t("empty")}</p>
+        <EmptyState title={t("empty")} />
       ) : (
         <ul className="divide-y divide-border border border-border">
-          {links.map((link) => (
+          {links.map((link) => {
+            const created = t("createdAt", { at: format.dateTime(new Date(link.createdAt), { dateStyle: "medium" }) });
+            return (
             <li key={link.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-xs">
-              <span>{t("createdAt", { at: format.dateTime(new Date(link.createdAt), { dateStyle: "medium" }) })}</span>
+              <span>{created}</span>
               <span className="text-muted">
                 {link.expiresAt
                   ? t("expiresAt", { at: format.dateTime(new Date(link.expiresAt), { dateStyle: "medium" }) })
@@ -295,15 +299,15 @@ export function InviteLinksTable({
                   ? t("usesUnlimited", { count: link.useCount })
                   : t("uses", { count: link.useCount, max: link.maxUses })}
               </span>
-              <button
-                type="button"
-                className={`${settingsButtonClass("secondary", "sm")} ml-auto`}
-                onClick={() => setRevoking(link.id)}
-              >
-                {t("revoke")}
-              </button>
+              <span className="ml-auto">
+                <ActionMenu
+                  label={t("actionsFor", { created })}
+                  items={[{ id: "revoke", label: t("revoke"), danger: true, onSelect: () => setRevoking(link.id) }]}
+                />
+              </span>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
       {revoke.isError ? <InlineError message={errorText(revoke.error)} /> : null}

@@ -1,50 +1,66 @@
 "use client";
 
-import { type CurrentUser, type Team as StackTeam, useStackApp, useUser } from "@hexclave/next";
+import { type Team as StackTeam, useUser } from "@hexclave/next";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { Suspense, useState } from "react";
+import { useState } from "react";
+import { DashboardSectionSkeleton } from "@/dashboard-app/components/dashboard-skeleton";
+import { EmptyState, SectionError } from "@/dashboard-app/components/page-states";
 import { SettingsPanel } from "@/dashboard-app/components/settings-ui/settings-section";
 import { settingsButtonClass } from "@/dashboard-app/components/settings-ui/styles";
-import { DashboardSectionSkeleton } from "@/dashboard-app/components/dashboard-skeleton";
+import { dashboardRefusal } from "@/dashboard-app/lib/refusal";
+import { teamApiKeysQuery } from "@/dashboard-app/queries/teams";
+import type { SettingsApiKey } from "@/dashboard-app/queries/settings";
 import { CreateApiKeyDialog, ShowApiKeyDialog } from "@/dashboard-app/screens/settings/components/api-keys/api-key-dialogs";
-import { ApiKeyTable } from "@/dashboard-app/screens/settings/components/api-keys/api-key-table";
-import { TeamNotFound, useTeamContext } from "./team-shell";
-
-export function TeamApiKeys() {
-  return (
-    <Suspense fallback={<DashboardSectionSkeleton variant="rows" />}>
-      <TeamApiKeysGate />
-    </Suspense>
-  );
-}
-
-/**
- * Team keys need both the project switch and the viewer's Stack permission.
- * The tab is hidden otherwise; a direct visit gets the not-found card.
- */
-function TeamApiKeysGate() {
-  const detail = useTeamContext();
-  const project = useStackApp().useProject();
-  const user = useUser({ or: "redirect" });
-  const team = user.useTeam(detail.team.id);
-  if (!team || !project.config.allowTeamApiKeys) return <TeamNotFound />;
-  return <TeamApiKeysPermissionGate user={user} team={team} />;
-}
-
-function TeamApiKeysPermissionGate({ user, team }: { readonly user: CurrentUser; readonly team: StackTeam }) {
-  const permission = user.usePermission(team, "$manage_api_keys");
-  if (!permission) return <TeamNotFound />;
-  return <TeamApiKeysPanel team={team} />;
-}
+import { type ApiKeyRow, ApiKeyTable } from "@/dashboard-app/screens/settings/components/api-keys/api-key-table";
+import { useTeamContext } from "./team-shell";
 
 type TeamApiKeyFirstView = Awaited<ReturnType<StackTeam["createApiKey"]>>;
 
-/** Same dialogs and table as account API keys, bound to the team's keys. */
-function TeamApiKeysPanel({ team }: { readonly team: StackTeam }) {
+/**
+ * Team keys, read through the typed `teams.apiKeys` procedure (which checks
+ * `$manage_api_keys` and the project switch). Creating and revoking keys run
+ * on the client SDK under the viewer's own session.
+ */
+export function TeamApiKeys() {
   const t = useTranslations("dashboard.teams.apiKeys");
-  const apiKeys = team.useApiKeys();
+  const detail = useTeamContext();
+  const keys = useQuery(teamApiKeysQuery(detail.team.id));
+  if (keys.isPending) return <DashboardSectionSkeleton variant="table" columns={5} rows={3} />;
+  if (keys.isError) {
+    if (dashboardRefusal(keys.error)?.reason === "forbidden") return <EmptyState title={t("title")} body={t("forbidden")} />;
+    return <SectionError error={keys.error} section={t("title")} onRetry={() => keys.refetch()} />;
+  }
+  if (!keys.data.enabled) return <EmptyState title={t("title")} body={t("disabled")} />;
+  return <TeamApiKeysPanel teamId={detail.team.id} keys={keys.data.keys} />;
+}
+
+function TeamApiKeysPanel({ teamId, keys }: { readonly teamId: string; readonly keys: readonly SettingsApiKey[] }) {
+  const t = useTranslations("dashboard.teams.apiKeys");
+  const queryClient = useQueryClient();
+  const user = useUser({ or: "redirect" });
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<TeamApiKeyFirstView | null>(null);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: teamApiKeysQuery(teamId).queryKey });
+  const sdkTeam = async () => {
+    const team = await user.getTeam(teamId);
+    if (!team) throw new Error("team_not_found");
+    return team;
+  };
+  const rows = keys.map((key): ApiKeyRow => ({
+    id: key.id,
+    description: key.description,
+    createdAt: new Date(key.createdAt),
+    expiresAt: key.expiresAt ? new Date(key.expiresAt) : undefined,
+    value: { lastFour: key.lastFour },
+    whyInvalid: () => key.whyInvalid,
+    revoke: async () => {
+      const sdk = (await (await sdkTeam()).listApiKeys()).find((candidate) => candidate.id === key.id);
+      if (!sdk) throw new Error("api_key_not_found");
+      await sdk.revoke();
+      await refresh();
+    },
+  }));
 
   return (
     <SettingsPanel
@@ -56,11 +72,15 @@ function TeamApiKeysPanel({ team }: { readonly team: StackTeam }) {
         </button>
       }
     >
-      <ApiKeyTable apiKeys={apiKeys} />
+      <ApiKeyTable apiKeys={rows} />
       <CreateApiKeyDialog
         open={creating}
         onOpenChange={setCreating}
-        createApiKey={(options) => team.createApiKey(options)}
+        createApiKey={async (options) => {
+          const key = await (await sdkTeam()).createApiKey(options);
+          await refresh();
+          return key;
+        }}
         onCreated={setCreated}
       />
       <ShowApiKeyDialog apiKey={created} onClose={() => setCreated(null)} />

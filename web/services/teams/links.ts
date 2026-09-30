@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { TeamAccess } from "./access";
 import { TeamApiError } from "./errors";
+import { acceptEmailInvitationToken, previewEmailInvitationToken } from "./received";
 import { assertSeatsAvailable } from "./seats";
 import { databaseTeamInviteStore, type StoredInviteLink, type TeamInviteStore } from "./repository";
 import { defaultTeamSeatSync, type TeamSeatSync } from "./seatSync";
@@ -116,6 +117,9 @@ export async function previewTeamInviteLink(
   token: string,
   dependencies: LinkDependencies = {},
 ): Promise<{ teamDisplayName: string; alreadyMember: boolean }> {
+  // An emailed invitation uses the same join page and token shape.
+  const emailed = await previewEmailInvitationToken(userId, token, dependencies);
+  if (emailed) return emailed;
   const resolved = await resolveLink(
     userId,
     token,
@@ -136,6 +140,8 @@ export async function redeemTeamInviteLink(
   token: string,
   dependencies: LinkDependencies = {},
 ): Promise<{ teamId: string }> {
+  const emailed = await acceptEmailInvitationToken(userId, token, dependencies);
+  if (emailed) return emailed;
   const store = dependencies.store ?? databaseTeamInviteStore;
   const stack = dependencies.stack ?? defaultTeamStackApp();
   const { link, team, alreadyMember, memberCount } = await resolveLink(userId, token, store, stack);

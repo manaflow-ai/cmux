@@ -6,6 +6,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFormatter, useNow, useTranslations } from "next-intl";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Modal } from "@/app/[locale]/components/modal";
+import { DashboardSectionSkeleton } from "../../components/dashboard-skeleton";
+import { EmptyState, SectionError } from "../../components/page-states";
 import { CopyButton } from "../vault/copy-button";
 import type {
   ClaudeAccountDescription,
@@ -85,6 +87,31 @@ const rowGridClass =
   "grid gap-2 px-3 py-2 text-sm md:grid-cols-[1.3fr_1fr_1.2fr_auto] md:items-center md:gap-3";
 type Translator = ReturnType<typeof useTranslations<"dashboard.coderouterAccounts">>;
 
+/** Why part of the account list is missing: not configured, unreachable, pending, or failed. */
+function AccountSourceNotices({
+  shared,
+  canManage,
+  partialFailure,
+}: {
+  readonly shared: SharedAccountsState;
+  readonly canManage: boolean;
+  readonly partialFailure: boolean;
+}) {
+  const t = useTranslations("dashboard.coderouterAccounts");
+  return (
+    <>
+      {shared.kind === "notConfigured" && canManage ? (
+        <Notice title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
+      ) : null}
+      {shared.kind === "unavailable" ? <Notice title={t("unavailableTitle")} body={t("unavailableBody")} /> : null}
+      {shared.kind === "migrationPending" ? (
+        <Notice title={t("migrationPendingTitle")} body={t("migrationPendingBody")} />
+      ) : null}
+      {partialFailure ? <Notice title={t("loadErrorTitle")} body={t("loadErrorBody")} /> : null}
+    </>
+  );
+}
+
 export function CoderouterAccountsSection({
   teamId,
   teamName,
@@ -135,25 +162,15 @@ export function CoderouterAccountsSection({
         </span>
       </div>
 
-      {shared.kind === "notConfigured" && canManage ? (
-        <Notice title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
-      ) : null}
-      {shared.kind === "migrationPending" ? (
-        <Notice title={t("migrationPendingTitle")} body={t("migrationPendingBody")} />
-      ) : null}
-      {partialFailure ? (
-        <Notice title={t("loadErrorTitle")} body={t("loadErrorBody")} />
-      ) : null}
+      <AccountSourceNotices shared={shared} canManage={canManage} partialFailure={partialFailure} />
       {transferNotice ? (
         <p role="status" className="mb-2 border border-border p-3 text-xs">{transferNotice}</p>
       ) : null}
 
       {total === 0 ? (
-        partialFailure ? null : (
-          <div className="border border-border p-3">
-            <div className="text-sm font-medium">{t("emptyTitle")}</div>
-            <p className="mt-1 text-xs text-muted">{t("emptyBody")}</p>
-          </div>
+        // A failed or unreachable source may hold accounts, so "no accounts yet" would be false.
+        partialFailure || shared.kind === "unavailable" ? null : (
+          <EmptyState title={t("emptyTitle")} body={t("emptyBody")} />
         )
       ) : (
         <div className="border border-border">
@@ -262,14 +279,11 @@ function CoderouterApiKeysSection({
         </div>
       ) : null}
 
-      {keysQuery.isPending ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysLoading")}</p> : null}
+      {keysQuery.isPending ? <DashboardSectionSkeleton variant="table" columns={4} rows={2} /> : null}
       {keysQuery.isError ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 border border-border p-3 text-xs">
-          <span>{t("apiKeysLoadError")}</span>
-          <button type="button" className={buttonClass} onClick={() => void keysQuery.refetch()} disabled={keysQuery.isFetching}>{t("apiKeysRetry")}</button>
-        </div>
+        <SectionError error={keysQuery.error} section={t("apiKeysTitle")} onRetry={() => keysQuery.refetch()} />
       ) : null}
-      {visibleKeys && visibleKeys.length === 0 ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysEmptyBody")}</p> : null}
+      {visibleKeys && visibleKeys.length === 0 ? <EmptyState title={t("apiKeysEmptyTitle")} body={t("apiKeysEmptyHint")} /> : null}
       {visibleKeys && visibleKeys.length > 0 ? (
         <div className="border border-border">
           <div className="hidden grid-cols-[1.1fr_1fr_1.3fr_auto] gap-3 border-b border-border px-3 py-2 text-xs text-muted md:grid">

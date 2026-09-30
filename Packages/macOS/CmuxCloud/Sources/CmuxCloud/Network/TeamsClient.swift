@@ -11,6 +11,10 @@ import Foundation
 public actor TeamsClient {
     @MainActor public private(set) static var shared: TeamsClient!
 
+    /// False until `bootstrap` ran; hosts that poll on sign-in check this so a
+    /// test with a fake coordinator and no client never dereferences nil.
+    @MainActor public static var isBootstrapped: Bool { shared != nil }
+
     @MainActor
     public static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared) {
         shared = TeamsClient(session: session, auth: auth)
@@ -41,7 +45,29 @@ public actor TeamsClient {
         return try Self.decoder.decode(CloudTeamDetail.self, from: data)
     }
 
-    /// Invite up to 20 emails with one role. Stack sends the email.
+    /// Pending invitations addressed to the signed-in user's verified emails.
+    public func receivedInvitations() async throws -> [CloudReceivedInvitation] {
+        let (data, http) = try await request("GET", path: "/api/teams/invitations")
+        try ensureOK(http, data: data)
+        struct Envelope: Decodable { let invitations: [CloudReceivedInvitation] }
+        return try Self.decoder.decode(Envelope.self, from: data).invitations
+    }
+
+    /// Join the team an invitation names. The verified email is the proof.
+    public func acceptInvitation(invitationID: String) async throws -> CloudTeamAcceptResult {
+        let invitation = try Self.pathSegment(invitationID)
+        let (data, http) = try await request("POST", path: "/api/teams/invitations/\(invitation)/accept")
+        try ensureOK(http, data: data)
+        return try Self.decoder.decode(CloudTeamAcceptResult.self, from: data)
+    }
+
+    public func declineInvitation(invitationID: String) async throws {
+        let invitation = try Self.pathSegment(invitationID)
+        let (data, http) = try await request("POST", path: "/api/teams/invitations/\(invitation)/decline")
+        try ensureOK(http, data: data)
+    }
+
+    /// Invite up to 20 emails with one role. cmux emails each address.
     public func invite(
         teamID: String,
         emails: [String],

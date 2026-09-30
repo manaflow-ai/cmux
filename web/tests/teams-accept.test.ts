@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { acceptTeamInvitationCode } from "../services/teams/accept";
+import { requireTeamAccess } from "../services/teams/access";
+import { inviteTeamMembers, resendTeamInvitation } from "../services/teams/invitations";
 import { TeamApiError, TeamServiceUnavailableError } from "../services/teams/errors";
 import { createInvitationCodeClient, type InvitationCodeClient } from "../services/teams/invitationCode";
 import { ADMIN_ID, MemoryInviteStore, MemoryTeamSeatSync, OUTSIDER_ID, standardTeam, TEAM_ID } from "./teams-fixture";
@@ -48,9 +50,11 @@ function acceptRequest(): Request {
   });
 }
 
-async function storeWithRole(email: string, role: "admin" | "member") {
+/** A stored role as cmux leaves it after sending: bound to the invitation it went out with. */
+async function storeWithRole(email: string, role: "admin" | "member", stackInvitationId: string) {
   const store = new MemoryInviteStore();
   await store.upsertInviteRole({ stackTeamId: TEAM_ID, email, role, invitedByUserId: ADMIN_ID });
+  await store.bindInviteRoleInvitation(TEAM_ID, email, stackInvitationId);
   return store;
 }
 
@@ -69,7 +73,7 @@ describe("accepting an email invitation", () => {
   test("applies a stored admin role on the exact team and consumes the role row", async () => {
     const stack = inviteeStack();
     const invitation = stack.addInvitation(TEAM_ID, INVITEE_EMAIL);
-    const store = await storeWithRole(INVITEE_EMAIL, "admin");
+    const store = await storeWithRole(INVITEE_EMAIL, "admin", invitation.id);
     const codes = codeClient({ onAccept: () => stack.consumeInvitation(invitation.id, OUTSIDER_ID) });
 
     const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() });
@@ -97,9 +101,9 @@ describe("accepting an email invitation", () => {
 
   test("picks the consumed invitation when the user has two pending ones", async () => {
     const stack = inviteeStack();
-    stack.addInvitation(TEAM_ID, "second@example.com");
+    const second = stack.addInvitation(TEAM_ID, "second@example.com");
     const consumed = stack.addInvitation(TEAM_ID, INVITEE_EMAIL);
-    const store = await storeWithRole("second@example.com", "admin");
+    const store = await storeWithRole("second@example.com", "admin", second.id);
     await store.upsertInviteRole({ stackTeamId: TEAM_ID, email: INVITEE_EMAIL, role: "member", invitedByUserId: ADMIN_ID });
     const codes = codeClient({ onAccept: () => stack.consumeInvitation(consumed.id, OUTSIDER_ID) });
 
@@ -113,8 +117,8 @@ describe("accepting an email invitation", () => {
 
   test("an unidentifiable consumed invitation never escalates", async () => {
     const stack = inviteeStack();
-    stack.addInvitation(TEAM_ID, INVITEE_EMAIL);
-    const store = await storeWithRole(INVITEE_EMAIL, "admin");
+    const pending = stack.addInvitation(TEAM_ID, INVITEE_EMAIL);
+    const store = await storeWithRole(INVITEE_EMAIL, "admin", pending.id);
     // Stack added the member but the invitation list did not change.
     const codes = codeClient({
       onAccept: () => {
@@ -155,8 +159,8 @@ describe("accepting an email invitation", () => {
 
   test("refuses to grant when Stack did not actually add the member", async () => {
     const stack = inviteeStack();
-    stack.addInvitation(TEAM_ID, INVITEE_EMAIL);
-    const store = await storeWithRole(INVITEE_EMAIL, "admin");
+    const pending = stack.addInvitation(TEAM_ID, INVITEE_EMAIL);
+    const store = await storeWithRole(INVITEE_EMAIL, "admin", pending.id);
     const codes = codeClient({});
     expect(await failure(acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() })))
       .toBe("503:service_unavailable");

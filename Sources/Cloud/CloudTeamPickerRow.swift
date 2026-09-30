@@ -64,7 +64,12 @@ struct CloudTeamPickerRow: View {
                 isPresented: $presentation.isPresented,
                 helpText: helpText,
                 makeMenu: makeMenu,
-                onWillPresent: { presentation.teamChangeError = nil }
+                onWillPresent: {
+                    presentation.teamChangeError = nil
+                    // The menu is built from the current list; a stale list
+                    // is refreshed for the next open.
+                    Task { await accountFlow.refreshReceivedInvitations(notify: false) }
+                }
             )
         }
         .layoutPriority(1)
@@ -104,6 +109,10 @@ struct CloudTeamPickerRow: View {
             onMembers: { [weak anchor, accountFlow] in
                 let present: @MainActor () -> Void = { accountFlow.showTeamMembers(focusInvite: false) }
                 if let anchor { anchor.afterDismiss(present) } else { present() }
+            },
+            invitations: accountFlow.receivedInvitations.map { .init(id: $0.id, teamName: $0.teamName) },
+            onJoin: { [presentation, accountFlow] invitation in
+                presentation.joinInvitation(invitation.id, accountFlow: accountFlow)
             }
         )
     }

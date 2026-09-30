@@ -1,12 +1,15 @@
 import { createRoute, lazyRouteComponent } from "@tanstack/react-router";
 import { z } from "zod";
+import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 import { dashboardBillingQuery } from "../queries/billing";
+import { BillingPageFrame, BillingRouteError } from "../screens/billing/billing-frame";
 import { testflightQuery } from "../queries/testflight";
 import { shellRoute } from "./root";
+import { settingsHubRoute } from "./settings";
 
 /** `?billing=` and `?welcome=` come from billing redirects; `team` from the shell. */
 export const billingRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => settingsHubRoute,
   path: "/dashboard/billing",
   validateSearch: z.object({
     billing: z.string().optional(),
@@ -15,6 +18,12 @@ export const billingRoute = createRoute({
   }),
   loaderDeps: ({ search }) => ({ team: search.team }),
   loader: ({ context, deps }) => context.queryClient.ensureQueryData(dashboardBillingQuery(deps.team)),
+  pendingComponent: () => (
+    <BillingPageFrame>
+      <DashboardSectionSkeleton variant="panel" />
+    </BillingPageFrame>
+  ),
+  errorComponent: BillingRouteError,
   component: lazyRouteComponent(() => import("../screens/billing/billing-route"), "BillingRouteComponent"),
 });
 
@@ -31,4 +40,4 @@ export const testflightRoute = createRoute({
   component: lazyRouteComponent(() => import("../screens/testflight/testflight-route"), "TestflightRouteComponent"),
 });
 
-export const billingRoutes = [billingRoute, testflightRoute] as const;
+export const billingRoutes = [testflightRoute] as const;

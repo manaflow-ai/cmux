@@ -2,15 +2,15 @@
 
 import { useStackApp } from "@hexclave/next";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { type ErrorComponentProps, getRouteApi, Link, type LinkOptions, Outlet, useRouter } from "@tanstack/react-router";
+import { type ErrorComponentProps, getRouteApi, Link, type LinkOptions, Outlet } from "@tanstack/react-router";
 import { useTranslations } from "next-intl";
 import { createContext, Suspense, useContext } from "react";
-import { InlineError } from "@/dashboard-app/components/settings-ui/feedback";
+import { RouteSectionError } from "@/dashboard-app/components/route-section-error";
 import { settingsButtonClass } from "@/dashboard-app/components/settings-ui/styles";
 import { isNotMemberError, type TeamDetail, teamDetailQuery } from "@/dashboard-app/queries/teams";
 import { PlanBadge, RoleBadge, TeamAvatar } from "./team-ui";
 
-const teamRouteApi = getRouteApi("/shell/dashboard/teams/$teamId");
+const teamRouteApi = getRouteApi("/shell/hub/dashboard/teams/$teamId");
 
 const TeamDetailContext = createContext<TeamDetail | null>(null);
 
@@ -47,7 +47,7 @@ export function TeamShell() {
   const { data: detail } = useSuspenseQuery(teamDetailQuery(teamId));
   return (
     <TeamDetailContext.Provider value={detail}>
-      <div className="mx-auto w-full max-w-5xl px-3 py-4">
+      <div className="min-w-0">
         <TeamHeader detail={detail} />
         <Outlet />
       </div>
@@ -56,11 +56,10 @@ export function TeamShell() {
 }
 
 /** Route error for the team layout: a 403 or 404 means the viewer is not a member. */
-export function TeamShellError({ error }: ErrorComponentProps) {
-  const router = useRouter();
+export function TeamShellError(props: ErrorComponentProps) {
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      {isNotMemberError(error) ? <TeamNotFound /> : <TeamLoadError onRetry={() => void router.invalidate()} />}
+    <div className="min-w-0">
+      {isNotMemberError(props.error) ? <TeamNotFound /> : <RouteSectionError {...props} />}
     </div>
   );
 }
@@ -75,18 +74,6 @@ export function TeamNotFound() {
         {t("backToTeams")}
       </Link>
     </section>
-  );
-}
-
-function TeamLoadError({ onRetry }: { readonly onRetry: () => void }) {
-  const t = useTranslations("dashboard.teams.shell");
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border border-border p-3">
-      <InlineError message={t("loadError")} />
-      <button type="button" className={settingsButtonClass("secondary", "sm")} onClick={onRetry}>
-        {t("retry")}
-      </button>
-    </div>
   );
 }
 

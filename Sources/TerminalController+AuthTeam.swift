@@ -13,6 +13,7 @@ extension TerminalController {
         "auth.team.list", "auth.team.use", "auth.team.create",
         "auth.team.members", "auth.team.invite", "auth.team.invite_link",
         "auth.team.revoke_invite", "auth.team.remove_member", "auth.team.open_members",
+        "auth.team.invitations", "auth.team.accept_invite", "auth.team.decline_invite",
     ]
 
     /// Handles the shared team-selection socket actions used by the CLI.
@@ -141,6 +142,28 @@ extension TerminalController {
                 // Leaving drops the caller's access, so a failed re-read is not an error.
                 let detail: TeamRosterSocketPayload? = try? await flow.cloudTeamDetail(teamID: teamID)
                 return detail
+            }
+        case "auth.team.invitations":
+            return try await v2AuthTeamRosterAsync(id: id, teamID: nil) { flow, _ in
+                ReceivedInvitationsSocketPayload(invitations: try await flow.cloudReceivedInvitations())
+            }
+        case "auth.team.accept_invite", "auth.team.decline_invite":
+            guard let invitationID = (params["invitation_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !invitationID.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(localized: "socket.authTeam.missingInvitation", defaultValue: "An invitation id or link id is required.")
+                )
+            }
+            let accept = request.method == "auth.team.accept_invite"
+            return try await v2AuthTeamRosterAsync(id: id, teamID: nil) { flow, _ in
+                if accept {
+                    try await flow.cloudAcceptInvitation(invitationID: invitationID)
+                } else {
+                    try await flow.cloudDeclineInvitation(invitationID: invitationID)
+                }
+                return ReceivedInvitationsSocketPayload(invitations: flow.receivedInvitations)
             }
         case "auth.team.open_members":
             let focusInvite = params["focus_invite"] as? Bool ?? false
@@ -330,6 +353,28 @@ extension CloudTeamDetail: TeamRosterSocketPayload {
         if let expiresAt = link.expiresAt { value["expires_at"] = ISO8601DateFormatter().string(from: expiresAt) }
         if let maxUses = link.maxUses { value["max_uses"] = maxUses }
         return value
+    }
+}
+
+/// Invitations addressed to the signed-in user.
+struct ReceivedInvitationsSocketPayload: TeamRosterSocketPayload {
+    var invitations: [CloudReceivedInvitation]
+
+    var socketDictionary: [String: Any] {
+        [
+            "invitations": invitations.map { invitation in
+                var value: [String: Any] = [
+                    "id": invitation.id,
+                    "team_id": invitation.teamId,
+                    "team_name": invitation.teamName,
+                    "email": invitation.email,
+                    "role": invitation.role.rawValue,
+                    "expires_at": ISO8601DateFormatter().string(from: invitation.expiresAt),
+                ]
+                if let invitedBy = invitation.invitedBy { value["invited_by"] = invitedBy }
+                return value
+            },
+        ]
     }
 }
 

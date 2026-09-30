@@ -119,9 +119,11 @@ describe("role and permission mapping", () => {
 describe("loadTeamDetail", () => {
   test("hides invitations and links from members and shows them to admins", async () => {
     const stack = standardTeam();
-    stack.addInvitation(TEAM_ID, "new@example.com");
     const store = new MemoryInviteStore();
-    await store.upsertInviteRole({ stackTeamId: TEAM_ID, email: "new@example.com", role: "admin", invitedByUserId: ADMIN_ID });
+    await store.createEmailInvitation({
+      stackTeamId: TEAM_ID, email: "new@example.com", role: "admin", invitedByUserId: ADMIN_ID,
+      tokenHash: "b".repeat(64), expiresAt: new Date("2026-10-04T12:00:00.000Z"),
+    });
     await store.createLink({ stackTeamId: TEAM_ID, tokenHash: "a".repeat(64), createdByUserId: ADMIN_ID, expiresAt: null, maxUses: null });
     const deps = { store, hasActiveSubscription: async () => true };
 

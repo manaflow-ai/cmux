@@ -3,7 +3,7 @@ import { createRouterClient, ORPCError } from "@orpc/server";
 import { type DataTag, dehydrate, type DehydratedState, QueryClient, type QueryKey } from "@tanstack/react-query";
 import { dashboardRouter } from "@/orpc/server/dashboard/router";
 import { sessionQuery } from "./lib/session";
-import { dashboardBillingQuery, teamBillingQuery } from "./queries/billing";
+import { dashboardBillingQuery, planQuery, teamBillingQuery } from "./queries/billing";
 import { cloudDevicesQuery } from "./queries/cloud";
 import { coderouterOverviewQuery } from "./queries/coderouter";
 import {
@@ -13,7 +13,7 @@ import {
   settingsOverviewQuery,
   settingsSessionsQuery,
 } from "./queries/settings";
-import { teamCatalogQuery, teamDetailQuery } from "./queries/teams";
+import { teamApiKeysQuery, teamCatalogQuery, teamDetailQuery } from "./queries/teams";
 import { testflightQuery } from "./queries/testflight";
 import { vaultSessionQuery, vaultSummaryQuery } from "./queries/vault";
 
@@ -61,6 +61,7 @@ function routePrefetches(path: string, search: Search): Prefetch[] {
       return [
         query(teamDetailQuery(id), (client) => client.teams.detail({ teamId: id })),
         ...(tab === "billing" ? [query(teamBillingQuery(id), (client) => client.teams.billing({ teamId: id }))] : []),
+        ...(tab === "api-keys" ? [query(teamApiKeysQuery(id), (client) => client.teams.apiKeys({ teamId: id }))] : []),
       ];
     case "vault":
       if (!id) return [query(vaultSummaryQuery, (client) => client.vault.summary())];
@@ -83,7 +84,12 @@ function settingsPrefetches(page: string | undefined): Prefetch[] {
     case "sessions":
       return [query(settingsSessionsQuery, (client) => client.settings.sessions())];
     case "api-keys":
-      return [overview, query(settingsApiKeysQuery, (client) => client.settings.apiKeys())];
+      return [async (client, queryClient) => {
+        await overview(client, queryClient);
+        if (queryClient.getQueryData(settingsOverviewQuery.queryKey)?.project.allowUserApiKeys) {
+          await query(settingsApiKeysQuery, (server) => server.settings.apiKeys())(client, queryClient);
+        }
+      }];
     case "account":
       return [overview];
     default:
@@ -110,6 +116,8 @@ export async function prefetchDashboard(request: Request, path: string, search: 
     if (error instanceof ORPCError && error.status === 401) return { kind: "signedOut" };
     return { kind: "ready", state: dehydrate(queryClient) };
   }
-  await Promise.all(routePrefetches(path, search).map((prefetch) => prefetch(client, queryClient).catch(() => undefined)));
+  // Every page reads the viewer's plan (account menu badge, upgrade prompts).
+  const prefetches = [...routePrefetches(path, search), query(planQuery, (server) => server.billing.current())];
+  await Promise.all(prefetches.map((prefetch) => prefetch(client, queryClient).catch(() => undefined)));
   return { kind: "ready", state: dehydrate(queryClient) };
 }

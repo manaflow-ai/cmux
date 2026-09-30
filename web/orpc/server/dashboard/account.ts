@@ -39,11 +39,14 @@ const session = authed
     flags: { vaultEnabled: isVaultEnabled() },
   }));
 
-/** The billing screen: `team` selects the scope (personal entry or a member team). */
+/**
+ * Plan & billing. Without `team` it is the viewer's personal plan; teams have
+ * their own Billing tab. `team` still selects a member team for old links.
+ */
 const billing = authed
   .input(z.object({ team: z.string().trim().max(200).nullable() }))
   .output(dashboardBillingSchema)
-  .handler(({ context, input }) => loadDashboardBilling(context.user, input.team || null));
+  .handler(({ context, input }) => loadDashboardBilling(context.user, input.team || context.user.id));
 
 const testflightSchema = z.object({
   eligible: z.boolean(),

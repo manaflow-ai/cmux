@@ -103,6 +103,25 @@ public struct AccountTeamDetail: Sendable, Hashable {
     public var seatsUsed: Int { members.count + invitations.count }
 }
 
+/// An invitation the signed-in user received, shown in the Invitations card.
+public struct AccountReceivedInvitation: Sendable, Hashable, Identifiable {
+    public let id: String
+    public let teamID: String
+    public let teamName: String
+    public let invitedBy: String?
+    public let role: AccountTeamRole
+    public let expiresAt: Date
+
+    public init(id: String, teamID: String, teamName: String, invitedBy: String?, role: AccountTeamRole, expiresAt: Date) {
+        self.id = id
+        self.teamID = teamID
+        self.teamName = teamName
+        self.invitedBy = invitedBy
+        self.role = role
+        self.expiresAt = expiresAt
+    }
+}
+
 public struct AccountTeamInviteOutcome: Sendable, Hashable {
     public let sentEmails: [String]
     public let failedEmails: [String]
@@ -147,6 +166,11 @@ public protocol AccountTeamManagement: AnyObject {
     func changeTeamMemberRole(userID: String, role: AccountTeamRole) async throws
     /// One user-facing sentence for a failed team action.
     func teamManagementMessage(for error: Error) -> String
+    /// Invitations addressed to the signed-in user, across teams.
+    func loadReceivedInvitations() async throws -> [AccountReceivedInvitation]
+    /// Join the invitation's team and make it the active team.
+    func acceptReceivedInvitation(id: String) async throws
+    func declineReceivedInvitation(id: String) async throws
 }
 
 extension AccountFlow {
@@ -167,4 +191,7 @@ extension AccountFlow {
     public func teamManagementMessage(for error: Error) -> String {
         String(localized: "settings.team.error.generic", defaultValue: "Could not update the team. Try again.", bundle: .module)
     }
+    public func loadReceivedInvitations() async throws -> [AccountReceivedInvitation] { [] }
+    public func acceptReceivedInvitation(id: String) async throws { throw AccountTeamManagementError.unsupported }
+    public func declineReceivedInvitation(id: String) async throws { throw AccountTeamManagementError.unsupported }
 }
