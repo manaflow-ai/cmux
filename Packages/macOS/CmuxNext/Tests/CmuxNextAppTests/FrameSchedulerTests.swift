@@ -37,3 +37,31 @@ private final class SilentLink: FrameLink {
         #expect(link.isPaused)
     }
 }
+
+@MainActor @Suite(.timeLimit(.minutes(1))) struct FrameSchedulerStallTests {
+    @Test func repeatedStallsRebuildTheLink() async throws {
+        var links: [SilentLinkBox] = []
+        let scheduler = DisplayLinkFrameScheduler(makeLink: { _ in
+            let box = SilentLinkBox()
+            links.append(box)
+            return box
+        })
+        for _ in 0..<DisplayLinkFrameScheduler.stallsBeforeRebuild {
+            var ran = false
+            scheduler.scheduleFrame { ran = true }
+            while !ran { try await Task.sleep(for: .milliseconds(10)) }
+        }
+        var ranAgain = false
+        scheduler.scheduleFrame { ranAgain = true }
+        while !ranAgain { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(links.count == 2)
+        #expect(links.first?.invalidated == true)
+    }
+}
+
+@MainActor
+private final class SilentLinkBox: FrameLink {
+    var isPaused = true
+    var invalidated = false
+    func invalidate() { invalidated = true }
+}
