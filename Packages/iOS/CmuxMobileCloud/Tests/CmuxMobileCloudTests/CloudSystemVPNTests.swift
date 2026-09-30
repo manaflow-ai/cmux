@@ -909,9 +909,36 @@ import Testing
         let rig = Rig(pendingRevocationStore: pendingStore)
 
         await signedIn(rig)
+        for _ in 0..<100 where rig.service.calls.revoke.count < 40 {
+            try? await ContinuousClock().sleep(for: .milliseconds(5))
+        }
 
         #expect(rig.service.calls.revoke.count == 40)
         #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1").isEmpty)
+    }
+
+    @Test func accountTransitionDefersALargePendingRevocationBatch() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        await pendingStore.save(
+            Set((0..<40).map {
+                CloudSystemVPNPendingRevocation(
+                    deviceFingerprint: "transition-\($0)",
+                    teamID: nil
+                )
+            }),
+            scope: "user-1/team-1"
+        )
+        let rig = Rig(
+            cleanupRetryCount: 1,
+            pendingRevocationStore: pendingStore
+        )
+        rig.service.revocationFailure = StubError(message: "offline")
+
+        rig.controller.setScope("user-1/team-1")
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.service.calls.revoke.count == 1)
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1").count == 40)
     }
 
     @Test func switchingAccountsPersistsTheOldBrowserPeerBeforeRevocation() async {

@@ -33,6 +33,11 @@ public final class CloudSystemVPNController {
     // Match the durable store's fixed capacity so loading persisted work
     // never strands entries beyond the in-memory cleanup set.
     private let maxInMemoryPendingRevocations = 4096
+    // Account transitions do one bounded unit of remote cleanup. Remaining
+    // entries continue through the background retry path after the new scope
+    // is ready.
+    private let maxPendingRevocationsPerTransition = 1
+    private let maxPendingRevocationsPerRetry = 8
     private let credentials: @Sendable () async -> CloudAPITokenSource.TokenPair?
     private let pendingRevocationStore: any CloudSystemVPNPendingRevocationStoring
     private var scope: String?
@@ -166,7 +171,12 @@ public final class CloudSystemVPNController {
                 }
                 if !pendingBrowserTunnelRevocations.isEmpty {
                     do {
-                        try await revokePendingBrowserTunnel()
+                        let hasDeferredCleanup = try await revokePendingBrowserTunnel(
+                            limit: maxPendingRevocationsPerTransition
+                        )
+                        if hasDeferredCleanup {
+                            scheduleCleanupRetry()
+                        }
                     } catch {
                         remoteCleanupError = error
                     }
@@ -205,7 +215,12 @@ public final class CloudSystemVPNController {
             enqueue { [self] generation in
                 do {
                     if !pendingBrowserTunnelRevocations.isEmpty {
-                        try await revokePendingBrowserTunnel()
+                        let hasDeferredCleanup = try await revokePendingBrowserTunnel(
+                            limit: maxPendingRevocationsPerRetry
+                        )
+                        if hasDeferredCleanup {
+                            scheduleCleanupRetry()
+                        }
                         guard self.isCurrent(generation) else { return }
                         browserTunnel = nil
                     }
@@ -225,7 +240,12 @@ public final class CloudSystemVPNController {
             let requestedTeamID = scopeTeamID
             do {
                 if !pendingBrowserTunnelRevocations.isEmpty {
-                    try await revokePendingBrowserTunnel()
+                    let hasDeferredCleanup = try await revokePendingBrowserTunnel(
+                        limit: maxPendingRevocationsPerRetry
+                    )
+                    if hasDeferredCleanup {
+                        scheduleCleanupRetry()
+                    }
                     guard self.isCurrent(generation) else { return }
                     browserTunnel = nil
                 }
@@ -791,7 +811,8 @@ public final class CloudSystemVPNController {
         return tunnels
     }
 
-    private func revokePendingBrowserTunnel() async throws {
+    private func revokePendingBrowserTunnel(limit: Int) async throws -> Bool {
+        var processed = 0
         for tunnel in pendingBrowserTunnelRevocations {
             // Persisted entries have no tokens. Retry them only while their
             // owner scope and team are active; account-switch entries with
@@ -801,6 +822,10 @@ public final class CloudSystemVPNController {
             else {
                 continue
             }
+            guard processed < limit else {
+                return true
+            }
+            processed += 1
             var lastError: (any Error)?
             for _ in 0..<cleanupRetryCount {
                 do {
@@ -820,6 +845,14 @@ public final class CloudSystemVPNController {
                 await persistPendingBrowserTunnelRevocation(tunnel)
                 throw lastError
             }
+        }
+        return hasEligiblePendingBrowserTunnelRevocation
+    }
+
+    private var hasEligiblePendingBrowserTunnelRevocation: Bool {
+        pendingBrowserTunnelRevocations.contains {
+            $0.credentials != nil
+                || (scope == $0.scope && scopeTeamID == $0.teamID)
         }
     }
 
@@ -970,7 +1003,12 @@ public final class CloudSystemVPNController {
         enqueue { [self] generation in
             do {
                 if !pendingBrowserTunnelRevocations.isEmpty {
-                    try await revokePendingBrowserTunnel()
+                    let hasDeferredCleanup = try await revokePendingBrowserTunnel(
+                        limit: maxPendingRevocationsPerRetry
+                    )
+                    if hasDeferredCleanup {
+                        scheduleCleanupRetry()
+                    }
                     guard self.isCurrent(generation) else { return }
                     browserTunnel = nil
                 }
@@ -999,7 +1037,7 @@ public final class CloudSystemVPNController {
         guard cleanupRetryTask == nil else { return }
         cleanupRetryTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            guard await self.waitForOperationGate() else {
+            guard await self.waitForCleanupRetryPrerequisites() else {
                 self.cleanupRetryTask = nil
                 self.cleanupRetryRequested = false
                 guard self.cleanupPending || !self.pendingBrowserTunnelRevocations.isEmpty else {
@@ -1014,6 +1052,13 @@ public final class CloudSystemVPNController {
             self.cleanupRetryRequested = false
             self.retryPendingCleanup()
         }
+    }
+
+    private func waitForCleanupRetryPrerequisites() async -> Bool {
+        if let operation {
+            await operation.value
+        }
+        return await waitForOperationGate()
     }
 
     private func scheduleEnableRetry() {
