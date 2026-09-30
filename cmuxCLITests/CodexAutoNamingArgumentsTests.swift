@@ -45,6 +45,8 @@ struct CodexAutoNamingArgumentsTests {
         #expect(!overrides.contains(where: {
             $0.contains("secret") || $0.contains("experimental_bearer_token") || $0.contains("api-secret")
         }))
+        #expect(!args.joined(separator: " ").contains("secret"))
+        #expect(!args.joined(separator: " ").contains("api-secret"))
         #expect(!args.contains("--ignore-user-config"))
     }
 

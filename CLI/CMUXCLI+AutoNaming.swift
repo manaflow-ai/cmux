@@ -225,6 +225,7 @@ struct CodexAutoNamingArguments: Sendable {
         }
         var result = ["model_provider=\(modelProvider)"]
         if let model { result.append("model=\(model)") }
+        guard !usesTemporaryConfig else { return result }
         result.append(contentsOf: providerEntries
             .filter { $0.section.hasPrefix("model_providers.\(providerName)") }
             .filter { !isCredentialBearingKey($0.key) }
