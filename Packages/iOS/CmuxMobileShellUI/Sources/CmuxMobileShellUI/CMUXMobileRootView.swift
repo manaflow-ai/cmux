@@ -18,6 +18,8 @@ struct CMUXMobileRootView: View {
 
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
+    /// The Cloud tab's content, or nil when this build has no Cloud.
+    @Environment(\.mobileCloudTabContent) private var cloudTabContent
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
@@ -270,6 +272,25 @@ struct CMUXMobileRootView: View {
         #else
         EmptyView()
         #endif
+    }
+
+    /// The no-computers add-device screen, shared by the Mac-only layout and
+    /// the Cloud-capable tab layout so both render it identically.
+    private var disconnectedShellContent: some View {
+        DisconnectedWorkspaceShellView(
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            showAddDevice: addComputerAction,
+            showPairingScanner: pairingScannerAction,
+            signOut: signOut,
+            setupHelpHighlight: disconnectedSetupHelpHighlight,
+            store: store,
+            tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
+            showSettings: showSettings,
+            showComputers: showComputers,
+            setupHelpPresentation: childSheetPresentation(
+                for: .disconnectedSetupHelp
+            )
+        )
     }
 
     var body: some View {
@@ -593,26 +614,40 @@ struct CMUXMobileRootView: View {
                 showDisconnectedNoPairedMacShell: MobileAuthenticatedShellPresentation.resolve(
                     connectionState: store.connectionState,
                     hasKnownPairedMac: store.hasKnownPairedMac,
-                    hasHiddenComputers: store.hasHiddenComputers
+                    hasHiddenComputers: store.hasHiddenComputers,
+                    hasExternalHosts: !store.externalHostSummaries.isEmpty
                 ) == .disconnected
             ) {
             case .disconnectedNoKnownPairedMac:
                 // ONLY when there are no saved Macs at all: the add-device flow (it
                 // auto-presents the pairing sheet since there is nothing to list).
-                DisconnectedWorkspaceShellView(
-                    hasKnownPairedMac: store.hasKnownPairedMac,
-                    showAddDevice: addComputerAction,
-                    showPairingScanner: pairingScannerAction,
-                    signOut: signOut,
-                    setupHelpHighlight: disconnectedSetupHelpHighlight,
-                    store: store,
-                    tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
-                    showSettings: showSettings,
-                    showComputers: showComputers,
-                    setupHelpPresentation: childSheetPresentation(
-                        for: .disconnectedSetupHelp
-                    )
-                )
+                if let cloudTabContent {
+                    // No computers yet, but Cloud is available: keep the same
+                    // add-device screen as the Workspaces tab and offer the
+                    // Cloud tab beside it, so an account without a Mac can
+                    // reach Cloud to create its first machine. The full shell
+                    // mounts once a Cloud machine exists.
+                    TabView {
+                        disconnectedShellContent
+                            .tabItem {
+                                Label(
+                                    L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
+                                    systemImage: "rectangle.stack"
+                                )
+                                .accessibilityIdentifier("MobilePrimaryTabWorkspaces")
+                            }
+                        cloudTabContent.makeView()
+                            .tabItem {
+                                Label(
+                                    L10n.string("mobile.tabs.cloud", defaultValue: "Cloud"),
+                                    systemImage: "cloud"
+                                )
+                                .accessibilityIdentifier("MobilePrimaryTabCloud")
+                            }
+                    }
+                } else {
+                    disconnectedShellContent
+                }
             case .workspaceShell(let isRestoringStoredMac):
                 // Restoring, connected, and offline-with-saved-Macs are ONE
                 // mounted view whose inputs vary, so shell presentation state

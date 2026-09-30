@@ -138,6 +138,73 @@ import Testing
         #expect(starter.startedConfigs.count == 2)
     }
 
+    @Test func shellLeaseHoldsTheTunnelWithNoCloudScreenVisible() async {
+        // Cloud terminals open from the Workspaces tab, where no Cloud screen
+        // is on screen, so the shell's lease alone must bring the tunnel up.
+        let controller = makeController()
+        #expect(!controller.sectionIsVisible)
+
+        controller.setShellLease(true)
+        #expect(controller.tunnel == .starting)
+        await settle { if case .ready = controller.tunnel { return true }; return false }
+        if case .ready = controller.tunnel {} else { Issue.record("tunnel not ready: \(controller.tunnel)") }
+
+        // Taking the lease twice is a no-op, not a second enrollment.
+        controller.setShellLease(true)
+        #expect(controller.shellLeaseActive)
+
+        controller.setShellLease(false)
+        #expect(controller.tunnel == .idle)
+    }
+
+    @Test func shellLeaseStillYieldsToTheBackground() async {
+        let controller = makeController()
+        controller.setShellLease(true)
+        await settle { if case .ready = controller.tunnel { return true }; return false }
+
+        controller.sceneDidEnterBackground()
+        #expect(controller.tunnel == .idle)
+
+        controller.sceneWillEnterForeground()
+        #expect(controller.tunnel == .starting)
+    }
+
+    @Test func machineListNeedsNoTunnelAndSurvivesATunnelStop() async {
+        // Listing is a control-plane read: an account with no machines must
+        // see its (empty) list and the create action without any tunnel, and
+        // a tunnel stop mid-refresh must not strand the list loading.
+        let service = FakeCloudVMService()
+        service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])
+        let controller = makeController(service: service)
+
+        controller.refreshMachines()
+        controller.setShellLease(true)
+        controller.setShellLease(false)
+        await settle { controller.machines == .loaded([CloudMachine(id: "vm1", provider: "freestyle", status: "running")]) }
+
+        #expect(controller.machines.elements.map(\.id) == ["vm1"])
+    }
+
+    @Test func signOutResetForgetsTheAccountButKeepsTheDeviceIdentity() async throws {
+        let service = FakeCloudVMService()
+        service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])
+        let store = InMemoryCloudDeviceIdentityStore()
+        let controller = makeController(service: service, store: store)
+        controller.setShellLease(true)
+        await settle { controller.machines.elements.count == 1 }
+        let identityBefore = await store.stored
+
+        controller.resetForSignOut()
+
+        #expect(controller.tunnel == .idle)
+        #expect(controller.machines == .idle)
+        #expect(!controller.shellLeaseActive)
+        // The phone keeps one identity across accounts; only the enrollment
+        // under the new account is new.
+        let identityAfter = await store.stored
+        #expect(identityAfter == identityBefore)
+    }
+
     @Test func enrollFailureBecomesFailedPhaseAndRetryReenrolls() async {
         let service = FakeCloudVMService()
         service.enrollment = .failure(CloudAPIError.httpStatus(503, message: "provider down", action: nil))
@@ -151,6 +218,40 @@ import Testing
         controller.retryTunnel()
         await settle { if case .ready = controller.tunnel { return true } else { return false } }
         #expect(service.calls.enroll.count == 2)
+    }
+
+    @Test func aRefusedAttachIsVisibleAndARetryDialsFresh() async throws {
+        let service = FakeCloudVMService()
+        let machine = CloudMachine(id: "vm1", provider: "freestyle", status: "running")
+        service.machines = .success([machine])
+        service.attach = .failure(CloudAPIError.httpStatus(
+            502,
+            message: "Cloud VM service is temporarily unavailable.",
+            action: "Try again in a minute."
+        ))
+        let controller = makeController(service: service)
+        controller.setShellLease(true)
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+
+        let connection = try #require(controller.connection(for: machine))
+        await #expect(throws: CloudAPIError.self) { _ = try await connection.loadCatalog() }
+        let failure = try #require(controller.connectionFailure(for: machine.id))
+        #expect(failure.kind == .controlPlane(status: 502))
+        #expect(failure.detail == "Cloud VM service is temporarily unavailable.")
+        #expect(failure.action == "Try again in a minute.")
+
+        let generation = controller.connectionRetryGeneration
+        controller.retryConnections()
+        #expect(controller.connectionRetryGeneration == generation + 1)
+        #expect(controller.connectionFailure(for: machine.id) == nil)
+        // The failed link was dropped, so the next read dials a new one.
+        let fresh = try #require(controller.connection(for: machine))
+        #expect(fresh !== connection)
+
+        service.attach = .success(CloudAttachEndpoint(route: "ws://[fd00::10]:1337/v1/link", session: "s1"))
+        _ = try await fresh.loadCatalog()
+        #expect(controller.connectionFailure(for: machine.id) == nil)
+        #expect(service.calls.attach.count == 2)
     }
 
     @Test func signedOutIsClassified() async {

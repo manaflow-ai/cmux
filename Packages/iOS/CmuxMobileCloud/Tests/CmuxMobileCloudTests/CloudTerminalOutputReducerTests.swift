@@ -30,3 +30,27 @@ import Testing
         #expect(reducer.reduce(.exited) == [.exited])
     }
 }
+
+@Suite("Cloud terminal labels")
+struct CloudTerminalLabelTests {
+    @Test("Home directories read as ~, other paths stay as they are")
+    func homeRelativePaths() {
+        #expect(CloudTerminalSummary.homeRelativePath("/home/cmux") == "~")
+        #expect(CloudTerminalSummary.homeRelativePath("/home/cmux/api") == "~/api")
+        #expect(CloudTerminalSummary.homeRelativePath("/Users/aziz/Dev/cmux") == "~/Dev/cmux")
+        #expect(CloudTerminalSummary.homeRelativePath("/root/app/") == "~/app")
+        #expect(CloudTerminalSummary.homeRelativePath("/srv/app") == "/srv/app")
+        #expect(CloudTerminalSummary.homeRelativePath("/home") == "/home")
+        #expect(CloudTerminalSummary.homeRelativePath("  ") == nil)
+    }
+
+    @Test("Name, then title, then a directory that says something")
+    func descriptiveName() {
+        #expect(CloudTerminalSummary(id: "t", name: " server ", title: "vim").descriptiveName == "server")
+        #expect(CloudTerminalSummary(id: "t", name: "", title: "vim").descriptiveName == "vim")
+        #expect(CloudTerminalSummary(id: "t", currentDirectory: "/home/cmux/api").descriptiveName == "~/api")
+        #expect(CloudTerminalSummary(id: "t", currentDirectory: "/home/cmux").descriptiveName == nil)
+        #expect(CloudTerminalSummary(id: "t").descriptiveName == nil)
+        #expect(CloudTerminalSummary(id: "t").displayName == "t")
+    }
+}

@@ -94,7 +94,7 @@ extension WorkspaceListView {
                                     machineSnapshots: machineSnapshots
                                 )
                             )
-                            if canCreateWorkspace {
+                            if showsNewWorkspaceControl {
                                 newWorkspaceButton.equatable()
                             }
                             if let sidebarToggleAction {
@@ -116,7 +116,7 @@ extension WorkspaceListView {
                             actions: workspaceListFilterMenuActions
                         )
                         .equatable()
-                        if canCreateWorkspace {
+                        if showsNewWorkspaceControl {
                             newWorkspaceButton.equatable()
                         }
                     }

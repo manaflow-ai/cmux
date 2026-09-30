@@ -19,6 +19,9 @@ extension MobileShellComposite {
     public func canSendTerminalInput(to workspaceID: MobileWorkspacePreview.ID) -> Bool {
         guard workspaces.contains(where: { $0.id == workspaceID }) else { return false }
         if demonstrationOwnsWorkspaceRow(workspaceID) { return true }
+        // An external host serves input over its own link, so the composer
+        // must not be gated on a Mac RPC client it will never have.
+        if externalHostOwnsWorkspaceRow(workspaceID) { return true }
         return workspaceMutationTarget(for: workspaceID).client != nil
     }
 
@@ -44,6 +47,9 @@ extension MobileShellComposite {
         }
         if demonstrationOwnsSurface(terminalID.rawValue) {
             return handleDemonstrationTerminalInput(text, surfaceID: terminalID.rawValue)
+        }
+        if handleExternalHostTerminalInput(text, surfaceID: terminalID.rawValue) {
+            return true
         }
         let target = workspaceMutationTarget(for: workspaceID)
         guard let client = target.client else { return false }

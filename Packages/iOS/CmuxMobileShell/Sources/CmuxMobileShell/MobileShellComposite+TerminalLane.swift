@@ -8,6 +8,9 @@ extension MobileShellComposite {
         // demo terminal would open a lane at whatever REAL Mac holds the
         // foreground ticket, for a surface that Mac has never heard of.
         guard !demonstrationOwnsSurface(surfaceID) else { return }
+        // An external host serves its own bytes in-process, for the same
+        // reason: no Mac has heard of this surface.
+        guard !externalHostOwnsSurface(surfaceID) else { return }
         guard let terminalLaneCoordinator,
               connectionState == .connected,
               terminalByteContinuationsBySurfaceID[surfaceID] != nil,

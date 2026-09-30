@@ -71,11 +71,22 @@ public struct CloudSessionFailure: Error, Sendable, Equatable {
         self.action = action
     }
 
+    /// Whether trying again later can succeed on its own: not a sign-out, and
+    /// not a request the control plane refused on its merits.
+    public var isRetryable: Bool {
+        switch kind {
+        case .signedOut: return false
+        case .controlPlane(let status): return status >= 500 || status == 408 || status == 429
+        case .tunnel, .link, .identity, .other: return true
+        }
+    }
+
     /// Classifies an arbitrary error thrown during `stage`.
     public static func classify(_ error: any Error, stage: Stage) -> CloudSessionFailure {
         if let api = error as? CloudAPIError {
             switch api {
             case .notSignedIn: return CloudSessionFailure(kind: .signedOut, detail: "not signed in")
+            case .sessionUnavailable: return CloudSessionFailure(kind: .other, detail: "session unavailable")
             case .httpStatus(let status, let message, let action):
                 if status == 401 { return CloudSessionFailure(kind: .signedOut, detail: message ?? "401", action: action) }
                 return CloudSessionFailure(kind: .controlPlane(status: status), detail: message ?? "HTTP \(status)", action: action)

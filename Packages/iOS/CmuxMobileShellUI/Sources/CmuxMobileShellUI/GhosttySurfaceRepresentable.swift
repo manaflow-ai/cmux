@@ -94,11 +94,13 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         view.artifactFilesEnabled = artifactFilesEnabled
         // Screen-anchored sessions scroll the local mirror's own scrollback
         // immediately (the Mac never repaints for a primary-screen scroll), so
-        // they keep the low-latency local authority even under verified replay.
-        view.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
-            && !store.usesScreenAnchoredRenderGrid
-            ? .verifiedRenderGrid
-            : .legacyMirror
+        // they keep the low-latency local authority even under verified
+        // replay. Locally served surfaces (a Cloud machine's terminal, demo
+        // content) always do: no Mac frame ever orders their presentation.
+        view.scrollPresentationAuthority =
+            store.terminalScrollPresentationAppliesLocally(surfaceID: surfaceID)
+            ? .legacyMirror
+            : .verifiedRenderGrid
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
         // `nil` when no log is wired; every probe is then a no-op.
@@ -170,10 +172,10 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         // disabled for them; reading the store property here keeps the flag
         // live across mode flips.
         surfaceView.hostedAltScreenActive = store.isAlternateScreen(surfaceID: surfaceID)
-        surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
-            && !store.usesScreenAnchoredRenderGrid
-            ? .verifiedRenderGrid
-            : .legacyMirror
+        surfaceView.scrollPresentationAuthority =
+            store.terminalScrollPresentationAppliesLocally(surfaceID: surfaceID)
+            ? .legacyMirror
+            : .verifiedRenderGrid
         if artifactCountModeChanged {
             surfaceView.resetVisibleArtifactCountTracking()
         }

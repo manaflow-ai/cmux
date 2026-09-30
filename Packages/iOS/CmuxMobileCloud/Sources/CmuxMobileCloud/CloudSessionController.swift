@@ -17,18 +17,25 @@ public final class CloudSessionController {
     public private(set) var isCreatingMachine = false
     /// The latest create failure, shown beside the create action.
     public private(set) var lastCreateFailure: CloudSessionFailure?
+    /// Machines with a pause, resume or delete in flight. Their rows show
+    /// progress and refuse a second action until the first settles.
+    public private(set) var machineActionsInFlight: Set<String> = []
+    /// The latest pause, resume or delete failure, with the machine it hit.
+    public private(set) var lastMachineActionFailure: CloudMachineActionFailure?
     /// How many Cloud screens are on screen; the tunnel is wanted while > 0.
     public private(set) var visibleScreenCount = 0
     /// Whether any Cloud screen is on screen.
     public var sectionIsVisible: Bool { visibleScreenCount > 0 }
+    /// Whether the authenticated shell holds the tunnel open.
+    ///
+    /// Cloud machines' workspaces live in the Workspaces tab beside every
+    /// other computer's, so their terminals are used while no Cloud screen is
+    /// visible. The composition root takes this lease while the account is
+    /// signed in and owns at least one machine, which keeps an account with no
+    /// machines from ever enrolling a tunnel peer.
+    public private(set) var shellLeaseActive = false
     /// Whether the scene is in the foreground.
     public private(set) var isForeground = true
-    /// Cloud machines selected for the shared Computers/workspace picker.
-    /// A fresh install shows every machine. Hidden machine ids are persisted
-    /// locally, so newly-created machines remain visible by default.
-    public var visibleMachines: [CloudMachine] {
-        machines.elements.filter(isMachineVisible)
-    }
 
     private let service: any CloudVMServing
     private let identityResolver: CloudDeviceIdentityResolver
@@ -45,6 +52,11 @@ public final class CloudSessionController {
     private var startTask: Task<Void, Never>?
     private var startGeneration: UInt64 = 0
     private var listTask: Task<Void, Never>?
+    /// Re-reads the list while a machine is still provisioning, so a new
+    /// machine's row turns from Starting to Running on its own.
+    private var nextListReadTask: Task<Void, Never>?
+    /// How often the list is re-read while a machine is provisioning.
+    static let provisioningPollInterval: Duration = .seconds(5)
     private var connections: [String: CloudMachineConnection] = [:]
     private var pendingCreate: (options: CloudMachineCreateOptions, idempotencyKey: String)?
 
@@ -96,13 +108,103 @@ public final class CloudSessionController {
     /// The scene entered the background.
     public func sceneDidEnterBackground() {
         isForeground = false
+        nextListReadTask?.cancel()
+        nextListReadTask = nil
         reconcile()
     }
 
     /// The scene returned to the foreground.
     public func sceneWillEnterForeground() {
         isForeground = true
+        if case .failed(let failure, _) = machines, failure.isRetryable {
+            refreshMachines()
+        } else {
+            scheduleProvisioningPollIfNeeded()
+        }
         reconcile()
+    }
+
+    /// Takes or releases the shell-wide tunnel lease. Idempotent.
+    public func setShellLease(_ active: Bool) {
+        guard shellLeaseActive != active else { return }
+        shellLeaseActive = active
+        reconcile()
+    }
+
+    /// Forgets everything tied to the signed-in account: the tunnel and its
+    /// links, the machine list, and any in-flight create. The device identity
+    /// stays persisted, because it belongs to the phone rather than the
+    /// account, and re-enrolling under the next account reuses it.
+    public func resetForSignOut() {
+        shellLeaseActive = false
+        listTask?.cancel()
+        listTask = nil
+        nextListReadTask?.cancel()
+        nextListReadTask = nil
+        listFailureCount = 0
+        stopTunnel()
+        tunnel = .idle
+        identity = nil
+        machines = .idle
+        availableMachineKinds = nil
+        lastCreateFailure = nil
+        pendingCreate = nil
+        machineActionsInFlight = []
+        lastMachineActionFailure = nil
+    }
+
+    // MARK: - Machine lifecycle
+
+    /// Stops a machine's compute and billing, keeping its disk.
+    @discardableResult
+    public func pauseMachine(_ machine: CloudMachine) async -> Bool {
+        await runMachineAction(.pause, on: machine) { try await $0.pauseMachine(id: machine.id) }
+    }
+
+    /// Brings a paused machine's compute back.
+    @discardableResult
+    public func resumeMachine(_ machine: CloudMachine) async -> Bool {
+        await runMachineAction(.resume, on: machine) { try await $0.resumeMachine(id: machine.id) }
+    }
+
+    /// Deletes a machine and its disk. Its link closes first, so nothing keeps
+    /// talking to a machine that is being destroyed.
+    @discardableResult
+    public func deleteMachine(_ machine: CloudMachine) async -> Bool {
+        connections.removeValue(forKey: machine.id)?.close()
+        return await runMachineAction(.delete, on: machine) { try await $0.deleteMachine(id: machine.id) }
+    }
+
+    /// Dismisses the last lifecycle failure.
+    public func clearMachineActionFailure() {
+        lastMachineActionFailure = nil
+    }
+
+    /// One path for every lifecycle action: refuses a second action on the
+    /// same machine while one is running, records a failure against the
+    /// machine it hit, and reconciles from the server's list afterwards rather
+    /// than guessing the resulting state locally.
+    private func runMachineAction(
+        _ action: CloudMachineAction,
+        on machine: CloudMachine,
+        perform: (any CloudVMServing) async throws -> Void
+    ) async -> Bool {
+        guard machineActionsInFlight.insert(machine.id).inserted else { return false }
+        defer { machineActionsInFlight.remove(machine.id) }
+        do {
+            try await perform(service)
+            if lastMachineActionFailure?.machineID == machine.id { lastMachineActionFailure = nil }
+            refreshMachines()
+            return true
+        } catch {
+            lastMachineActionFailure = CloudMachineActionFailure(
+                machineID: machine.id,
+                action: action,
+                failure: CloudSessionFailure.classify(error, stage: .list)
+            )
+            refreshMachines()
+            return false
+        }
     }
 
     /// Re-run enrollment after a failure.
@@ -112,7 +214,36 @@ public final class CloudSessionController {
         reconcile()
     }
 
-    private var wantsTunnel: Bool { sectionIsVisible && isForeground }
+    /// Why the last attempt to reach `machineID`'s terminal service failed,
+    /// or nil when it has not failed since it last succeeded.
+    public func connectionFailure(for machineID: String) -> CloudSessionFailure? {
+        connections[machineID]?.lastError
+    }
+
+    /// Bumped by ``retryConnections()``; the workspace bridge re-reads every
+    /// machine's catalog when it changes.
+    public private(set) var connectionRetryGeneration = 0
+
+    /// The user asked to try again: a failed tunnel re-enrolls, and every
+    /// machine whose link failed is re-dialed from scratch.
+    public func retryConnections() {
+        retryTunnel()
+        for (id, connection) in connections where connection.lastError != nil {
+            connection.close()
+            connections.removeValue(forKey: id)
+        }
+        connectionRetryGeneration &+= 1
+    }
+
+    /// The user asked to reconnect one machine: a failed tunnel re-enrolls,
+    /// and that machine's link is re-dialed from scratch even if it has not
+    /// failed, since what it is showing may be stale.
+    public func retryConnection(for machineID: String) {
+        retryTunnel()
+        connections.removeValue(forKey: machineID)?.close()
+    }
+
+    private var wantsTunnel: Bool { (sectionIsVisible || shellLeaseActive) && isForeground }
 
     private func reconcile() {
         if wantsTunnel {
@@ -164,8 +295,9 @@ public final class CloudSessionController {
         startGeneration &+= 1
         startTask?.cancel()
         startTask = nil
-        listTask?.cancel()
-        listTask = nil
+        // The machine list is a control-plane read that needs no tunnel, so a
+        // tunnel stop must not cancel it: backgrounding mid-refresh would
+        // otherwise leave the list stuck loading.
         for connection in connections.values { connection.close() }
         connections.removeAll()
         liveTunnel = nil
@@ -175,17 +307,19 @@ public final class CloudSessionController {
 
     // MARK: - Machines
 
-    /// Returns whether a machine is included in the shared computer picker.
-    public func isMachineVisible(_ machine: CloudMachine) -> Bool {
-        let hidden = visibilityDefaults.array(forKey: visibilityDefaultsKey) as? [String] ?? []
-        return !hidden.contains(machine.id)
+    /// Machine ids the user hid from their computers on this phone.
+    ///
+    /// Persisted locally and only as hidden ids, so a newly created machine is
+    /// visible by default. This is the store behind the Computers screen's
+    /// switch; the shell filters the workspace list from it.
+    public var hiddenMachineIDs: Set<String> {
+        Set((visibilityDefaults.array(forKey: visibilityDefaultsKey) as? [String]) ?? [])
     }
 
-    /// Includes or excludes a Cloud machine from the shared picker. The
-    /// default state is all machines visible, so only hidden ids are stored.
-    public func setMachineVisible(_ machine: CloudMachine, visible: Bool) {
-        var ids = Set((visibilityDefaults.array(forKey: visibilityDefaultsKey) as? [String]) ?? [])
-        if visible { ids.remove(machine.id) } else { ids.insert(machine.id) }
+    /// Records whether a machine is hidden from the user's computers.
+    public func setMachine(id: String, hidden: Bool) {
+        var ids = hiddenMachineIDs
+        if hidden { ids.insert(id) } else { ids.remove(id) }
         visibilityDefaults.set(Array(ids).sorted(), forKey: visibilityDefaultsKey)
     }
 
@@ -198,12 +332,64 @@ public final class CloudSessionController {
             do {
                 let catalog = try await service.listMachineCatalog()
                 guard !Task.isCancelled else { return }
+                self.listFailureCount = 0
                 self.availableMachineKinds = catalog.availableKinds
-                self.machines = .loaded(catalog.machines)
+                // A destroyed machine is gone; no screen should list it.
+                self.machines = .loaded(catalog.machines.filter { $0.lifecycle != .destroyed })
+                self.scheduleProvisioningPollIfNeeded()
             } catch {
                 guard !Task.isCancelled else { return }
-                self.machines = .failed(CloudSessionFailure.classify(error, stage: .list), previous: self.machines.elements)
+                let failure = CloudSessionFailure.classify(error, stage: .list)
+                self.listFailureCount += 1
+                // The first transient failure retries quietly: right after
+                // sign-in the session's tokens can be mid-refresh, and an
+                // error that clears itself in a moment is not worth showing.
+                if failure.isRetryable, self.listFailureCount == 1, self.machines.elements.isEmpty {
+                    self.scheduleListRead(after: Self.listRetryDelay(afterFailures: 1))
+                    return
+                }
+                self.machines = .failed(failure, previous: self.machines.elements)
+                if failure.isRetryable {
+                    self.scheduleListRead(after: Self.listRetryDelay(afterFailures: self.listFailureCount))
+                }
             }
+        }
+    }
+
+    /// Schedules one more list read while any machine is still provisioning
+    /// and the app is in the foreground. Each read reschedules only if it is
+    /// still needed, so the poll ends by itself once every machine settles.
+    private func scheduleProvisioningPollIfNeeded() {
+        nextListReadTask?.cancel()
+        nextListReadTask = nil
+        guard machines.elements.contains(where: { $0.lifecycle == .provisioning }) else { return }
+        scheduleListRead(after: Self.provisioningPollInterval)
+    }
+
+    /// Consecutive failed list reads, which pace the retry.
+    private var listFailureCount = 0
+
+    /// The wait before re-reading the list after `failures` failed reads in a
+    /// row: two seconds, then 5 s doubling to a minute.
+    static func listRetryDelay(afterFailures failures: Int) -> Duration {
+        failures <= 1 ? .seconds(2) : .seconds(min(5 << min(failures - 2, 4), 60))
+    }
+
+    /// Schedules the one pending list read, replacing any other. Only while
+    /// in the foreground; returning there re-reads anything left unsettled.
+    private func scheduleListRead(after delay: Duration) {
+        nextListReadTask?.cancel()
+        nextListReadTask = nil
+        guard isForeground else { return }
+        let clock = approvalClock
+        nextListReadTask = Task { [weak self] in
+            do {
+                try await clock.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.refreshMachines()
         }
     }
 

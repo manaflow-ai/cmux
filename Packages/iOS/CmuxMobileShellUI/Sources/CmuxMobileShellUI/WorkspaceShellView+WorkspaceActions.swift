@@ -488,6 +488,42 @@ extension WorkspaceShellView {
         }
     }
 
+    /// New Workspace from a Cloud machine's workspace: made on that machine,
+    /// then opened through the same navigation a Mac-side create takes.
+    func createWorkspaceOnExternalHost(beside workspaceID: MobileWorkspacePreview.ID) {
+        runExternalHostWorkspaceCreate { store in
+            await store.createExternalHostWorkspace(beside: workspaceID)
+        }
+    }
+
+    /// New Workspace targeting a Cloud machine from the list's menu, or from
+    /// a computers scope naming one.
+    func createWorkspaceOnExternalHost(onHost hostID: String) {
+        runExternalHostWorkspaceCreate { store in
+            await store.createExternalHostWorkspace(onHost: hostID)
+        }
+    }
+
+    private func runExternalHostWorkspaceCreate(
+        _ create: @escaping @MainActor (CMUXMobileShellStore) async -> Result<Void, MobileWorkspaceMutationFailure>
+    ) {
+        let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
+        let settlesCompactNavigation = usesCompactStack
+        if settlesCompactNavigation {
+            pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
+        }
+        Task { @MainActor in
+            let result = await create(store)
+            handleWorkspaceActionResult(result, action: .createWorkspace)
+            if settlesCompactNavigation {
+                settlePendingCompactCreateNavigation(
+                    result: result,
+                    existingWorkspaceIDs: existingWorkspaceIDs
+                )
+            }
+        }
+    }
+
     func createWorkspaceGroupIfConnected() {
         guard canCreateWorkspaceForMacSelection else { return }
         Task { @MainActor in

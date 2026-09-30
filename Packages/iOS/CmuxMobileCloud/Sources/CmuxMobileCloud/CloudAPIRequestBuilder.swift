@@ -54,6 +54,29 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
         return request
     }
 
+    /// Resuming waits for the provider to boot compute back up.
+    public static let resumeTimeout: TimeInterval = 16 * 60
+
+    /// `POST /api/vm/{id}/pause`: stops compute and billing, keeps the disk.
+    public func pauseMachine(id: String, accessToken: String, refreshToken: String) throws -> URLRequest {
+        try request("POST", path: "/api/vm/\(try Self.pathSegment(id))/pause", body: nil,
+                    accessToken: accessToken, refreshToken: refreshToken)
+    }
+
+    /// `POST /api/vm/{id}/resume`.
+    public func resumeMachine(id: String, accessToken: String, refreshToken: String) throws -> URLRequest {
+        var request = try request("POST", path: "/api/vm/\(try Self.pathSegment(id))/resume", body: nil,
+                                  accessToken: accessToken, refreshToken: refreshToken)
+        request.timeoutInterval = Self.resumeTimeout
+        return request
+    }
+
+    /// `DELETE /api/vm/{id}`.
+    public func deleteMachine(id: String, accessToken: String, refreshToken: String) throws -> URLRequest {
+        try request("DELETE", path: "/api/vm/\(try Self.pathSegment(id))", body: nil,
+                    accessToken: accessToken, refreshToken: refreshToken)
+    }
+
     /// `POST /api/vm/tunnel` with the saved device ID and a separately keyed role.
     public func enrollTunnel(
         clientPublicKey: String,
@@ -74,6 +97,25 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
             body["deviceName"] = deviceName
         }
         return try request("POST", path: "/api/vm/tunnel", body: body, accessToken: accessToken, refreshToken: refreshToken)
+    }
+
+    /// `DELETE /api/vm/tunnel` for one device role.
+    public func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String
+    ) throws -> URLRequest {
+        try request(
+            "DELETE",
+            path: "/api/vm/tunnel",
+            body: [
+                "deviceFingerprint": deviceFingerprint,
+                "tunnelPurpose": tunnelPurpose.rawValue,
+            ],
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
     }
 
     /// `POST /api/vm/<id>/attach-endpoint` for the `cmux-remote` transport.

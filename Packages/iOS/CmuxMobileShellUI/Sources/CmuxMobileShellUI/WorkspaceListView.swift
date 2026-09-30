@@ -53,6 +53,9 @@ struct WorkspaceListView: View {
     let createWorkspace: () -> Void
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     var createWorkspaceGroup: (() -> Void)? = nil
+    /// Creates a workspace on a Cloud machine chosen from the New Workspace
+    /// menu, or by the computer scope when it names a Cloud machine.
+    var createWorkspaceOnCloudMachine: ((String) -> Void)? = nil
     var canCreateWorkspace = true
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.
@@ -942,7 +945,8 @@ struct WorkspaceListView: View {
             hasStore: store != nil,
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
-            isRecoveringConnection: store?.isRecoveringConnection ?? false,
+            isRecoveringConnection: (store?.isRecoveringConnection ?? false)
+                && (store?.workspaceListShowsForegroundRecovery ?? true),
             isRecoveringWorkspaceList: isRecoveringWorkspaceList,
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,

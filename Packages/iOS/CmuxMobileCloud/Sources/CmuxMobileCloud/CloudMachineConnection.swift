@@ -114,6 +114,24 @@ public final class CloudMachineConnection {
         }
     }
 
+    /// Create a terminal inside `workspaceID` and return its id, refreshing
+    /// the catalog.
+    @discardableResult
+    public func createTerminal(inWorkspace workspaceID: String, name: String? = nil) async -> String? {
+        isCreatingTerminal = true
+        defer { isCreatingTerminal = false }
+        do {
+            let session = try await connectedSession()
+            let id = try await session.createTerminal(inWorkspace: workspaceID, name: name)
+            lastError = nil
+            refreshTerminals()
+            return id
+        } catch {
+            lastError = CloudSessionFailure.classify(error, stage: .link)
+            return nil
+        }
+    }
+
     /// Attach to `terminalID`, streaming events to `output` until the
     /// returned attachment is detached.
     public func attach(
@@ -121,9 +139,37 @@ public final class CloudMachineConnection {
         output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void
     ) async throws -> CloudTerminalAttachment {
         let session = try await connectedSession()
+        // A superseded caller cancels this attach while the dial above runs;
+        // attaching anyway would re-point the machine's single attachment
+        // slot at the OLD terminal and replace the new one's output handler.
+        try Task.checkCancellation()
         try await session.attach(terminalID: terminalID, output: output)
         lastError = nil
         return CloudTerminalAttachment(session: session, terminalID: terminalID)
+    }
+
+    /// Reads the daemon's workspaces and terminals in one pass, connecting
+    /// first if needed.
+    ///
+    /// The observable ``terminals``/``workspaces`` properties drive the Cloud
+    /// tab's own screens; this returns the same catalog directly, for a caller
+    /// that publishes it somewhere else and needs the failure rather than a
+    /// rendered error state.
+    public func loadCatalog() async throws -> (
+        workspaces: [CloudWorkspaceSummary],
+        terminals: [CloudTerminalSummary]
+    ) {
+        do {
+            let session = try await connectedSession()
+            let catalog = try await session.loadCatalog()
+            lastError = nil
+            return catalog
+        } catch {
+            if !(error is CancellationError) {
+                lastError = CloudSessionFailure.classify(error, stage: .link)
+            }
+            throw error
+        }
     }
 
     /// Close the link.
@@ -142,7 +188,7 @@ public final class CloudMachineConnection {
         if let connectTask { return try await connectTask.value }
         let task = Task<any CloudTerminalSession, any Error> { [service, connector, tunnel, identity, stateDirectory, deviceName, approvalClock, machine] in
             let endpoint = try await service.openAttach(machineID: machine.id, deviceFingerprint: identity.fingerprint)
-            cloudLinkLog.info("Cloud link started trustedCarrier=\(endpoint.trustedCarrier, privacy: .public) invitation=\(endpoint.invitation != nil, privacy: .public)")
+            cloudLinkLog.notice("Cloud link started trustedCarrier=\(endpoint.trustedCarrier, privacy: .public) invitation=\(endpoint.invitation != nil, privacy: .public)")
             var approval: Task<Void, Never>?
             if !endpoint.trustedCarrier, let invitation = endpoint.invitation {
                 approval = Task {

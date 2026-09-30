@@ -89,7 +89,9 @@ struct TerminalPickerMenu: View, Equatable {
             }
         }
 
-        if value.supportsBrowserStream {
+        // A Cloud machine has no Mac browser panes to stream and no Mac to
+        // update, so neither the section nor its update hint applies there.
+        if value.supportsBrowserStream, !value.hostIsExternal {
             if !value.browserStreamRows.isEmpty {
                 Section(L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")) {
                     ForEach(value.browserStreamRows) { panel in
@@ -105,7 +107,7 @@ struct TerminalPickerMenu: View, Equatable {
                     }
                 }
             }
-        } else {
+        } else if !value.hostIsExternal {
             Section(L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")) {
                 Label(
                     L10n.string("mobile.macUpdateHint.browserStream", defaultValue: "Update cmux on your Mac to stream browser panes"),

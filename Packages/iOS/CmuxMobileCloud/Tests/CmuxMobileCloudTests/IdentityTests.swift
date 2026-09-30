@@ -37,6 +37,14 @@ import Testing
         #expect(await store.stored == first)
     }
 
+    @Test func resolverCanReadWithoutMintingOnFreshInstall() async throws {
+        let store = InMemoryCloudDeviceIdentityStore()
+        let resolver = CloudDeviceIdentityResolver(store: store)
+
+        #expect(try await resolver.stored() == nil)
+        #expect(await store.stored == nil)
+    }
+
     @Test func resolverFailsClosedWhenStoreIsUnavailable() async {
         let store = InMemoryCloudDeviceIdentityStore(unavailable: true)
         let resolver = CloudDeviceIdentityResolver(store: store)

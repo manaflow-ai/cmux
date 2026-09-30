@@ -61,6 +61,9 @@ public struct NotificationFeedPreviewView: View {
                 .onChange(of: pendingSearchNotificationNavigationID) { _, _ in
                     consumePendingSearchNavigation(for: .notifications)
                 }
+            } cloud: {
+            Text(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
+                    .foregroundStyle(.secondary)
             } search: {
                 MobilePrimarySearchNavigationStack(
                     path: $searchNavigationPath,

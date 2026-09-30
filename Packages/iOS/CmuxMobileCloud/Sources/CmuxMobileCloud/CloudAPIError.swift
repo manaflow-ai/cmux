@@ -4,6 +4,9 @@ public import Foundation
 public enum CloudAPIError: Error, Equatable, Sendable {
     /// No Stack session tokens were available.
     case notSignedIn
+    /// The session exists but its tokens could not be read right now (a
+    /// refresh or sign-in step in flight, or no network); retryable.
+    case sessionUnavailable
     /// The base URL or path did not form a URL.
     case invalidURL(String)
     /// The server answered with a non-2xx status. `message` and `action` are
