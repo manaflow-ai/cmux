@@ -13,14 +13,17 @@ private final class SilentLink: FrameLink {
     /// the CLI work queue all wait for a frame. A link that stops firing
     /// (displays asleep, the link's screen unplugged) froze daemon updates
     /// and made every mutating CLI request time out.
-    @Test func workStillRunsWhenTheLinkNeverFires() async throws {
-        let scheduler = FrameScheduler.testing(ledger: WakeupLedger(), makeLink: { _ in SilentLink() })
+    @Test func workStillRunsWhenTheLinkNeverFires() async {
+        let clock = ManualClock()
+        let scheduler = FrameScheduler.testing(clock: clock, ledger: WakeupLedger(), makeLink: { _ in SilentLink() })
         let batcher = FrameBatcher(owner: "test", scheduler: scheduler)
-        var ran = false
-        batcher.enqueue { ran = true }
-        let deadline = ContinuousClock.now + .seconds(2)
-        while !ran, ContinuousClock.now < deadline { await Task.yield() }
-        #expect(ran)
+        let (ran, signal) = AsyncStream.makeStream(of: Void.self)
+        batcher.enqueue { signal.yield() }
+        // The stall deadline is armed; no frame comes; its time passes.
+        await clock.sleepers()
+        clock.advance(by: FrameScheduler.stallTimeout)
+        var iterator = ran.makeAsyncIterator()
+        #expect(await iterator.next() != nil)
     }
 
     @Test func aFrameRunsPendingWorkAndPausesTheLink() {

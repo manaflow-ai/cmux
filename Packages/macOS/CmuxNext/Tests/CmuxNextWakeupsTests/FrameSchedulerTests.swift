@@ -60,22 +60,25 @@ private final class FakeLink: FrameLink {
     /// Regression (state-audit D4): a link that stops firing (displays
     /// asleep, screen unplugged) must not freeze clients such as the daemon
     /// store drain.
-    @Test func clientsStillTickWhenTheLinkNeverFires() async throws {
-        let scheduler = FrameScheduler.testing(ledger: WakeupLedger(), makeLink: { _ in FakeLink() })
+    @Test func clientsStillTickWhenTheLinkNeverFires() async {
+        let clock = ManualClock()
+        let scheduler = FrameScheduler.testing(clock: clock, ledger: WakeupLedger(), makeLink: { _ in FakeLink() })
         var ran = false
         let client = FrameClient(owner: "drain", on: scheduler) { _ in
             ran = true
             return false
         }
         client.activate()
-        let deadline = ContinuousClock.now + .seconds(2)
-        while !ran, ContinuousClock.now < deadline { await Task.yield() }
+        for _ in 0..<10_000 where clock.sleeperCount == 0 { await Task.yield() }
+        clock.advance(by: FrameScheduler.stallTimeout)
+        for _ in 0..<10_000 where !ran { await Task.yield() }
         #expect(ran)
     }
 
-    @Test func repeatedStallsRebuildTheLink() async throws {
+    @Test func repeatedStallsRebuildTheLink() async {
+        let clock = ManualClock()
         var links: [FakeLink] = []
-        let scheduler = FrameScheduler.testing(ledger: WakeupLedger(), makeLink: { _ in
+        let scheduler = FrameScheduler.testing(clock: clock, ledger: WakeupLedger(), makeLink: { _ in
             let link = FakeLink()
             links.append(link)
             return link
@@ -86,8 +89,13 @@ private final class FakeLink: FrameLink {
             return ticks < FrameScheduler.stallsBeforeRebuild + 1
         }
         client.activate()
-        let deadline = ContinuousClock.now + .seconds(5)
-        while client.isActive, ContinuousClock.now < deadline { await Task.yield() }
+        for _ in 0..<(FrameScheduler.stallsBeforeRebuild + 1) {
+            for _ in 0..<10_000 where clock.sleeperCount == 0 { await Task.yield() }
+            let before = ticks
+            clock.advance(by: FrameScheduler.stallTimeout)
+            for _ in 0..<10_000 where ticks == before { await Task.yield() }
+        }
+        #expect(!client.isActive)
         #expect(links.count == 2)
         #expect(links.first?.invalidated == true)
     }
