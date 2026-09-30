@@ -400,6 +400,31 @@ struct ConversationSidebarRegressionTests {
     }
 
     @Test
+    func hookStoreAliasBackfillAdvancesSidebarProjection() {
+        let previous = AgentChatSessionRecord(
+            sessionID: AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: "surface"),
+            agentKind: .claude,
+            workspaceID: UUID().uuidString,
+            surfaceID: "surface",
+            workingDirectory: "/Users/example/project",
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            title: "Conversation",
+            pid: nil
+        )
+        var current = previous
+        current.rememberHookStoreSessionID("real-session")
+
+        #expect(
+            AgentChatTranscriptService.sidebarProjectionChangedMeaningfully(
+                previous: previous,
+                current: current
+            )
+        )
+    }
+
+    @Test
     func refreshSchedulerKeepsReplacementOwnedAfterOlderTaskFinishes() async {
         let oldStarted = AsyncStream<Void>.makeStream()
         let oldGate = AsyncStream<Void>.makeStream()

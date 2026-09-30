@@ -270,7 +270,15 @@ struct ConversationSidebarView: View {
             recomputeHistorySource()
             SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
         }
-        .onChange(of: store.entries) { _, _ in recomputeHistorySource() }
+        .onChange(of: store.entries) { _, _ in
+            // A reload replaces the authoritative index. Drop pages loaded
+            // from the previous snapshot so deleted or changed sessions do
+            // not survive in the expanded cache.
+            expandedHistory = []
+            historyPerAgentLimit = SessionIndexStore.perAgentLimit
+            canLoadMoreHistory = true
+            recomputeHistorySource()
+        }
         .onChange(of: expandedHistory) { _, _ in recomputeHistorySource() }
         .onChange(of: searchResults) { _, _ in recomputeHistorySource() }
         .onChange(of: store.liveSessionKeys) { _, _ in recomputeLiveHistoryCandidates() }

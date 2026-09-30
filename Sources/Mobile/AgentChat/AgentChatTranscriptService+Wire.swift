@@ -23,7 +23,8 @@ extension AgentChatTranscriptService {
         guard var normalizedPrevious = previous else { return true }
         normalizedPrevious.lastActivityAt = current.lastActivityAt
         normalizedPrevious.version = current.version
-        return normalizedPrevious.descriptor != current.descriptor
+        return normalizedPrevious.hookStoreLookupSessionID != current.hookStoreLookupSessionID
+            || normalizedPrevious.descriptor != current.descriptor
     }
 
     /// Encodes a wire value into the `[String: Any]` payload shape the

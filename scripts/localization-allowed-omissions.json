@@ -1,4 +1,16 @@
 {
+  "actions.discovery.menuTitle": {
+    "source": "Actions · cmux.json…",
+    "identityLocales": {
+      "fr": "The French UI uses the same established word for Actions; the translated catalog entry is still required."
+    }
+  },
+  "actions.discovery.dialogTitle": {
+    "source": "Actions · cmux.json",
+    "identityLocales": {
+      "fr": "The French UI uses the same established word for Actions; the translated catalog entry is still required."
+    }
+  },
   "mobile.ios106PairingUpdate.releaseLabel": {
     "source": "1.0.6 · September 2026",
     "identityLocales": {
