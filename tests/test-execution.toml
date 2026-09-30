@@ -1511,5 +1511,13 @@ path = "tests/test_submodule_forward_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_manual_dispatch_guard_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_manual_dispatch_guard.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_guard_status.py"
 lane = "linux-guard"
