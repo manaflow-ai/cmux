@@ -10,8 +10,11 @@ public enum TabContextTarget: Hashable, Sendable {
     case group(TabGroupID)
     /// A chip in the saved groups bar.
     case savedGroup(TabGroupID)
-    /// Empty strip space (or the new tab button).
+    /// Empty strip space.
     case emptyStrip
+    /// The new tab (+) button: a click or right-click shows this menu (which
+    /// kind of tab to open). Without a menu a click opens a tab directly.
+    case newTabButton
 }
 
 /// Builds the menu for a right-click. Return nil for no menu.

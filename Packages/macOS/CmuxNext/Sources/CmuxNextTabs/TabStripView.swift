@@ -175,7 +175,7 @@ public final class TabStripView: NSView {
         fadeMask.actions = ["bounds": NSNull(), "position": NSNull(), "colors": NSNull(), "locations": NSNull()]
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
-        newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
+        newTabButton.onPress = { [weak self] in self?.pressNewTabButton() }
         contentView.addSubview(buttonGroup)
         buttonGroup.onPress = { [weak self] id in self?.model.send(.trailingButton(id)) }
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }

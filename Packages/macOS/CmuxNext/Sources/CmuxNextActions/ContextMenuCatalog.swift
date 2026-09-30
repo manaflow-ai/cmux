@@ -23,6 +23,7 @@ public enum ContextMenuCatalog {
         case .browserPage: browserPage
         case .link: link
         case .cloudMachine: cloudMachine
+        case .newTab: newTab
         }
     }
 
@@ -46,8 +47,14 @@ public enum ContextMenuCatalog {
             .map { .action(ActionID(rawValue: "\(prefix).color.\($0)")) }
     }
 
+    /// The + button: one entry per tab kind. Chromium shows disabled, with
+    /// its reason, when this build has no CEF runtime.
+    static let newTab: [ContextMenuEntry] =
+        actions("newSurface", "openBrowser.webkit", "openBrowser.chromium")
+
     static let tab: [ContextMenuEntry] =
-        actions("newSurface", "openBrowser", "duplicateTab", "reloadTab") + [.separator]
+        actions("newSurface", "openBrowser.webkit", "openBrowser.chromium", "duplicateTab", "reloadTab") + [.separator]
+        + actions("browser.openInChromium", "browser.openInWebKit") + [.separator]
         + actions("renameTab", "palette.clearTabName", "palette.toggleTabPin", "palette.toggleTabUnread", "toggleTabAudioMute")
         + [.separator] + actions("tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab") + [.separator]
         + actions("moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
