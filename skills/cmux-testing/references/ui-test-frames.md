@@ -3,6 +3,7 @@
 ```bash
 scripts/ui-test SidebarHelpMenuUITests          # run it in CI at your pushed HEAD, then show its steps
 scripts/ui-test <run id or URL>                 # show a finished run's steps
+scripts/ui-test /path/to/ui-frames              # render an artifact already downloaded locally
 ```
 
 It prints each test's result, its failure, the action it failed at, and paths to:
@@ -16,7 +17,7 @@ It prints each test's result, its failure, the action it failed at, and paths to
 - `mirror.json`: the same run manifest in a machine-readable form for other
   review tools.
 
-CI builds these for every UI run: the action lists are in the run's job summary, and the frames in its `ui-frames` artifact, which `scripts/ui-test` downloads.
+CI builds these for every UI run: the action lists are in the run's job summary, and the frames in its `ui-frames` artifact, which `scripts/ui-test` downloads. If you already have that artifact (or copied it from another machine), pass its directory directly; the wrapper renders the mirror without dispatching another run. Add `--out /path/to/review` when you want to leave the downloaded files untouched and make a separate copy for the mirror.
 
 Keep in mind:
 

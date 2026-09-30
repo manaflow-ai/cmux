@@ -19,8 +19,10 @@ at that moment. Named captures (XCTAttachment) become their own steps.
 
 A run id or URL first downloads the run's `ui-frames` artifact, which UI runs
 of test-e2e.yml build in CI; for older runs it falls back to the `test-results`
-xcresult. `--summary FILE` appends a Markdown report (CI passes
-$GITHUB_STEP_SUMMARY). Needs `gh` for runs, and xcrun, sips and ffmpeg to build.
+xcresult. A local extracted `ui-frames` directory is accepted too, so a copied
+artifact can be reviewed without another dispatch or a native toolchain.
+`--summary FILE` appends a Markdown report (CI passes `$GITHUB_STEP_SUMMARY`).
+Needs `gh` for runs, and xcrun, sips and ffmpeg to build from xcresults.
 """
 
 from __future__ import annotations
@@ -416,9 +418,19 @@ def main() -> int:
     run_id = None if local.exists() else parse_run_id(args.source)
     if not local.exists() and not run_id:
         parser.error("source must be a run id, a run URL, an .xcresult, or a directory of them")
-    out = args.out or Path(tempfile.gettempdir()) / "cmux-ui-frames" / (run_id or local.stem)
+    local_built = local.is_dir() and any(local.rglob("steps.md"))
+    if local_built:
+        out = args.out or local
+        if out.resolve() != local.resolve():
+            # Keep an explicitly supplied output directory's unrelated files;
+            # this command only refreshes the artifact's own paths.
+            shutil.copytree(local, out, dirs_exist_ok=True)
+    else:
+        out = args.out or Path(tempfile.gettempdir()) / "cmux-ui-frames" / (run_id or local.stem)
 
-    if run_id and download(run_id, args.repo, FRAMES_ARTIFACT, out):
+    if local_built:
+        summary = load_built(out, args.test)
+    elif run_id and download(run_id, args.repo, FRAMES_ARTIFACT, out):
         summary = load_built(out, args.test)
     else:
         if run_id:
