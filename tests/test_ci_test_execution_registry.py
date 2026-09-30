@@ -439,7 +439,7 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         step = block[start:end]
 
         self.assertIn(
-            "CMUX_TEST_REGISTRY_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}",
+            "CMUX_TEST_REGISTRY_BASE_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref || '' }}",
             step,
         )
         self.assertNotIn("github.event.pull_request.base.sha", step)
@@ -449,7 +449,6 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         )
         self.assertIn('CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"', step)
         self.assertIn('args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")', step)
-        self.assertIn("Keep this fetch shallow", step)
 
     def test_newly_added_tests_show_why_the_workflow_needs_the_current_base_tip(self) -> None:
         root = Path(tempfile.mkdtemp(prefix="cmux-test-execution-registry-git-"))

@@ -292,7 +292,7 @@ jobs:
       - name: Validate Python test execution registry
         if: ${{ matrix.group == 'preflight' }}
         env:
-          CMUX_TEST_REGISTRY_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
+          CMUX_TEST_REGISTRY_BASE_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref || '' }}
         run: |
           set -euo pipefail
           args=()
