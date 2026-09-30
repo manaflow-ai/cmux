@@ -8471,6 +8471,33 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.terminalSizeToMyWindow",
+                title: constant(String(localized: "command.terminalSizeToMyWindow.title", defaultValue: "Size Terminal to My Window")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "size", "resize", "window", "grid", "shared", "phone", "iphone", "fit", "mine"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.terminalShowSizePanel",
+                title: constant(String(localized: "command.terminalShowSizePanel.title", defaultValue: "Show Terminal Size Panel")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "size", "participants", "shared", "clients", "policy", "latest", "smallest", "priority", "fixed"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.terminalDisconnectOtherClients",
+                title: constant(String(localized: "command.terminalDisconnectOtherClients.title", defaultValue: "Disconnect Other Terminal Clients…")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "disconnect", "detach", "clients", "phone", "iphone", "shared", "kick"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalPasteLastScreenshot",
                 title: constant(String(localized: "command.terminalPasteLastScreenshot.title", defaultValue: "Paste Last Screenshot")),
                 subtitle: terminalPanelSubtitle,
@@ -9440,6 +9467,21 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSendCtrlF") {
             if !tabManager.sendCtrlFToFocusedTerminal() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalSizeToMyWindow") {
+            if !tabManager.sizeFocusedTerminalToMyWindow() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalShowSizePanel") {
+            if !tabManager.showFocusedTerminalSizePanel(confirmDisconnectOthers: false) {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalDisconnectOtherClients") {
+            if !tabManager.showFocusedTerminalSizePanel(confirmDisconnectOthers: true) {
                 NSSound.beep()
             }
         }
