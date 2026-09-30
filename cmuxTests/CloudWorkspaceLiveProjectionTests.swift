@@ -306,7 +306,7 @@ struct CloudWorkspaceLiveProjectionTests {
         await coordinator.waitForIdle()
 
         #expect(passes > 0, "The fixture must reach the layout step")
-        #expect(passes <= 8)
+        #expect(passes <= CloudWorkspaceProjectionCoordinator.maxPassesPerState)
         #expect(catalog.projections.contains { $0.workspaceID == fixture.workspace.id && $0.remoteTabID == "first" })
     }
 

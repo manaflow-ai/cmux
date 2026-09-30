@@ -43,6 +43,8 @@ final class CloudWorkspaceProjectionCoordinator {
             guard let self else { return }
             defer { if self.tasks[machine]?.id == id { self.tasks[machine] = nil } }
             guard let catalog else { return }
+            var reconciled: CloudVMState?
+            var passes = 0
             while self.requested.remove(machine) != nil {
                 guard !Task.isCancelled, self.localMutations[machine] == nil else { return }
                 await catalog.cloudPlacementCoordinator.waitForPendingMutations()
@@ -51,10 +53,32 @@ final class CloudWorkspaceProjectionCoordinator {
                       let state = catalog.cloudStates[machine],
                       catalog.cloudStateObservations[machine]?.freshness == .current,
                       catalog.cloudPlacementCoordinator.allowsNativeReconciliation(state) else { return }
+                if reconciled == state { passes += 1 } else { reconciled = state; passes = 1 }
+                guard passes <= Self.maxPassesPerState else {
+                    Self.reportNonConvergence(machine: machine, passes: passes)
+                    return
+                }
                 await self.reconcile(state: state, catalog: catalog)
             }
         }
         tasks[machine] = CloudWorkspaceProjectionTask(id: id, task: task)
+    }
+
+    /// One accepted graph reaches its fixed point in a few passes: materialize,
+    /// then confirm. More passes over an unchanged graph mean some consumer
+    /// requests reconciliation without progress, which would otherwise hold
+    /// the main actor forever. A new graph or a later request starts a new count.
+    static let maxPassesPerState = 8
+
+    private static func reportNonConvergence(machine: SurfaceMachineID, passes: Int) {
+#if DEBUG
+        cmuxDebugLog("cloudWorkspace.projection.nonConvergent machine=\(machine.rawValue) passes=\(passes)")
+#endif
+        sentryCaptureWarning(
+            "Cloud workspace projection did not converge",
+            category: "cloud.projection",
+            data: ["passes": passes]
+        )
     }
 
     /// A bound mirror may not recreate a view that the accepted graph removed.
