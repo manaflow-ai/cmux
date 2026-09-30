@@ -80,6 +80,9 @@ public actor CloudMachineLinkManager {
     /// carrier or enrolled session immediately, so anything slower than this is
     /// a broken route rather than a slow one.
     private let connectTimeout: Duration = .seconds(60)
+    /// Races the private addresses of a dual-stack machine through the hub.
+    /// Tests that expect every address to fail pass a short deadline.
+    let privateRouteConnector: CloudHubConnector
     /// This Mac's resolved Ghostty default colors ("#rrggbb"), pushed to each machine as
     /// its cmux-tui session defaults (`set-default-colors`) so remote panes render with
     /// the local theme. Injected so tests need no Ghostty runtime.
@@ -101,8 +104,10 @@ public actor CloudMachineLinkManager {
         operations: CloudOperationRecorder? = nil,
         isCloudEnabled: @escaping @Sendable () -> Bool = { true },
         hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)?,
-        breadcrumb: @escaping @Sendable (_ event: String, _ fields: [String: String]) -> Void = { _, _ in }
+        breadcrumb: @escaping @Sendable (_ event: String, _ fields: [String: String]) -> Void = { _, _ in },
+        privateRouteConnector: CloudHubConnector = CloudHubConnector()
     ) {
+        self.privateRouteConnector = privateRouteConnector
         self.breadcrumb = breadcrumb
         self.isCloudEnabled = isCloudEnabled
         self.operations = operations
