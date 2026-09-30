@@ -26,8 +26,9 @@ struct LocalBrowserTab: Hashable, Sendable {
 /// multi-selection and scroll stay in memory (architecture.md 1).
 @Observable
 final class WindowState {
-    /// Stable id that survives relaunch (the projection record id).
-    let id: String
+    /// Stable id that survives relaunch (the projection record id). Changes
+    /// once, when the window opened at launch adopts a restored record.
+    private(set) var id: String
     /// `WorkspaceModel.id` of the workspace shown; nil shows the empty
     /// state (the only window, with no workspaces).
     var workspaceID: String?
@@ -54,7 +55,16 @@ final class WindowState {
 extension WindowState {
     /// The state saved for one window.
     convenience init(record: WindowRecord) {
-        self.init(id: record.id, workspaceID: record.workspaceKey?.rawValue, machineID: record.machine)
+        self.init(id: record.id)
+        adopt(record)
+    }
+
+    /// Takes over a saved window's identity and state (the window opened at
+    /// launch, before the saved state could load, becomes that window).
+    func adopt(_ record: WindowRecord) {
+        id = record.id
+        workspaceID = record.workspaceKey?.rawValue
+        machineID = record.machine ?? MachineRegistry.localID
         for (pane, tab) in record.selectedTabs { selection.select(tab, in: pane) }
         sidebarWidth = record.sidebarWidth
         sidebarCollapsed = record.sidebarCollapsed

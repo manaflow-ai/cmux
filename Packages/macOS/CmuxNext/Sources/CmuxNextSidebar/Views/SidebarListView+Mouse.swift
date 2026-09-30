@@ -167,12 +167,7 @@ extension SidebarListView {
         case .delete?, .deleteForward?:
             if flags == .command, !model.selection.isEmpty { model.send(.close(model.orderedSelection)) }
         default:
-            if flags.subtracting(.shift).isEmpty, let chars = event.characters, !chars.isEmpty,
-               chars.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) }) {
-                onTypeToSearch?(chars)
-            } else {
-                super.keyDown(with: event)
-            }
+            super.keyDown(with: event)
         }
     }
 }

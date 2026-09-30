@@ -29,3 +29,9 @@ enum Strings {
     static var renameConfirm: String { String(localized: "rename.confirm", defaultValue: "Rename", bundle: .module) }
     static var cancel: String { String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module) }
 }
+
+extension Strings {
+    static var daemonConnecting: String { String(localized: "daemon.connecting", defaultValue: "Connecting to cmux-tui…", bundle: .module) }
+    static var daemonUnavailable: String { String(localized: "daemon.unavailable", defaultValue: "cmux-tui is not responding", bundle: .module) }
+    static var daemonRetrying: String { String(localized: "daemon.retrying", defaultValue: "Still retrying in the background.", bundle: .module) }
+}

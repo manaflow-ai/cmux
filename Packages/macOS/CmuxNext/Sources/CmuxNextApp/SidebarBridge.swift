@@ -36,9 +36,10 @@ final class SidebarBridge {
         let machines = services.machines
         let board = services.statusBoard
         let registry = services.windows.registry
-        let windowID = state.id
+        let windowState = state
         observation = Task { [weak self] in
-            for await sections in Observations({ Self.sections(machines, statuses: board, members: registry.members(of: windowID)) }) {
+            // `state.id` is read inside: the launch window adopts a saved id.
+            for await sections in Observations({ Self.sections(machines, statuses: board, members: registry.members(of: windowState.id)) }) {
                 guard let self, self.model.sections != sections else { continue }
                 self.model.sections = sections
             }

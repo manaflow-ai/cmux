@@ -15,6 +15,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
+    private var startupObservation: Task<Void, Never>?
+    /// Shown while the window has no workspace (first connect, or failure).
+    private(set) var connectingView: DaemonConnectingView?
 
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
@@ -50,6 +53,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func teardown() {
         workspaceObservation?.cancel()
         titleObservation?.cancel()
+        startupObservation?.cancel()
         content?.teardown()
         content = nil
         sidebar.teardown()
@@ -91,7 +95,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             show(workspace, on: daemon)
             return
         }
-        guard requested == nil || machines.local.store.isLoaded else { return }
+        guard machines.local.store.isLoaded else {
+            if content == nil { showConnecting() }
+            return
+        }
         showEmptyState()
     }
 
@@ -100,6 +107,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         guard content != nil || !(root.content is EmptyWindowView) else { return }
         content?.teardown()
         content = nil
+        startupObservation?.cancel()
+        startupObservation = nil
+        connectingView = nil
         titleObservation?.cancel()
         root.titlebar.title = Strings.appName
         let empty = EmptyWindowView()
@@ -109,6 +119,22 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
         root.show(empty)
         services.cloudContextDidChange()
+    }
+
+    /// The connecting (or unavailable) state of the local daemon's first
+    /// connection, until a workspace can be shown.
+    private func showConnecting() {
+        let view = connectingView ?? DaemonConnectingView(frame: .zero)
+        connectingView = view
+        root.show(view)
+        guard startupObservation == nil else { return }
+        let daemon = services.daemon
+        startupObservation = Task { [weak self, weak view] in
+            for await startup in Observations({ daemon.startup }) {
+                view?.apply(startup)
+                if self?.content != nil { return }
+            }
+        }
     }
 
     private func isWaiting(for machineID: String) -> Bool {
@@ -126,6 +152,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
         content = controller
         root.show(controller.layoutView)
+        startupObservation?.cancel()
+        startupObservation = nil
+        connectingView = nil
         titleObservation?.cancel()
         titleObservation = Task { [weak self] in
             for await title in Observations({ workspace.displayName }) { self?.root.titlebar.title = title }

@@ -87,6 +87,7 @@ final class ControlSnapshotPublisher {
         var topology = ControlTopologyMapper.topology(store: services.daemon.store) { [services] pane in
             services.paneController(for: pane)?.selectedTab?.id
         }
+        if case .unavailable(let error) = services.daemon.startup { topology.daemonFailure = error.description }
         topology.windows = windows.controllers.map { controller in
             ControlWindowInfo(
                 id: controller.state.id,

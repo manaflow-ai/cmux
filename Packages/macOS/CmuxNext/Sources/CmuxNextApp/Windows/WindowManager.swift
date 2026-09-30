@@ -33,6 +33,9 @@ final class WindowManager {
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false
+    /// The window opened at launch, before the saved state loaded; it
+    /// becomes the frontmost restored window.
+    private var launchWindowID: String?
     /// Windows placed by `TestWindowPlacement` so far (cascade ordinal).
     private var placedWindows = 0
     private(set) var isTerminating = false
@@ -71,9 +74,16 @@ final class WindowManager {
 
     // MARK: Restore
 
-    /// Opens the saved windows once the first snapshot arrives. Creates a
-    /// workspace only when the daemon tree is empty.
+    /// Opens one window at once (it shows the connecting state until the
+    /// daemon answers), then restores the saved windows once the first
+    /// snapshot arrives, the launch window becoming the frontmost of them.
+    /// Creates a workspace only when the daemon tree is empty.
     func restoreWhenLoaded() {
+        if controllers.isEmpty {
+            let id = UUID().uuidString.lowercased()
+            launchWindowID = id
+            transition { $0.openWindow(id: id) }
+        }
         let store = services.daemon.store
         loadObservation = Task { [weak self] in
             for await loaded in Observations({ store.isLoaded }) where loaded {
@@ -93,14 +103,38 @@ final class WindowManager {
         if services.daemon.store.workspaces.isEmpty {
             _ = await createWorkspace()
         }
-        for record in document.windows { states[record.id] = WindowState(record: record) }
-        registry.apply { registry in
-            registry = WindowRegistry(records: document.windows)
-            return WindowRegistry.Changes()
+        let restoredRegistry = WindowRegistry(records: document.windows)
+        let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
+        for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
+        if !restoredRegistry.windows.isEmpty {
+            registry.apply { registry in
+                registry = restoredRegistry
+                return WindowRegistry.Changes()
+            }
         }
         reconcileMembership()
         sync(previous: [:])
+        // The adopted window is the frontmost saved one; keep it in front.
+        if let adopted, controllers.count > 1 { present(adopted) }
         observeMembership()
+    }
+
+    /// The launch window takes the frontmost saved window's identity and
+    /// state, so relaunch shows it without opening a second window. With
+    /// nothing saved it stays the only window and receives every workspace.
+    private func adoptLaunchWindow(_ restored: WindowRegistry, records: [WindowRecord]) -> WindowController? {
+        guard let launchID = launchWindowID else { return nil }
+        launchWindowID = nil
+        guard let launch = controller(for: launchID), let front = restored.recency.first,
+              let record = records.first(where: { $0.id == front }) else { return nil }
+        launch.state.adopt(record)
+        states[launchID] = nil
+        states[front] = launch.state
+        launch.sidebar.restore(width: record.sidebarWidth, collapsed: record.sidebarCollapsed)
+        if services.environment.testWindow == nil, let frame = restored.window(front)?.frame {
+            launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: restored.window(front)?.display), display: true)
+        }
+        return launch
     }
 
     // MARK: Controllers
@@ -119,9 +153,16 @@ final class WindowManager {
         controller.sidebar.restore(width: state.sidebarWidth, collapsed: state.sidebarCollapsed)
         services.dragSession.installWorkspaceHandoff(on: controller)
         controllers.append(controller)
+        present(controller)
+        if controllers.count == 1 { onFirstWindow?(controller) }
+        return controller
+    }
+
+    /// Orders a new window in without taking focus under no-activate.
+    private func present(_ controller: WindowController) {
         if !ordersWindowsIn {
             // Tests: never on the user's display.
-        } else if placement != nil, services.environment.noActivate {
+        } else if services.environment.testWindow != nil, services.environment.noActivate {
             // Agent screenshot launch: in front on its own screen, still not
             // key and the app not activated.
             controller.window?.orderFrontRegardless()
@@ -131,8 +172,6 @@ final class WindowManager {
         } else {
             controller.showWindow(nil)
         }
-        if controllers.count == 1 { onFirstWindow?(controller) }
-        return controller
     }
 
     /// Brings a window forward (not key and no activation under

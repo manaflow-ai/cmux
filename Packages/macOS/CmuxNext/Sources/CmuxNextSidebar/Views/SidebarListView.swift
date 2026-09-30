@@ -49,10 +49,6 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     /// Clock for the group toggle delay; tests inject a manual clock.
     var clickClock: any Clock<Duration> = ContinuousClock()
 
-    /// Called when the list wants the search field focused (typing while the
-    /// list is focused).
-    var onTypeToSearch: ((String) -> Void)?
-
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
