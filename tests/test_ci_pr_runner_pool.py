@@ -93,6 +93,16 @@ class PreferenceOrder(unittest.TestCase):
         choice = choose(backlog(small=1, large=5))
         self.assertEqual((choice.runner, choice.xcode_app), (LARGE, ""))
 
+    def test_blacksmith_capacity_is_independent_per_label(self):
+        # Blacksmith's plan caps each label independently. A full 12vcpu label
+        # must not make the idle 6vcpu label look full too.
+        snap = backlog(small=0, large=100, old=0)
+        snap["pools"][LARGE]["running"] = 5
+        self.assertEqual(choose(snap).runner, SMALL)
+        self.assertEqual(pool.pool(snap, LARGE)["capacity"], 5)
+        self.assertEqual(pool.pool(snap, SMALL)["capacity"], 10)
+        self.assertEqual(pool.pool(snap, OLD)["capacity"], 10)
+
     def test_macos_15_last_with_its_own_xcode(self):
         # Every pool full: under one round queued on 12vcpu beats a cold
         # compile on macOS 15, more than its extra round does not.
