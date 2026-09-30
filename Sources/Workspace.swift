@@ -9592,7 +9592,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// background, focus overlay, dividers).
     func makeRemoteTmuxPanePanel(
         id panelID: UUID = UUID(), onInput: @escaping @Sendable (TerminalManualInput) -> Void,
-        keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil
+        keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
+        allowsRemoteClipboardWrites: Bool = false
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let surface = TerminalSurface(
@@ -9600,6 +9601,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedTerminalFontSizeConfig(),
             ioMode: .manualMirror,
+            allowsRemoteClipboardWrites: allowsRemoteClipboardWrites,
             manualInputHandler: onInput,
             manualInputKeyNameResolver: keyNameResolver
         )
@@ -9681,9 +9683,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// down. The pane is removed by the resulting `%layout-change` (or
     /// `%window-close` for the window's last pane), never locally.
     func requestRemoteTmuxPaneClose(windowMirror: RemoteTmuxWindowMirror, tmuxPaneId: Int) {
-        // Close warnings disabled → even an active command wouldn't confirm;
-        // kill with no added round trip.
-        guard CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+        guard CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
             requiresConfirmation: true, source: .tabCloseButton
         ) else {
             windowMirror.requestKillPane(tmuxPaneId)
@@ -9699,7 +9699,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 defer { self.pendingRemoteTmuxPaneCloseIds.remove(tmuxPaneId) }
                 guard let windowMirror else { return }
                 let state = states?[tmuxPaneId] ?? windowMirror.paneForegroundState(tmuxPaneId)
-                let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
+                let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
                     requiresConfirmation: state?.hasActiveCommand ?? false,
                     source: .tabCloseButton
                 )
@@ -11962,6 +11962,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         var shortcuts: [TabContextAction: KeyboardShortcut] = [:]
         let mappings: [(TabContextAction, KeyboardShortcutSettings.Action)] = [
             (.rename, .renameTab),
+            (.close, .closeTab),
             (.toggleZoom, .toggleSplitZoom),
             (.newTerminalToRight, .newSurface),
             (.sizeToMyWindow, .sizeTerminalToMyWindow),
@@ -14122,7 +14123,7 @@ extension Workspace: BonsplitDelegate {
            remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil {
             let confirmationSource: CloseTabCloseSource =
                 tabCloseButtonClose == true ? .tabCloseButton : .shortcut
-            let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
+            let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
                 requiresConfirmation: true, source: confirmationSource
             )
             if warningKinds.isEmpty {
@@ -14182,11 +14183,11 @@ extension Workspace: BonsplitDelegate {
                 // The X-button warning asks even when nothing is running; the
                 // cached activity adds the running-process warning when busy.
                 let cached = remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId)
-                let unconditionalWarningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
+                let unconditionalWarningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
                     requiresConfirmation: false, source: confirmationSource
                 )
                 if !unconditionalWarningKinds.isEmpty {
-                    let promptWarningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
+                    let promptWarningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
                         requiresConfirmation: cached?.hasActiveCommand ?? false, source: confirmationSource
                     )
                     presentConfirmation(cached?.activeCommandName, promptWarningKinds)
@@ -14269,7 +14270,7 @@ extension Workspace: BonsplitDelegate {
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
         let confirmationSource: CloseTabCloseSource = tabCloseButtonClose == true ? .tabCloseButton : .shortcut
-        let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
+        let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
             requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
             source: confirmationSource
         )
@@ -14677,19 +14678,33 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
-        // Check if any panel in this pane needs close confirmation
         let tabs = controller.tabs(inPane: pane)
+        var promptTitles: [String] = []
+        var needsPrompt = false
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
-            if let panelId = panelIdFromSurfaceId(tab.id),
-               CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
-                   requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
-                   source: .shortcut
-               ) {
-                pendingPaneClosePanelIds.removeValue(forKey: pane.id)
-                pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
-                return false
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
+            promptTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(panelTitle(panelId: panelId)))
+            if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
+                requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+                source: .shortcut
+            ) {
+                needsPrompt = true
             }
+        }
+        if needsPrompt {
+            let manager = owningTabManager
+                ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+                ?? AppDelegate.shared?.tabManager
+            guard let manager,
+                  !manager.isCloseConfirmationInFlight else { return false }
+            let prompt = DockPaneCloseConfirmationPrompt(titles: promptTitles)
+            guard manager.confirmClose(
+                title: prompt.title,
+                message: prompt.message,
+                scrollableDetails: prompt.details,
+                acceptCmdD: false
+            ) else { return false }
         }
         let panelIds = tabs.compactMap { panelIdFromSurfaceId($0.id) }
         pendingPaneClosePanelIds[pane.id] = panelIds
@@ -15044,6 +15059,8 @@ extension Workspace: BonsplitDelegate {
         case .copyIdentifiers:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             copyIdentifiersToPasteboard(surfaceId: panelId)
+        case .close:
+            closeTabsFromContextMenu([tab.id])
         case .closeToLeft:
             closeTabs(tabIdsToLeft(of: tab.id, inPane: pane))
         case .closeToRight:
