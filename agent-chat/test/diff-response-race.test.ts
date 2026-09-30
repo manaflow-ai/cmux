@@ -70,7 +70,8 @@ try {
   await receive({ kind: "error", op: "get-file-diff", sessionId: "current", path: "tracked.txt", requestId: "unknown", message: "unknown request" });
   assert.equal(state.fileDiffs[errorKey], undefined);
   await receive({ kind: "error", op: "get-file-diff", sessionId: "current", path: "tracked.txt", requestId: request.requestId, message: "matching error" });
-  assert.equal(state.fileDiffs[errorKey], "matching error");
+  assert.equal(state.fileDiffErrors[errorKey], "matching error");
+  assert.equal(state.fileDiffs[errorKey], undefined);
 
   const replacedKey = fileDiffCacheKey("4", "tracked.txt");
   await update(() => state.requestFileDiff("current", replacedKey));
