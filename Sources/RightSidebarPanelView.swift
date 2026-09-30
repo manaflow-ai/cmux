@@ -258,14 +258,14 @@ struct RightSidebarPanelView: View {
                         mode: fileExplorerState.mode
                     ),
                     badgeCount: item.mode == .feed ? feedPendingCount : 0,
+                    showsLabel: showsLabels,
                     shortcutHint: shortcut,
                     showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
                         shortcut: shortcut,
                         alwaysShowShortcutHints: alwaysShowShortcutHints,
                         modifierPressed: modeShortcutHintMonitor.isModifierPressed,
                         modifierHoldHintsEnabled: showModifierHoldHints
-                    ),
-                    showsLabel: showsLabels
+                    )
                 ) {
                     let mode = item.mode
                     if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
