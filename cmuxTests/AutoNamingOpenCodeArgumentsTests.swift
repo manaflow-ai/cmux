@@ -18,7 +18,7 @@ import Testing
             promptPath: "/tmp/cmux-autoname/prompt.txt"
         )
 
-        #expect(arguments.prefix(4) == ["run", "--pure", "--format", "default"])
+        #expect(Array(arguments.prefix(4)) == ["run", "--pure", "--format", "default"])
         #expect(value(of: "--dir", in: arguments) == "/tmp/cmux-autoname")
         #expect(value(of: "--file", in: arguments) == "/tmp/cmux-autoname/prompt.txt")
         #expect(arguments.contains("Generate a 2-5 word title from the attached conversation excerpt. Output only the title."))
