@@ -56,6 +56,14 @@ SwiftCompile (1 task) | 1.000 seconds
 ** BUILD SUCCEEDED **
 """
 
+FLEET_CACHE_LOG = """COMPILATION_CACHE_ENABLE_PLUGIN = YES
+COMPILATION_CACHE_REMOTE_SERVICE_PATH = /Users/Shared/cmux-build-fleet/xcode/fleet-cas.sock
+Build Timing Summary
+CompileSwiftSources (2 tasks) | 3.000 seconds
+Ld (1 task) | 0.500 seconds
+** BUILD SUCCEEDED **
+"""
+
 
 class BuildMetricsTests(unittest.TestCase):
     def test_parse_log_attributes_cache_and_swift_work(self):
@@ -179,9 +187,22 @@ class BuildMetricsTests(unittest.TestCase):
         self.assertEqual(receipt["compiler_cache"]["cacheable_tasks"], 3)
         self.assertEqual(receipt["compiler_cache"]["compile_seconds"], 12.5)
         self.assertEqual(receipt["compiler_cache"]["link_seconds"], 2.25)
+        self.assertEqual(receipt["compiler_cache"]["compile_wall_seconds"], 42.5)
+        self.assertEqual(receipt["compiler_cache"]["cache_backend"], "local")
         self.assertEqual(receipt["derived_data_log_count"], 1)
         self.assertEqual(receipt["activity_logs"], [{"name": "one.xcactivitylog", "bytes": 3}])
         json.dumps(receipt)
+
+    def test_receipt_identifies_fleet_cache_backend_without_emitting_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory)
+            (derived / "cmux-build.log").write_text(FLEET_CACHE_LOG)
+
+            receipt = build_metrics.build_receipt(derived, 9.25, compile_outcome="success")
+
+        self.assertEqual(receipt["compiler_cache"]["cache_backend"], "fleet")
+        self.assertEqual(receipt["compiler_cache"]["compile_wall_seconds"], 9.25)
+        self.assertNotIn("fleet-cas.sock", json.dumps(receipt["compiler_cache"]))
 
 
 if __name__ == "__main__":
