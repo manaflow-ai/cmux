@@ -11,6 +11,7 @@ Status: **fixed** in this PR (commit pair red→green unless noted), **routed** 
 | # | Finding | Impact | Effort | Status |
 | --- | --- | --- | --- | --- |
 | D1 | First daemon connect failure was final: no window, "daemon is not connected yet" | hang (no UI) | M | fixed by crisp in #15766 (`DaemonStartup`, root cause: TMPDIR-dependent owner socket) |
+| F1 | Fresh session's first pane had two terminal tabs: restore()'s create-terminal answered before its pane delta, and the new window's empty-workspace guard sent a second one | user-visible dup | S | **fixed** (`EmptyWorkspaceRepair.FirstTerminal`: one owner per workspace until the pane is mirrored; live-daemon regression test) |
 | D2 | `DaemonService.identity` frozen at first connect; capabilities wrong after daemon restart/handoff | desync | S | **fixed** (store owns `identity`) |
 | D3 | Store event inbox unbounded; reader thread never blocks, so the daemon never drops a slow app | leak, stall | S | **fixed** (4,096 cap, collapse to one resync, echoes kept) |
 | D4 | Frame scheduler waits for a `CADisplayLink` bound to the first main screen; displays asleep or screen unplugged freezes store drain, pane presentation and every mutating CLI request | hang | S | **fixed** (100 ms stall deadline, rebuild after 3 stalls) |
@@ -58,6 +59,7 @@ Converted in this PR:
 | `DaemonStore` inbox | unbounded array + `framePending` | bounded, `collapsed` mode keeping lifecycle events and one echo per transaction |
 | `DisplayLinkFrameScheduler` | link paused/unpaused only | pending → stall deadline → rebuild after 3 stalls |
 | CEF DevTools calls | dictionary of bare continuations | `CEFReplyWaiters` (continuation + deadline per key) |
+| First terminal of a workspace | `populating` counter (ended at the create-terminal reply) + `claimed` set, two owners | `EmptyWorkspaceRepair.FirstTerminal { populating(n), awaitingPane }` per workspace key, released only when the store shows a pane |
 
 A general `DaemonLinkMachine` (idle, connecting, live, backingOff, failed, stopped) was written first and dropped when crisp's `DaemonStartup` merged. `DaemonService` still keeps first-connect state in `startup`, `lastStartupError`, `startupDeadlineTask`, and connection state in `store.connectionState`; a later cleanup can fold both into one enum owned by the store.
 
@@ -70,7 +72,7 @@ Candidates left (proposed enums):
 - `TabStripView` pointer {press, drag, detachedID, pendingDrop, dropPlaceholderIndex, phantomPoint, orderOverride, pressedNewTab}: `Interaction { idle, pressing, reordering, detached(id), receivingDrop(proposal), awaitingEcho(order, deadline) }`; leaving the window does not clear drag state today. Routed to drag.
 - `SidebarListView` {press, drag, rename, external, pendingGroupToggle}: `Interaction { idle, press, drag, rename, externalDrop }`; a rename field survives its row being removed. Routed to sidebar.
 - `TabHoverCard` {pendingID, pendingShow, shownID, lastHidden}: `hidden(last?) | pending(id, Task) | shown(id)`.
-- `EmptyWorkspaceRepair` {claimed, populating}: per-workspace `RepairState` with a deadline (a claim can stick; deleted workspaces never leave `claimed`).
+- `EmptyWorkspaceRepair`: converted (F1). A closed workspace can leave a stale `awaitingPane` key behind (bounded, harmless); a deadline would release a claim whose pane never lands.
 - `UpdaterService` {isProbing, probeTask, lastProbe, lastProbeError} and {channelSwitchPhase?, channelSwitchError, switchTask}: `ProbeState`, `SwitchState` (U1).
 - `SettingsController` {reloadTask, reloadRequested, loadCount, loadWaiters}: `LoadPhase { idle, loading(rerun, task) }` + requested/completed generations (S2).
 - `ControlConnection` 7 booleans: `Input { reading, suspended, finished }`, `Output { idle, armed }`, `Life { open, draining, closed }`.
