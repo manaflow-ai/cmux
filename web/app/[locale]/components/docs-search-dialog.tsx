@@ -87,9 +87,12 @@ function SearchIcon() {
 export function DocsSearchDialog({
   open,
   onOpenChange,
+  onNavigate,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Runs after a result is chosen, e.g. to close the mobile nav drawer. */
+  onNavigate?: () => void;
 }) {
   const t = useTranslations("docs.search");
 
@@ -100,7 +103,12 @@ export function DocsSearchDialog({
         <Dialog.Viewport className="fixed inset-0 z-[1000] flex items-start justify-center p-4 pt-[12vh]">
           <Dialog.Popup className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl shadow-black/20 outline-none transition duration-150 ease-out data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0">
             <Dialog.Title className="sr-only">{t("label")}</Dialog.Title>
-            <DocsSearch onNavigate={() => onOpenChange(false)} />
+            <DocsSearch
+              onNavigate={() => {
+                onOpenChange(false);
+                onNavigate?.();
+              }}
+            />
           </Dialog.Popup>
         </Dialog.Viewport>
       </Dialog.Portal>

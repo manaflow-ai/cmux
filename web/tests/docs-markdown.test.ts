@@ -46,12 +46,12 @@ describe("docsHtmlToMarkdown", () => {
   test("keeps code blocks verbatim and drops copy buttons", () => {
     const root = el(
       "div",
-      { "data-code-block": "" },
+      { "data-code-block": "", "data-code-lang": "bash" },
       el("div", {}, el("span", {}, "bash"), el("button", {}, "Copy code")),
       el("pre", {}, el("code", {}, "brew tap manaflow-ai/cmux\nbrew install --cask cmux\n")),
     );
     expect(docsHtmlToMarkdown(el("div", {}, root), origin)).toBe(
-      "bash\n\n```\nbrew tap manaflow-ai/cmux\nbrew install --cask cmux\n```\n",
+      "bash\n\n```bash\nbrew tap manaflow-ai/cmux\nbrew install --cask cmux\n```\n",
     );
   });
 
@@ -83,5 +83,17 @@ describe("docsHtmlToMarkdown hidden pages", () => {
       el("div", {}, el("h1", {}, "Current page")),
     );
     expect(docsHtmlToMarkdown(root, origin)).toBe("# Current page\n");
+  });
+});
+
+describe("docsHtmlToMarkdown backticks", () => {
+  test("inline code containing or bounded by backticks stays intact", () => {
+    const root = el("div", {}, el("p", {}, "Use ", el("code", {}, "`x` and ``y``"), " and ", el("code", {}, "a`b")));
+    expect(docsHtmlToMarkdown(root, origin)).toBe("Use ``` `x` and ``y`` ``` and ``a`b``\n");
+  });
+
+  test("a code block with a triple-backtick line gets a longer fence", () => {
+    const root = el("div", { "data-code-lang": "md" }, el("pre", {}, el("code", {}, "```js\nx()\n```\n")));
+    expect(docsHtmlToMarkdown(el("div", {}, root), origin)).toBe("````md\n```js\nx()\n```\n````\n");
   });
 });

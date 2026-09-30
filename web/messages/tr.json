@@ -2339,7 +2339,8 @@
       "raiseIssue": "Sorun bildir",
       "openNavigation": "Gezinmeyi aç",
       "closeNavigation": "Gezinmeyi kapat",
-      "searchShortcut": "Belgelerde ara (⌘K)"
+      "searchShortcut": "Belgelerde ara (⌘K)",
+      "navigation": "Belgeler"
     }
   },
   "legal": {

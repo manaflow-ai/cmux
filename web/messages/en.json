@@ -3869,7 +3869,8 @@
       "raiseIssue": "Raise issue",
       "openNavigation": "Open navigation",
       "closeNavigation": "Close navigation",
-      "searchShortcut": "Search docs (⌘K)"
+      "searchShortcut": "Search docs (⌘K)",
+      "navigation": "Documentation"
     }
   },
   "deeplink": {

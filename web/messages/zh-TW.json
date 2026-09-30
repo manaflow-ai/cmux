@@ -2340,7 +2340,8 @@
       "raiseIssue": "提交 Issue",
       "openNavigation": "開啟導覽",
       "closeNavigation": "關閉導覽",
-      "searchShortcut": "搜尋文件 (⌘K)"
+      "searchShortcut": "搜尋文件 (⌘K)",
+      "navigation": "文件"
     }
   },
   "legal": {

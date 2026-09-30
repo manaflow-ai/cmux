@@ -2338,7 +2338,8 @@
       "raiseIssue": "Opret issue",
       "openNavigation": "Åbn navigation",
       "closeNavigation": "Luk navigation",
-      "searchShortcut": "Søg i dokumentationen (⌘K)"
+      "searchShortcut": "Søg i dokumentationen (⌘K)",
+      "navigation": "Dokumentation"
     }
   },
   "legal": {

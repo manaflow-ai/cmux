@@ -2338,7 +2338,8 @@
       "raiseIssue": "الإبلاغ عن مشكلة",
       "openNavigation": "فتح التنقل",
       "closeNavigation": "إغلاق التنقل",
-      "searchShortcut": "البحث في الوثائق (⌘K)"
+      "searchShortcut": "البحث في الوثائق (⌘K)",
+      "navigation": "الوثائق"
     }
   },
   "legal": {

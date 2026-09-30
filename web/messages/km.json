@@ -2339,7 +2339,8 @@
       "raiseIssue": "រាយការណ៍បញ្ហា",
       "openNavigation": "បើកការរុករក",
       "closeNavigation": "បិទការរុករក",
-      "searchShortcut": "ស្វែងរកឯកសារ (⌘K)"
+      "searchShortcut": "ស្វែងរកឯកសារ (⌘K)",
+      "navigation": "ឯកសារ"
     }
   },
   "legal": {

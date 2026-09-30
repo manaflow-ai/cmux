@@ -2409,7 +2409,8 @@
       "raiseIssue": "Повідомити про проблему",
       "openNavigation": "Відкрити навігацію",
       "closeNavigation": "Закрити навігацію",
-      "searchShortcut": "Пошук у документації (⌘K)"
+      "searchShortcut": "Пошук у документації (⌘K)",
+      "navigation": "Документація"
     }
   },
   "legal": {

@@ -35,6 +35,23 @@ function isSkipped(node: MarkdownSourceNode): boolean {
   return tag === "svg" || tag === "button" || tag === "script" || tag === "style";
 }
 
+/** A backtick run one longer than any inside `text`, so the code cannot close it. */
+function backtickFence(text: string, minimum: number): string {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  return "`".repeat(Math.max(minimum, longest + 1));
+}
+
+function inlineCode(text: string): string {
+  const fence = backtickFence(text, 1);
+  const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+  return `${fence}${pad}${text}${pad}${fence}`;
+}
+
+function codeFence(code: string, lang: string | null): string {
+  const fence = backtickFence(code, 3);
+  return `${fence}${lang ?? ""}\n${code}\n${fence}`;
+}
+
 function collapse(text: string): string {
   return text.replace(/\s+/g, " ");
 }
@@ -47,7 +64,7 @@ function inline(node: MarkdownSourceNode, origin: string): string {
   switch (tag) {
     case "code":
     case "kbd":
-      return `\`${node.textContent ?? ""}\``;
+      return inlineCode(node.textContent ?? "");
     case "strong":
     case "b": {
       const text = inner().trim();
@@ -120,7 +137,11 @@ function table(node: MarkdownSourceNode, origin: string): string {
   ].join("\n");
 }
 
-function blocks(node: MarkdownSourceNode, origin: string): string[] {
+/**
+ * `lang` is the code language of the enclosing `[data-code-lang]` frame, so
+ * copied fences keep their info string even when the block shows no header.
+ */
+function blocks(node: MarkdownSourceNode, origin: string, lang: string | null = null): string[] {
   const out: string[] = [];
   let pendingInline = "";
   const flush = () => {
@@ -146,8 +167,7 @@ function blocks(node: MarkdownSourceNode, origin: string): string[] {
       if (text) out.push(text);
     } else if (tag === "pre") {
       flush();
-      const code = (child.textContent ?? "").replace(/\n$/, "");
-      out.push(`\`\`\`\n${code}\n\`\`\``);
+      out.push(codeFence((child.textContent ?? "").replace(/\n$/, ""), lang));
     } else if (tag === "ul" || tag === "ol") {
       flush();
       out.push(list(child, origin, tag === "ol", 0));
@@ -158,7 +178,7 @@ function blocks(node: MarkdownSourceNode, origin: string): string[] {
     } else if (tag === "blockquote") {
       flush();
       out.push(
-        blocks(child, origin)
+        blocks(child, origin, lang)
           .join("\n\n")
           .split("\n")
           .map((line) => `> ${line}`)
@@ -169,7 +189,7 @@ function blocks(node: MarkdownSourceNode, origin: string): string[] {
       out.push("---");
     } else if (["div", "section", "article", "aside", "figure", "details", "header", "footer", "main"].includes(tag)) {
       flush();
-      out.push(...blocks(child, origin));
+      out.push(...blocks(child, origin, attr(child, "data-code-lang") ?? lang));
     } else {
       pendingInline += inline(child, origin);
     }

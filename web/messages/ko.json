@@ -2338,7 +2338,8 @@
       "raiseIssue": "이슈 등록",
       "openNavigation": "탐색 열기",
       "closeNavigation": "탐색 닫기",
-      "searchShortcut": "문서 검색 (⌘K)"
+      "searchShortcut": "문서 검색 (⌘K)",
+      "navigation": "문서"
     }
   },
   "legal": {

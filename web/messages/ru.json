@@ -2341,7 +2341,8 @@
       "raiseIssue": "Сообщить о проблеме",
       "openNavigation": "Открыть навигацию",
       "closeNavigation": "Закрыть навигацию",
-      "searchShortcut": "Поиск по документации (⌘K)"
+      "searchShortcut": "Поиск по документации (⌘K)",
+      "navigation": "Документация"
     }
   },
   "legal": {

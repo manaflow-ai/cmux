@@ -3781,7 +3781,8 @@
       "raiseIssue": "Issue を作成",
       "openNavigation": "ナビゲーションを開く",
       "closeNavigation": "ナビゲーションを閉じる",
-      "searchShortcut": "ドキュメントを検索 (⌘K)"
+      "searchShortcut": "ドキュメントを検索 (⌘K)",
+      "navigation": "ドキュメント"
     }
   },
   "legal": {

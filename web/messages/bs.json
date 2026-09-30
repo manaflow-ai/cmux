@@ -2341,7 +2341,8 @@
       "raiseIssue": "Prijavi problem",
       "openNavigation": "Otvori navigaciju",
       "closeNavigation": "Zatvori navigaciju",
-      "searchShortcut": "Pretraži dokumentaciju (⌘K)"
+      "searchShortcut": "Pretraži dokumentaciju (⌘K)",
+      "navigation": "Dokumentacija"
     }
   },
   "legal": {

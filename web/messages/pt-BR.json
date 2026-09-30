@@ -2341,7 +2341,8 @@
       "raiseIssue": "Abrir issue",
       "openNavigation": "Abrir navegação",
       "closeNavigation": "Fechar navegação",
-      "searchShortcut": "Pesquisar na documentação (⌘K)"
+      "searchShortcut": "Pesquisar na documentação (⌘K)",
+      "navigation": "Documentação"
     }
   },
   "legal": {

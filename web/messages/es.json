@@ -2340,7 +2340,8 @@
       "raiseIssue": "Abrir issue",
       "openNavigation": "Abrir navegación",
       "closeNavigation": "Cerrar navegación",
-      "searchShortcut": "Buscar en la documentación (⌘K)"
+      "searchShortcut": "Buscar en la documentación (⌘K)",
+      "navigation": "Documentación"
     }
   },
   "legal": {

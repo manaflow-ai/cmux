@@ -2346,7 +2346,8 @@
       "raiseIssue": "แจ้งปัญหา",
       "openNavigation": "เปิดการนำทาง",
       "closeNavigation": "ปิดการนำทาง",
-      "searchShortcut": "ค้นหาเอกสาร (⌘K)"
+      "searchShortcut": "ค้นหาเอกสาร (⌘K)",
+      "navigation": "เอกสาร"
     }
   },
   "legal": {

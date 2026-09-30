@@ -2343,7 +2343,8 @@
       "raiseIssue": "Signaler un problème",
       "openNavigation": "Ouvrir la navigation",
       "closeNavigation": "Fermer la navigation",
-      "searchShortcut": "Rechercher dans la documentation (⌘K)"
+      "searchShortcut": "Rechercher dans la documentation (⌘K)",
+      "navigation": "Documentation"
     }
   },
   "legal": {

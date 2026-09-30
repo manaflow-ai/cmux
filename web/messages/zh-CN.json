@@ -2341,7 +2341,8 @@
       "raiseIssue": "提交 Issue",
       "openNavigation": "打开导航",
       "closeNavigation": "关闭导航",
-      "searchShortcut": "搜索文档 (⌘K)"
+      "searchShortcut": "搜索文档 (⌘K)",
+      "navigation": "文档"
     }
   },
   "legal": {

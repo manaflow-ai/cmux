@@ -32,9 +32,10 @@ export async function CodeBlock({
     variant === "ascii" ? "[&_pre]:leading-[1.15]" : "[&_pre]:leading-[22px]";
   // Like Mintlify, only a titled block (a file name) gets a header bar.
   const headerLabel = title;
-  // Without a header the copy button floats over the code and appears on hover.
+  // Without a header the copy button floats over the code. It appears on hover
+  // where the device can hover and stays visible on touch screens.
   const floatingCopy = headerLabel ? null : (
-    <CodeCopyButton className="absolute right-2.5 top-2.5 bg-code-bg opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
+    <CodeCopyButton className="absolute right-2.5 top-2.5 bg-code-bg [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100" />
   );
 
   if (lang && variant !== "ascii") {
@@ -45,7 +46,7 @@ export async function CodeBlock({
     });
 
     return (
-      <div className={frameClass} data-code-block>
+      <div className={frameClass} data-code-block data-code-lang={lang}>
         {headerLabel && <CodeHeader label={headerLabel} />}
         <div
           className={`[&_pre]:m-0 [&_pre]:bg-transparent [&_pre]:px-4 [&_pre]:py-3.5 [&_pre]:overflow-x-auto [&_pre]:text-[13px] ${shikiLineHeightClass} [&_pre]:font-mono [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[1em]`}

@@ -66,7 +66,7 @@ export function DocsNav({
 
   return (
     <DocsChannelProvider value={channel}>
-      <DocsSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
+      <DocsSearchDialog open={searchOpen} onOpenChange={setSearchOpen} onNavigate={close} />
 
       {/* Mobile bar: menu, breadcrumb, search */}
       <div
@@ -104,7 +104,7 @@ export function DocsNav({
         ref={drawerRef}
         id="docs-sidebar"
         role="navigation"
-        aria-label="Documentation"
+        aria-label={tu("navigation")}
         data-pagefind-ignore="all"
         className={`fixed bottom-0 left-0 top-0 z-50 w-[16.5rem] overflow-y-auto overscroll-contain border-r border-border bg-background px-5 pb-8 pt-5 transition-transform lg:top-[49px] lg:z-20 lg:translate-x-0 lg:border-r-0 ${
           open ? "translate-x-0" : "-translate-x-full"
@@ -117,12 +117,15 @@ export function DocsNav({
         {/* Content */}
         <main className="min-w-0 flex-1">
           <div className="mx-auto w-full max-w-5xl px-6 pb-16 pt-8 lg:max-w-4xl lg:px-8 lg:pt-10">
-            <div className="relative" data-pagefind-ignore="all">
-              <div className="mb-2.5 h-5 truncate text-[14px] font-medium leading-5 text-muted">
+            <div
+              className="relative mb-2.5 flex items-center justify-between gap-3 sm:block"
+              data-pagefind-ignore="all"
+            >
+              <div className="h-5 min-w-0 truncate text-[14px] font-medium leading-5 text-muted">
                 {eyebrow}
               </div>
-              {/* Sits on the title line, like Mintlify; the title reserves room for it. */}
-              <div className="absolute right-0 top-[33px] z-10 hidden sm:block">
+              {/* Beside the eyebrow on phones; on the title line from sm up, where the title reserves room for it. */}
+              <div className="z-10 shrink-0 sm:absolute sm:right-0 sm:top-[33px]">
                 <DocsPageActions />
               </div>
             </div>
