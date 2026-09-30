@@ -36,6 +36,8 @@ extension ControlCommandCoordinator {
         context: (any ControlMobileHostContext)?
     ) async -> ControlCallResult? {
         switch request.method {
+        case "mobile.terminal.paste", "terminal.paste":
+            return await context?.controlMobileTerminalPaste(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
             return await context?.controlMobileTerminalReplay(params: request.params)
         case "mobile.task.models.list":
