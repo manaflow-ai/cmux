@@ -14,12 +14,17 @@ enum TerminalNotificationOrigin: Hashable, Sendable {
     case sshRelay(ownerWorkspaceID: UUID)
     /// A cmux Cloud machine's daemon event stream, attributed by the Mac's surface catalog.
     case cloudVM(machineID: String)
+    /// Another Mac on the account (My Devices), from its notification feed. `machineID`
+    /// is the device's `SurfaceMachineID` raw value (`device:<uuid>@<tag>`).
+    case deviceMac(machineID: String)
 
     static let localWireValue = "local"
     static let sshRelayWirePrefix = "ssh-relay:"
     static let cloudVMWirePrefix = "cloud-vm:"
+    static let deviceMacWirePrefix = "device-mac:"
 
-    /// `local`, `ssh-relay:<workspace uuid>`, or `cloud-vm:<machine id>`; what hooks see
+    /// `local`, `ssh-relay:<workspace uuid>`, `cloud-vm:<machine id>`, or
+    /// `device-mac:<device machine id>`; what hooks see
     /// in `CMUX_NOTIFICATION_ORIGIN` and in the envelope's `origin.value`.
     var wireValue: String {
         switch self {
@@ -29,15 +34,18 @@ enum TerminalNotificationOrigin: Hashable, Sendable {
             return Self.sshRelayWirePrefix + ownerWorkspaceID.uuidString.lowercased()
         case .cloudVM(let machineID):
             return Self.cloudVMWirePrefix + machineID
+        case .deviceMac(let machineID):
+            return Self.deviceMacWirePrefix + machineID
         }
     }
 
-    /// Envelope `origin.kind`: `local`, `ssh-relay`, or `cloud-vm`.
+    /// Envelope `origin.kind`: `local`, `ssh-relay`, `cloud-vm`, or `device-mac`.
     var kind: String {
         switch self {
         case .local: return "local"
         case .sshRelay: return "ssh-relay"
         case .cloudVM: return "cloud-vm"
+        case .deviceMac: return "device-mac"
         }
     }
 
@@ -55,6 +63,9 @@ enum TerminalNotificationOrigin: Hashable, Sendable {
         } else if wireValue.hasPrefix(Self.cloudVMWirePrefix) {
             let machineID = String(wireValue.dropFirst(Self.cloudVMWirePrefix.count))
             self = machineID.isEmpty ? .local : .cloudVM(machineID: machineID)
+        } else if wireValue.hasPrefix(Self.deviceMacWirePrefix) {
+            let machineID = String(wireValue.dropFirst(Self.deviceMacWirePrefix.count))
+            self = machineID.isEmpty ? .local : .deviceMac(machineID: machineID)
         } else {
             self = .local
         }
@@ -78,14 +89,17 @@ extension TerminalNotificationOrigin: Codable {
 struct TerminalNotificationPolicyOriginContext: Codable, Sendable, Equatable {
     var kind: String
     var value: String
-    /// The cloud machine id for `cloud-vm`; absent otherwise.
+    /// The machine id for `cloud-vm` and `device-mac`; absent otherwise.
     var machine: String?
 
     init(_ origin: TerminalNotificationOrigin) {
         kind = origin.kind
         value = origin.wireValue
-        if case .cloudVM(let machineID) = origin {
+        switch origin {
+        case .cloudVM(let machineID), .deviceMac(let machineID):
             machine = machineID
+        case .local, .sshRelay:
+            break
         }
     }
 }
