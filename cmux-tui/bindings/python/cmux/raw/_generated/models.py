@@ -1689,6 +1689,17 @@ class CopyRequest:
 
 
 @dataclass(frozen=True)
+class CreateBrowserProfileRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/create-browser-profile/request'
+    name: str
+    browser_profile: Union[str, None, MissingType] = field(default=MISSING)
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    icon: Union[str, None, MissingType] = field(default=MISSING)
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    source: Union[JsonValue, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class CreatePersonalGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/create-personal-group/request'
     name: str
@@ -1790,6 +1801,12 @@ class CreateWorkspaceGroupRequest:
     color: Union[str, None, MissingType] = field(default=MISSING)
     group: Union[str, None, MissingType] = field(default=MISSING)
     index: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class DeleteBrowserProfileRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/delete-browser-profile/request'
+    browser_profile: str
 
 
 @dataclass(frozen=True)
@@ -2013,6 +2030,13 @@ class MintTerminalRendererByTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/mint-terminal-renderer-by-terminal/request'
     terminal: str
     ttl_ms: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MoveBrowserProfileRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-browser-profile/request'
+    browser_profile: str
+    index: int
 
 
 @dataclass(frozen=True)
@@ -2864,6 +2888,15 @@ class UnsaveScreenGroupRequest:
 class UnsaveTabGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/unsave-tab-group/request'
     group: str
+
+
+@dataclass(frozen=True)
+class UpdateBrowserProfileRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/update-browser-profile/request'
+    browser_profile: str
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    icon: Union[str, None, MissingType] = field(default=MISSING)
+    name: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3784,6 +3817,7 @@ __all__ = [
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
     'CopyRequest',
+    'CreateBrowserProfileRequest',
     'CreatePersonalGroupRequest',
     'CreateProfileRequest',
     'CreateScreenGroupRequest',
@@ -3792,6 +3826,7 @@ __all__ = [
     'CreateTerminalRequest',
     'CreateWorkspaceRequest',
     'CreateWorkspaceGroupRequest',
+    'DeleteBrowserProfileRequest',
     'DeletePersonalGroupRequest',
     'DeleteProfileRequest',
     'DeleteSavedScreenGroupRequest',
@@ -3827,6 +3862,7 @@ __all__ = [
     'MarkWorkspacesProviderManagedRequest',
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
+    'MoveBrowserProfileRequest',
     'MovePersonalGroupRequest',
     'MoveProfileRequest',
     'MoveScreenRequest',
@@ -3926,6 +3962,7 @@ __all__ = [
     'UnregisterBrowserProviderRequest',
     'UnsaveScreenGroupRequest',
     'UnsaveTabGroupRequest',
+    'UpdateBrowserProfileRequest',
     'UpdateFrontendBrowserTabRequest',
     'UpdatePersonalGroupRequest',
     'UpdateProfileRequest',

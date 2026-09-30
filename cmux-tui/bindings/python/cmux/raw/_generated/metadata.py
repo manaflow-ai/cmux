@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'b71910b6a1ed69fa3f1b8b66d0337dcd48bdc50bc2d229a1047c423a5ecb16fb'
+IR_SHA256 = 'a6f0fd964e671efe5149e878a2c1eaaab9e440269ad4adf3bcd8c26998c63ce2'
 
 
 @dataclass(frozen=True)
@@ -450,6 +450,22 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'create-browser-profile': CommandMetadata(
+        'create-browser-profile',
+        'control',
+        12,
+        'browser-profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'source': CommandFieldMetadata(None, None),
+        },
+    ),
     'create-personal-group': CommandMetadata(
         'create-personal-group',
         'control',
@@ -592,6 +608,17 @@ COMMANDS = {
             'group': CommandFieldMetadata(None, None),
             'index': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+        },
+    ),
+    'delete-browser-profile': CommandMetadata(
+        'delete-browser-profile',
+        'control',
+        12,
+        'browser-profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile': CommandFieldMetadata(None, None),
         },
     ),
     'delete-personal-group': CommandMetadata(
@@ -966,6 +993,18 @@ COMMANDS = {
         {
             'terminal': CommandFieldMetadata(None, None),
             'ttl_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-browser-profile': CommandMetadata(
+        'move-browser-profile',
+        'control',
+        12,
+        'browser-profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
         },
     ),
     'move-personal-group': CommandMetadata(
@@ -2285,6 +2324,20 @@ COMMANDS = {
         None,
         {
             'group': CommandFieldMetadata(None, None),
+        },
+    ),
+    'update-browser-profile': CommandMetadata(
+        'update-browser-profile',
+        'control',
+        12,
+        'browser-profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
         },
     ),
     'update-frontend-browser-tab': CommandMetadata(

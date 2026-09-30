@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b71910b6a1ed69fa3f1b8b66d0337dcd48bdc50bc2d229a1047c423a5ecb16fb";
+pub const ir_sha256 = "a6f0fd964e671efe5149e878a2c1eaaab9e440269ad4adf3bcd8c26998c63ce2";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -2930,6 +2930,30 @@ pub fn copy(client: anytype, request: CopyRequest) !wire.Decoded(CopyResult) {
     );
 }
 
+pub const CreateBrowserProfileRequest = struct {
+    browser_profile: wire.Field([]const u8) = .absent,
+    color: wire.Field([]const u8) = .absent,
+    icon: wire.Field([]const u8) = .absent,
+    index: wire.Field(u64) = .absent,
+    name: []const u8,
+    source: wire.Field(JsonValue) = .absent,
+};
+
+pub const CreateBrowserProfileResult = JsonValue;
+
+pub fn createBrowserProfile(client: anytype, request: CreateBrowserProfileRequest) !wire.Decoded(CreateBrowserProfileResult) {
+    return client.callTyped(
+        CreateBrowserProfileResult,
+        .{
+            .name = "create-browser-profile",
+            .authority = "control",
+            .since = 12,
+            .capability = "browser-profiles-v1",
+        },
+        request,
+    );
+}
+
 pub const CreatePersonalGroupRequest = struct {
     collapsed: ?bool = null,
     color: wire.Field([]const u8) = .absent,
@@ -3157,6 +3181,25 @@ pub fn createWorkspaceGroup(client: anytype, request: CreateWorkspaceGroupReques
             .authority = "control",
             .since = 12,
             .capability = "workspace-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const DeleteBrowserProfileRequest = struct {
+    browser_profile: []const u8,
+};
+
+pub const DeleteBrowserProfileResult = JsonValue;
+
+pub fn deleteBrowserProfile(client: anytype, request: DeleteBrowserProfileRequest) !wire.Decoded(DeleteBrowserProfileResult) {
+    return client.callTyped(
+        DeleteBrowserProfileResult,
+        .{
+            .name = "delete-browser-profile",
+            .authority = "control",
+            .since = 12,
+            .capability = "browser-profiles-v1",
         },
         request,
     );
@@ -3817,6 +3860,26 @@ pub fn mintTerminalRendererByTerminal(client: anytype, request: MintTerminalRend
             .authority = "frontend",
             .since = 11,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const MoveBrowserProfileRequest = struct {
+    browser_profile: []const u8,
+    index: u64,
+};
+
+pub const MoveBrowserProfileResult = JsonValue;
+
+pub fn moveBrowserProfile(client: anytype, request: MoveBrowserProfileRequest) !wire.Decoded(MoveBrowserProfileResult) {
+    return client.callTyped(
+        MoveBrowserProfileResult,
+        .{
+            .name = "move-browser-profile",
+            .authority = "control",
+            .since = 12,
+            .capability = "browser-profiles-v1",
         },
         request,
     );
@@ -6036,6 +6099,28 @@ pub fn unsaveTabGroup(client: anytype, request: UnsaveTabGroupRequest) !wire.Dec
     );
 }
 
+pub const UpdateBrowserProfileRequest = struct {
+    browser_profile: []const u8,
+    color: wire.Field([]const u8) = .absent,
+    icon: wire.Field([]const u8) = .absent,
+    name: wire.Field([]const u8) = .absent,
+};
+
+pub const UpdateBrowserProfileResult = JsonValue;
+
+pub fn updateBrowserProfile(client: anytype, request: UpdateBrowserProfileRequest) !wire.Decoded(UpdateBrowserProfileResult) {
+    return client.callTyped(
+        UpdateBrowserProfileResult,
+        .{
+            .name = "update-browser-profile",
+            .authority = "control",
+            .since = 12,
+            .capability = "browser-profiles-v1",
+        },
+        request,
+    );
+}
+
 pub const UpdateFrontendBrowserTabRequest = struct {
     favicon_url: wire.Field([]const u8) = .absent,
     surface: Id,
@@ -7315,7 +7400,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 183;
+pub const command_count: usize = 187;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7348,6 +7433,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "close-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "close-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "copy", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "create-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
     .{ .name = "create-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "create-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "create-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7356,6 +7442,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "create-terminal", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },
     .{ .name = "create-workspace", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },
     .{ .name = "create-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
+    .{ .name = "delete-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
     .{ .name = "delete-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "delete-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "delete-saved-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7390,6 +7477,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "mark-workspaces-provider-managed", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
+    .{ .name = "move-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
     .{ .name = "move-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "move-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "move-screen", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
@@ -7487,6 +7575,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "unregister-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "unsave-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "unsave-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
+    .{ .name = "update-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
     .{ .name = "update-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
     .{ .name = "update-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "update-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },

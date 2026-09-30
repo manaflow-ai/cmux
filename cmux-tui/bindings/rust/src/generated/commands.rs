@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b71910b6a1ed69fa3f1b8b66d0337dcd48bdc50bc2d229a1047c423a5ecb16fb.
+// cmux-tui mux protocol 12, IR a6f0fd964e671efe5149e878a2c1eaaab9e440269ad4adf3bcd8c26998c63ce2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -450,6 +450,25 @@ pub struct CopyRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreateBrowserProfileRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub browser_profile: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub color: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub source: Optional<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type CreateBrowserProfileResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreatePersonalGroupRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub collapsed: Option<bool>,
@@ -632,6 +651,15 @@ pub struct CreateWorkspaceGroupRequest {
 
 #[rustfmt::skip]
 pub type CreateWorkspaceGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeleteBrowserProfileRequest {
+    pub browser_profile: String,
+}
+
+#[rustfmt::skip]
+pub type DeleteBrowserProfileResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -936,6 +964,16 @@ pub struct MintTerminalRendererByTerminalRequest {
 
 #[rustfmt::skip]
 pub type MintTerminalRendererByTerminalResult = T::MintTerminalRendererResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveBrowserProfileRequest {
+    pub browser_profile: String,
+    pub index: u64,
+}
+
+#[rustfmt::skip]
+pub type MoveBrowserProfileResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2228,6 +2266,21 @@ pub type UnsaveTabGroupResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateBrowserProfileRequest {
+    pub browser_profile: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub color: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type UpdateBrowserProfileResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateFrontendBrowserTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub favicon_url: Optional<String>,
@@ -2576,6 +2629,10 @@ impl CmuxClient {
         self.execute(&COPY_METADATA, &request)
     }
 
+    pub fn create_browser_profile(&mut self, request: CreateBrowserProfileRequest) -> Result<CreateBrowserProfileResult> {
+        self.execute(&CREATE_BROWSER_PROFILE_METADATA, &request)
+    }
+
     pub fn create_personal_group(&mut self, request: CreatePersonalGroupRequest) -> Result<CreatePersonalGroupResult> {
         self.execute(&CREATE_PERSONAL_GROUP_METADATA, &request)
     }
@@ -2620,6 +2677,10 @@ impl CmuxClient {
 
     pub fn create_workspace_group(&mut self, request: CreateWorkspaceGroupRequest) -> Result<CreateWorkspaceGroupResult> {
         self.execute(&CREATE_WORKSPACE_GROUP_METADATA, &request)
+    }
+
+    pub fn delete_browser_profile(&mut self, request: DeleteBrowserProfileRequest) -> Result<DeleteBrowserProfileResult> {
+        self.execute(&DELETE_BROWSER_PROFILE_METADATA, &request)
     }
 
     pub fn delete_personal_group(&mut self, request: DeletePersonalGroupRequest) -> Result<DeletePersonalGroupResult> {
@@ -2764,6 +2825,10 @@ impl CmuxClient {
 
     pub fn mint_terminal_renderer_by_terminal(&mut self, request: MintTerminalRendererByTerminalRequest) -> Result<MintTerminalRendererByTerminalResult> {
         self.execute(&MINT_TERMINAL_RENDERER_BY_TERMINAL_METADATA, &request)
+    }
+
+    pub fn move_browser_profile(&mut self, request: MoveBrowserProfileRequest) -> Result<MoveBrowserProfileResult> {
+        self.execute(&MOVE_BROWSER_PROFILE_METADATA, &request)
     }
 
     pub fn move_personal_group(&mut self, request: MovePersonalGroupRequest) -> Result<MovePersonalGroupResult> {
@@ -3330,6 +3395,10 @@ impl CmuxClient {
 
     pub fn unsave_tab_group(&mut self, request: UnsaveTabGroupRequest) -> Result<UnsaveTabGroupResult> {
         self.execute(&UNSAVE_TAB_GROUP_METADATA, &request)
+    }
+
+    pub fn update_browser_profile(&mut self, request: UpdateBrowserProfileRequest) -> Result<UpdateBrowserProfileResult> {
+        self.execute(&UPDATE_BROWSER_PROFILE_METADATA, &request)
     }
 
     pub fn update_frontend_browser_tab(&mut self, request: UpdateFrontendBrowserTabRequest) -> Result<UpdateFrontendBrowserTabResult> {

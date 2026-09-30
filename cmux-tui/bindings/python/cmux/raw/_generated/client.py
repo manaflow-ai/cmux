@@ -105,6 +105,9 @@ class GeneratedClientMixin:
     def copy(self, surface: Id, mode: Literal['screen', 'selection', 'scrollback']) -> CopyResult:
         return self._invoke_command('copy', CopyRequest(surface=surface, mode=mode))
 
+    def create_browser_profile(self, name: str, *, browser_profile: Union[str, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, source: Union[JsonValue, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('create-browser-profile', CreateBrowserProfileRequest(name=name, browser_profile=browser_profile, color=color, icon=icon, index=index, source=source))
+
     def create_personal_group(self, name: str, *, collapsed: Union[bool, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, profile: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-personal-group', CreatePersonalGroupRequest(name=name, collapsed=collapsed, color=color, group=group, index=index, profile=profile))
 
@@ -128,6 +131,9 @@ class GeneratedClientMixin:
 
     def create_workspace_group(self, name: str, *, collapsed: Union[bool, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-workspace-group', CreateWorkspaceGroupRequest(name=name, collapsed=collapsed, color=color, group=group, index=index))
+
+    def delete_browser_profile(self, browser_profile: str) -> JsonValue:
+        return self._invoke_command('delete-browser-profile', DeleteBrowserProfileRequest(browser_profile=browser_profile))
 
     def delete_personal_group(self, group: str) -> JsonValue:
         return self._invoke_command('delete-personal-group', DeletePersonalGroupRequest(group=group))
@@ -230,6 +236,9 @@ class GeneratedClientMixin:
 
     def mint_terminal_renderer_by_terminal(self, terminal: str, *, ttl_ms: Union[int, MissingType] = MISSING) -> MintTerminalRendererResult:
         return self._invoke_command('mint-terminal-renderer-by-terminal', MintTerminalRendererByTerminalRequest(terminal=terminal, ttl_ms=ttl_ms))
+
+    def move_browser_profile(self, browser_profile: str, index: int) -> JsonValue:
+        return self._invoke_command('move-browser-profile', MoveBrowserProfileRequest(browser_profile=browser_profile, index=index))
 
     def move_personal_group(self, group: str, index: int) -> JsonValue:
         return self._invoke_command('move-personal-group', MovePersonalGroupRequest(group=group, index=index))
@@ -522,6 +531,9 @@ class GeneratedClientMixin:
     def unsave_tab_group(self, group: str) -> JsonValue:
         return self._invoke_command('unsave-tab-group', UnsaveTabGroupRequest(group=group))
 
+    def update_browser_profile(self, browser_profile: str, *, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('update-browser-profile', UpdateBrowserProfileRequest(browser_profile=browser_profile, color=color, icon=icon, name=name))
+
     def update_frontend_browser_tab(self, surface: Id, *, favicon_url: Union[str, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-frontend-browser-tab', UpdateFrontendBrowserTabRequest(surface=surface, favicon_url=favicon_url, title=title, url=url))
 
@@ -593,6 +605,7 @@ GeneratedClientMixin.close_tabs.__cmux_command__ = COMMANDS['close-tabs']
 GeneratedClientMixin.close_terminal.__cmux_command__ = COMMANDS['close-terminal']
 GeneratedClientMixin.close_workspace.__cmux_command__ = COMMANDS['close-workspace']
 GeneratedClientMixin.copy.__cmux_command__ = COMMANDS['copy']
+GeneratedClientMixin.create_browser_profile.__cmux_command__ = COMMANDS['create-browser-profile']
 GeneratedClientMixin.create_personal_group.__cmux_command__ = COMMANDS['create-personal-group']
 GeneratedClientMixin.create_profile.__cmux_command__ = COMMANDS['create-profile']
 GeneratedClientMixin.create_screen_group.__cmux_command__ = COMMANDS['create-screen-group']
@@ -601,6 +614,7 @@ GeneratedClientMixin.create_tab_group.__cmux_command__ = COMMANDS['create-tab-gr
 GeneratedClientMixin.create_terminal.__cmux_command__ = COMMANDS['create-terminal']
 GeneratedClientMixin.create_workspace.__cmux_command__ = COMMANDS['create-workspace']
 GeneratedClientMixin.create_workspace_group.__cmux_command__ = COMMANDS['create-workspace-group']
+GeneratedClientMixin.delete_browser_profile.__cmux_command__ = COMMANDS['delete-browser-profile']
 GeneratedClientMixin.delete_personal_group.__cmux_command__ = COMMANDS['delete-personal-group']
 GeneratedClientMixin.delete_profile.__cmux_command__ = COMMANDS['delete-profile']
 GeneratedClientMixin.delete_saved_screen_group.__cmux_command__ = COMMANDS['delete-saved-screen-group']
@@ -635,6 +649,7 @@ GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
+GeneratedClientMixin.move_browser_profile.__cmux_command__ = COMMANDS['move-browser-profile']
 GeneratedClientMixin.move_personal_group.__cmux_command__ = COMMANDS['move-personal-group']
 GeneratedClientMixin.move_profile.__cmux_command__ = COMMANDS['move-profile']
 GeneratedClientMixin.move_screen.__cmux_command__ = COMMANDS['move-screen']
@@ -732,6 +747,7 @@ GeneratedClientMixin.unpin_workspace.__cmux_command__ = COMMANDS['unpin-workspac
 GeneratedClientMixin.unregister_browser_provider.__cmux_command__ = COMMANDS['unregister-browser-provider']
 GeneratedClientMixin.unsave_screen_group.__cmux_command__ = COMMANDS['unsave-screen-group']
 GeneratedClientMixin.unsave_tab_group.__cmux_command__ = COMMANDS['unsave-tab-group']
+GeneratedClientMixin.update_browser_profile.__cmux_command__ = COMMANDS['update-browser-profile']
 GeneratedClientMixin.update_frontend_browser_tab.__cmux_command__ = COMMANDS['update-frontend-browser-tab']
 GeneratedClientMixin.update_personal_group.__cmux_command__ = COMMANDS['update-personal-group']
 GeneratedClientMixin.update_profile.__cmux_command__ = COMMANDS['update-profile']

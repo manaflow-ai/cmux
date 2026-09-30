@@ -63,11 +63,9 @@ fn browser_profiles_round_trip_over_the_wire() {
     )));
     // A retry with the same id returns the stored record (an interrupted
     // import finds the profile it made) and changes nothing.
-    let retried = run(
-        &mux,
-        json!({"cmd":"create-browser-profile","browser_profile":WORK,"name":"Other"}),
-    )
-    .unwrap();
+    let retried =
+        run(&mux, json!({"cmd":"create-browser-profile","browser_profile":WORK,"name":"Other"}))
+            .unwrap();
     assert_eq!(retried["changed"], false);
     assert_eq!(retried["browser_profile"]["name"], "Work");
     assert_eq!(listed(&mux)["personal_revision"].as_u64().unwrap(), revision);
@@ -120,7 +118,8 @@ fn browser_profiles_round_trip_over_the_wire() {
 #[test]
 fn deleting_a_browser_profile_clears_the_defaults_that_name_it() {
     let mux = profiles_mux();
-    run(&mux, json!({"cmd":"create-browser-profile","browser_profile":WORK,"name":"Work"})).unwrap();
+    run(&mux, json!({"cmd":"create-browser-profile","browser_profile":WORK,"name":"Work"}))
+        .unwrap();
     run(&mux, json!({"cmd":"create-browser-profile","browser_profile":CLIENT,"name":"Client"}))
         .unwrap();
     run(
@@ -140,7 +139,10 @@ fn deleting_a_browser_profile_clears_the_defaults_that_name_it() {
     let deleted =
         run(&mux, json!({"cmd":"delete-browser-profile","browser_profile":WORK})).unwrap();
     assert_eq!(deleted["browser_profile"], WORK);
-    assert_eq!(deleted["cleared_workspaces"], json!([{"session_id":"remote-1","workspace_key":"w1"}]));
+    assert_eq!(
+        deleted["cleared_workspaces"],
+        json!([{"session_id":"remote-1","workspace_key":"w1"}])
+    );
     assert_eq!(deleted["cleared_rooms"], json!(["default"]));
     let personal = listed(&mux);
     let ids = personal["browser_profiles"]

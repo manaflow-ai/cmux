@@ -94,6 +94,7 @@ mod loopback_forward;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
+mod browser_profiles;
 mod personal;
 mod terminal_create;
 mod terminal_resources;
@@ -207,6 +208,10 @@ pub const PROFILES_CAPABILITY: &str = "profiles-v1";
 /// Per-terminal themes in the home session's personal state:
 /// `set-personal-terminal` and `list-personal.terminals`.
 pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
+/// Browser profile records in personal state: `browser_profiles` in
+/// `list-personal` and the `*-browser-profile` commands
+/// (plans/cmux-next/data-model.md section 5).
+pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
 /// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
 /// `move-screen`, `new-screen` with `screen_name`/`color`/`icon`/`pinned`/
 /// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,
@@ -348,6 +353,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SESSION_IDENTITY_CAPABILITY,
         PROFILES_CAPABILITY,
         PERSONAL_TERMINALS_CAPABILITY,
+        BROWSER_PROFILES_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
     ];
@@ -1879,6 +1885,42 @@ enum Command {
     },
     /// Every personal record of the home session (`profiles-v1`).
     ListPersonal,
+    /// Create a browser profile (`browser-profiles-v1`). A caller-chosen
+    /// `browser_profile` id makes a retry return the stored record.
+    CreateBrowserProfile {
+        name: String,
+        #[serde(default)]
+        browser_profile: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        icon: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        source: Option<Value>,
+    },
+    /// Update a browser profile. An absent field is unchanged; JSON null
+    /// clears it.
+    UpdateBrowserProfile {
+        browser_profile: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
+    },
+    /// Move a browser profile to an insertion index among browser profiles.
+    MoveBrowserProfile {
+        browser_profile: String,
+        index: usize,
+    },
+    /// Delete a browser profile (not `default`); clears the workspace and
+    /// room defaults that name it.
+    DeleteBrowserProfile {
+        browser_profile: String,
+    },
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
         name: String,
@@ -14751,6 +14793,32 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::ListPersonal => personal::list(mux),
+        Command::CreateBrowserProfile { name, browser_profile, color, icon, index, source } => {
+            browser_profiles::create(
+                mux,
+                crate::workspace_registry::BrowserProfileInput {
+                    id: browser_profile,
+                    name,
+                    color,
+                    icon,
+                    index,
+                    source,
+                },
+            )
+        }
+        Command::UpdateBrowserProfile { browser_profile, name, color, icon } => {
+            browser_profiles::update(
+                mux,
+                &browser_profile,
+                crate::workspace_registry::BrowserProfileUpdate { name, color, icon },
+            )
+        }
+        Command::MoveBrowserProfile { browser_profile, index } => {
+            browser_profiles::move_to(mux, &browser_profile, index)
+        }
+        Command::DeleteBrowserProfile { browser_profile } => {
+            browser_profiles::delete(mux, &browser_profile)
+        }
         Command::CreateProfile {
             name,
             profile,

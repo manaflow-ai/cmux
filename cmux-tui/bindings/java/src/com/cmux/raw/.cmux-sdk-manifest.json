@@ -347,8 +347,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "f9a7c79ddf101c03d14bca48e1e45e298bdc1643b07a948e391009cf2d117365",
-      "size": 47413
+      "sha256": "6ad85cf886a1e0d30471a73c2304c2f2190b0ca4824d9f2180a6299c7a122d4b",
+      "size": 48465
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -374,6 +374,11 @@
       "path": "CopyResultMode.java",
       "sha256": "e2543ef2d7ec3a891ce114e220711ab624d729c371e0e0bbbb2ee59e5e77f911",
       "size": 930
+    },
+    {
+      "path": "CreateBrowserProfileRequest.java",
+      "sha256": "b61156aace2a7878770633f7f7c296d038636feed404cff5ec74f683edc292b8",
+      "size": 5346
     },
     {
       "path": "CreatePersonalGroupRequest.java",
@@ -449,6 +454,11 @@
       "path": "DeclarativeLayoutStack.java",
       "sha256": "5d3279a8a05ff9f2b423ebeca1f692d3328a6d7259b13a866fa02bc59bf21a58",
       "size": 3023
+    },
+    {
+      "path": "DeleteBrowserProfileRequest.java",
+      "sha256": "f2cf5341fbefbe8f3903a1b2711e5c181dae343ba6b9cc6a2a498472ef4f3a7a",
+      "size": 2294
     },
     {
       "path": "DeletePersonalGroupRequest.java",
@@ -597,8 +607,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "79089e16829ca201b8a318bd8cfe3a7671b070738441dcd33dc018f521580298",
-      "size": 42508
+      "sha256": "b61a35b91cb678167fe769418b53d4a2e8dd3fd308dbab8d5efe4320dd12df38",
+      "size": 43458
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -876,6 +886,11 @@
       "size": 6460
     },
     {
+      "path": "MoveBrowserProfileRequest.java",
+      "sha256": "a25ecdd3b74637c2868546e8ba33cd057d80514d54605f10233e4cefe6ab86e0",
+      "size": 2932
+    },
+    {
       "path": "MovePersonalGroupRequest.java",
       "sha256": "0e5b158a8f49dbfa12cf627db6c14d45e8588ebb4b6fc9863726d4c50591133c",
       "size": 2709
@@ -1132,7 +1147,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "f2db62ab6a372c4f8d48a9934f4320f3cc3a914d13960c6900bf31fd325e0942",
+      "sha256": "669b430cd11ae3763afa3c535bcb07c665d9fdf95f886afafe71f5ac319fb34c",
       "size": 4696
     },
     {
@@ -1961,6 +1976,11 @@
       "size": 2022
     },
     {
+      "path": "UpdateBrowserProfileRequest.java",
+      "sha256": "e98002d946d6e2931569b215b0b22fb625ff6a61dfc1393243c71ebd71d69b55",
+      "size": 4111
+    },
+    {
       "path": "UpdateFrontendBrowserTabRequest.java",
       "sha256": "6b3b706d193e29916d503828b182ef260da58ce1bf8efb5402eb95ee4d42e9f1",
       "size": 4101
@@ -2102,7 +2122,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "b71910b6a1ed69fa3f1b8b66d0337dcd48bdc50bc2d229a1047c423a5ecb16fb",
+  "ir_sha256": "a6f0fd964e671efe5149e878a2c1eaaab9e440269ad4adf3bcd8c26998c63ce2",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

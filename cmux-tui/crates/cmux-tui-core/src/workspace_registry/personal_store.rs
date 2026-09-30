@@ -103,6 +103,7 @@ pub(super) fn migrate_personal_v1(
 ) -> anyhow::Result<()> {
     let tx = connection.unchecked_transaction()?;
     create_personal_schema(&tx)?;
+    super::personal_browser_profiles::create_browser_profile_schema(&tx)?;
     tx.execute("INSERT OR IGNORE INTO meta(key, value) VALUES(?1, '0')", [REVISION_META_KEY])?;
     let migrated = tx
         .query_row("SELECT 1 FROM meta WHERE key = ?1", [MIGRATED_META_KEY], |_| Ok(()))
@@ -229,6 +230,8 @@ pub struct PersonalSnapshot {
     pub groups: Vec<PersonalGroup>,
     pub workspaces: Vec<PersonalWorkspace>,
     pub terminals: Vec<PersonalTerminal>,
+    /// Browser profile records (`browser-profiles-v1`), `default` included.
+    pub browser_profiles: Vec<super::PersonalBrowserProfile>,
 }
 
 // MARK: Validation
@@ -557,6 +560,7 @@ pub(super) fn read_snapshot(connection: &Connection) -> anyhow::Result<PersonalS
         groups: read_groups(connection)?,
         workspaces: read_workspaces(connection)?,
         terminals: read_terminals(connection)?,
+        browser_profiles: super::personal_browser_profiles::read_browser_profiles(connection)?,
     })
 }
 

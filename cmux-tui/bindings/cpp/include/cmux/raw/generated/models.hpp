@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b71910b6a1ed69fa3f1b8b66d0337dcd48bdc50bc2d229a1047c423a5ecb16fb";
+inline constexpr std::string_view kProtocolIrSha256 = "a6f0fd964e671efe5149e878a2c1eaaab9e440269ad4adf3bcd8c26998c63ce2";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -189,6 +189,7 @@ struct CloseTabsRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
 struct CopyRequest;
+struct CreateBrowserProfileRequest;
 struct CreatePersonalGroupRequest;
 struct CreateProfileRequest;
 struct CreateScreenGroupRequest;
@@ -197,6 +198,7 @@ struct CreateTabGroupRequest;
 struct CreateTerminalRequest;
 struct CreateWorkspaceRequest;
 struct CreateWorkspaceGroupRequest;
+struct DeleteBrowserProfileRequest;
 struct DeletePersonalGroupRequest;
 struct DeleteProfileRequest;
 struct DeleteSavedScreenGroupRequest;
@@ -233,6 +235,7 @@ struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
+struct MoveBrowserProfileRequest;
 struct MovePersonalGroupRequest;
 struct MoveProfileRequest;
 struct MoveScreenRequest;
@@ -332,6 +335,7 @@ struct UnpinWorkspaceRequest;
 struct UnregisterBrowserProviderRequest;
 struct UnsaveScreenGroupRequest;
 struct UnsaveTabGroupRequest;
+struct UpdateBrowserProfileRequest;
 struct UpdateFrontendBrowserTabRequest;
 struct UpdatePersonalGroupRequest;
 struct UpdateProfileRequest;
@@ -1145,6 +1149,21 @@ struct CopyResult {
     friend bool operator==(const CopyResult&, const CopyResult&) = default;
 };
 
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct CreateBrowserProfileRequest {
+    Field<std::string> browser_profile{};
+    Field<std::string> color{};
+    Field<std::string> icon{};
+    Field<std::uint64_t> index{};
+    std::string name{};
+    Field<JsonValue> source{};
+    friend bool operator==(const CreateBrowserProfileRequest&, const CreateBrowserProfileRequest&) = default;
+};
+
 struct CreatePersonalGroupRequest {
     std::optional<bool> collapsed{};
     Field<std::string> color{};
@@ -1153,11 +1172,6 @@ struct CreatePersonalGroupRequest {
     std::string name{};
     Field<std::string> profile{};
     friend bool operator==(const CreatePersonalGroupRequest&, const CreatePersonalGroupRequest&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct CreateProfileRequest {
@@ -1273,6 +1287,11 @@ struct DaemonShutdownEvent {
 struct DeadPane {
     Id id{};
     friend bool operator==(const DeadPane&, const DeadPane&) = default;
+};
+
+struct DeleteBrowserProfileRequest {
+    std::string browser_profile{};
+    friend bool operator==(const DeleteBrowserProfileRequest&, const DeleteBrowserProfileRequest&) = default;
 };
 
 struct DeletePersonalGroupRequest {
@@ -1973,6 +1992,12 @@ struct MintTerminalRendererResult {
     std::string token{};
     std::uint64_t ttl_ms{};
     friend bool operator==(const MintTerminalRendererResult&, const MintTerminalRendererResult&) = default;
+};
+
+struct MoveBrowserProfileRequest {
+    std::string browser_profile{};
+    std::uint64_t index{};
+    friend bool operator==(const MoveBrowserProfileRequest&, const MoveBrowserProfileRequest&) = default;
 };
 
 struct MovePersonalGroupRequest {
@@ -3437,6 +3462,14 @@ struct UnsaveTabGroupRequest {
     friend bool operator==(const UnsaveTabGroupRequest&, const UnsaveTabGroupRequest&) = default;
 };
 
+struct UpdateBrowserProfileRequest {
+    std::string browser_profile{};
+    Field<std::string> color{};
+    Field<std::string> icon{};
+    Field<std::string> name{};
+    friend bool operator==(const UpdateBrowserProfileRequest&, const UpdateBrowserProfileRequest&) = default;
+};
+
 struct UpdateFrontendBrowserTabRequest {
     Field<std::string> favicon_url{};
     Id surface{};
@@ -4691,6 +4724,12 @@ struct Codec<CopyRequest> {
 };
 
 template <>
+struct Codec<CreateBrowserProfileRequest> {
+    static Result<Json> encode(const CreateBrowserProfileRequest& value);
+    static Result<CreateBrowserProfileRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CreatePersonalGroupRequest> {
     static Result<Json> encode(const CreatePersonalGroupRequest& value);
     static Result<CreatePersonalGroupRequest> decode(const Json& value);
@@ -4736,6 +4775,12 @@ template <>
 struct Codec<CreateWorkspaceGroupRequest> {
     static Result<Json> encode(const CreateWorkspaceGroupRequest& value);
     static Result<CreateWorkspaceGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<DeleteBrowserProfileRequest> {
+    static Result<Json> encode(const DeleteBrowserProfileRequest& value);
+    static Result<DeleteBrowserProfileRequest> decode(const Json& value);
 };
 
 template <>
@@ -4952,6 +4997,12 @@ template <>
 struct Codec<MintTerminalRendererByTerminalRequest> {
     static Result<Json> encode(const MintTerminalRendererByTerminalRequest& value);
     static Result<MintTerminalRendererByTerminalRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveBrowserProfileRequest> {
+    static Result<Json> encode(const MoveBrowserProfileRequest& value);
+    static Result<MoveBrowserProfileRequest> decode(const Json& value);
 };
 
 template <>
@@ -5546,6 +5597,12 @@ template <>
 struct Codec<UnsaveTabGroupRequest> {
     static Result<Json> encode(const UnsaveTabGroupRequest& value);
     static Result<UnsaveTabGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UpdateBrowserProfileRequest> {
+    static Result<Json> encode(const UpdateBrowserProfileRequest& value);
+    static Result<UpdateBrowserProfileRequest> decode(const Json& value);
 };
 
 template <>
