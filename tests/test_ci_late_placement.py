@@ -403,7 +403,9 @@ class Output(unittest.TestCase):
         import tempfile
         with tempfile.NamedTemporaryFile("r+", suffix=".out") as out:
             self.assertEqual(late.main(dict(FULL, GITHUB_OUTPUT=out.name)), 0)
-            self.assertEqual(Path(out.name).read_text(), "runners={}\nonto_owned=false\n")
+            self.assertEqual(late.main(dict(FULL, GITHUB_OUTPUT=out.name, GITHUB_RUN_ATTEMPT="2")), 0)
+            self.assertEqual(Path(out.name).read_text(),
+                             "runners={}\nattempt=\nonto_owned=false\nrunners={}\nattempt=2\nonto_owned=false\n")
 
     def test_main_counts_the_backlog_without_this_run_and_says_where_jobs_went(self):
         import tempfile
@@ -435,10 +437,11 @@ class Workflow(unittest.TestCase):
     def setUpClass(cls):
         cls.jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
 
-    def test_the_consumers_wait_for_late_placement_and_read_it_first_on_attempt_one(self):
+    def test_the_consumers_wait_for_late_placement_and_read_it_first_in_its_attempt(self):
         keys = {"app-host-unit-tests": "format('shard-{0}', matrix.shard)",
                 "tests-build-and-lag": "'lag'", "cli-product-tests": "'cli-product'"}
-        prefix = "${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')[%s] || "
+        prefix = ("${{ needs.late-placement.outputs.attempt == github.run_attempt && "
+                  "fromJSON(needs.late-placement.outputs.runners || '{}')[%s] || ")
         for job, key in keys.items():
             with self.subTest(job=job):
                 spec = self.jobs[job]
@@ -466,16 +469,21 @@ class Workflow(unittest.TestCase):
 
     def test_late_placement_runs_only_where_the_picker_may_use_owned_runners(self):
         spec = self.jobs["late-placement"]
-        for clause in ("github.run_attempt == 1", "vars.CI_PR_POOL_OWNED == '1'",
+        # Any attempt that runs compile admission again runs it too, except the bot's attempt 3 (the
+        # rescue's move of a stuck attempt 2), whose jobs all take the retry runner.
+        self.assertIn("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]')", spec["if"])
+        for clause in ("vars.CI_PR_POOL_OWNED == '1'",
                        "github.event.pull_request.head.repo.full_name == github.repository",
                        "needs.macos-compile-admission.result == 'success'"):
             self.assertIn(clause, spec["if"])
         self.assertTrue(all(step.get("continue-on-error") for step in spec["steps"]))
-        # Jobs move only once both markers the rescue watch reads uploaded.
-        # A move to Blacksmith alone (the gui overflow) needs neither.
+        # Jobs move only once both markers the rescue watch reads uploaded (attempt 2 on has no fixed-name
+        # one: the sweeper lists re-runs). A move to Blacksmith alone (the gui overflow) needs neither.
         self.assertEqual(spec["outputs"]["runners"],
                          "${{ (steps.place.outputs.onto_owned == 'false' || steps.late-marker.outcome == 'success'"
-                         " && steps.late-watch-marker.outcome == 'success') && steps.place.outputs.runners || '{}' }}")
+                         " && (steps.late-watch-marker.outcome == 'success' || github.run_attempt > 1))"
+                         " && steps.place.outputs.runners || '{}' }}")
+        self.assertEqual(spec["outputs"]["attempt"], "${{ steps.place.outputs.attempt }}")
         steps = {step.get("id"): step for step in spec["steps"]}
         for marker in ("late-marker", "late-watch-marker"):
             self.assertEqual(steps[marker]["with"]["if-no-files-found"], "error", marker)
