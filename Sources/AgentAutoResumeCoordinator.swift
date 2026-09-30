@@ -271,8 +271,10 @@ final class AgentAutoResumeCoordinator {
             if codexStatusParts.count == 2 {
                 codexPathField = codexStatusParts[1].hasPrefix("/")
             } else {
+                let contextField = codexStatusParts[1]
+                let percentageContext = contextField.hasSuffix("% context left")
                 codexPathField = codexStatusParts.count >= 3
-                    && codexStatusParts[1].hasPrefix("context ")
+                    && (contextField.hasPrefix("context ") || percentageContext)
                     && codexStatusParts[2].hasPrefix("/")
             }
             let isCodexModelStatus = codexStatusParts.first?.hasPrefix("gpt-") == true
