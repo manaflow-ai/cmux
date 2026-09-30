@@ -27,15 +27,12 @@ struct CloudTeamPickerHeader<Status: View>: View {
                 }
                 Spacer(minLength: 0)
                 if let operation {
-                    HStack(spacing: 5) {
-                        ProgressView().controlSize(.mini)
-                        Text(operation)
-                            .cmuxFont(size: 11)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    .accessibilityIdentifier("CloudMachinesOperation")
+                    ProgressView()
+                        .controlSize(.mini)
+                        .frame(width: 16, height: 16)
+                        .help(operation)
+                        .accessibilityLabel(operation)
+                        .accessibilityIdentifier("CloudMachinesOperation")
                 }
                 if let accountFlow, accountFlow.confirmedTeamID != nil {
                     MachinesChromeLabelButton(

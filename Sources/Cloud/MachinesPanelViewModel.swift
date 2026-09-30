@@ -51,17 +51,23 @@ final class MachinesPanelViewModel: ObservableObject {
         let selected = tabManager.selectedTabId
         return tabManager.tabs.map { CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == selected) }
     }
+    /// Defers progress chrome so fast opens do not flash a loading indicator.
     func beginOperation(_ label: String) {
         operationPresentationTask?.cancel()
         activeOperation = label
         visibleOperation = nil
-        operationPresentationTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(200))
+        operationPresentationTask = Task { @MainActor [weak self, clock = pollingClock] in
+            do {
+                try await clock.sleep(for: .milliseconds(500))
+            } catch {
+                return
+            }
             guard !Task.isCancelled, let self, self.activeOperation == label else { return }
             self.visibleOperation = label
         }
     }
 
+    /// Cancels pending progress and refreshes only while the panel is visible.
     func endOperation() {
         operationPresentationTask?.cancel()
         operationPresentationTask = nil

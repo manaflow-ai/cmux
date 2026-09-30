@@ -60,17 +60,29 @@ struct VMClientReadCoalescingTests {
     func operationFeedbackUsesFastPathDelay() async throws {
         let fixture = try await CloudRefreshFixture.make()
         defer { fixture.session.invalidateAndCancel() }
-        let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
+        let clock = CloudReadManualClock()
+        let model = MachinesPanelViewModel(client: fixture.client, pollingClock: clock, isCloudEnabled: { true })
 
         model.beginOperation("Opening on cloud machine…")
-        try await Task.sleep(for: .milliseconds(50))
+        try await eventually { clock.pendingSleeperCount == 1 }
+        clock.advance(by: .milliseconds(300))
         #expect(model.visibleOperation == nil)
         model.endOperation()
+        try await eventually { clock.pendingSleeperCount == 0 }
 
         model.beginOperation("Opening on cloud machine…")
-        try await Task.sleep(for: .milliseconds(250))
-        #expect(model.visibleOperation == "Opening on cloud machine…")
+        try await eventually { clock.pendingSleeperCount == 1 }
+        clock.advance(by: .milliseconds(500))
+        try await eventually { model.visibleOperation == "Opening on cloud machine…" }
         model.endOperation()
+        #expect(model.visibleOperation == nil)
+
+        model.beginOperation("Opening after sign-out…")
+        try await eventually { clock.pendingSleeperCount == 1 }
+        model.resetForAuthTransition()
+        try await eventually { clock.pendingSleeperCount == 0 }
+        clock.advance(by: .seconds(1))
+        #expect(model.visibleOperation == nil)
     }
 
     @Test("A hidden panel cancels its list and cannot start stats from a late result")
