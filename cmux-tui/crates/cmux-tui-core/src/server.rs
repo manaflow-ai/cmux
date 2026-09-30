@@ -24655,6 +24655,114 @@ mod tests {
         assert_eq!(pairs, vec![("A".into(), "1".into()), ("B".into(), "2".into())]);
     }
 
+    fn wait_for_screen_text(mux: &Arc<Mux>, surface: u64, needle: &str) {
+        let surface = mux.surface(surface).expect("created surface");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let text = surface.with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
+            if text.contains(needle) {
+                return;
+            }
+            assert!(Instant::now() < deadline, "terminal did not show {needle:?}; screen: {text:?}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn cmux_next_shell_args_start_the_terminals_shell_with_arguments() {
+        // A frontend passes Ghostty's shell-integration argv (bash --posix,
+        // nushell --execute) for the shell it put in the terminal's SHELL.
+        assert!(advertised_capabilities(false).contains(&TERMINAL_SHELL_ARGS_CAPABILITY));
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((60, 8))).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let commands = [
+            ("new-tab", json!({})),
+            ("split", json!({"dir":"right"})),
+            ("new-pane", json!({})),
+            ("new-pane-right", json!({"width":0.5})),
+        ];
+        for (command, extra) in commands {
+            let marker = format!("shell-args-{command}");
+            let mut request = json!({
+                "cmd":command,
+                "pane":pane,
+                "cols":60,
+                "rows":8,
+                "env":{"SHELL":"/bin/sh"},
+                "shell_args":["-c", format!("echo {marker}-$0; exec cat")],
+            });
+            for (key, value) in extra.as_object().unwrap() {
+                request[key] = value.clone();
+            }
+            let created = run_json_command(&mux, request).unwrap();
+            let surface = created["surface"].as_u64().unwrap();
+            // $0 of `sh -c` is the shell the daemon ran: the env's SHELL.
+            wait_for_screen_text(&mux, surface, &format!("{marker}-/bin/sh"));
+        }
+
+        let key = mux.with_state(|state| state.workspaces[0].key.clone());
+        let created = run_json_command(
+            &mux,
+            json!({
+                "cmd":"create-terminal",
+                "key":key,
+                "cols":60,
+                "rows":8,
+                "env":{"SHELL":"/bin/sh"},
+                "shell_args":["-c", "echo shell-args-create-$0; exec cat"],
+                "origin":"test",
+                "mutation_id":"shell-args-create",
+            }),
+        )
+        .unwrap();
+        wait_for_screen_text(
+            &mux,
+            created["surface"].as_u64().unwrap(),
+            "shell-args-create-/bin/sh",
+        );
+        for conflicting in [json!({"argv":["/bin/sh"]}), json!({"command":"true"})] {
+            let mut request = json!({
+                "cmd":"create-terminal",
+                "key":key,
+                "shell_args":["-l"],
+                "origin":"test",
+                "mutation_id":"shell-args-conflict",
+            });
+            for (field, value) in conflicting.as_object().unwrap() {
+                request[field] = value.clone();
+            }
+            assert!(run_json_command(&mux, request).is_err(), "{conflicting}");
+        }
+    }
+
+    #[test]
+    fn cmux_next_shell_args_without_a_shell_env_use_the_default_shell() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((60, 8))).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let created = run_json_command(
+            &mux,
+            json!({
+                "cmd":"new-tab",
+                "pane":pane,
+                "cols":60,
+                "rows":8,
+                "shell_args":["-c", "echo default-shell-$0; exec cat"],
+            }),
+        )
+        .unwrap();
+        wait_for_screen_text(
+            &mux,
+            created["surface"].as_u64().unwrap(),
+            &format!("default-shell-{}", platform::default_shell()),
+        );
+        // No shell_args (or an empty list) keeps the plain default shell.
+        let plain =
+            run_json_command(&mux, json!({"cmd":"new-tab","pane":pane,"shell_args":[]})).unwrap();
+        assert!(plain["surface"].as_u64().is_some());
+    }
+
     #[test]
     fn placement_commands_accept_a_caller_terminal_id_env_and_cwd() {
         let mux = test_mux();
