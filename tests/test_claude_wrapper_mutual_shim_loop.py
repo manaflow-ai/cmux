@@ -18,6 +18,10 @@ WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 GENERATED_HOOK_SETTINGS = generated_claude_hook_settings()
 
 
+def generated_hook_count(name: str) -> int:
+    return len(json.loads(GENERATED_HOOK_SETTINGS)["hooks"][name])
+
+
 def write_executable(path: Path, contents: str) -> None:
     path.write_text(contents, encoding="utf-8")
     path.chmod(0o755)
@@ -842,10 +846,13 @@ done
         hooks = settings.get("hooks", {})
         session_start = hooks.get("SessionStart", [])
         stop = hooks.get("Stop", [])
-        if len(session_start) != 1 or len(stop) != 3:
+        expected_session_start = generated_hook_count("SessionStart")
+        expected_stop = generated_hook_count("Stop")
+        if len(session_start) != expected_session_start or len(stop) != expected_stop:
             failures.append(
-                "expected one cmux hook injection after finite shim chain, "
-                f"got SessionStart={len(session_start)} Stop={len(stop)} settings={settings!r}"
+                "expected the generated cmux hook groups after finite shim chain, "
+                f"got SessionStart={len(session_start)} (expected {expected_session_start}) "
+                f"Stop={len(stop)} (expected {expected_stop}) settings={settings!r}"
             )
 
 
@@ -961,8 +968,14 @@ done
             return
         settings = load_settings_value(args[settings_index + 1])
         hooks = settings.get("hooks", {})
-        if len(hooks.get("SessionStart", [])) != 1 or len(hooks.get("Stop", [])) != 3:
-            failures.append(f"expected one hook injection after spawning shim chain, got: {settings!r}")
+        expected_session_start = generated_hook_count("SessionStart")
+        expected_stop = generated_hook_count("Stop")
+        if len(hooks.get("SessionStart", [])) != expected_session_start or len(hooks.get("Stop", [])) != expected_stop:
+            failures.append(
+                "expected the generated hook groups after spawning shim chain, "
+                f"got SessionStart={len(hooks.get('SessionStart', []))} (expected {expected_session_start}) "
+                f"Stop={len(hooks.get('Stop', []))} (expected {expected_stop}) settings={settings!r}"
+            )
 
 
 def verify_custom_path_reentry_result(
@@ -1001,11 +1014,13 @@ def verify_custom_path_reentry_result(
     ):
         failures.append(f"issue #10230 emitted malformed hooks structure: {hooks!r}")
         return
-    if len(hooks["SessionStart"]) != 1 or len(hooks["Stop"]) != 3:
+    expected_session_start = generated_hook_count("SessionStart")
+    expected_stop = generated_hook_count("Stop")
+    if len(hooks["SessionStart"]) != expected_session_start or len(hooks["Stop"]) != expected_stop:
         failures.append(
-            "issue #10230 re-entry should converge to one cmux hook block, "
-            f"got SessionStart={len(hooks['SessionStart'])} "
-            f"Stop={len(hooks['Stop'])}: {settings!r}"
+            "issue #10230 re-entry should converge to the generated cmux hook groups, "
+            f"got SessionStart={len(hooks['SessionStart'])} (expected {expected_session_start}) "
+            f"Stop={len(hooks['Stop'])} (expected {expected_stop}): {settings!r}"
         )
 
 

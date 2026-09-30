@@ -688,6 +688,8 @@ function activityBlockHasDetail(block: Block): boolean {
       return Boolean(block.text.trim());
     case "status":
       return Boolean(block.text.trim());
+    case "plan":
+      return block.entries.length > 0;
     case "error":
       return Boolean(block.text.trim());
     case "files":
@@ -695,6 +697,20 @@ function activityBlockHasDetail(block: Block): boolean {
     default:
       return false;
   }
+}
+
+function PlanBlock({ entries }: { entries: Extract<Block, { kind: "plan" }>['entries'] }) {
+  return (
+    <div className="plan-block">
+      {entries.map((entry, index) => (
+        <div className={`plan-entry plan-entry-${entry.status}`} key={`${index}:${entry.text}`}>
+          <span className="plan-entry-status">{entry.status.replace("_", " ")}</span>
+          <span className="plan-entry-text">{entry.text}</span>
+          {entry.priority ? <span className="plan-entry-priority">{entry.priority}</span> : null}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function ActivityDisclosureRow({
@@ -765,6 +781,8 @@ function ActivityBlock({
       return <div className="turn-thinking-detail">{block.text}</div>;
     case "status":
       return <div className="status-line">{block.text}</div>;
+    case "plan":
+      return <PlanBlock entries={block.entries} />;
     case "error":
       return <div className="error-block-wrap"><div className="error-block">{block.text}</div></div>;
     case "files":
