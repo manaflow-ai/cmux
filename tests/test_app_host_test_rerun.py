@@ -786,6 +786,13 @@ class CanonicalRootTests(unittest.TestCase):
         self.assertNotIn("glaeda-canonical-root", restore_script)
         self.assertNotIn("producer_derived", restore_script)
 
+    def test_rerun_baseline_aliases_the_stable_file_path_root(self) -> None:
+        step = self.step("Unpack products at the path CI compiled them")
+        self.assertIn("CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source", step)
+        self.assertIn("canonical-build-root.sh", step)
+        self.assertIn("--runtime-source \"$PWD\"", step)
+        self.assertLess(step.index("--runtime-source \"$PWD\""), step.index('cat "$receipt"'))
+
 
 if __name__ == "__main__":
     unittest.main()
