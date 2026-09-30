@@ -149,4 +149,38 @@ struct CloudMachineCreatorTests {
         #expect(unnamedCreator["userId"] as? String == "user-b")
         #expect(unnamedCreator["displayName"] is NSNull)
     }
+
+    @Test("the socket payload preserves attach transport capabilities")
+    func socketPayloadCarriesAttachTransports() throws {
+        let payload = TerminalController.socketWorkerVMSummaryPayload(
+            VMSummary(
+                id: "vm-ssh-only",
+                provider: "fixture",
+                status: "running",
+                image: "desktop-vnc",
+                createdAt: 0,
+                capabilities: VMCapabilities(
+                    snapshot: true,
+                    restore: true,
+                    fork: true,
+                    attachTransports: ["ssh"]
+                )
+            )
+        )
+        let capabilities = try #require(payload["capabilities"] as? [String: Any])
+        #expect(capabilities["attach_transports"] as? [String] == ["ssh"])
+        #expect(capabilities["attachTransports"] == nil)
+
+        let legacyPayload = TerminalController.socketWorkerVMSummaryPayload(
+            VMSummary(
+                id: "vm-legacy",
+                provider: "fixture",
+                status: "running",
+                image: "desktop-vnc",
+                createdAt: 0
+            )
+        )
+        let legacyCapabilities = try #require(legacyPayload["capabilities"] as? [String: Any])
+        #expect(legacyCapabilities["attach_transports"] == nil)
+    }
 }
