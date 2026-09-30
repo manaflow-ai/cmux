@@ -142,6 +142,18 @@ final class CloudRestoreReplayFixture {
         workspace.tearDown()
     }
 
+    /// Waits until Ghostty's terminal holds `columns` × `rows`, then returns
+    /// the screen text.
+    func waitForTerminalGrid(columns: Int, rows: Int) async throws -> String {
+        try await waitUntil {
+            let frame = self.surface.mobileRenderGridFrame(
+                stateSeq: 0, scrollbackLines: 0, includeTheme: false
+            )?.frame
+            return frame?.columns == columns && frame?.rows == rows
+        }
+        return try #require(surface.readText(region: .screen))
+    }
+
     private func waitUntil(_ condition: @MainActor () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(5)
         while !condition(), ContinuousClock.now < deadline {
