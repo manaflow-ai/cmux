@@ -34,6 +34,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     /// User/agent-authored custom sidebars: enable gate and renderer choice.
     case customSidebars
     case betaFeatures
+    /// Voice dictation: enable gate and language.
+    case voice
     case automation
     /// Local computer-use integration, permissions, and menu-bar controls.
     case computerUse
@@ -74,6 +76,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .sidebarAppearance: return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
         case .betaFeatures: return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
+        case .voice: return String(localized: "settings.section.voice", defaultValue: "Voice")
         case .automation: return String(localized: "settings.section.automation", defaultValue: "Automation")
         case .computerUse: return String(localized: "settings.section.computerUse", defaultValue: "cmux Computer Use")
         case .browser: return String(localized: "settings.section.browser", defaultValue: "Browser")
@@ -102,6 +105,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .sidebarAppearance: return "sidebar.left"
         case .customSidebars: return "sidebar.squares.left"
         case .betaFeatures: return "exclamationmark.triangle"
+        case .voice: return "mic"
         case .automation: return "wand.and.sparkles"
         case .computerUse: return "cursorarrow.rays"
         case .browser: return "globe"
@@ -135,7 +139,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .networking: return "iroh relay server private network tailscale vpn direct peer custom provider region"
         case .sidebarAppearance: return "sidebar details branches material terminal background"
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
-        case .betaFeatures: return "beta experimental unstable feed right sidebar"
+        case .betaFeatures: return "beta experimental unstable feed dock right sidebar"
+        case .voice: return "voice dictation speech microphone speak transcribe transcription on-device language"
         case .automation: return "socket integrations hooks ports claude cursor gemini naming auto naming workspace tabs"
         case .computerUse:
             return String(

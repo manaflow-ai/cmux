@@ -122,6 +122,17 @@ NOT_IN_CMUX_JSON = frozenset({
     "terminal.titleUpdates.coalescing.enabled",
     "terminal.titleUpdates.diagnostics",
     "workspaceGroups.anchorCloseSuppressed",
+    # Voice dictation: device-local preferences (microphone engine, language,
+    # hotkey behavior) and one-time setup state; the OpenAI key is in the
+    # Keychain.
+    "voice.cleanUpAgentPrompts",
+    "voice.dictationEnabled",
+    "voice.dictationLanguage",
+    "voice.dictationSetupCompleted",
+    "voice.engine",
+    "voice.hotkeyMode",
+    "voice.openAIModel",
+    "voice.showTabBarButton",
 })
 
 # Catalog defaults that intentionally differ from the schema default because

@@ -853,6 +853,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
     private let agentChatTranscriptService = AgentChatTranscriptService()
     var settingsRuntime: SettingsRuntime?
+    weak var voiceDictationRuntime: VoiceDictationRuntime? // owned by cmuxApp
     /// Injected before the coordinator is used; the managed-policy extension
     /// re-applies `DisableComputerUse` through it.
     var computerUseRuntimeService: ComputerUseRuntimeService?
@@ -15670,6 +15671,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
+        if matchConfiguredShortcut(event: event, action: .toggleVoiceDictation) {
+            return voiceDictationRuntime?.handleShortcut(event) ?? false // false when disabled
+        }
+
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
         if matchConfiguredShortcut(event: event, action: .nextSidebarTab) {
 #if DEBUG
@@ -17972,6 +17977,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if workspace != nil { onExecuted?() }
                 return workspace != nil
             case .newSimulator: return performConfiguredNewSimulatorAction(context: context, onExecuted: onExecuted)
+            case .voiceDictation: return performConfiguredVoiceDictationAction(onExecuted: onExecuted)
             case .newTerminal:
                 context.tabManager.newSurface()
                 onExecuted?()
@@ -20308,22 +20314,6 @@ private extension NSWindow {
             current = candidate.superview
         }
         return false
-    }
-
-    private static func cmuxUniqueBrowserWebView(in root: NSView) -> CmuxWebView? {
-        var stack: [NSView] = [root]
-        var found: CmuxWebView?
-        while let current = stack.popLast() {
-            if let webView = current as? CmuxWebView {
-                if found == nil {
-                    found = webView
-                } else if found !== webView {
-                    return nil
-                }
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return found
     }
 
     private static func cmuxCurrentEvent(for window: NSWindow) -> NSEvent? {

@@ -2040,6 +2040,7 @@
               "closeWindow",
               "toggleFullScreen",
               "quit",
+              "toggleVoiceDictation",
               "toggleSidebar",
               "newTab",
               "newBrowserWorkspace",

@@ -24,6 +24,9 @@ struct cmuxApp: App {
     /// Single owner of the independently launched Computer Use helper daemon.
     private let computerUseRuntimeService: ComputerUseRuntimeService
 
+    /// App-scoped owner for voice dictation; AppDelegate holds it weakly.
+    private let voiceDictationRuntime: VoiceDictationRuntime
+
     /// App-owned auth graph injected into the delegate and auth consumers.
     private let authComposition: MacAuthComposition
     /// Composition-root owner for the config-backed automation bridge.
@@ -210,6 +213,7 @@ struct cmuxApp: App {
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
 
+        self.voiceDictationRuntime = VoiceDictationRuntime(catalog: settingsCatalog)
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
@@ -322,6 +326,7 @@ struct cmuxApp: App {
             devicesRegistry: devicesRegistry,
             computersService: computersService
         )
+        appDelegate.voiceDictationRuntime = voiceDictationRuntime
         historyMenuCoordinator.refreshIfNeeded()
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
@@ -1692,54 +1697,6 @@ private struct MainWindowBootstrapView: View {
                 }
             })
     }
-}
-private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
-    "cmux.settings",
-    "cmux.about",
-    "cmux.licenses",
-    "cmux.browser-popup",
-    "cmux.browserProfilePopoverDebug",
-    "cmux.configEditor",
-    "cmux.computerUse.onboarding",
-    "cmux.defaultTerminalRegistrationError",
-    "cmux.featureFlags",
-    "cmux.feedButtonStyleDebug",
-    "cmux.feedPreview",
-    "cmux.feedTextEditorDebug",
-    "cmux.fileExplorerStyleDebug",
-    "cmux.folderDragIcon",
-    "cmux.pdfPreviewChromeDebug",
-    "cmux.proBadgeDebug",
-    "cmux.recentlyClosedHistory",
-    "cmux.tabBarBackdropLab",
-    "cmux.taskManager",
-    "cmux.aboutTitlebarDebug",
-    "cmux.debugWindowControls",
-    "cmux.browserImportHintDebug",
-    "cmux.extensionSidebarInspector",
-    "cmux.sidebarDebug",
-    "cmux.menubarDebug",
-    "cmux.spinnerGallery",
-    "cmux.cloudTreeStyleGallery",
-    "cmux.cloudSidebarDebugLab",
-    "cmux.backgroundDebug",
-    "cmux.startupAppearanceDebug",
-    "cmux.bonsplitTabBarDebug",
-    "cmux.titlebarLayoutDebug",
-    "cmux.devWindowDisplay",
-    "cmux.mobilePairingWindow",
-    "cmux.sidebarFooterIconBalanceDebug",
-    "cmux.cloudPaneCreationFailure.card",
-    "cmux.cloudCreateTeam",
-    "cmux.sudo.approval",
-]
-
-/// Returns whether the given window should handle the standard close shortcut
-/// as a standalone auxiliary window instead of routing it through workspace or
-/// panel-close behavior.
-func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
-    guard let identifier = window?.identifier?.rawValue else { return false }
-    return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
 }
 
 private enum DebugWindowConfigSnapshot {

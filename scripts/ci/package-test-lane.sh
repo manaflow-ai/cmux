@@ -111,6 +111,7 @@ select_packages() {
     CmuxTerminalImport
     CmuxTerminalPrediction
     CmuxUpdater
+    CmuxVoice
     CmuxWorkspaces
     CMUXAgentLaunch
     CmuxAgentJournal

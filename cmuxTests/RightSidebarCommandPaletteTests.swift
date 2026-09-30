@@ -189,6 +189,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             case .browser: browserContext
             case .workspace: workspaceContext
             case .splits: splitsContext
+            case .voice: workspaceContext
             }
             XCTAssertTrue(contribution.when(visibleContext), command.rawValue)
         }
@@ -204,6 +205,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             .groupSelectedWorkspaces,
             .toggleFocusedWorkspaceGroupCollapsed,
             .browserHardReload,
+            .toggleVoiceDictation,
         ] {
             XCTAssertTrue(covered.contains(action), action.rawValue)
         }
@@ -212,6 +214,16 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 forCommandID: WorkspaceTodoPaletteCommands.cycleWorkspaceStatusCommandId
             ),
             .cycleWorkspaceStatus
+        )
+    }
+
+    func testVoiceDictationPaletteCommandDismissesBeforeRunning() {
+        // Dictation pins its target from the first responder, so the palette
+        // must restore pane focus before the command runs.
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldDismissBeforeRun(
+                forCommandId: ShortcutParityPaletteCommand.toggleVoiceDictation.rawValue
+            )
         )
     }
 

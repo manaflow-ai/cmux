@@ -105,6 +105,10 @@ extension SettingsWindowRoot {
             BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)
         }
 
+        slot(.voice, proxy: proxy) {
+            VoiceSection(defaultsStore: defaultsStore, catalog: catalog)
+        }
+
         slot(.automation, proxy: proxy) {
             AutomationSection(
                 defaultsStore: defaultsStore,

@@ -12,7 +12,10 @@ enum KeyboardShortcutSettings {
     static let actionUserInfoKey = "action"
     static let settingsFileDisplayPath = "~/.config/cmux/cmux.json"
     static var settingsFileStore: KeyboardShortcutSettingsFileStore = .appLive {
-        didSet { notifySettingsFileDidChange() }
+        didSet {
+            invalidateLegacyDefaultResolutionCache()
+            notifySettingsFileDidChange()
+        }
     }
     #if DEBUG
     static var shortcutLookupObserver: ((Action) -> Void)?
@@ -40,33 +43,6 @@ enum KeyboardShortcutSettings {
         Action.allCases.filter(\.isPublicShortcutAction)
     }
 
-    static var settingsVisibleActions: [Action] {
-        orderedSettingsVisibleActions(
-            from: publicShortcutActions.filter { $0 != .showHideAllWindows }
-        )
-    }
-
-    private static func orderedSettingsVisibleActions(from actions: [Action]) -> [Action] {
-        let colocatedSidebarActions = [
-            .focusRightSidebar,
-            .toggleRightSidebar,
-            .findInDirectory,
-            .fileExplorerOpenSelection,
-            .fileExplorerOpenSelectionFinderAlias,
-        ].filter(actions.contains)
-        let actionSet = Set(colocatedSidebarActions)
-        let baseActions = actions.filter { !actionSet.contains($0) }
-
-        guard let anchorIndex = baseActions.firstIndex(of: .markOldestUnreadAndJumpNext)
-            ?? baseActions.firstIndex(of: .jumpToUnread) else {
-            return colocatedSidebarActions + baseActions
-        }
-
-        var orderedActions = baseActions
-        orderedActions.insert(contentsOf: colocatedSidebarActions, at: anchorIndex + 1)
-        return orderedActions
-    }
-
     enum ShortcutRecordingRejection: Equatable {
         case bareKeyNotAllowed
         case conflictsWithAction(Action)
@@ -90,6 +66,8 @@ enum KeyboardShortcutSettings {
         case closeWindow
         case toggleFullScreen
         case quit
+        case toggleVoiceDictation
+
         // Titlebar / primary UI
         case toggleSidebar
         case newTab
@@ -246,6 +224,7 @@ enum KeyboardShortcutSettings {
             case .closeWindow: return String(localized: "shortcut.closeWindow.label", defaultValue: "Close Window")
             case .toggleFullScreen: return String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen")
             case .quit: return String(localized: "menu.quitCmux", defaultValue: "Quit cmux")
+            case .toggleVoiceDictation: return String(localized: "shortcut.toggleVoiceDictation.label", defaultValue: "Toggle Voice Dictation")
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
             case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
@@ -438,6 +417,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "f", command: true, shift: false, option: false, control: true)
             case .quit:
                 return StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
+            case .toggleVoiceDictation:
+                // Ctrl+Cmd+V ("voice"): no cmux default and no AppKit/system
+                // reservation uses this chord.
+                return StoredShortcut(key: "v", command: true, shift: false, option: false, control: true)
             case .toggleSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
             case .newTab:
@@ -1107,6 +1090,7 @@ enum KeyboardShortcutSettings {
         center: NotificationCenter = .default,
         sourceURL: URL? = nil
     ) {
+        invalidateLegacyDefaultResolutionCache()
         center.post(name: didChangeNotification, object: sourceURL)
     }
 
@@ -1140,6 +1124,7 @@ enum KeyboardShortcutSettings {
         action: Action? = nil,
         center: NotificationCenter = .default
     ) {
+        invalidateLegacyDefaultResolutionCache()
         var userInfo: [AnyHashable: Any] = [:]
         if let action {
             userInfo[actionUserInfoKey] = action.rawValue

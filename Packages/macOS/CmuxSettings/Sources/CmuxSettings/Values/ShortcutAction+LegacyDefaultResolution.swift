@@ -6,6 +6,9 @@ extension ShortcutAction {
     ///   - candidate: The configured shortcut, or `nil` when no override exists.
     ///   - hostDefault: An optional host-owned default. Pass
     ///     ``StoredShortcut/unbound`` to explicitly disable the built-in value.
+    ///
+    /// ``toggleVoiceDictation`` is suppressed when its implicit default overlaps
+    /// an older explicit binding; an explicit voice candidate remains unchanged.
     public func effectivePersistedShortcutResolvingLegacyConflicts(
         _ candidate: StoredShortcut?,
         defaultShortcut hostDefault: StoredShortcut? = nil,
@@ -59,8 +62,36 @@ extension ShortcutAction {
         }
         guard candidate != resolved,
               let normalizedDefault = (hostDefault ?? defaultShortcut).flatMap(normalizing),
-              resolved == normalizedDefault,
-              let legacyAction = legacyActionDisplacingBuiltInDefault,
+              resolved == normalizedDefault else {
+            return resolved
+        }
+
+        // New actions must not retroactively claim a stroke that an older
+        // explicit binding already owns. Voice dictation is the first action
+        // with this migration requirement; keep the rule here so the runtime
+        // and Settings UI share one resolver and one conflict policy.
+        if self == .toggleVoiceDictation,
+           candidate == nil,
+           ShortcutAction.allCases.contains(where: { configuredAction in
+               guard configuredAction != self,
+                     let configuredShortcut = explicitlyConfiguredShortcut(configuredAction),
+                     !configuredShortcut.isUnbound,
+                     configuredAction.shortcutBindingPolicyResult(
+                         for: configuredShortcut
+                     ) == .accepted else {
+                   return false
+               }
+               let normalizedConfiguredShortcut = configuredShortcut.canonicalized()
+               return bindingsConflict(
+                   resolved,
+                   configuredAction,
+                   normalizedConfiguredShortcut
+               )
+           }) {
+            return nil
+        }
+
+        guard let legacyAction = legacyActionDisplacingBuiltInDefault,
               let legacyShortcut = explicitlyConfiguredShortcut(legacyAction),
               legacyShortcut.isUnbound
                 || bindingsConflict(resolved, legacyAction, legacyShortcut) else {

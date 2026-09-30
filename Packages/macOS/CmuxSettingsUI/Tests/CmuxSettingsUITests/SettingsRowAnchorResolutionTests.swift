@@ -226,6 +226,12 @@ struct SettingsRowAnchorResolutionTests {
         "setting:settingsJSON:open-file",
         "setting:settingsJSON:documentation",
         "setting:reset:reset-all",
+        "setting:voice:dictationEnabled",
+        "setting:voice:engine",
+        "setting:voice:dictationLanguage",
+        "setting:voice:hotkeyMode",
+        "setting:voice:cleanUpAgentPrompts",
+        "setting:voice:showTabBarButton",
     ]
 
     @Test(arguments: rowConfigPaths)

@@ -415,6 +415,32 @@ Default: `unified`.
 
 The toolbar layout toggle persists the last user choice for future generated diff viewers. Passing `cmux diff --layout split` or `cmux diff --layout unified` overrides both the saved toolbar choice and this default for that invocation.
 
+## Voice dictation
+
+Voice dictation turns your speech into text and pastes it into the input that was focused when you started dictating (terminal pane, text field, or editable web content such as the agent chat composer). Terminals receive the text through the same paste path as Cmd+V, so a program with bracketed paste turned on gets each phrase as one paste and never as keystrokes or a submit. The target is pinned for the whole session, so moving focus mid-dictation never scatters text across panes; stop and start again to dictate somewhere else.
+
+Start dictation with the shortcut, the mic button in the surface tab bar, or **Toggle Voice Dictation** in the command palette. A floating panel shows a level meter and the live transcript while you speak. **Settings > Voice** has these options:
+
+- **Speech Engine**: **On This Mac** (default) transcribes on device with a live preview; no audio leaves your Mac. **OpenAI** records the phrase, then sends it to OpenAI's transcription API with your own API key when you stop. It is more accurate but has no live preview. The key is stored in your Keychain, never in `cmux.json`.
+- **Dictation Language**: the on-device language. "System Default" follows your macOS language.
+- **Shortcut Behavior**: **Automatic** (default) toggles on a quick press and dictates while held on a long press. **Press to Toggle** and **Hold to Talk** force one behavior.
+- **Clean Up Agent Prompts**: removes fillers such as "um" and "uh" when the target is a terminal running a coding agent or the agent chat composer. It never rewrites words.
+- **Mic Button in Tab Bar**: shows or hides the `cmux.voiceDictation` button. A custom `ui.surfaceTabBar.buttons` list can place it anywhere.
+
+The toggle shortcut (default `ctrl+cmd+v`) is customizable like any other cmux shortcut, from **Settings > Keyboard Shortcuts** or in `cmux.json`:
+
+```json
+{
+  "shortcuts": {
+    "bindings": {
+      "toggleVoiceDictation": "ctrl+cmd+v"
+    }
+  }
+}
+```
+
+Set the binding to `null` (or `"none"`) to unbind it.
+
 ## `sidebar.beta.workspaceTodos.checklistStyle`
 
 Workspace todos are always available. Status is inferred from live signals (agent needs input / agent running / open PR / merged PRs / dirty tree) and can be pinned manually from the glyph's status popover, the row's context menu (Status submenu, Mark as Done), the command palette, or `cmux workspace status set <lane|auto>`; checklists are managed from the row, the workspace todo pane (`cmux todo open`), `cmux todo ...`, or by agents over the control socket.
