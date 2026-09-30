@@ -4038,6 +4038,17 @@ class TabManager: ObservableObject {
         notificationDismissal.dismissNotificationOnDirectInteraction(workspaceId: tabId, surfaceId: surfaceId)
     }
 
+    /// A rendered pane is a visible read, even when it is a non-focused split
+    /// surface. Keep the selection guard and active-app policy in the shared
+    /// dismissal model while targeting that concrete panel.
+    func dismissNotificationOnVisiblePanel(tabId: UUID, panelId: UUID) {
+        notificationDismissal.dismissPanelNotificationOnFocus(
+            workspaceId: tabId,
+            panelId: panelId,
+            explicitFocusIntent: false
+        )
+    }
+
     @discardableResult
     func dismissNotificationOnTerminalInteraction(tabId: UUID, surfaceId: UUID?) -> Bool {
         notificationDismissal.dismissNotificationOnTerminalInteraction(workspaceId: tabId, surfaceId: surfaceId)
