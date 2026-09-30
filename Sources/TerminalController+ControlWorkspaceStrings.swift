@@ -12,6 +12,10 @@ extension TerminalController {
                 localized: "cli.socket.error.workspaceNotClosed",
                 defaultValue: "Workspace not closed"
             ),
+            closeConfirmationRequired: String(
+                localized: "cli.socket.error.workspaceCloseConfirmationRequired",
+                defaultValue: "Workspace has a running process; retry with --force"
+            ),
             reorderManyMissingOrder: String(
                 localized: "socket.workspace.reorderMany.missingOrder",
                 defaultValue: "Missing workspace_ids"
