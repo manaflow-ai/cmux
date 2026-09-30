@@ -13,8 +13,12 @@ public nonisolated struct CEFExtensionAction: Hashable, Sendable, Identifiable {
     public var isEnabled: Bool
     public var isPinned: Bool
     public var hasPopup: Bool
-    /// PNG bytes, without the badge.
+    /// PNG bytes at 2x of the toolbar button: the icon centered with
+    /// Chromium's badge and disabled state, as Chrome's toolbar draws it.
     public var iconPNG: Data?
+
+    /// The icon size to request: the toolbar button at 2x.
+    @MainActor static var iconPixels: Int32 { Int32((OmnibarStyle.buttonSize * 2).rounded()) }
 
     public init(
         id: String, name: String, title: String, badge: String = "", badgeColor: String = "",

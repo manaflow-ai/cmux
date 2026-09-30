@@ -29,6 +29,21 @@ extension BrowserChromeView {
     /// button when it is not shown).
     public func showExtensionItemMenu(_ id: String) { extensionToolbar.showItemMenu(id) }
 
+    /// Opens the Extensions menu (or `id`'s menu) on the next run-loop turn,
+    /// for callers that must return first (CLI, palette, debug socket). The
+    /// menu's tracking loop then runs in a run-loop callout, not inside a
+    /// main-queue job, so main-actor work (control calls) keeps running
+    /// while it is open.
+    public func presentExtensionsMenu(for id: String? = nil) {
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let id { self.showExtensionItemMenu(id) } else { self.showExtensionsMenu() }
+            }
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+    }
+
     /// Runs an extension's toolbar action anchored to its button (or the
     /// Extensions button when it is not pinned or has no room).
     public func runExtensionAction(_ id: String) { extensionToolbar.run(id) }

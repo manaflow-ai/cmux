@@ -187,6 +187,8 @@ final class ExtensionActionToolbar {
 
     private func popUp(_ menu: NSMenu, at source: NSView? = nil) {
         let view: NSView = source ?? (puzzle.window == nil ? (anchorView ?? puzzle) : puzzle)
+        // AppKit raises for a menu anchored in no window.
+        guard view.window != nil else { return }
         let previous = presentedMenu
         presentedMenu = menu
         menu.popUp(positioning: nil, at: CGPoint(x: 0, y: view.isFlipped ? view.bounds.maxY + 4 : -4), in: view)

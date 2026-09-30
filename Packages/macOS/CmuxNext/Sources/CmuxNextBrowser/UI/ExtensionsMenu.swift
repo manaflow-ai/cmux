@@ -142,8 +142,9 @@ public enum ExtensionsMenu {
     }
 
     static func image(for info: BrowserExtensionInfo, png: Data?) -> NSImage? {
-        let image = png.flatMap(NSImage.init(data:))
-            ?? info.iconPath.flatMap(NSImage.init(contentsOfFile:))
+        // The bundled icon first: the toolbar PNG carries the badge.
+        let image = info.iconPath.flatMap(NSImage.init(contentsOfFile:))
+            ?? png.flatMap(NSImage.init(data:))
             ?? NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: info.name)
         image?.size = NSSize(width: 16, height: 16)
         return image

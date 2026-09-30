@@ -23,7 +23,7 @@ final class CEFExtensionBackend: BrowserExtensionBackend {
     func snapshot() -> (extensions: [BrowserExtensionInfo], commands: [BrowserExtensionCommand])? {
         guard let shim = runtime.shim, let browser = anchor else { return nil }
         guard supportsManagement else {
-            let actions = CEFExtensionAction.decodeList(shim.takeString(shim.extActions(browser, 32)) ?? "[]")
+            let actions = CEFExtensionAction.decodeList(shim.takeString(shim.extActions(browser, CEFExtensionAction.iconPixels)) ?? "[]")
             return (BrowserExtensionInfo.fromActions(actions), [])
         }
         let list = BrowserExtensionInfo.decodeList(shim.takeString(shim.extList(browser)) ?? "[]")

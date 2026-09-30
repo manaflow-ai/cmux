@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 
-/// One extension action: icon, native badge, gray hover and press fills.
+/// One extension action: Chromium's icon, which already carries the badge
+/// and the disabled look laid out on the whole button (as Chrome's toolbar
+/// draws it), with gray hover and press fills.
 final class ExtensionActionButton: NSButton {
     let actionID: String
     var onRun: (() -> Void)?
     var onMenu: ((CGPoint) -> Void)?
 
-    private let badge = ChromeTextLayer()
     private let density = DensityBinding()
     private var isHovering = false { didSet { updateFill() } }
     private var tracking: NSTrackingArea?
@@ -19,13 +20,10 @@ final class ExtensionActionButton: NSButton {
         isBordered = false
         bezelStyle = .regularSquare
         imagePosition = .imageOnly
-        imageScaling = .scaleProportionallyDown
+        imageScaling = .scaleProportionallyUpOrDown
         wantsLayer = true
         target = self
         action = #selector(run)
-        badge.alignmentMode = .center
-        badge.isHidden = true
-        layer?.addSublayer(badge)
         setAccessibilityIdentifier(ExtensionActionToolbar.Identifier.action(actionID))
         // The toolbar's button size (BrowserToolbarLayout counts on it).
         NSLayoutConstraint.activate([
@@ -43,7 +41,7 @@ final class ExtensionActionButton: NSButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func update(_ action: CEFExtensionAction) {
-        let size = BrowserMetrics.glyphSize
+        let size = OmnibarStyle.buttonSize
         if let data = action.iconPNG, let icon = NSImage(data: data) {
             icon.size = NSSize(width: size, height: size)
             image = icon
@@ -52,33 +50,9 @@ final class ExtensionActionButton: NSButton {
         }
         toolTip = action.title.isEmpty ? action.name : action.title
         setAccessibilityLabel(action.name)
+        // The badge is in the icon; VoiceOver reads it as the value.
+        setAccessibilityValue(action.badge.isEmpty ? nil : action.badge)
         isEnabled = action.isEnabled
-        alphaValue = action.isEnabled ? 1 : 0.45
-        badge.string = action.badge
-        badge.isHidden = action.badge.isEmpty
-        if let rgba = CEFExtensionAction.rgba(action.badgeColor) {
-            badge.backgroundColor = CGColor(srgbRed: rgba.red, green: rgba.green, blue: rgba.blue, alpha: rgba.alpha)
-        }
-        let text = CEFExtensionAction.rgba(action.badgeTextColor) ?? (1, 1, 1, 1)
-        badge.foregroundColor = CGColor(srgbRed: text.red, green: text.green, blue: text.blue, alpha: text.alpha)
-        needsLayout = true
-    }
-
-    override func layout() {
-        super.layout()
-        let font = BrowserMetrics.captionFont
-        let fontSize = font.pointSize * 0.8
-        badge.font = font.withSize(fontSize)
-        badge.contentsScale = window?.backingScaleFactor ?? 2
-        let height = ceil(fontSize + 2)
-        let width = max(height, ceil(badge.string.size(withAttributes: [.font: font.withSize(fontSize)]).width) + 4)
-        badge.cornerRadius = height / 2
-        badge.frame = CGRect(x: bounds.maxX - width, y: 0, width: width, height: height)
-    }
-
-    override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        needsLayout = true
     }
 
     @objc private func run() { onRun?() }

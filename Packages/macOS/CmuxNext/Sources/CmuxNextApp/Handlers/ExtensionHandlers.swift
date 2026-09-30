@@ -10,7 +10,7 @@ enum ExtensionHandlers {
         registry.bind("browser.extensions.menu", run: { invocation in
             let entry = try chromiumEntry(context, invocation)
             // The menu runs a tracking loop; a CLI or palette caller returns first.
-            Task { @MainActor [weak chrome = entry.chrome] in chrome?.showExtensionsMenu() }
+            entry.chrome.presentExtensionsMenu()
         })
         registry.bind("browser.extensions.manage", run: { try openChromium(BrowserExtensionLinks.manage, context, $0) })
         registry.bind("browser.extensions.webStore", run: { try openChromium(BrowserExtensionLinks.webStore, context, $0) })

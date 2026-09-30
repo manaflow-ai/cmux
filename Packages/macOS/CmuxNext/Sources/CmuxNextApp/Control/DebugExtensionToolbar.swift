@@ -48,12 +48,12 @@ enum DebugExtensionToolbar {
     static func click(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         guard let chrome = chrome(params, services) else { return failure("no browser chrome") }
         if params["button"]?.stringValue == "extensions" {
-            Task { @MainActor [weak chrome] in chrome?.showExtensionsMenu() }
+            chrome.presentExtensionsMenu()
             return .object(["ok": .bool(true)])
         }
         guard let id = params["extension"]?.stringValue else { return failure("extension or button required") }
         if params["menu"]?.boolValue == true {
-            Task { @MainActor [weak chrome] in chrome?.showExtensionItemMenu(id) }
+            chrome.presentExtensionsMenu(for: id)
         } else {
             chrome.runExtensionAction(id)
         }
