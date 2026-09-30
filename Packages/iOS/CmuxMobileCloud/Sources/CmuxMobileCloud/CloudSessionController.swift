@@ -15,6 +15,8 @@ public final class CloudSessionController {
     public private(set) var availableMachineKinds: Set<CloudMachineKind>?
     /// The server's plan, machine-count, and machine-size metadata.
     public private(set) var machineLimits: CloudMachineLimits?
+    /// The server's create-time network policy catalog, when available.
+    public private(set) var networkPolicyCatalog: CloudNetworkPresetCatalog?
     /// Whether a new machine is being provisioned.
     public private(set) var isCreatingMachine = false
     /// The latest create failure, shown beside the create action.
@@ -171,6 +173,7 @@ public final class CloudSessionController {
         machines = .idle
         availableMachineKinds = nil
         machineLimits = nil
+        networkPolicyCatalog = nil
         lastCreateFailure = nil
         pendingCreate = nil
         machineActionsInFlight = []
@@ -358,6 +361,14 @@ public final class CloudSessionController {
     /// Reload the machine list.
     public func refreshMachines() {
         refreshMachines(resetProvisioningPollBudget: true)
+    }
+
+    /// Loads the create-time network choices. Network policy was added after
+    /// the first Cloud deployment, so an unavailable endpoint leaves the
+    /// create sheet in full-internet compatibility mode.
+    public func refreshNetworkPolicyCatalog() async {
+        guard let catalog = try? await service.networkPolicyCatalog() else { return }
+        networkPolicyCatalog = catalog
     }
 
     private func refreshMachines(resetProvisioningPollBudget: Bool) {

@@ -29,6 +29,11 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
         try request("GET", path: "/api/vm", body: nil, accessToken: accessToken, refreshToken: refreshToken)
     }
 
+    /// `GET /api/vm/network-presets`.
+    public func networkPolicyCatalog(accessToken: String, refreshToken: String) throws -> URLRequest {
+        try request("GET", path: "/api/vm/network-presets", body: nil, accessToken: accessToken, refreshToken: refreshToken)
+    }
+
     /// `POST /api/vm` with the same options the Mac client sends.
     public func createMachine(
         options: CloudMachineCreateOptions,
@@ -48,6 +53,12 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
         if options.persistentHome { body["persistentHome"] = true }
         if options.perMachineHome { body["perMachineHome"] = true }
         if let memoryMb = options.memoryMb { body["memoryMb"] = memoryMb }
+        if let networkPolicy = options.networkPolicy {
+            body["networkPolicy"] = networkPolicy.foundationObject
+        }
+        if let agentUpdates = options.agentUpdates {
+            body["agentUpdates"] = agentUpdates.rawValue
+        }
         var request = try request("POST", path: "/api/vm", body: body, accessToken: accessToken, refreshToken: refreshToken)
         request.setValue(key, forHTTPHeaderField: "Idempotency-Key")
         request.timeoutInterval = Self.createTimeout

@@ -9,6 +9,9 @@ public protocol CloudVMServing: Sendable {
     /// Machines plus the server's current image-kind capability list.
     /// Older test and preview services get a compatibility default.
     func listMachineCatalog() async throws -> CloudMachineCatalog
+    /// The create-time network policy presets, when the deployment supports
+    /// the network policy feature.
+    func networkPolicyCatalog() async throws -> CloudNetworkPresetCatalog?
     /// Create a machine through the existing `/api/vm` control-plane endpoint.
     /// The idempotency key makes a retry safe for paid provider creates.
     func createMachine(options: CloudMachineCreateOptions, idempotencyKey: String) async throws -> CloudMachine
@@ -58,6 +61,10 @@ public protocol CloudVMServing: Sendable {
 public extension CloudVMServing {
     func listMachineCatalog() async throws -> CloudMachineCatalog {
         CloudMachineCatalog(machines: try await listMachines(), availableKinds: nil)
+    }
+
+    func networkPolicyCatalog() async throws -> CloudNetworkPresetCatalog? {
+        nil
     }
 }
 
