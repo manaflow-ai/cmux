@@ -400,6 +400,9 @@ function createSession(
       }
       emitSessionEvent(sess, evt);
     },
+    resetHistory() {
+      resetSessionHistory(sess);
+    },
     setStatus(status: SessionStatus) {
       const pendingDone = sess.internal.pendingDoneEmit as Promise<void> | undefined;
       if (status === "idle" && pendingDone) {
@@ -483,6 +486,12 @@ function broadcastSessionHistory(sess: Session) {
     events: sess.events,
   });
   for (const ws of sess.sockets) ws.send(payload);
+}
+
+export function resetSessionHistory(sess: Session) {
+  sess.events.length = 0;
+  delete sess.internal.eventGenerations;
+  broadcastSessionHistory(sess);
 }
 
 function activeAttributionGenerations(sess: Session): number[] {
@@ -654,12 +663,10 @@ function ensureTranscriptSession(source: TranscriptSource): Session {
     // The agent's transcript moved (for example a resolved fallback path):
     // re-point the same session so open pages stay subscribed.
     existing.adapter.dispose(existing);
-    existing.events.length = 0;
-    delete existing.internal.eventGenerations;
     existing.transcript.path = source.path;
     existing.internal.transcriptTarget = { agentSessionId: source.sessionId, surfaceId: source.surfaceId };
     startTranscriptTail(existing, source);
-    broadcastSessionHistory(existing);
+    resetSessionHistory(existing);
     return existing;
   }
   const sess = createSession(source.agent, source.cwd ?? DEFAULT_CWD, false, transcriptTitle(source), {}, {}, {
