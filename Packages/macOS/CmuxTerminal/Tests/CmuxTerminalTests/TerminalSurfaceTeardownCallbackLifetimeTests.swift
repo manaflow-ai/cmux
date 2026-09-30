@@ -313,9 +313,25 @@ import Testing
         }
 
         let surface = makeSurface(runtimeTeardown: coordinator)
+        let originalLifecycleID = surface.terminalLifecycleId
 
         #expect(surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.noRuntime"))
         #expect(!surface.canCreateRuntimeSurface)
+        #expect(surface.terminalLifecycleId != originalLifecycleID)
+    }
+
+    @Test func hibernationWithoutRuntimeReleasesItsReservedTeardownSlot() throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let firstReservation = try #require(coordinator.reserveIsolatedHibernationTeardown())
+        defer { coordinator.cancelIsolatedHibernationTeardown(firstReservation) }
+        let surface = makeSurface(runtimeTeardown: coordinator)
+        #expect(surface.reserveAgentHibernationRuntimeTeardown())
+        #expect(coordinator.reserveIsolatedHibernationTeardown() == nil)
+
+        #expect(surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.noRuntimeReservation"))
+
+        let releasedReservation = try #require(coordinator.reserveIsolatedHibernationTeardown())
+        coordinator.cancelIsolatedHibernationTeardown(releasedReservation)
     }
 
     @Test func deinitKeepsTeeLeaseUntilCoordinatorFree() async {
