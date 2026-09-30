@@ -1195,13 +1195,21 @@ extension CMUXCLI {
 
     static func saveVMRunBinding(workKey: String, machine: String, to url: URL? = nil) {
         let storeURL = url ?? vmRunBindingsStoreURL()
+        // Serialize the complete read-modify-write, just like the pool store.
+        // Atomic replacement alone can lose another directory's binding when
+        // independent vm run processes finish provisioning at the same time.
+        guard (try? FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )) != nil else { return }
+        let lockFD = open(storeURL.path + ".lock", O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        guard lockFD >= 0 else { return }
+        defer { close(lockFD) }
+        guard flock(lockFD, LOCK_EX) == 0 else { return }
+        defer { _ = flock(lockFD, LOCK_UN) }
         var store = loadVMRunBindings(from: storeURL)
         store[workKey] = VMRunBinding(machine: machine, updatedAtUnix: Int(Date().timeIntervalSince1970))
         guard let data = try? JSONEncoder().encode(store) else { return }
-        try? FileManager.default.createDirectory(
-            at: storeURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
         try? data.write(to: storeURL, options: [.atomic])
     }
 

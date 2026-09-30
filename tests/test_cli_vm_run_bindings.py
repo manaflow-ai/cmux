@@ -16,6 +16,7 @@ class VMRunBindingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = Path(__file__).resolve().parents[1]
+        (cls.root / ".local").mkdir(exist_ok=True)
         cls.temporary = tempfile.TemporaryDirectory(
             prefix="vm-binding-test-", dir=cls.root / ".local"
         )
@@ -73,6 +74,18 @@ CMUXCLI.saveVMRunBinding(workKey: args[2], machine: args[3], to: URL(fileURLWith
         bindings = json.loads(store.read_text())
         self.assertEqual({key: value["machine"] for key, value in bindings.items()},
                          {"work-a": "machine-a", "work-b": "machine-b"})
+
+    def test_binding_update_preserves_live_entries_and_prunes_expired_entries(self):
+        store = Path(self.temporary.name) / "expiry.json"
+        store.write_text(json.dumps({
+            "expired": {"machine": "old", "updatedAtUnix": 0},
+            "live": {"machine": "warm", "updatedAtUnix": 4_102_444_800},
+        }))
+        subprocess.run([str(self.binary), str(store), "new", "fresh"],
+                       check=True, capture_output=True, timeout=10)
+        bindings = json.loads(store.read_text())
+        self.assertEqual({key: value["machine"] for key, value in bindings.items()},
+                         {"live": "warm", "new": "fresh"})
 
 
 if __name__ == "__main__":
