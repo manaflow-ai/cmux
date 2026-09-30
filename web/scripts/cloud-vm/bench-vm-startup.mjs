@@ -739,7 +739,17 @@ async function mintSessionHeaders(expiresInMillis) {
   const session = await withTimeout(user.createSession({ expiresInMillis, isImpersonation: true }), STACK_TIMEOUT_MS, "Stack createSession");
   const tokens = await withTimeout(session.getTokens(), STACK_TIMEOUT_MS, "Stack getTokens");
   if (!tokens.accessToken || !tokens.refreshToken) throw new Error("Stack did not return bench session tokens");
-  return { authorization: `Bearer ${tokens.accessToken}`, "x-stack-refresh-token": tokens.refreshToken };
+  // Vercel SSO-protected unaliased deployments accept this header when the
+  // operator supplies the project-scoped automation bypass secret. Keep it
+  // scoped to a non-canonical target and never include it in reports/logs.
+  const canonicalHost = new URL(project.url).host;
+  const targetHost = new URL(targetUrl).host;
+  const bypassSecret = targetHost !== canonicalHost ? process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim() : undefined;
+  return {
+    authorization: `Bearer ${tokens.accessToken}`,
+    "x-stack-refresh-token": tokens.refreshToken,
+    ...(bypassSecret ? { "x-vercel-protection-bypass": bypassSecret } : {}),
+  };
 }
 
 /** Everything teardown learned, so the report can say what really happened. */
