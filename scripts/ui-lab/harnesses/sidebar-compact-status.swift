@@ -9,37 +9,44 @@
 
 import AppKit
 
-typealias Glyph = SidebarCompactStatusGlyph
+@main
+struct SidebarCompactStatusLab {
+    typealias Glyph = SidebarCompactStatusGlyph
 
-let width: CGFloat = 232
-let rowHeight: CGFloat = 31
-let outerPad: CGFloat = 6
-let leading: CGFloat = 16
-let lineCenter: CGFloat = 12.5 * 0.6 + 8
+    static func main() {
+        typealias Glyph = SidebarCompactStatusGlyph
 
-let rows: [(String, Glyph.Kind?, Bool)] = [
-    ("needs input", .needsInput, false),
-    ("running", .running, false),
-    ("unseen", .unseen, false),
-    ("error", .error, false),
-    ("starting agent", .pending, false),
-    ("open PR", .pullRequest(.open), false),
-    ("merged PR", .pullRequest(.merged), false),
-    ("closed PR", .pullRequest(.closed), false),
-    ("idle agent", .idle, false),
-    ("branch only", .branch, false),
-    ("plain terminal", .terminal, false),
-    ("selected, needs input", .needsInput, true),
-    ("selected, merged PR", .pullRequest(.merged), true),
-]
+        let width: CGFloat = 232
+        let rowHeight: CGFloat = 31
+        let outerPad: CGFloat = 6
+        let leading: CGFloat = 16
+        let lineCenter: CGFloat = 12.5 * 0.6 + 8
 
-let groups: [(String, Glyph.Kind?, Bool)] = [
-    ("agents", .needsInput, true),
-    ("busy", .running, true),
-    ("quiet", nil, false),
-]
+        let rows: [(String, Glyph.Kind?, Bool)] = [
+            ("needs input", .needsInput, false),
+            ("running subagents", .subagents, false),
+            ("running", .running, false),
+            ("waiting", .waiting, false),
+            ("unseen", .unseen, false),
+            ("error", .error, false),
+            ("starting agent", .pending, false),
+            ("open PR", .pullRequest(.open), false),
+            ("merged PR", .pullRequest(.merged), false),
+            ("closed PR", .pullRequest(.closed), false),
+            ("idle agent", .idle, false),
+            ("branch only", .branch, false),
+            ("plain terminal", .terminal, false),
+            ("selected, needs input", .needsInput, true),
+            ("selected, merged PR", .pullRequest(.merged), true),
+        ]
 
-UILab.main {
+        let groups: [(String, Glyph.Kind?, Bool)] = [
+            ("agents", .needsInput, true),
+            ("busy", .running, true),
+            ("quiet", nil, false),
+        ]
+
+        UILab.main {
     let height = CGFloat(rows.count + groups.count) * rowHeight + 16
     UILab.render(name: "sidebar-compact-status", detail: NSRect(x: 0, y: 0, width: 120, height: CGFloat(rows.count) * rowHeight + 8)) { _ in
         let canvas = UILab.Canvas(frame: NSRect(x: 0, y: 0, width: width, height: height))
@@ -105,5 +112,7 @@ UILab.main {
             y += rowHeight
         }
         return canvas
+    }
+        }
     }
 }

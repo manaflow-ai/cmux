@@ -316,6 +316,14 @@
     "source": "OK %@ [%@] %@",
     "class": "format"
   },
+  "cli.usage.record": {
+    "class": "syntax",
+    "source": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+  },
+  "cli.usage.shot": {
+    "class": "syntax",
+    "source": "shot [--format png|jpg] [--jpg] [--scale <n>] [--max-width <n>] [--quality <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--caption <text>] [--window <id|ref|index>]"
+  },
   "cli.usage.readScreen": {
     "class": "syntax",
     "source": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
@@ -3505,6 +3513,18 @@
       "ko": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
       "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
       "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
+    }
+  },
+  "actions.discovery.menuTitle": {
+    "source": "Actions · cmux.json…",
+    "identityLocales": {
+      "fr": "\"Actions\" is spelled the same in French; cmux.json is a file name."
+    }
+  },
+  "actions.discovery.dialogTitle": {
+    "source": "Actions · cmux.json",
+    "identityLocales": {
+      "fr": "\"Actions\" is spelled the same in French; cmux.json is a file name."
     }
   }
 }

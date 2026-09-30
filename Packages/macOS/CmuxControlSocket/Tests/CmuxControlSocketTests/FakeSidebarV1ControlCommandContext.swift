@@ -27,6 +27,14 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         scope: ControlSidebarPanelScope,
         stateRawValue: String
     )?
+    nonisolated(unsafe) var statusUpsertCall: (
+        target: ControlSidebarTabTarget,
+        key: String,
+        value: String,
+        icon: String?,
+        panelID: UUID?,
+        workState: ControlSidebarAgentWorkState?
+    )?
 
     nonisolated func controlSurfaceParseShellActivityState(
         _ rawState: String
@@ -59,6 +67,22 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         guard manualPullRequestAvailable else { return false }
         manualPullRequestClearTab = tabArg
         return true
+    }
+
+    nonisolated func controlSidebarScheduleStatusUpsert(
+        target: ControlSidebarTabTarget,
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: ControlSidebarMetadataFormat,
+        panelID: UUID?,
+        pid: Int32?,
+        workState: ControlSidebarAgentWorkState?
+    ) {
+        statusUpsertCall = (target, key, value, icon, panelID, workState)
     }
 
     nonisolated func controlSidebarScheduleStatusClear(

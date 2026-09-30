@@ -106,7 +106,12 @@ def build(harness: Path) -> Path:
             if path != harness:
                 # One module: package imports resolve to shims or nothing.
                 text = PACKAGE_IMPORT.sub("", text)
-            name = "main.swift" if path == harness else f"{index:02d}-{path.name}"
+            # Keep the harness out of Swift's special `main.swift` slot. That
+            # filename forces the compiler to treat the file as top-level
+            # executable code and rejects an `@main` harness used by syntax
+            # validation. A regular filename still permits legacy top-level
+            # harnesses while supporting structured entry points.
+            name = "Harness.swift" if path == harness else f"{index:02d}-{path.name}"
             (work / name).write_text(text)
             compiled.append(str(work / name))
         binary.parent.mkdir(parents=True, exist_ok=True)
@@ -123,7 +128,7 @@ def build(harness: Path) -> Path:
             # Point errors at the real files, not the temp copies.
             output = result.stderr
             for index, path in enumerate(files):
-                name = "main.swift" if path == harness else f"{index:02d}-{path.name}"
+                name = "Harness.swift" if path == harness else f"{index:02d}-{path.name}"
                 output = output.replace(str(work / name), str(path))
             sys.stderr.write(output)
             raise SystemExit("ui-lab: compile failed")

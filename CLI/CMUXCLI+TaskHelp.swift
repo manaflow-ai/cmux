@@ -276,6 +276,8 @@ extension CMUXCLI {
         current-workspace [--window <id|ref|index>]
         \(Self.readSelectionUsageLine)
         \(Self.readScreenUsageLine)
+        \(Self.recordUsageLine)
+        \(Self.shotUsageLine)
         sidebar-state [--workspace <id|ref|index>] [--window <id|ref|index>]
         markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
         diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
@@ -286,7 +288,7 @@ extension CMUXCLI {
         return """
         guide | --skill
         welcome
-        docs [settings|shortcuts|api|browser|agents|dock|sidebars]
+        docs [settings|shortcuts|api|browser|capture|agents|dock|sidebars]
         settings [open [target]|path|docs|<target>]
         config <doctor|check|validate|path|paths|docs|documentation|reload>
         shortcuts

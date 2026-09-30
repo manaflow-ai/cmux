@@ -46,6 +46,9 @@ public protocol ControlSidebarContext: AnyObject {
     /// `guard let tabManager` head of several v1 bodies).
     func controlSidebarTabManagerAvailable() -> Bool
 
+    /// App-bundle-resolved messages for the legacy close command.
+    func controlSidebarCloseStrings() -> ControlSidebarCloseStrings
+
     // MARK: Scheduled sidebar mutations (status / agent / blocks)
 
     /// Enqueues the `set_status`/`report_meta` upsert mutation.
@@ -59,7 +62,8 @@ public protocol ControlSidebarContext: AnyObject {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        workState: ControlSidebarAgentWorkState?
     )
 
     /// Enqueues the `clear_status`/`clear_meta` removal mutation.
@@ -333,7 +337,7 @@ public protocol ControlSidebarContext: AnyObject {
     func controlSidebarNewSurface(isBrowser: Bool, paneArg: String?, url: URL?) -> ControlSidebarNewSurfaceResolution
 
     /// Closes a surface (`close_surface`; empty argument = focused surface).
-    func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution
+    func controlSidebarCloseSurface(surfaceArg: String?, force: Bool) -> ControlSidebarCloseSurfaceResolution
 
     // MARK: Misc ops
 
@@ -350,4 +354,11 @@ public protocol ControlSidebarContext: AnyObject {
     /// Snapshots panel health rows (`surface_health`), or `nil` when the tab
     /// can't resolve.
     func controlSidebarSurfaceHealth(tabArg: String) -> [ControlSidebarSurfaceHealthRow]?
+}
+
+public extension ControlSidebarContext {
+    /// Backward-compatible non-forced close for legacy socket callers.
+    func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution {
+        controlSidebarCloseSurface(surfaceArg: surfaceArg, force: false)
+    }
 }

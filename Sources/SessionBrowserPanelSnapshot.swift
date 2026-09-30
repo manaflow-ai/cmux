@@ -23,6 +23,9 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var diffViewerRequestPath: String? = nil
     /// Per-panel provenance also survives Dock and closed-panel snapshots.
     var cloudResource: SurfaceResourceID? = nil
+    /// The team that owns ``cloudResource``'s machine. Absent in snapshots
+    /// written before multi-team Cloud; restore then adopts the selected team.
+    var cloudTeamID: String? = nil
 
     init(
         urlString: String?,
@@ -38,7 +41,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         transparentBackground: Bool? = nil,
         diffViewerToken: String? = nil,
         diffViewerRequestPath: String? = nil,
-        cloudResource: SurfaceResourceID? = nil
+        cloudResource: SurfaceResourceID? = nil,
+        cloudTeamID: String? = nil
     ) {
         self.urlString = urlString
         self.profileID = profileID
@@ -54,6 +58,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         self.diffViewerToken = diffViewerToken
         self.diffViewerRequestPath = diffViewerRequestPath
         self.cloudResource = cloudResource
+        self.cloudTeamID = cloudResource == nil ? nil : cloudTeamID
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -71,6 +76,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         case diffViewerToken
         case diffViewerRequestPath
         case cloudResource
+        case cloudTeamID
     }
 
     init(from decoder: Decoder) throws {
@@ -89,5 +95,6 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         diffViewerToken = try container.decodeIfPresent(String.self, forKey: .diffViewerToken)
         diffViewerRequestPath = try container.decodeIfPresent(String.self, forKey: .diffViewerRequestPath)
         cloudResource = try container.decodeIfPresent(SurfaceResourceID.self, forKey: .cloudResource)
+        cloudTeamID = try container.decodeIfPresent(String.self, forKey: .cloudTeamID)
     }
 }

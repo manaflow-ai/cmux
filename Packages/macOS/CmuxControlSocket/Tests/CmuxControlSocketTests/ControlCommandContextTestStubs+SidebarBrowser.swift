@@ -58,7 +58,8 @@ extension ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        workState: ControlSidebarAgentWorkState?
     ) {}
 
     nonisolated func controlSidebarScheduleStatusClear(
@@ -247,7 +248,7 @@ extension ControlSidebarContext {
         .noTabSelected
     }
 
-    func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution { .noTabSelected }
+    func controlSidebarCloseSurface(surfaceArg: String?, force: Bool) -> ControlSidebarCloseSurfaceResolution { .noTabSelected }
 
     func controlSidebarReloadConfig(
         completion: @escaping @MainActor () -> Void

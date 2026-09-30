@@ -49,7 +49,11 @@ extension RightSidebarMode {
     }
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
-        isAvailable(
+        if self == .customSidebar {
+            return CmuxExtensionSidebarSelection.customSidebarsEnabled(defaults: defaults)
+                && FileExplorerState.persistedCustomSidebarName(defaults: defaults) != nil
+        }
+        return isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
             devicesEnabled: false
