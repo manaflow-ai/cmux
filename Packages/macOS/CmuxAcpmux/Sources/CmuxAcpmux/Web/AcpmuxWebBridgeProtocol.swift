@@ -1,8 +1,12 @@
 import Foundation
 
 /// Versioned host messages for the direct React acpmux client.
-public enum AcpmuxWebBridgeProtocol {
-    public static let version = 1
+public struct AcpmuxWebBridgeProtocol {
+    public let version: Int
+
+    public init(version: Int = 1) {
+        self.version = version
+    }
 }
 
 /// Configuration returned by the host after the page is ready. The daemon bearer
@@ -15,7 +19,7 @@ public struct AcpmuxWebHostHandshake: Codable, Sendable, Equatable {
     public let sessionId: String?
 
     public init(endpoint: String, token: String, sessionId: String?) {
-        protocolVersion = AcpmuxWebBridgeProtocol.version
+        protocolVersion = AcpmuxWebBridgeProtocol().version
         transport = "acpmux-websocket"
         self.endpoint = endpoint
         self.token = token
