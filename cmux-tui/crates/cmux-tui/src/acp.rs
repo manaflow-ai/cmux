@@ -27,7 +27,7 @@ pub(crate) fn run(args: Vec<OsString>) -> i32 {
 }
 
 /// `cmux acp open NAME [--pane ID]`: show an agent session in a new tab of
-/// a pane (the caller's by default). The tab runs `cmux acp attach NAME`,
+/// a pane (the session's focused pane by default). The tab runs `cmux acp attach NAME`,
 /// the acpmux TUI, so it works the same in the app and in the TUI.
 fn open(args: &[String]) -> i32 {
     let exe = match std::env::current_exe() {

@@ -79,25 +79,33 @@ not ported. Agents that run through acpmux need no hooks.
 
 ## Status
 
-Done on `feat-cmux-next-acpmux` (PR 16174): acpmux in the workspace; `cmux acp` (all
-three parts); app scopes and action verbs; app and daemon discovery. Build, 1762 cmux-tui
-unit tests, the acpmux suite and clippy pass on a Linux Testbox; macOS-only discovery
-code compiles only in macOS CI. `terminal_host_recovery::closing_one_hundred_terminals…`
-misses its 15 s budget on the Testbox at the base commit too (timing flake, not this
-change).
+On `feat-cmux-next-acpmux` (PR 16174):
+
+- acpmux in the cmux-tui workspace; `cmux acp` (session verbs, `stdio`, `open`).
+- App scopes and action verbs; app and daemon discovery.
+- `browser.page.*` app methods for app browser tabs; `cmux browser tab_…|page …`.
+- Cutover: the app bundles the cmux-tui binary as `bin/cmux` with `cmux-tui` and `acpmux`
+  symlinks. Deleted: the `cmux-cli`/`cmuxCLITests` targets, `CLI/`, the ten CLI-only
+  packages, `CmuxNextControl/Compat` and `CmuxNextApp/Compat`, the agent wrapper scripts
+  (not on the PATH of cmux-next terminals; cmux-tui's agent shim replaces them).
+- `action.run` targets take public ids or unique prefixes (`PublicIDTargetResolver`);
+  the topology carries each workspace's `ws_` id.
+- Web docs keep the old CLI until cmux-next ships (user). Repo skills and docs follow the
+  new grammar.
+
+Verification: Linux Testbox build, clippy and tests (1762 cmux-tui unit tests, acpmux);
+`swift test` CmuxNextControlTests (68). `terminal_host_recovery::closing_one_hundred…`
+misses its 15 s budget on the Testbox at the base commit too (timing flake).
 
 ## Remaining
 
-1. Cutover: bundle the cmux-tui binary as `cmux` with `cmux-tui` and `acpmux` symlinks;
-   delete `CLI/`, `cmuxCLITests/`, the `cmux-cli` target, `CmuxNextControl/Compat/` and
-   `CMUXAgentLaunch/ACPHost`; replace `cli-compat-e2e.py` with an e2e suite for the new
-   surface; rewrite the skills and docs that name old verbs in the same change.
-2. Frontend browser routing: resolve a browser tab through the daemon; page commands
-   (navigate, eval, snapshot, click, fill) for a frontend-owned tab go to its app. Later
-   the daemon can forward them, so a CLI on another machine reaches the app too.
-3. App windows get typed ids (`win_<32 hex>`) in the control surface; today they are
-   bare lowercase UUIDs (stable, but not typed like every other id).
-4. Nightly and release apps both use daemon session `cmux-app` when untagged
-   (`DaemonLauncher.sessionName`), so a nightly and a release running together share one
-   session. Give each channel its own session.
-5. acpmux CLI output is English only; the rest of `cmux` is English and Japanese.
+1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.
+2. Nightly and release apps both use daemon session `cmux-app` when untagged
+   (`DaemonLauncher.sessionName`); give each channel its own session.
+3. acpmux CLI output is English only; the rest of `cmux` is English and Japanese.
+4. Browser waits, screenshots, cookies, downloads and sidebar status/log/progress have no
+   new-CLI equivalent yet (the compat layer had partial ones).
+5. `Resources/Localizable.xcstrings` (987 `cli.*` keys plus legacy app keys) is probably
+   unused by the cmux-next app; prove it and remove it from the Resources phase.
+6. The daemon forwards page commands for frontend browser tabs to their app, so a CLI on
+   another machine reaches them.

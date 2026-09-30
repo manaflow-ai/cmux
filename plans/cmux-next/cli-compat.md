@@ -1,5 +1,7 @@
 # cmux next: old `cmux` CLI compatibility
 
+Superseded (2026-09-30): the Swift CLI and this compat layer were deleted; the `cmux` CLI is the Rust cmux-tui binary with no compatibility (plans/cmux-next/cli.md). Kept as a record of what the old surface covered.
+
 The shipped `cmux` CLI (`CLI/cmux.swift`), agent hooks, and shell integration talk to cmux-next through `CmuxNextControl/Compat/`. Old verb names, params, UUIDs, and `workspace:N` / `pane:N` / `surface:N` / `window:N` refs keep working. Methods the new app does not implement answer `{"ok":false,"error":{"code":"unsupported","message":"unsupported in cmux-next: <reason>"}}`, never a hang or a silent success.
 
 ## How it works

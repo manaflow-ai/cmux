@@ -36,15 +36,28 @@ impl Defaults {
 pub async fn run(defaults: Defaults) -> Result<()> {
     let stream = crate::daemon::connect_stream().await?;
     let (daemon_read, mut daemon_write) = stream.into_split();
+    // Requests the editor sent that the daemon has not answered. When stdin
+    // ends, the relay still delivers these answers, then stops.
+    let pending = std::sync::Mutex::new(std::collections::HashSet::<String>::new());
+    let answered = tokio::sync::Notify::new();
     let to_daemon = async {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         while let Some(line) = lines.next_line().await.context("read stdin")? {
+            if let Some(id) = request_id(&line) {
+                pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id);
+            }
             let line = apply_defaults(&line, &defaults);
             daemon_write.write_all(line.as_bytes()).await.context("write to acpmux")?;
             daemon_write.write_all(b"\n").await.context("write to acpmux")?;
         }
-        // The editor closed stdin: the conversation is over.
-        anyhow::Ok(())
+        // The editor closed stdin: finish once every request is answered.
+        loop {
+            let wait = answered.notified();
+            if pending.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+                return anyhow::Ok(());
+            }
+            wait.await;
+        }
     };
     let to_editor = async {
         let mut stdout = tokio::io::stdout();
@@ -53,6 +66,11 @@ pub async fn run(defaults: Defaults) -> Result<()> {
             stdout.write_all(line.as_bytes()).await.context("write stdout")?;
             stdout.write_all(b"\n").await.context("write stdout")?;
             stdout.flush().await.context("write stdout")?;
+            if let Some(id) = response_id(&line)
+                && pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id)
+            {
+                answered.notify_one();
+            }
         }
         anyhow::Ok(())
     };
@@ -61,6 +79,24 @@ pub async fn run(defaults: Defaults) -> Result<()> {
         result = to_daemon => result,
         result = to_editor => result,
     }
+}
+
+/// The id of a JSON-RPC request (a message with `method` and `id`).
+fn request_id(line: &str) -> Option<String> {
+    let message: Value = serde_json::from_str(line).ok()?;
+    message.get("method")?;
+    message.get("id").filter(|id| !id.is_null()).map(Value::to_string)
+}
+
+/// The id of a JSON-RPC response (`id` with `result` or `error`, no `method`).
+fn response_id(line: &str) -> Option<String> {
+    let message: Value = serde_json::from_str(line).ok()?;
+    if message.get("method").is_some()
+        || (message.get("result").is_none() && message.get("error").is_none())
+    {
+        return None;
+    }
+    message.get("id").map(Value::to_string)
 }
 
 /// Adds the defaults to a `session/new` request. Every other line, and any
@@ -120,6 +156,19 @@ mod tests {
         let out: Value = serde_json::from_str(&apply_defaults(line, &claude())).unwrap();
         assert_eq!(out["params"]["_meta"]["acpmux"]["harness"], "codex");
         assert_eq!(out["params"]["_meta"]["acpmux"]["policy"], "approve-edits");
+    }
+
+    #[test]
+    fn requests_and_their_responses_pair_by_id() {
+        let request = r#"{"jsonrpc":"2.0","id":7,"method":"session/prompt","params":{}}"#;
+        let notification = r#"{"jsonrpc":"2.0","method":"session/cancel","params":{}}"#;
+        let response = r#"{"jsonrpc":"2.0","id":7,"result":{}}"#;
+        let server_request =
+            r#"{"jsonrpc":"2.0","id":7,"method":"session/request_permission","params":{}}"#;
+        assert_eq!(request_id(request), response_id(response));
+        assert_eq!(request_id(request).as_deref(), Some("7"));
+        assert_eq!(request_id(notification), None);
+        assert_eq!(response_id(server_request), None);
     }
 
     #[test]
