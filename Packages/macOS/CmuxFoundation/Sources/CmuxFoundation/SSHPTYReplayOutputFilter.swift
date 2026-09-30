@@ -96,7 +96,12 @@ public struct SSHPTYReplayOutputFilter: Sendable {
     }
 
     /// Treats every later byte as live output after the replay phase ended early.
-    public mutating func endReplay() {}
+    ///
+    /// A held candidate that began in replay is emitted unchanged with the next
+    /// chunk, matching how an oversized candidate fails open.
+    public mutating func endReplay() {
+        replayBytesRemaining = 0
+    }
 
     /// Flushes an unterminated candidate when the bridge closes.
     ///

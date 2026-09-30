@@ -15891,6 +15891,25 @@ struct CMUXCLI {
                 throw CLIError(message: "ssh-pty-attach: bridge write failed")
             }
         }
+        func storeReplayStateIfComplete() {
+            guard !replayStateStored, outputProgress.replayBytesRemaining == 0 else { return }
+            replayState.storeSnapshot(
+                replayBytes: outputProgress.deliveredReplayBytes,
+                fingerprint: outputProgress.completedReplayFingerprint ??
+                    SSHPTYAttachOutputProgress.fingerprint(of: Data())
+            )
+            replayStateStored = true
+        }
+        // The replay length is declared by the remote peer. Bound the replay
+        // phase so a peer that declares more than it sends cannot hold input
+        // forwarding off indefinitely.
+        var replayDeadline = SSHPTYAttachReplayDeadline(startedAt: bridgeReadyUptime)
+        func endStalledReplay() throws {
+            try writeReplayFilteredOutput(outputProgress.endReplay())
+            replayOutputFilter.endReplay()
+            storeReplayStateIfComplete()
+            try startInputForwardingAfterReplay()
+        }
         try startInputForwardingAfterReplay()
         func finishBridgeClosedNormally() throws {
             resizeMonitor.cancel()
@@ -15908,9 +15927,24 @@ struct CMUXCLI {
 
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
+            if !inputPumpStarted, outputProgress.replayBytesRemaining > 0 {
+                let wait = replayDeadline.remainingWait(at: ProcessInfo.processInfo.systemUptime)
+                var pollFD = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                let ready = wait > 0 ? poll(&pollFD, 1, Int32(min(wait * 1000, 60_000).rounded(.up))) : 0
+                try checkSSHPTYCancellation(signalMonitor)
+                if ready == 0 {
+                    if replayDeadline.remainingWait(at: ProcessInfo.processInfo.systemUptime) == 0 {
+                        try endStalledReplay()
+                    }
+                    continue
+                }
+                // Other poll failures fall through so read reports them.
+                if ready < 0, errno == EINTR { continue }
+            }
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             try checkSSHPTYCancellation(signalMonitor)
             if count > 0 {
+                replayDeadline.recordOutput(at: ProcessInfo.processInfo.systemUptime)
                 let output = outputProgress.terminalOutput(
                     from: Data(outputBuffer.prefix(count)),
                     suppressingReplay: suppressReplay
@@ -15921,14 +15955,7 @@ struct CMUXCLI {
                     }
                     try writeReplayFilteredOutput(output)
                 }
-                if !replayStateStored, outputProgress.replayBytesRemaining == 0 {
-                    replayState.storeSnapshot(
-                        replayBytes: bridgeReplayBytes,
-                        fingerprint: outputProgress.completedReplayFingerprint ??
-                            SSHPTYAttachOutputProgress.fingerprint(of: Data())
-                    )
-                    replayStateStored = true
-                }
+                storeReplayStateIfComplete()
                 try startInputForwardingAfterReplay()
             } else if count == 0 {
                 try finishBridgeClosedNormally()

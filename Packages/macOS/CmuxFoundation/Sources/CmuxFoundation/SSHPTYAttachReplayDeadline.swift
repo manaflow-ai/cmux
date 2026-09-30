@@ -23,13 +23,23 @@ public struct SSHPTYAttachReplayDeadline: Sendable, Equatable {
         startedAt: TimeInterval,
         idleTimeout: TimeInterval = Self.defaultIdleTimeout,
         totalTimeout: TimeInterval = Self.defaultTotalTimeout
-    ) {}
+    ) {
+        self.idleTimeout = max(0, idleTimeout)
+        totalDeadline = startedAt + max(0, totalTimeout)
+        idleDeadline = startedAt + self.idleTimeout
+    }
+
+    private let idleTimeout: TimeInterval
+    private let totalDeadline: TimeInterval
+    private var idleDeadline: TimeInterval
 
     /// Records bridge output that arrived at `now`.
-    public mutating func recordOutput(at now: TimeInterval) {}
+    public mutating func recordOutput(at now: TimeInterval) {
+        idleDeadline = max(idleDeadline, now + idleTimeout)
+    }
 
     /// Seconds left before the replay phase ends; zero once it has expired.
     public func remainingWait(at now: TimeInterval) -> TimeInterval {
-        .infinity
+        max(0, min(idleDeadline, totalDeadline) - now)
     }
 }
