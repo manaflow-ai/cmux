@@ -60,6 +60,20 @@ struct CloudTreeMachineMenuTests {
         #expect(menu.items.filter { !$0.isSeparatorItem }.map(\.title) == [Self.title("cloudTree.menu.refresh", "Refresh")])
     }
 
+    @Test("Unavailable display creation hover affordance does not dispatch")
+    func unavailableDisplayCreationIsInert() {
+        var dispatches = 0
+        CloudTreeRowHoverButtons.performDisplayCreationIfAvailable(false) {
+            dispatches += 1
+        }
+        #expect(dispatches == 0)
+
+        CloudTreeRowHoverButtons.performDisplayCreationIfAvailable(true) {
+            dispatches += 1
+        }
+        #expect(dispatches == 1)
+    }
+
     @Test("A machine's menu exposes grow-only resource resize and wires its targets")
     func machineMenuOffersSupportedVerbs() throws {
         let recorder = CloudTreeMenuVerbRecorder()
