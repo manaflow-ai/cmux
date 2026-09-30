@@ -9586,7 +9586,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// background, focus overlay, dividers).
     func makeRemoteTmuxPanePanel(
         id panelID: UUID = UUID(), onInput: @escaping @Sendable (TerminalManualInput) -> Void,
-        keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil
+        keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
+        allowsRemoteClipboardWrites: Bool = false
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let surface = TerminalSurface(
@@ -9594,6 +9595,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedTerminalFontSizeConfig(),
             ioMode: .manualMirror,
+            allowsRemoteClipboardWrites: allowsRemoteClipboardWrites,
             manualInputHandler: onInput,
             manualInputKeyNameResolver: keyNameResolver
         )
