@@ -48,6 +48,45 @@ struct SidebarBoundedDisplayStringTests {
     }
 
     @Test
+    func aReferenceCutByTheCharacterBoundIsNotLeftParseable() {
+        // The hazard itself. The character bound is the one that can stop in
+        // the middle of a token, so the marker is attached to whatever it cut:
+        // `owner/repo#8471` must not be left reading as `owner/repo#847`.
+        let padding = String(repeating: "x", count: 40)
+        let text = "\(padding) manaflow-ai/cmux#8471 and more text after it"
+
+        let result = text.sidebarBoundedDisplayString(
+            maxDisplayedLines: 12,
+            maxDisplayedCharacters: 61
+        )
+
+        #expect(result.hasSuffix("manaflow-ai/cmux#847\u{2026}"))
+        #expect(!result.hasSuffix("manaflow-ai/cmux#847 \u{2026}"))
+    }
+
+    @Test
+    func aReferenceAtALineBoundCutKeepsItsOwnToken() {
+        // The other half, and the reason the two bounds do not share a marker.
+        // The loop breaks on `\n` before appending it, so a line-bound cut ends
+        // on a whole line and a whole reference. Attaching the marker there
+        // would unlink something complete and correct, so it gets a space and
+        // stays its own whitespace-delimited token.
+        let text = [
+            "first line of the block",
+            "second line of the block",
+            "see manaflow-ai/cmux#847",
+            "a fourth line that is cut away"
+        ].joined(separator: "\n")
+
+        let result = text.sidebarBoundedDisplayString(
+            maxDisplayedLines: 3,
+            maxDisplayedCharacters: 4096
+        )
+
+        #expect(result.hasSuffix("manaflow-ai/cmux#847 \u{2026}"))
+    }
+
+    @Test
     func aCutThatLeavesNothingToShowIsStillJustTheMarker() {
         // The kept prefix trims away to nothing, so the marker stands alone.
         let result = String(repeating: " ", count: 500).sidebarBoundedDisplayString(
