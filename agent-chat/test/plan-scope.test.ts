@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { Block } from "../src/session";
 
 Object.defineProperty(globalThis, "location", {
   configurable: true,
@@ -42,7 +43,7 @@ test("collapses repeated plans within one turn", () => {
     kind: "plan" as const,
     entries: [{ text: "one turn", status: status as "pending" | "in_progress" | "completed" }],
   }));
-  const blocks = updates.reduce((current, update) => foldEvent(current, update), [] as typeof updates[number][]);
+  const blocks = updates.reduce<Block[]>((current, update) => foldEvent(current, update), []);
 
   expect(blocks.filter((block) => block.kind === "plan")).toHaveLength(1);
   expect(blocks[0]).toEqual(updates[2]);
