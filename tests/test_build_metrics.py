@@ -156,8 +156,6 @@ class BuildMetricsTests(unittest.TestCase):
         self.assertIn("steps.hosted-compile.outcome != 'skipped'", workflow)
         self.assertIn("--compile-outcome \"$HOSTED_COMPILE_OUTCOME\"", workflow)
         self.assertIn("--host-telemetry \"$RUNNER_TEMP/glaeda-compile-telemetry.json\"", workflow)
-        self.assertIn('SWIFT_OTHER_PREFIX_MAPPINGS=${derived_data}=/^derived', compile_script)
-        self.assertIn('CLANG_OTHER_PREFIX_MAPPINGS=${derived_data}=/^derived', compile_script)
         self.assertIn("steps.build-metrics.outcome == 'success'", workflow)
         self.assertIn("continue-on-error: true", workflow)
 

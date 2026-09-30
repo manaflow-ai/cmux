@@ -8,8 +8,9 @@ WORKFLOW="$ROOT_DIR/.github/workflows/ci-macos.yml"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-# The compiler must emit the Xcode 26.6 cache remarks and normalize source and
-# DerivedData paths so a fleet CAS entry can be read from another runner.
+# The compiler must emit the Xcode 26.6 cache remarks and use the supported
+# prefix/project mapping settings so a fleet CAS entry can be read from another
+# runner without enabling the crash-prone DerivedData mapping.
 for setting in \
   'COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES' \
   'SWIFT_ENABLE_PREFIX_MAPPING=YES' \

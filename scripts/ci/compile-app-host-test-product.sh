@@ -234,11 +234,6 @@ build() {
     CLANG_ENABLE_PREFIX_MAPPING=YES
     SWIFT_ENABLE_PROJECT_PREFIX_MAPPING=YES
     CLANG_ENABLE_PROJECT_PREFIX_MAPPING=YES
-    # Normalize the per-job DerivedData root to the fleet recipe's stable
-    # spelling. Without these mappings a remote CAS entry still misses when
-    # CI uses /private/tmp/cmux-ci versus the fleet's fixed DerivedData path.
-    "SWIFT_OTHER_PREFIX_MAPPINGS=${derived_data}=/^derived"
-    "CLANG_OTHER_PREFIX_MAPPINGS=${derived_data}=/^derived"
     # Xcode 26.6 emits one bounded remark per cache query. The build metrics
     # receipt turns those remarks into cacheable-task and hit counters.
     COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES
