@@ -15,13 +15,15 @@ struct CloudMachineLinkExitDiagnosticsTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let client = root.appendingPathComponent("fake-cmux-tui")
-        // The client exits at once. A child it started closes stdout and writes
-        // the last stderr line a moment later, while it still holds that pipe.
-        // Without the wait, connect builds the error within milliseconds of the
-        // exit; with it, the line has most of the 1 s bound to arrive.
+        // The client exits at once. Once it is reaped, a child it started closes
+        // stdout and writes the last stderr line a moment later. Closing stdout
+        // earlier would let connect terminate the unreaped client's process
+        // group, child included, before the line is written. Without the wait,
+        // connect builds the error within milliseconds of stdout closing.
         try """
         #!/bin/sh
-        (exec >/dev/null; sleep 0.1; echo 'cmux-tui: route refused' >&2) &
+        (while kill -0 $$ 2>/dev/null; do sleep 0.01; done
+         exec >/dev/null; sleep 0.1; echo 'cmux-tui: route refused' >&2) &
         exit 2
         """.write(to: client, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
