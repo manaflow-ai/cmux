@@ -4,7 +4,7 @@ import GhosttyKit
 
 extension GhosttyNSView {
     private func codexActionCell(at point: NSPoint, surface: ghostty_surface_t) -> (TerminalPanel, CodexActionCommand)? {
-        guard let terminalSurface, let panel = codexActionPanel(), bounds.contains(point) else { return nil }
+        guard let panel = codexActionPanel(), bounds.contains(point) else { return nil }
         var metrics = ghostty_surface_grid_metrics_s()
         var scrollbar = ghostty_surface_scrollbar_s()
         guard ghostty_surface_grid_metrics(surface, &metrics), ghostty_surface_scrollbar(surface, &scrollbar), metrics.rows > 0, metrics.columns > 0,
