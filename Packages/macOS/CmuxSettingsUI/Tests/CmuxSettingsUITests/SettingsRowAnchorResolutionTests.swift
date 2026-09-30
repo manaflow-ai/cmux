@@ -143,6 +143,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.agentHibernation.idleSeconds",
         "terminal.agentHibernation.maxLiveTerminals",
         "terminal.settledSessionAutoClose.enabled",
+        "terminal.settledSessionAutoClose.idleHours",
         "terminal.adaptiveDefaultTheme",
         "terminal.rendererRealization.enabled",
         "terminal.rendererRealization.idleSeconds",
