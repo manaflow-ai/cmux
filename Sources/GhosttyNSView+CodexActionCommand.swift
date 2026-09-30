@@ -4,7 +4,8 @@ import GhosttyKit
 
 extension GhosttyNSView {
     private func codexActionCell(at point: NSPoint, surface: ghostty_surface_t) -> (TerminalPanel, CodexActionCommand)? {
-        guard let terminalSurface, let panel = codexActionPanel(), bounds.contains(point) else { return nil }
+        guard let terminalSurface, let panel = codexActionPanel(),
+              isLiveCodexPanel(panel), bounds.contains(point) else { return nil }
         var metrics = ghostty_surface_grid_metrics_s()
         var scrollbar = ghostty_surface_scrollbar_s()
         guard ghostty_surface_grid_metrics(surface, &metrics), ghostty_surface_scrollbar(surface, &scrollbar), metrics.rows > 0, metrics.columns > 0,
@@ -47,6 +48,33 @@ extension GhosttyNSView {
             return dock.panels[terminalSurface.id] as? TerminalPanel
         }
         return terminalSurface.owningWorkspace()?.terminalPanel(for: terminalSurface.id)
+    }
+
+    private func isLiveCodexPanel(_ panel: TerminalPanel) -> Bool {
+        guard let terminalSurface else { return false }
+        if let dock = DockSplitStore.liveStore(containingPanel: panel.id) {
+            let snapshot = dock.restoredAgentLifecycle.snapshotsByPanelId[panel.id]
+            let binding = dock.managedAgentResumeBinding(panelId: panel.id)
+                ?? dock.surfaceResumeBinding(panelId: panel.id)
+            guard binding?.isAgentHookBinding == true,
+                  binding?.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex" else {
+                return false
+            }
+            return dock.restoredAgentHasLiveProcess(
+                panelId: panel.id,
+                restoredAgent: snapshot
+            )
+        }
+        guard let workspace = terminalSurface.owningWorkspace(),
+              let binding = workspace.surfaceResumeBinding(panelId: panel.id),
+              binding.isAgentHookBinding,
+              binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
+              let agent = workspace.restoredAgentSnapshotsByPanelId[panel.id]
+                ?? binding.managedRestorableAgentSnapshot(replacing: nil),
+              agent.kind == .codex else {
+            return false
+        }
+        return workspace.restoredAgentHasLiveProcess(agent, panelId: panel.id)
     }
 
     @discardableResult
