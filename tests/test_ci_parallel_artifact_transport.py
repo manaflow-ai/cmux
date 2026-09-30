@@ -99,7 +99,17 @@ class WorkflowWiringTests(unittest.TestCase):
         step_end = action.find("\n    - name:", step_start + 1)
         step = action[step_start:step_end if step_end >= 0 else len(action)]
         self.assertIn("uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", step)
-        self.assertIn("timeout-minutes: 15", step)
+        self.assertNotIn("timeout-minutes: 15", step)
+        for workflow_name in ("ci-macos.yml", "test-e2e.yml"):
+            workflow = (ROOT / ".github/workflows" / workflow_name).read_text(encoding="utf-8")
+            uses = "        uses: ./.github/actions/download-test-product\n"
+            occurrences = workflow.count(uses)
+            self.assertGreater(occurrences, 0, workflow_name)
+            self.assertEqual(
+                occurrences,
+                workflow.count("        timeout-minutes: 15\n" + uses),
+                workflow_name,
+            )
 
     def test_restore_step_records_the_transport_it_used(self):
         for job in CONSUMERS:
