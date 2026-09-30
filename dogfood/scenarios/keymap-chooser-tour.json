@@ -16,6 +16,7 @@
   },
   "steps": [
     { "wait": 3 },
+    { "tree": "00-window-before-the-chooser-assert" },
     { "expect": { "id": "KeymapChooser" } },
     { "expect": { "id": "KeymapChooserPreview" } },
     { "shot": "01-chooser-on-a-fresh-install" },
