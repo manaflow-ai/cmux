@@ -6118,7 +6118,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         guard restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit,
               let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? observation?.snapshot,
-              snapshot.resumeCommand != nil else {
+              snapshot.resumeCommand != nil,
+              snapshot.hibernationLaunchFidelityProblem == nil else {
             return nil
         }
         let fingerprint = TabManager.restorableAgentSnapshotFingerprint(snapshot)
@@ -6140,6 +6141,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return false
         }
         guard agent.resumeCommand != nil,
+              agent.hibernationLaunchFidelityProblem == nil,
               terminalPanel.enterAgentHibernation(
                 agent: agent,
                 lastActivityAt: lastActivityAt
