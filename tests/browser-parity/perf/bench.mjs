@@ -58,7 +58,7 @@ export const LIVE = {
   "live-wikipedia-cities": "https://en.wikipedia.org/wiki/List_of_largest_cities",
   "live-github-pr-files": "https://github.com/manaflow-ai/cmux/pull/15570/files",
   "live-amazon-search": "https://www.amazon.com/s?k=usb+c+cable",
-  "live-hn-thread": "https://news.ycombinator.com/item?id=46100000",
+  "live-hn-thread": "https://news.ycombinator.com/item?id=49896586",
 };
 
 function selectPages(origins) {
@@ -142,6 +142,7 @@ try {
   for (let i = 0; i < 100; i++) {
     await page.evaluate((i) => { document.getElementById("root").innerHTML = Array.from({ length: 200 }, (_, j) => '<button>b' + i + '-' + j + '</button>').join(""); }, i);
     await snapshot();
+    await page.locator("button").last().textContent();
     if (i % 10 === 9) __out.sizes.push(await page.mainFrame()._agent("stats"));
   }
   __out.heap = typeof process !== "undefined" && process.memoryUsage ? process.memoryUsage().heapUsed : null;
@@ -189,7 +190,8 @@ async function cmuxDevBackend() {
       async eval(code) {
         lines.length = 0;
         const t = Date.now();
-        const r = await repl.evaluate(code);
+        // No output cap: the result marker line is large.
+        const r = await repl.evaluate(code, { maxOutput: 0 });
         return { ok: r.ok, error: r.error, text: lines.join("\n"), ms: Date.now() - t };
       },
       async close() {

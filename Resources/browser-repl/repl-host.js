@@ -194,27 +194,129 @@
     };
   }
 
+  // Output of one call. Past `maxOutput` characters (0 or Infinity: no
+  // limit) the rest of the call's output goes to a file instead of the
+  // agent's context: the head prints, then a line naming the file, and at
+  // the end of the call the last lines and a summary. The file holds all of
+  // the call's output, the printed part too. Agent harnesses cut tool output
+  // past about 30,000 characters (Claude Code keeps a 2,000-character
+  // preview and a file; Codex keeps 10,000 tokens, head and tail), so the
+  // default stays under both and the REPL decides what is kept.
+  const DEFAULT_MAX_OUTPUT = 25000;
+  const commas = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const spillCounters = new WeakMap();
+
+  function createOutputGate(host, { maxOutput } = {}) {
+    const cap = maxOutput === undefined || maxOutput === null ? DEFAULT_MAX_OUTPUT : maxOutput;
+    if (!(cap > 0) || cap === Infinity) return { print: (level, text) => host.print(level, text), finish() {}, spilled: () => null };
+    const headCap = Math.floor(cap * 0.8);
+    const tailCap = cap - headCap - 400;
+    const printedTexts = [];
+    let shown = 0;
+    let total = 0;
+    let file = null;
+    let tail = "";
+    const write = (text, append) => {
+      try {
+        host.fsOp("writeFile", { path: file, base64: ns.core.Buffer.from(text, "utf8").toString("base64"), append });
+      } catch (e) {
+        if (host.console) host.console.error(`cmux browser repl: could not write ${file}: ${e.message}`);
+      }
+    };
+    const spill = () => {
+      const dir = `${host.tmpdir}/cmux-browser-repl/${String(host.sessionId || "session").replace(/[^\w.-]/g, "_")}`;
+      try {
+        host.fsOp("mkdir", { path: dir, recursive: true });
+      } catch {}
+      const n = (spillCounters.get(host) || 0) + 1;
+      spillCounters.set(host, n);
+      file = `${dir}/output-${n}.txt`;
+      write(printedTexts.join(""), false);
+      printedTexts.length = 0;
+    };
+    return {
+      print(level, text) {
+        text = String(text);
+        total += text.length + 1;
+        if (!file) {
+          if (shown + text.length + 1 <= headCap) {
+            shown += text.length + 1;
+            printedTexts.push(text + "\n");
+            host.print(level, text);
+            return;
+          }
+          printedTexts.push(text + "\n");
+          spill();
+          // The part of this text that still fits, cut at a line end.
+          const room = headCap - shown;
+          const cut = text.lastIndexOf("\n", room);
+          const head = cut > 0 ? text.slice(0, cut) : "";
+          if (head) {
+            shown += head.length + 1;
+            host.print(level, head);
+          }
+          tail = text.slice(head ? cut + 1 : 0);
+          host.print("info", `# output continues in ${file}`);
+          return;
+        }
+        write(text + "\n", true);
+        tail = (tail ? tail + "\n" : "") + text;
+        if (tail.length > 4 * tailCap) tail = tail.slice(-2 * tailCap);
+      },
+      // The last lines and the summary, once the call has printed everything.
+      finish() {
+        if (!file) return;
+        let last = tail.length > tailCap ? tail.slice(-tailCap) : tail;
+        if (last.length < tail.length) {
+          const nl = last.indexOf("\n");
+          // Whole lines when one fits, else the end of the last line.
+          last = nl >= 0 ? last.slice(nl + 1) : "…" + last;
+        }
+        if (last) {
+          shown += last.length + 1;
+          host.print("log", `# … last lines:\n${last}`);
+        }
+        host.print("info", `# output truncated: ${commas(Math.min(shown, total))} of ${commas(total)} characters shown; full output: ${file}`);
+        file = null;
+      },
+      spilled: () => file,
+    };
+  }
+
   // One REPL session over one driver. The last expression's value prints
   // (awaited first when it is a promise); undefined prints nothing.
+  // `evaluate(code, { maxOutput })` caps what one call prints (above).
   function createBrowserRepl({ host, driver }) {
     const core = ns.core;
     const session = new core.Session({ driver, host });
-    const api = ns.api.createGlobals(session, host);
-    const repl = createReplSession({ host, globals: [timerGlobals(host, api.importModule), api.globals] });
+    let gate = null;
+    // Everything the runtime prints goes through the current call's gate.
+    const gatedHost = Object.create(host, {
+      print: { value: (level, text) => (gate ? gate.print(level, text) : host.print(level, text)) },
+    });
+    const api = ns.api.createGlobals(session, gatedHost);
+    const repl = createReplSession({ host: gatedHost, globals: [timerGlobals(gatedHost, api.importModule), api.globals] });
     return {
       session,
       api,
       scope: repl.scope,
-      async evaluate(code) {
-        const r = await repl.evaluate(code);
-        if (r.ok) {
-          try {
-            api.show(r.value);
-          } catch (e) {
-            return { ok: false, error: formatError(e), exception: e, ms: r.ms };
+      async evaluate(code, { maxOutput } = {}) {
+        const own = createOutputGate(host, { maxOutput });
+        gate = own;
+        try {
+          const r = await repl.evaluate(code);
+          if (r.ok) {
+            try {
+              api.show(r.value);
+            } catch (e) {
+              return { ok: false, error: formatError(e), exception: e, ms: r.ms };
+            }
           }
+          return r;
+        } finally {
+          own.finish();
+          if (gate === own) gate = null;
         }
-        return r;
       },
       dispose: () => session.dispose(),
     };
@@ -311,15 +413,17 @@
       capabilities: () => native.capabilities || [],
     };
     let repl = null;
-    root.__cmuxReplEval = async (code) => {
+    // `optionsJSON` (optional): { "maxOutput": characters, 0 for no limit }.
+    root.__cmuxReplEval = async (code, optionsJSON) => {
       if (!repl) repl = createBrowserRepl({ host, driver });
-      const r = await repl.evaluate(code);
+      const options = typeof optionsJSON === "string" && optionsJSON ? JSON.parse(optionsJSON) : {};
+      const r = await repl.evaluate(code, { maxOutput: options.maxOutput });
       if (!r.ok) throw r.exception || new Error(r.error);
       return undefined;
     };
     root.__cmuxFormatError = (e) => formatError(e);
   }
 
-  ns.replHost = { rewriteTopLevel, createReplSession, createBrowserRepl, formatError, installNativeHost };
+  ns.replHost = { rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, formatError, installNativeHost };
   installNativeHost();
 })(typeof globalThis !== "undefined" ? globalThis : this);

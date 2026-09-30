@@ -150,8 +150,11 @@ test("print choice: a small tree prints its diff when shorter; a large one needs
   assert.match(first.diff, /# no previous snapshot/);
   const same = new Snapshot({ header, body, previous: body });
   assert.equal(String(same), "title: T\nurl: http://h/\n# no changes since the previous snapshot");
-  const cut = new Snapshot({ header, body, maxChars: 60 });
-  assert.match(cut.tree, /# truncated: \d+ of \d+ characters shown/);
+  // maxChars limits what prints; .tree stays complete.
+  const cut = new Snapshot({ header, body, maxChars: 200 });
+  assert.match(String(cut), /# truncated: [\d,]+ of [\d,]+ characters shown/);
+  assert.ok(String(cut).length <= 200);
+  assert.equal(cut.tree, [...header, ...body].join("\n"));
 });
 
 test("shape: a control with its own ref keeps its name when its children have refs", () => {

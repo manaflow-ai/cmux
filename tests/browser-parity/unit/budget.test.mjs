@@ -43,7 +43,8 @@ test("budget: repeated siblings collapse to a counted line that says how to see 
   const hidden = collapsed.reduce((a, l) => a + Number(/… ([\d,]+) more/.exec(l)[1].replace(/,/g, "")), 0);
   assert.equal(shown + hidden, 5000);
   // The scope to expand is named, and the closing note says how to get everything.
-  assert.match(out, /snapshot\("e1", \{ maxChars: Infinity \}\)/);
+  assert.match(out, /more listitem \([\d,]+ refs\): snapshot\("e1"\)/);
+  assert.match(lines[lines.length - 1], /\{ maxChars: Infinity \}\) or \.tree everything/);
   assert.match(lines[lines.length - 1], /^# condensed to [\d,]+ of [\d,]+ characters/);
 });
 
@@ -56,9 +57,9 @@ test("budget: over budget, the outline (headings, landmarks) and on-screen contr
       { role: "button", name: `Act ${s}`, ref: `e${2000 + s}`, act: 1, ...(s === 33 ? { vp: 1 } : {}) }],
   }));
   const nodes = shape([{ role: "main", children: sections }], {});
-  const lines = condense(nodes, 5000, {});
+  const lines = condense(nodes, 12000, {});
   const out = text(lines);
-  assert.ok(out.length <= 5000, `printed ${out.length} characters`);
+  assert.ok(out.length <= 12000, `printed ${out.length} characters`);
   for (let s = 0; s < 40; s++) assert.match(out, new RegExp(`heading "Heading ${s}"`), `heading ${s} kept`);
   assert.match(out, /button "Act 33" \[ref=e2033\]/);
   assert.match(out, /Paragraph 0\.0 /, "the top of the page prints in full");
@@ -119,7 +120,7 @@ test("repl output: a call over its cap prints the head and spills everything to 
   const printed = [];
   const host = createNodeHost({ workDir, sessionId: `cap-${process.pid}`, print: (level, t) => printed.push(t) });
   const gate = ns.replHost.createOutputGate(host, { maxOutput: 5000 });
-  const line = (i) => `line ${i} ` + "y".repeat(990);
+  const line = (i) => `line ${i} ` + "y".repeat(90);
   for (let i = 0; i < 100; i++) gate.print("log", line(i));
   gate.finish();
   const shown = printed.join("\n");

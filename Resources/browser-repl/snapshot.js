@@ -210,6 +210,21 @@
     return head;
   }
 
+  // A node's own lines (its head, and one line per option of an expanded
+  // drop-down) and the children printed under it.
+  function ownLines(n, options, indent) {
+    let head = nodeHead(n, options);
+    let kids = n.children || [];
+    if (n.value !== undefined && n.value !== null) head += ": " + q(n.value);
+    else if (kids.length === 1 && typeof kids[0] === "string" && !n.options) {
+      head += ": " + q(kids[0]);
+      kids = [];
+    } else if (kids.length || n.options) head += ":";
+    const lines = [`${indent}- ${head}`];
+    for (const o of n.options || []) lines.push(`${indent}  - option ${q(o.name)}${o.selected ? " [selected]" : ""}`);
+    return { lines, kids };
+  }
+
   function render(nodes, options = {}, depth = 0, lines = []) {
     const indent = "  ".repeat(depth);
     for (const n of nodes) {
@@ -217,82 +232,443 @@
         lines.push(`${indent}- text: ${q(n)}`);
         continue;
       }
-      let head = nodeHead(n, options);
-      let kids = n.children || [];
-      if (n.value !== undefined && n.value !== null) head += ": " + q(n.value);
-      else if (kids.length === 1 && typeof kids[0] === "string" && !n.options) {
-        head += ": " + q(kids[0]);
-        kids = [];
-      } else if (kids.length || n.options) head += ":";
-      lines.push(`${indent}- ${head}`);
-      for (const o of n.options || []) lines.push(`${indent}  - option ${q(o.name)}${o.selected ? " [selected]" : ""}`);
-      render(kids, options, depth + 1, lines);
+      const own = ownLines(n, options, indent);
+      for (const l of own.lines) lines.push(l);
+      render(own.kids, options, depth + 1, lines);
     }
     return lines;
   }
 
   // ---------------------------------------------------------------------------
-  // Diff: Myers line diff; each change is preceded by its unchanged ancestor
-  // lines (by indentation) so it can be located without line numbers.
+  // Printing within a budget. A snapshot's text (.tree, .diff) is complete;
+  // what prints is at most `maxChars` characters (PRINT_BUDGET by default),
+  // because printed output is what an agent pays for in context, and agent
+  // harnesses cut or spill tool output past about 30,000 characters (Claude
+  // Code) or 10,000 tokens (Codex). docs/browser-repl/performance.md has the
+  // measurements behind the number.
+  //
+  // Over budget the tree is condensed, in this order of priority:
+  //   1. on-screen controls, the focused element, and the page outline
+  //      (landmarks, headings, iframes), with their ancestors;
+  //   2. everything else in document order, except that a run of similar
+  //      siblings (list items, table rows, cards) keeps its first items;
+  //   3. the rest of those runs, in document order.
+  // Whatever does not fit is replaced by one line where it was, saying how
+  // much is left out and which ref scopes to it, and a closing note says how
+  // to get everything.
+  const PRINT_BUDGET = 20000;
+  // A run of this many similar siblings keeps only its first RUN_KEEP in
+  // step 2.
+  const RUN_MIN = 6;
+  const RUN_KEEP = 3;
+  // A named region rides along with its heading.
+  const OUTLINE_ROLES = new Set([...[...LANDMARK_ROLES].filter((r) => r !== "region"), "heading", "iframe"]);
+  const INLINE_ROLES = new Set(["link", "button", "img", "image", "checkbox", "radio", "textbox", "combobox", "switch"]);
 
-  function myers(a, b) {
-    const N = a.length;
-    const M = b.length;
-    const MAX = N + M;
-    if (!MAX) return [];
-    const offset = MAX;
-    const V = new Array(2 * MAX + 2).fill(-1);
-    V[offset + 1] = 0;
+  const commas = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+  // Items: one per printed node, with its own lines, its subtree's line and
+  // ref counts, and its similarity signature (role plus the roles of its
+  // children), in document order.
+  function buildItems(nodes, options) {
+    const items = [];
+    const visit = (list, depth, parent) => {
+      const out = [];
+      for (const n of list) {
+        const indent = "  ".repeat(depth);
+        const item = { parent, depth, index: items.length, children: null, lines: null, refs: 0, total: 1, ref: null, sig: "text", include: false, tier: 1, run: null };
+        items.push(item);
+        if (typeof n === "string") {
+          item.lines = [`${indent}- text: ${q(n)}`];
+        } else {
+          const own = ownLines(n, options, indent);
+          item.lines = own.lines;
+          item.ref = n.ref || null;
+          item.role = n.role;
+          item.node = n;
+          const kinds = new Set();
+          for (const c of own.kids) kinds.add(typeof c === "string" ? "text" : c.role);
+          item.sig = n.role + "(" + [...kinds].sort().join(",") + ")";
+          item.children = visit(own.kids, depth + 1, item);
+        }
+        item.cost = item.lines.reduce((a, l) => a + l.length + 1, 0);
+        item.total = item.lines.length;
+        item.refs = item.ref ? 1 : 0;
+        item.subCost = item.cost;
+        for (const c of item.children || []) {
+          item.total += c.total;
+          item.refs += c.refs;
+          item.subCost += c.subCost;
+        }
+        out.push(item);
+      }
+      return out;
+    };
+    const roots = visit(nodes, 0, null);
+    return { roots, items };
+  }
+
+  function condense(nodes, maxChars, options = {}) {
+    const full = render(nodes, options);
+    const fullLength = full.reduce((a, l) => a + l.length + 1, 0) - (full.length ? 1 : 0);
+    if (!(maxChars < fullLength)) return full;
+    const { roots, items } = buildItems(nodes, options);
+    const scope = options._scope || null;
+    const allRefs = roots.reduce((a, r) => a + r.refs, 0);
+    const finalNote = (shown, refsShown) =>
+      `# condensed to ${commas(shown)} of ${commas(fullLength)} characters (${commas(allRefs - refsShown)} of ${commas(allRefs)} refs not shown): ` +
+      `snapshot(ref) prints a region, snapshot({ viewport: true }) what is on screen, ` +
+      `snapshot(${scope ? scope + ", " : ""}{ maxChars: Infinity }) or .tree everything`;
+
+    // Tiers: 0 pinned or outline (and their ancestors), 1 the rest, 2 the
+    // tail of a long run of similar siblings.
+    const raise = (item) => {
+      for (let p = item; p && p.tier !== 0; p = p.parent) p.tier = 0;
+    };
+    const outline = [];
+    for (const item of items) {
+      const n = item.node;
+      if (!n) continue;
+      if (n.vp || n.focused) raise(item);
+      else if (OUTLINE_ROLES.has(n.role)) outline.push(item);
+    }
+    // The outline goes in level by level (landmarks and frames, then h1,
+    // h2, ...) while it fits in half the budget, with the ancestors it needs
+    // and a note per entry: a page with 8,000 card headings keeps its
+    // landmarks, not 8,000 lines.
+    const allowance = (maxChars - 300) / 2;
+    const levelOf = (it) => (it.node.role === "heading" ? it.node.level || 2 : 0);
+    let spent = 0;
+    for (let level = 0; level <= 6; level++) {
+      const group = outline.filter((it) => levelOf(it) === level);
+      const counted = new Set();
+      let cost = 0;
+      for (const it of group) {
+        cost += 48;
+        for (let p = it; p && p.tier !== 0 && !counted.has(p); p = p.parent) {
+          counted.add(p);
+          cost += p.cost;
+        }
+      }
+      if (spent + cost > allowance) break;
+      spent += cost;
+      for (const it of group) raise(it);
+    }
+    // Runs of similar siblings, also repeating groups (a card flattened into
+    // heading, text, link, button repeats with period 4): the first RUN_KEEP
+    // repeats stay in tier 1, the rest drop to tier 2.
+    const demote = (it) => {
+      const stack = [it];
+      while (stack.length) {
+        const x = stack.pop();
+        if (x.tier !== 0) x.tier = 2;
+        for (const c of x.children || []) stack.push(c);
+      }
+    };
+    const markRuns = (list) => {
+      const n = list.length;
+      for (let i = 0; i < n;) {
+        let best = null;
+        for (let period = 1; period <= 8 && i + period < n; period++) {
+          let j = i;
+          while (j + period < n && list[j].sig === list[j + period].sig) j++;
+          const repeats = Math.floor((j - i + period) / period);
+          // Prose (text between links) repeats too, but is read in order: a
+          // run needs a block in its unit (an item, a row, a heading).
+          if (repeats < RUN_MIN || !list.slice(i, i + period).some((it) => it.role && !INLINE_ROLES.has(it.role))) continue;
+          if (!best || repeats * period > best.repeats * best.period) best = { period, repeats };
+        }
+        if (!best) {
+          i++;
+          continue;
+        }
+        const run = { period: best.period, kinds: list.slice(i, i + best.period).map((it) => it.role || "text") };
+        const end = i + best.repeats * best.period;
+        for (let k = i; k < end; k++) list[k].run = run;
+        for (let k = i + RUN_KEEP * best.period; k < end; k++) if (list[k].tier !== 0) demote(list[k]);
+        i = end;
+      }
+      for (const it of list) if (it.children) markRuns(it.children);
+    };
+    markRuns(roots);
+
+    // One pass per budget: pick items, render them with their notes. A pass
+    // that overshoots (notes cost more than reserved) runs again with less.
+    let budget = maxChars - finalNote(fullLength, allRefs).length - 1;
+    let lines = [];
+    for (let attempt = 0; attempt < 6 && budget > 0; attempt++) {
+      for (const it of items) {
+        it.include = false;
+        it.left = it.children ? it.children.length : 0;
+      }
+      const lineCap = Math.max(80, Math.floor(budget / 4));
+      const costOf = (it) => Math.min(it.cost, lineCap + 20);
+      // An included item whose children are not all included prints a note
+      // under it; its cost is held from the start and returned once every
+      // child is in. The top level holds one too.
+      const noteCost = (it) => 2 * (it.depth + 1) + 40 + (it.ref || "").length;
+      let rootsLeft = roots.length;
+      let used = 40;
+      const take = (it) => {
+        if (it.include) return true;
+        if (it.parent && !it.parent.include) return false;
+        const c = costOf(it) + (it.left ? noteCost(it) : 0);
+        if (used + c > budget) return false;
+        it.include = true;
+        used += c;
+        if (it.parent) {
+          if (--it.parent.left === 0) used -= noteCost(it.parent);
+        } else if (--rootsLeft === 0) used -= 40;
+        return true;
+      };
+      // Tier 0 in document order; an item needs its parent first, which
+      // document order guarantees.
+      for (const it of items) if (it.tier === 0) take(it);
+      // Tiers 1 and 2 in document order, each stopping at the first item
+      // that does not fit so what prints stays contiguous.
+      // A small subtree (a list item, a card) goes in whole or not at all.
+      const small = Math.max(200, budget / 10);
+      const subtree = (it, out = []) => {
+        out.push(it);
+        for (const c of it.children || []) subtree(c, out);
+        return out;
+      };
+      for (const tier of [1, 2]) {
+        for (const it of items) {
+          if (it.tier !== tier || it.include || (it.parent && !it.parent.include)) continue;
+          if (it.children && it.subCost <= small) {
+            const all = subtree(it).filter((x) => !x.include);
+            if (used + all.reduce((a, x) => a + costOf(x), 0) + noteCost(it) > budget) break;
+            for (const x of all) take(x);
+          } else if (!take(it)) break;
+        }
+      }
+      lines = [];
+      let refsShown = 0;
+      const emit = (list, parent) => {
+        let skipped = [];
+        const flush = () => {
+          if (!skipped.length) return;
+          const indent = "  ".repeat(skipped[0].depth);
+          const refs = skipped.reduce((a, s) => a + s.refs, 0);
+          const run = skipped[0].run;
+          const sameRun = run && skipped.every((s) => s.run === run) && skipped.length % run.period === 0;
+          let count;
+          if (sameRun && run.period === 1 && skipped[0].role) count = `${commas(skipped.length)} more ${skipped[0].role}`;
+          else if (sameRun && run.period > 1) count = `${commas(skipped.length / run.period)} more repeats of ${run.kinds.join(", ")}`;
+          else count = `${commas(skipped.reduce((a, s) => a + s.total, 0))} more line${skipped.length === 1 && skipped[0].total === 1 ? "" : "s"}`;
+          let scopeRef = null;
+          for (let p = parent; p && !scopeRef; p = p.parent) scopeRef = p.ref;
+          lines.push(`${indent}- … ${count}${refs ? ` (${commas(refs)} ref${refs === 1 ? "" : "s"})` : ""}${scopeRef ? `: snapshot(${q(scopeRef)})` : ""}`);
+          skipped = [];
+        };
+        for (const it of list) {
+          if (!it.include) {
+            skipped.push(it);
+            continue;
+          }
+          flush();
+          if (it.ref) refsShown++;
+          for (const l of it.lines) {
+            // A single line longer than a quarter of the budget prints its start.
+            lines.push(l.length > lineCap ? `${l.slice(0, lineCap)}…" (${commas(l.length)} characters)` : l);
+          }
+          if (it.children) emit(it.children, it);
+        }
+        flush();
+      };
+      emit(roots, null);
+      const text = lines.join("\n");
+      const note = finalNote(text.length, refsShown);
+      if (text.length + 1 + note.length <= maxChars) {
+        lines.push(note);
+        return lines;
+      }
+      budget -= text.length + 1 + note.length - maxChars + 16;
+    }
+    // Nothing fits: cut the plain text.
+    return cutLines(full, maxChars, fullLength);
+  }
+
+  // The first lines that fit in maxChars, and a note.
+  function cutLines(lines, maxChars, total) {
+    const out = [];
+    let used = 0;
+    const room = maxChars - 120;
+    for (const l of lines) {
+      if (used + l.length + 1 > room) break;
+      out.push(l);
+      used += l.length + 1;
+    }
+    out.push(`# truncated: ${commas(used)} of ${commas(total)} characters shown; .tree has everything`);
+    return out;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Diff. Lines that occur once in both versions anchor the diff (patience
+  // diff: the longest increasing run of such anchors); refs make most element
+  // lines unique, so this is near-linear on snapshots. Between anchors a
+  // Myers diff with a bounded edit distance fills in; past the bound the
+  // span is a replacement. Each change is then preceded by its unchanged
+  // ancestor lines (by indentation) so it can be located without line
+  // numbers.
+
+  // Myers' work bound per span: (N + M) * D steps.
+  const MYERS_WORK = 20000000;
+
+  function diffOps(a, b) {
+    const ops = [];
+    diffSpan(a, 0, a.length, b, 0, b.length, ops);
+    return ops;
+  }
+
+  function diffSpan(a, a0, a1, b, b0, b1, ops) {
+    while (a0 < a1 && b0 < b1 && a[a0] === b[b0]) ops.push({ type: "equal", a: a0++, b: b0++ });
+    let s = 0;
+    while (a1 - s > a0 && b1 - s > b0 && a[a1 - 1 - s] === b[b1 - 1 - s]) s++;
+    a1 -= s;
+    b1 -= s;
+    if (a0 === a1) for (let j = b0; j < b1; j++) ops.push({ type: "insert", b: j });
+    else if (b0 === b1) for (let i = a0; i < a1; i++) ops.push({ type: "delete", a: i });
+    else {
+      const anchors = uniqueAnchors(a, a0, a1, b, b0, b1);
+      if (anchors.length) {
+        let pa = a0;
+        let pb = b0;
+        for (const [i, j] of anchors) {
+          diffSpan(a, pa, i, b, pb, j, ops);
+          ops.push({ type: "equal", a: i, b: j });
+          pa = i + 1;
+          pb = j + 1;
+        }
+        diffSpan(a, pa, a1, b, pb, b1, ops);
+      } else myersSpan(a, a0, a1, b, b0, b1, ops);
+    }
+    for (let k = 0; k < s; k++) ops.push({ type: "equal", a: a1 + k, b: b1 + k });
+  }
+
+  // Pairs [i, j] of lines that occur exactly once in a[a0..a1) and once in
+  // b[b0..b1), reduced to the longest run increasing in both.
+  function uniqueAnchors(a, a0, a1, b, b0, b1) {
+    const seen = new Map();
+    for (let i = a0; i < a1; i++) {
+      const e = seen.get(a[i]);
+      if (e) e.na++;
+      else seen.set(a[i], { na: 1, i, nb: 0, j: -1 });
+    }
+    for (let j = b0; j < b1; j++) {
+      const e = seen.get(b[j]);
+      if (e) {
+        e.nb++;
+        e.j = j;
+      }
+    }
+    const pairs = [];
+    for (let i = a0; i < a1; i++) {
+      const e = seen.get(a[i]);
+      if (e.na === 1 && e.nb === 1) pairs.push([i, e.j]);
+    }
+    if (pairs.length <= 1) return pairs;
+    // Longest increasing subsequence on j (patience sorting).
+    const tails = [];
+    const prev = new Array(pairs.length);
+    for (let p = 0; p < pairs.length; p++) {
+      const j = pairs[p][1];
+      let lo = 0;
+      let hi = tails.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (pairs[tails[mid]][1] < j) lo = mid + 1;
+        else hi = mid;
+      }
+      prev[p] = lo > 0 ? tails[lo - 1] : -1;
+      tails[lo] = p;
+    }
+    const out = [];
+    for (let p = tails[tails.length - 1]; p >= 0; p = prev[p]) out.push(pairs[p]);
+    return out.reverse();
+  }
+
+  // Myers' O((N+M)D) diff over a span, keeping only the [-d, d] band of each
+  // step (O(D^2) memory). Past MYERS_WORK the span is a replacement.
+  function myersSpan(a, a0, a1, b, b0, b1, ops) {
+    const N = a1 - a0;
+    const M = b1 - b0;
+    const maxD = Math.min(N + M, Math.max(16, Math.floor(MYERS_WORK / (N + M))));
+    const off = maxD + 1;
+    const V = new Int32Array(2 * maxD + 3).fill(-1);
+    V[off + 1] = 0;
     const trace = [];
-    for (let d = 0; d <= MAX; d++) {
-      trace.push(V.slice());
+    for (let d = 0; d <= maxD; d++) {
       for (let k = -d; k <= d; k += 2) {
-        const down = k === -d || (k !== d && V[offset + k - 1] < V[offset + k + 1]);
-        let x = down ? V[offset + k + 1] : V[offset + k - 1] + 1;
+        const down = k === -d || (k !== d && V[off + k - 1] < V[off + k + 1]);
+        let x = down ? V[off + k + 1] : V[off + k - 1] + 1;
         let y = x - k;
-        while (x < N && y < M && a[x] === b[y]) {
+        while (x < N && y < M && a[a0 + x] === b[b0 + y]) {
           x++;
           y++;
         }
-        V[offset + k] = x;
-        if (x >= N && y >= M) return backtrack(trace, a, b, offset);
+        V[off + k] = x;
+        if (x >= N && y >= M) {
+          trace.push(V.slice(off - d, off + d + 1));
+          return myersBacktrack(trace, N, M, a0, b0, ops);
+        }
       }
+      trace.push(V.slice(off - d, off + d + 1));
     }
-    return [];
+    for (let i = a0; i < a1; i++) ops.push({ type: "delete", a: i });
+    for (let j = b0; j < b1; j++) ops.push({ type: "insert", b: j });
   }
-  function backtrack(trace, a, b, offset) {
-    let x = a.length;
-    let y = b.length;
+  function myersBacktrack(trace, N, M, a0, b0, ops) {
+    let x = N;
+    let y = M;
     const out = [];
     for (let d = trace.length - 1; d >= 1; d--) {
-      const V = trace[d];
+      const Vp = trace[d - 1];
+      const at = (k) => Vp[k + d - 1];
       const k = x - y;
-      const pk = k === -d || (k !== d && V[offset + k - 1] < V[offset + k + 1]) ? k + 1 : k - 1;
-      const px = V[offset + pk];
+      const pk = k === -d || (k !== d && at(k - 1) < at(k + 1)) ? k + 1 : k - 1;
+      const px = at(pk);
       const py = px - pk;
       while (x > px && y > py) {
         x--;
         y--;
-        out.push({ type: "equal", a: x, b: y });
+        out.push({ type: "equal", a: a0 + x, b: b0 + y });
       }
-      if (x === px) out.push({ type: "insert", b: --y });
-      else out.push({ type: "delete", a: --x });
+      if (x === px) out.push({ type: "insert", b: b0 + --y });
+      else out.push({ type: "delete", a: a0 + --x });
     }
     while (x > 0 && y > 0) {
       x--;
       y--;
-      out.push({ type: "equal", a: x, b: y });
+      out.push({ type: "equal", a: a0 + x, b: b0 + y });
     }
-    return out.reverse();
+    for (let i = out.length - 1; i >= 0; i--) ops.push(out[i]);
   }
 
+  // The kept name of the old export: a full-array diff.
+  const myers = diffOps;
+
   const indentOf = (line) => /^ */.exec(line)[0].length;
+
+  // The nearest line above each line with a smaller indent, or -1.
+  function parentsOf(lines) {
+    const parent = new Int32Array(lines.length);
+    const stack = [];
+    for (let i = 0; i < lines.length; i++) {
+      const indent = indentOf(lines[i]);
+      while (stack.length && indentOf(lines[stack[stack.length - 1]]) >= indent) stack.pop();
+      parent[i] = stack.length ? stack[stack.length - 1] : -1;
+      stack.push(i);
+    }
+    return parent;
+  }
 
   // Returns diff lines prefixed "  " (context), "- " (removed), "+ " (added)
   // or "~ " (changed, new version).
   // Empty when equal.
   function diffLines(previous, current) {
-    const ops = myers(previous, current);
+    const ops = diffOps(previous, current);
     const equalA = new Map();
     const equalB = new Set();
     for (const op of ops) {
@@ -301,17 +677,19 @@
         equalB.add(op.b);
       }
     }
+    let parentsA = null;
+    let parentsB = null;
     const printed = new Set();
     const out = [];
     const context = (lines, index, isOld) => {
+      const parents = isOld ? parentsA || (parentsA = parentsOf(previous)) : parentsB || (parentsB = parentsOf(current));
       const chain = [];
-      let indent = indentOf(lines[index]);
-      for (let j = index - 1; j >= 0 && indent > 0; j--) {
-        const i = indentOf(lines[j]);
-        if (i >= indent) continue;
-        indent = i;
+      for (let j = parents[index]; j >= 0; j = parents[j]) {
         const key = isOld ? equalA.get(j) : equalB.has(j) ? j : undefined;
-        if (key !== undefined && !printed.has(key)) chain.unshift([key, lines[j]]);
+        if (key === undefined) continue;
+        // An ancestor already printed means the rest of the chain was too.
+        if (printed.has(key)) break;
+        chain.unshift([key, lines[j]]);
       }
       for (const [key, line] of chain) {
         printed.add(key);
@@ -336,20 +714,27 @@
       const deletes = [];
       const inserts = [];
       for (; i < ops.length && ops[i].type !== "equal"; i++) (ops[i].type === "delete" ? deletes : inserts).push(ops[i]);
-      const partner = new Map();
-      const free = new Set(deletes);
+      const byKey = new Map();
+      for (const d of deletes) {
+        const key = lineKey(previous[d.a]);
+        if (!key) continue;
+        if (!byKey.has(key)) byKey.set(key, []);
+        byKey.get(key).push(d);
+      }
+      const partnered = new Set();
+      const changed = new Set();
       for (const ins of inserts) {
         const key = lineKey(current[ins.b]);
-        const del = key && [...free].find((d) => lineKey(previous[d.a]) === key);
-        if (del) {
-          partner.set(ins, del);
-          free.delete(del);
+        const list = key && byKey.get(key);
+        if (list && list.length) {
+          partnered.add(list.shift());
+          changed.add(ins);
         }
       }
-      for (const d of deletes) if (free.has(d)) emitDelete(d);
+      for (const d of deletes) if (!partnered.has(d)) emitDelete(d);
       // A changed line (same ref, else same role and name) prints once, as
       // its new version.
-      for (const ins of inserts) emitInsert(ins, partner.has(ins) ? "~ " : "+ ");
+      for (const ins of inserts) emitInsert(ins, changed.has(ins) ? "~ " : "+ ");
     }
     return out;
   }
@@ -393,33 +778,42 @@
     return out;
   }
 
+
   class Snapshot {
-    constructor({ header, body, previous, maxChars, extraChanges }) {
+    constructor({ header, body, nodes, trailer, previous, maxChars, extraChanges }) {
       this._header = header;
       this._body = body;
+      this._nodes = nodes || null;
+      this._trailer = trailer || [];
       this._hasPrevious = !!previous;
-      this._maxChars = maxChars;
+      this._maxChars = maxChars === undefined || maxChars === null ? PRINT_BUDGET : maxChars;
+      this._scope = null;
       let changes = previous ? diffLines(previous, body) : body.map((l) => "+ " + l);
       if (previous && extraChanges && extraChanges.length) {
         // Lines the diff already printed (ancestors, or a heading the
         // interactive tree also holds) are not repeated.
         const printed = new Set(changes);
         const extra = extraChanges.filter((l) => !printed.has(l));
-        // Ancestor lines left with no change under them go too.
-        changes = changes.concat(extra.filter((l, i) => !l.startsWith("  ") || extra.slice(i + 1).some((m) => !m.startsWith("  ") && indentOf(m.slice(2)) > indentOf(l.slice(2)))));
+        // Ancestor lines left with no change under them go too: keep a
+        // context line only when a later change line is deeper.
+        const keep = new Array(extra.length);
+        let deepestChange = -1;
+        for (let i = extra.length - 1; i >= 0; i--) {
+          const l = extra[i];
+          const depth = indentOf(l.slice(2));
+          if (!l.startsWith("  ")) {
+            keep[i] = true;
+            deepestChange = Math.max(deepestChange, depth);
+          } else keep[i] = deepestChange > depth;
+        }
+        changes = changes.concat(extra.filter((_, i) => keep[i]));
       }
       this._diffBody = !previous ? [FIRST, ...changes] : changes.length ? [DIFF_HEADER, ...changes] : [NO_CHANGES];
     }
     _join(lines) {
-      let text = lines.join("\n");
-      const max = this._maxChars;
-      if (typeof max === "number" && text.length > max) {
-        const cut = text.lastIndexOf("\n", max);
-        const kept = cut > 0 ? cut : max;
-        text = text.slice(0, kept) + `\n# truncated: ${kept} of ${text.length} characters shown; scope with snapshot(ref) or { interactive: true }`;
-      }
-      return [...this._header, text].filter((s) => s !== "").join("\n");
+      return [...this._header, lines.join("\n")].filter((s) => s !== "").join("\n");
     }
+    // The complete tree and diff; printing is what the budget limits.
     get tree() {
       return this._join(this._body);
     }
@@ -435,19 +829,36 @@
       return tree <= DIFF_FLOOR ? diff < tree : diff <= (1 - DIFF_SAVING) * tree;
     }
     toString() {
-      return this.usesDiff ? this.diff : this.tree;
+      if (this._printed !== undefined) return this._printed;
+      const max = this._maxChars;
+      let text;
+      if (this.usesDiff && (text = this.diff).length <= max) return (this._printed = text);
+      text = this.tree;
+      if (text.length <= max) return (this._printed = text);
+      // Over budget: condense the tree. A diff that did not fit is on .diff.
+      const extra = [...(this.usesDiff ? [DIFF_NOTE] : []), ...this._trailer];
+      const room = max - [...this._header, ...extra].reduce((a, l) => a + l.length + 1, 0);
+      const options = Object.assign({}, this._renderOptions, { _scope: this._scope });
+      const body = this._nodes && room > 0 ? condense(this._nodes, room, options) : cutLines(this._body, Math.max(room, 0), this._body.join("\n").length);
+      if (this.usesDiff) body.unshift(DIFF_NOTE);
+      body.push(...this._trailer);
+      return (this._printed = this._join(body));
     }
     toJSON() {
       return this.toString();
     }
   }
+  const DIFF_NOTE = "# the changes since the previous snapshot do not fit the print budget; .diff has them";
 
   // ---------------------------------------------------------------------------
   // Capture
 
   const clock = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
 
-  async function frameNodes(page, frame, rootHandle, options, focusChain) {
+  // Reads a frame's tree and, concurrently, the trees of all frames inside
+  // it (a page with 300 iframes costs about one round trip per level, not
+  // one per frame).
+  async function frameTree(page, frame, rootHandle, options) {
     const called = clock();
     const r = await frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, base: page._refMaxFor(frame) });
     // Where the time goes, for tests/browser-parity/perf: in-page traversal
@@ -460,28 +871,55 @@
     }
     page._noteRefMax(frame, r.max);
     if (options.viewport) options._offscreen = (options._offscreen || 0) + (r.offscreen || 0);
-    const prefix = page._prefixFor(frame);
-    const fix = async (list) => {
+    const iframes = [];
+    const collect = (list) => {
+      for (const n of list) {
+        if (typeof n === "string") continue;
+        if (n.role === "iframe") iframes.push(n);
+        else if (n.children) collect(n.children);
+      }
+    };
+    collect(r.nodes);
+    await Promise.all(iframes.map(async (node) => {
+      const child = node.frame ? await frame._contentFrame(node.frame).catch(() => null) : null;
+      if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options).catch(() => null) };
+    }));
+    return { frame, nodes: r.nodes };
+  }
+
+  // Prefixes refs with their frame's prefix and inlines each frame's tree
+  // under its iframe. Prefixes are handed out here, in document order and
+  // depth first, so they do not depend on which frame answered first.
+  // `[focused]` holds only along the focused frame chain, and on-screen marks
+  // only inside iframes that are on screen.
+  function stitch(page, tree, focusChain, onScreen) {
+    const prefix = page._prefixFor(tree.frame);
+    const fix = (list) => {
       for (const node of list) {
         if (typeof node === "string") continue;
         if (node.ref) node.ref = prefix + node.ref;
         if (!focusChain) delete node.focused;
+        if (!onScreen) delete node.vp;
         if (node.role === "iframe") {
-          const handle = node.frame;
           const focused = !!node.frameFocused;
+          const child = node._child;
+          const shown = !!node.vp;
           delete node.frame;
           delete node.frameFocused;
-          const child = handle ? await frame._contentFrame(handle).catch(() => null) : null;
-          if (child && !child._detached) {
-            page._prefixFor(child);
-            const inner = await frameNodes(page, child, null, options, focusChain && focused).catch(() => null);
-            if (inner && inner.length) node.children = inner;
-          }
-        } else if (node.children) await fix(node.children);
+          delete node._child;
+          if (child && child.tree) {
+            const inner = stitch(page, child.tree, focusChain && focused, shown);
+            if (inner.length) node.children = inner;
+          } else if (child) page._prefixFor(child.frame);
+        } else if (node.children) fix(node.children);
       }
     };
-    await fix(r.nodes);
-    return r.nodes;
+    fix(tree.nodes);
+    return tree.nodes;
+  }
+
+  async function frameNodes(page, frame, rootHandle, options, focusChain) {
+    return stitch(page, await frameTree(page, frame, rootHandle, options), focusChain, true);
   }
 
   // Resolves snapshot()/screenshot() targets: a page, a locator, or a ref.
@@ -524,8 +962,9 @@
     if (options.interactive) nodes = interactiveOnly(nodes);
     const full = options.interactive ? render(shaped, options) : null;
     const body = render(nodes, options);
-    if (options.viewport) body.push(`# ${options._offscreen || 0} interactive elements outside the viewport are not shown; snapshot() shows the whole page`);
-    return { header, body, nodes, full };
+    const trailer = options.viewport ? [`# ${options._offscreen || 0} interactive elements outside the viewport are not shown; snapshot() shows the whole page`] : [];
+    body.push(...trailer);
+    return { header, body, nodes, full, trailer };
   }
 
   async function takeSnapshot(page, target, options = {}) {
@@ -533,7 +972,7 @@
       const started = clock();
       options = Object.assign({}, options);
       const timing = (options._timing = { frames: 0, agentMs: 0, callMs: 0 });
-      const { header, body, full } = await capture(page, target, options);
+      const { header, body, full, nodes, trailer } = await capture(page, target, options);
       timing.captureMs = clock() - started;
       const scope = typeof target === "string" ? target : target instanceof core.Locator ? String(target) : "page";
       const key = [scope, !!options.interactive, !!options.showHidden, !!options.options, !!options.urls, !!options.viewport].join("|");
@@ -547,7 +986,10 @@
         if (previousFull && previous) extraChanges = textChanges(diffLines(previousFull, full));
       }
       const diffStarted = clock();
-      const snap = new Snapshot({ header, body, previous, maxChars: options.maxChars, extraChanges });
+      const snap = new Snapshot({ header, body, nodes, trailer, previous, maxChars: options.maxChars, extraChanges });
+      // What a condensed print names as the scope that has everything.
+      snap._scope = typeof target === "string" ? q(target) : target instanceof core.Locator ? "locator" : null;
+      snap._renderOptions = options;
       timing.diffMs = clock() - diffStarted;
       timing.totalMs = clock() - started;
       Object.defineProperty(snap, "_timing", { value: timing });
@@ -588,5 +1030,5 @@
     };
   }
 
-  ns.snapshot = { takeSnapshot, annotate, shape, interactiveOnly, render, diffLines, textChanges, myers, Snapshot, DIFF_SAVING, DIFF_FLOOR };
+  ns.snapshot = { takeSnapshot, annotate, shape, interactiveOnly, render, condense, diffLines, diffOps, textChanges, myers, Snapshot, DIFF_SAVING, DIFF_FLOOR, PRINT_BUDGET };
 })(typeof globalThis !== "undefined" ? globalThis : this);

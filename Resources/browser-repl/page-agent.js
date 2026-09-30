@@ -17,7 +17,7 @@
 // The agent is stored on globalThis under Symbol.for("cmux.browserRepl.agent")
 // as a non-enumerable property. Runtime code reaches it with
 // `globalThis[Symbol.for("cmux.browserRepl.agent")]`.
-(function (global, injectedFactory) {
+(function (global, injectedFactory, ariaCaches) {
   "use strict";
   const KEY = Symbol.for("cmux.browserRepl.agent");
   if (global[KEY]) return;
@@ -48,6 +48,68 @@
     });
   }
 
+  // `labels` of a form control. WebKit answers each read by scanning the
+  // whole document (LabelsNodeList), so naming every button of a large page
+  // is quadratic. While the DOM cannot change (a synchronous read such as a
+  // snapshot), this world answers from an index built once per tree: the
+  // <label> elements of the control's root, keyed by their labeled control.
+  // That is the definition of `labels` (HTML, "labeled control"), so the
+  // result is the same. Page worlds are unaffected.
+  let labelIndex = null;
+  const LABELABLE = ["HTMLButtonElement", "HTMLInputElement", "HTMLMeterElement", "HTMLOutputElement", "HTMLProgressElement",
+    "HTMLSelectElement", "HTMLTextAreaElement"];
+  for (const name of LABELABLE) {
+    const proto = global[name] && global[name].prototype;
+    const d = proto && Object.getOwnPropertyDescriptor(proto, "labels");
+    if (!d || !d.get || !d.configurable) continue;
+    const read = d.get;
+    Object.defineProperty(proto, "labels", {
+      configurable: true,
+      enumerable: d.enumerable,
+      get() {
+        if (!labelIndex) return read.call(this);
+        // A hidden input has no labels (null), as the native getter says.
+        if (name === "HTMLInputElement" && (this.type || "").toLowerCase() === "hidden") return null;
+        return labelIndex(this);
+      },
+    });
+  }
+  function createLabelIndex() {
+    const byRoot = new Map();
+    return (el) => {
+      const root = el.getRootNode();
+      let map = byRoot.get(root);
+      if (!map) {
+        map = new Map();
+        const labels = root.querySelectorAll ? root.querySelectorAll("label") : [];
+        for (const label of labels) {
+          const control = label.control;
+          if (!control) continue;
+          if (!map.has(control)) map.set(control, []);
+          map.get(control).push(label);
+        }
+        byRoot.set(root, map);
+      }
+      return map.get(el) || [];
+    };
+  }
+  // Runs `fn` with the label index, Playwright's aria caches and a computed
+  // style cache. Only for synchronous reads: the DOM must not change inside.
+  let styleCache = null;
+  function withReadCaches(fn) {
+    if (labelIndex) return fn();
+    labelIndex = createLabelIndex();
+    styleCache = new Map();
+    if (ariaCaches) ariaCaches.begin();
+    try {
+      return fn();
+    } finally {
+      if (ariaCaches) ariaCaches.end();
+      labelIndex = null;
+      styleCache = null;
+    }
+  }
+
   let injected = null;
   if (injectedFactory) {
     const InjectedScript = injectedFactory();
@@ -65,22 +127,42 @@
   // ---------------------------------------------------------------------------
   // Handles
 
+  // Handles hold their elements weakly: a connected element is kept alive by
+  // its document, and one the page dropped cannot be acted on anyway.
   let nextHandle = 1;
   const handleOf = new WeakMap();
   const handles = new Map();
+  const weakRef = typeof global.WeakRef === "function" ? (el) => new global.WeakRef(el) : (el) => ({ deref: () => el });
   function handleFor(el) {
     let id = handleOf.get(el);
     if (!id) {
       id = "h" + nextHandle++;
       handleOf.set(el, id);
+      handles.set(id, weakRef(el));
     }
-    handles.set(id, el);
     return id;
   }
+  function handleElement(id) {
+    const entry = handles.get(id);
+    return (entry && entry.deref()) || null;
+  }
   function element(id) {
-    const el = handles.get(id);
+    const el = handleElement(id);
     if (!el) throw agentError("stale", "Element handle is no longer available");
     return el;
+  }
+  // Past this many entries, the ref and handle tables also drop elements
+  // that are out of the document (a page that replaces its content keeps
+  // adding refs, and WeakRefs are only cleared when the engine collects).
+  // A dropped element that returns to the document gets its ref back from
+  // `refOf` at the next snapshot.
+  const TABLE_SOFT_LIMIT = 5000;
+  function pruneHandles() {
+    const large = handles.size > TABLE_SOFT_LIMIT;
+    for (const [id, entry] of handles) {
+      const el = entry.deref();
+      if (!el || (large && !el.isConnected)) handles.delete(id);
+    }
   }
   function agentError(code, message) {
     const e = new Error(message);
@@ -90,6 +172,18 @@
 
   const tagOf = (el) => (el.localName || el.tagName || "").toLowerCase();
   const styleOf = (el, pseudo) => {
+    if (styleCache && !pseudo) {
+      let style = styleCache.get(el);
+      if (style === undefined) {
+        try {
+          style = global.getComputedStyle(el, null);
+        } catch {
+          style = null;
+        }
+        styleCache.set(el, style);
+      }
+      return style;
+    }
     try {
       return global.getComputedStyle(el, pseudo || null);
     } catch {
@@ -143,7 +237,6 @@
   const refOf = new WeakMap();
   const refRegistry = new Map();
   let refCounter = 0;
-  const weak = typeof global.WeakRef === "function" ? (el) => new global.WeakRef(el) : (el) => ({ deref: () => el });
 
   function raiseRefBase(base) {
     if (typeof base === "number" && base > refCounter) refCounter = base;
@@ -153,8 +246,8 @@
     if (!ref) {
       ref = "e" + ++refCounter;
       refOf.set(el, ref);
-      refRegistry.set(ref, weak(el));
-    }
+      refRegistry.set(ref, weakRef(el));
+    } else if (!refRegistry.has(ref)) refRegistry.set(ref, weakRef(el));
     return ref;
   }
   function refElement(ref) {
@@ -163,7 +256,11 @@
     return el && el.isConnected ? el : null;
   }
   function pruneRefs() {
-    for (const [ref, entry] of refRegistry) if (!entry.deref()) refRegistry.delete(ref);
+    const large = refRegistry.size > TABLE_SOFT_LIMIT;
+    for (const [ref, entry] of refRegistry) {
+      const el = entry.deref();
+      if (!el || (large && !el.isConnected)) refRegistry.delete(ref);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -627,7 +724,11 @@
     const node = { role };
     if (name) node.name = name;
     if (interactive || scrollable) node.act = 1;
-    if (interactive || scrollable || role === "iframe" || (name && SCOPE_ROLES.has(role))) node.ref = refFor(el);
+    if (interactive || scrollable || role === "iframe" || (name && SCOPE_ROLES.has(role))) {
+      node.ref = refFor(el);
+      // On screen: the host keeps these when it condenses a large snapshot.
+      if (visible && overlaps(el.getBoundingClientRect(), ctx.screen)) node.vp = 1;
+    }
     if (!visible) node.hidden = 1;
     if (scrollable) node.scrollable = 1;
     applyStates(el, role, tag, node, ctx);
@@ -704,10 +805,13 @@
   // opts: { root: handle | null, showHidden, base } -> { nodes, max }
   const now = () => (global.performance && global.performance.now ? global.performance.now() : Date.now());
   function snapshot(opts) {
+    return withReadCaches(() => readSnapshot(opts || {}));
+  }
+  function readSnapshot(opts) {
     const started = now();
-    opts = opts || {};
     raiseRefBase(opts.base);
     pruneRefs();
+    pruneHandles();
     const root = opts.root ? element(opts.root) : document.body || document.documentElement;
     if (!root || !root.isConnected) throw agentError("stale", "The snapshot root was removed from the page");
     const ctx = {
@@ -719,6 +823,7 @@
       positioned: -1,
       transformed: -1,
       viewport: opts.viewport ? { left: 0, top: 0, right: global.innerWidth, bottom: global.innerHeight } : null,
+      screen: { left: 0, top: 0, right: global.innerWidth, bottom: global.innerHeight },
       offscreen: 0,
     };
     const out = [];
@@ -746,6 +851,9 @@
   // The topmost element at a viewport point, raised to its nearest control,
   // scrollable region or iframe so the ref is something an agent can act on.
   function elementAt(x, y, base) {
+    return withReadCaches(() => readElementAt(x, y, base));
+  }
+  function readElementAt(x, y, base) {
     raiseRefBase(base);
     let el = document.elementFromPoint(x, y);
     while (el && el.shadowRoot) {
@@ -816,7 +924,7 @@
     const inj = requireInjected();
     const root = scopeHandle ? element(scopeHandle) : document;
     const parsed = inj.parseSelector(selector);
-    return inj.querySelectorAll(parsed, root).map(handleFor);
+    return withReadCaches(() => inj.querySelectorAll(parsed, root)).map(handleFor);
   }
 
   function describe(id) {
@@ -892,7 +1000,7 @@
     if (!el.isConnected) return false;
     const doc = el.ownerDocument;
     const active = doc.activeElement;
-    if (before !== undefined && active !== (before ? handles.get(before) : doc.body) && active !== doc.body) return false;
+    if (before !== undefined && active !== (before ? handleElement(before) : doc.body) && active !== doc.body) return false;
     const target = el.closest("button, a[href], summary, input, select, textarea, [tabindex], [contenteditable=true], iframe");
     if (!target || target === active) return false;
     if (target.matches(":disabled")) return false;
@@ -1085,9 +1193,16 @@
   Object.defineProperty(global, KEY, { value: agent, enumerable: false, configurable: true, writable: false });
   // The Swift driver resolves handles for input.setFiles through this name.
   Object.defineProperty(global, "__cmuxPageAgent", {
-    value: { resolveHandle: (id) => handles.get(id) || null },
+    value: { resolveHandle: (id) => handleElement(id) },
     enumerable: false,
     configurable: true,
     writable: false,
   });
-})(globalThis, typeof __cmuxInjectedScriptFactory !== "undefined" ? __cmuxInjectedScriptFactory : null);
+})(
+  globalThis,
+  typeof __cmuxInjectedScriptFactory !== "undefined" ? __cmuxInjectedScriptFactory : null,
+  // Playwright's role, name and hidden-state caches (its own snapshot and
+  // getByRole turn them on while the DOM cannot change). The install recipe
+  // puts the injected script's top-level functions in this scope.
+  typeof beginAriaCaches === "function" && typeof endAriaCaches === "function" ? { begin: beginAriaCaches, end: endAriaCaches } : null,
+);
