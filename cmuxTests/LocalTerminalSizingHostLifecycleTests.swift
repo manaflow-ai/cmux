@@ -19,6 +19,7 @@ struct LocalTerminalSizingHostLifecycleTests {
             let controller = TerminalController.shared
             defer { controller.resetLocalSizingHosts() }
             let panel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
+            try #require(controller.terminalSocketTarget(surfaceID: panel.id) != nil)
             try #require(controller.localSizingHost(surfaceID: panel.id, create: true) != nil)
             #expect(controller.terminalSharing.snapshot(for: panel.id) != nil)
 
@@ -42,6 +43,7 @@ struct LocalTerminalSizingHostLifecycleTests {
             let controller = TerminalController.shared
             defer { controller.resetLocalSizingHosts() }
             let panelId = try #require(workspace.focusedPanelId)
+            try #require(controller.terminalSocketTarget(surfaceID: panelId) != nil)
             try #require(controller.localSizingHost(surfaceID: panelId, create: true) != nil)
             let before = controller.terminalSharing.snapshot(for: panelId)?.state.policy
 
@@ -71,8 +73,11 @@ struct LocalTerminalSizingHostLifecycleTests {
             let manager = TabManager(autoWelcomeIfNeeded: false)
             AppDelegate.shared = appDelegate
             appDelegate.tabManager = manager
+            // Socket targets resolve surfaces through the main window contexts.
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
             TerminalController.shared.setActiveTabManager(manager)
             defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
                 TerminalController.shared.setActiveTabManager(previousManager)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 AppDelegate.shared = previousAppDelegate
