@@ -189,7 +189,7 @@ export function AcpmuxApp() {
         directClient.current = client;
         const persistSession = (sessionId?: string) => sessionId ? callNative("chat.persistSession", { sessionId }).catch(() => undefined) : Promise.resolve();
         window.cmuxAcpmuxActions = {
-          "chat.send": async ({ text }) => persistSession(await client.send(String(text ?? ""))),
+          "chat.send": async ({ text }) => { const sessionId = await client.ensureSession(); await persistSession(sessionId); return client.send(String(text ?? "")); },
           "chat.cancel": () => client.cancel(),
           "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
           "chat.model": ({ modelId }) => client.setModel(String(modelId)),

@@ -304,21 +304,25 @@ export class AcpmuxDirectClient {
   }
 
   snapshot(): void { this.emit(); }
-  async send(text: string): Promise<string | undefined> {
+  async ensureSession(): Promise<string | undefined> {
     if (!this.selectedSessionId) await this.create();
-    if (!this.selectedSessionId) return undefined;
+    return this.selectedSessionId;
+  }
+  async send(text: string): Promise<string | undefined> {
+    const sessionId = await this.ensureSession();
+    if (!sessionId) return undefined;
     const promptId = crypto.randomUUID(); const rowId = `local-${promptId}`; const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId); this.optimisticPromptTexts.set(promptId, text);
     this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true }); this.emit();
     try {
-      await this.request("session/prompt", { sessionId: this.selectedSessionId, prompt: [{ type: "text", text }], _meta: { acpmux: { promptId } } });
+      await this.request("session/prompt", { sessionId, prompt: [{ type: "text", text }], _meta: { acpmux: { promptId } } });
     } catch (error) {
       const row = this.rows.get(rowId);
       if (row) { row.pending = false; row.failed = true; row.version += 1; }
       this.optimisticPromptRows.delete(promptId); this.optimisticPromptTexts.delete(promptId); this.emit("failed");
       throw error;
     }
-    return this.selectedSessionId;
+    return sessionId;
   }
   async cancel(): Promise<void> { if (this.selectedSessionId) this.socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.selectedSessionId } })); }
   async permission(permissionId: string, optionId: string): Promise<void> { if (this.selectedSessionId) await this.request("_acpmux/permission_respond", { sessionId: this.selectedSessionId, permissionId, optionId }); }
