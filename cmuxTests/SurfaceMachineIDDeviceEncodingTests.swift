@@ -119,6 +119,29 @@ struct SurfaceMachineIDDeviceEncodingTests {
         #expect(local["local"] as? Bool == true)
     }
 
+    @Test("Cloud tree payload and CLI use user-facing link failure copy")
+    func cloudLinkFailureCopy() {
+        let info = machineInfo(.cloud("brave-otter"), linkState: .error, presence: nil)
+        var failed = info
+        failed.linkError = "cloud_api_unavailable"
+        let payload = TerminalController.surfaceMachinePayload(failed)
+        #expect(payload["link_error"] as? String == "cloud_api_unavailable")
+        #expect(payload["link_error_message"] as? String == "cmux cannot reach the Cloud service for this machine right now.")
+
+        let lines = CMUXCLI.vmTreeLines(
+            machine: [
+                "id": "brave-otter",
+                "status": "running",
+                "link_state": "error",
+                "link_error": "cloud_api_unavailable",
+                "link_error_message": "cmux cannot reach the Cloud service for this machine right now."
+            ],
+            resources: []
+        )
+        #expect(lines.contains { $0.contains("cmux cannot reach the Cloud service") })
+        #expect(!lines.contains { $0.contains("cloud_api_unavailable") })
+    }
+
     @Test("Build labels qualify dev, nightly, rc, and tagged instances; stable stays bare")
     func buildLabels() {
         func presence(tag: String, bundleID: String?) -> SurfaceDevicePresence {
