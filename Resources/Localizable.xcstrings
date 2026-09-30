@@ -520199,55 +520199,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"
+            "value": "Unlimited workspaces and the iOS app"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alles aus Pro: 50 Cloud-VMs, unbegrenzte Arbeitsbereiche, die iOS-App"
+            "value": "Unbegrenzte Arbeitsbereiche und die iOS-App"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tout Pro : 50 VM Cloud, espaces de travail illimités, application iOS"
+            "value": "Espaces de travail illimités et application iOS"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كل ما في Pro: 50 جهازاً سحابياً، ومساحات عمل غير محدودة، وتطبيق iOS"
+            "value": "مساحات عمل غير محدودة وتطبيق iOS"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Todo Pro: 50 máquinas virtuales Cloud, espacios de trabajo ilimitados y la app iOS"
+            "value": "Espacios de trabajo ilimitados y la app iOS"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "包含 Pro 所有功能：50 台雲端 VM、無限工作區、iOS 應用程式"
+            "value": "無限工作區與 iOS 應用程式"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "包含 Pro 所有功能：50 台云端 VM、无限工作区、iOS 应用"
+            "value": "无限工作区与 iOS 应用"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro의 모든 기능: Cloud VM 50대, 무제한 작업 공간, iOS 앱"
+            "value": "무제한 작업 공간과 iOS 앱"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro の全機能：50 台の Cloud VM、無制限のワークスペース、iOS アプリ"
+            "value": "無制限のワークスペースと iOS アプリ"
           }
         }
       }
