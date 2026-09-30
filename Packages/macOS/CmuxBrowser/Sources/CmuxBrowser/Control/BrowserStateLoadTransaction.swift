@@ -1,5 +1,6 @@
 import Foundation
 
+/// The terminal result of restoring browser cookies, navigation, and storage.
 public enum BrowserStateLoadTransactionResult: Equatable {
     case loaded
     case cookieWriteFailed
@@ -11,6 +12,7 @@ public enum BrowserStateLoadTransactionResult: Equatable {
 /// Cookies must be present before the request starts, and page storage belongs
 /// to the document that actually committed the requested URL.
 public enum BrowserStateLoadTransaction {
+    /// Restores cookies before navigation and page storage after its commit.
     public static func run(
         hasNavigation: Bool,
         installCookies: () -> Bool,
