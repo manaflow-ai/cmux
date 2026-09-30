@@ -14974,7 +14974,7 @@ class TerminalController {
         case "mobile.terminal.scroll", "terminal.scroll":
             result = v2MobileTerminalScroll(params: request.params)
         case "mobile.terminal.reattach":
-            result = v2MobileTerminalReattach(params: request.params)
+            result = await v2MobileTerminalReattach(params: request.params)
         case "mobile.terminal.size_policy.set":
             result = v2MobileTerminalSizePolicySet(params: request.params)
         case "mobile.terminal.participant.disconnect":

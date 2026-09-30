@@ -511,7 +511,7 @@ extension TerminalController {
 
     /// `mobile.terminal.reattach {surface_id, client_id, as_viewer}`: lifts a
     /// disconnect and answers like `mobile.terminal.replay`.
-    func v2MobileTerminalReattach(params: [String: Any]) -> V2CallResult {
+    func v2MobileTerminalReattach(params: [String: Any]) async -> V2CallResult {
         guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
