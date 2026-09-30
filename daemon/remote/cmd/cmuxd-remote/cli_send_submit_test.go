@@ -402,3 +402,45 @@ func TestSendSubmitShellGlyphPromptDoesNotProbe(t *testing.T) {
 		t.Fatalf("keys = %v, want one return", mock.keys)
 	}
 }
+
+func TestSendSubmitReviewKeys(t *testing.T) {
+	claude := map[string]any{"agent": true, "agent_kind": "claude", "busy": true, "lifecycle": "running"}
+	if key := sendSubmitKey(claude, "Claude Code\n› codex mentioned in output\n", "one\ntwo"); key != "return" {
+		t.Fatalf("Claude key = %q", key)
+	}
+	if state := sendStateFromScreen("shell output mentions codex\n❯ "); sendStateAgent(state) {
+		t.Fatalf("incidental codex recognized: %v", state)
+	}
+}
+
+func TestSendSubmitUnknownAgentReturnsSent(t *testing.T) {
+	_, socket := startSendSubmitMock(t, []map[string]any{{"agent": true, "state": "unknown"}}, nil)
+	output := captureStdout(t, func() {
+		if code := runCLI([]string{"--socket", socket, "--json", "send", "--submit", "hello"}); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+	})
+	if !strings.Contains(output, `"status":"sent"`) || !strings.Contains(output, `"submitted":false`) {
+		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestSendSubmitHumanEditPreventsRetry(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "agent_kind": "claude"},
+	}, []string{"Claude Code\n❯ ", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello human edit"})
+	output := captureStdout(t, func() {
+		if code := runCLI([]string{"--socket", socket, "--json", "send", "--submit", "hello"}); code == 0 {
+			t.Fatal("human edit submitted")
+		}
+	})
+	if len(mock.keys) != 1 {
+		t.Fatalf("keys=%v", mock.keys)
+	}
+	if !strings.Contains(output, `"status":"unconfirmed"`) {
+		t.Fatalf("output=%q", output)
+	}
+}
