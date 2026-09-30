@@ -42,6 +42,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.groupSelectedWorkspaces`
 - `shortcuts.bindings.markWorkspaceDone`
 - `shortcuts.bindings.moveWorkspaceDown`
+- `shortcuts.bindings.moveWorkspaceToTop`
 - `shortcuts.bindings.moveWorkspaceUp`
 - `shortcuts.bindings.newCloudMachine`
 - `shortcuts.bindings.newCloudWorkspace`

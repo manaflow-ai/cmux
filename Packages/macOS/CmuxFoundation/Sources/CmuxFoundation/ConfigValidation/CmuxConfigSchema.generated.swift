@@ -2094,6 +2094,7 @@ enum CmuxEmbeddedConfigSchema {
               "prevSidebarTabInGroup",
               "moveWorkspaceUp",
               "moveWorkspaceDown",
+              "moveWorkspaceToTop",
               "focusHistoryBack",
               "focusHistoryForward",
               "focusHistoryLast",

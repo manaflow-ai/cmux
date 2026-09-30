@@ -113,33 +113,23 @@ struct CmuxConfigExecutor {
             )
         }
 
-        guard let command = action.terminalCommand else { return false }
-        let target = action.terminalCommandTarget ?? .newTabInCurrentPane
-        let targetTerminal = (target == .currentTerminal)
-            ? tabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel
-            : nil
-        let targetWorkspace = (target == .newTabInCurrentPane) ? tabManager.selectedWorkspace : nil
-        return prepareShellInputIfAuthorized(
+        guard let command = action.terminalCommand,
+              let workspace = tabManager.selectedWorkspace else { return false }
+        return executeCommand(
             command,
+            target: action.terminalCommandTarget ?? .newTabInCurrentPane,
+            workspace: workspace,
+            baseCwd: baseCwd,
             confirm: action.confirm ?? false,
             actionID: action.id,
-            target: target,
             configSourcePath: action.actionSourcePath,
             globalConfigPath: globalConfigPath,
             displayTitle: action.title,
             icon: action.icon,
             iconSourcePath: action.iconSourcePath,
-            presentingWindow: presentingWindow
-        ) { shellInput in
-            switch target {
-            case .currentTerminal:
-                targetTerminal?.sendInput(shellInput)
-            case .newTabInCurrentPane:
-                targetWorkspace?.clearSplitZoom()
-                targetWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: shellInput)
-            }
-            onExecuted?()
-        }
+            presentingWindow: presentingWindow,
+            onExecuted: onExecuted
+        )
     }
 
     @discardableResult

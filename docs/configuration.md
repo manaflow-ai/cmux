@@ -443,6 +443,26 @@ Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyb
 
 cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.
 
+## Workspace moves and background commands
+
+Bind `shortcuts.bindings.moveWorkspaceToTop` to move the selected workspace to the top of its pinned or unpinned section. It is unbound by default and editable in Settings > Keyboard Shortcuts.
+
+Command actions can use `"target": "background"` to run locally with `/bin/sh -c` without typing into a terminal or opening a tab. They use the invoking workspace or pane directory, its `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`, and the app's socket and bundled CLI. They retain project-action authorization, discard standard input/output, and stop after 60 seconds. At most 16 background commands run concurrently per window.
+
+```json
+{
+  "shortcuts": { "bindings": { "moveWorkspaceToTop": "ctrl+opt+cmd+up" } },
+  "actions": {
+    "workspace.moveAfter": {
+      "type": "command",
+      "command": "cmux reorder-workspace --workspace \"$CMUX_WORKSPACE_ID\" --after workspace:1",
+      "target": "background",
+      "shortcut": "ctrl+opt+cmd+down"
+    }
+  }
+}
+```
+
 ## `agents.launchers`
 
 cmux resolves resume commands for the wrapper launchers it owns (`cmux claude-teams`, `cmux codex-teams`, `cmux omo`, …). A launcher cmux does not own is invisible to that resolution: a multi-account router such as [`teamclaude`](https://www.npmjs.com/package/@karpeleslab/teamclaude), an LLM-gateway front end, or any `<wrapper> run -- <agent argv>` shim execs the real agent as a child, so the capture records the inner `claude` and restore replays a bare `claude --resume <id>`. The wrapper is dropped, and whatever it provided — account fallback, quota spreading, request logging — is gone from the restored pane.

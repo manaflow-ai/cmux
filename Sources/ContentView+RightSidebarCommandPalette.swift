@@ -64,6 +64,8 @@ extension ContentView {
             return .nextSidebarTab
         case "palette.previousWorkspace":
             return .prevSidebarTab
+        case "palette.moveWorkspaceToTop":
+            return .moveWorkspaceToTop
         case "palette.moveWorkspaceUp":
             return .moveWorkspaceUp
         case "palette.moveWorkspaceDown":

@@ -27,6 +27,32 @@ private final class ReorderCanvasViewportSpy: CanvasViewportControlling {
 @MainActor
 @Suite("Reorder shortcut actions", .serialized)
 struct ReorderShortcutActionTests {
+    @Test func moveWorkspaceToTopIsBindableInSettingsAndPalette() throws {
+        let action = try #require(KeyboardShortcutSettings.Action(rawValue: "moveWorkspaceToTop"))
+        #expect(KeyboardShortcutSettings.publicShortcutActions.contains(action))
+        #expect(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
+        #expect(action.defaultShortcut.isUnbound)
+        let settingsAction = try #require(ShortcutAction(rawValue: action.rawValue))
+        #expect(settingsAction.displayName == action.label)
+        #expect(settingsAction.defaultStroke == nil)
+        #expect(ContentView.commandPaletteShortcutAction(forCommandID: "palette.moveWorkspaceToTop") == action)
+    }
+
+    @Test func moveSelectedWorkspaceToTopPreservesPinTierAndSelection() {
+        let manager = TabManager()
+        let pinned = manager.tabs[0]
+        manager.setPinned(pinned, pinned: true)
+        let first = manager.addWorkspace()
+        let last = manager.addWorkspace()
+        manager.selectWorkspace(last)
+
+        #expect(manager.moveSelectedWorkspaceToTop())
+        #expect(manager.tabs.map(\.id) == [pinned.id, last.id, first.id])
+        #expect(manager.selectedTabId == last.id)
+        #expect(manager.moveSelectedWorkspaceToTop())
+        #expect(manager.tabs.map(\.id) == [pinned.id, last.id, first.id])
+    }
+
     @Test func selectedSurfaceMovesByFinalPositionAndClampsAtEdges() throws {
         let workspace = Workspace()
         let firstPanelId = try #require(workspace.focusedPanelId)

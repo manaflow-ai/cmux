@@ -9,6 +9,8 @@ import Foundation
 actor AutomationProcessSession {
     private let command: String
     private let environment: [String: String]
+    private let workingDirectory: String?
+    private let inheritsEnvironment: Bool
     private var processIdentifier: pid_t?
     private var processGroupIdentifier: pid_t?
     private var processExitSource: DispatchSourceProcess?
@@ -17,9 +19,16 @@ actor AutomationProcessSession {
     private var terminationReason: AutomationProcessTerminationReason?
     private var finished = false
 
-    init(command: String, environment: [String: String]) {
+    init(
+        command: String,
+        environment: [String: String],
+        workingDirectory: String? = nil,
+        inheritsEnvironment: Bool = true
+    ) {
         self.command = command
         self.environment = environment
+        self.workingDirectory = workingDirectory
+        self.inheritsEnvironment = inheritsEnvironment
     }
 
     /// Runs the command and returns after the shell and all owned descendants
@@ -165,6 +174,12 @@ actor AutomationProcessSession {
         guard posix_spawn_file_actions_init(&fileActions) == 0 else { return nil }
         defer { posix_spawn_file_actions_destroy(&fileActions) }
 
+        if let workingDirectory {
+            guard workingDirectory.withCString({
+                posix_spawn_file_actions_addchdir_np(&fileActions, $0)
+            }) == 0 else { return nil }
+        }
+
         let setupOK = "/dev/null".withCString { path in
             posix_spawn_file_actions_addopen(
                 &fileActions,
@@ -213,7 +228,9 @@ actor AutomationProcessSession {
         }
 
         let arguments = ["/bin/sh", "-c", command]
-        let mergedEnvironment = ProcessInfo.processInfo.environment.merging(environment) { _, value in value }
+        let mergedEnvironment = inheritsEnvironment
+            ? ProcessInfo.processInfo.environment.merging(environment) { _, value in value }
+            : environment
         let environmentArguments = mergedEnvironment.map { "\($0.key)=\($0.value)" }
         var processIdentifier: pid_t = 0
         let spawnStatus = Self.withCStringArray(arguments) { argv in

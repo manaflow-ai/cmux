@@ -79,6 +79,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case moveWorkspaceUp
     /// Moves the selected workspace one position down within its pin tier.
     case moveWorkspaceDown
+    /// Moves the selected workspace to the top of its pin tier.
+    case moveWorkspaceToTop
     case focusHistoryBack
     case focusHistoryForward
     /// Toggles focus between the current position and the one it last left.
