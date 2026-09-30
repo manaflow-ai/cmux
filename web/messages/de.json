@@ -1383,7 +1383,8 @@
           "suppressWhenAppFocused": "Wenn aktiviert, überspringt cmux das Desktop-Banner für jede Benachrichtigung, solange cmux die aktive App ist, nicht nur für den fokussierten Bereich. Benachrichtigungen erscheinen weiterhin in der Seitenleiste, Ton und benutzerdefinierter Befehl werden weiterhin ausgeführt, und die Weiterleitung ans Telefon bleibt unverändert. Deaktiviert werden Banner für andere Workspaces und Bereiche weiterhin angezeigt, während cmux fokussiert ist.",
           "agentIdleReminder": "Benachrichtige, wenn ein Agent untätig auf deine Eingabe wartet (etwa 60 Sekunden nach Ende eines Turns). Wird unterdrückt, solange Hintergrundarbeit des letzten Turns noch aussteht, damit ein laufender Build oder Watcher keinen falschen Wartehinweis auslöst.",
           "soundOverrides": "Sparsame Überschreibungen des Benachrichtigungstons pro Agent und Alarmtyp. Nicht gesetzte Felder verwenden notifications.sound.",
-          "soundOverride": "Eine Überschreibung des Benachrichtigungstons. default verwendet notifications.sound, none deaktiviert die Wiedergabe; die übrigen Werte wählen einen integrierten oder benutzerdefinierten Ton."
+          "soundOverride": "Eine Überschreibung des Benachrichtigungstons. default verwendet notifications.sound, none deaktiviert die Wiedergabe; die übrigen Werte wählen einen integrierten oder benutzerdefinierten Ton.",
+          "paneFlashDoubleBlink": "Blink the pane flash twice instead of one short pulse."
         },
         "browser": {
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",

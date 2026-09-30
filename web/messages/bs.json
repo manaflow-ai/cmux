@@ -1383,7 +1383,8 @@
           "suppressWhenAppFocused": "Kada je uključeno, cmux preskače baner na radnoj površini za svaku notifikaciju dok je cmux aktivna aplikacija, a ne samo za fokusirani panel. Notifikacije se i dalje prikazuju u bočnoj traci, zvuk i prilagođena komanda se i dalje pokreću, a prosljeđivanje na telefon ostaje isto. Isključeno i dalje prikazuje banere za druge workspaceove i panele dok je cmux u fokusu.",
           "agentIdleReminder": "Pošalji obavijest kada agent miruje i čeka vaš unos (oko 60 sekundi nakon završetka turna). Utišano je dok je pozadinski rad prethodnog turna još na čekanju, pa pokrenuta izgradnja ili nadzor ne izazivaju pogrešnu obavijest o čekanju.",
           "soundOverrides": "Rijetka nadjačavanja zvuka obavijesti po agentu i vrsti upozorenja. Ćelije koje nedostaju koriste notifications.sound.",
-          "soundOverride": "Nadjačavanje zvuka obavijesti. default koristi notifications.sound, none onemogućava reprodukciju, a ostale vrijednosti biraju ugrađeni ili prilagođeni zvuk."
+          "soundOverride": "Nadjačavanje zvuka obavijesti. default koristi notifications.sound, none onemogućava reprodukciju, a ostale vrijednosti biraju ugrađeni ili prilagođeni zvuk.",
+          "paneFlashDoubleBlink": "Blink the pane flash twice instead of one short pulse."
         },
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",

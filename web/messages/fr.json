@@ -1383,7 +1383,8 @@
           "suppressWhenAppFocused": "Lorsque cette option est activée, cmux ignore la bannière du bureau pour chaque notification tant que cmux est l'app active, et pas seulement pour le panneau ayant le focus. Les notifications apparaissent toujours dans la barre latérale, le son et la commande personnalisée sont toujours exécutés, et le transfert vers le téléphone reste inchangé. Désactivée, les bannières restent affichées pour les autres workspaces et panneaux lorsque cmux a le focus.",
           "agentIdleReminder": "Notifier lorsqu’un agent est inactif et attend votre saisie (environ 60 secondes après la fin d’un tour). La notification est supprimée tant qu’un travail en arrière-plan du tour précédent est encore en attente, afin qu’un build ou un watcher en cours ne déclenche pas une fausse alerte d’attente.",
           "soundOverrides": "Remplacements ponctuels du son de notification par agent et par type d’alerte. Les cellules absentes utilisent notifications.sound.",
-          "soundOverride": "Un remplacement du son de notification. default utilise notifications.sound, none désactive la lecture et les autres valeurs sélectionnent un son intégré ou personnalisé."
+          "soundOverride": "Un remplacement du son de notification. default utilise notifications.sound, none désactive la lecture et les autres valeurs sélectionnent un son intégré ou personnalisé.",
+          "paneFlashDoubleBlink": "Blink the pane flash twice instead of one short pulse."
         },
         "browser": {
           "defaultSearchEngine": "Moteur de recherche par défaut pour les saisies de la barre d’adresse du navigateur qui ne sont pas des URL. Utilisez custom avec customSearchEngineURLTemplate pour d’autres fournisseurs.",

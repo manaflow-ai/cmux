@@ -1383,7 +1383,8 @@
           "suppressWhenAppFocused": "Quando è attivo, cmux salta il banner sul desktop per ogni notifica mentre cmux è l'app attiva, non solo per il pannello con il focus. Le notifiche compaiono comunque nella barra laterale, il suono e il comando personalizzato vengono comunque eseguiti e l'inoltro al telefono non cambia. Disattivato continua a mostrare i banner per altri workspace e pannelli mentre cmux ha il focus.",
           "agentIdleReminder": "Notifica quando un agente è inattivo in attesa del tuo input (circa 60 secondi dopo la fine di un turno). La notifica è soppressa finché resta del lavoro in background del turno precedente, così una build o un watcher in esecuzione non attivano un falso avviso di attesa.",
           "soundOverrides": "Override sparsi del suono di notifica per agente e tipo di avviso. Le celle mancanti usano notifications.sound.",
-          "soundOverride": "Un override del suono di notifica. default usa notifications.sound, none disabilita la riproduzione e gli altri valori selezionano un suono integrato o personalizzato."
+          "soundOverride": "Un override del suono di notifica. default usa notifications.sound, none disabilita la riproduzione e gli altri valori selezionano un suono integrato o personalizzato.",
+          "paneFlashDoubleBlink": "Blink the pane flash twice instead of one short pulse."
         },
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",

@@ -1384,7 +1384,8 @@
           "suppressWhenAppFocused": "Po włączeniu cmux pomija baner na pulpicie dla każdego powiadomienia, gdy cmux jest aktywną aplikacją, a nie tylko dla panelu z fokusem. Powiadomienia nadal pojawiają się na pasku bocznym, dźwięk i niestandardowe polecenie nadal są uruchamiane, a przekazywanie na telefon się nie zmienia. Po wyłączeniu banery dla innych workspace'ów i paneli są nadal wyświetlane, gdy cmux ma fokus.",
           "agentIdleReminder": "Powiadamiaj, gdy agent jest bezczynny i czeka na dane wejściowe (około 60 sekund po zakończeniu tury). Powiadomienie jest wstrzymywane, dopóki trwa praca w tle z poprzedniej tury, aby uruchomiony build lub obserwator nie wywołał fałszywego alertu oczekiwania.",
           "soundOverrides": "Rzadkie zastąpienia dźwięku powiadomień dla agenta i typu alertu. Brakujące komórki używają notifications.sound.",
-          "soundOverride": "Zastąpienie dźwięku powiadomienia. default używa notifications.sound, none wyłącza odtwarzanie, a pozostałe wartości wybierają dźwięk wbudowany lub niestandardowy."
+          "soundOverride": "Zastąpienie dźwięku powiadomienia. default używa notifications.sound, none wyłącza odtwarzanie, a pozostałe wartości wybierają dźwięk wbudowany lub niestandardowy.",
+          "paneFlashDoubleBlink": "Blink the pane flash twice instead of one short pulse."
         },
         "browser": {
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",

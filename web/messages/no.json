@@ -1383,7 +1383,8 @@
           "suppressWhenAppFocused": "Når dette er slått på, hopper cmux over skrivebordsbanneret for alle varsler mens cmux er den aktive appen, ikke bare for det fokuserte panelet. Varsler vises fortsatt i sidefeltet, lyden og den egendefinerte kommandoen kjøres fortsatt, og videresending til telefonen er uendret. Av fortsetter å vise bannere for andre workspaces og paneler mens cmux er i fokus.",
           "agentIdleReminder": "Varsle når en agent har vært inaktiv og venter på inndata (omtrent 60 sekunder etter at en tur er avsluttet). Varslingen undertrykkes mens bakgrunnsarbeid fra forrige tur fortsatt pågår, slik at en kjørende bygging eller overvåker ikke utløser et falskt ventevarsel.",
           "soundOverrides": "Sparsomme overstyringer av varslingslyd per agent og varslingstype. Manglende felt bruker notifications.sound.",
-          "soundOverride": "En overstyring av varslingslyden. default bruker notifications.sound, none deaktiverer avspilling, og de øvrige verdiene velger en innebygd eller egendefinert lyd."
+          "soundOverride": "En overstyring av varslingslyden. default bruker notifications.sound, none deaktiverer avspilling, og de øvrige verdiene velger en innebygd eller egendefinert lyd.",
+          "paneFlashDoubleBlink": "Blink the pane flash twice instead of one short pulse."
         },
         "browser": {
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",

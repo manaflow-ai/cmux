@@ -1383,7 +1383,8 @@
           "suppressWhenAppFocused": "Etkinleştirildiğinde cmux, etkin uygulama olduğu sürece yalnızca odaklanılan bölme için değil tüm bildirimler için masaüstü başlığını atlar. Bildirimler kenar çubuğunda görünmeye devam eder, ses ve özel komut çalışmaya devam eder ve telefona yönlendirme değişmez. Kapalıyken cmux odaktayken diğer workspace'ler ve bölmeler için başlıklar gösterilmeye devam eder.",
           "agentIdleReminder": "Bir ajan boşta olup girişinizi beklediğinde (tur sona erdikten yaklaşık 60 saniye sonra) bildirim gönderin. Önceki turdan kalan arka plan işi devam ederken bastırılır; böylece çalışan bir derleme veya izleyici yanlış bir bekleme uyarısı oluşturmaz.",
           "soundOverrides": "Ajan ve uyarı türüne göre seyrek bildirim sesi geçersiz kılmaları. Eksik hücreler notifications.sound kullanır.",
-          "soundOverride": "Bir bildirim sesi geçersiz kılması. default, notifications.sound kullanır; none oynatmayı devre dışı bırakır; diğer değerler yerleşik veya özel bir ses seçer."
+          "soundOverride": "Bir bildirim sesi geçersiz kılması. default, notifications.sound kullanır; none oynatmayı devre dışı bırakır; diğer değerler yerleşik veya özel bir ses seçer.",
+          "paneFlashDoubleBlink": "Blink the pane flash twice instead of one short pulse."
         },
         "browser": {
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
