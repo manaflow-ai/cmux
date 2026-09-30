@@ -2227,6 +2227,7 @@
 		87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */; };
 		9492CAFE0000000000000002 /* LastTerminalChildExitRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */; };
 		A11CE0060000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
+		B79500310000000000000101 /* ListeningPortLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500310000000000000102 /* ListeningPortLookup.swift */; };
 		110436021104360211043602 /* LiveAgentSessionOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110436011104360111043601 /* LiveAgentSessionOwner.swift */; };
 		110431021104310211043102 /* LiveAgentSessionOwnerIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110431011104310111043101 /* LiveAgentSessionOwnerIndex.swift */; };
 		110437021104370211043702 /* LiveAgentSessionOwnerObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110437011104370111043701 /* LiveAgentSessionOwnerObservation.swift */; };
@@ -2620,7 +2621,7 @@
 		D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */; };
 		D0C658660000000000000002 /* PortalSplitDividerRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000001 /* PortalSplitDividerRegion.swift */; };
 		D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */; };
-		B79500310000000000000001 /* PortLsofScanResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500310000000000000002 /* PortLsofScanResult.swift */; };
+		B79500310000000000000001 /* PortListenerScanResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500310000000000000002 /* PortListenerScanResult.swift */; };
 		F11294000000000000000001 /* PortRetirementPublicationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11294000000000000000002 /* PortRetirementPublicationRegressionTests.swift */; };
 		B79500030000000000000001 /* PortScanCoordination.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500030000000000000002 /* PortScanCoordination.swift */; };
 		B79500070000000000000001 /* PortScanner+PanelKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500070000000000000002 /* PortScanner+PanelKey.swift */; };
@@ -6431,6 +6432,7 @@
 		F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastSurfaceClosePreferenceTests.swift; sourceTree = "<group>"; };
 		9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastTerminalChildExitRecoveryTests.swift; sourceTree = "<group>"; };
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
+		B79500310000000000000102 /* ListeningPortLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningPortLookup.swift; sourceTree = "<group>"; };
 		110436011104360111043601 /* LiveAgentSessionOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAgentSessionOwner.swift; sourceTree = "<group>"; };
 		110431011104310111043101 /* LiveAgentSessionOwnerIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAgentSessionOwnerIndex.swift; sourceTree = "<group>"; };
 		110437011104370111043701 /* LiveAgentSessionOwnerObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAgentSessionOwnerObservation.swift; sourceTree = "<group>"; };
@@ -6818,7 +6820,7 @@
 		D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalSplitDividerCacheInvalidator.swift; sourceTree = "<group>"; };
 		D0C658660000000000000001 /* PortalSplitDividerRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalSplitDividerRegion.swift; sourceTree = "<group>"; };
 		D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalTabDragRoutingTests.swift; sourceTree = "<group>"; };
-		B79500310000000000000002 /* PortLsofScanResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortLsofScanResult.swift; sourceTree = "<group>"; };
+		B79500310000000000000002 /* PortListenerScanResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortListenerScanResult.swift; sourceTree = "<group>"; };
 		F11294000000000000000002 /* PortRetirementPublicationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortRetirementPublicationRegressionTests.swift; sourceTree = "<group>"; };
 		B79500030000000000000002 /* PortScanCoordination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanCoordination.swift; sourceTree = "<group>"; };
 		B79500070000000000000002 /* PortScanner+PanelKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortScanner+PanelKey.swift"; sourceTree = "<group>"; };
@@ -10403,7 +10405,8 @@
 				A5001541 /* PortScanner.swift */,
 				B79500070000000000000002 /* PortScanner+PanelKey.swift */,
 				B79500010000000000000002 /* PortScanner+Process.swift */,
-				B79500310000000000000002 /* PortLsofScanResult.swift */,
+				B79500310000000000000002 /* PortListenerScanResult.swift */,
+				B79500310000000000000102 /* ListeningPortLookup.swift */,
 				B79500090000000000000002 /* PortScanner+Publication.swift */,
 				6313B1A1 /* PaneMemoryDescriptor.swift */,
 				6313A1A1 /* PaneMemoryGuardrail.swift */,
@@ -14706,6 +14709,7 @@
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
 				C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */,
 				8561C0128561C0128561C012 /* KeyboardShortcutSettingsObserver.swift in Sources */,
+				B79500310000000000000101 /* ListeningPortLookup.swift in Sources */,
 				110436021104360211043602 /* LiveAgentSessionOwner.swift in Sources */,
 				110431021104310211043102 /* LiveAgentSessionOwnerIndex.swift in Sources */,
 				110437021104370211043702 /* LiveAgentSessionOwnerObservation.swift in Sources */,
@@ -14959,7 +14963,7 @@
 				B79500210000000000000001 /* PIDPresence.swift in Sources */,
 				D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */,
 				D0C658660000000000000002 /* PortalSplitDividerRegion.swift in Sources */,
-				B79500310000000000000001 /* PortLsofScanResult.swift in Sources */,
+				B79500310000000000000001 /* PortListenerScanResult.swift in Sources */,
 				B79500030000000000000001 /* PortScanCoordination.swift in Sources */,
 				B79500070000000000000001 /* PortScanner+PanelKey.swift in Sources */,
 				B79500010000000000000001 /* PortScanner+Process.swift in Sources */,
