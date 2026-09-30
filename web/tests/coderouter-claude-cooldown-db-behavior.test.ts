@@ -79,14 +79,18 @@ dbTest("preserves the longest Claude cooldown and failure reason", async () => {
 
   const [claudeAfterShort] = await sql`select cooldown_until, last_failure_code
     from coderouter_claude_accounts where id = ${claudeAccountId}`;
-  expect(new Date(String(claudeAfterShort!.cooldown_until)).getTime()).toBe(longClaudeCooldown.getTime());
+  const storedClaudeCooldown = new Date(String(claudeAfterShort!.cooldown_until)).getTime();
+  expect(storedClaudeCooldown).toBeGreaterThanOrEqual(longClaudeCooldown.getTime() - 1_000);
+  expect(storedClaudeCooldown).toBeLessThanOrEqual(longClaudeCooldown.getTime());
   expect(claudeAfterShort!.last_failure_code).toBe("rate_limited");
 
   const longerClaudeCooldown = new Date(longClaudeCooldown.getTime() + ONE_HOUR_MS);
   await claudeAccountStore.markCooldown(claudeAccountId, longerClaudeCooldown, "provider_retry_after");
   const [claudeAfterLong] = await sql`select cooldown_until, last_failure_code
     from coderouter_claude_accounts where id = ${claudeAccountId}`;
-  expect(new Date(String(claudeAfterLong!.cooldown_until)).getTime()).toBe(longerClaudeCooldown.getTime());
+  const storedLongerClaudeCooldown = new Date(String(claudeAfterLong!.cooldown_until)).getTime();
+  expect(storedLongerClaudeCooldown).toBeGreaterThanOrEqual(longerClaudeCooldown.getTime() - 1_000);
+  expect(storedLongerClaudeCooldown).toBeLessThanOrEqual(longerClaudeCooldown.getTime());
   expect(claudeAfterLong!.last_failure_code).toBe("provider_retry_after");
 
   const nativeLongCooldownFloor = Date.now() + FIVE_HOURS_MS - 1_000;

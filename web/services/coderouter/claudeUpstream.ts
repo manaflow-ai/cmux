@@ -672,9 +672,22 @@ const drizzleStore: ClaudeAccountStore = {
     return deleted.length;
   },
   async markCooldown(accountId, until, failureCode, signal) {
+    const cooldownUntilIso = until.toISOString();
     await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .update(coderouterClaudeAccounts)
-      .set({ cooldownUntil: until, lastFailureCode: failureCode, updatedAt: new Date() })
+      .set({
+        // A late provider error must never shorten a longer cooldown already
+        // recorded by another request. Keep the database value authoritative so
+        // every web instance avoids a capacity-hit account consistently.
+        cooldownUntil: sql`GREATEST(COALESCE(${coderouterClaudeAccounts.cooldownUntil}, ${cooldownUntilIso}::timestamptz), ${cooldownUntilIso}::timestamptz)`,
+        lastFailureCode: sql`CASE
+          WHEN ${coderouterClaudeAccounts.cooldownUntil} IS NULL
+            OR ${cooldownUntilIso}::timestamptz > ${coderouterClaudeAccounts.cooldownUntil}
+          THEN ${failureCode}
+          ELSE ${coderouterClaudeAccounts.lastFailureCode}
+        END`,
+        updatedAt: new Date(),
+      })
       .where(eq(coderouterClaudeAccounts.id, accountId)));
   },
   async touchUsed(accountId, at, signal) {
