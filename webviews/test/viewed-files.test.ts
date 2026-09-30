@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
 import {
+  applyLoadedViewed,
+  beginViewedLoad,
   fileDiffFingerprint,
   formatViewedProgress,
   patchFingerprint,
+  recordViewedChange,
   toggleViewedItem,
   viewedFileState,
   viewedProgress,
@@ -97,4 +100,46 @@ test("toggleViewedItem collapses a viewed file, expands an unviewed one, and rep
   expect(cleared.items[0]).toMatchObject({ collapsed: false, version: 2 });
 
   expect(toggleViewedItem(items, new Map(), "missing.txt").change).toBeNull();
+});
+
+test("a stored-marks reply keeps toggles made while it was loading", () => {
+  let session = beginViewedLoad("repo\nunstaged");
+  session = recordViewedChange(session, { kind: "set", entry: { path: "a.txt", fingerprint: "new-a" } });
+  session = recordViewedChange(session, { kind: "clear", path: "b.txt" });
+
+  const merged = applyLoadedViewed(session, "repo\nunstaged", [
+    { path: "a.txt", fingerprint: "old-a" },
+    { path: "b.txt", fingerprint: "b" },
+    { path: "c.txt", fingerprint: "c" },
+  ]);
+
+  expect(merged).not.toBeNull();
+  expect([...merged!.viewedByPath.values()]).toEqual([
+    { path: "a.txt", fingerprint: "new-a" },
+    { path: "c.txt", fingerprint: "c" },
+  ]);
+});
+
+test("a stored-marks reply for an older scope is ignored", () => {
+  const session = beginViewedLoad("repo\nstaged");
+  expect(applyLoadedViewed(session, "repo\nunstaged", [{ path: "a.txt", fingerprint: "a" }])).toBeNull();
+});
+
+test("starting a scope load drops the previous scope's marks at once", () => {
+  const previous = applyLoadedViewed(beginViewedLoad("repo\nunstaged"), "repo\nunstaged", [{ path: "a.txt", fingerprint: "a" }]);
+  expect(previous!.viewedByPath.size).toBe(1);
+  const next = beginViewedLoad("repo\nstaged");
+  expect(next.viewedByPath.size).toBe(0);
+  expect(next.scopeKey).toBe("repo\nstaged");
+});
+
+test("the fallback fingerprint is computed once per parsed file diff", () => {
+  let reads = 0;
+  const hunk = { deletionStart: 1, deletionCount: 1, additionStart: 1, additionCount: 1, hunkContent: [] as unknown[] };
+  const fileDiff = { name: "a.txt", type: "change", get hunks() { reads += 1; return [hunk]; } };
+  const first = fileDiffFingerprint(fileDiff);
+  const readsForFirst = reads;
+  expect(readsForFirst).toBeGreaterThan(0);
+  expect(fileDiffFingerprint(fileDiff)).toBe(first);
+  expect(reads).toBe(readsForFirst);
 });
