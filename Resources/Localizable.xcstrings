@@ -206740,121 +206740,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock placement is unavailable"
+            "value": "Dock placement is disabled"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock の配置は利用できません"
+            "value": "Dock配置は無効です"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock 放置不可用"
+            "value": "Dock 放置已禁用"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock-Platzierung ist nicht verfügbar"
+            "value": "Dock-Platzierung ist deaktiviert"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le placement du Dock est indisponible"
+            "value": "Le placement du Dock est désactivé"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "موضع Dock غير متاح"
+            "value": "تم تعطيل موضع Dock"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La ubicación del Dock no está disponible"
+            "value": "La ubicación del Dock está deshabilitada"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock 放置無法使用"
+            "value": "Dock 放置已停用"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock 배치를 사용할 수 없습니다"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Postavljanje Docka nije dostupno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock-placering er ikke tilgængelig"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il posizionamento del Dock non è disponibile"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការដាក់ Dock មិនអាចប្រើបានទេ"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock-plassering er ikke tilgjengelig"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Umieszczanie w Docku jest niedostępne"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O posicionamento do Dock não está disponível"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Размещение в Dock недоступно"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไม่สามารถวางใน Dock ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock yerleşimi kullanılamıyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Розміщення в Dock недоступне"
+            "value": "Dock 배치가 비활성화되었습니다"
           }
         }
       }
@@ -348097,115 +348031,115 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app.reorderOnNotification إشعار إعادة ترتيب نقل مساحة عمل أعلى غير مقروء فرز agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app.reorderOnNotification إشعار إعادة ترتيب نقل مساحة عمل أعلى غير مقروء فرز"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort aplikacija opće postavke ponašanje dock traka menija status bočna radni prostor kartica boje paleta značka odabrano isticanje indikator aktivno tačka obavijest obavijesti upozorenje nepročitano poruka prsten bljesak zvuk desktop • %@ Premjesti 1 obavještenje Vrh agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort aplikacija opće postavke ponašanje dock traka menija status bočna radni prostor kartica boje paleta značka odabrano isticanje indikator aktivno tačka obavijest obavijesti upozorenje nepročitano poruka prsten bljesak zvuk desktop • %@ Premjesti 1 obavještenje Vrh"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app generelt indstillinger adfærd dock menulinje status sidepanel arbejdsområde fane farver palette badge valgt fremhævning indikator aktiv prik notifikation notifikationer advarsel ulæst besked ring blink lyd skrivebord • %@ Flyt 1 Øverst agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app generelt indstillinger adfærd dock menulinje status sidepanel arbejdsområde fane farver palette badge valgt fremhævning indikator aktiv prik notifikation notifikationer advarsel ulæst besked ring blink lyd skrivebord • %@ Flyt 1 Øverst"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app.reorderOnNotification benachrichtigung neu anordnen arbeitsbereich nach oben verschieben ungelesen sortieren agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app.reorderOnNotification benachrichtigung neu anordnen arbeitsbereich nach oben verschieben ungelesen sortieren"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app.reorderOnNotification notificacion reordenar mover espacio de trabajo arriba no leido ordenar agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app.reorderOnNotification notificacion reordenar mover espacio de trabajo arriba no leido ordenar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app.reorderOnNotification notification réordonner déplacer espace de travail haut non lu trier agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app.reorderOnNotification notification réordonner déplacer espace de travail haut non lu trier"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app generale preferenze comportamento dock barra menu stato laterale area di lavoro scheda colori tavolozza badge selezionato evidenziazione indicatore attivo punto notifica notifiche avviso non letto messaggio anello lampeggio suono scrivania • %@ Sposta 1 letta Inizio agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app generale preferenze comportamento dock barra menu stato laterale area di lavoro scheda colori tavolozza badge selezionato evidenziazione indicatore attivo punto notifica notifiche avviso non letto messaggio anello lampeggio suono scrivania • %@ Sposta 1 letta Inizio"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort 通知 並べ替え ワークスペースを上へ 未読 ソート agent activity agents prompt turn finished needs input エージェント アクティビティ プロンプト"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort 通知 並べ替え ワークスペースを上へ 未読 ソート"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification 알림 재정렬 작업 공간 이동 상단 읽지 않음 정렬 app.reorderOnNotification notification reorder move workspace top unread sort agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification 알림 재정렬 작업 공간 이동 상단 읽지 않음 정렬 app.reorderOnNotification notification reorder move workspace top unread sort"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app generelt innstillinger oppførsel dock menylinje status sidepanel arbeidsområde fane farger palett merke valgt utheving indikator aktiv prikk varsling varsler ulest melding ring blink lyd skrivebord • %@ Flytt 1 varsel Topp agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app generelt innstillinger oppførsel dock menylinje status sidepanel arbeidsområde fane farger palett merke valgt utheving indikator aktiv prikk varsling varsler ulest melding ring blink lyd skrivebord • %@ Flytt 1 varsel Topp"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort aplikacja ogólne preferencje zachowanie dock pasek menu status boczny obszar roboczy karta kolory paleta odznaka zaznaczone podświetlenie wskaźnik aktywny kropka powiadomienie powiadomienia alert nieprzeczytane wiadomość pierścień błysk dźwięk pulpit Przestrzeń robocza • %@ Przenieś 1 Na górze agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort aplikacja ogólne preferencje zachowanie dock pasek menu status boczny obszar roboczy karta kolory paleta odznaka zaznaczone podświetlenie wskaźnik aktywny kropka powiadomienie powiadomienia alert nieprzeczytane wiadomość pierścień błysk dźwięk pulpit Przestrzeń robocza • %@ Przenieś 1 Na górze"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app geral preferências comportamento dock barra de menu status lateral aba cores paleta selo selecionado destaque indicador ativo ponto notificação notificações alerta não lido mensagem anel piscar som desktop Área Trabalho • %@ Mover 1 lida Topo agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app geral preferências comportamento dock barra de menu status lateral aba cores paleta selo selecionado destaque indicador ativo ponto notificação notificações alerta não lido mensagem anel piscar som desktop Área Trabalho • %@ Mover 1 lida Topo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort приложение общие настройки поведение док строка меню статус боковая панель рабочая область вкладка цвета палитра значок выбранный подсветка индикатор активный точка уведомление уведомления предупреждение непрочитанное сообщение бейдж кольцо вспышка звук рабочий стол Рабочее пространство • %@ Переместить 1 В начало agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort приложение общие настройки поведение док строка меню статус боковая панель рабочая область вкладка цвета палитра значок выбранный подсветка индикатор активный точка уведомление уведомления предупреждение непрочитанное сообщение бейдж кольцо вспышка звук рабочий стол Рабочее пространство • %@ Переместить 1 В начало"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ แถบด้านข้าง พื้นที่ทำงาน แท็บ สี จานสี ป้าย เลือก ไฮไลต์ ตัวบ่งชี้ ใช้งาน จุด การแจ้งเตือน ยังไม่ได้อ่าน ข้อความ วงแหวน แฟลช เสียง เดสก์ท็อป เวิร์กสเปซ • %@ ย้าย 1 การแจ้งเตือนที่ยังไม่อ่าน ด้านบน agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ แถบด้านข้าง พื้นที่ทำงาน แท็บ สี จานสี ป้าย เลือก ไฮไลต์ ตัวบ่งชี้ ใช้งาน จุด การแจ้งเตือน ยังไม่ได้อ่าน ข้อความ วงแหวน แฟลช เสียง เดสก์ท็อป เวิร์กสเปซ • %@ ย้าย 1 การแจ้งเตือนที่ยังไม่อ่าน ด้านบน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort uygulama genel tercihler davranış dock menü çubuğu durum kenar çalışma alanı sekme renkler palet rozet seçili vurgulama gösterge aktif nokta bildirim bildirimler uyarı okunmamış mesaj halka flaş ses masaüstü • %@ Taşı 1 En Üste agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort uygulama genel tercihler davranış dock menü çubuğu durum kenar çalışma alanı sekme renkler palet rozet seçili vurgulama gösterge aktif nokta bildirim bildirimler uyarı okunmamış mesaj halka flaş ses masaüstü • %@ Taşı 1 En Üste"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort програма загальні параметри поведінка док рядок меню статус бічна панель робочий простір вкладка кольори палітра значок вибрано підсвічування індикатор активний крапка сповіщення непрочитане повідомлення кільце спалах звук стіл Робоча область • %@ Перемістити 1 На початку agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort програма загальні параметри поведінка док рядок меню статус бічна панель робочий простір вкладка кольори палітра значок вибрано підсвічування індикатор активний крапка сповіщення непрочитане повідомлення кільце спалах звук стіл Робоча область • %@ Перемістити 1 На початку"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app.reorderOnNotification 通知 重新排序 移动工作区 顶部 未读 排序 agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app.reorderOnNotification 通知 重新排序 移动工作区 顶部 未读 排序"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app.reorderOnNotification 通知 重新排序 移動 工作區 頂端 未讀 排序 agent activity agents prompt turn finished needs input"
+            "value": "app.reorderOnNotification notification reorder move workspace top unread sort app.reorderOnNotification 通知 重新排序 移動 工作區 頂端 未讀 排序"
           }
         }
       }
@@ -394724,61 +394658,61 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Feedback is unavailable right now. Email founders@cmux.com instead."
+            "value": "Feedback is unavailable right now. Email founders@manaflow.com instead."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "現在フィードバックを送信できません。代わりに founders@cmux.com までメールしてください。"
+            "value": "現在フィードバックを送信できません。代わりに founders@manaflow.com までメールしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 피드백을 사용할 수 없습니다. 대신 founders@cmux.com으로 이메일을 보내주세요."
+            "value": "현재 피드백을 사용할 수 없습니다. 대신 founders@manaflow.com으로 이메일을 보내주세요."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Відгуки зараз недоступні. Напишіть на founders@cmux.com."
+            "value": "Відгуки зараз недоступні. Напишіть на founders@manaflow.com."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "反馈功能暂时不可用。请改为发送邮件至 founders@cmux.com。"
+            "value": "反馈功能暂时不可用。请改为发送邮件至 founders@manaflow.com。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Feedback ist zurzeit nicht verfügbar. Senden Sie stattdessen eine E-Mail an founders@cmux.com."
+            "value": "Feedback ist zurzeit nicht verfügbar. Senden Sie stattdessen eine E-Mail an founders@manaflow.com."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les retours ne sont pas disponibles pour le moment. Envoyez plutôt un e-mail à founders@cmux.com."
+            "value": "Les retours ne sont pas disponibles pour le moment. Envoyez plutôt un e-mail à founders@manaflow.com."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الملاحظات غير متوفرة الآن. يرجى مراسلة founders@cmux.com عبر البريد الإلكتروني بدلاً من ذلك."
+            "value": "الملاحظات غير متوفرة الآن. يرجى مراسلة founders@manaflow.com عبر البريد الإلكتروني بدلاً من ذلك."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los comentarios no están disponibles en este momento. Envía un correo a founders@cmux.com en su lugar."
+            "value": "Los comentarios no están disponibles en este momento. Envía un correo a founders@manaflow.com en su lugar."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "目前無法使用意見反應功能。請改為傳送電子郵件至 founders@cmux.com。"
+            "value": "目前無法使用意見反應功能。請改為傳送電子郵件至 founders@manaflow.com。"
           }
         }
       }
@@ -395244,61 +395178,61 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You can also reach us at founders@cmux.com."
+            "value": "You can also reach us at founders@manaflow.com."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "founders@cmux.com 宛てに直接ご連絡いただくこともできます。"
+            "value": "founders@manaflow.com 宛てに直接ご連絡いただくこともできます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "founders@cmux.com으로도 연락하실 수 있습니다."
+            "value": "founders@manaflow.com으로도 연락하실 수 있습니다."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ви також можете написати нам на founders@cmux.com."
+            "value": "Ви також можете написати нам на founders@manaflow.com."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你也可以通过 founders@cmux.com 联系我们。"
+            "value": "你也可以通过 founders@manaflow.com 联系我们。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sie können uns auch unter founders@cmux.com erreichen."
+            "value": "Sie können uns auch unter founders@manaflow.com erreichen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous pouvez également nous contacter à l'adresse founders@cmux.com."
+            "value": "Vous pouvez également nous contacter à l'adresse founders@manaflow.com."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يمكنك أيضاً التواصل معنا عبر founders@cmux.com."
+            "value": "يمكنك أيضاً التواصل معنا عبر founders@manaflow.com."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "También puedes contactarnos en founders@cmux.com."
+            "value": "También puedes contactarnos en founders@manaflow.com."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "您也可以透過 founders@cmux.com 與我們聯絡。"
+            "value": "您也可以透過 founders@manaflow.com 與我們聯絡。"
           }
         }
       }
@@ -395504,61 +395438,61 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You can also reach us at founders@cmux.com."
+            "value": "You can also reach us at founders@manaflow.com."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "founders@cmux.com 宛てに直接ご連絡いただくこともできます。"
+            "value": "founders@manaflow.com 宛てに直接ご連絡いただくこともできます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "founders@cmux.com으로도 연락하실 수 있습니다."
+            "value": "founders@manaflow.com으로도 연락하실 수 있습니다."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ви також можете написати нам на founders@cmux.com."
+            "value": "Ви також можете написати нам на founders@manaflow.com."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你也可以通过 founders@cmux.com 联系我们。"
+            "value": "你也可以通过 founders@manaflow.com 联系我们。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sie können uns auch unter founders@cmux.com erreichen."
+            "value": "Sie können uns auch unter founders@manaflow.com erreichen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous pouvez également nous contacter à l'adresse founders@cmux.com."
+            "value": "Vous pouvez également nous contacter à l'adresse founders@manaflow.com."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يمكنك أيضاً التواصل معنا عبر founders@cmux.com."
+            "value": "يمكنك أيضاً التواصل معنا عبر founders@manaflow.com."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "También puedes contactarnos en founders@cmux.com."
+            "value": "También puedes contactarnos en founders@manaflow.com."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "您也可以透過 founders@cmux.com 與我們聯絡。"
+            "value": "您也可以透過 founders@manaflow.com 與我們聯絡。"
           }
         }
       }
@@ -491398,55 +491332,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No ports yet"
+            "value": "No reachable ports"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "まだポートはありません"
+            "value": "到達可能なポートはありません"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Noch keine Ports"
+            "value": "Keine erreichbaren Ports"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pas encore de ports"
+            "value": "Aucun port accessible"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا توجد منافذ بعد"
+            "value": "لا توجد منافذ يمكن الوصول إليها"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aún no hay puertos"
+            "value": "No hay puertos accesibles"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "尚無連接埠"
+            "value": "無可連線的連接埠"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "暂无端口"
+            "value": "无可访问的端口"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아직 포트가 없습니다"
+            "value": "연결 가능한 포트가 없습니다."
           }
         }
       }
@@ -557386,55 +557320,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under memory pressure."
+            "value": "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under critical memory pressure."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Versetzt inaktive Agenten-Terminals im Hintergrund in den Ruhezustand, sobald das Limit für aktive Terminals überschritten ist. Auch wenn diese Option deaktiviert ist, kann cmux sie bei hoher Speicherauslastung in den Ruhezustand versetzen."
+            "value": "Versetzt inaktive Agenten-Terminals im Hintergrund in den Ruhezustand, sobald das Limit für aktive Terminals überschritten ist. Auch wenn diese Option deaktiviert ist, kann cmux sie bei kritischer Speicherauslastung in den Ruhezustand versetzen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Met en hibernation les terminaux d’agent inactifs en arrière-plan au-delà de la limite de terminaux actifs. Même si cette option est désactivée, cmux peut les mettre en hibernation en cas de pression mémoire."
+            "value": "Met en hibernation les terminaux d’agent inactifs en arrière-plan au-delà de la limite de terminaux actifs. Même si cette option est désactivée, cmux peut les mettre en hibernation en cas de pression mémoire critique."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُدخل طرفيات الوكلاء الخاملة في الخلفية في السبات عند تجاوز حد الطرفيات النشطة. وحتى عند إيقاف هذا الخيار، قد يُدخلها cmux في السبات عند ضغط الذاكرة."
+            "value": "يُدخل طرفيات الوكلاء الخاملة في الخلفية في السبات عند تجاوز حد الطرفيات النشطة. وحتى عند إيقاف هذا الخيار، قد يُدخلها cmux في السبات عند ضغط الذاكرة الحرج."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pone en hibernación las terminales de agentes inactivas en segundo plano que superan el límite de terminales activas. Aunque esta opción esté desactivada, cmux puede ponerlas en hibernación si hay presión de memoria."
+            "value": "Pone en hibernación las terminales de agentes inactivas en segundo plano que superan el límite de terminales activas. Aunque esta opción esté desactivada, cmux puede ponerlas en hibernación si la presión de memoria es crítica."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "作用中終端機超過上限時，閒置的背景代理終端機會進入休眠。即使關閉此選項，cmux 仍可能在記憶體吃緊時讓它們休眠。"
+            "value": "作用中終端機超過上限時，閒置的背景代理終端機會進入休眠。即使關閉此選項，cmux 仍可能在記憶體壓力達到嚴重程度時讓它們休眠。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "活动终端超过上限时，空闲的后台代理终端会进入休眠。即使关闭此选项，cmux 仍可能在内存紧张时让它们休眠。"
+            "value": "活动终端超过上限时，空闲的后台代理终端会进入休眠。即使关闭此选项，cmux 仍可能在内存压力达到严重程度时让它们休眠。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성 터미널 수가 한도를 넘으면 백그라운드에서 유휴 상태인 에이전트 터미널을 최대 절전 모드로 전환합니다. 이 옵션을 꺼도 메모리가 부족하면 cmux가 해당 터미널을 최대 절전 모드로 전환할 수 있습니다."
+            "value": "활성 터미널 수가 한도를 넘으면 백그라운드에서 유휴 상태인 에이전트 터미널을 최대 절전 모드로 전환합니다. 이 옵션을 꺼도 메모리 압박이 심각하면 cmux가 해당 터미널을 최대 절전 모드로 전환할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "実行中のターミナル数が上限を超えると、アイドル状態のバックグラウンドエージェントのターミナルを休止させます。この設定がオフでも、メモリが逼迫している場合は cmux がこれらを休止させることがあります。"
+            "value": "実行中のターミナル数が上限を超えると、アイドル状態のバックグラウンドエージェントのターミナルを休止させます。この設定がオフでも、メモリ逼迫が深刻な場合は cmux がこれらを休止させることがあります。"
           }
         }
       }
@@ -594602,6 +594536,2189 @@
           "stringUnit": {
             "state": "translated",
             "value": "複数のコーディングエージェントプロバイダーの会話を表示するオプトインのサイドバーを有効にします。"
+          }
+        }
+      }
+    },
+    "agentHibernation.manual.agentBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent is working or waiting for input."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントは作業中か、入力を待っています。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Agent arbeitet oder wartet auf eine Eingabe."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet agent travaille ou attend une saisie."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الوكيل يعمل أو ينتظر إدخالًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este agente está trabajando o esperando una respuesta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理程式正在工作或等待輸入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此智能体正在工作或等待输入。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트는 작업 중이거나 입력을 기다리고 있습니다."
+          }
+        }
+      }
+    },
+    "agentHibernation.manual.alreadyHibernated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent is already hibernated."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントはすでに休止中です。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Agent ruht bereits."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet agent est déjà en veille."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الوكيل في وضع السبات بالفعل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este agente ya está en hibernación."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理程式已經休眠。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此智能体已休眠。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트는 이미 휴면 중입니다."
+          }
+        }
+      }
+    },
+    "agentHibernation.manual.lifecycleUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can't tell whether this agent is idle, so it was left running."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこのエージェントがアイドル状態か判断できないため、実行したままにしました。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann nicht erkennen, ob dieser Agent untätig ist, daher läuft er weiter."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas savoir si cet agent est inactif, il continue donc de tourner."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع cmux معرفة ما إذا كان هذا الوكيل خاملًا، لذا تُرك قيد التشغيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede saber si este agente está inactivo, así que sigue en ejecución."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法判斷此代理程式是否閒置，因此保持執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法判断此智能体是否空闲，因此保持运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 에이전트의 유휴 여부를 알 수 없어 실행 상태로 두었습니다."
+          }
+        }
+      }
+    },
+    "agentHibernation.manual.notRestorable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal has no agent that cmux can resume the way it was started."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルには、起動時と同じ方法で cmux が再開できるエージェントがありません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Terminal hat keinen Agenten, den cmux so fortsetzen kann, wie er gestartet wurde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce terminal n’a aucun agent que cmux peut reprendre de la façon dont il a été lancé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تحتوي هذه الطرفية على وكيل يستطيع cmux استئنافه بالطريقة التي بدأ بها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta terminal no tiene un agente que cmux pueda reanudar tal como se inició."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機沒有 cmux 能以原本啟動方式恢復的代理程式。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端没有 cmux 能按原启动方式恢复的智能体。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널에는 시작된 방식 그대로 cmux가 재개할 수 있는 에이전트가 없습니다."
+          }
+        }
+      }
+    },
+    "agentHibernation.manual.notRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal is not running, so there is nothing to hibernate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルは実行されていないため、休止するものがありません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Terminal läuft nicht, daher gibt es nichts zum Ruhen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce terminal n’est pas en cours d’exécution, il n’y a donc rien à mettre en veille."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذه الطرفية لا تعمل، لذا لا يوجد ما يمكن وضعه في السبات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta terminal no se está ejecutando, así que no hay nada que hibernar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機未在執行，沒有可休眠的內容。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端未在运行，没有可休眠的内容。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널은 실행 중이 아니어서 휴면할 대상이 없습니다."
+          }
+        }
+      }
+    },
+    "agentHibernation.manual.processScopeUnsafe": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal is running other work, such as background jobs, that hibernation would stop."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルでは、休止すると停止してしまうバックグラウンドジョブなどの作業が実行中です。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Terminal läuft weitere Arbeit, etwa Hintergrundjobs, die das Ruhen beenden würde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce terminal exécute d’autres tâches, comme des tâches en arrière-plan, que la mise en veille arrêterait."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغّل هذه الطرفية أعمالًا أخرى، مثل مهام الخلفية، سيوقفها السبات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta terminal está ejecutando otro trabajo, como tareas en segundo plano, que la hibernación detendría."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機正在執行其他工作（例如背景工作），休眠會使其停止。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端正在运行其他工作（例如后台任务），休眠会使其停止。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널에서 백그라운드 작업 등 휴면하면 중단될 다른 작업이 실행 중입니다."
+          }
+        }
+      }
+    },
+    "agentHibernation.manual.recentlyActive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent was active a moment ago. Try again in a few seconds."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントは少し前まで動作していました。数秒後にもう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Agent war gerade eben aktiv. Versuche es in ein paar Sekunden erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet agent était actif il y a un instant. Réessayez dans quelques secondes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كان هذا الوكيل نشطًا قبل لحظة. حاول مرة أخرى بعد بضع ثوانٍ."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este agente estuvo activo hace un momento. Inténtalo de nuevo en unos segundos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理程式剛剛仍在活動。請幾秒後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此智能体刚刚仍在活动。请几秒后再试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트는 방금 전까지 활동했습니다. 몇 초 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "agentHibernation.manual.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminal matches that surface."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのサーフェスに一致するターミナルはありません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Terminal passt zu dieser Oberfläche."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun terminal ne correspond à cette surface."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد طرفية تطابق هذا السطح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ninguna terminal coincide con esa superficie."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合該 surface 的終端機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有与该 surface 匹配的终端。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 서피스와 일치하는 터미널이 없습니다."
+          }
+        }
+      }
+    },
+    "agentHibernation.manual.teardownInProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent is already being hibernated."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントはすでに休止処理中です。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Agent wird bereits in den Ruhezustand versetzt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet agent est déjà en cours de mise en veille."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجري بالفعل وضع هذا الوكيل في السبات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este agente ya se está hibernando."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理程式正在休眠中。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此智能体正在休眠中。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트는 이미 휴면 처리 중입니다."
+          }
+        }
+      }
+    },
+    "agentHibernation.manual.teardownRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent changed or its session could not be protected, so it was left running. Try again later."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが変化したか、セッションを保護できなかったため、実行したままにしました。後でもう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent hat sich geändert oder seine Sitzung konnte nicht geschützt werden, daher läuft er weiter. Versuche es später erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agent a changé ou sa session n’a pas pu être protégée, il continue donc de tourner. Réessayez plus tard."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيّر الوكيل أو تعذّرت حماية جلسته، لذا تُرك قيد التشغيل. حاول مرة أخرى لاحقًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El agente cambió o no se pudo proteger su sesión, así que sigue en ejecución. Inténtalo más tarde."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式有變動或其工作階段無法受保護，因此保持執行。請稍後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体有变化或其会话无法受到保护，因此保持运行。请稍后再试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 변경되었거나 세션을 보호할 수 없어 실행 상태로 두었습니다. 나중에 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "agentHibernation.manual.unconfirmedInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent has typed input it has not received yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントには、まだ受け取っていない入力があります。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Agent hat getippte Eingaben, die er noch nicht erhalten hat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet agent a une saisie qu’il n’a pas encore reçue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لدى هذا الوكيل إدخال مكتوب لم يستلمه بعد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este agente tiene texto escrito que aún no ha recibido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理程式有尚未收到的輸入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此智能体有尚未收到的输入。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트에는 아직 받지 않은 입력이 있습니다."
+          }
+        }
+      }
+    },
+    "agentHibernation.manual.visible": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent is on screen. Switch away from it first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントは画面に表示されています。先に別の場所に切り替えてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Agent ist auf dem Bildschirm. Wechsle zuerst weg."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet agent est à l’écran. Passez d’abord à autre chose."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الوكيل ظاهر على الشاشة. انتقل بعيدًا عنه أولًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este agente está en pantalla. Cambia a otro lugar primero."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理程式正顯示在螢幕上。請先切換離開。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此智能体正显示在屏幕上。请先切换离开。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트가 화면에 표시되어 있습니다. 먼저 다른 곳으로 전환하세요."
+          }
+        }
+      }
+    },
+    "agentHibernation.wake.notHibernated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent is not hibernated."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントは休止していません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Agent ruht nicht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet agent n’est pas en veille."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الوكيل ليس في وضع السبات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este agente no está en hibernación."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理程式未休眠。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此智能体未休眠。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트는 휴면 중이 아닙니다."
+          }
+        }
+      }
+    },
+    "agentHibernation.wake.resumeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not start this agent's resume command."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこのエージェントの再開コマンドを開始できませんでした。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte den Fortsetzungsbefehl dieses Agenten nicht starten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu lancer la commande de reprise de cet agent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux بدء أمر الاستئناف لهذا الوكيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo iniciar el comando de reanudación de este agente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法啟動此代理程式的恢復指令。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法启动此智能体的恢复命令。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 에이전트의 재개 명령을 시작할 수 없습니다."
+          }
+        }
+      }
+    },
+    "agentHibernation.wake.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminal matches that surface."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのサーフェスに一致するターミナルはありません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Terminal passt zu dieser Oberfläche."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun terminal ne correspond à cette surface."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد طرفية تطابق هذا السطح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ninguna terminal coincide con esa superficie."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合該 surface 的終端機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有与该 surface 匹配的终端。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 서피스와 일치하는 터미널이 없습니다."
+          }
+        }
+      }
+    },
+    "agentHibernation.wake.teardownInProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent is still being hibernated. Try again in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントはまだ休止処理中です。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Agent wird noch in den Ruhezustand versetzt. Versuche es gleich noch einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet agent est encore en cours de mise en veille. Réessayez dans un instant."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال هذا الوكيل قيد الوضع في السبات. حاول مرة أخرى بعد لحظة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este agente todavía se está hibernando. Inténtalo en un momento."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理程式仍在休眠中。請稍後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此智能体仍在休眠中。请稍后再试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트는 아직 휴면 처리 중입니다. 잠시 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "cli.agentHibernation.hibernated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK hibernated %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 休止しました %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK ruht jetzt %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK mis en veille %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK تم وضعه في السبات %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK hibernado %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 已休眠 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 已休眠 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 휴면함 %@"
+          }
+        }
+      }
+    },
+    "cli.agentHibernation.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agent-hibernation <on|off> [--json]\n       cmux agent-hibernation <hibernate|wake> <surface> [--workspace <id|ref|index>] [--json]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux agent-hibernation <on|off> [--json]\n       cmux agent-hibernation <hibernate|wake> <surface> [--workspace <id|ref|index>] [--json]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux agent-hibernation <on|off> [--json]\n            cmux agent-hibernation <hibernate|wake> <surface> [--workspace <id|ref|index>] [--json]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation: cmux agent-hibernation <on|off> [--json]\n             cmux agent-hibernation <hibernate|wake> <surface> [--workspace <id|ref|index>] [--json]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux agent-hibernation <on|off> [--json]\n           cmux agent-hibernation <hibernate|wake> <surface> [--workspace <id|ref|index>] [--json]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux agent-hibernation <on|off> [--json]\n     cmux agent-hibernation <hibernate|wake> <surface> [--workspace <id|ref|index>] [--json]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux agent-hibernation <on|off> [--json]\n    cmux agent-hibernation <hibernate|wake> <surface> [--workspace <id|ref|index>] [--json]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux agent-hibernation <on|off> [--json]\n    cmux agent-hibernation <hibernate|wake> <surface> [--workspace <id|ref|index>] [--json]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux agent-hibernation <on|off> [--json]\n     cmux agent-hibernation <hibernate|wake> <surface> [--workspace <id|ref|index>] [--json]"
+          }
+        }
+      }
+    },
+    "cli.agentHibernation.woke": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK woke %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 再開しました %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK geweckt %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK réveillé %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK تم إيقاظه %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK reanudado %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 已喚醒 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 已唤醒 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 깨움 %@"
+          }
+        }
+      }
+    },
+    "socket.agentHibernation.surfaceRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid surface_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id がないか無効です"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id fehlt oder ist ungültig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id manquant ou invalide"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id مفقود أو غير صالح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta surface_id o no es válido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少 surface_id 或其無效"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少 surface_id 或其无效"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id가 없거나 올바르지 않습니다"
+          }
+        }
+      }
+    },
+    "machines.meter.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade for more"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレードで追加"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级以获得更多"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade für mehr"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passez au forfait supérieur pour en obtenir plus"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ترقية للحصول على المزيد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar para obtener más"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升級以取得更多"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 사용하려면 업그레이드"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.dock.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adds Dock to the right sidebar for custom terminal controls."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fügt der rechten Seitenleiste das Dock für benutzerdefinierte Terminal-Steuerelemente hinzu."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoute le Dock à la barre latérale droite pour les commandes de terminal personnalisées."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضيف Dock إلى الشريط الجانبي الأيمن لعناصر التحكم المخصصة في الطرفية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade el Dock a la barra lateral derecha para controles de terminal personalizados."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在右側邊欄加入 Dock，用來放置自訂的終端機控制項。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在右侧边栏添加 Dock，用来放置自定义的终端控件。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 사이드바에 Dock을 추가해 터미널 컨트롤을 직접 구성할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーに Dock を追加し、ターミナル用のカスタムコントロールを配置できるようにします。"
+          }
+        }
+      }
+    },
+    "cli.agentMessage.noAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent activity seen on that surface yet. The message waits until an agent there picks it up."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُرصد أي نشاط لوكيل على هذا السطح بعد. تنتظر الرسالة حتى يستلمها وكيل هناك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf dieser Oberfläche wurde noch keine Agent-Aktivität erkannt. Die Nachricht wartet, bis ein Agent dort sie abholt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía no se ha visto actividad de ningún agente en esa superficie. El mensaje espera hasta que un agente allí lo recoja."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune activité d'agent détectée sur cette surface pour l'instant. Le message attend qu'un agent l'y récupère."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのサーフェスではまだエージェントの動きが確認されていません。そこのエージェントが受け取るまでメッセージは待機します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 표면에서 아직 에이전트 활동이 없습니다. 그곳의 에이전트가 가져갈 때까지 메시지가 대기합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未在该表面看到代理活动。消息会等待，直到那里的代理取走它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未在該表面看到代理活動。訊息會等待，直到那裡的代理取走它。"
+          }
+        }
+      }
+    },
+    "cli.agentMessage.queued": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queued message %@ for %@ (%@)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وُضعت الرسالة %1$@ في قائمة الانتظار لـ %2$@ (%3$@)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht %1$@ für %2$@ (%3$@) in die Warteschlange gestellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensaje %1$@ en cola para %2$@ (%3$@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message %1$@ mis en file pour %2$@ (%3$@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージ %1$@ を %2$@（%3$@）宛てにキューに入れました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 %1$@을(를) %2$@(%3$@) 앞으로 대기열에 넣었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将消息 %1$@ 排入 %2$@（%3$@）的队列。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已將訊息 %1$@ 排入 %2$@（%3$@）的佇列。"
+          }
+        }
+      }
+    },
+    "cli.help.agentInbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nيعرض رسائل الوكلاء، الأحدث أولًا. بدون --surface، يعرض الرسائل لكل\nالأسطح. يضع --mark-read علامة مقروءة على الرسائل المعروضة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nListet Agent-Nachrichten auf, neueste zuerst. Ohne --surface werden Nachrichten für\nalle Oberflächen aufgelistet. --mark-read markiert die aufgelisteten Nachrichten als gelesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nList agent messages, newest first. Without --surface, lists messages for\nevery surface. --mark-read marks the listed messages read."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nLista los mensajes de agentes, del más reciente al más antiguo. Sin --surface, lista los mensajes de\ntodas las superficies. --mark-read marca como leídos los mensajes listados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nListe les messages d'agent, du plus récent au plus ancien. Sans --surface, liste les messages de\ntoutes les surfaces. --mark-read marque les messages listés comme lus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nエージェントのメッセージを新しい順に一覧表示します。--surface を指定しないと\nすべてのサーフェスのメッセージを表示します。--mark-read は表示したメッセージを既読にします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\n에이전트 메시지를 최신순으로 나열합니다. --surface가 없으면\n모든 표면의 메시지를 나열합니다. --mark-read는 나열된 메시지를 읽음으로 표시합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\n列出代理消息，最新的在前。未指定 --surface 时，列出\n所有表面的消息。--mark-read 会将列出的消息标记为已读。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\n列出代理訊息，最新的在前。未指定 --surface 時，列出\n所有表面的訊息。--mark-read 會將列出的訊息標為已讀。"
+          }
+        }
+      }
+    },
+    "cli.help.agentMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux agent message <target> [--from <name>] [--thread <id>] [--json] [--] <text|->\n       cmux agent message --reply-to <message-id> [--from <name>] [--json] [--] <text|->\n\nيرسل رسالة إلى الوكيل الذي يعمل في مساحة عمل أو سطح آخر. يوصلها cmux\nعبر خطافات ذلك الوكيل، ولا يكتبها أبدًا في طرفيته،\nلذا لا يمكن أن تقع داخل موجّه مكتوب نصفه. تستيقظ جلسة Claude Code الخاملة\nلقراءتها، وتقرأها الجلسة المشغولة في خطوتها التالية.\n\n<target> هو معرّف أو مرجع مساحة عمل أو سطح (workspace:2، surface:5)، أو\nعنوان مساحة عمل (مطابقة تامة أولًا، ثم بادئة فريدة). استخدم - لقراءة النص من\nstdin. القيمة الافتراضية لـ --from هي عنوان مساحة العمل المرسِلة.\n\nأمثلة:\n  cmux agent message cmux-remote-status \"The relay fix is on main, rebase when free.\"\n  cmux agent message --reply-to 3f2a... \"Done, PR is #123.\""
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux agent message <target> [--from <name>] [--thread <id>] [--json] [--] <text|->\n       cmux agent message --reply-to <message-id> [--from <name>] [--json] [--] <text|->\n\nSendet eine Nachricht an den Agenten in einem anderen Workspace oder einer anderen Oberfläche. cmux\nliefert sie über die Hooks dieses Agenten aus, nie durch Tippen in sein Terminal,\ndaher kann sie nicht in einem halb getippten Prompt landen. Eine untätige Claude-Code-Sitzung wacht\nauf, um sie zu lesen; eine beschäftigte liest sie bei ihrem nächsten Schritt.\n\n<target> ist eine Workspace- oder Oberflächen-ID bzw. -Referenz (workspace:2, surface:5) oder ein\nWorkspace-Titel (zuerst exakt, dann ein eindeutiges Präfix). Mit - wird der Text von\nstdin gelesen. --from ist standardmäßig der Titel des sendenden Workspace.\n\nBeispiele:\n  cmux agent message cmux-remote-status \"The relay fix is on main, rebase when free.\"\n  cmux agent message --reply-to 3f2a... \"Done, PR is #123.\""
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agent message <target> [--from <name>] [--thread <id>] [--json] [--] <text|->\n       cmux agent message --reply-to <message-id> [--from <name>] [--json] [--] <text|->\n\nSend a message to the agent running in another workspace or surface. cmux\ndelivers it through that agent's hooks, never by typing into its terminal,\nso it cannot land in a half-typed prompt. An idle Claude Code session wakes\nup to read it; a busy one reads it at its next step.\n\n<target> is a workspace or surface id or ref (workspace:2, surface:5), or a\nworkspace title (exact, then a unique prefix). Use - to read the text from\nstdin. --from defaults to the sending workspace's title.\n\nExamples:\n  cmux agent message cmux-remote-status \"The relay fix is on main, rebase when free.\"\n  cmux agent message --reply-to 3f2a... \"Done, PR is #123.\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux agent message <target> [--from <name>] [--thread <id>] [--json] [--] <text|->\n       cmux agent message --reply-to <message-id> [--from <name>] [--json] [--] <text|->\n\nEnvía un mensaje al agente que se ejecuta en otro espacio de trabajo o superficie. cmux\nlo entrega a través de los hooks de ese agente, nunca escribiendo en su terminal,\npor lo que no puede acabar en un prompt a medio escribir. Una sesión inactiva de Claude Code se despierta\npara leerlo; una ocupada lo lee en su siguiente paso.\n\n<target> es un ID o referencia de espacio de trabajo o superficie (workspace:2, surface:5), o un\ntítulo de espacio de trabajo (exacto, luego un prefijo único). Usa - para leer el texto desde\nstdin. --from usa por defecto el título del espacio de trabajo que envía.\n\nEjemplos:\n  cmux agent message cmux-remote-status \"The relay fix is on main, rebase when free.\"\n  cmux agent message --reply-to 3f2a... \"Done, PR is #123.\""
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux agent message <target> [--from <name>] [--thread <id>] [--json] [--] <text|->\n       cmux agent message --reply-to <message-id> [--from <name>] [--json] [--] <text|->\n\nEnvoie un message à l'agent d'un autre espace de travail ou d'une autre surface. cmux\nle remet via les hooks de cet agent, jamais en tapant dans son terminal,\nil ne peut donc pas atterrir dans un prompt à moitié tapé. Une session Claude Code inactive se réveille\npour le lire ; une session occupée le lit à sa prochaine étape.\n\n<target> est un identifiant ou une référence d'espace de travail ou de surface (workspace:2, surface:5), ou un\ntitre d'espace de travail (exact, puis un préfixe unique). Utilisez - pour lire le texte depuis\nstdin. Par défaut, --from vaut le titre de l'espace de travail expéditeur.\n\nExemples :\n  cmux agent message cmux-remote-status \"The relay fix is on main, rebase when free.\"\n  cmux agent message --reply-to 3f2a... \"Done, PR is #123.\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux agent message <target> [--from <name>] [--thread <id>] [--json] [--] <text|->\n       cmux agent message --reply-to <message-id> [--from <name>] [--json] [--] <text|->\n\n別のワークスペースまたはサーフェスで動いているエージェントにメッセージを送ります。cmux は\nそのエージェントのフック経由で届け、ターミナルに打ち込むことはないので、\n入力途中のプロンプトに紛れ込みません。アイドル中の Claude Code セッションは起きて\n読み、作業中のセッションは次のステップで読みます。\n\n<target> はワークスペースかサーフェスの ID または参照（workspace:2、surface:5）、または\nワークスペースのタイトル（完全一致、次に一意な前方一致）です。- を指定すると\nstdin からテキストを読みます。--from の既定値は送信元ワークスペースのタイトルです。\n\n例:\n  cmux agent message cmux-remote-status \"The relay fix is on main, rebase when free.\"\n  cmux agent message --reply-to 3f2a... \"Done, PR is #123.\""
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux agent message <target> [--from <name>] [--thread <id>] [--json] [--] <text|->\n       cmux agent message --reply-to <message-id> [--from <name>] [--json] [--] <text|->\n\n다른 워크스페이스나 표면에서 실행 중인 에이전트에게 메시지를 보냅니다. cmux는\n해당 에이전트의 훅을 통해 전달하며, 절대 터미널에 입력하지 않으므로\n반쯤 입력된 프롬프트에 섞일 수 없습니다. 유휴 상태의 Claude Code 세션은 깨어나서\n읽고, 작업 중인 세션은 다음 단계에서 읽습니다.\n\n<target>은 워크스페이스나 표면의 ID 또는 참조(workspace:2, surface:5), 또는\n워크스페이스 제목(먼저 정확히 일치, 그다음 고유한 접두사)입니다. -를 쓰면\nstdin에서 텍스트를 읽습니다. --from의 기본값은 보내는 워크스페이스의 제목입니다.\n\n예시:\n  cmux agent message cmux-remote-status \"The relay fix is on main, rebase when free.\"\n  cmux agent message --reply-to 3f2a... \"Done, PR is #123.\""
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux agent message <target> [--from <name>] [--thread <id>] [--json] [--] <text|->\n       cmux agent message --reply-to <message-id> [--from <name>] [--json] [--] <text|->\n\n向在另一个工作区或表面中运行的代理发送消息。cmux\n通过该代理的 hook 投递消息，绝不会向它的终端输入按键，\n因此消息不会落入输入到一半的提示中。空闲的 Claude Code 会话会醒来\n阅读它；忙碌的会话会在下一步阅读。\n\n<target> 是工作区或表面的 ID 或引用（workspace:2、surface:5），或\n工作区标题（先完全匹配，再找唯一前缀）。使用 - 从\nstdin 读取文本。--from 默认为发送端工作区的标题。\n\n示例：\n  cmux agent message cmux-remote-status \"The relay fix is on main, rebase when free.\"\n  cmux agent message --reply-to 3f2a... \"Done, PR is #123.\""
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux agent message <target> [--from <name>] [--thread <id>] [--json] [--] <text|->\n       cmux agent message --reply-to <message-id> [--from <name>] [--json] [--] <text|->\n\n傳送訊息給在另一個工作區或表面中執行的代理。cmux\n透過該代理的 hook 遞送訊息，絕不會打字到它的終端機，\n因此訊息不會落入打到一半的提示中。閒置的 Claude Code 工作階段會醒來\n閱讀它；忙碌中的工作階段會在下一步閱讀。\n\n<target> 是工作區或表面的 ID 或參照（workspace:2、surface:5），或\n工作區標題（先完全符合，再找唯一前綴）。使用 - 從\nstdin 讀取文字。--from 預設為傳送端工作區的標題。\n\n範例：\n  cmux agent message cmux-remote-status \"The relay fix is on main, rebase when free.\"\n  cmux agent message --reply-to 3f2a... \"Done, PR is #123.\""
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.bodyTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The message is too long. The limit is 32 KiB."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الرسالة طويلة جدًا. الحد الأقصى 32 كيلوبايت."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Nachricht ist zu lang. Die Grenze liegt bei 32 KiB."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El mensaje es demasiado largo. El límite es de 32 KiB."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le message est trop long. La limite est de 32 Kio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージが長すぎます。上限は 32 KiB です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지가 너무 깁니다. 한도는 32KiB입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息太长。上限为 32 KiB。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊息太長。上限為 32 KiB。"
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.controlCharacter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The message contains control characters. Only text, newlines and tabs are allowed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي الرسالة على أحرف تحكم. لا يُسمح إلا بالنص وفواصل الأسطر وعلامات الجدولة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Nachricht enthält Steuerzeichen. Erlaubt sind nur Text, Zeilenumbrüche und Tabulatoren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El mensaje contiene caracteres de control. Solo se permiten texto, saltos de línea y tabulaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le message contient des caractères de contrôle. Seuls le texte, les retours à la ligne et les tabulations sont autorisés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージに制御文字が含まれています。使えるのはテキスト、改行、タブだけです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지에 제어 문자가 있습니다. 텍스트, 줄바꿈, 탭만 허용됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息包含控制字符。只允许文本、换行和制表符。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊息包含控制字元。只允許文字、換行和定位字元。"
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.emptyBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The message is empty."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الرسالة فارغة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Nachricht ist leer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El mensaje está vacío."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le message est vide."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージが空です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지가 비어 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息为空。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊息是空的。"
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.invalidSender": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sender name must be one line of at most 64 characters."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون اسم المرسل سطرًا واحدًا لا يتجاوز 64 حرفًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Absendername muss eine einzelne Zeile mit höchstens 64 Zeichen sein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El nombre del remitente debe ser una sola línea de 64 caracteres como máximo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le nom de l'expéditeur doit tenir sur une ligne de 64 caractères au maximum."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信者名は 64 文字以内の 1 行にしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보낸 사람 이름은 64자 이하의 한 줄이어야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送者名称必须是一行，最多 64 个字符。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寄件者名稱必須是一行，最多 64 個字元。"
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.invalidState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "State must be queued, delivered or read."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون الحالة queued أو delivered أو read."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Status muss queued, delivered oder read sein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El estado debe ser queued, delivered o read."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'état doit être queued, delivered ou read."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状態は queued、delivered、read のいずれかにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태는 queued, delivered, read 중 하나여야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态必须是 queued、delivered 或 read。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "狀態必須是 queued、delivered 或 read。"
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.missingSurface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A surface_id UUID is required."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يلزم تحديد surface_id بصيغة UUID."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine surface_id-UUID ist erforderlich."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se requiere un UUID en surface_id."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un UUID surface_id est requis."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id の UUID が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id UUID가 필요합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要 surface_id UUID。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要 surface_id UUID。"
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.missingTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Give a target workspace or surface, or a message id to reply to."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد مساحة عمل أو سطحًا هدفًا، أو معرّف رسالة للرد عليها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib einen Ziel-Workspace oder eine Zieloberfläche an, oder eine Nachrichten-ID, auf die geantwortet werden soll."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica un espacio de trabajo o una superficie de destino, o el ID de un mensaje al que responder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez un espace de travail ou une surface cible, ou l'identifiant du message auquel répondre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宛先のワークスペースかサーフェス、または返信するメッセージの ID を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상 워크스페이스나 표면, 또는 답장할 메시지 ID를 지정하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请指定目标工作区或表面，或要回复的消息 ID。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請指定目標工作區或表面，或要回覆的訊息 ID。"
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.noReplyAddress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That message has no sender surface to reply to."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد لهذه الرسالة سطح مرسل يمكن الرد عليه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Nachricht hat keine Absenderoberfläche, an die geantwortet werden kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese mensaje no tiene una superficie de remitente a la que responder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce message n'a pas de surface d'expéditeur à laquelle répondre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このメッセージには返信先となる送信元サーフェスがありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 메시지에는 답장할 보낸 사람 표면이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该消息没有可回复的发送者表面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該訊息沒有可回覆的寄件者表面。"
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.notSaved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The message was not sent: cmux could not save it to the message journal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم إرسال الرسالة: تعذّر على cmux حفظها في سجل الرسائل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Nachricht wurde nicht gesendet: cmux konnte sie nicht im Nachrichtenjournal speichern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El mensaje no se envió: cmux no pudo guardarlo en el registro de mensajes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le message n’a pas été envoyé : cmux n’a pas pu l’enregistrer dans le journal des messages."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージは送信されませんでした: cmux がメッセージジャーナルに保存できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지를 보내지 못했습니다: cmux가 메시지 저널에 저장하지 못했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息未发送：cmux 无法将其保存到消息日志。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊息未傳送：cmux 無法將其儲存到訊息日誌。"
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.targetNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No workspace or surface matches that target."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة عمل أو سطح يطابق هذا الهدف."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Workspace und keine Oberfläche passt zu diesem Ziel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ningún espacio de trabajo ni superficie coincide con ese destino."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun espace de travail ni aucune surface ne correspond à cette cible."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その宛先に一致するワークスペースもサーフェスもありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 대상과 일치하는 워크스페이스나 표면이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有与该目标匹配的工作区或表面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合該目標的工作區或表面。"
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.unknownMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No message with id %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد رسالة بالمعرّف %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Nachricht mit der ID %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún mensaje con el ID %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun message avec l'identifiant %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID が %@ のメッセージはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID가 %@인 메시지가 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有 ID 为 %@ 的消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有 ID 為 %@ 的訊息。"
           }
         }
       }

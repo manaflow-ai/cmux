@@ -88,6 +88,9 @@ jobs:
           fi
 
   update-cask:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     needs: gate
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     if: ${{ needs.gate.outputs.proceed == 'true' }}
