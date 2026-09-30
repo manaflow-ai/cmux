@@ -1,14 +1,15 @@
 import Testing
+import SwiftUI
 @testable import CmuxMobileShellUI
 
 @Suite struct WorkspaceListNewWorkspaceMenuValueTests {
     @Test func loneConnectedCloudTargetRemainsAValidCreationTarget() {
-        let target = WorkspaceListNewWorkspaceMenuValue.ComputerTarget(
+        let target = WorkspaceCreateComputerTarget(
             id: "cloud-1",
             kind: .cloud(hostID: "cloud-1"),
             name: "Cloud",
-            isConnected: true,
-            systemImage: "cloud"
+            statusText: nil,
+            statusColor: .green
         )
         let value = WorkspaceListNewWorkspaceMenuValue(
             canCreate: false,
@@ -21,12 +22,12 @@ import Testing
     }
 
     @Test func disconnectedSingleTargetDoesNotEnableDirectCreation() {
-        let target = WorkspaceListNewWorkspaceMenuValue.ComputerTarget(
+        let target = WorkspaceCreateComputerTarget(
             id: "cloud-1",
             kind: .cloud(hostID: "cloud-1"),
             name: "Cloud",
-            isConnected: false,
-            systemImage: "cloud"
+            statusText: "Disconnected",
+            statusColor: .secondary
         )
         let value = WorkspaceListNewWorkspaceMenuValue(
             canCreate: false,
@@ -39,12 +40,12 @@ import Testing
     }
 
     @Test func scopedCloudCreationDoesNotAutoSelectAConnectedMac() {
-        let mac = WorkspaceListNewWorkspaceMenuValue.ComputerTarget(
+        let mac = WorkspaceCreateComputerTarget(
             id: "mac-1",
             kind: .mac(macDeviceID: "mac-1", instanceTag: nil),
             name: "Mac",
-            isConnected: true,
-            systemImage: "desktopcomputer"
+            statusText: nil,
+            statusColor: .green
         )
 
         #expect(
@@ -56,12 +57,12 @@ import Testing
     }
 
     @Test func primaryActionRoutesToTheOnlyConnectedComputer() {
-        let target = WorkspaceListNewWorkspaceMenuValue.ComputerTarget(
+        let target = WorkspaceCreateComputerTarget(
             id: "cloud-1",
             kind: .cloud(hostID: "cloud-1"),
             name: "Cloud",
-            isConnected: true,
-            systemImage: "cloud"
+            statusText: nil,
+            statusColor: .green
         )
         let value = WorkspaceListNewWorkspaceMenuValue(
             canCreate: false,
@@ -69,7 +70,7 @@ import Testing
             computerTargets: [target]
         )
         var genericActionCalled = false
-        var selectedTarget: WorkspaceListNewWorkspaceMenuValue.ComputerTarget?
+        var selectedTarget: WorkspaceCreateComputerTarget?
         let actions = WorkspaceListNewWorkspaceMenuActions(
             createWorkspace: { genericActionCalled = true },
             createWorkspaceGroup: nil,

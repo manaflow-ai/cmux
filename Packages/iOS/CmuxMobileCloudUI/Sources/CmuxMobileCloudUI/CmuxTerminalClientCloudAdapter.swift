@@ -133,8 +133,7 @@ final class KitSession: CloudTerminalSession, @unchecked Sendable {
         _ = client.resize(cols: UInt16(clamping: cols), rows: UInt16(clamping: rows))
     }
     func disconnect() {
-        client.setOutputHandler(nil)
-        // The Kit disconnects on deinit; dropping the last reference is enough.
+        client.disconnect()
     }
 
     private static func map(_ event: TerminalOutputEvent) -> CloudTerminalOutputEvent {

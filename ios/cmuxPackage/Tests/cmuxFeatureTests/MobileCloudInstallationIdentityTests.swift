@@ -15,13 +15,20 @@ struct MobileCloudInstallationIdentityTests {
             environment: "development", projectID: "test", appNamespace: "cloud-identity-test",
             buildTag: "test", appVersion: "1", displayName: "Test", stateDirectory: directory
         )
-        let runtime = MobileIrxRuntimeComposition(configuration: configuration)
+        let macListAuthState = MobileMacListAuthState()
+        let runtime = MobileIrxRuntimeComposition(
+            configuration: configuration,
+            macListAuthState: macListAuthState
+        )
         async let cloudID = runtime.installationDeviceID()
         async let transportID = runtime.installation.deviceID()
         let (cloud, transport) = try await (cloudID, transportID)
         #expect(cloud == transport)
         #expect(UUID(uuidString: cloud) != nil)
-        let relaunched = MobileIrxRuntimeComposition(configuration: configuration)
+        let relaunched = MobileIrxRuntimeComposition(
+            configuration: configuration,
+            macListAuthState: macListAuthState
+        )
         #expect(try await relaunched.installationDeviceID() == cloud)
     }
 }

@@ -903,7 +903,7 @@ import Testing
         rig.controller.enable()
         await rig.controller.waitForPendingOperation()
 
-        #expect(rig.service.calls.enroll.count == 1)
+        #expect(rig.service.calls.enroll.count == 2)
         #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"])
 
         rig.controller.setScope("user-1/team-1", teamID: "team-1")

@@ -301,11 +301,13 @@ struct CloudCreateMachineSheet: View {
                                 .font(.footnote)
                                 .foregroundStyle(.primary)
                         }
+                        #if DEBUG
                         Text(failure.detail)
                             .font(.caption2.monospaced())
                             .foregroundStyle(.tertiary)
                             .textSelection(.enabled)
                             .accessibilityIdentifier("CloudCreateMachineFailure")
+                        #endif
                     }
                 } footer: {
                     if controller.isCreatingMachine {
@@ -682,9 +684,7 @@ struct CloudMachineRow: View {
     /// refused; anything else gets the local copy for its kind.
     private func connectionReason(_ failure: CloudSessionFailure) -> String {
         guard case .controlPlane = failure.kind else { return failure.localizedMessage }
-        return [failure.detail, failure.action ?? ""]
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        return failure.action ?? failure.localizedMessage
     }
 
     private func failureText(_ failure: CloudMachineActionFailure) -> String {
@@ -694,7 +694,7 @@ struct CloudMachineRow: View {
         case .resume: format = L10n.string("mobile.cloud.action.resumeFailedFormat", defaultValue: "Couldn't resume: %@")
         case .delete: format = L10n.string("mobile.cloud.action.deleteFailedFormat", defaultValue: "Couldn't delete: %@")
         }
-        return String(format: format, failure.failure.action ?? failure.failure.detail)
+        return String(format: format, failure.failure.action ?? failure.failure.localizedMessage)
     }
 }
 
@@ -712,12 +712,15 @@ struct CloudFailureRow: View {
                     .font(.footnote)
                     .foregroundStyle(.primary)
             }
-            // The underlying error, so a dogfooder can report the exact cause.
+            #if DEBUG
+            // The underlying error is useful during development, but is not
+            // stable or user-facing release copy.
             Text(failure.detail)
                 .font(.caption2.monospaced())
                 .foregroundStyle(.tertiary)
                 .textSelection(.enabled)
                 .accessibilityIdentifier("CloudFailureDetail")
+            #endif
             Button(L10n.string("mobile.cloud.retry", defaultValue: "Retry"), action: retry)
                 .buttonStyle(.bordered)
         }

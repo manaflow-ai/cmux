@@ -79,6 +79,7 @@ extension MobileShellComposite: MobileSSHComputersSink {
     @discardableResult
     func handleLocallyServedTerminalInput(_ text: String, surfaceID: String) -> Bool {
         if handleDemonstrationTerminalInput(text, surfaceID: surfaceID) { return true }
+        if handleExternalHostTerminalInput(text, surfaceID: surfaceID) { return true }
         guard sshOwnsSurface(surfaceID) else { return false }
         sshComputers.input(Data(text.utf8), surfaceID: surfaceID)
         return true
@@ -94,6 +95,9 @@ extension MobileShellComposite: MobileSSHComputersSink {
     }
 
     func deliverLocallyServedTerminalReplay(surfaceID: String) {
+        if handleExternalHostReplayRequest(surfaceID: surfaceID) {
+            return
+        }
         if sshOwnsSurface(surfaceID) {
             sshComputers.replay(surfaceID: surfaceID)
         } else {

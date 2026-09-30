@@ -44,6 +44,7 @@ public final class TerminalClient: @unchecked Sendable {
     private var requestedOutputBox: OutputBox?
     private var outputCallbackUpdateInFlight = false
     private var outputCallbackDepth = 0
+    private var didDisconnect = false
     /// Held so the tunnel outlives this client.
     private let wireGuard: WireGuardNet?
     private let lock = NSLock()
@@ -102,6 +103,18 @@ public final class TerminalClient: @unchecked Sendable {
     }
 
     deinit {
+        disconnect()
+    }
+
+    /// Closes the daemon link immediately. Safe to call more than once.
+    public func disconnect() {
+        lock.lock()
+        guard !didDisconnect else {
+            lock.unlock()
+            return
+        }
+        didDisconnect = true
+        lock.unlock()
         setOutputHandler(nil)
         cmux_terminal_client_disconnect(raw)
     }

@@ -782,7 +782,15 @@ struct CMUXMobileRootView: View {
                 selectWorkspace: selectWorkspaceFromComputers,
                 createWorkspaceOnCloudMachine: { hostID in
                     Task { @MainActor in
-                        _ = await store.createExternalHostWorkspace(onHost: hostID)
+                        let result = await store.createExternalHostWorkspace(onHost: hostID)
+                        if case let .failure(failure) = result {
+                            toasts.present(.failure(
+                                WorkspaceShellView.workspaceActionFailureReasonText(failure),
+                                title: WorkspaceShellView.workspaceActionFailureTitle(
+                                    action: .createWorkspace
+                                )
+                            ))
+                        }
                     }
                 },
                 showAddDevice: isAuthenticated ? addComputerAction : nil,

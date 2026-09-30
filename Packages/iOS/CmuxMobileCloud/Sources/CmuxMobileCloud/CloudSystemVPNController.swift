@@ -211,7 +211,7 @@ public final class CloudSystemVPNController {
     public func refresh() async {
         guard manager.isAvailable, operation == nil else { return }
         guard let scope else {
-            guard cleanupPending || !pendingBrowserTunnelRevocations.isEmpty else { return }
+            guard cleanupPending || hasEligiblePendingBrowserTunnelRevocation else { return }
             enqueue { [self] generation in
                 do {
                     if !pendingBrowserTunnelRevocations.isEmpty {
@@ -282,7 +282,7 @@ public final class CloudSystemVPNController {
             publish(.failed(.enrollment))
             return
         }
-        guard !cleanupPending, pendingBrowserTunnelRevocations.isEmpty else {
+        guard !cleanupPending, !hasEligiblePendingBrowserTunnelRevocation else {
             if manager.isAvailable {
                 retryPendingCleanup()
                 return
@@ -560,7 +560,7 @@ public final class CloudSystemVPNController {
     /// Retries the action represented by the current failure row. Pending
     /// cleanup is completed before a new account is refreshed or enrolled.
     public func retry() {
-        if cleanupPending || !pendingBrowserTunnelRevocations.isEmpty {
+        if cleanupPending || hasEligiblePendingBrowserTunnelRevocation {
             retryPendingCleanup()
         } else {
             enable()
@@ -1054,7 +1054,7 @@ public final class CloudSystemVPNController {
 
     private func retryPendingCleanup() {
         guard manager.isAvailable,
-              cleanupPending || !pendingBrowserTunnelRevocations.isEmpty
+              cleanupPending || hasEligiblePendingBrowserTunnelRevocation
         else { return }
         publish(.disconnecting)
         guard !operationGate.hasPendingOperation else {
@@ -1102,13 +1102,13 @@ public final class CloudSystemVPNController {
             guard await self.waitForCleanupRetryPrerequisites() else {
                 self.cleanupRetryTask = nil
                 self.cleanupRetryRequested = false
-                guard self.cleanupPending || !self.pendingBrowserTunnelRevocations.isEmpty else {
+                guard self.cleanupPending || self.hasEligiblePendingBrowserTunnelRevocation else {
                     return
                 }
                 self.publish(.failed(.configuration))
                 return
             }
-            guard self.cleanupPending || !self.pendingBrowserTunnelRevocations.isEmpty,
+            guard self.cleanupPending || self.hasEligiblePendingBrowserTunnelRevocation,
                   self.cleanupRetryRequested else { return }
             self.cleanupRetryTask = nil
             self.cleanupRetryRequested = false
