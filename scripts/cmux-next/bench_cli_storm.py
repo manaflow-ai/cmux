@@ -8,12 +8,20 @@ Profiles:
           stall or frame instrumentation, so those criteria are reported
           as unavailable and only latency, answers and RSS are compared.
 
-Teardown: every terminal the bench creates is closed through the app
-(close-terminal, which ends its terminal host). The bench records the PTY
-holders it can attribute to the app before it starts (cmux-tui terminal
-host processes for `next`, /dev/ptmx descriptors for `legacy`), kills any
-new host still alive after cleanup, and fails if the count is not back to
-the baseline. Then (`next`, unless --keep-daemon) it ends every terminal of
+Memory: one warm-up storm (and its cleanup) runs first, then the baseline
+physical footprint (footprint(1), what Activity Monitor calls Memory) is
+taken; the measured storm must end within 10% of it. RSS is reported only:
+it counts clean, reclaimable pages and one-time warm-up (state-audit.md
+section 7).
+
+Teardown: every storm tab is closed through the app. A closed tab's
+terminal lives for the daemon's reap grace period (--reap-grace, default
+30 s) and then exits. The bench records the PTY holders it can attribute to
+the app before it starts (cmux-tui terminal host processes for `next`,
+/dev/ptmx descriptors for `legacy`), waits up to grace + --reap-margin
+after the last close, kills any new host still alive then, and fails if
+the count is not back to the baseline. It refuses to start when the PTYs in
+use plus the storm's terminals would reach --pty-limit (300). Then (`next`, unless --keep-daemon) it ends every terminal of
 the tag's daemon with `shutdown-daemon end_terminals` (daemon_teardown.py)
 and fails if any of its terminal hosts outlives that.
 """
@@ -467,8 +475,9 @@ def settle(profile, control, quiet_s=1.0, limit_s=30.0):
     return last
 
 
-def wait_for_pty_baseline(profile, pid, baseline, limit_s=90.0):
-    """Terminal hosts exit asynchronously after close-terminal."""
+def wait_for_pty_baseline(profile, pid, baseline, limit_s):
+    """Terminal hosts exit asynchronously: a closed tab's terminal is reaped
+    after the daemon's reap grace period. Waits at most `limit_s`."""
     started = time.monotonic()
     while time.monotonic() - started < limit_s:
         current = profile.pty_holders(pid)
@@ -476,6 +485,12 @@ def wait_for_pty_baseline(profile, pid, baseline, limit_s=90.0):
             return current
         time.sleep(0.25)
     return profile.pty_holders(pid)
+
+
+def ptys_in_use():
+    """Allocated pseudo-terminals on this Mac (devfs creates /dev/ttysNNN
+    while a PTY is open)."""
+    return len([name for name in os.listdir("/dev") if name.startswith("ttys") and name[4:].isdigit()])
 
 
 def summarize(samples):
@@ -495,6 +510,53 @@ def summarize(samples):
     return report
 
 
+def close_storm_tabs(profile, control):
+    """Closes every storm tab through the app (the daemon reaps a closed
+    tab's terminal after its grace period). action.run answers once the
+    handler dispatched and the daemon closes asynchronously, so wait until
+    the storm tabs are gone or stop decreasing, and repeat. Returns how many
+    the daemon had to close directly."""
+    def extra_tabs():
+        return [tab_id for tab_id in profile.left_tabs(control) if tab_id not in profile.keep]
+
+    settle(profile, control, quiet_s=3.0, limit_s=60.0)
+    for _ in range(4):
+        extra = extra_tabs()
+        if not extra:
+            break
+        for tab_id in extra:
+            profile.close_tab_id(control, tab_id)
+        # The mirror may apply many closes in one batch, so allow a long
+        # quiet period before retrying.
+        best, since = len(extra), time.monotonic()
+        while time.monotonic() - since < 45.0:
+            time.sleep(0.5)
+            count = len(extra_tabs())
+            if count == 0:
+                break
+            if count < best:
+                best, since = count, time.monotonic()
+    return profile.force_close(extra_tabs()) if extra_tabs() else 0
+
+
+def storm_once(args, profile, control, before_storm=None):
+    """Prewarm tabs, then fire the storm from --clients workers. Returns the
+    storm, its start time and its duration."""
+    for _ in range(args.prewarm_tabs):
+        profile.create(control)[2]()
+    settle(profile, control)
+    if before_storm:
+        before_storm()
+    storm = Storm(args, profile)
+    started = time.monotonic()
+    threads = [threading.Thread(target=storm.worker, args=(index,)) for index in range(args.clients)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return storm, started, time.monotonic() - started
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", required=True)
@@ -509,6 +571,14 @@ def main():
     parser.add_argument("--prewarm-tabs", type=int, default=16)
     parser.add_argument("--max-creates", type=int, default=96)
     parser.add_argument("--measure-seconds", type=float, default=10.0)
+    parser.add_argument("--reap-grace", type=float, default=30.0,
+                        help="the daemon's reap grace period for a closed tab's terminal, in seconds (cmux-tui default 30)")
+    parser.add_argument("--reap-margin", type=float, default=15.0,
+                        help="seconds past the reap grace a closed tab's terminal may take to exit before it counts as leaked")
+    parser.add_argument("--no-warmup", action="store_true",
+                        help="skip the warm-up storm that runs before the memory baseline")
+    parser.add_argument("--pty-limit", type=int, default=300,
+                        help="refuse to start when the PTYs in use plus the storm's terminals would reach this")
     parser.add_argument("--out")
     parser.add_argument("--label", default="cli-storm")
     parser.add_argument("--no-fail", action="store_true")
@@ -516,34 +586,67 @@ def main():
                         help="skip the final shutdown-daemon end_terminals teardown (next profile)")
     args = parser.parse_args()
 
+    # Every agent on this Mac shares kern.tty.ptmx_max (511): never let a
+    # storm push the PTYs in use to --pty-limit. Checked before each storm,
+    # because the terminals of an earlier storm may not have exited.
+    needed = args.prewarm_tabs + args.max_creates + 2
+
+    def pty_guard(phase):
+        in_use = ptys_in_use()
+        if in_use + needed >= args.pty_limit:
+            raise SystemExit(f"bench: {in_use} PTYs in use before the {phase}; it opens up to {needed} more, "
+                             f"reaching {args.pty_limit}. Refusing.")
+        return in_use
+
+    in_use = pty_guard("first storm")
+
     socket_path = args.socket or f"/tmp/cmux-debug-{args.tag}.sock"
     profile = (NextProfile if args.profile == "next" else LegacyProfile)(socket_path, args.tag)
     control = Client(socket_path)
     pid, tag = profile.identify(control)
     profile.tag = tag
     pty_baseline = profile.pty_holders(pid)
-    print(f"bench: profile {profile.name} pid {pid} tag {tag} socket {socket_path} pty holders {len(pty_baseline)}")
+    reap_limit = args.reap_grace + args.reap_margin
+    print(f"bench: profile {profile.name} pid {pid} tag {tag} socket {socket_path} pty holders {len(pty_baseline)} "
+          f"ptys in use {in_use}")
 
     profile.setup(control, pid)
     time.sleep(1.0)
+    launch_rss = rss_kb(pid)
+    launch_footprint = footprint_mb(pid)
+
+    # Warm-up storm: the first storm-scale render pays one-time costs
+    # (Metal shader archive, dyld thread-locals, per-surface regexes) and
+    # leaves allocator fragmentation (state-audit.md section 7), so the
+    # memory baseline is taken after one full storm and its cleanup.
+    warmup = None
+    if not args.no_warmup:
+        hosts_before = profile.pty_holders(pid)
+        _, _, warm_seconds = storm_once(args, profile, control)
+        settle(profile, control)
+        warm_closed_by_daemon = close_storm_tabs(profile, control)
+        warm_left = wait_for_pty_baseline(profile, pid, hosts_before, reap_limit) - hosts_before
+        control.close()
+        control = Client(socket_path)  # a fresh one: the wait left it idle
+        warmup = {"storm_seconds": warm_seconds, "closed_by_daemon": warm_closed_by_daemon,
+                  "pty_holders_left": len(warm_left)}
+        print(f"bench: warm-up {json.dumps(warmup)}")
+        time.sleep(2.0)
     baseline_rss = rss_kb(pid)
     baseline_footprint = footprint_mb(pid)
-    # Pre-create tabs so sends, renames and closes have targets from the start.
-    for _ in range(args.prewarm_tabs):
-        profile.create(control)[2]()
-    settle(profile, control)
-    profile.begin_measure(control)
-    profile.start_stream(control, args.stream_bytes)
+    try:
+        pty_guard("measured storm")
+    except SystemExit:
+        if profile.name == "next" and not args.keep_daemon:
+            print(f"bench: teardown {json.dumps(end_terminals(profile.tui_binary, tag))}")
+        raise
+
+    def begin():
+        profile.begin_measure(control)
+        profile.start_stream(control, args.stream_bytes)
 
     load_start = os.getloadavg()
-    storm = Storm(args, profile)
-    started = time.monotonic()
-    threads = [threading.Thread(target=storm.worker, args=(index,)) for index in range(args.clients)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    storm_seconds = time.monotonic() - started
+    storm, started, storm_seconds = storm_once(args, profile, control, before_storm=begin)
     # The storm's effects (daemon creates, closes, UI updates) and the
     # stream outlast the requests: keep measuring until tabs settle and at
     # least --measure-seconds passed since the storm began.
@@ -553,41 +656,24 @@ def main():
     measured_seconds = time.monotonic() - started
     frames, hangs, queue = profile.end_measure(control)
     peak_rss = rss_kb(pid)
+    peak_footprint = footprint_mb(pid)
     load_end = os.getloadavg()
 
-    # Cleanup: close every storm tab and the stream pane through the app
-    # (close-terminal ends each terminal host). action.run answers once the
-    # handler dispatched and the daemon closes terminals asynchronously, so
-    # wait until the storm tabs are gone or stop decreasing, and repeat.
-    def extra_tabs():
-        return [tab_id for tab_id in profile.left_tabs(control) if tab_id not in profile.keep]
-
-    settle(profile, control, quiet_s=3.0, limit_s=60.0)
-    for _ in range(4):
-        extra = extra_tabs()
-        if not extra:
-            break
-        for tab_id in extra:
-            profile.close_tab_id(control, tab_id)
-        # The daemon closes ~10 terminals per second and the mirror may apply
-        # them in one batch, so allow a long quiet period before retrying.
-        best, since = len(extra), time.monotonic()
-        while time.monotonic() - since < 45.0:
-            time.sleep(0.5)
-            count = len(extra_tabs())
-            if count == 0:
-                break
-            if count < best:
-                best, since = count, time.monotonic()
-    closed_by_daemon = profile.force_close(extra_tabs()) if extra_tabs() else 0
+    closed_by_daemon = close_storm_tabs(profile, control)
     profile.stop_stream(control)
+    cleanup_done = time.monotonic()
     time.sleep(5.0)
     leftover = len([t for t in profile.left_tabs(control) if t not in profile.keep])
+    # A closed tab's terminal lives for the reap grace period, then exits:
+    # count a host as leaked only past grace + margin after the last close.
+    remaining = wait_for_pty_baseline(profile, pid, pty_baseline, max(0.0, reap_limit - (time.monotonic() - cleanup_done)))
+    pty_wait_seconds = time.monotonic() - cleanup_done
+    leaked = remaining - pty_baseline
+    control.close()
+    control = Client(socket_path)  # a fresh one: the wait left it idle
+    after_hangs = profile.hangs(control)
     after_rss = rss_kb(pid)
     after_footprint = footprint_mb(pid)
-    after_hangs = profile.hangs(control)
-    remaining = wait_for_pty_baseline(profile, pid, pty_baseline)
-    leaked = remaining - pty_baseline
     if leaked and profile.name == "next":
         for host in leaked:
             try:
@@ -604,9 +690,12 @@ def main():
     lost = sum(n for c in report.values() if "outcomes" in c
                for o, n in c["outcomes"].items() if o == "client_timeout" or o.startswith("connection:"))
     failures = []
+    footprint_ratio = (after_footprint / baseline_footprint) if baseline_footprint and after_footprint else None
     criteria = {"max_request_ms": report["all"]["max_ms"], "unanswered": lost,
+                "footprint_after_vs_baseline": footprint_ratio,
                 "rss_after_vs_baseline": (after_rss / baseline_rss) if baseline_rss else None,
-                "pty_holders_baseline": len(pty_baseline), "pty_holders_after": len(remaining), "pty_leaked": len(leaked)}
+                "pty_holders_baseline": len(pty_baseline), "pty_holders_after": len(remaining), "pty_leaked": len(leaked),
+                "pty_wait_seconds": pty_wait_seconds, "pty_wait_limit_seconds": reap_limit}
     if profile.diagnostics:
         records = hangs.get("records", [])
         busy = [r for r in records if r.get("cpu_ms", r["duration_ms"]) >= 0.5 * r["duration_ms"]]
@@ -630,7 +719,8 @@ def main():
     if closed_by_daemon:
         failures.append(f"{closed_by_daemon} storm tabs did not close through the app and were closed on the daemon")
     if leaked:
-        failures.append(f"{len(leaked)} PTY holders outlived cleanup" + (" (terminal hosts killed)" if profile.name == "next" else ""))
+        failures.append(f"{len(leaked)} PTY holders outlived cleanup by more than the reap grace + {args.reap_margin:.0f} s"
+                        + (" (terminal hosts killed)" if profile.name == "next" else ""))
     if teardown is not None:
         criteria["teardown_ended_terminals"] = teardown["ended_terminals"]
         criteria["teardown_hosts_leaked"] = len(teardown["hosts_leaked"])
@@ -638,8 +728,10 @@ def main():
             failures.append(f"teardown: {teardown['error']}")
         if teardown["hosts_leaked"]:
             failures.append(f"{len(teardown['hosts_leaked'])} terminal hosts outlived shutdown-daemon end_terminals")
-    if baseline_rss and after_rss > baseline_rss * 1.10:
-        failures.append(f"RSS after {after_rss / 1024:.0f} MB > baseline {baseline_rss / 1024:.0f} MB + 10%")
+    if footprint_ratio is None:
+        failures.append("physical footprint unavailable (footprint(1) failed)")
+    elif footprint_ratio > 1.10:
+        failures.append(f"physical footprint after {after_footprint:.0f} MB > warm baseline {baseline_footprint:.0f} MB + 10%")
 
     output = {
         "bench": "cli-storm", "profile": profile.name, "label": args.label, "sha": args.sha, "tag": tag, "pid": pid,
@@ -648,8 +740,10 @@ def main():
         "throughput_rps": args.requests / storm_seconds if storm_seconds else 0,
         "latency": report, "error_examples": storm.error_examples, "frames": frames, "hangs": hangs,
         "hangs_after_cleanup": after_hangs, "queue": queue, "leftover_tabs": leftover, "closed_by_daemon": closed_by_daemon,
-        "rss_kb": {"baseline": baseline_rss, "peak": peak_rss, "after": after_rss},
-        "footprint_mb": {"baseline": baseline_footprint, "after": after_footprint},
+        "warmup": warmup,
+        "rss_kb": {"launch": launch_rss, "baseline": baseline_rss, "peak": peak_rss, "after": after_rss},
+        "footprint_mb": {"launch": launch_footprint, "baseline": baseline_footprint, "peak": peak_footprint,
+                         "after": after_footprint},
         "load_average": {"start": load_start, "end": load_end}, "criteria": criteria,
         "failures": failures, "passed": not failures,
     }
