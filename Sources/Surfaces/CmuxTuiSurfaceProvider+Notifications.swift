@@ -69,6 +69,14 @@ extension CmuxTuiSurfaceProvider {
         #endif
     }
     // MARK: Agent hooks
+    /// Selects the pane for a mirrored hook from the terminal's catalog projections.
+    static func mirroredAgentHookProjection(
+        projections: [SurfaceProjection],
+        remoteWorkspaceID: String?
+    ) -> SurfaceProjection? {
+        projections.first
+    }
+
     /// Replays the session identity of Claude agents in `cmux ssh` panes into
     /// the local hook queue, so the Mac's hook pipeline knows the remote
     /// agent's session. Runs with every accepted state and every catalog
