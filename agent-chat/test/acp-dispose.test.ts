@@ -60,6 +60,7 @@ try {
   await waitForPrompt("first prompt");
   const secondTurn = adapter.send(sess, "second prompt");
 
+  const eventCountAtDispose = events.length;
   adapter.dispose(sess);
   await writeFile(promptGate, "release\n");
   await Promise.all([firstTurn, secondTurn]);
@@ -67,6 +68,13 @@ try {
   const spawned = (await readFile(spawnLog, "utf8")).trim().split(/\n+/).filter(Boolean);
   if (spawned.length !== 1) {
     throw new Error(`disposed ACP session spawned a replacement process: ${JSON.stringify(spawned)}`);
+  }
+  const delivered = await readFile(promptLog, "utf8");
+  if (delivered.split("\n").includes("second prompt")) {
+    throw new Error(`disposed ACP session delivered its queued prompt: ${JSON.stringify(delivered)}`);
+  }
+  if (events.length !== eventCountAtDispose) {
+    throw new Error(`disposed ACP session emitted events after disposal: ${JSON.stringify(events.slice(eventCountAtDispose))}`);
   }
   if (events.some((event) => event.kind === "error")) {
     throw new Error(`disposed ACP session emitted an error: ${JSON.stringify(events)}`);
