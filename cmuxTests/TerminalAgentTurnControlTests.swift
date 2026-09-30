@@ -37,6 +37,10 @@ struct AgentTurnInterruptTargetTests {
             statusKeyedStates: states,
             foregroundStatusKey: "opencode"
         ) == nil)
+        #expect(AgentTurnInterruptTarget.resolve(
+            statusKeyedStates: ["claude_code": .running, "opencode": .running],
+            foregroundStatusKey: "claude_code"
+        ) == .claudeCode)
     }
 
     /// The journal settles the session it has running on the surface, found

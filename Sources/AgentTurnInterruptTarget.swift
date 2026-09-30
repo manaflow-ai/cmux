@@ -43,8 +43,16 @@ enum AgentTurnInterruptTarget: String, CaseIterable, Equatable, Sendable {
         statusKeyedStates: [String: AgentHibernationLifecycleState],
         foregroundStatusKey: String? = nil
     ) -> AgentTurnInterruptTarget? {
-        let running = allCases.filter { statusKeyedStates[$0.statusKey] == .running }
-        guard running.count > 1 else { return running.first }
-        return running.first { $0.statusKey == foregroundStatusKey }
+        let runningKeys = statusKeyedStates.compactMap { key, state in
+            state == .running ? key : nil
+        }
+        if runningKeys.count == 1 {
+            guard let key = runningKeys.first,
+                  foregroundStatusKey == nil || foregroundStatusKey == key else { return nil }
+            return allCases.first { $0.statusKey == key }
+        }
+        guard let foregroundStatusKey,
+              runningKeys.contains(foregroundStatusKey) else { return nil }
+        return allCases.first { $0.statusKey == foregroundStatusKey }
     }
 }
