@@ -62,6 +62,19 @@ void cmux_shim_reload(int browser_id) {
   if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->Reload();
 }
 
+int cmux_shim_unresponsive_reply(int browser_id, int terminate) {
+  CefRefPtr<CefUnresponsiveProcessCallback> callback = TakeUnresponsiveCallback(browser_id);
+  if (!callback) {
+    return 0;
+  }
+  if (terminate) {
+    callback->Terminate();
+  } else {
+    callback->Wait();
+  }
+  return 1;
+}
+
 void cmux_shim_stop(int browser_id) {
   if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->StopLoad();
 }

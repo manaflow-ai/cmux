@@ -49,6 +49,11 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     public var security: BrowserSecurityState
     /// The navigation whose callbacks are currently accepted.
     public var activeNavigation: BrowserNavigationID?
+    /// Set when the page's content process ended (the "sad tab"). Cleared
+    /// when a navigation starts (Reload).
+    public var processExit: BrowserProcessExit?
+    /// The page stopped handling input (Chrome's "Page unresponsive").
+    public var isUnresponsive: Bool
 
     public init(
         url: URL? = nil,
@@ -61,7 +66,9 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
         zoom: Double = 1,
         isContentFullscreen: Bool = false,
         security: BrowserSecurityState = .none,
-        activeNavigation: BrowserNavigationID? = nil
+        activeNavigation: BrowserNavigationID? = nil,
+        processExit: BrowserProcessExit? = nil,
+        isUnresponsive: Bool = false
     ) {
         self.url = url
         self.title = title
@@ -74,6 +81,8 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
         self.isContentFullscreen = isContentFullscreen
         self.security = security
         self.activeNavigation = activeNavigation
+        self.processExit = processExit
+        self.isUnresponsive = isUnresponsive
     }
 
     public var isLoading: Bool {

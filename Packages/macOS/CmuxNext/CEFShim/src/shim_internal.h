@@ -10,6 +10,7 @@
 #include "include/cef_client.h"
 #include "include/cef_context_menu_handler.h"
 #include "include/cef_request_context.h"
+#include "include/cef_unresponsive_process_callback.h"
 #include "cmux_cef_shim.h"  // Sources/CmuxNextBrowser/CEF/Shim
 
 namespace cmux_shim {
@@ -67,6 +68,11 @@ CefRefPtr<CefBrowser> BrowserById(int browser_id);
 // Browsers the host asked to close (so DoClose can tell window.close apart).
 void MarkHostClose(int browser_id);
 bool TakeHostClose(int browser_id);
+
+// Unanswered renderer hangs by browser (UI thread only). Storing replaces an
+// older callback of the same browser; Take removes it.
+void StoreUnresponsiveCallback(int browser_id, CefRefPtr<CefUnresponsiveProcessCallback> callback);
+CefRefPtr<CefUnresponsiveProcessCallback> TakeUnresponsiveCallback(int browser_id);
 
 // Request contexts per profile cache path.
 CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path);

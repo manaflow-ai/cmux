@@ -19,6 +19,10 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
     case zoomChanged(Double)
     case contentFullscreenChanged(Bool)
     case securityChanged(BrowserSecurityState)
+    /// The content process ended; the page is gone until the next load.
+    case processExited(BrowserProcessExit)
+    /// The content process stopped (true) or resumed (false) handling input.
+    case unresponsiveChanged(Bool)
 }
 
 /// Pure reducer from engine events to `BrowserTabState`.
@@ -30,6 +34,8 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
 ///   ignored when nothing is loading.
 /// - Cancellation and download interruptions end the load without an error.
 /// - Committing to another host clears the favicon and title.
+/// - A process exit ends any load and marks the page gone; the next
+///   navigation (Reload) clears it. A gone page is never unresponsive.
 public nonisolated struct BrowserTabStateMachine: Sendable {
     /// Progress shown as soon as a navigation starts, so the bar is visible.
     public static let initialProgress = 0.1
@@ -56,6 +62,8 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
     private mutating func reduce(_ event: BrowserNavigationEvent) {
         switch event {
         case .started(let id, let url):
+            state.processExit = nil
+            state.isUnresponsive = false
             state.activeNavigation = id
             state.phase = .provisional
             state.progress = Self.initialProgress
@@ -131,6 +139,16 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
 
         case .securityChanged(let security):
             state.security = security
+
+        case .processExited(let exit):
+            state.processExit = exit
+            state.isUnresponsive = false
+            if state.isLoading { endWithoutError() }
+            if case .failed = state.phase { state.phase = committedURL == nil ? .idle : .finished }
+
+        case .unresponsiveChanged(let unresponsive):
+            guard state.processExit == nil else { return }
+            state.isUnresponsive = unresponsive
         }
     }
 

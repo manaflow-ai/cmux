@@ -30,6 +30,12 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case devToolsWillOpen(browser: Int32)
     case devToolsOpened(browser: Int32, devTools: Int32, docked: Bool)
     case devToolsClosed(browser: Int32, devTools: Int32)
+    /// The tab's renderer ended unexpectedly: `status` is
+    /// `cef_termination_status_t`, `code` the exit code or signal.
+    case renderTerminated(browser: Int32, status: Int, code: Int, text: String)
+    /// The renderer stopped handling input (hang monitor, 15 s).
+    case renderUnresponsive(browser: Int32)
+    case renderResponsive(browser: Int32)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -62,6 +68,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 20: self = .devToolsWillOpen(browser: browser)
         case 21: self = .devToolsOpened(browser: browser, devTools: Int32(truncatingIfNeeded: a), docked: b != 0)
         case 22: self = .devToolsClosed(browser: browser, devTools: Int32(truncatingIfNeeded: a))
+        case 23: self = .renderTerminated(browser: browser, status: Int(a), code: Int(b), text: s1)
+        case 24: self = .renderUnresponsive(browser: browser)
+        case 25: self = .renderResponsive(browser: browser)
         default: self = .unknown(kind: kind)
         }
     }

@@ -60,6 +60,15 @@ typedef enum {
   CMUX_SHIM_DEVTOOLS_WILL_OPEN = 20,
   CMUX_SHIM_DEVTOOLS_OPENED = 21, // a = DevTools browser id, b = 1 docked
   CMUX_SHIM_DEVTOOLS_CLOSED = 22, // a = DevTools browser id
+  // The tab's renderer process ended unexpectedly (Chrome's "Aw, Snap!").
+  // a = cef_termination_status_t, b = error code (exit code or signal),
+  // s1 = Chromium's error string.
+  CMUX_SHIM_RENDER_TERMINATED = 23,
+  // The renderer stopped processing input for 15 s (hang monitor). The host
+  // answers with cmux_shim_unresponsive_reply; until then Chromium waits.
+  CMUX_SHIM_RENDER_UNRESPONSIVE = 24,
+  // The renderer answers again after RENDER_UNRESPONSIVE.
+  CMUX_SHIM_RENDER_RESPONSIVE = 25,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -191,6 +200,10 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_load_unpacked(int browser_id, const char* pat
 CMUX_SHIM_EXPORT char* cmux_shim_ext_commands(int browser_id);
 CMUX_SHIM_EXPORT int cmux_shim_ext_command_run(int browser_id, const char* extension_id, const char* command);
 CMUX_SHIM_EXPORT int cmux_shim_tab_move_to_window(int browser_id, int window_browser_id, int index);
+// Answers RENDER_UNRESPONSIVE: terminate = 0 waits (restarts the hang timer),
+// 1 ends the renderer (RENDER_TERMINATED follows). Returns 1 when the browser
+// had an unanswered hang, 0 otherwise.
+CMUX_SHIM_EXPORT int cmux_shim_unresponsive_reply(int browser_id, int terminate);
 // Ends a CONTEXT_MENU: command_id < 0 cancels.
 CMUX_SHIM_EXPORT void cmux_shim_context_menu_done(int token, int command_id, int event_flags);
 

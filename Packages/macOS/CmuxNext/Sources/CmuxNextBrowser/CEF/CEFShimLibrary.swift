@@ -79,6 +79,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let extCommandRun: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     let tabMoveToWindow: @convention(c) (Int32, Int32, Int32) -> Int32
     let contextMenuDone: @convention(c) (Int32, Int32, Int32) -> Void
+    /// Answers a renderer hang: 0 waits, 1 ends the renderer.
+    let unresponsiveReply: @convention(c) (Int32, Int32) -> Int32
 
     let closeAll: @convention(c) () -> Void
     let liveBrowserCount: @convention(c) () -> Int32
@@ -171,6 +173,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         extCommandRun = try r("cmux_shim_ext_command_run")
         tabMoveToWindow = try r("cmux_shim_tab_move_to_window")
         contextMenuDone = try r("cmux_shim_context_menu_done")
+        unresponsiveReply = try r("cmux_shim_unresponsive_reply")
         closeAll = try r("cmux_shim_close_all")
         liveBrowserCount = try r("cmux_shim_live_browser_count")
         windowCount = try r("cmux_shim_window_count")

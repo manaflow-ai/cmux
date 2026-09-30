@@ -61,6 +61,7 @@ class Client : public CefClient,
                public CefKeyboardHandler,
                public CefFindHandler,
                public CefContextMenuHandler,
+               public CefRequestHandler,
                public CefDevToolsMessageObserver {
  public:
   explicit Client(int request) : request_(request) {}
@@ -71,6 +72,35 @@ class Client : public CefClient,
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
   CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
+  CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
+
+  // MARK: Renderer process failures
+
+  // The host shows its own "sad tab" in the pane and reloads from it; Chrome
+  // style would otherwise draw Chromium's Aw, Snap! page in the page window.
+  void OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser, TerminationStatus status, int error_code,
+                                 const CefString& error_string) override {
+    int id = browser->GetIdentifier();
+    TakeUnresponsiveCallback(id);
+    Emit(CMUX_SHIM_RENDER_TERMINATED, id, 0, status, error_code, error_string.ToString());
+  }
+
+  // Returning true keeps Chromium's hung-page dialog away: the host shows
+  // "Page unresponsive" in the pane and answers through
+  // cmux_shim_unresponsive_reply.
+  bool OnRenderProcessUnresponsive(CefRefPtr<CefBrowser> browser,
+                                   CefRefPtr<CefUnresponsiveProcessCallback> callback) override {
+    int id = browser->GetIdentifier();
+    StoreUnresponsiveCallback(id, callback);
+    Emit(CMUX_SHIM_RENDER_UNRESPONSIVE, id);
+    return true;
+  }
+
+  void OnRenderProcessResponsive(CefRefPtr<CefBrowser> browser) override {
+    int id = browser->GetIdentifier();
+    TakeUnresponsiveCallback(id);
+    Emit(CMUX_SHIM_RENDER_RESPONSIVE, id);
+  }
 
   // MARK: Context menu
 
@@ -161,6 +191,7 @@ class Client : public CefClient,
 
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
     int id = browser->GetIdentifier();
+    TakeUnresponsiveCallback(id);
     registrations_.erase(id);
     browsers().erase(id);
     ForgetDevTools(id);
@@ -262,6 +293,24 @@ CefRefPtr<CefClient> MakeClient(int request) {
 CefRefPtr<CefClient> DefaultClient() {
   static CefRefPtr<CefClient> client = new Client(0);
   return client;
+}
+
+static std::map<int, CefRefPtr<CefUnresponsiveProcessCallback>>& unresponsive_callbacks() {
+  static std::map<int, CefRefPtr<CefUnresponsiveProcessCallback>> map;
+  return map;
+}
+
+void StoreUnresponsiveCallback(int browser_id, CefRefPtr<CefUnresponsiveProcessCallback> callback) {
+  unresponsive_callbacks()[browser_id] = callback;
+}
+
+CefRefPtr<CefUnresponsiveProcessCallback> TakeUnresponsiveCallback(int browser_id) {
+  auto& map = unresponsive_callbacks();
+  auto it = map.find(browser_id);
+  if (it == map.end()) return nullptr;
+  CefRefPtr<CefUnresponsiveProcessCallback> callback = it->second;
+  map.erase(it);
+  return callback;
 }
 
 static std::map<int, CefRefPtr<CefRunContextMenuCallback>>& menu_callbacks() {
