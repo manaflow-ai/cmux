@@ -161,3 +161,13 @@ private func waitUntil(_ condition: @escaping () -> Bool) async {
         #expect(box.value == 2)
     }
 }
+
+@Suite struct ProcessUsageTests {
+    @Test func samplesThisProcess() throws {
+        let usage = try #require(ProcessUsage.sample(getpid()))
+        #expect(usage.cpuNanos > 0)
+        #expect(usage.path.hasSuffix(usage.name))
+        #expect(usage.parent > 0)
+        #expect(!ProcessUsage.arguments(of: getpid()).isEmpty)
+    }
+}

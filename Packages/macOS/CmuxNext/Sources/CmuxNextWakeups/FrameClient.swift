@@ -19,6 +19,9 @@ public struct FrameTick: Sendable {
 @MainActor
 public final class FrameClient {
     public let owner: String
+    /// Visible motion (springs, autoscroll); false for batch work such as
+    /// the daemon store drain, which the busy watchdog must not excuse.
+    public let isAnimation: Bool
     private let onFrame: @MainActor (FrameTick) -> Bool
     private let resolve: @MainActor () -> FrameScheduler
     private weak var scheduler: FrameScheduler?
@@ -26,9 +29,10 @@ public final class FrameClient {
 
     /// `onFrame` returns true to keep ticking. The client ticks on the
     /// scheduler `resolve` returns when it activates.
-    public init(owner: String, scheduler resolve: @escaping @MainActor () -> FrameScheduler,
+    public init(owner: String, isAnimation: Bool = true, scheduler resolve: @escaping @MainActor () -> FrameScheduler,
                 onFrame: @escaping @MainActor (FrameTick) -> Bool) {
         self.owner = owner
+        self.isAnimation = isAnimation
         self.resolve = resolve
         self.onFrame = onFrame
     }
@@ -39,8 +43,9 @@ public final class FrameClient {
     }
 
     /// A client of a fixed scheduler.
-    public convenience init(owner: String, on scheduler: FrameScheduler, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
-        self.init(owner: owner, scheduler: { [unowned scheduler] in scheduler }, onFrame: onFrame)
+    public convenience init(owner: String, isAnimation: Bool = true, on scheduler: FrameScheduler,
+                            onFrame: @escaping @MainActor (FrameTick) -> Bool) {
+        self.init(owner: owner, isAnimation: isAnimation, scheduler: { [unowned scheduler] in scheduler }, onFrame: onFrame)
     }
 
     /// Starts ticking (no effect while active).

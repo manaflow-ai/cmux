@@ -14,7 +14,7 @@ final class ResizeCoordinator {
     private var settle = ResizeSettle<ObjectIdentifier, CellSize>(stableFrames: 3)
     private var targets: [ObjectIdentifier: DaemonTerminalIO] = [:]
     /// Pane sizes span windows, so the settle count runs on the app scheduler.
-    private lazy var frames = FrameClient(owner: "ResizeCoordinator.settle", on: .app) { [weak self] _ in
+    private lazy var frames = FrameClient(owner: "ResizeCoordinator.settle", isAnimation: false, on: .app) { [weak self] _ in
         self?.tick() ?? false
     }
 

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 import GhosttyKit
 
 /// One terminal on screen: a Ghostty surface fed by a ``TerminalIO``.
@@ -157,6 +158,7 @@ public final class TerminalSession {
             restoreKittyReplay(replay)
             surfaceHasContent = true
         case .output(let data):
+            ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
             await lane.waitForCapacity()
             // The surface may have been swapped while waiting (kitty restore fallback).

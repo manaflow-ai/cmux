@@ -32,6 +32,8 @@ public final class MainThreadWatchdog: Sendable {
 
     public let configuration: Configuration
     public let log: HangLog
+    /// Busy windows (CPU with no input, animation or output) share the log.
+    public let busy: BusyWatchdog
     private let thresholdNanos: UInt64
     /// The stack is sampled this long into a stall (60% of the threshold),
     /// so a stall that ends just past the threshold still has one; the
@@ -60,6 +62,7 @@ public final class MainThreadWatchdog: Sendable {
     public init(configuration: Configuration = Configuration()) {
         self.configuration = configuration
         self.log = HangLog(capacity: configuration.capacity)
+        self.busy = BusyWatchdog(log: log)
         self.thresholdNanos = UInt64(max(configuration.threshold.wholeMilliseconds, 1)) * 1_000_000
         self.sampleAfterNanos = thresholdNanos * 3 / 5
     }
@@ -80,6 +83,7 @@ public final class MainThreadWatchdog: Sendable {
     @MainActor
     public func start() {
         guard running.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
+        busy.watchCurrentThread()
         beatNanos.store(Self.now(), ordering: .releasing)
         beatCPUNanos.store(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
         mainAsleep.store(false, ordering: .releasing)
@@ -132,6 +136,7 @@ public final class MainThreadWatchdog: Sendable {
         beatSequence.store(beat &+ 1, ordering: .releasing)
         let asleep = activity == .beforeWaiting
         mainAsleep.store(asleep, ordering: .releasing)
+        if wasAsleep, !asleep { busy.noteAwake() }
         if !asleep, watchdogParked.compareExchange(expected: true, desired: false, ordering: .acquiringAndReleasing).exchanged {
             wake.signal()
         }

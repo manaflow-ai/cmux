@@ -17,7 +17,7 @@ final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
 
     /// `owner` names the batcher in the wakeup ledger and debug.wakeups.
     init(owner: String, scheduler: FrameScheduler = .app) {
-        client = FrameClient(owner: owner, on: scheduler) { [weak self] _ in
+        client = FrameClient(owner: owner, isAnimation: false, on: scheduler) { [weak self] _ in
             self?.drain() ?? false
         }
     }

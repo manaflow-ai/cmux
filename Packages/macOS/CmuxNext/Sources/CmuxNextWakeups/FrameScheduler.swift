@@ -225,6 +225,10 @@ public final class FrameScheduler: NSObject {
         lastTimestamp = now
         let tick = FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0),
                              rawElapsed: elapsed, refreshInterval: refreshInterval)
+        // Visible motion (not batch work) explains CPU use to the busy watchdog.
+        if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
+            ExpectedActivity.shared.note(.animationFrame)
+        }
         // Clients activated during this frame tick next frame.
         for client in clients.values where client.isActive {
             ledger.record(client.owner, reason: "frame")

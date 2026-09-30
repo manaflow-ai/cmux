@@ -1,6 +1,8 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextControl
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
 /// watchdog (from launch), the socket server with a display-link frame
@@ -16,9 +18,19 @@ final class AppControl {
 
     var socketPath: String? { service?.socketPath }
 
-    /// Starts stall detection. Call first thing at launch.
+    private var inputMonitor: Any?
+
+    /// Starts stall and busy detection. Call first thing at launch.
     func startWatchdog() {
         watchdog.start()
+        watchdog.busy.setHelperSource { AppProcesses.chromiumHelpers() }
+        // Input explains CPU use to the busy watchdog (one atomic add per event).
+        inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
+                                                                   .leftMouseDragged, .rightMouseDragged, .scrollWheel,
+                                                                   .mouseMoved, .magnify, .swipe]) { event in
+            ExpectedActivity.shared.note(.input)
+            return event
+        }
     }
 
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
@@ -55,6 +67,8 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(SurfaceDiagnosticsReport.make(services))
             },
+            // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
+            .mainActor("debug.wakeups") { call in .value(DebugWakeups.report(call.params)) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
             .mainActor("debug.cef") { [weak services] _ in
                 guard let services else { return .value(.null) }

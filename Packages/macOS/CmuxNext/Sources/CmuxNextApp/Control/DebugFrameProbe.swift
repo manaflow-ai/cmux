@@ -11,7 +11,7 @@ import CmuxNextWakeups
 @MainActor
 final class DebugFrameProbe {
     static let maximumRun: Duration = .seconds(600)
-    private lazy var client = FrameClient(owner: "debug.frames", on: .app) { [weak self] tick in
+    private lazy var client = FrameClient(owner: "debug.frames", isAnimation: false, on: .app) { [weak self] tick in
         self?.tick(tick)
         return true
     }

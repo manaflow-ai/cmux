@@ -23,6 +23,7 @@ extension ControlRouter {
                     "installed": .bool(watchdog.isRunning),
                     "threshold_ms": .number(watchdog.configuration.threshold.fractionalMilliseconds),
                     "count": JSONValue(summary.count),
+                    "busy_count": JSONValue(summary.busyCount),
                     "max_ms": .number(summary.maxDuration.fractionalMilliseconds),
                     "total_ms": .number(summary.totalDuration.fractionalMilliseconds),
                     "long_frames": JSONValue(longFrames.count),
