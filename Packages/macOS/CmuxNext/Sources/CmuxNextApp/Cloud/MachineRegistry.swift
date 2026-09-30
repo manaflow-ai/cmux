@@ -47,6 +47,12 @@ final class MachineRegistry {
         return session(machineID)?.emptyWorkspaces ?? sshSession(machineID)?.emptyWorkspaces ?? fallback
     }
 
+    /// The short name on a remote machine's tabs: the host (never the
+    /// session), or the Cloud machine's title.
+    func machineBadge(_ machineID: String) -> String? {
+        session(machineID)?.machine.title ?? sshSession(machineID)?.host.destination.displayName
+    }
+
     /// The sidebar name of a remote machine, nil for local.
     func machineName(_ machineID: String) -> String? {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.label

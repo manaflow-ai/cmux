@@ -96,7 +96,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let store = daemon.store
         let fallback = Strings.untitledTerminal
         // Terminals on another machine carry its name; browsers always run here.
-        let machine = daemon.isLocal ? nil : services.machines.machineName(daemon.machineID)
+        let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
             var item = TabItemMapping.item(tab, fallbackTitle: tab.kind == .browser ? Strings.untitledBrowser : fallback)
             item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }

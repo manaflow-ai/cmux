@@ -404,9 +404,9 @@ final class TabCell {
     private func layoutMachineBadge(titleX: CGFloat, titleEnd: CGFloat, midY: CGFloat) -> CGFloat {
         guard let machineLayer else { return titleEnd }
         let font = Typography.caption
-        let width = min(ceil((machineLayer.string as NSString).size(withAttributes: [.font: font]).width), 72)
+        let width = min(ceil((machineLayer.string as NSString).size(withAttributes: [.font: font]).width), 56)
         let lineHeight = ceil(font.ascender - font.descender + font.leading)
-        guard titleEnd - titleX - width - Metrics.space2 >= 40 else {
+        guard titleEnd - titleX - width - Metrics.space2 >= 64 else {
             machineLayer.opacity = 0
             return titleEnd
         }
