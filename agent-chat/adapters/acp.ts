@@ -163,7 +163,7 @@ function effectiveSpawnModel(def: ProviderDef, options: Record<string, OptionVal
     : def.defaultModel ?? def.models?.[0]?.value ?? "";
 }
 
-function commandForSession(def: ProviderDef, options: Record<string, OptionValue>): string[] {
+export function commandForSession(def: ProviderDef, options: Record<string, OptionValue>): string[] {
   const cmd = [...(def.cmd ?? [])];
   if (def.models?.length) {
     cmd.push("--model", effectiveSpawnModel(def, options));
@@ -458,7 +458,7 @@ function normalizeAcpPlanStatus(status: unknown): AgentPlanStatus {
   return status === "pending" || status === "in_progress" || status === "completed" ? status : "unknown";
 }
 
-export function normalizeAcpPlanEntries(entries: unknown): AgentPlanEntry[] {
+function normalizeAcpPlanEntries(entries: unknown): AgentPlanEntry[] {
   if (!Array.isArray(entries)) return [];
   return entries.map((entry: any) => ({
     text: typeof entry?.content === "string" ? entry.content : String(entry?.content ?? ""),
@@ -467,7 +467,7 @@ export function normalizeAcpPlanEntries(entries: unknown): AgentPlanEntry[] {
   }));
 }
 
-export function acpPlanEvent(entries: unknown): Extract<AgentEvent, { kind: "plan" }> | null {
+function acpPlanEvent(entries: unknown): Extract<AgentEvent, { kind: "plan" }> | null {
   const normalized = normalizeAcpPlanEntries(entries);
   return normalized.length ? { kind: "plan", entries: normalized } : null;
 }
@@ -490,7 +490,7 @@ function handleAgentMessage(sess: SessionCtx, st: AcpState, def: ProviderDef, ms
           kind: "tool-start",
           toolId: u.toolCallId,
           name: u.title ?? u.kind ?? "tool",
-          detail: truncate(JSON.stringify(u.rawInput ?? {})),
+          detail: acpToolCallDetail(u.locations, u.rawInput),
         });
         break;
       case "tool_call_update":
@@ -573,10 +573,34 @@ function normalizeCommands(commands: any): CommandEntry[] {
   })).filter((c) => c.name);
 }
 
-function contentText(content: unknown): string {
+export function acpToolCallDetail(locations: unknown, rawInput: unknown): string {
+  const paths = Array.isArray(locations)
+    ? locations
+      .map((location: any) => typeof location?.path === "string" ? location.path : "")
+      .filter(Boolean)
+    : [];
+  return truncate(paths.length ? paths.join(", ") : JSON.stringify(rawInput ?? {}));
+}
+
+function lineCount(text: string): number {
+  return text ? text.split(/\r\n|\r|\n/).length : 0;
+}
+
+function diffText(content: any): string {
+  const oldText = typeof content.oldText === "string" ? content.oldText : "";
+  const newText = typeof content.newText === "string" ? content.newText : "";
+  const path = typeof content.path === "string" && content.path ? content.path : "unknown path";
+  return `diff ${path} (+${lineCount(newText)}/-${lineCount(oldText)})${newText ? `\n${newText}` : ""}`;
+}
+
+export function contentText(content: unknown): string {
   if (!Array.isArray(content)) return "";
   return content
-    .map((c: any) => c?.content?.text ?? c?.text ?? "")
+    .map((c: any) => {
+      if (c?.type === "diff") return diffText(c);
+      if (c?.type === "terminal") return `terminal ${String(c.terminalId ?? "")}`.trim();
+      return c?.content?.text ?? c?.text ?? "";
+    })
     .join("");
 }
 
