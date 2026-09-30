@@ -380,6 +380,7 @@ export function useSession(): SessionState {
     failed?: boolean;
   } | null>(null);
   const pendingStartTimeoutRef = useRef<number | null>(null);
+  const pendingStartStopsRef = useRef(new Set<string>());
   const optimisticUsersRef = useRef<string[]>([]);
   // The last status the server sent: reply() shows "running" before the server
   // knows, and a send that fails puts this back.
@@ -423,7 +424,7 @@ export function useSession(): SessionState {
     if (!pending) return;
     clearPendingStartTimeout();
     pendingStartRef.current = null;
-    restoreComposerDraft(sessionStorage, pending.prompt);
+    restoreComposerDraft(sessionStorage, [pending.prompt, ...pending.queuedReplies.map((reply) => reply.prompt)].join("\n\n"));
     history.replaceState(null, "", appPath("/"));
     document.title = "cmux agent";
     sessionIdRef.current = null;
@@ -463,6 +464,7 @@ export function useSession(): SessionState {
         wsRef.current = ws;
       },
       onOpen: () => {
+        for (const requestId of pendingStartStopsRef.current) sendRaw({ op: "stop", requestId });
         const pending = pendingStartRef.current;
         if (sessionIdRef.current) sendRaw({ op: "subscribe", sessionId: sessionIdRef.current });
         else if (pending && !pending.failed) {
@@ -479,6 +481,9 @@ export function useSession(): SessionState {
       onMessage: (e) => {
         const msg = JSON.parse(e.data);
         switch (msg.kind) {
+          case "start-stopped":
+            if (typeof msg.requestId === "string") pendingStartStopsRef.current.delete(msg.requestId);
+            break;
           case "hello": {
             const h = msg as Hello & { kind: string; capabilities?: Record<string, ProviderCapabilities> };
             setProviders(h.providers);
@@ -788,8 +793,17 @@ export function useSession(): SessionState {
     if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });
   }, [sendRaw]);
   const stop = useCallback(() => {
-    if (sessionIdRef.current) sendRaw({ op: "stop", sessionId: sessionIdRef.current });
-  }, [sendRaw]);
+    const pending = pendingStartRef.current;
+    if (pending) {
+      // The server may still be validating cwd/options, or its creation reply
+      // may be in flight. Keep retrying this cancellation until acknowledged.
+      pendingStartStopsRef.current.add(pending.requestId);
+      sendRaw({ op: "stop", requestId: pending.requestId });
+      failPendingStart("");
+    } else if (sessionIdRef.current) {
+      sendRaw({ op: "stop", sessionId: sessionIdRef.current });
+    }
+  }, [failPendingStart, sendRaw]);
   const setOption = useCallback((id: string, value: OptionValue) => {
     if (sessionIdRef.current) sendRaw({ op: "set-option", sessionId: sessionIdRef.current, id, value });
   }, [sendRaw]);
