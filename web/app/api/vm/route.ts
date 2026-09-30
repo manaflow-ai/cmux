@@ -241,6 +241,9 @@ export async function POST(request: Request): Promise<Response> {
   const warmupStartedAt = performance.now();
   const freestyleWarmup = preconnectFreestyle();
   const databaseWarmup = preconnectCloudDb();
+  const connectionInitDuration = Promise.all([freestyleWarmup, databaseWarmup]).then(
+    () => performance.now() - warmupStartedAt,
+  );
   return withAuthedVmApiRoute(
     request,
     "/api/vm",
@@ -276,8 +279,7 @@ export async function POST(request: Request): Promise<Response> {
         captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response, span });
       });
 
-      await Promise.all([freestyleWarmup, databaseWarmup]);
-      timing.record("connection_init", performance.now() - warmupStartedAt);
+      timing.record("connection_init", await connectionInitDuration);
       // Admission starts after connection readiness. Its budget therefore
       // describes request validation and durable create admission, without
       // hiding the separate cold connection phase above.
