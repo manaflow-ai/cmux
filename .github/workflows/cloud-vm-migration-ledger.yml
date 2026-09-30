@@ -163,7 +163,9 @@ jobs:
     if: >-
       always() && github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' || github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The workflow has a pull_request_target trigger, so every job pins a
+    # GitHub-hosted runner even though this one runs only on main.
+    runs-on: ubuntu-24.04 # github-hosted-required
     timeout-minutes: 5
     permissions:
       contents: read
