@@ -4087,15 +4087,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // must match the conforming class's access level.
     var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
     var currentKeyStateIndicatorText: String? {
+        let textEditingBetaLabel: String? = UserDefaults.standard.bool(forKey: "terminal.textEditingGestures")
+            ? String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures (Beta)")
+            : nil
+        func withTextEditingBeta(_ text: String?) -> String? {
+            guard let textEditingBetaLabel else { return text }
+            guard let text, !text.isEmpty else { return textEditingBetaLabel }
+            return "\(text) · \(textEditingBetaLabel)"
+        }
         if let name = keyTables.last {
-            return terminalKeyTableIndicatorText(name)
+            return withTextEditingBeta(terminalKeyTableIndicatorText(name))
         }
 
         if keyboardCopyModeActive {
-            return terminalKeyboardCopyModeIndicatorText
+            return withTextEditingBeta(terminalKeyboardCopyModeIndicatorText)
         }
 
-        return nil
+        return textEditingBetaLabel
     }
 #if DEBUG
     private static let keyLatencyProbeEnabled: Bool = {
@@ -6358,20 +6366,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ event: NSEvent,
         surface: ghostty_surface_t
     ) -> Bool {
-        // Keyboard copy mode owns the keyboard while it is active. It lets
-        // Command-modified events through on purpose so menu shortcuts still
-        // fire, and every gesture that survives its filter is Command-modified,
-        // so without this guard reading scrollback with a half-typed command at
-        // the prompt would replay Ctrl+U/Ctrl+K and destroy that line.
-        guard !keyboardCopyModeActive, !hasMarkedText() else { return false }
+        // Keyboard copy mode and IME composition own the keyboard while active.
+        // The terminal surface folds those input modes into the same ownership
+        // check as shell prompt state, so scrollback navigation never replays
+        // Ctrl+U/Ctrl+K into a half-typed command.
+        guard let terminalSurface,
+              terminalSurface.textEditingGesturesAllowed(
+                  enabled: textEditingGesturesEnabled,
+                  anotherInputModeOwnsKeys: keyboardCopyModeActive || hasMarkedText()
+              ) else { return false }
         guard let chord = terminalTextEditingResolve(
             keyCode: event.keyCode,
             modifiers: textEditingModifiers(from: event.modifierFlags)
         ) else { return false }
-        // The defaults read is the costly half, so it runs only after the pure
-        // resolver has confirmed this keystroke is gesture-shaped at all. Every
-        // other keystroke leaves this path having done no I/O.
-        guard textEditingGesturesEnabled else { return false }
         guard
             let chordKeyCode = Self.textEditingChordKeyCodes[chord.letter],
             let scalar = chord.letter.unicodeScalars.first
@@ -7115,6 +7122,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         recordDirectAgentHibernationTerminalInput()
+        if (event.keyCode == 0x24 || event.keyCode == 0x4C),
+           event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty {
+            terminalSurface?.shellDidReceiveCommandSubmit()
+        }
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
@@ -10887,6 +10898,15 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.handleTerminalScrollBarPreferenceChange()
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.syncKeyStateIndicator(text: self.currentKeyStateIndicatorText)
         })
 
     }

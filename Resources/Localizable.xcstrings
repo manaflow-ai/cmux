@@ -366289,55 +366289,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Text Editing Gestures"
+            "value": "Text Editing Gestures (Beta)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "テキスト編集ジェスチャー"
+            "value": "テキスト編集ジェスチャー（ベータ）"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "文本编辑手势"
+            "value": "文本编辑手势（Beta）"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Textbearbeitungsgesten"
+            "value": "Textbearbeitungsgesten (Beta)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gestes d’édition de texte"
+            "value": "Gestes d’édition de texte (bêta)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إيماءات تحرير النص"
+            "value": "إيماءات تحرير النص (تجريبية)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gestos de edición de texto"
+            "value": "Gestos de edición de texto (beta)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "文字編輯手勢"
+            "value": "文字編輯手勢（Beta）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "텍스트 편집 제스처"
+            "value": "텍스트 편집 제스처 (베타)"
           }
         }
       }
@@ -554436,55 +554436,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pressing Command or Option with an arrow key or Delete moves or deletes by line or word. Full-screen terminal apps receive the rewritten keys too, so turn this off for apps that need the original keys."
+            "value": "Beta: Command and Option arrows and Delete edit the shell command line like normal text, only while cmux sees an idle shell prompt. Full-screen terminal apps keep their original keys."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mit der Befehls- oder Wahltaste und einer Pfeiltaste oder der Löschtaste bewegen Sie die Einfügemarke bzw. löschen Text zeilen- oder wortweise. Auch Terminal-Apps im Vollbildmodus erhalten die umgeschriebenen Tasten. Deaktivieren Sie diese Option für Apps, die die ursprünglichen Tasten benötigen."
+            "value": "Beta: Mit Command- und Option-Pfeiltasten sowie Delete bearbeiten Sie die Shell-Befehlszeile wie normalen Text – nur wenn cmux eine inaktive Shell-Eingabeaufforderung erkennt. Vollbild-Terminal-Apps behalten ihre ursprünglichen Tasten."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Commande ou Option associée à une touche fléchée ou à Supprimer déplace le point d’insertion ou supprime du texte par ligne ou par mot. Les apps de terminal en plein écran reçoivent aussi les touches réécrites : désactivez cette option pour les apps qui ont besoin des touches d’origine."
+            "value": "Bêta : les flèches Command et Option ainsi que Suppr modifient la ligne de commande du shell comme du texte normal, uniquement lorsque cmux détecte une invite shell inactive. Les apps de terminal en plein écran conservent leurs touches d’origine."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يؤدي الضغط على Command أو Option مع مفتاح سهم أو مفتاح الحذف إلى التنقل أو الحذف سطرًا سطرًا أو كلمةً كلمة. وتتلقى تطبيقات الطرفية بملء الشاشة أيضًا المفاتيح المعاد كتابتها، لذا أوقف هذا الخيار للتطبيقات التي تحتاج إلى المفاتيح الأصلية."
+            "value": "تجريبية: تعدّل أسهم Command وOption ومفتاح الحذف سطر أوامر الصدفة كنص عادي، فقط عندما يكتشف cmux مطالبة صدفة خاملة. تحتفظ تطبيقات الطرفية بملء الشاشة بمفاتيحها الأصلية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comando u Opción junto con una tecla de flecha o Eliminar mueve el punto de inserción o borra por líneas o palabras. Las apps de terminal a pantalla completa también reciben las teclas reescritas, así que desactiva esta opción para las apps que necesitan las teclas originales."
+            "value": "Beta: Las flechas con Comando u Opción y Eliminar editan la línea de comandos del shell como texto normal, solo cuando cmux detecta un indicador de shell inactivo. Las apps de terminal a pantalla completa conservan sus teclas originales."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "按住 Command 或 Option 鍵再按方向鍵或 Delete 鍵，可按行或字詞移動或刪除。全螢幕終端機 App 也會收到改寫後的按鍵，因此若 App 需要原始按鍵，請關閉此選項。"
+            "value": "Beta：只有在 cmux 偵測到閒置的 Shell 提示字元時，Command/Option 方向鍵與 Delete 才會像一般文字一樣編輯 Shell 命令列。全螢幕終端機 App 會保留原本的按鍵。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按住 Command 或 Option 键再按箭头键或 Delete 键，可按行或按词移动或删除。全屏终端 App 也会收到改写后的按键，因此如果 App 需要原始按键，请关闭此选项。"
+            "value": "Beta：只有在 cmux 检测到闲置的 Shell 提示符时，Command/Option 方向键和 Delete 才会像普通文本一样编辑 Shell 命令行。全屏终端 App 会保留原本的按键。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command 또는 Option 키를 누른 채 화살표 키나 Delete 키를 누르면 줄 또는 단어 단위로 이동하거나 삭제합니다. 전체 화면 터미널 앱에도 변환된 키가 전달되므로, 원래 키가 필요한 앱에서는 이 옵션을 끄세요."
+            "value": "베타: cmux가 유휴 셸 프롬프트를 감지할 때만 Command 및 Option 화살표와 Delete로 셸 명령줄을 일반 텍스트처럼 편집합니다. 전체 화면 터미널 앱은 원래 키를 그대로 받습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command キーまたは Option キーを押しながら矢印キーや Delete キーを押すと、行単位または単語単位で移動・削除します。フルスクリーンのターミナルアプリにも書き換えたキーが送られるため、元のキーが必要なアプリではこの設定をオフにしてください。"
+            "value": "ベータ：cmux がアイドル状態のシェルプロンプトを検出している間だけ、Command／Option の矢印キーと Delete でシェルのコマンドラインを通常のテキストのように編集します。フルスクリーンのターミナルアプリには元のキーが届きます。"
           }
         }
       }
