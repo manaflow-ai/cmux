@@ -181,3 +181,7 @@ User: "more undesigned and minimal, liquid glass; right now it's overwhelming." 
 - Hover cards: one app-wide coordinator, formally checked single-card invariant.
 - Debug Settings window (DEV and NIGHTLY only) with searchable tunables; drop overlay variants selectable there.
 - State ownership: plans/cmux-next/OWNERSHIP-PRINCIPLES.md is binding.
+
+## mux: Cmd+1 (user 2026-09-30)
+
+Cmd+1 opens Messages with humans and **muxes** (orchestrator agents). Design and interview decisions: [mux/DESIGN.md](../../mux/DESIGN.md).

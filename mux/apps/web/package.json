@@ -1,0 +1,31 @@
+{
+  "name": "@mux/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "test": "vp test",
+    "preview": "vp preview"
+  },
+  "dependencies": {
+    "@mux/protocol": "workspace:*",
+    "@tanstack/react-query": "5.104.0",
+    "@tanstack/react-router": "1.170.41",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@tanstack/react-query-devtools": "^5.104.0",
+    "@tanstack/react-router-devtools": "^1.167.2",
+    "@tanstack/router-plugin": "1.168.42",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "~6.0.2",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

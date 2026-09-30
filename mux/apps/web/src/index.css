@@ -1,0 +1,92 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #111111;
+  --muted: #6b6b70;
+  --line: #e5e5ea;
+  --incoming: #e9e9eb;
+  --outgoing: #0a84ff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1e;
+    --fg: #f2f2f7;
+    --muted: #8e8e93;
+    --line: #38383a;
+    --incoming: #3a3a3c;
+  }
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+.app {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  height: 100dvh;
+}
+.list {
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+.row {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 14px;
+  color: inherit;
+  text-decoration: none;
+}
+.row[data-status="active"] {
+  background: var(--line);
+}
+.title {
+  font-weight: 600;
+}
+.preview {
+  color: var(--muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread {
+  overflow-y: auto;
+}
+.empty {
+  color: var(--muted);
+  text-align: center;
+  margin-top: 40vh;
+}
+.messages {
+  list-style: none;
+  margin: 0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bubble {
+  max-width: 70%;
+  padding: 7px 12px;
+  border-radius: 18px;
+  background: var(--incoming);
+  align-self: flex-start;
+}
+.bubble.mine {
+  background: var(--outgoing);
+  color: #fff;
+  align-self: flex-end;
+}
+@media (max-width: 640px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .list {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    max-height: 30dvh;
+  }
+}
