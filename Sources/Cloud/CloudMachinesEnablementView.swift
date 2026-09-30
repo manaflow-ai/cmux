@@ -2,7 +2,8 @@ import CmuxCloud
 import SwiftUI
 
 /// First-use screen for the Cloud tab. It keeps the normal machines panel
-/// untouched after ``CloudActivationCoordinator/State/enabled``.
+/// untouched after ``CloudActivationCoordinator/State/enabled`` and gives
+/// every setup outcome a recoverable action where one exists.
 struct CloudMachinesEnablementView: View {
     let coordinator: CloudActivationCoordinator
 
