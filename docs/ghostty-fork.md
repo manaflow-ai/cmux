@@ -2025,8 +2025,8 @@ tend to conflict together during rebases.
 ### 15) OSC 133;A prompt starts its own logical line
 
 - Commits:
-  - `4458decb6` (test: a prompt after a padded partial line must stay at column 0 across resize)
-  - `5e5f8e12e` (terminal: start an OSC 133;A prompt on its own logical line)
+  - `315d78b99` (test: a prompt after a padded partial line must stay at column 0 across resize)
+  - `e1b8bf5f4` (terminal: start an OSC 133;A prompt on its own logical line)
 - Files:
   - `src/terminal/Terminal.zig`
   - `src/terminal/Screen.zig`
