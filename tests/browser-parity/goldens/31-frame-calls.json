@@ -2,10 +2,10 @@
   "oracle": {},
   "cmux": {
     "frame-buttons": 400,
-    "snapshot-under-3s": true,
+    "snapshot-scales-linearly": true,
     "main-calls": true,
-    "main-calls-under-3s": true,
+    "main-calls-scale-linearly": true,
     "frame-calls": "400 frames, 400 with a button",
-    "frame-calls-under-3s": true
+    "frame-calls-finish": true
   }
 }
