@@ -2,6 +2,12 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    /// Renders a target for the shell command shown in guarded-send errors.
+    /// Bare handles stay readable while shell-sensitive values remain one argument.
+    static func agentMessageTargetArgument(_ target: String) -> String {
+        TerminalStartupShellQuoting.shellToken(target, allowingBareASCII: true)
+    }
+
     /// Parsed `cmux paste` arguments: the target options stay raw so the shared
     /// handle normalizers resolve them exactly like `cmux send`.
     struct PasteCommandArguments: Equatable {
@@ -365,7 +371,7 @@ extension CMUXCLI {
                 localized: "cli.send.error.agentMessageSuggestion",
                 defaultValue: "To reach the agent without typing, use: cmux agent message %@ \"...\""
             ),
-            agentTarget
+            Self.agentMessageTargetArgument(agentTarget)
         )
         if dialog {
             throw CLIError(message: String(
