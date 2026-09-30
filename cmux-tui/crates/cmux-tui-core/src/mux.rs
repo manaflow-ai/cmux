@@ -1895,6 +1895,7 @@ pub(crate) struct ClientSizingIdentity {
     pub(crate) display_name: Option<String>,
     pub(crate) device_kind: TerminalDeviceKind,
     pub(crate) device_name: Option<String>,
+    pub(crate) device_id: Option<String>,
 }
 
 /// Where a size-state publication goes after the sizing lock is released.
@@ -9138,6 +9139,7 @@ impl Mux {
                 display_name: identity.display_name,
                 device_kind: identity.device_kind,
                 device_name: identity.device_name,
+                device_id: identity.device_id,
                 via: Some(via),
                 viewport: viewport.map(|(cols, rows)| TerminalGridSize::new(cols, rows)),
                 counts_override: None,
@@ -9358,6 +9360,7 @@ impl Mux {
             display_name: identity.display_name,
             device_kind: identity.device_kind,
             device_name: identity.device_name,
+            device_id: identity.device_id,
             via: None,
             viewport: sizing
                 .surfaces

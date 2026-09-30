@@ -726,6 +726,9 @@ struct ClientIdentityWire {
     device_kind: Option<String>,
     #[serde(default)]
     device_name: Option<String>,
+    /// Stable per-install device id; tells two devices of one user apart.
+    #[serde(default)]
+    device_id: Option<String>,
 }
 
 impl ClientIdentityWire {
@@ -734,6 +737,7 @@ impl ClientIdentityWire {
             && self.display_name.is_none()
             && self.device_kind.is_none()
             && self.device_name.is_none()
+            && self.device_id.is_none()
     }
 
     fn into_identity(self) -> ClientSizingIdentity {
@@ -745,6 +749,7 @@ impl ClientIdentityWire {
                 .as_deref()
                 .map_or(TerminalDeviceKind::Unknown, TerminalDeviceKind::parse),
             device_name: self.device_name.map(clamp_client_label),
+            device_id: self.device_id.map(clamp_client_label),
         }
     }
 }
@@ -880,6 +885,8 @@ enum Command {
         device_kind: Option<String>,
         #[serde(default)]
         device_name: Option<String>,
+        #[serde(default)]
+        device_id: Option<String>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
@@ -4409,6 +4416,9 @@ impl ClientRegistry {
         }
         if identity.device_name.is_some() {
             current.device_name = identity.device_name;
+        }
+        if identity.device_id.is_some() {
+            current.device_id = identity.device_id;
         }
     }
 
@@ -11929,8 +11939,10 @@ fn handle_command_with_cancellation(
             display_name,
             device_kind,
             device_name,
+            device_id,
         } => {
-            let identity = ClientIdentityWire { user_id, display_name, device_kind, device_name };
+            let identity =
+                ClientIdentityWire { user_id, display_name, device_kind, device_name, device_id };
             let identity_changed = !identity.is_empty();
             let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
             if identity_changed {
