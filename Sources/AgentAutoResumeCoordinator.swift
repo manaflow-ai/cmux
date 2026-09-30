@@ -221,10 +221,12 @@ final class AgentAutoResumeCoordinator {
             return .dialog
         }
         let promptPrefixes = ["› ", "❯ ", "❯\u{00A0}", "> "]
-        guard let promptIndex = plainRows.lastIndex(where: { row in
-            let trimmed = row.drop(while: { $0 == " " || $0 == "│" })
-            return promptPrefixes.contains(where: trimmed.hasPrefix)
-        }) else { return .unknown }
+        guard let cursor = frame.cursor,
+              cursor.visible,
+              plainRows.indices.contains(cursor.row) else { return .unknown }
+        let promptIndex = cursor.row
+        let trimmedPrompt = plainRows[promptIndex].drop(while: { $0 == " " || $0 == "│" })
+        guard promptPrefixes.contains(where: trimmedPrompt.hasPrefix) else { return .unknown }
         var typed = rows[promptIndex]
             .sorted { $0.column < $1.column }
             .filter { !$0.faint }

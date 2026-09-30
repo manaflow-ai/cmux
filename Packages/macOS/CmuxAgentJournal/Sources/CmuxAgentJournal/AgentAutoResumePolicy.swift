@@ -125,6 +125,7 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             surfaces[surfaceId] = nil
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
         case .sessionStarted:
+            guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
             let hadPending = surfaces[surfaceId]?.pendingToken != nil
             surfaces[surfaceId] = SurfaceState(sessionId: sessionId)
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
