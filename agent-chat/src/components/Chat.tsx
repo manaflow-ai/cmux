@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject }
 import { useCtx } from "../context";
 import { agentChatText } from "../i18n";
 import { readStoredProviderOptions, persistOptionsSnapshot, updateStoredProviderOption } from "../options-store";
-import { routedToTranscript, type OptionValue, type SessionOption } from "../session";
+import { composerDraftKey, routedToTranscript, type OptionValue, type SessionOption } from "../session";
 import { ArrowUp } from "./icons";
 import { isCtrlJ, insertNewlineAtCaret, useCommandMenu } from "./CommandMenu";
 import { optionAcceptsValue, optionsForSelectedModel } from "./options";
@@ -57,7 +57,7 @@ function useStickToBottom(scrollRef: RefObject<HTMLDivElement | null>, stickRef:
 
 export function Chat() {
   const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, ctrlJ, forkPending, handoffPending, reply, stop, focusTerminal, setOption, fork, handoff, compose, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => draftStorage.getItem(composerDraftKey) || "");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const taRef = useAutoGrow(text, 200);
@@ -83,6 +83,10 @@ export function Chat() {
   useProviderCatalogs(ready, connectionEpoch, providers, session?.provider ?? "", catalogCwd, requestProviderOptions, requestProviderCommands);
   useFileCatalog(ready, connectionEpoch, catalogCwd, requestFiles);
   useStickToBottom(scrollRef, stickRef, blocks, running);
+  useEffect(() => {
+    if (text) draftStorage.setItem(composerDraftKey, text);
+    else draftStorage.removeItem(composerDraftKey);
+  }, [text]);
   useKeymap({
     options: resolvedOptions,
     setOption,

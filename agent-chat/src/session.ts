@@ -309,7 +309,29 @@ function newClientRequestId(prefix: string): string {
 }
 
 export function restoreComposerDraft(storage: Pick<Storage, "setItem">, prompt: string) {
-  storage.setItem(composerDraftKey, prompt);
+  try { storage.setItem(composerDraftKey, prompt); } catch {
+    // Draft recovery is best effort when browser storage is unavailable.
+  }
+}
+
+export function readComposerDraft(storage: Pick<Storage, "getItem">): string {
+  try {
+    return storage.getItem(composerDraftKey) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function writeComposerDraft(
+  storage: Pick<Storage, "setItem" | "removeItem">,
+  draft: string,
+) {
+  try {
+    if (draft) storage.setItem(composerDraftKey, draft);
+    else storage.removeItem(composerDraftKey);
+  } catch {
+    // Private browsing and embedded Cloud contexts can deny session storage.
+  }
 }
 
 // An echo matches anywhere in the queue: one that never lands (a failed send)
