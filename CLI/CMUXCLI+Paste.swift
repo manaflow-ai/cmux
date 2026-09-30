@@ -148,7 +148,13 @@ extension CMUXCLI {
         let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
         if let sfId { params["surface_id"] = sfId }
         if !force {
-            try ensureAgentPromptIsFree(for: .text, command: command, target: params, client: client)
+            try ensureAgentPromptIsFree(
+                for: .text,
+                command: command,
+                target: params,
+                client: client,
+                targetReference: surface ?? workspace ?? surfaceArg
+            )
         }
 
         let payload = try client.sendV2(method: "terminal.paste", params: params)
@@ -326,7 +332,8 @@ extension CMUXCLI {
         for kind: TerminalInputWriteKind,
         command: String,
         target: [String: Any],
-        client: SocketClient
+        client: SocketClient,
+        targetReference: String? = nil
     ) throws {
         var params: [String: Any] = [:]
         for key in ["window_id", "workspace_id", "surface_id"] {
@@ -349,6 +356,17 @@ extension CMUXCLI {
         guard blocks else { return }
 
         let surface = (target["surface_id"] as? String) ?? (state["surface_id"] as? String) ?? "?"
+        let agentTarget = targetReference
+            ?? (target["surface_id"] as? String)
+            ?? (target["workspace_id"] as? String)
+            ?? surface
+        let suggestion = String(
+            format: String(
+                localized: "cli.send.error.agentMessageSuggestion",
+                defaultValue: "To reach the agent without typing, use: cmux agent message %@ \"...\""
+            ),
+            agentTarget
+        )
         if dialog {
             throw CLIError(message: String(
                 format: String(
@@ -357,7 +375,7 @@ extension CMUXCLI {
                 ),
                 command,
                 surface
-            ))
+            ) + " " + suggestion)
         }
         throw CLIError(message: String(
             format: String(
@@ -366,7 +384,7 @@ extension CMUXCLI {
             ),
             command,
             surface
-        ))
+        ) + " " + suggestion)
     }
 
     // MARK: - cmux send --paste

@@ -596369,6 +596369,65 @@
         }
       }
     },
+    "cli.send.error.agentMessageSuggestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To reach the agent without typing, use: cmux agent message %@ \"...\""
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "للوصول إلى الوكيل دون الكتابة، استخدم: cmux agent message %@ \"...\""
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um den Agenten ohne Tippen zu erreichen, verwenden Sie: cmux agent message %@ \"...\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para contactar con el agente sin escribir, usa: cmux agent message %@ \"...\""
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pour contacter l’agent sans saisir de texte, utilisez : cmux agent message %@ \"...\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力せずにエージェントへ連絡するには、次を使用してください: cmux agent message %@ \"...\""
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력하지 않고 에이전트에게 연락하려면 다음을 사용하세요: cmux agent message %@ \"...\""
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "若要在不输入内容的情况下联系代理，请使用：cmux agent message %@ \"...\""
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "若要在不輸入內容的情況下聯絡代理程式，請使用：cmux agent message %@ \"...\""
+          }
+        }
+      }
+    },
     "cli.send.error.dialogOpen": {
       "extractionState": "manual",
       "localizations": {
