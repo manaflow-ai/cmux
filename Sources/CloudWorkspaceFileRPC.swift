@@ -101,8 +101,8 @@ actor CloudDaemonFileExplorer {
                 guard let link = pending.popFirst() else { break }
                 group.addTask { (link.index, await self.isDirectoryFollowingLinks(vmID: vmID, path: link.path)) }
             }
-            while let (index, isDirectory) = try await group.next() {
-                result[index] = isDirectory
+            while let answer = try await group.next() {
+                result[answer.0] = answer.1
                 if let link = pending.popFirst() {
                     group.addTask { (link.index, await self.isDirectoryFollowingLinks(vmID: vmID, path: link.path)) }
                 }
