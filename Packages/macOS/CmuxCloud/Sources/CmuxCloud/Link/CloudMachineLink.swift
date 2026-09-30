@@ -144,6 +144,8 @@ public actor CloudMachineLink {
     private var eventsStabilityTask: Task<Void, Never>?
     private var eventsRecoveryPhase: EventsRecoveryPhase = .healthy
     private var stderrTail: [String] = []
+    private var stderrDrain: Task<Void, Never>?
+    private var linkAttemptID = UUID()
     /// Releases this link's claim on the app's WireGuard hub; runs once when the link ends.
     private var releaseHubLease: (@Sendable () async -> Void)?
 
@@ -191,6 +193,7 @@ public actor CloudMachineLink {
             return connected
         }
         self.releaseHubLease = releaseHubLease
+        stderrTail.removeAll(keepingCapacity: true)
         eventsCursor = nil
         resetEventsRecovery()
         try paths.ensureStateDir()
@@ -218,10 +221,12 @@ public actor CloudMachineLink {
         process.standardError = stderr
         process.standardInput = FileHandle.nullDevice
         let processExit = CloudLinkFirstValue<Int32>()
+        let linkAttemptID = UUID()
+        self.linkAttemptID = linkAttemptID
         process.terminationHandler = { [weak self] terminated in
             let status = terminated.terminationStatus
             processExit.resolve(status)
-            Task { await self?.linkProcessDidExit(terminated, status: status) }
+            Task { await self?.linkProcessDidExit(terminated, status: status, attemptID: linkAttemptID) }
         }
         state = .connecting
         lastError = nil
@@ -236,6 +241,7 @@ public actor CloudMachineLink {
         self.process = process
         self.processExit = processExit
         let stderrDrain = drainStderr(stderr.fileHandleForReading)
+        self.stderrDrain = stderrDrain
 
         // The first connection-snapshot line names the socket; later lines only update
         // transport topology and are ignored — but stdout keeps draining for the
@@ -288,6 +294,7 @@ public actor CloudMachineLink {
             if self.process === process {
                 self.process = nil
                 self.processExit = nil
+                self.stderrDrain = nil
             }
             await releaseHubLeaseOnce()
             try Task.checkCancellation()
@@ -636,30 +643,6 @@ public actor CloudMachineLink {
     private func recordStderr(_ line: String) {
         stderrTail.append(line)
         if stderrTail.count > 20 { stderrTail.removeFirst(stderrTail.count - 20) }
-    }
-
-    private func linkProcessDidExit(_ exitedProcess: Process, status: Int32) async {
-        guard process === exitedProcess else { return }
-        eventsSubscriptionID = nil
-        eventsReaderTask?.cancel()
-        eventsReaderTask = nil
-        eventsRecoveryTask?.cancel()
-        eventsRecoveryTask = nil
-        cancelEventsStabilityReset()
-        eventsRecoveryPhase = .healthy
-        await cancelEventsStream()
-        process = nil
-        processExit = nil
-        connected = nil
-        if state != .unavailable {
-            state = status == 0 ? .unavailable : .error
-            lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
-        }
-        await resourceConnection?.close()
-        resourceConnection = nil
-        changesContinuation.yield(.streamEnded(reason: "link_exit", cursor: nil))
-        changesContinuation.finish()
-        await releaseHubLeaseOnce()
     }
 
     /// Foundation aborts if a running `Process` is released. Keep a detached exit

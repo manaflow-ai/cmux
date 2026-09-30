@@ -17,4 +17,41 @@ extension CloudMachineLink {
         }
         _ = await drained.result
     }
+
+    private func linkProcessDidExit(_ exitedProcess: Process, status: Int32, attemptID: UUID) async {
+        guard process === exitedProcess, linkAttemptID == attemptID else { return }
+        let stderrDrain = self.stderrDrain
+        self.stderrDrain = nil
+        eventsSubscriptionID = nil
+        eventsReaderTask?.cancel()
+        eventsReaderTask = nil
+        eventsRecoveryTask?.cancel()
+        eventsRecoveryTask = nil
+        cancelEventsStabilityReset()
+        eventsRecoveryPhase = .healthy
+        await cancelEventsStream()
+        process = nil
+        processExit = nil
+        connected = nil
+        if state != .unavailable {
+            state = status == 0 ? .unavailable : .error
+            lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
+        }
+        await resourceConnection?.close()
+        resourceConnection = nil
+        changesContinuation.yield(.streamEnded(reason: "link_exit", cursor: nil))
+        changesContinuation.finish()
+        await releaseHubLeaseOnce()
+        if let stderrDrain, status != 0 {
+            Task { [weak self] in
+                await Self.awaitStderrDrain(stderrDrain)
+                await self?.refineExitError(status: status, attemptID: attemptID)
+            }
+        }
+    }
+
+    private func refineExitError(status: Int32, attemptID: UUID) {
+        guard status != 0, state == .error, process == nil, linkAttemptID == attemptID else { return }
+        lastError = LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
+    }
 }
