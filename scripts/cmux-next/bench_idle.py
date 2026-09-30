@@ -36,6 +36,7 @@ import argparse
 import ctypes
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -78,28 +79,30 @@ def run(argv, env=None):
     return subprocess.run(argv, capture_output=True, text=True, env=env).stdout
 
 
-def children(pid: int):
-    return [int(p) for p in run(["pgrep", "-P", str(pid)]).split()]
-
-
-def command(pid: int) -> str:
-    return run(["ps", "-o", "command=", "-p", str(pid)]).strip()
+def process_table():
+    """[(pid, ppid, command)] for every process, from one `ps` call (pgrep
+    fails intermittently on a heavily loaded machine)."""
+    rows = []
+    for line in run(["ps", "-axo", "pid=,ppid=,command="]).splitlines():
+        parts = line.strip().split(None, 2)
+        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+            rows.append((int(parts[0]), int(parts[1]), parts[2]))
+    return rows
 
 
 def classify(app_pid: int, bundle: str):
     """{pid: kind} for the app, its Chromium helpers, the daemon and hosts."""
     kinds = {app_pid: "app"}
-    for child in children(app_pid):
-        cmd = command(child)
-        if " Helper" in cmd:
+    tui = os.path.join(bundle, "Contents/Resources/bin/cmux-tui")
+    for pid, ppid, cmd in process_table():
+        if ppid == app_pid and " Helper" in cmd:
             kind = "cef-helper"
             for name in ("Renderer", "GPU", "Plugin", "Alerts"):
                 if f"({name})" in cmd:
                     kind = f"cef-{name.lower()}"
-            kinds[child] = kind
-    tui = os.path.join(bundle, "Contents/Resources/bin/cmux-tui")
-    for pid in [int(p) for p in run(["pgrep", "-f", tui]).split()]:
-        kinds[pid] = "terminal-host" if "__terminal-host" in command(pid) else "daemon"
+            kinds[pid] = kind
+        elif cmd.startswith(tui):
+            kinds[pid] = "terminal-host" if "__terminal-host" in cmd else "daemon"
     return kinds
 
 
@@ -258,6 +261,8 @@ def main():
     parser.add_argument("--max-helper-cpu", type=float, default=1.0)
     parser.add_argument("--no-fail", action="store_true")
     parser.add_argument("--keep-running", action="store_true")
+    parser.add_argument("--fresh", action="store_true",
+                        help="start from an empty daemon session for this tag (removes the tag's saved tabs)")
     args = parser.parse_args()
 
     tag = args.tag
@@ -265,8 +270,11 @@ def main():
     binary = os.path.join(bundle, "Contents/MacOS/cmux DEV")
     if not os.path.exists(binary):
         raise SystemExit(f"bench-idle: no app at {bundle}")
-    if run(["pgrep", "-f", f"{bundle}/Contents/MacOS/cmux DEV"]).strip():
+    if any(cmd.startswith(binary) for _, _, cmd in process_table()):
         raise SystemExit(f"bench-idle: {bundle} is already running; quit it first")
+    if args.fresh:
+        # Saved tabs (a restored Chromium tab starts CEF) would change every scenario.
+        shutil.rmtree(os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui"), ignore_errors=True)
     scratch = tempfile.mkdtemp(prefix=f"bench-idle-{tag}-")
     env = {
         "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
