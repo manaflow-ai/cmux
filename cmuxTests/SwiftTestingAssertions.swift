@@ -20,8 +20,7 @@ struct SwiftTestingAssertions {
         }
 
         let fileID = String(describing: file)
-        let relativePath = fileID.split(separator: "/", maxSplits: 1).last.map(String.init) ?? fileID
-        return sourceRoot.appendingPathComponent(relativePath)
+        return sourceRoot.appendingPathComponent(fileID)
     }
 
 
