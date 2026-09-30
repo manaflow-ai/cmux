@@ -44,8 +44,8 @@ const sess: SessionCtx = {
   },
 };
 
-const first = piAdapter.send(sess, "first prompt", 1);
-const second = piAdapter.send(sess, "second prompt", 2);
+const first = piAdapter.send(sess, "first prompt");
+const second = piAdapter.send(sess, "second prompt");
 await Promise.resolve();
 await Promise.resolve();
 

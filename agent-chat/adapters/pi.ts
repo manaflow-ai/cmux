@@ -12,6 +12,7 @@ interface PiState {
   sessionFile?: string;
   commands: CommandEntry[];
   initialApplied: boolean;
+  initialApplying?: Promise<void>;
   activeTurn: boolean;
   activeGeneration?: number;
 }
@@ -162,12 +163,21 @@ function rejectPending(st: PiState, message: string) {
 async function applyInitialOptions(sess: SessionCtx) {
   const st = state(sess);
   if (st.initialApplied) return;
-  st.initialApplied = true;
-  const requestedThinking = typeof sess.startOptions.thinking === "string" ? sess.startOptions.thinking : "";
-  if (typeof sess.startOptions.model === "string") await setPiOption(sess, "model", st.model);
-  if (!st.modelChoices.length || !st.commands.length) await refreshPi(sess);
-  if (requestedThinking) await setPiOption(sess, "thinking", requestedThinking);
-  await captureState(sess);
+  if (st.initialApplying) return st.initialApplying;
+  const applying = (async () => {
+    const requestedThinking = typeof sess.startOptions.thinking === "string" ? sess.startOptions.thinking : "";
+    if (typeof sess.startOptions.model === "string") await setPiOption(sess, "model", st.model);
+    if (!st.modelChoices.length || !st.commands.length) await refreshPi(sess);
+    if (requestedThinking) await setPiOption(sess, "thinking", requestedThinking);
+    await captureState(sess);
+    st.initialApplied = true;
+  })();
+  st.initialApplying = applying;
+  try {
+    await applying;
+  } finally {
+    if (st.initialApplying === applying) st.initialApplying = undefined;
+  }
 }
 
 async function setPiOption(sess: SessionCtx, id: string, value: OptionValue) {
