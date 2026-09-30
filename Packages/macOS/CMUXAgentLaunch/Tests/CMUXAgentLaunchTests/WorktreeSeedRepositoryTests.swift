@@ -136,6 +136,14 @@ struct WorktreeSeedRepositoryTests {
         #expect(!entry.escapesRepository)
     }
 
+    @Test func aSelfExpandingSymlinkIsRefusedWithoutHanging() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        try tree.symlink("a", to: tree.root.appendingPathComponent("a/child"))
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "a" })
+        #expect(entry.escapesRepository)
+    }
+
     @Test func aDanglingSymlinkInsideTheRepositoryIsNotAnEscape() throws {
         let tree = try WorktreeSeedTemporaryTree()
         let target = tree.root.appendingPathComponent("future/secret")
