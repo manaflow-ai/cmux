@@ -106,11 +106,11 @@ class InstallGitHooksTests(unittest.TestCase):
             self.assertTrue((installed / name).is_file(), name)
         self.assertTrue((installed / "ci" / "catch_up_pr.py").is_file())
 
-        for key, name in (
-            ("merge.xcstrings-v2.driver", "merge-xcstrings.py"),
-            ("merge.xcstrings.driver", "merge-xcstrings.py"),
-            ("merge.pbxproj-v1.driver", "merge-pbxproj.py"),
-            ("merge.pbxproj.driver", "merge-pbxproj.py"),
+        for key, name, expected_args in (
+            ("merge.xcstrings-v2.driver", "merge-xcstrings.py", ["%O", "%A", "%B", "%P", "%L"]),
+            ("merge.xcstrings.driver", "merge-xcstrings.py", ["%O", "%A", "%B", "%P", "%L"]),
+            ("merge.pbxproj-v1.driver", "merge-pbxproj.py", ["%O", "%A", "%B", "%P"]),
+            ("merge.pbxproj.driver", "merge-pbxproj.py", ["%O", "%A", "%B", "%P"]),
         ):
             command = self.git("config", "--get", key).stdout.strip()
             words = shlex.split(command)
@@ -118,7 +118,7 @@ class InstallGitHooksTests(unittest.TestCase):
             self.assertFalse(Path(words[0]).resolve().is_relative_to(self.repo.resolve()))
             self.assertEqual(words[1], "-I")
             self.assertEqual(Path(words[2]).resolve(), (installed / name).resolve())
-            self.assertEqual(words[3:], ["%O", "%A", "%B", "%P"])
+            self.assertEqual(words[3:], expected_args)
             self.assertNotIn(f"scripts/{name}", command)
 
     def test_clean_clone_uses_trusted_hook_copies(self):
