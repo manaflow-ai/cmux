@@ -18,6 +18,8 @@ nonisolated enum FocusEvent: Hashable, Sendable, Codable {
         case content(pane: String)
         case addressBar(pane: String)
         case findBar(pane: String)
+        /// A page's docked DevTools window became key.
+        case devTools(pane: String)
         case sidebar
         case sidebarField
         case textField

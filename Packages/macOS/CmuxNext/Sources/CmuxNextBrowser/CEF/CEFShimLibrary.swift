@@ -45,9 +45,23 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setZoomLevel: @convention(c) (Int32, Double) -> Void
     let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
     let stopFinding: @convention(c) (Int32, Int32) -> Void
-    let showDevTools: @convention(c) (Int32) -> Void
     let close: @convention(c) (Int32) -> Void
     let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+
+    /// `cmux_shim_devtools_command_t`.
+    enum DevToolsCommand {
+        static let show: Int32 = 1
+        static let console: Int32 = 2
+        static let inspect: Int32 = 3
+        static let inspectAt: Int32 = 4
+        static let close: Int32 = 5
+    }
+
+    let devToolsSetKeyHandler: @convention(c) (KeyFn?) -> Void
+    let devToolsSetPlacement: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32) -> Void
+    let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
+    let devToolsBrowser: @convention(c) (Int32) -> Int32
+    let devToolsSetFocus: @convention(c) (Int32, Int32) -> Void
 
     let extActions: @convention(c) (Int32, Int32) -> UnsafeMutablePointer<CChar>?
     let extActionRun: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
@@ -135,9 +149,13 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setZoomLevel = try r("cmux_shim_set_zoom_level")
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")
-        showDevTools = try r("cmux_shim_show_devtools")
         close = try r("cmux_shim_close")
         devToolsCall = try r("cmux_shim_devtools_call")
+        devToolsSetKeyHandler = try r("cmux_shim_devtools_set_key_handler")
+        devToolsSetPlacement = try r("cmux_shim_devtools_set_placement")
+        devToolsCommand = try r("cmux_shim_devtools_command")
+        devToolsBrowser = try r("cmux_shim_devtools_browser")
+        devToolsSetFocus = try r("cmux_shim_devtools_set_focus")
         extActions = try r("cmux_shim_ext_actions")
         extActionRun = try r("cmux_shim_ext_action_run")
         extActionHidePopup = try r("cmux_shim_ext_action_hide_popup")

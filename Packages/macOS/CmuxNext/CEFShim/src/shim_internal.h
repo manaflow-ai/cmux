@@ -44,6 +44,7 @@ struct Host {
   cmux_shim_schedule_fn schedule = nullptr;
   cmux_shim_event_fn event = nullptr;
   cmux_shim_key_fn key = nullptr;
+  cmux_shim_key_fn devtools_key = nullptr;
 };
 
 ForkApi& fork_api();
@@ -82,5 +83,12 @@ CefRefPtr<CefClient> DefaultClient();
 int StoreMenuCallback(CefRefPtr<CefRunContextMenuCallback> callback);
 CefRefPtr<CefRunContextMenuCallback> TakeMenuCallback(int token);
 CefRefPtr<CefApp> MakeApp(std::vector<std::string> switches);
+
+// OnBeforeDevToolsPopup of a page client: asks the host where DevTools of
+// `inspected` goes and gives it a DevTools-only client (shim_devtools.mm).
+void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
+                          bool* use_default_window);
+// The page closed: drop its DevTools placement.
+void ForgetDevTools(int inspected);
 
 }  // namespace cmux_shim

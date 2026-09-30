@@ -2,10 +2,13 @@ import AppKit
 import CmuxNextBrowser
 import WebKit
 
-/// Developer tools for a page. WebKit's inspector (`_WKInspector`) supports
-/// toggling and the console view; other engines only open their DevTools.
+/// Developer tools for a page (Chrome's Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C).
+/// Chromium tabs show DevTools docked in the pane (`BrowserDevToolsHosting`);
+/// WebKit's inspector (`_WKInspector`) supports toggling and the console
+/// view; other engines only open their DevTools.
 enum WebInspector {
     static func toggle(_ tab: any BrowserTab) {
+        if let devTools = tab as? any BrowserDevToolsHosting { return devTools.performDevTools(.toggle) }
         guard let inspector = inspector(of: tab) else { return tab.showDevTools() }
         let isVisible = inspector.responds(to: Selector(("isVisible"))) && (inspector.value(forKey: "visible") as? Bool ?? false)
         let selector = isVisible ? Selector(("close")) : Selector(("show"))
@@ -13,11 +16,23 @@ enum WebInspector {
     }
 
     static func showConsole(_ tab: any BrowserTab) {
+        if let devTools = tab as? any BrowserDevToolsHosting { return devTools.performDevTools(.console) }
         guard let inspector = inspector(of: tab), inspector.responds(to: Selector(("showConsole"))) else {
             return tab.showDevTools()
         }
         inspector.perform(Selector(("showConsole")))
     }
+
+    /// Chrome's element picker; WebKit shows its inspector.
+    static func inspectElement(_ tab: any BrowserTab) {
+        if let devTools = tab as? any BrowserDevToolsHosting { return devTools.performDevTools(.inspectElement) }
+        guard let inspector = inspector(of: tab), inspector.responds(to: Selector(("show"))) else { return tab.showDevTools() }
+        inspector.perform(Selector(("show")))
+    }
+
+    /// The actions a DevTools window runs itself before its frontend sees
+    /// the key (Cmd-Opt-I closes it, as in Chrome).
+    static let devToolsActions: Set<String> = ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement"]
 
     private static func inspector(of tab: any BrowserTab) -> NSObject? {
         guard let webView = (tab as? WebKitTab)?.webView, webView.responds(to: Selector(("_inspector"))) else { return nil }

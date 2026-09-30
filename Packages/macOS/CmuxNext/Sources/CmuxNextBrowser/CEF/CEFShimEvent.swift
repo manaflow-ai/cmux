@@ -26,6 +26,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case reply(browser: Int32, id: Int32, value: Int64, json: String)
     /// Chromium's page context menu; finish with `cmux_shim_context_menu_done(token, …)`.
     case contextMenu(browser: Int32, token: Int32, x: Int, y: Int, itemsJSON: String, paramsJSON: String)
+    /// DevTools events name the inspected page's browser.
+    case devToolsWillOpen(browser: Int32)
+    case devToolsOpened(browser: Int32, devTools: Int32, docked: Bool)
+    case devToolsClosed(browser: Int32, devTools: Int32)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -55,6 +59,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 17: self = .popup(browser: browser, url: s1, disposition: Int(a))
         case 18: self = .reply(browser: browser, id: request, value: a, json: s1)
         case 19: self = .contextMenu(browser: browser, token: request, x: Int(a), y: Int(b), itemsJSON: s1, paramsJSON: s2)
+        case 20: self = .devToolsWillOpen(browser: browser)
+        case 21: self = .devToolsOpened(browser: browser, devTools: Int32(truncatingIfNeeded: a), docked: b != 0)
+        case 22: self = .devToolsClosed(browser: browser, devTools: Int32(truncatingIfNeeded: a))
         default: self = .unknown(kind: kind)
         }
     }

@@ -10,6 +10,9 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         case content
         case addressBar
         case findBar
+        /// The focused page's docked developer tools (a separate keyboard
+        /// target inside the pane, like the address bar).
+        case devTools
         /// The sidebar list. `keyboard` when it got there by keyboard
         /// (arrow navigation keeps it through workspace switches).
         case sidebar(keyboard: Bool)
@@ -29,7 +32,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
 
         var isPaneScoped: Bool {
             switch self {
-            case .content, .addressBar, .findBar: true
+            case .content, .addressBar, .findBar, .devTools: true
             default: false
             }
         }
@@ -87,6 +90,8 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         case browserPage(pane: String, tab: String)
         case addressBar(pane: String, tab: String)
         case findBar(pane: String, tab: String)
+        /// The page's docked DevTools has the keyboard.
+        case devTools(pane: String, tab: String)
         /// A focused pane with no content to type into (empty, loading).
         case emptyPane(pane: String)
         case sidebar
@@ -97,7 +102,8 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
 
         var pane: String? {
             switch self {
-            case .terminal(let pane, _), .browserPage(let pane, _), .addressBar(let pane, _), .findBar(let pane, _): pane
+            case .terminal(let pane, _), .browserPage(let pane, _), .addressBar(let pane, _), .findBar(let pane, _),
+                 .devTools(let pane, _): pane
             case .emptyPane(let pane): pane
             default: nil
             }
@@ -105,7 +111,8 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
 
         var tab: String? {
             switch self {
-            case .terminal(_, let tab), .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab): tab
+            case .terminal(_, let tab), .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab),
+                 .devTools(_, let tab): tab
             default: nil
             }
         }
@@ -119,6 +126,12 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
             }
         }
 
+        /// The docked DevTools has the keyboard: content chords are its own.
+        var isDevTools: Bool {
+            if case .devTools = self { return true }
+            return false
+        }
+
         /// Stable name for `debug.focus`.
         var kind: String {
             switch self {
@@ -126,6 +139,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
             case .browserPage: "browserPage"
             case .addressBar: "addressBar"
             case .findBar: "findBar"
+            case .devTools: "devTools"
             case .emptyPane: "emptyPane"
             case .sidebar: "sidebar"
             case .sidebarField: "sidebarField"
@@ -175,12 +189,13 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         case .sidebarField: return .sidebarField
         case .textField: return .textField
         case .none: return .none
-        case .content, .addressBar, .findBar:
+        case .content, .addressBar, .findBar, .devTools:
             guard let pane, let model = topology.pane(pane) else { return .none }
             guard let tab = model.selectedTab else { return .emptyPane(pane: pane) }
             switch (tab.kind, target) {
             case (.browser, .addressBar): return .addressBar(pane: pane, tab: tab.id)
             case (.browser, .findBar): return .findBar(pane: pane, tab: tab.id)
+            case (.browser, .devTools): return .devTools(pane: pane, tab: tab.id)
             case (.browser, _): return .browserPage(pane: pane, tab: tab.id)
             case (.terminal, _): return .terminal(pane: pane, tab: tab.id)
             case (.other, _): return .emptyPane(pane: pane)
@@ -197,7 +212,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         if let top = overlays.last, top != .palette { return Context() }
         switch underlying {
         case .terminal: return Context(terminal: true)
-        case .browserPage, .addressBar, .findBar: return Context(browser: true)
+        case .browserPage, .addressBar, .findBar, .devTools: return Context(browser: true)
         default: return Context()
         }
     }

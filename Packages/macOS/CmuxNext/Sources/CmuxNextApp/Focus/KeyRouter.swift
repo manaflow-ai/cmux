@@ -42,7 +42,7 @@ final class KeyRouter: BrowserKeyRouting {
         switch tier {
         case .system: true
         case .navigation: !focus.isBrowserFocusModeActive
-        case .content: !focus.isBrowserFocusModeActive && !focus.resolved.isTextInput
+        case .content: !focus.isBrowserFocusModeActive && !focus.resolved.isTextInput && !focus.resolved.isDevTools
         }
     }
 
@@ -211,6 +211,21 @@ final class KeyRouter: BrowserKeyRouting {
     func browserTab(_ tab: any BrowserTab, keyEquivalent event: NSEvent) -> BrowserKeyDisposition {
         guard let controller = window(showing: tab) else { return .passToPage }
         return routeContentKeyEquivalent(event, focus: controller.focus.state) ? .handledByHost : .passToPage
+    }
+
+    /// Before a docked or undocked DevTools sees a key: only the DevTools
+    /// actions (Cmd-Opt-I closes it, Cmd-Opt-J, Cmd-Opt-C), as in Chrome.
+    /// Tiers 0 and 1 ran app-wide already; content chords (Copy, Reload)
+    /// belong to the DevTools frontend.
+    func browserTab(_ tab: any BrowserTab, devToolsKeyEquivalent event: NSEvent) -> BrowserKeyDisposition {
+        guard let resolved = registry.resolveShortcut(for: event), WebInspector.devToolsActions.contains(resolved.id.rawValue),
+              let devTools = tab as? any BrowserDevToolsHosting else { return .passToPage }
+        switch resolved.id.rawValue {
+        case "toggleBrowserDeveloperTools": devTools.performDevTools(.toggle)
+        case "showBrowserJavaScriptConsole": devTools.performDevTools(.console)
+        default: devTools.performDevTools(.inspectElement)
+        }
+        return .handledByHost
     }
 
     private func window(showing tab: any BrowserTab) -> WindowController? {

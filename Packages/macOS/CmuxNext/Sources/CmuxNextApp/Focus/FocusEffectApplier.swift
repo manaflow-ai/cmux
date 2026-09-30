@@ -13,6 +13,8 @@ final class FocusEffectApplier: FocusEffectApplying {
     private unowned let controller: WindowController
     /// The CEF page this window gave focus to (blurred when focus leaves).
     private weak var focusedChildWindowPage: AnyObject?
+    /// The tab whose docked DevTools this window gave focus to.
+    private weak var focusedDevTools: (any BrowserDevToolsHosting)?
     private var observers: [any NSObjectProtocol] = []
     /// The panel bubble over this window that has the keyboard (group editor).
     private weak var overlayPanel: NSWindow?
@@ -86,6 +88,9 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .browserPage(let pane, let tab):
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
             focusPage(entry.tab, in: window)
+        case .devTools(let pane, let tab):
+            guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
+            focusDevTools(of: entry.tab, in: window)
         case .addressBar(let pane, let tab):
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
@@ -123,6 +128,10 @@ final class FocusEffectApplier: FocusEffectApplying {
     }
 
     private func focusPage(_ page: any BrowserTab, in window: NSWindow) {
+        // The keyboard moves from the tools back to the page.
+        let fromDevTools = focusedDevTools.map { $0 === page } ?? false
+        if focusedDevTools != nil { blurDevTools() }
+        if fromDevTools { focusedChildWindowPage = nil }
         switch page.presentation {
         case .inView:
             blurChildWindowPage()
@@ -140,7 +149,29 @@ final class FocusEffectApplier: FocusEffectApplying {
         }
     }
 
+    /// The docked DevTools of `page` takes the keyboard (a separate target
+    /// inside the pane). No DevTools open: the page keeps it.
+    private func focusDevTools(of page: any BrowserTab, in window: NSWindow) {
+        guard let devTools = page as? any BrowserDevToolsHosting, devTools.devTools.isOpen else {
+            return focusPage(page, in: window)
+        }
+        if window.firstResponder !== window { window.makeFirstResponder(nil) }
+        guard focusedDevTools !== devTools else { return }
+        blurDevTools()
+        // Not `blurChildWindowPage`: that would make this window key again.
+        focusedChildWindowPage = nil
+        devTools.setDevToolsFocused(true)
+        focusedDevTools = devTools
+    }
+
+    private func blurDevTools() {
+        guard let devTools = focusedDevTools else { return }
+        focusedDevTools = nil
+        devTools.setDevToolsFocused(false)
+    }
+
     private func blurChildWindowPage() {
+        blurDevTools()
         guard let page = focusedChildWindowPage as? any BrowserTab else { return }
         focusedChildWindowPage = nil
         setPageFocus(page, false)
@@ -190,8 +221,17 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// A Chromium page window (a child of this window, not one of our
     /// panels) became key: the user clicked into that page.
     private func childWindowDidBecomeKey(_ child: NSWindow) {
-        guard let window = controller.window, child.parent === window, !(child is NSPanel),
-              let pane = paneShowingChildWindowPage(at: child.frame) else { return }
+        guard let window = controller.window, child.parent === window, !(child is NSPanel) else { return }
+        if let devTools = paneShowingDevTools(window: child) {
+            // A click into a docked DevTools: the tools have the keyboard.
+            focusedChildWindowPage = nil
+            focusedDevTools = devTools.tab
+            controller.focus.responderDidChange(.devTools(pane: devTools.key), source: .mouse)
+            if window.firstResponder !== window { window.makeFirstResponder(nil) }
+            return
+        }
+        guard let pane = paneShowingChildWindowPage(at: child.frame) else { return }
+        focusedDevTools = nil
         focusedChildWindowPage = pane.page
         InputJournal.shared.append(window: controller.state.id, .page(tab: pane.page.id.rawValue, focused: true, engine: "chromium-key"))
         // A click chose the page. Anything else (AppKit restoring key after a
@@ -200,6 +240,15 @@ final class FocusEffectApplier: FocusEffectApplying {
         let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(NSApp.currentEvent?.type)
         controller.focus.responderDidChange(clicked ? .content(pane: pane.key) : .windowOrNone, source: clicked ? .mouse : .programmatic)
         if window.firstResponder !== window { window.makeFirstResponder(nil) }
+    }
+
+    private func paneShowingDevTools(window child: NSWindow) -> (key: String, tab: any BrowserDevToolsHosting)? {
+        for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
+            guard case .browser(let entry)? = pane.currentContent, let devTools = entry.tab as? any BrowserDevToolsHosting,
+                  devTools.devToolsContains(window: child) else { continue }
+            return (pane.paneKey, devTools)
+        }
+        return nil
     }
 
     private func paneShowingChildWindowPage(at frame: NSRect) -> (key: String, page: any BrowserTab)? {
@@ -230,4 +279,7 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     /// The CEF page this window focused, for `debug.focus`.
     var focusedChildWindowPageID: String? { (focusedChildWindowPage as? any BrowserTab)?.id.rawValue }
+
+    /// The tab whose docked DevTools this window focused, for `debug.focus`.
+    var focusedDevToolsTabID: String? { (focusedDevTools as? any BrowserTab)?.id.rawValue }
 }

@@ -108,14 +108,40 @@ final class CEFTabContentView: NSView {
 
     override func layout() {
         super.layout()
-        for subview in subviews { subview.frame = bounds }
+        layoutContent()
+    }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        layoutContent()
+    }
+
+    /// The page (the pane's shared `CEFHostView` and the snapshot) takes
+    /// the page frame; a docked DevTools and its divider take the rest.
+    func layoutContent() {
+        let frames = tab?.devToolsFrames(in: bounds)
+            ?? CEFDevToolsLayout.Frames(page: bounds, devTools: .zero, line: .zero, grab: .zero)
+        let devToolsHost = tab?.devToolsViews?.host
+        for subview in subviews {
+            let frame: CGRect
+            if subview === devToolsHost {
+                frame = frames.devTools
+            } else if subview is CEFDevToolsDivider {
+                frame = frames.grab
+            } else {
+                frame = frames.page
+            }
+            if subview.frame != frame { subview.frame = frame }
+        }
+        tab?.applyOcclusion()
     }
 
     /// Shows `image` over the page area (nil removes it).
     func showSnapshot(_ image: CGImage?) {
         if let image {
-            snapshotView.image = NSImage(cgImage: image, size: bounds.size)
-            snapshotView.frame = bounds
+            let page = tab?.devToolsFrames(in: bounds).page ?? bounds
+            snapshotView.image = NSImage(cgImage: image, size: page.size)
+            snapshotView.frame = page
             if snapshotView.superview == nil { addSubview(snapshotView) }
             snapshotView.isHidden = false
         } else {

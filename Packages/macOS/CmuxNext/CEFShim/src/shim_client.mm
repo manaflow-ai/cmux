@@ -142,6 +142,14 @@ class Client : public CefClient,
     return false;
   }
 
+  void OnBeforeDevToolsPopup(CefRefPtr<CefBrowser> browser, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
+                             CefBrowserSettings&, CefRefPtr<CefDictionaryValue>&, bool* use_default_window) override {
+    // Every DevTools of this page (ShowDevTools, Chrome's DevTools
+    // commands, the context menu's Inspect) gets its own client, so it is
+    // never adopted as a tab and never reports this page's URL or title.
+    PrepareDevToolsPopup(browser->GetIdentifier(), window_info, client, use_default_window);
+  }
+
   bool DoClose(CefRefPtr<CefBrowser> browser) override {
     int id = browser->GetIdentifier();
     if (!TakeHostClose(id)) {
@@ -155,6 +163,7 @@ class Client : public CefClient,
     int id = browser->GetIdentifier();
     registrations_.erase(id);
     browsers().erase(id);
+    ForgetDevTools(id);
     Emit(CMUX_SHIM_BEFORE_CLOSE, id);
   }
 

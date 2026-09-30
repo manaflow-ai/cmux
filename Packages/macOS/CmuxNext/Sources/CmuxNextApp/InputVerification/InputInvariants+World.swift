@@ -80,6 +80,8 @@ extension InputInvariants {
         case .browserPage(let pane, _): childPage == nil ? .content(pane: pane) : .windowOrNone
         case .addressBar(let pane, _): .addressBar(pane: pane)
         case .findBar(let pane, _): .findBar(pane: pane)
+        // A docked DevTools has the keys in its own child window, like a page.
+        case .devTools: .windowOrNone
         case .sidebar: .sidebar
         case .sidebarField: .sidebarField
         case .textField: .textField
@@ -102,7 +104,11 @@ extension InputInvariants {
         case .childPage(let id):
             guard let window = observation.window(id) else { break }
             let underlying = window.model.underlying
-            let isChildPage: Bool = if case .browserPage(_, let tab) = underlying { window.childWindowTabs.contains(tab) } else { false }
+            // The page's window, or its docked DevTools window.
+            let isChildPage: Bool = switch underlying {
+            case .browserPage(_, let tab), .devTools(_, let tab): window.childWindowTabs.contains(tab)
+            default: false
+            }
             if !isChildPage, window.model.overlays.isEmpty {
                 fail(id, "a Chromium page window has the keys while the model targets \(underlying.kind)")
             }
@@ -165,6 +171,7 @@ extension InputInvariants {
         case .content(let pane): "content:\(pane)"
         case .addressBar(let pane): "addressBar:\(pane)"
         case .findBar(let pane): "findBar:\(pane)"
+        case .devTools(let pane): "devTools:\(pane)"
         case .sidebar: "sidebar"
         case .sidebarField: "sidebarField"
         case .textField: "textField"
@@ -177,7 +184,7 @@ extension FocusEvent.Responder {
     /// The pane a pane-scoped responder is in.
     nonisolated var pane: String? {
         switch self {
-        case .content(let pane), .addressBar(let pane), .findBar(let pane): pane
+        case .content(let pane), .addressBar(let pane), .findBar(let pane), .devTools(let pane): pane
         default: nil
         }
     }

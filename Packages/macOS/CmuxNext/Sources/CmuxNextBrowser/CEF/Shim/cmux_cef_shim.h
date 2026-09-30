@@ -55,7 +55,20 @@ typedef enum {
   // left), s1 = JSON items [{id,label,type,enabled,checked,items?}],
   // s2 = JSON {link_url,source_url,page_url,selection,editable,media_type}.
   CMUX_SHIM_CONTEXT_MENU = 19,
+  // DevTools of browser_id (the inspected page) is about to be created. The
+  // host calls cmux_shim_devtools_set_placement before returning.
+  CMUX_SHIM_DEVTOOLS_WILL_OPEN = 20,
+  CMUX_SHIM_DEVTOOLS_OPENED = 21, // a = DevTools browser id, b = 1 docked
+  CMUX_SHIM_DEVTOOLS_CLOSED = 22, // a = DevTools browser id
 } cmux_shim_event_kind_t;
+
+typedef enum {
+  CMUX_SHIM_DEVTOOLS_SHOW = 1,        // open, or focus the open DevTools
+  CMUX_SHIM_DEVTOOLS_CONSOLE = 2,     // Chrome's IDC_DEV_TOOLS_CONSOLE
+  CMUX_SHIM_DEVTOOLS_INSPECT = 3,     // Chrome's IDC_DEV_TOOLS_INSPECT (element picker)
+  CMUX_SHIM_DEVTOOLS_INSPECT_AT = 4,  // inspect the element at (x, y), view coordinates
+  CMUX_SHIM_DEVTOOLS_CLOSE = 5,
+} cmux_shim_devtools_command_t;
 
 
 // Any thread. Swift moves it to the main run loop timer.
@@ -141,11 +154,24 @@ CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
 // FIND_RESULT events carry `find_id`.
 CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next);
 CMUX_SHIM_EXPORT void cmux_shim_stop_finding(int browser_id, int clear_selection);
-CMUX_SHIM_EXPORT void cmux_shim_show_devtools(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_close(int browser_id);
 // Runs a DevTools method in process; DEVTOOLS_RESULT carries the returned id.
 // Returns 0 when the browser is gone or params_json is not a JSON object.
 CMUX_SHIM_EXPORT int cmux_shim_devtools_call(int browser_id, const char* method, const char* params_json);
+
+// DevTools. DevTools browsers are never tabs: they have their own
+// client and report only CMUX_SHIM_DEVTOOLS_* events.
+// Key downs in a DevTools browser; browser_id is the inspected page.
+CMUX_SHIM_EXPORT void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn key);
+// Where the next DevTools of browser_id goes: a child of parent_view
+// (NSView*, width x height), or, with parent_view NULL, its own window at
+// (x, y, width, height) in screen coordinates (0 size = Chromium's default).
+CMUX_SHIM_EXPORT void cmux_shim_devtools_set_placement(int browser_id, void* parent_view, int x, int y, int width, int height);
+// cmux_shim_devtools_command_t; returns 0 when browser_id is gone.
+CMUX_SHIM_EXPORT int cmux_shim_devtools_command(int browser_id, int command, int x, int y);
+// The DevTools browser id of browser_id, or 0 when DevTools is closed.
+CMUX_SHIM_EXPORT int cmux_shim_devtools_browser(int browser_id);
+CMUX_SHIM_EXPORT void cmux_shim_devtools_set_focus(int browser_id, int focus);
 
 // Extension actions (fork API v1). Returned strings are freed with
 // cmux_shim_free.

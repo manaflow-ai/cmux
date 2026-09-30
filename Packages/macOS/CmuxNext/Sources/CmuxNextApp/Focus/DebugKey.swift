@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextSettings
 import CmuxNextBridge
+import CmuxNextBrowser
 
 /// `debug.key` (DEBUG builds): a key-down synthesized into one of this
 /// process's own windows and dispatched the way `NSApplication.sendEvent`
@@ -32,6 +33,12 @@ enum DebugKey {
                 return .object(["error": .string("no Chromium page window for pane")])
             }
             window = page
+        } else if params["target"]?.stringValue == "devtools" {
+            let pane = params["pane"]?.stringValue ?? controller.focus.state.pane
+            guard let pane, let devTools = devToolsWindow(of: pane, in: controller) else {
+                return .object(["error": .string("no docked DevTools window for pane")])
+            }
+            window = devTools
         }
         let name = params["key"]?.stringValue ?? ""
         let key = named[name.lowercased()] ?? (name, 0)
@@ -64,7 +71,7 @@ enum DebugKey {
             handledBy = "app"
             action = services.keyRouter.lastInterception.map { .string($0.action.rawValue) } ?? .null
         } else if isChord, window.performKeyEquivalent(with: event) {
-            handledBy = window === shell ? "window" : "page"
+            handledBy = window === shell ? "window" : params["target"]?.stringValue == "devtools" ? "devtools" : "page"
         } else if isChord, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
             handledBy = "menu"
             action = NSApp.mainMenu.flatMap { menuItem(matching: event, in: $0) }.map { .string($0.title) } ?? .null
@@ -72,8 +79,8 @@ enum DebugKey {
             window.sendEvent(event)
             if window !== shell { handledBy = "page" }
         }
-        return .object(["handled_by": .string(handledBy), "action": action,
-                        "window_kind": .string(window === shell ? "shell" : "chromium_page")])
+        let kind = window === shell ? "shell" : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"
+        return .object(["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind)])
     }
 
     /// The first enabled main-menu item with `event`'s key equivalent (what
@@ -88,6 +95,14 @@ enum DebugKey {
         return nil
     }
 
+    /// The docked DevTools window of `pane`'s selected Chromium tab.
+    private static func devToolsWindow(of pane: String, in controller: WindowController) -> NSWindow? {
+        guard let window = controller.window, let paneController = controller.content?.paneController(key: pane),
+              case .browser(let entry)? = paneController.currentContent,
+              let devTools = entry.tab as? any BrowserDevToolsHosting else { return nil }
+        return WindowOverlayLayer.contentChildWindows(of: window).first { devTools.devToolsContains(window: $0) }
+    }
+
     /// The Chromium page window over `pane`'s selected Chromium tab.
     private static func pageWindow(of pane: String, in controller: WindowController) -> NSWindow? {
         guard let window = controller.window, let paneController = controller.content?.paneController(key: pane),
@@ -96,7 +111,10 @@ enum DebugKey {
         guard content.window === window else { return nil }
         let frame = window.convertToScreen(content.convert(content.bounds, to: nil))
         let center = NSPoint(x: frame.midX, y: frame.midY)
-        return WindowOverlayLayer.contentChildWindows(of: window).last { $0.frame.contains(center) }
+        let devTools = entry.tab as? any BrowserDevToolsHosting
+        return WindowOverlayLayer.contentChildWindows(of: window).last { child in
+            child.frame.contains(center) && devTools?.devToolsContains(window: child) != true
+        }
     }
 
     /// `debug.sidebar_rename`: begins the inline rename of the window's

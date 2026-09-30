@@ -87,14 +87,6 @@ void cmux_shim_stop_finding(int browser_id, int clear_selection) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->StopFinding(clear_selection != 0);
 }
 
-void cmux_shim_show_devtools(int browser_id) {
-  if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) {
-    CefWindowInfo info;
-    info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
-    host->ShowDevTools(info, nullptr, CefBrowserSettings(), CefPoint());
-  }
-}
-
 void cmux_shim_close(int browser_id) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) {
     MarkHostClose(browser_id);

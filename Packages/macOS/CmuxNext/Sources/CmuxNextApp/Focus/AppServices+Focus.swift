@@ -1,3 +1,4 @@
+import CmuxNextBrowser
 import CmuxNextActions
 
 // App-wide inputs to the per-window focus coordinators.
@@ -25,6 +26,21 @@ extension AppServices {
         for controller in windows.controllers {
             guard let pane = controller.content?.panes.values.first(where: { $0.currentTabKey == key }) else { continue }
             controller.focus.send(.focusPane(pane.paneKey, source: .intent))
+            return
+        }
+    }
+
+    /// Page `key`'s DevTools opened docked (it takes the keyboard, as in
+    /// Chrome) or closed (the keyboard returns to the page).
+    func devToolsDidChange(_ key: String, state: BrowserDevToolsState, focused: Bool) {
+        for controller in windows.controllers {
+            guard let pane = controller.content?.panes.values.first(where: { $0.currentTabKey == key }) else { continue }
+            if state.isOpen, state.dock.isDocked, focused {
+                if controller.focus.state.pane != pane.paneKey { controller.focus.send(.focusPane(pane.paneKey, source: .intent)) }
+                controller.focus.send(.focusTarget(.devTools, source: .intent))
+            } else if !state.isOpen, controller.focus.state.resolved == .devTools(pane: pane.paneKey, tab: key) {
+                controller.focus.send(.focusTarget(.content, source: .intent))
+            }
             return
         }
     }

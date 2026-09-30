@@ -90,3 +90,18 @@ nonisolated enum Strings {
     }
     static var tryAgain: String { String(localized: "browser.error.tryAgain", defaultValue: "Try Again", bundle: .module) }
 }
+
+extension Strings {
+    static var devToolsDockBottom: String {
+        String(localized: "browser.devtools.dockBottom", defaultValue: "Dock to Bottom", bundle: .module)
+    }
+    static var devToolsDockRight: String {
+        String(localized: "browser.devtools.dockRight", defaultValue: "Dock to Right", bundle: .module)
+    }
+    static var devToolsUndock: String {
+        String(localized: "browser.devtools.undock", defaultValue: "Undock into Separate Window", bundle: .module)
+    }
+    static var devToolsClose: String {
+        String(localized: "browser.devtools.close", defaultValue: "Close Developer Tools", bundle: .module)
+    }
+}

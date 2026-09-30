@@ -51,6 +51,9 @@ final class TabContentCache {
     /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's
     /// action registry, `ExtensionMenuRouter`).
     var makeExtensionMenuHandler: ((String) -> any ExtensionMenuHandling)?
+    /// Page `key`'s docked DevTools opened (and takes the keyboard) or
+    /// closed; the App routes it through the window's focus coordinator.
+    var onDevToolsChange: ((String, BrowserDevToolsState, Bool) -> Void)?
 
     init(daemon: DaemonService) {
         self.daemon = daemon
@@ -173,6 +176,7 @@ final class TabContentCache {
     private func install(_ page: any BrowserTab, for key: String) -> BrowserEntry {
         page.delegate = pageRequests
         if page.engineKind == .cef { page.keyRouter = keyRouter }
+        (page as? CEFTab)?.devToolsObserver = self
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         onBrowserEntryCreated?(entry)
@@ -306,4 +310,11 @@ protocol SurfacePresenter: AnyObject {
 
 private struct WeakPresenter {
     weak var value: (any SurfacePresenter)?
+}
+
+extension TabContentCache: BrowserDevToolsObserving {
+    func browserTab(_ tab: any BrowserTab, devToolsDidChange state: BrowserDevToolsState, focused: Bool) {
+        guard let key = key(of: tab) else { return }
+        onDevToolsChange?(key, state, focused)
+    }
 }

@@ -33,6 +33,7 @@ enum FocusResponderClassifier {
         case .content(let pane): "content:\(pane)"
         case .addressBar(let pane): "addressBar:\(pane)"
         case .findBar(let pane): "findBar:\(pane)"
+        case .devTools(let pane): "devTools:\(pane)"
         case .sidebar: "sidebar"
         case .sidebarField: "sidebarField"
         case .textField: "textField"

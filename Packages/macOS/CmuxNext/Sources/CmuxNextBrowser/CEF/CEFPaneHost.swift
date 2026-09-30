@@ -63,7 +63,8 @@ final class CEFPaneHost {
         if hostView.superview !== container {
             hostView.removeFromSuperview()
             hostView.frame = container.bounds
-            hostView.autoresizingMask = [.width, .height]
+            // The tab's content view lays it out (page frame beside a docked DevTools).
+            hostView.autoresizingMask = []
             container.addSubview(hostView, positioned: .below, relativeTo: nil)
         }
         hostView.isHidden = false

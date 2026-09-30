@@ -93,10 +93,11 @@ enum BrowserChordTable {
         return keys.map { Shortcut($0, modifiers: event.modifierFlags) }
     }
 
-    /// Whether the focus target is browser content (page, address bar, find bar).
+    /// Whether the focus target is browser content (page, address bar, find
+    /// bar, docked DevTools).
     nonisolated static func isBrowserContext(_ resolved: FocusState.Resolved) -> Bool {
         switch resolved {
-        case .browserPage, .addressBar, .findBar: true
+        case .browserPage, .addressBar, .findBar, .devTools: true
         default: false
         }
     }

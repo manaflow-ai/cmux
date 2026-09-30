@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextBrowser
 import CmuxNextSettings
 import Darwin
@@ -29,10 +30,48 @@ enum DebugCEF {
                 "notified": .bool(fallbacks.notified),
             ])
         }
+        object["devtools"] = .array(devTools(services))
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
         return .object(object)
+    }
+
+    /// Per shown Chromium tab: its DevTools state, the page and docked
+    /// DevTools areas and the Chromium child windows over the tab (screen
+    /// coordinates, AppKit origin), so a check can see that the DevTools
+    /// window sits exactly over its area.
+    private static func devTools(_ services: AppServices) -> [JSONValue] {
+        var out: [JSONValue] = []
+        for controller in services.windows.controllers {
+            guard let window = controller.window else { continue }
+            for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
+                guard case .browser(let entry)? = pane.currentContent, let tab = entry.tab as? CEFTab else { continue }
+                let state = tab.devTools
+                var object: [String: JSONValue] = [
+                    "tab": .string(tab.id.rawValue), "pane": .string(pane.paneKey),
+                    "url": tab.state.url.map { .string($0.absoluteString) } ?? .null,
+                    "title": tab.state.title.map { .string($0) } ?? .null,
+                    "open": .bool(state.isOpen), "dock": .string(state.dock.rawValue),
+                ]
+                if let frames = tab.devToolsDiagnosticFrames {
+                    object["page_frame"] = rect(frames.page)
+                    object["devtools_frame"] = frames.devTools.map(rect) ?? .null
+                    let content = frames.devTools.map { frames.page.union($0) } ?? frames.page
+                    let children = WindowOverlayLayer.contentChildWindows(of: window).filter { $0.frame.intersects(content) }
+                    object["child_windows"] = .array(children.map { child in
+                        .object(["frame": rect(child.frame), "devtools": .bool(tab.devToolsContains(window: child)),
+                                 "key": .bool(child.isKeyWindow), "visible": .bool(child.isVisible)])
+                    })
+                }
+                out.append(.object(object))
+            }
+        }
+        return out
+    }
+
+    private static func rect(_ rect: CGRect) -> JSONValue {
+        .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
     }
 
     private static func unavailable(_ reason: CEFUnavailableReason?) -> JSONValue {

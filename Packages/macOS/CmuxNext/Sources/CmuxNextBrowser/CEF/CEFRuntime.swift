@@ -96,6 +96,12 @@ final class CEFRuntime {
 
     var forkAPIVersion: Int32 { shim?.forkAPIVersion() ?? 0 }
 
+    /// DevTools may dock in the pane (see `CEFDevToolsSupport`).
+    var supportsEmbeddedDevTools: Bool {
+        CEFDevToolsSupport.allowsEmbedded(forkAPIVersion: forkAPIVersion, bundleIdentifier: Bundle.main.bundleIdentifier,
+                                          environment: ProcessInfo.processInfo.environment)
+    }
+
     /// Starts CEF for the first tab without blocking the main thread on the
     /// library load: `dlopen` of the shim and the 367 MiB framework (seconds
     /// on a cold disk or after a rebuild, when the code signature is checked
@@ -276,6 +282,7 @@ final class CEFRuntime {
             pump.stop()
             throw .initialize
         }
+        shim.devToolsSetKeyHandler(cefDevToolsKeyCallback)
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in

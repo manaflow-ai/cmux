@@ -27,6 +27,20 @@ let cefKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
     }
 }
 
+/// C entry before a DevTools browser sees a key down; `browser` is the
+/// inspected page.
+let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
+    guard let context, let nsEvent else { return 0 }
+    let address = UInt(bitPattern: context)
+    let eventAddress = UInt(bitPattern: nsEvent)
+    return MainActor.assumeIsolated {
+        guard let runtime = CEFRuntime.from(address),
+              let pointer = UnsafeMutableRawPointer(bitPattern: eventAddress) else { return 0 }
+        let event = Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue()
+        return runtime.routeDevToolsKey(event, inspected: browser) ? 1 : 0
+    }
+}
+
 extension CEFRuntime {
     /// The runtime behind a callback context (an unretained pointer; the
     /// runtime lives for the rest of the process once started).
@@ -54,6 +68,12 @@ extension CEFRuntime {
             forkTabEvent(kind, browser: browser, window: window, value: value)
         case .contextMenu(let browser, let token, let x, let y, let items, let params):
             showContextMenu(browser: browser, token: token, x: x, y: y, itemsJSON: items, paramsJSON: params)
+        case .devToolsWillOpen(let browser):
+            tabsByBrowser[browser]?.devToolsWillOpen()
+        case .devToolsOpened(let browser, let devTools, let docked):
+            tabsByBrowser[browser]?.devToolsOpened(browser: devTools, docked: docked)
+        case .devToolsClosed(let browser, let devTools):
+            tabsByBrowser[browser]?.devToolsClosed(browser: devTools)
         case .unknown:
             break
         default:
@@ -78,6 +98,12 @@ extension CEFRuntime {
         let store = extensionStore(for: tab.profileID)
         guard let command = store.command(matching: event) else { return false }
         return store.run(command, in: tab)
+    }
+
+    func routeDevToolsKey(_ event: NSEvent, inspected browser: Int32) -> Bool {
+        guard event.type == .keyDown, !event.modifierFlags.isDisjoint(with: [.command, .control]),
+              let tab = tabsByBrowser[browser], let router = tab.keyRouter else { return false }
+        return router.browserTab(tab, devToolsKeyEquivalent: event) == .handledByHost
     }
 
     // MARK: Browser lifetime
@@ -232,7 +258,8 @@ extension CEFShimEvent {
              .loadStart(let b, _), .loadEnd(let b, _), .loadError(let b, _, _, _), .progress(let b, _),
              .fullscreen(let b, _), .findResult(let b, _, _, _), .closeRequested(let b), .popup(let b, _, _),
              .afterCreated(let b, _, _), .beforeClose(let b), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
-             .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _):
+             .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
+             .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _):
             b
         case .contextInitialized, .unknown:
             nil

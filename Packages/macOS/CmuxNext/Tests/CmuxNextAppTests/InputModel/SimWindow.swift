@@ -179,6 +179,12 @@ final class SimWindow: FocusEffectApplying {
             guard presented[pane] == tab else { return }
             blurChildPage()
             if responder != .findBar(pane: pane) { setResponder(.findBar(pane: pane), reported: true, source: .programmatic) }
+        case .devTools(let pane, let tab):
+            // FocusEffectApplier.focusDevTools: the docked DevTools window
+            // takes the keys; the page loses them, this window stays unkeyed.
+            guard presented[pane] == tab else { return }
+            if responder != .windowOrNone { setResponder(.windowOrNone, reported: true, source: .programmatic) }
+            childPage = nil
         case .emptyPane:
             blurChildPage()
             if responder.pane != nil { setResponder(.windowOrNone, reported: true, source: .programmatic) }

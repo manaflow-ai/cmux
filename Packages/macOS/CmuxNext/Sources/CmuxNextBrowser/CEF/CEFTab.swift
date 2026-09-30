@@ -7,7 +7,7 @@ public import Observation
 /// is created the first time the tab is shown, so hidden background tabs
 /// cost nothing until selected.
 @Observable
-public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting {
+public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -28,9 +28,22 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?
 
+    /// Rects in `contentView` coordinates where native UI covers the page.
     public var occlusionRects: [CGRect] = [] {
-        didSet { if host.visibleTab === self { host.hostView.occlusionRects = occlusionRects } }
+        didSet { applyOcclusion() }
     }
+
+    /// DevTools of this page (docked in `contentView` or in a window).
+    public internal(set) var devTools: BrowserDevToolsState
+    @ObservationIgnored var devToolsLayout: CEFDevToolsLayout
+    @ObservationIgnored var devToolsBrowserID: Int32?
+    /// Between `DEVTOOLS_WILL_OPEN` and `OPENED`: the layout keeps room.
+    @ObservationIgnored var devToolsOpening = false
+    /// Runs once DevTools closed (a move into or out of a window reopens).
+    @ObservationIgnored var devToolsAfterClose: BrowserDevToolsCommand?
+    /// The docked DevTools' parent view and the divider, while docked.
+    @ObservationIgnored var devToolsViews: (host: CEFHostView, divider: CEFDevToolsDivider)?
+    @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
 
     var machine = BrowserTabStateMachine()
     @ObservationIgnored var isCreationPending = false
@@ -45,7 +58,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored private var isOccluded = false
     @ObservationIgnored let host: CEFPaneHost
     @ObservationIgnored unowned let runtime: CEFRuntime
-    @ObservationIgnored private lazy var container: CEFTabContentView = {
+    @ObservationIgnored lazy var container: CEFTabContentView = {
         let view = CEFTabContentView()
         view.tab = self
         return view
@@ -56,6 +69,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         self.profileID = profile
         self.host = host
         self.runtime = runtime
+        let layout = CEFDevToolsLayout.remembered
+        devToolsLayout = layout
+        devTools = BrowserDevToolsState(dock: layout.dock)
     }
 
     public var contentView: NSView { container }
@@ -95,7 +111,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func contentDidAppear(in view: CEFTabContentView) {
         guard !isClosed else { return }
         host.present(self, in: view)
-        host.hostView.occlusionRects = occlusionRects
+        view.layoutContent()
     }
 
     func contentDidDisappear() {
@@ -109,6 +125,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func inheritDelegates(from opener: CEFTab?) {
         delegate = opener?.delegate
         keyRouter = opener?.keyRouter
+        devToolsObserver = opener?.devToolsObserver
     }
 
     func makeNavigationID() -> BrowserNavigationID {
@@ -155,8 +172,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             guard isOccluded else { return }
             container.showSnapshot(image)
             if host.visibleTab === self { host.hostView.isHidden = true }
+            devToolsViews?.host.isHidden = true
         } else {
             if host.visibleTab === self { host.hostView.isHidden = false }
+            devToolsViews?.host.isHidden = false
             container.showSnapshot(nil)
         }
     }
@@ -177,7 +196,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         Task { _ = try? await evaluate("document.exitFullscreen && document.exitFullscreen()") }
     }
 
-    public func showDevTools() { browserID.map { runtime.shim?.showDevTools($0) } }
+    public func showDevTools() { performDevTools(.show) }
 
     public func close() {
         guard !isClosed else { return }

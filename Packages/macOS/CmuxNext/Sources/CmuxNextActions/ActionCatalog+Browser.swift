@@ -107,9 +107,17 @@ extension ActionCatalog {
                 id: "showBrowserJavaScriptConsole",
                 title: String(localized: "action.showBrowserJavaScriptConsole", defaultValue: "Show JavaScript Console", bundle: .module),
                 keywords: ["browser", "devtools", "console"],
-                defaultShortcut: Shortcut("c", modifiers: [.option, .command]), category: .browser, symbol: "terminal",
+                defaultShortcut: Shortcut("j", modifiers: [.option, .command]), category: .browser, symbol: "terminal",
                 surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused], targets: [.pane],
                 cliName: "browser show-javascript-console", mainMenu: .view
+            ),
+            ActionDescriptor(
+                id: "inspectBrowserElement",
+                title: String(localized: "action.inspectBrowserElement", defaultValue: "Inspect Element", bundle: .module),
+                keywords: ["browser", "devtools", "inspector", "element", "picker"],
+                defaultShortcut: Shortcut("c", modifiers: [.option, .command]), category: .browser, symbol: "cursorarrow.rays",
+                surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused], targets: [.pane],
+                cliName: "browser inspect-element", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "toggleBrowserFocusMode",

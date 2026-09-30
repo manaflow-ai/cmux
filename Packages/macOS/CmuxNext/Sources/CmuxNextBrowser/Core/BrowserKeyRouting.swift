@@ -15,10 +15,14 @@ public protocol BrowserKeyRouting: AnyObject {
     func browserTab(_ tab: any BrowserTab, keyEquivalent event: NSEvent) -> BrowserKeyDisposition
     /// Browser focus mode: the page gets every key, extension shortcuts included.
     func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool
+    /// Before `tab`'s DevTools sees a key equivalent (its own shortcuts,
+    /// such as Cmd-Opt-I closing it, win over the DevTools frontend).
+    func browserTab(_ tab: any BrowserTab, devToolsKeyEquivalent event: NSEvent) -> BrowserKeyDisposition
 }
 
 extension BrowserKeyRouting {
     public func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool { false }
+    public func browserTab(_ tab: any BrowserTab, devToolsKeyEquivalent event: NSEvent) -> BrowserKeyDisposition { .passToPage }
 }
 
 // MARK: - Prompts

@@ -62,6 +62,7 @@ enum DebugFocus {
                 "first_responder": window?.firstResponder.map { .string(String(describing: type(of: $0))) } ?? .null,
                 "classified": .string(FocusResponderClassifier.describe(actual)),
                 "child_window_page": controller.focusApplier.focusedChildWindowPageID.map(JSONValue.string) ?? .null,
+                "devtools_tab": controller.focusApplier.focusedDevToolsTabID.map(JSONValue.string) ?? .null,
             ]),
             "layout_focused_pane": layoutFocus.map(JSONValue.string) ?? .null,
             "recent_events": .array(controller.focus.recent.suffix(12).map(JSONValue.string)),
@@ -85,6 +86,7 @@ enum DebugFocus {
             controller.focusApplier.focusedChildWindowPageID == nil ? .content(pane: pane) : nil
         case .addressBar(let pane, _): .addressBar(pane: pane)
         case .findBar(let pane, _): .findBar(pane: pane)
+        case .devTools: nil
         case .sidebar: .sidebar
         case .sidebarField: .sidebarField
         case .textField: .textField

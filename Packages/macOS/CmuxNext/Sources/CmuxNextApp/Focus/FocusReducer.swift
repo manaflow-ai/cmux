@@ -42,7 +42,7 @@ nonisolated enum FocusReducer {
         case .focusTarget(let target, let source):
             if next.sidebarHidden, target.isSidebar { break }
             if source.isUserIntent { bump(&next) }
-            if target == .addressBar || target == .findBar {
+            if target == .addressBar || target == .findBar || target == .devTools {
                 guard let pane = next.pane, next.topology.pane(pane)?.selectedTab?.kind == .browser else { break }
             }
             next.target = target
@@ -138,7 +138,7 @@ nonisolated enum FocusReducer {
         } else if state.pane == nil {
             state.pane = topology.panes.first?.id
         } else if let pane = state.pane, old.pane(pane)?.selected != topology.pane(pane)?.selected,
-                  state.target == .addressBar || state.target == .findBar {
+                  state.target == .addressBar || state.target == .findBar || state.target == .devTools {
             // Focus follows the selection; the old tab's chrome is gone.
             state.target = .content
         }
@@ -222,6 +222,10 @@ nonisolated enum FocusReducer {
             guard state.topology.contains(pane: reported) else { return true }
             pane = reported
             target = .findBar
+        case .devTools(let reported):
+            guard state.topology.contains(pane: reported) else { return true }
+            pane = reported
+            target = .devTools
         case .sidebar, .sidebarField:
             // A hidden sidebar cannot hold the keyboard: re-apply the target.
             guard !state.sidebarHidden else { return true }
@@ -238,7 +242,7 @@ nonisolated enum FocusReducer {
 
     private static func browserTab(of state: FocusState) -> String? {
         switch state.resolved {
-        case .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab): tab
+        case .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab), .devTools(_, let tab): tab
         default: nil
         }
     }

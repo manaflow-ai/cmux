@@ -33,6 +33,7 @@ enum BrowserHandlers {
         })
         registry.bind("toggleBrowserDeveloperTools", run: { WebInspector.toggle(try context.page($0).tab) })
         registry.bind("showBrowserJavaScriptConsole", run: { WebInspector.showConsole(try context.page($0).tab) })
+        registry.bind("inspectBrowserElement", run: { WebInspector.inspectElement(try context.page($0).tab) })
         registry.bind("toggleBrowserDesignMode", run: { invocation in
             let tab = try context.page(invocation).tab
             Task { _ = try? await tab.evaluate("document.designMode = document.designMode === 'on' ? 'off' : 'on'") }
