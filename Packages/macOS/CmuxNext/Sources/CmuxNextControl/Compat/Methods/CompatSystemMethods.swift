@@ -13,7 +13,8 @@ enum CompatSystemMethods {
         "system.tree": .async(tree),
         "window.list": .read({ call in
             let world = try call.snapshotWorld()
-            return ["windows": .array(world.windows.map { .object(CompatJSON.window($0, in: world)) })]
+            let all = call.params["include_hidden"]?.boolValue ?? false
+            return ["windows": .array(world.listedWindows(includeHidden: all).map { .object(CompatJSON.window($0, in: world)) })]
         }),
         "window.current": .read({ call in
             let world = try call.snapshotWorld()

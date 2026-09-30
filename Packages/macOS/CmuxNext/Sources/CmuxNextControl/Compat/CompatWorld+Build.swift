@@ -8,15 +8,22 @@ extension CompatWorld {
     /// the topology's windows and panes (app-local state), falling back to
     /// the first pane and tab.
     init(topology: ControlTopology, refs: CompatRefRegistry) {
-        let activeWindowID = topology.focus.windowID ?? topology.windows.first(where: \.isKey)?.id ?? topology.windows.first?.id
+        // Shown windows first, so indexes 0... name what the user sees and a
+        // window kept off screen never becomes the default target.
+        let ordered = topology.windows.filter { !$0.isHidden } + topology.windows.filter(\.isHidden)
+        let shown = ordered.filter { !$0.isHidden }
+        let activeWindowID = topology.focus.windowID ?? shown.first(where: \.isKey)?.id ?? shown.first?.id
         var windowsByWorkspace: [String: [String]] = [:]
-        for (index, info) in topology.windows.enumerated() {
+        for (index, info) in ordered.enumerated() {
             let uuid = CompatUUID.canonical(info.id) ?? CompatUUID.hashed("window:" + info.id)
             let workspaceUUID = info.workspaceID.map(Self.workspaceUUID(modelID:))
             if let workspaceUUID { windowsByWorkspace[workspaceUUID, default: []].append(uuid) }
-            windows.append(Window(uuid: uuid, ref: refs.ref(.window, uuid), index: index, modelID: info.id,
-                                  workspaceUUID: workspaceUUID, workspaceUUIDs: info.workspaceIDs.map(Self.workspaceUUID(modelID:)),
-                                  isKey: info.isKey, isVisible: info.isVisible))
+            var window = Window(uuid: uuid, ref: refs.ref(.window, uuid), index: index, modelID: info.id,
+                                workspaceUUID: workspaceUUID, workspaceUUIDs: info.workspaceIDs.map(Self.workspaceUUID(modelID:)),
+                                isKey: info.isKey, isVisible: info.isVisible)
+            window.isHidden = info.isHidden
+            window.visibleWorkspaceUUIDs = (info.visibleWorkspaceIDs ?? info.workspaceIDs).map(Self.workspaceUUID(modelID:))
+            windows.append(window)
             if info.id == activeWindowID { activeWindowUUID = uuid }
         }
         for (workspaceIndex, info) in topology.workspaces.enumerated() {

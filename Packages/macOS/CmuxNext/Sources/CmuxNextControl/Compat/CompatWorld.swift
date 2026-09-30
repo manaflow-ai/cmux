@@ -16,6 +16,10 @@ struct CompatWorld: Sendable {
         var workspaceUUIDs: [String] = []
         var isKey: Bool
         var isVisible: Bool
+        /// Kept off screen by the app (`ControlWindowInfo.isHidden`).
+        var isHidden = false
+        /// The workspaces its sidebar shows now (current room, reported by a machine).
+        var visibleWorkspaceUUIDs: [String] = []
     }
 
     struct Workspace: Sendable {
@@ -94,7 +98,12 @@ struct CompatWorld: Sendable {
     var activeWindowUUID: String?
     var generation: String?
 
-    var activeWindow: Window? { windows.first { $0.uuid == activeWindowUUID } ?? windows.first }
+    var activeWindow: Window? { windows.first { $0.uuid == activeWindowUUID } ?? windows.first { !$0.isHidden } }
+
+    /// The windows the user sees; every window with `includeHidden`.
+    func listedWindows(includeHidden: Bool) -> [Window] {
+        includeHidden ? windows : windows.filter { !$0.isHidden }
+    }
 
     func workspace(_ uuid: String?) -> Workspace? {
         guard let uuid else { return nil }

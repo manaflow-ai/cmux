@@ -24,10 +24,11 @@ enum CompatJSON {
         let shown = world.workspace(window.workspaceUUID)
         return [
             "id": .string(window.uuid), "ref": .string(window.ref), "index": JSON(window.index),
-            "key": .bool(window.isKey), "visible": .bool(window.isVisible),
-            "workspace_count": JSON(window.workspaceUUIDs.count),
-            "workspace_ids": .array(window.workspaceUUIDs.map(JSON.string)),
-            "workspace_refs": .array(window.workspaceUUIDs.compactMap { world.workspace($0)?.ref }.map(JSON.string)),
+            "key": .bool(window.isKey), "visible": .bool(window.isVisible), "hidden": .bool(window.isHidden),
+            // What its sidebar shows: the current room's workspaces a machine reports.
+            "workspace_count": JSON(window.visibleWorkspaceUUIDs.count),
+            "workspace_ids": .array(window.visibleWorkspaceUUIDs.map(JSON.string)),
+            "workspace_refs": .array(window.visibleWorkspaceUUIDs.compactMap { world.workspace($0)?.ref }.map(JSON.string)),
             "selected_workspace_id": shown.map { .string($0.uuid) } ?? .null,
             "selected_workspace_ref": shown.map { .string($0.ref) } ?? .null,
         ]
