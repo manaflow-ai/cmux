@@ -33,10 +33,14 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
+mod presentation_store;
+mod public_fold;
 mod public_projection_store;
 mod resource_store;
 mod session_journal;
 mod terminal_exit_store;
+mod terminal_keep_store;
+mod topology_close_store;
 
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
@@ -57,6 +61,12 @@ pub(crate) use journal_extensions::{
     JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob, JournalHookAttempt,
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
     JournalSegmentSealCommit, JournalSegmentSealStart,
+};
+pub use presentation_store::{
+    FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
+    TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
+    new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id, validate_tab_group_color,
+    validate_tab_group_name, validate_workspace_group_id,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;
@@ -94,6 +104,7 @@ use session_journal::{
     migrate_resource_events_to_session_journal,
 };
 pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
+pub(crate) use topology_close_store::TopologyCloseCommit;
 
 // Schema 9 shipped independently on the journal and multiview development
 // branches. Schema 10 shipped the journal extensions. Version 11 is the first
@@ -131,6 +142,9 @@ const JOURNAL_PLUGIN_GENERATION_META_KEY: &str = "journal_plugin_generation";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
+
+/// An extra write that runs inside a workspace-registry commit transaction.
+type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedWorkspaceRegistrySchema {
@@ -686,6 +700,8 @@ pub struct WorkspaceRegistry {
     machine_id: MachinePublicId,
     session_id: SessionPublicId,
     resource_effect_pepper: ResourceEffectPepper,
+    /// The topology state the resource journal states (see `public_fold`).
+    public_fold: Option<public_fold::PublicTopologyFold>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
     #[cfg(test)]
@@ -2643,6 +2659,13 @@ impl WorkspaceRegistry {
             migrate_terminal_hosts_add_on_exit(&tx)?;
             tx.commit()?;
         }
+        // Same probe-not-version rule: older builds keep opening the registry
+        // and leave the nullable column untouched on their writes.
+        if !resource_agent_hook_state_has_ended_at_column(&connection)? {
+            let tx = connection.unchecked_transaction()?;
+            migrate_resource_agent_hook_state_add_ended_at(&tx)?;
+            tx.commit()?;
+        }
         if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
             let violation = connection
@@ -2687,6 +2710,7 @@ impl WorkspaceRegistry {
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
             repair_dangling_terminal_resources(&tx)?;
+            terminal_keep_store::classify_legacy_terminals(&tx)?;
             tx.commit()?;
         }
         let stored_name = required_meta(&connection, "session_name")?;
@@ -2718,6 +2742,7 @@ impl WorkspaceRegistry {
             machine_id,
             session_id,
             resource_effect_pepper,
+            public_fold: None,
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
             #[cfg(test)]
@@ -3116,6 +3141,7 @@ impl WorkspaceRegistry {
         resource_store::validate_resource_patch(patch)?;
         let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
         let resource_result_json = canonical_json(resource_result)?;
+        let resource_deltas = &self.prune_stated_topology_deltas(resource_deltas)?;
         let tx = self.connection.transaction()?;
         let terminal_batch = [(terminal_id.to_string(), expected_incarnation.map(str::to_string))];
         let (patch, resource_deltas) =
@@ -3167,7 +3193,7 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-        apply_resource_patch(&tx, &patch, sqlite_revision)?;
+        let patch = apply_resource_patch(&tx, &patch, sqlite_revision)?;
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -3201,6 +3227,7 @@ impl WorkspaceRegistry {
         let resource =
             ResourcePatchCommit { revision, result: resource_result.clone(), replayed: false };
         tx.commit()?;
+        self.record_public_fold(previous_revision, revision, &resource_deltas, true);
         Ok(TerminalResourceCloseCommit::Committed { terminal, resource })
     }
 
@@ -3383,6 +3410,44 @@ impl WorkspaceRegistry {
             active_workspace,
             result,
             true,
+            None,
+        )
+    }
+
+    /// Commit a workspace-registry revision that also writes one workspace's
+    /// presentation row in the same transaction. The desired registry may be
+    /// unchanged (metadata only) or reordered (a group move). A replayed
+    /// mutation returns its original result and writes nothing.
+    #[allow(clippy::too_many_arguments)]
+    pub fn commit_workspace_presentation(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        event_kind: &str,
+        workspace_key: &str,
+        workspaces: &[RegistryWorkspace],
+        active_workspace: Option<&WorkspacePublicId>,
+        update: &WorkspacePresentationUpdate,
+        result: &Value,
+    ) -> anyhow::Result<RegistryCommit> {
+        update.validate()?;
+        let write = |tx: &Transaction<'_>| {
+            presentation_store::write_workspace_presentation(tx, workspace_key, update)
+        };
+        self.commit_workspace_registry(
+            mutation,
+            fingerprint,
+            expected_generation,
+            expected_revision,
+            event_kind,
+            workspace_key,
+            workspaces,
+            active_workspace,
+            result,
+            true,
+            Some(&write),
         )
     }
 
@@ -3415,6 +3480,7 @@ impl WorkspaceRegistry {
             active_workspace,
             result,
             false,
+            None,
         )
     }
 
@@ -3431,6 +3497,7 @@ impl WorkspaceRegistry {
         active_workspace: Option<&WorkspacePublicId>,
         result: &Value,
         project_resource: bool,
+        extra: Option<RegistryTransactionWrite<'_>>,
     ) -> anyhow::Result<RegistryCommit> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
@@ -3607,6 +3674,9 @@ impl WorkspaceRegistry {
                 &resource_deltas,
             )?;
             resource_store::prune_resource_mutations(&tx)?;
+        }
+        if let Some(extra) = extra {
+            extra(&tx)?;
         }
         tx.commit()?;
         Ok(RegistryCommit { revision, result: result.clone(), replayed: false })
@@ -3928,6 +3998,7 @@ fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
 }
 
 fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    presentation_store::create_presentation_schema(transaction)?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspaces (
            workspace_key TEXT PRIMARY KEY NOT NULL,
@@ -4043,6 +4114,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
            ON terminal_events(terminal_id, revision);",
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
+    terminal_keep_store::create_terminal_keep_schema(transaction)?;
     Ok(())
 }
 
@@ -4068,6 +4140,30 @@ fn terminal_hosts_has_on_exit_column(connection: &Connection) -> anyhow::Result<
         }
     }
     Ok(false)
+}
+
+fn resource_agent_hook_state_has_ended_at_column(connection: &Connection) -> anyhow::Result<bool> {
+    let mut statement = connection.prepare("PRAGMA table_info(resource_agent_hook_state)")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        if row.get::<_, String>(1)? == "ended_at_ms" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Add the hook fence's incarnation boundary to registries created before
+/// the column existed. Existing fences have no known boundary (NULL), which
+/// lets a same-id `SessionStart` resume an ended session.
+fn migrate_resource_agent_hook_state_add_ended_at(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "ALTER TABLE resource_agent_hook_state ADD COLUMN ended_at_ms INTEGER
+           CHECK(ended_at_ms IS NULL OR ended_at_ms >= 0);",
+    )?;
+    Ok(())
 }
 
 /// Add the per-terminal exit policy to registries created before the column
@@ -4650,15 +4746,65 @@ fn commit_workspace_registry_in_transaction(
     // underlying terminal.
     let terminal_batch =
         TerminalBatchClose { revision: transaction_terminal_revision(transaction)?, closed: 0 };
-    transaction.execute(
-        "UPDATE workspaces SET tombstoned = 1, position = NULL,
-         updated_revision = ?1, deleted_revision = ?1
-         WHERE tombstoned = 0",
-        [sqlite_revision],
-    )?;
-    // Tombstone first to release the partial unique position index, then
-    // upsert the complete desired order in this same transaction.
+    // Only rows that change are written. Removed rows are tombstoned and
+    // moved rows first park at a unique negative slot, which releases the
+    // partial unique position index for the desired order below.
+    let desired = workspaces
+        .iter()
+        .enumerate()
+        .map(|(position, workspace)| (workspace.key.as_str(), (position, workspace)))
+        .collect::<HashMap<_, _>>();
+    let stored = {
+        let mut statement = transaction.prepare(
+            "SELECT workspace_key, numeric_id, name, group_key, position
+             FROM workspaces WHERE tombstoned = 0",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    (
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<i64>>(4)?,
+                    ),
+                ))
+            })?
+            .collect::<Result<HashMap<_, _>, _>>()?
+    };
+    for (workspace_key, (_, _, _, stored_position)) in &stored {
+        match desired.get(workspace_key.as_str()) {
+            None => {
+                transaction.execute(
+                    "UPDATE workspaces SET tombstoned = 1, position = NULL,
+                     updated_revision = ?1, deleted_revision = ?1
+                     WHERE workspace_key = ?2 AND tombstoned = 0",
+                    params![sqlite_revision, workspace_key],
+                )?;
+            }
+            Some((position, _)) if *stored_position != i64::try_from(*position).ok() => {
+                transaction.execute(
+                    "UPDATE workspaces SET position = -rowid
+                     WHERE workspace_key = ?1 AND tombstoned = 0",
+                    [workspace_key],
+                )?;
+            }
+            Some(_) => {}
+        }
+    }
     for (position, workspace) in workspaces.iter().enumerate() {
+        let unchanged = stored.get(&workspace.key).is_some_and(
+            |(numeric_id, name, group_key, stored_position)| {
+                i64::try_from(workspace.id).ok() == Some(*numeric_id)
+                    && name == &workspace.name
+                    && group_key == &workspace.group_key
+                    && *stored_position == i64::try_from(position).ok()
+            },
+        );
+        if unchanged {
+            continue;
+        }
         transaction.execute(
             "INSERT INTO workspaces(
                workspace_key, numeric_id, name, group_key, position, tombstoned,

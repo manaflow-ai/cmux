@@ -228,6 +228,8 @@ struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
     detached_owner: Option<bool>,
+    /// `loopback-forward-v1` policy; validated when the daemon starts.
+    loopback_forward: Option<Value>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -3305,11 +3307,14 @@ pub struct Server {
     /// session owner so the session survives every client detaching.
     /// `false` restores hosting the session inside the first TUI process.
     pub detached_owner: bool,
+    /// `true`, `false`, or `{"enabled", "allow_ports", "deny_ports"}` for
+    /// browser loopback forwarding (`loopback-forward-v1`). Absent = on.
+    pub loopback_forward: Option<Value>,
 }
 
 impl Default for Server {
     fn default() -> Self {
-        Self { ws: None, ws_token: None, detached_owner: true }
+        Self { ws: None, ws_token: None, detached_owner: true, loopback_forward: None }
     }
 }
 
@@ -3946,6 +3951,7 @@ pub fn load() -> Config {
     if let Some(detached_owner) = raw.server.detached_owner {
         config.server.detached_owner = detached_owner;
     }
+    config.server.loopback_forward = raw.server.loopback_forward;
     config.keys.apply(&raw.keys);
     bind_user_command_chords(&mut config.keys, &user_commands, &user_command_keys);
     config.commands = user_commands;

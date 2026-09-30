@@ -1,12 +1,12 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8.
+// cmux-tui mux protocol 12, IR d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{CommandMetadata, EventMetadata, ProfileMetadata, StreamMetadata};
 
 pub const SDK_SCHEMA_VERSION: u32 = 2;
 pub const MUX_PROTOCOL_VERSION: u32 = 12;
-pub const SDK_IR_SHA256: &str = "70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8";
+pub const SDK_IR_SHA256: &str = "d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af";
 
 #[rustfmt::skip]
 pub const CONTROL_PROFILE: ProfileMetadata = ProfileMetadata {
@@ -42,6 +42,24 @@ pub const PROVIDER_AUTHORITY_PROFILE: ProfileMetadata = ProfileMetadata {
     inherits: &["control"],
     transport: None,
     requires_authority: true,
+};
+
+#[rustfmt::skip]
+pub const ACK_TAB_NOTIFICATIONS_METADATA: CommandMetadata = CommandMetadata {
+    name: "ack-tab-notifications",
+    since: 12,
+    capability: Some("notification-ack-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const ADD_TABS_TO_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "add-tabs-to-tab-group",
+    since: 12,
+    capability: Some("tab-groups-v1"),
+    authority: "control",
+    stream: None,
 };
 
 #[rustfmt::skip]
@@ -243,6 +261,24 @@ pub const CLOSE_SURFACE_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
+pub const CLOSE_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "close-tab-group",
+    since: 12,
+    capability: Some("tab-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const CLOSE_TABS_METADATA: CommandMetadata = CommandMetadata {
+    name: "close-tabs",
+    since: 12,
+    capability: Some("batch-close-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const CLOSE_TERMINAL_METADATA: CommandMetadata = CommandMetadata {
     name: "close-terminal",
     since: 9,
@@ -279,6 +315,15 @@ pub const CREATE_SURFACE_WITH_RECEIPT_METADATA: CommandMetadata = CommandMetadat
 };
 
 #[rustfmt::skip]
+pub const CREATE_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "create-tab-group",
+    since: 12,
+    capability: Some("tab-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const CREATE_TERMINAL_METADATA: CommandMetadata = CommandMetadata {
     name: "create-terminal",
     since: 7,
@@ -292,6 +337,33 @@ pub const CREATE_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
     name: "create-workspace",
     since: 7,
     capability: Some("workspace-registry-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const CREATE_WORKSPACE_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "create-workspace-group",
+    since: 12,
+    capability: Some("workspace-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const DELETE_SAVED_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "delete-saved-tab-group",
+    since: 12,
+    capability: Some("saved-tab-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const DELETE_WORKSPACE_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "delete-workspace-group",
+    since: 12,
+    capability: Some("workspace-groups-v1"),
     authority: "control",
     stream: None,
 };
@@ -423,10 +495,46 @@ pub const LIST_CLIENTS_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
+pub const LIST_NOTIFICATIONS_METADATA: CommandMetadata = CommandMetadata {
+    name: "list-notifications",
+    since: 12,
+    capability: Some("notification-ack-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const LIST_SAVED_TAB_GROUPS_METADATA: CommandMetadata = CommandMetadata {
+    name: "list-saved-tab-groups",
+    since: 12,
+    capability: Some("saved-tab-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const LIST_TAB_GROUPS_METADATA: CommandMetadata = CommandMetadata {
+    name: "list-tab-groups",
+    since: 12,
+    capability: Some("tab-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const LIST_TERMINALS_METADATA: CommandMetadata = CommandMetadata {
     name: "list-terminals",
     since: 9,
     capability: None,
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const LIST_WORKSPACE_GROUPS_METADATA: CommandMetadata = CommandMetadata {
+    name: "list-workspace-groups",
+    since: 12,
+    capability: Some("workspace-groups-v1"),
     authority: "control",
     stream: None,
 };
@@ -495,6 +603,69 @@ pub const MOVE_TAB_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
+pub const MOVE_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "move-tab-group",
+    since: 12,
+    capability: Some("tab-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const MOVE_TAB_GROUP_TO_COLUMN_METADATA: CommandMetadata = CommandMetadata {
+    name: "move-tab-group-to-column",
+    since: 12,
+    capability: Some("tab-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const MOVE_TAB_GROUP_TO_NEW_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
+    name: "move-tab-group-to-new-workspace",
+    since: 12,
+    capability: Some("tab-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const MOVE_TAB_GROUP_TO_SPLIT_METADATA: CommandMetadata = CommandMetadata {
+    name: "move-tab-group-to-split",
+    since: 12,
+    capability: Some("tab-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const MOVE_TAB_TO_COLUMN_METADATA: CommandMetadata = CommandMetadata {
+    name: "move-tab-to-column",
+    since: 12,
+    capability: Some("tab-drag-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const MOVE_TAB_TO_NEW_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
+    name: "move-tab-to-new-workspace",
+    since: 12,
+    capability: Some("tab-drag-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const MOVE_TAB_TO_SPLIT_METADATA: CommandMetadata = CommandMetadata {
+    name: "move-tab-to-split",
+    since: 12,
+    capability: Some("tab-drag-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const MOVE_TAB_TO_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
     name: "move-tab-to-workspace",
     since: 12,
@@ -522,10 +693,37 @@ pub const MOVE_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
+pub const MOVE_WORKSPACE_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "move-workspace-group",
+    since: 12,
+    capability: Some("workspace-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const MOVE_WORKSPACE_TO_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "move-workspace-to-group",
+    since: 12,
+    capability: Some("workspace-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const NEW_BROWSER_TAB_METADATA: CommandMetadata = CommandMetadata {
     name: "new-browser-tab",
     since: 5,
     capability: None,
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const NEW_FRONTEND_BROWSER_TAB_METADATA: CommandMetadata = CommandMetadata {
+    name: "new-frontend-browser-tab",
+    since: 12,
+    capability: Some("frontend-browser-tabs-v1"),
     authority: "control",
     stream: None,
 };
@@ -702,6 +900,15 @@ pub const RELOAD_CONFIG_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
+pub const REMOVE_TABS_FROM_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "remove-tabs-from-tab-group",
+    since: 12,
+    capability: Some("tab-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const RENAME_PANE_METADATA: CommandMetadata = CommandMetadata {
     name: "rename-pane",
     since: 5,
@@ -742,6 +949,15 @@ pub const RENAME_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
     name: "rename-workspace",
     since: 5,
     capability: None,
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const REOPEN_SAVED_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "reopen-saved-tab-group",
+    since: 12,
+    capability: Some("saved-tab-groups-v1"),
     authority: "control",
     stream: None,
 };
@@ -796,6 +1012,15 @@ pub const RUN_METADATA: CommandMetadata = CommandMetadata {
     name: "run",
     since: 6,
     capability: None,
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const SAVE_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "save-tab-group",
+    since: 12,
+    capability: Some("saved-tab-groups-v1"),
     authority: "control",
     stream: None,
 };
@@ -936,10 +1161,28 @@ pub const SET_SPLIT_RATIO_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
+pub const SET_TAB_PINNED_METADATA: CommandMetadata = CommandMetadata {
+    name: "set-tab-pinned",
+    since: 12,
+    capability: Some("tab-metadata-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const SET_TERMINAL_IDLE_POLICY_METADATA: CommandMetadata = CommandMetadata {
     name: "set-terminal-idle-policy",
     since: 12,
     capability: Some("terminal-idle-close-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const SET_TERMINAL_KEEP_METADATA: CommandMetadata = CommandMetadata {
+    name: "set-terminal-keep",
+    since: 12,
+    capability: Some("terminal-reap-v1"),
     authority: "control",
     stream: None,
 };
@@ -958,6 +1201,15 @@ pub const SET_WINDOW_TITLE_METADATA: CommandMetadata = CommandMetadata {
     name: "set-window-title",
     since: 6,
     capability: None,
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const SET_WORKSPACE_METADATA_METADATA: CommandMetadata = CommandMetadata {
+    name: "set-workspace-metadata",
+    since: 12,
+    capability: Some("workspace-metadata-v1"),
     authority: "control",
     stream: None,
 };
@@ -1017,10 +1269,28 @@ pub const TERMINAL_EVENTS_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
+pub const TERMINAL_RESOURCES_METADATA: CommandMetadata = CommandMetadata {
+    name: "terminal-resources",
+    since: 12,
+    capability: Some("terminal-resources-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const UNDO_LAYOUT_METADATA: CommandMetadata = CommandMetadata {
     name: "undo-layout",
     since: 9,
     capability: Some("layout-undo-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const UNGROUP_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "ungroup-tab-group",
+    since: 12,
+    capability: Some("tab-groups-v1"),
     authority: "control",
     stream: None,
 };
@@ -1031,6 +1301,42 @@ pub const UNREGISTER_BROWSER_PROVIDER_METADATA: CommandMetadata = CommandMetadat
     since: 10,
     capability: Some("browser-provider-v1"),
     authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const UNSAVE_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "unsave-tab-group",
+    since: 12,
+    capability: Some("saved-tab-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const UPDATE_FRONTEND_BROWSER_TAB_METADATA: CommandMetadata = CommandMetadata {
+    name: "update-frontend-browser-tab",
+    since: 12,
+    capability: Some("frontend-browser-tabs-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const UPDATE_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "update-tab-group",
+    since: 12,
+    capability: Some("tab-groups-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const UPDATE_WORKSPACE_GROUP_METADATA: CommandMetadata = CommandMetadata {
+    name: "update-workspace-group",
+    since: 12,
+    capability: Some("workspace-groups-v1"),
+    authority: "control",
     stream: None,
 };
 
@@ -1440,6 +1746,15 @@ pub const TAB_ADDED_EVENT_METADATA: EventMetadata = EventMetadata {
 };
 
 #[rustfmt::skip]
+pub const TAB_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
+    name: "tab-changed",
+    since: 12,
+    capability: Some("tab-metadata-v1"),
+    streams: &["subscribe-deltas"],
+    emission: "emitted",
+};
+
+#[rustfmt::skip]
 pub const TAB_CLOSED_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "tab-closed",
     since: 7,
@@ -1454,6 +1769,15 @@ pub const TAB_RENAMED_EVENT_METADATA: EventMetadata = EventMetadata {
     since: 7,
     capability: None,
     streams: &["subscribe-deltas"],
+    emission: "emitted",
+};
+
+#[rustfmt::skip]
+pub const TERMINAL_REAPED_EVENT_METADATA: EventMetadata = EventMetadata {
+    name: "terminal-reaped",
+    since: 12,
+    capability: Some("terminal-reap-v1"),
+    streams: &["subscribe"],
     emission: "emitted",
 };
 
@@ -1521,6 +1845,15 @@ pub const WORKSPACE_ADDED_EVENT_METADATA: EventMetadata = EventMetadata {
 };
 
 #[rustfmt::skip]
+pub const WORKSPACE_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
+    name: "workspace-changed",
+    since: 12,
+    capability: Some("workspace-metadata-v1"),
+    streams: &["subscribe-deltas"],
+    emission: "emitted",
+};
+
+#[rustfmt::skip]
 pub const WORKSPACE_CLOSED_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "workspace-closed",
     since: 7,
@@ -1550,6 +1883,6 @@ pub const WORKSPACE_RENAMED_EVENT_METADATA: EventMetadata = EventMetadata {
 #[rustfmt::skip]
 pub static PROFILES: &[ProfileMetadata] = &[CONTROL_PROFILE, FRONTEND_PROFILE, LOCAL_ADMIN_PROFILE, PROVIDER_AUTHORITY_PROFILE];
 #[rustfmt::skip]
-pub static COMMANDS: &[CommandMetadata] = &[APPLY_LAYOUT_METADATA, ATTACH_SURFACE_METADATA, BROWSER_ACTIVATE_METADATA, BROWSER_BACK_METADATA, BROWSER_FORWARD_METADATA, BROWSER_FRAME_PRESENTED_METADATA, BROWSER_INSERT_TEXT_METADATA, BROWSER_KEY_METADATA, BROWSER_KEY_PRESS_METADATA, BROWSER_MOUSE_METADATA, BROWSER_MOUSE_GUARDED_METADATA, BROWSER_NAVIGATE_METADATA, BROWSER_RELOAD_METADATA, BROWSER_WHEEL_METADATA, BROWSER_WHEEL_GUARDED_METADATA, CLEAR_HISTORY_METADATA, CLEAR_WINDOW_TITLE_METADATA, CLIENT_FOCUS_METADATA, CLOSE_PANE_METADATA, CLOSE_PROVIDER_MANAGED_WORKSPACE_METADATA, CLOSE_SCREEN_METADATA, CLOSE_SURFACE_METADATA, CLOSE_TERMINAL_METADATA, CLOSE_WORKSPACE_METADATA, COPY_METADATA, CREATE_SURFACE_WITH_RECEIPT_METADATA, CREATE_TERMINAL_METADATA, CREATE_WORKSPACE_METADATA, DETACH_ATTACHED_VIEW_METADATA, DETACH_CLIENT_METADATA, EXPORT_LAYOUT_METADATA, FOCUS_DIRECTION_METADATA, FOCUS_PANE_METADATA, GET_BROWSER_PROVIDER_METADATA, GET_CELL_PIXELS_METADATA, GET_FRONTEND_PROJECTION_METADATA, GET_SIZE_STATE_METADATA, IDENTIFY_METADATA, IDS_METADATA, JOURNAL_FRONTEND_EVENT_METADATA, LIST_AGENTS_METADATA, LIST_CLIENTS_METADATA, LIST_TERMINALS_METADATA, LIST_WORKSPACES_METADATA, MACHINE_LISTENING_TCP_METADATA, MACHINE_USAGE_METADATA, MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, MINT_TERMINAL_RENDERER_METADATA, MINT_TERMINAL_RENDERER_BY_TERMINAL_METADATA, MOVE_TAB_METADATA, MOVE_TAB_TO_WORKSPACE_METADATA, MOVE_TERMINAL_METADATA, MOVE_WORKSPACE_METADATA, NEW_BROWSER_TAB_METADATA, NEW_PANE_METADATA, NEW_PANE_RIGHT_METADATA, NEW_SCREEN_METADATA, NEW_TAB_METADATA, NEW_WORKSPACE_METADATA, NOTE_SIZE_ACTIVITY_METADATA, NOTIFY_METADATA, PAIRING_RESPONSE_METADATA, PANE_NEIGHBOR_METADATA, PASTE_IMAGE_METADATA, PING_METADATA, PROCESS_INFO_METADATA, PUT_FRONTEND_PROJECTION_METADATA, READ_SCREEN_METADATA, READ_SCROLLBACK_METADATA, REGISTER_BROWSER_PROVIDER_METADATA, RELEASE_ATTACHED_VIEW_SIZE_METADATA, RELEASE_SURFACE_SIZE_METADATA, RELOAD_CONFIG_METADATA, RENAME_PANE_METADATA, RENAME_PROVIDER_MANAGED_WORKSPACE_METADATA, RENAME_SCREEN_METADATA, RENAME_SURFACE_METADATA, RENAME_WORKSPACE_METADATA, REPORT_AGENT_METADATA, REPORT_FOCUS_METADATA, RESIZE_ATTACHED_VIEW_METADATA, RESIZE_SURFACE_METADATA, RESOLVE_TERMINAL_METADATA, RUN_METADATA, SCROLL_SURFACE_METADATA, SELECT_SCREEN_METADATA, SELECT_TAB_METADATA, SELECT_WORKSPACE_METADATA, SEND_METADATA, SEND_KEY_METADATA, SERVER_STATS_METADATA, SET_CELL_PIXELS_METADATA, SET_CLIENT_INFO_METADATA, SET_CLIENT_SIZING_METADATA, SET_DEFAULT_COLORS_METADATA, SET_RATIO_METADATA, SET_SIZE_COUNTS_METADATA, SET_SIZE_POLICY_METADATA, SET_SPLIT_RATIO_METADATA, SET_TERMINAL_IDLE_POLICY_METADATA, SET_VIEWPORT_PANE_WIDTH_METADATA, SET_WINDOW_TITLE_METADATA, SHUTDOWN_DAEMON_METADATA, SIDEBAR_PLUGIN_METADATA, SPLIT_METADATA, SUBSCRIBE_METADATA, SWAP_PANE_METADATA, TERMINAL_EVENTS_METADATA, UNDO_LAYOUT_METADATA, UNREGISTER_BROWSER_PROVIDER_METADATA, URL_OPEN_METADATA, URL_OPEN_CLAIM_METADATA, URL_OPEN_RESULT_METADATA, URL_OPEN_SUBSCRIBE_METADATA, VT_STATE_METADATA, WAIT_FOR_METADATA, ZOOM_PANE_METADATA];
+pub static COMMANDS: &[CommandMetadata] = &[ACK_TAB_NOTIFICATIONS_METADATA, ADD_TABS_TO_TAB_GROUP_METADATA, APPLY_LAYOUT_METADATA, ATTACH_SURFACE_METADATA, BROWSER_ACTIVATE_METADATA, BROWSER_BACK_METADATA, BROWSER_FORWARD_METADATA, BROWSER_FRAME_PRESENTED_METADATA, BROWSER_INSERT_TEXT_METADATA, BROWSER_KEY_METADATA, BROWSER_KEY_PRESS_METADATA, BROWSER_MOUSE_METADATA, BROWSER_MOUSE_GUARDED_METADATA, BROWSER_NAVIGATE_METADATA, BROWSER_RELOAD_METADATA, BROWSER_WHEEL_METADATA, BROWSER_WHEEL_GUARDED_METADATA, CLEAR_HISTORY_METADATA, CLEAR_WINDOW_TITLE_METADATA, CLIENT_FOCUS_METADATA, CLOSE_PANE_METADATA, CLOSE_PROVIDER_MANAGED_WORKSPACE_METADATA, CLOSE_SCREEN_METADATA, CLOSE_SURFACE_METADATA, CLOSE_TAB_GROUP_METADATA, CLOSE_TABS_METADATA, CLOSE_TERMINAL_METADATA, CLOSE_WORKSPACE_METADATA, COPY_METADATA, CREATE_SURFACE_WITH_RECEIPT_METADATA, CREATE_TAB_GROUP_METADATA, CREATE_TERMINAL_METADATA, CREATE_WORKSPACE_METADATA, CREATE_WORKSPACE_GROUP_METADATA, DELETE_SAVED_TAB_GROUP_METADATA, DELETE_WORKSPACE_GROUP_METADATA, DETACH_ATTACHED_VIEW_METADATA, DETACH_CLIENT_METADATA, EXPORT_LAYOUT_METADATA, FOCUS_DIRECTION_METADATA, FOCUS_PANE_METADATA, GET_BROWSER_PROVIDER_METADATA, GET_CELL_PIXELS_METADATA, GET_FRONTEND_PROJECTION_METADATA, GET_SIZE_STATE_METADATA, IDENTIFY_METADATA, IDS_METADATA, JOURNAL_FRONTEND_EVENT_METADATA, LIST_AGENTS_METADATA, LIST_CLIENTS_METADATA, LIST_NOTIFICATIONS_METADATA, LIST_SAVED_TAB_GROUPS_METADATA, LIST_TAB_GROUPS_METADATA, LIST_TERMINALS_METADATA, LIST_WORKSPACE_GROUPS_METADATA, LIST_WORKSPACES_METADATA, MACHINE_LISTENING_TCP_METADATA, MACHINE_USAGE_METADATA, MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, MINT_TERMINAL_RENDERER_METADATA, MINT_TERMINAL_RENDERER_BY_TERMINAL_METADATA, MOVE_TAB_METADATA, MOVE_TAB_GROUP_METADATA, MOVE_TAB_GROUP_TO_COLUMN_METADATA, MOVE_TAB_GROUP_TO_NEW_WORKSPACE_METADATA, MOVE_TAB_GROUP_TO_SPLIT_METADATA, MOVE_TAB_TO_COLUMN_METADATA, MOVE_TAB_TO_NEW_WORKSPACE_METADATA, MOVE_TAB_TO_SPLIT_METADATA, MOVE_TAB_TO_WORKSPACE_METADATA, MOVE_TERMINAL_METADATA, MOVE_WORKSPACE_METADATA, MOVE_WORKSPACE_GROUP_METADATA, MOVE_WORKSPACE_TO_GROUP_METADATA, NEW_BROWSER_TAB_METADATA, NEW_FRONTEND_BROWSER_TAB_METADATA, NEW_PANE_METADATA, NEW_PANE_RIGHT_METADATA, NEW_SCREEN_METADATA, NEW_TAB_METADATA, NEW_WORKSPACE_METADATA, NOTE_SIZE_ACTIVITY_METADATA, NOTIFY_METADATA, PAIRING_RESPONSE_METADATA, PANE_NEIGHBOR_METADATA, PASTE_IMAGE_METADATA, PING_METADATA, PROCESS_INFO_METADATA, PUT_FRONTEND_PROJECTION_METADATA, READ_SCREEN_METADATA, READ_SCROLLBACK_METADATA, REGISTER_BROWSER_PROVIDER_METADATA, RELEASE_ATTACHED_VIEW_SIZE_METADATA, RELEASE_SURFACE_SIZE_METADATA, RELOAD_CONFIG_METADATA, REMOVE_TABS_FROM_TAB_GROUP_METADATA, RENAME_PANE_METADATA, RENAME_PROVIDER_MANAGED_WORKSPACE_METADATA, RENAME_SCREEN_METADATA, RENAME_SURFACE_METADATA, RENAME_WORKSPACE_METADATA, REOPEN_SAVED_TAB_GROUP_METADATA, REPORT_AGENT_METADATA, REPORT_FOCUS_METADATA, RESIZE_ATTACHED_VIEW_METADATA, RESIZE_SURFACE_METADATA, RESOLVE_TERMINAL_METADATA, RUN_METADATA, SAVE_TAB_GROUP_METADATA, SCROLL_SURFACE_METADATA, SELECT_SCREEN_METADATA, SELECT_TAB_METADATA, SELECT_WORKSPACE_METADATA, SEND_METADATA, SEND_KEY_METADATA, SERVER_STATS_METADATA, SET_CELL_PIXELS_METADATA, SET_CLIENT_INFO_METADATA, SET_CLIENT_SIZING_METADATA, SET_DEFAULT_COLORS_METADATA, SET_RATIO_METADATA, SET_SIZE_COUNTS_METADATA, SET_SIZE_POLICY_METADATA, SET_SPLIT_RATIO_METADATA, SET_TAB_PINNED_METADATA, SET_TERMINAL_IDLE_POLICY_METADATA, SET_TERMINAL_KEEP_METADATA, SET_VIEWPORT_PANE_WIDTH_METADATA, SET_WINDOW_TITLE_METADATA, SET_WORKSPACE_METADATA_METADATA, SHUTDOWN_DAEMON_METADATA, SIDEBAR_PLUGIN_METADATA, SPLIT_METADATA, SUBSCRIBE_METADATA, SWAP_PANE_METADATA, TERMINAL_EVENTS_METADATA, TERMINAL_RESOURCES_METADATA, UNDO_LAYOUT_METADATA, UNGROUP_TAB_GROUP_METADATA, UNREGISTER_BROWSER_PROVIDER_METADATA, UNSAVE_TAB_GROUP_METADATA, UPDATE_FRONTEND_BROWSER_TAB_METADATA, UPDATE_TAB_GROUP_METADATA, UPDATE_WORKSPACE_GROUP_METADATA, URL_OPEN_METADATA, URL_OPEN_CLAIM_METADATA, URL_OPEN_RESULT_METADATA, URL_OPEN_SUBSCRIBE_METADATA, VT_STATE_METADATA, WAIT_FOR_METADATA, ZOOM_PANE_METADATA];
 #[rustfmt::skip]
-pub static EVENTS: &[EventMetadata] = &[AGENT_CHANGED_EVENT_METADATA, BELL_EVENT_METADATA, BROWSER_STATE_EVENT_METADATA, CLIENT_ATTACHED_EVENT_METADATA, CLIENT_CHANGED_EVENT_METADATA, CLIENT_DETACHED_EVENT_METADATA, CLIENT_LIST_INVALIDATED_EVENT_METADATA, COLORS_CHANGED_EVENT_METADATA, CONFIG_RELOAD_REQUESTED_EVENT_METADATA, DAEMON_SHUTDOWN_EVENT_METADATA, DETACHED_EVENT_METADATA, EMPTY_EVENT_METADATA, FRAME_EVENT_METADATA, FRONTEND_PROJECTION_CHANGED_EVENT_METADATA, GRAPHICS_STATUS_EVENT_METADATA, LAYOUT_CHANGED_EVENT_METADATA, MACHINE_USAGE_CHANGED_EVENT_METADATA, NOTIFICATION_EVENT_METADATA, OUTPUT_EVENT_METADATA, OVERFLOW_EVENT_METADATA, PAIRING_REQUESTED_EVENT_METADATA, PAIRING_RESOLVED_EVENT_METADATA, PANE_ADDED_EVENT_METADATA, PANE_CLOSED_EVENT_METADATA, RENDER_DELTA_EVENT_METADATA, RENDER_STATE_EVENT_METADATA, RESIZED_EVENT_METADATA, SCREEN_ADDED_EVENT_METADATA, SCREEN_CLOSED_EVENT_METADATA, SCREEN_RENAMED_EVENT_METADATA, SCROLL_CHANGED_EVENT_METADATA, SIZE_STATE_EVENT_METADATA, STATUS_EVENT_METADATA, SURFACE_EXITED_EVENT_METADATA, SURFACE_OUTPUT_EVENT_METADATA, SURFACE_RESIZE_FAILED_EVENT_METADATA, SURFACE_RESIZED_EVENT_METADATA, TAB_ADDED_EVENT_METADATA, TAB_CLOSED_EVENT_METADATA, TAB_RENAMED_EVENT_METADATA, TERMINAL_REGISTRY_CHANGED_EVENT_METADATA, TITLE_CHANGED_EVENT_METADATA, TREE_CHANGED_EVENT_METADATA, URL_OPEN_EVENT_METADATA, VT_STATE_EVENT_METADATA, WINDOW_TITLE_REQUESTED_EVENT_METADATA, WORKSPACE_ADDED_EVENT_METADATA, WORKSPACE_CLOSED_EVENT_METADATA, WORKSPACE_MOVED_EVENT_METADATA, WORKSPACE_RENAMED_EVENT_METADATA];
+pub static EVENTS: &[EventMetadata] = &[AGENT_CHANGED_EVENT_METADATA, BELL_EVENT_METADATA, BROWSER_STATE_EVENT_METADATA, CLIENT_ATTACHED_EVENT_METADATA, CLIENT_CHANGED_EVENT_METADATA, CLIENT_DETACHED_EVENT_METADATA, CLIENT_LIST_INVALIDATED_EVENT_METADATA, COLORS_CHANGED_EVENT_METADATA, CONFIG_RELOAD_REQUESTED_EVENT_METADATA, DAEMON_SHUTDOWN_EVENT_METADATA, DETACHED_EVENT_METADATA, EMPTY_EVENT_METADATA, FRAME_EVENT_METADATA, FRONTEND_PROJECTION_CHANGED_EVENT_METADATA, GRAPHICS_STATUS_EVENT_METADATA, LAYOUT_CHANGED_EVENT_METADATA, MACHINE_USAGE_CHANGED_EVENT_METADATA, NOTIFICATION_EVENT_METADATA, OUTPUT_EVENT_METADATA, OVERFLOW_EVENT_METADATA, PAIRING_REQUESTED_EVENT_METADATA, PAIRING_RESOLVED_EVENT_METADATA, PANE_ADDED_EVENT_METADATA, PANE_CLOSED_EVENT_METADATA, RENDER_DELTA_EVENT_METADATA, RENDER_STATE_EVENT_METADATA, RESIZED_EVENT_METADATA, SCREEN_ADDED_EVENT_METADATA, SCREEN_CLOSED_EVENT_METADATA, SCREEN_RENAMED_EVENT_METADATA, SCROLL_CHANGED_EVENT_METADATA, SIZE_STATE_EVENT_METADATA, STATUS_EVENT_METADATA, SURFACE_EXITED_EVENT_METADATA, SURFACE_OUTPUT_EVENT_METADATA, SURFACE_RESIZE_FAILED_EVENT_METADATA, SURFACE_RESIZED_EVENT_METADATA, TAB_ADDED_EVENT_METADATA, TAB_CHANGED_EVENT_METADATA, TAB_CLOSED_EVENT_METADATA, TAB_RENAMED_EVENT_METADATA, TERMINAL_REAPED_EVENT_METADATA, TERMINAL_REGISTRY_CHANGED_EVENT_METADATA, TITLE_CHANGED_EVENT_METADATA, TREE_CHANGED_EVENT_METADATA, URL_OPEN_EVENT_METADATA, VT_STATE_EVENT_METADATA, WINDOW_TITLE_REQUESTED_EVENT_METADATA, WORKSPACE_ADDED_EVENT_METADATA, WORKSPACE_CHANGED_EVENT_METADATA, WORKSPACE_CLOSED_EVENT_METADATA, WORKSPACE_MOVED_EVENT_METADATA, WORKSPACE_RENAMED_EVENT_METADATA];

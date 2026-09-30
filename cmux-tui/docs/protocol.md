@@ -90,6 +90,33 @@ the source workspace is removed first.
 {"id":11,"cmd":"move-workspace","workspace":3,"index":0}
 ```
 
+`workspace-groups-v1` adds durable sidebar groups. `list-workspaces` gains an
+ordered top-level `groups` array (`{id,name,color,collapsed,index}`) and a
+`group` field on each workspace. `create-workspace-group`,
+`update-workspace-group`, `delete-workspace-group`, and `move-workspace-group`
+edit groups and emit `tree-changed`. `move-workspace-to-group` sets membership
+and an optional final index inside the section in one workspace-registry
+revision, so it takes the durable mutation envelope and emits
+`workspace-moved`:
+
+```json
+{"id":13,"cmd":"create-workspace-group","group":"agents","name":"Agents","color":"gray"}
+{"id":14,"cmd":"move-workspace-to-group","key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","group":"agents","index":0,"origin":"mac-1","mutation_id":"m-41"}
+```
+
+`workspace-metadata-v1` adds shared workspace presentation: `color` (a
+frontend palette token or `#RRGGBB[AA]`), `icon` (an SF Symbol name), and a
+custom `title` on every workspace. `set-workspace-metadata` treats an absent
+field as unchanged and `null` as clear, commits one workspace-registry
+revision, and emits `workspace-changed` with the full workspace entity.
+
+`tab-metadata-v1` adds `pinned`, `cwd`, `git_branch`, and `git_detached` to
+every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and
+`move-tab` keeps them ahead of unpinned tabs. The daemon resolves `cwd` from
+OSC 7 (or the launch directory) and reads the repository's HEAD on the host
+that owns the PTY, so remote daemons report their own branches. `tab-changed`
+delivers the refreshed tab after a pin or directory change.
+
 Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
 
 ```json
@@ -97,6 +124,87 @@ Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. 
 ```
 
 Ratios are clamped to `0.05..0.95`. A live split in a horizontal viewport can still imply a column width outside the supported `0.1..1.0` range. The server rejects that request with `error_code:"layout-ratio-out-of-range"` and keeps the split and layout unchanged; `layout-ratio-target-missing` is reserved for an absent pane or split.
+
+`frontend-browser-tabs-v1` adds browser tabs whose page the frontend
+renders with WebKit or CEF. `new-frontend-browser-tab` creates one in the
+durable tree with `url`, `engine`, and optional `title`, `favicon_url`, and
+`profile_id`; `update-frontend-browser-tab` records navigation. The daemon
+persists and restores these tabs but never attaches a CDP target or renders
+frames for them, and `attach-surface` refuses them. Tabs report
+`browser_renderer:"frontend"` and `browser_engine`. CDP browser tabs keep
+their existing behavior and report `browser_renderer:"daemon"`.
+
+`tab-drag-v1` makes every tab drag outcome one atomic command:
+`move-tab` (pane and index, across screens and workspaces),
+`move-tab-to-split` (pane edge), `move-tab-to-column` (new niri column),
+`move-tab-to-workspace`, and `move-tab-to-new-workspace` (optional group and
+index; returns the new workspace). Each takes an optional client
+`transaction`, echoed in the moved tab's `tab-changed` delta. Drags that stay
+on one screen and keep their source pane record a layout-undo entry that
+moves the tab back without closing anything:
+
+```json
+{"id":15,"cmd":"move-tab-to-split","surface":4,"pane":2,"edge":"right","transaction":"drop-9"}
+{"id":16,"cmd":"undo-layout","pane":2}
+```
+
+`notification-ack-v1` decouples notification acknowledgement from focus.
+`ack-tab-notifications {surface}` clears a tab's unread marker and records the
+acknowledgement durably, so it survives a daemon restart; frontends call it
+when the user has seen the tab instead of sending `select-tab`.
+`list-notifications` returns the retained ledger with `created_at_ms` and an
+`acknowledged` flag, and each workspace reports `unread_count`.
+
+`tab-groups-v1` adds Chrome-style tab groups inside a pane's strip. Panes
+report `tab_groups` (id, name, color, collapsed, saved id, start, count,
+surfaces) and tabs report `group`. Members stay contiguous. Every change is
+one command: `create-tab-group`, `update-tab-group` (rename, recolor,
+collapse), `add-tabs-to-tab-group`, `remove-tabs-from-tab-group`,
+`move-tab-group` (within or across strips), `move-tab-group-to-split`,
+`move-tab-group-to-column`, `move-tab-group-to-new-workspace`,
+`ungroup-tab-group`, and `close-tab-group`. Commands that move tabs take a
+`transaction` echoed in each member's `tab-changed`.
+
+`saved-tab-groups-v1` adds saved groups that outlive their placements:
+`save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`,
+`list-saved-tab-groups`, and `reopen-saved-tab-group`, which reattaches
+running terminals and starts the rest in their saved directories.
+
+```json
+{"id":17,"cmd":"create-tab-group","surfaces":[4,7],"name":"agents","color":"green","transaction":"g-1"}
+{"id":18,"cmd":"move-tab-group-to-split","group":"tgrp_0d4c...","pane":2,"edge":"right"}
+```
+
+`terminal-env-v1` lets `new-tab`, `split`, and `create-terminal` carry an
+`env` object for the new terminal's child only, so a frontend can pass the
+user's login-shell environment to a daemon that started with a minimal
+launchd environment:
+
+```json
+{"id":19,"cmd":"new-tab","pane":2,"cwd":"/Users/me/src","env":{"PATH":"/opt/homebrew/bin:/usr/bin:/bin"}}
+```
+
+`loopback-forward-v1` gives an opted-in Unix client TCP streams to this
+machine's loopback services (browser tabs whose machine is this daemon), with
+credit flow control in both directions. See "Loopback forwarding" in
+`spec/commands.md` for the full contract:
+
+```json
+{"id":21,"cmd":"set-client-info","capabilities":["loopback-forward-v1"]}
+{"id":22,"cmd":"loopback-open","stream":1,"host":"localhost","port":5173}
+{"id":22,"ok":true,"data":{"stream":1,"address":"127.0.0.1:5173","window":262144}}
+{"cmd":"loopback-data","stream":1,"data":"R0VUIC8gSFRUUC8xLjENCg0K"}
+{"event":"loopback-data","stream":1,"data":"SFRUUC8xLjEgMjAwIE9LDQo="}
+```
+
+`terminal-placement-env-v1` adds a caller-chosen `terminal_id` to `new-tab`,
+`split`, `new-pane`, and `new-pane-right` (and `cwd`/`env` to the last two),
+so the child starts with its own id in its environment:
+
+```json
+{"id":20,"cmd":"new-pane-right","pane":2,"width":0.5,"terminal_id":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f","env":{"CMUX_SURFACE_ID":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f"}}
+{"id":20,"ok":true,"data":{"surface":9,"terminal_id":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f","terminal_incarnation":"..."}}
+```
 
 ## Events
 
@@ -156,6 +264,20 @@ closed for idleness). The owner closes the terminal, through the same path as
 `close-terminal`, once it has had no attach stream on any of its views for
 that long. The idle clock restarts at every attach and when the owner restarts,
 so a restart can delay a close but never make it early.
+
+When `identify` advertises `terminal-reap-v1`, the owner also ends a terminal
+that has had no tab placement for the reap grace period (default 30 seconds,
+set with `--terminal-reap-grace-seconds`) and emits `terminal-reaped`. Mark a
+terminal that must outlive its tabs with
+`{"cmd":"set-terminal-keep","terminal_id":"term_...","keep":true}` or pass
+`"keep":true` to `new-tab`, `split`, or `create-terminal`. A close commits and
+updates the tree before its host exits; hosts of closed terminals end in
+parallel. For test teardown, `shutdown-daemon` with `"end_terminals":true`
+ends every terminal before the handoff. To close many tabs at once, send
+`{"cmd":"close-tabs","surfaces":[...],"end_terminals":true}`: one durable
+commit (one journal fsync) removes every tab and ends every terminal left
+with no view that is not kept. The container closes take the same
+`end_terminals` field.
 
 Then it sends ordered stream frames:
 

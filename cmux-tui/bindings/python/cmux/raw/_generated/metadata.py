@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8'
+IR_SHA256 = 'd5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af'
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,30 @@ class EventMetadata:
 
 
 COMMANDS = {
+    'ack-tab-notifications': CommandMetadata(
+        'ack-tab-notifications',
+        'control',
+        12,
+        'notification-ack-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'add-tabs-to-tab-group': CommandMetadata(
+        'add-tabs-to-tab-group',
+        'control',
+        12,
+        'tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
+            'surfaces': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
     'apply-layout': CommandMetadata(
         'apply-layout',
         'control',
@@ -287,6 +311,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'end_terminals': CommandFieldMetadata(12, 'batch-close-v1'),
             'pane': CommandFieldMetadata(None, None),
         },
     ),
@@ -311,6 +336,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'end_terminals': CommandFieldMetadata(12, 'batch-close-v1'),
             'screen': CommandFieldMetadata(None, None),
         },
     ),
@@ -323,6 +349,35 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'close-tab-group': CommandMetadata(
+        'close-tab-group',
+        'control',
+        12,
+        'tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'end_terminals': CommandFieldMetadata(12, 'batch-close-v1'),
+            'group': CommandFieldMetadata(None, None),
+        },
+    ),
+    'close-tabs': CommandMetadata(
+        'close-tabs',
+        'control',
+        12,
+        'batch-close-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'end_terminals': CommandFieldMetadata(None, None),
+            'expected_generation': CommandFieldMetadata(None, None),
+            'expected_revision': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'surfaces': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
         },
     ),
     'close-terminal': CommandMetadata(
@@ -349,6 +404,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'end_terminals': CommandFieldMetadata(12, 'batch-close-v1'),
             'expected_generation': CommandFieldMetadata(7, None),
             'expected_revision': CommandFieldMetadata(7, None),
             'key': CommandFieldMetadata(7, 'workspace-registry-v1'),
@@ -393,6 +449,21 @@ COMMANDS = {
             'workspace': CommandFieldMetadata(None, None),
         },
     ),
+    'create-tab-group': CommandMetadata(
+        'create-tab-group',
+        'control',
+        12,
+        'tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'color': CommandFieldMetadata(None, None),
+            'group': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'surfaces': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
     'create-terminal': CommandMetadata(
         'create-terminal',
         'control',
@@ -405,8 +476,10 @@ COMMANDS = {
             'cols': CommandFieldMetadata(None, None),
             'command': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(None, None),
+            'env': CommandFieldMetadata(12, 'terminal-env-v1'),
             'expected_generation': CommandFieldMetadata(None, None),
             'expected_revision': CommandFieldMetadata(None, None),
+            'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'key': CommandFieldMetadata(None, None),
             'mutation_id': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
@@ -430,6 +503,43 @@ COMMANDS = {
             'mutation_id': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'create-workspace-group': CommandMetadata(
+        'create-workspace-group',
+        'control',
+        12,
+        'workspace-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'collapsed': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'group': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+        },
+    ),
+    'delete-saved-tab-group': CommandMetadata(
+        'delete-saved-tab-group',
+        'control',
+        12,
+        'saved-tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'saved': CommandFieldMetadata(None, None),
+        },
+    ),
+    'delete-workspace-group': CommandMetadata(
+        'delete-workspace-group',
+        'control',
+        12,
+        'workspace-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
         },
     ),
     'detach-attached-view': CommandMetadata(
@@ -589,11 +699,52 @@ COMMANDS = {
         {
         },
     ),
+    'list-notifications': CommandMetadata(
+        'list-notifications',
+        'control',
+        12,
+        'notification-ack-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'limit': CommandFieldMetadata(None, None),
+        },
+    ),
+    'list-saved-tab-groups': CommandMetadata(
+        'list-saved-tab-groups',
+        'control',
+        12,
+        'saved-tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'list-tab-groups': CommandMetadata(
+        'list-tab-groups',
+        'control',
+        12,
+        'tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
     'list-terminals': CommandMetadata(
         'list-terminals',
         'control',
         9,
         None,
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'list-workspace-groups': CommandMetadata(
+        'list-workspace-groups',
+        'control',
+        12,
+        'workspace-groups-v1',
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
@@ -675,6 +826,111 @@ COMMANDS = {
             'index': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(12, 'tab-drag-v1'),
+        },
+    ),
+    'move-tab-group': CommandMetadata(
+        'move-tab-group',
+        'control',
+        12,
+        'tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-tab-group-to-column': CommandMetadata(
+        'move-tab-group-to-column',
+        'control',
+        12,
+        'tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'after_column': CommandFieldMetadata(None, None),
+            'group': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'screen': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+            'width': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-tab-group-to-new-workspace': CommandMetadata(
+        'move-tab-group-to-new-workspace',
+        'control',
+        12,
+        'tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+            'workspace_group': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-tab-group-to-split': CommandMetadata(
+        'move-tab-group-to-split',
+        'control',
+        12,
+        'tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'edge': CommandFieldMetadata(None, None),
+            'group': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'ratio': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-tab-to-column': CommandMetadata(
+        'move-tab-to-column',
+        'control',
+        12,
+        'tab-drag-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'after_column': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'screen': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+            'width': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-tab-to-new-workspace': CommandMetadata(
+        'move-tab-to-new-workspace',
+        'control',
+        12,
+        'tab-drag-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-tab-to-split': CommandMetadata(
+        'move-tab-to-split',
+        'control',
+        12,
+        'tab-drag-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'edge': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'ratio': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
         },
     ),
     'move-tab-to-workspace': CommandMetadata(
@@ -686,6 +942,7 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(12, 'tab-drag-v1'),
             'workspace': CommandFieldMetadata(None, None),
         },
     ),
@@ -723,6 +980,36 @@ COMMANDS = {
             'workspace': CommandFieldMetadata(None, None),
         },
     ),
+    'move-workspace-group': CommandMetadata(
+        'move-workspace-group',
+        'control',
+        12,
+        'workspace-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-workspace-to-group': CommandMetadata(
+        'move-workspace-to-group',
+        'control',
+        12,
+        'workspace-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'expected_generation': CommandFieldMetadata(None, None),
+            'expected_revision': CommandFieldMetadata(None, None),
+            'group': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'key': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
     'new-browser-tab': CommandMetadata(
         'new-browser-tab',
         'control',
@@ -737,6 +1024,24 @@ COMMANDS = {
             'url': CommandFieldMetadata(None, None),
         },
     ),
+    'new-frontend-browser-tab': CommandMetadata(
+        'new-frontend-browser-tab',
+        'control',
+        12,
+        'frontend-browser-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'cols': CommandFieldMetadata(None, None),
+            'engine': CommandFieldMetadata(None, None),
+            'favicon_url': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'profile_id': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+        },
+    ),
     'new-pane': CommandMetadata(
         'new-pane',
         'control',
@@ -746,8 +1051,12 @@ COMMANDS = {
         None,
         {
             'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'env': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
     'new-pane-right': CommandMetadata(
@@ -759,8 +1068,12 @@ COMMANDS = {
         None,
         {
             'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'env': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'width': CommandFieldMetadata(None, None),
         },
     ),
@@ -787,8 +1100,11 @@ COMMANDS = {
         {
             'cols': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(None, None),
+            'env': CommandFieldMetadata(12, 'terminal-env-v1'),
+            'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
     'new-workspace': CommandMetadata(
@@ -987,6 +1303,18 @@ COMMANDS = {
         {
         },
     ),
+    'remove-tabs-from-tab-group': CommandMetadata(
+        'remove-tabs-from-tab-group',
+        'control',
+        12,
+        'tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surfaces': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
     'rename-pane': CommandMetadata(
         'rename-pane',
         'control',
@@ -1052,6 +1380,19 @@ COMMANDS = {
             'name': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(7, None),
             'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
+    'reopen-saved-tab-group': CommandMetadata(
+        'reopen-saved-tab-group',
+        'control',
+        12,
+        'saved-tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'pane': CommandFieldMetadata(None, None),
+            'saved': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
         },
     ),
     'report-agent': CommandMetadata(
@@ -1138,6 +1479,17 @@ COMMANDS = {
             'new_workspace': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+        },
+    ),
+    'save-tab-group': CommandMetadata(
+        'save-tab-group',
+        'control',
+        12,
+        'saved-tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
         },
     ),
     'scroll-surface': CommandMetadata(
@@ -1342,6 +1694,18 @@ COMMANDS = {
             'transaction': CommandFieldMetadata(9, 'layout-undo-v1'),
         },
     ),
+    'set-tab-pinned': CommandMetadata(
+        'set-tab-pinned',
+        'control',
+        12,
+        'tab-metadata-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'pinned': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-terminal-idle-policy': CommandMetadata(
         'set-terminal-idle-policy',
         'control',
@@ -1351,6 +1715,19 @@ COMMANDS = {
         None,
         {
             'idle_close_seconds': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-terminal-keep': CommandMetadata(
+        'set-terminal-keep',
+        'control',
+        12,
+        'terminal-reap-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'keep': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
             'terminal_id': CommandFieldMetadata(None, None),
         },
@@ -1379,6 +1756,25 @@ COMMANDS = {
             'title': CommandFieldMetadata(None, None),
         },
     ),
+    'set-workspace-metadata': CommandMetadata(
+        'set-workspace-metadata',
+        'control',
+        12,
+        'workspace-metadata-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'color': CommandFieldMetadata(None, None),
+            'expected_generation': CommandFieldMetadata(None, None),
+            'expected_revision': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(None, None),
+            'key': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
     'shutdown-daemon': CommandMetadata(
         'shutdown-daemon',
         'local-admin',
@@ -1387,6 +1783,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'end_terminals': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
             'pid': CommandFieldMetadata(None, None),
@@ -1414,9 +1811,13 @@ COMMANDS = {
         None,
         {
             'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(12, 'terminal-env-v1'),
             'dir': CommandFieldMetadata(None, None),
+            'env': CommandFieldMetadata(12, 'terminal-env-v1'),
+            'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
     'subscribe': CommandMetadata(
@@ -1455,6 +1856,17 @@ COMMANDS = {
             'after_revision': CommandFieldMetadata(None, None),
         },
     ),
+    'terminal-resources': CommandMetadata(
+        'terminal-resources',
+        'control',
+        12,
+        'terminal-resources-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surfaces': CommandFieldMetadata(None, None),
+        },
+    ),
     'undo-layout': CommandMetadata(
         'undo-layout',
         'control',
@@ -1468,6 +1880,17 @@ COMMANDS = {
             'revision': CommandFieldMetadata(None, None),
         },
     ),
+    'ungroup-tab-group': CommandMetadata(
+        'ungroup-tab-group',
+        'control',
+        12,
+        'tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
+        },
+    ),
     'unregister-browser-provider': CommandMetadata(
         'unregister-browser-provider',
         'local-admin',
@@ -1476,6 +1899,59 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+        },
+    ),
+    'unsave-tab-group': CommandMetadata(
+        'unsave-tab-group',
+        'control',
+        12,
+        'saved-tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
+        },
+    ),
+    'update-frontend-browser-tab': CommandMetadata(
+        'update-frontend-browser-tab',
+        'control',
+        12,
+        'frontend-browser-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'favicon_url': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+        },
+    ),
+    'update-tab-group': CommandMetadata(
+        'update-tab-group',
+        'control',
+        12,
+        'tab-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'collapsed': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'group': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+        },
+    ),
+    'update-workspace-group': CommandMetadata(
+        'update-workspace-group',
+        'control',
+        12,
+        'workspace-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'collapsed': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'group': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
         },
     ),
     'url-open': CommandMetadata(
@@ -1601,8 +2077,10 @@ EVENTS = {
     'surface-resize-failed': EventMetadata('surface-resize-failed', 7, None, ('subscribe',), 'emitted'),
     'surface-resized': EventMetadata('surface-resized', 5, None, ('subscribe',), 'emitted'),
     'tab-added': EventMetadata('tab-added', 7, None, ('subscribe-deltas',), 'emitted'),
+    'tab-changed': EventMetadata('tab-changed', 12, 'tab-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'tab-closed': EventMetadata('tab-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'tab-renamed': EventMetadata('tab-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'terminal-reaped': EventMetadata('terminal-reaped', 12, 'terminal-reap-v1', ('subscribe',), 'emitted'),
     'terminal-registry-changed': EventMetadata('terminal-registry-changed', 9, None, ('subscribe',), 'emitted'),
     'title-changed': EventMetadata('title-changed', 5, None, ('subscribe',), 'emitted'),
     'tree-changed': EventMetadata('tree-changed', 5, None, ('subscribe',), 'emitted'),
@@ -1610,6 +2088,7 @@ EVENTS = {
     'vt-state': EventMetadata('vt-state', 5, None, ('attach-byte',), 'emitted'),
     'window-title-requested': EventMetadata('window-title-requested', 6, None, ('subscribe',), 'emitted'),
     'workspace-added': EventMetadata('workspace-added', 7, None, ('subscribe-deltas',), 'emitted'),
+    'workspace-changed': EventMetadata('workspace-changed', 12, 'workspace-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'workspace-closed': EventMetadata('workspace-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'workspace-moved': EventMetadata('workspace-moved', 7, None, ('subscribe-deltas',), 'emitted'),
     'workspace-renamed': EventMetadata('workspace-renamed', 7, None, ('subscribe-deltas',), 'emitted'),

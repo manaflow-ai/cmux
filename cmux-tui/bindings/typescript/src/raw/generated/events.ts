@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8. */
+/* cmux-tui mux protocol 12, IR d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af. */
 
 
 import type * as T from "./types.js";
@@ -307,6 +307,17 @@ export type TabAddedEvent = { event: "tab-added" } & {
   "workspace": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe-deltas. */
+export type TabChangedEvent = { event: "tab-changed" } & {
+  "entity": T.Tab;
+  "index"?: (bigint) | null;
+  "pane": T.Id;
+  "screen": T.Id;
+  "surface": T.Id;
+  "transaction"?: (string) | null;
+  "workspace": T.Id;
+};
+
 /** Protocol v7; emission: emitted; streams: subscribe-deltas. */
 export type TabClosedEvent = { event: "tab-closed" } & {
   "entity": T.Tab;
@@ -324,6 +335,13 @@ export type TabRenamedEvent = { event: "tab-renamed" } & {
   "screen": T.Id;
   "surface": T.Id;
   "workspace": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type TerminalReapedEvent = { event: "terminal-reaped" } & {
+  "grace_ms": bigint;
+  "terminal": (string) | null;
+  "terminal_id": string;
 };
 
 /** Protocol v9; emission: emitted; streams: subscribe. */
@@ -372,6 +390,18 @@ export type WorkspaceAddedEvent = { event: "workspace-added" } & {
   "entity": T.Workspace;
   "generation": string;
   "index": bigint;
+  "mutation_id"?: string;
+  "origin"?: string;
+  "registry_id": string;
+  "workspace": T.Id;
+  "workspace_revision": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe-deltas. */
+export type WorkspaceChangedEvent = { event: "workspace-changed" } & {
+  "entity": T.Workspace;
+  "generation": string;
+  "index"?: (bigint) | null;
   "mutation_id"?: string;
   "origin"?: string;
   "registry_id": string;
@@ -459,8 +489,10 @@ export type KnownCmuxEvent =
   | SurfaceResizeFailedEvent
   | SurfaceResizedEvent
   | TabAddedEvent
+  | TabChangedEvent
   | TabClosedEvent
   | TabRenamedEvent
+  | TerminalReapedEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
   | TreeChangedEvent
@@ -468,6 +500,7 @@ export type KnownCmuxEvent =
   | VtStateEvent
   | WindowTitleRequestedEvent
   | WorkspaceAddedEvent
+  | WorkspaceChangedEvent
   | WorkspaceClosedEvent
   | WorkspaceMovedEvent
   | WorkspaceRenamedEvent;
@@ -506,13 +539,16 @@ export type KnownSubscribeEvent =
   | SurfaceResizeFailedEvent
   | SurfaceResizedEvent
   | TabAddedEvent
+  | TabChangedEvent
   | TabClosedEvent
   | TabRenamedEvent
+  | TerminalReapedEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
   | TreeChangedEvent
   | WindowTitleRequestedEvent
   | WorkspaceAddedEvent
+  | WorkspaceChangedEvent
   | WorkspaceClosedEvent
   | WorkspaceMovedEvent
   | WorkspaceRenamedEvent;
@@ -525,9 +561,11 @@ export type TreeDeltaEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | TabAddedEvent
+  | TabChangedEvent
   | TabClosedEvent
   | TabRenamedEvent
   | WorkspaceAddedEvent
+  | WorkspaceChangedEvent
   | WorkspaceClosedEvent
   | WorkspaceMovedEvent
   | WorkspaceRenamedEvent;

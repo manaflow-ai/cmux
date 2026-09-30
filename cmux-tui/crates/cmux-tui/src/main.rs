@@ -213,6 +213,49 @@ pub(crate) fn wait_for_shutdown_signal() {
     }
 }
 
+/// Blocks until a termination signal arrives, without consuming the wake
+/// byte, so every other shutdown waiter still sees it. Returns at once when
+/// no signal handler is installed.
+#[cfg(unix)]
+pub(crate) fn wait_for_shutdown_signal_peek() {
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    while reader >= 0 && !shutdown_requested() {
+        let mut pollfd = libc::pollfd { fd: reader, events: libc::POLLIN, revents: 0 };
+        // SAFETY: `reader` is the process-lifetime wake descriptor.
+        let polled = unsafe { libc::poll(&mut pollfd, 1, -1) };
+        if polled > 0 {
+            return;
+        }
+        if polled < 0 && io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+            return;
+        }
+    }
+}
+
+/// Async `wait_for_shutdown_signal_peek`: waits for the wake descriptor to
+/// become readable without reading it.
+#[cfg(unix)]
+pub(crate) async fn wait_for_shutdown_signal_peek_async() -> io::Result<()> {
+    if shutdown_requested() {
+        return Ok(());
+    }
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    if reader < 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::NotConnected,
+            "shutdown wake reader unavailable",
+        ));
+    }
+    let duplicate = unsafe { libc::dup(reader) };
+    if duplicate < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let stream = unsafe { UnixStream::from_raw_fd(duplicate) };
+    let stream = tokio::net::UnixStream::from_std(stream)?;
+    stream.readable().await?;
+    Ok(())
+}
+
 #[cfg(unix)]
 pub(crate) async fn wait_for_shutdown_signal_async() -> io::Result<()> {
     if shutdown_requested() {
@@ -471,6 +514,9 @@ START OPTIONS
   --advertise <url> Add a non-secret route hint to enrollment invitations.
   --term <value>     TERM for child shells (default: keep the outer terminal's
                      xterm-ghostty, else xterm-256color).
+  --terminal-reap-grace-seconds <seconds>
+                     End a terminal with no tab after this long unless it is
+                     kept (default: 30; 0 ends it at once; at most 604800).
   -h, --help         Show this help.
   -V, --version      Print the cmux version.
 ";
@@ -532,6 +578,7 @@ struct Args {
     agent_browser_provider: bool,
     owner_host_fg: Option<cmux_tui_core::Rgb>,
     owner_host_bg: Option<cmux_tui_core::Rgb>,
+    terminal_reap_grace: Option<std::time::Duration>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -634,6 +681,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         agent_browser_provider: false,
         owner_host_fg: None,
         owner_host_bg: None,
+        terminal_reap_grace: None,
     };
     let mut args = args.into_iter().peekable();
     while let Some(arg) = args.next() {
@@ -727,6 +775,21 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     Some(args.next().ok_or_else(|| "--ws-token needs a value".to_string())?);
             }
             "--ws-insecure-bind" => out.ws_insecure_bind = true,
+            "--terminal-reap-grace-seconds" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--terminal-reap-grace-seconds needs a value".to_string())?;
+                let seconds = value
+                    .parse::<u64>()
+                    .map_err(|_| "--terminal-reap-grace-seconds must be an integer".to_string())?;
+                let grace = cmux_tui_core::validate_terminal_reap_grace(
+                    std::time::Duration::from_secs(seconds),
+                )
+                .map_err(|error| error.to_string())?;
+                if out.terminal_reap_grace.replace(grace).is_some() {
+                    return Err("--terminal-reap-grace-seconds may be supplied only once".into());
+                }
+            }
             "--remote" => out.remote = true,
             "--remote-ws" => {
                 out.remote_ws =
@@ -1329,6 +1392,7 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-link-socket",
     "--remote-admin-socket",
     "--remote-resume-lease-seconds",
+    "--terminal-reap-grace-seconds",
     "--relay",
     "--relay-slot",
     "--relay-ticket",
@@ -2007,6 +2071,25 @@ impl Drop for LocalOwnerEventLoop {
 }
 
 /// Starts the session server: surface environment, state root, mux, and listeners.
+/// `server.loopback_forward` from cmux-tui.json. An invalid value turns
+/// forwarding off instead of widening access.
+fn loopback_forward_policy(
+    value: Option<&serde_json::Value>,
+) -> cmux_tui_core::server::LoopbackForwardPolicy {
+    use cmux_tui_core::server::LoopbackForwardPolicy;
+    let Some(value) = value else { return LoopbackForwardPolicy::default() };
+    match LoopbackForwardPolicy::from_config_value(value) {
+        Ok(policy) => policy,
+        Err(error) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: server.loopback_forward is invalid ({error}); loopback forwarding is off"
+            );
+            LoopbackForwardPolicy::disabled()
+        }
+    }
+}
+
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -2029,6 +2112,8 @@ fn run_server(
     }
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
     let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
+    let mut loopback_forward_policy =
+        loopback_forward_policy(config.server.loopback_forward.as_ref());
     // Compute the socket path up front so a normal interactive launch can
     // reuse an existing local session and surface children inherit it.
     let socket_path = match args.socket.clone() {
@@ -2292,7 +2377,13 @@ fn run_server(
             "cmux-tui: WebSocket control at ws://{}",
             server.local_addr()
         );
+        // A forwarded page must never reach the daemon's own control port.
+        loopback_forward_policy.deny_port(server.local_addr().port());
     }
+    mux.set_loopback_forward_policy(loopback_forward_policy);
+    mux.set_loopback_forward_audit_reporter(Arc::new(|line| {
+        crate::client_log::stderr_log!("loopback-forward", "cmux-tui: {line}");
+    }));
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
@@ -2300,6 +2391,21 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    // Ends terminals that have had no tab placement for the reap grace
+    // period and are not marked keep (`terminal-reap-v1`).
+    if let Some(grace) = args.terminal_reap_grace {
+        mux.set_terminal_reap_grace(grace)?;
+    }
+    let terminal_reaper = match cmux_tui_core::start_terminal_reaper(&mux) {
+        Ok(reaper) => Some(reaper),
+        Err(error) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: unplaced terminal reaper unavailable: {error}"
+            );
+            None
+        }
+    };
     // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
     // has elapsed with no attached view.
     let idle_terminal_reaper = match cmux_tui_core::start_idle_terminal_reaper(
@@ -2358,6 +2464,9 @@ fn run_server(
     };
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
     if let Some(reaper) = idle_terminal_reaper {
+        reaper.stop();
+    }
+    if let Some(reaper) = terminal_reaper {
         reaper.stop();
     }
     #[cfg(unix)]
@@ -2992,23 +3101,38 @@ where
         socket_path.display()
     );
     // Keep the process alive; the control socket drives everything and
-    // the mux reaps exited surfaces itself.
-    let events = mux.subscribe();
-    loop {
-        if shutdown_requested() || mux.daemon_shutdown_requested() {
-            break;
-        }
-        if remote_runtime_finished() {
-            break;
-        }
-        match events.recv_timeout(std::time::Duration::from_millis(250)) {
-            Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                std::thread::park_timeout(std::time::Duration::from_millis(250));
-            }
-        }
+    // the mux reaps exited surfaces itself. The loop blocks until a signal,
+    // a daemon shutdown request or the end of the remote runtime wakes it;
+    // it used to wake every 250 ms (and on every terminal output event) to
+    // re-check these flags.
+    mux.set_daemon_shutdown_waker(wake_headless);
+    #[cfg(unix)]
+    {
+        // Peek, not read: other shutdown waiters (remote runtime, browser
+        // proxy) consume the same wake byte.
+        let _ = std::thread::Builder::new().name("headless-signal-wait".into()).spawn(|| {
+            wait_for_shutdown_signal_peek();
+            wake_headless();
+        });
+    }
+    let (lock, wake) = &HEADLESS_WAKE;
+    let mut generation = lock.lock().unwrap();
+    while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {
+        generation = wake.wait(generation).unwrap();
     }
     Ok(())
+}
+
+/// Wakes `run_headless`. Callers set their flag first; the wait re-checks
+/// every flag under this lock, so no wake is lost.
+static HEADLESS_WAKE: (std::sync::Mutex<u64>, std::sync::Condvar) =
+    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+pub(crate) fn wake_headless() {
+    let (lock, wake) = &HEADLESS_WAKE;
+    let mut generation = lock.lock().unwrap();
+    *generation = generation.wrapping_add(1);
+    wake.notify_all();
 }
 
 fn usage_exit(msg: &str) -> ! {

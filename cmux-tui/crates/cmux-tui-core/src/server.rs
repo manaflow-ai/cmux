@@ -71,6 +71,7 @@ use crate::sizing_policy::{
     TerminalDetachActor, TerminalDeviceKind, TerminalSizingPolicy, TerminalSizingState,
     detach_reason,
 };
+use crate::stream_interrupt::{InterruptSet, StreamInterrupt};
 use crate::surface::{
     AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
 };
@@ -80,14 +81,21 @@ use crate::{
     DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
     LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
     Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
-    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
-    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
+    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceRenderFrame,
+    TerminalColors, TreeDecorations, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
     WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[path = "server/image_paste.rs"]
 mod image_paste;
+#[path = "server/loopback_forward.rs"]
+mod loopback_forward;
+pub use loopback_forward::{
+    AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
+};
+mod terminal_create;
+mod terminal_resources;
 mod url_open;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
@@ -139,6 +147,55 @@ pub const MACHINE_LISTENING_TCP_CAPABILITY: &str = "machine-listening-tcp-v1";
 /// Advertises `set-terminal-idle-policy` and the owner-side reaper that
 /// closes a terminal once it has had no attached view for its policy.
 pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
+/// Advertises the owner-side reaper that ends a terminal after it has had no
+/// tab placement for the reap grace period, `set-terminal-keep`, the `keep`
+/// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
+/// event, and `end_terminals` on `shutdown-daemon`.
+pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises `close-tabs` and `end_terminals` on `close-pane`,
+/// `close-screen`, `close-workspace`, and `close-tab-group`: many
+/// placements and the terminals they end close in one durable commit.
+pub const BATCH_CLOSE_CAPABILITY: &str = "batch-close-v1";
+/// Advertises `terminal-resources`: CPU time and memory of each terminal's
+/// shell, its descendants, and its terminal host, read on request.
+pub const TERMINAL_RESOURCES_CAPABILITY: &str = "terminal-resources-v1";
+/// Advertises a caller-chosen `terminal_id` on `new-tab`, `split`,
+/// `new-pane`, and `new-pane-right`, plus `cwd`/`env` on `new-pane` and
+/// `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four
+/// results. A frontend can put the id in the child's environment before it
+/// starts instead of creating and then moving a terminal.
+pub const TERMINAL_PLACEMENT_ENV_CAPABILITY: &str = "terminal-placement-env-v1";
+/// Durable sidebar workspace groups: the `*-workspace-group` commands,
+/// `move-workspace-to-group`, a `groups` array in `list-workspaces`, and a
+/// `group` field on every workspace.
+pub const WORKSPACE_GROUPS_CAPABILITY: &str = "workspace-groups-v1";
+/// Durable workspace presentation: `set-workspace-metadata`, the
+/// `color`/`icon`/`title` workspace fields, and `workspace-changed` deltas.
+pub const WORKSPACE_METADATA_CAPABILITY: &str = "workspace-metadata-v1";
+/// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
+/// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the
+/// `tab-changed` delta.
+pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
+/// Frontend-rendered browser tabs (WebKit or CEF): `new-frontend-browser-tab`,
+/// `update-frontend-browser-tab`, and the `browser_renderer`,
+/// `browser_engine`, `favicon_url`, and `browser_profile_id` tab fields.
+pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
+/// Tab drag outcomes as single atomic commands: `move-tab-to-split`,
+/// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
+/// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
+pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
+/// Durable notification acknowledgement decoupled from focus:
+/// `ack-tab-notifications`, `list-notifications`, and the workspace
+/// `unread_count` rollup.
+pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
+/// Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`,
+/// and `Tab.group`.
+pub const TAB_GROUPS_CAPABILITY: &str = "tab-groups-v1";
+/// Saved (pinned) tab groups that outlive their placements.
+pub const SAVED_TAB_GROUPS_CAPABILITY: &str = "saved-tab-groups-v1";
+/// Per-terminal `env` on `new-tab`, `split`, and `create-terminal`, and
+/// `cwd` on `split`.
+pub const TERMINAL_ENV_CAPABILITY: &str = "terminal-env-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -255,6 +312,20 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         MACHINE_LISTENING_TCP_CAPABILITY,
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
+        TERMINAL_REAP_CAPABILITY,
+        BATCH_CLOSE_CAPABILITY,
+        TERMINAL_RESOURCES_CAPABILITY,
+        TERMINAL_PLACEMENT_ENV_CAPABILITY,
+        WORKSPACE_GROUPS_CAPABILITY,
+        WORKSPACE_METADATA_CAPABILITY,
+        TAB_METADATA_CAPABILITY,
+        FRONTEND_BROWSER_TABS_CAPABILITY,
+        TAB_DRAG_CAPABILITY,
+        NOTIFICATION_ACK_CAPABILITY,
+        TAB_GROUPS_CAPABILITY,
+        SAVED_TAB_GROUPS_CAPABILITY,
+        TERMINAL_ENV_CAPABILITY,
+        LOOPBACK_FORWARD_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -861,6 +932,10 @@ enum Command {
         generation: String,
         #[serde(default)]
         force: bool,
+        /// End every terminal host before the handoff instead of leaving
+        /// hosts for the next owner (`terminal-reap-v1`). For test teardown.
+        #[serde(default)]
+        end_terminals: bool,
     },
     Ping,
     SetClientInfo {
@@ -1142,18 +1217,65 @@ enum Command {
         #[serde(default)]
         idle_close_seconds: Option<u64>,
     },
+    /// Mark (`keep: true`) or unmark one hosted terminal, named by exactly
+    /// one of a PTY `surface` or a stable `terminal_id`, as kept: a kept
+    /// terminal is not reaped when it has no tab placement.
+    SetTerminalKeep {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        terminal_id: Option<String>,
+        keep: bool,
+    },
     /// New tab in a pane (default: the active pane).
     NewTab {
         #[serde(default)]
         pane: Option<PaneId>,
         #[serde(default)]
         cwd: Option<String>,
+        /// Extra environment for the new terminal's child only.
+        #[serde(default)]
+        env: Option<BTreeMap<String, String>>,
         /// Expected content size in cells (spawn-at-size avoids shell
         /// redraw artifacts).
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        /// Mark the new terminal `keep` so it survives with no tab.
+        #[serde(default)]
+        keep: bool,
+        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
+        #[serde(default)]
+        terminal_id: Option<String>,
+    },
+    /// New browser tab whose page the frontend renders (WebKit or CEF).
+    /// The daemon persists its location and never attaches a CDP target.
+    NewFrontendBrowserTab {
+        url: String,
+        engine: String,
+        #[serde(default)]
+        pane: Option<PaneId>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        favicon_url: Option<String>,
+        #[serde(default)]
+        profile_id: Option<String>,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    /// Record a frontend-rendered browser's URL, title, or favicon.
+    UpdateFrontendBrowserTab {
+        surface: SurfaceId,
+        #[serde(default)]
+        url: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        favicon_url: Option<Option<String>>,
     },
     NewBrowserTab {
         url: String,
@@ -1306,6 +1428,12 @@ enum Command {
         /// mutation id makes a lost-response retry exactly once.
         #[serde(default)]
         terminal_id: Option<String>,
+        /// Extra environment for the new terminal's child only.
+        #[serde(default)]
+        env: Option<BTreeMap<String, String>>,
+        /// Mark the new terminal `keep` so it survives with no tab.
+        #[serde(default)]
+        keep: bool,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1324,6 +1452,17 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        cwd: Option<String>,
+        /// Extra environment for the new terminal's child only.
+        #[serde(default)]
+        env: Option<BTreeMap<String, String>>,
+        /// Mark the new terminal `keep` so it survives with no tab.
+        #[serde(default)]
+        keep: bool,
+        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
+        #[serde(default)]
+        terminal_id: Option<String>,
     },
     NewPaneRight {
         pane: PaneId,
@@ -1333,6 +1472,17 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        cwd: Option<String>,
+        /// Extra environment for the new terminal's child only.
+        #[serde(default)]
+        env: Option<BTreeMap<String, String>>,
+        /// Mark the new terminal `keep` so it survives with no tab.
+        #[serde(default)]
+        keep: bool,
+        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
+        #[serde(default)]
+        terminal_id: Option<String>,
     },
     Split {
         pane: PaneId,
@@ -1342,6 +1492,17 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        cwd: Option<String>,
+        /// Extra environment for the new terminal's child only.
+        #[serde(default)]
+        env: Option<BTreeMap<String, String>>,
+        /// Mark the new terminal `keep` so it survives with no tab.
+        #[serde(default)]
+        keep: bool,
+        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
+        #[serde(default)]
+        terminal_id: Option<String>,
     },
     SetRatio {
         pane: PaneId,
@@ -1393,6 +1554,12 @@ enum Command {
     ProcessInfo {
         surface: SurfaceId,
     },
+    /// CPU time and memory of terminal process trees, read on request.
+    /// Omitted `surfaces` means every PTY surface.
+    TerminalResources {
+        #[serde(default)]
+        surfaces: Option<Vec<SurfaceId>>,
+    },
     MoveTerminal {
         terminal_id: String,
         workspace_key: String,
@@ -1405,11 +1572,167 @@ enum Command {
         surface: SurfaceId,
         pane: PaneId,
         index: usize,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Every tab group with its pane and members.
+    ListTabGroups,
+    /// Group tabs of one pane; they become contiguous at the first one.
+    CreateTabGroup {
+        #[serde(alias = "tabs")]
+        surfaces: Vec<TabRef>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        group: Option<String>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Rename, recolor, or collapse a tab group.
+    UpdateTabGroup {
+        group: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        collapsed: Option<bool>,
+    },
+    AddTabsToTabGroup {
+        group: String,
+        #[serde(alias = "tabs")]
+        surfaces: Vec<TabRef>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    RemoveTabsFromTabGroup {
+        #[serde(alias = "tabs")]
+        surfaces: Vec<TabRef>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Move a whole group within its strip or into another pane's strip.
+    MoveTabGroup {
+        group: String,
+        #[serde(default)]
+        pane: Option<PaneRef>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    MoveTabGroupToSplit {
+        group: String,
+        pane: PaneRef,
+        edge: String,
+        #[serde(default)]
+        ratio: Option<f32>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    MoveTabGroupToColumn {
+        group: String,
+        #[serde(default)]
+        pane: Option<PaneRef>,
+        #[serde(default)]
+        screen: Option<ScreenId>,
+        #[serde(default)]
+        after_column: Option<SplitId>,
+        #[serde(default)]
+        width: Option<f32>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    MoveTabGroupToNewWorkspace {
+        group: String,
+        #[serde(default)]
+        workspace_group: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    UngroupTabGroup {
+        group: String,
+    },
+    /// Close every member placement of a group in one commit.
+    CloseTabGroup {
+        group: String,
+        #[serde(default)]
+        end_terminals: bool,
+    },
+    ListSavedTabGroups,
+    SaveTabGroup {
+        group: String,
+    },
+    UnsaveTabGroup {
+        group: String,
+    },
+    DeleteSavedTabGroup {
+        saved: String,
+    },
+    ReopenSavedTabGroup {
+        saved: String,
+        pane: PaneRef,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Acknowledge a tab's notifications without selecting or focusing it.
+    AckTabNotifications {
+        surface: SurfaceId,
+    },
+    /// Retained notifications, newest first.
+    ListNotifications {
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
+    SetTabPinned {
+        surface: SurfaceId,
+        pinned: bool,
     },
     MoveTabToWorkspace {
         surface: SurfaceId,
         #[serde(default)]
         workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Drop a tab on a pane edge: a new split beside `pane` holding the tab.
+    MoveTabToSplit {
+        surface: SurfaceId,
+        pane: PaneId,
+        edge: String,
+        #[serde(default)]
+        ratio: Option<f32>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Drop a tab between niri columns: a new column holding the tab.
+    MoveTabToColumn {
+        surface: SurfaceId,
+        #[serde(default)]
+        pane: Option<PaneId>,
+        #[serde(default)]
+        screen: Option<ScreenId>,
+        #[serde(default)]
+        after_column: Option<SplitId>,
+        #[serde(default)]
+        width: Option<f32>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Drop a tab on the sidebar: a new workspace holding the tab.
+    MoveTabToNewWorkspace {
+        surface: SurfaceId,
+        #[serde(default)]
+        group: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        transaction: Option<String>,
     },
     MoveWorkspace {
         #[serde(default)]
@@ -1417,6 +1740,70 @@ enum Command {
         #[serde(default)]
         key: Option<String>,
         index: usize,
+        #[serde(flatten)]
+        mutation: MutationRequest,
+    },
+    /// Set, clear (`null`), or keep (absent) a workspace's shared color,
+    /// SF Symbol icon, and custom title.
+    SetWorkspaceMetadata {
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        key: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        title: Option<Option<String>>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
+    },
+    /// List sidebar workspace groups in order.
+    ListWorkspaceGroups,
+    /// Create a sidebar workspace group. A caller-chosen `group` id makes a
+    /// retry idempotent.
+    CreateWorkspaceGroup {
+        name: String,
+        #[serde(default)]
+        group: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        collapsed: bool,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+    /// Rename, recolor, or collapse a group. An absent field is unchanged;
+    /// `color: null` clears the color.
+    UpdateWorkspaceGroup {
+        group: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default)]
+        collapsed: Option<bool>,
+    },
+    /// Delete a group; its workspaces become ungrouped in place.
+    DeleteWorkspaceGroup {
+        group: String,
+    },
+    /// Move a group to an insertion index among groups.
+    MoveWorkspaceGroup {
+        group: String,
+        index: usize,
+    },
+    /// Put a workspace in a group (`group: null` ungroups it), optionally at
+    /// a final index among that section's members.
+    MoveWorkspaceToGroup {
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        key: Option<String>,
+        group: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1446,18 +1833,36 @@ enum Command {
     CloseSurface {
         surface: SurfaceId,
     },
+    /// Close several tab placements in one durable commit. With
+    /// `end_terminals`, also end every terminal whose views all close and
+    /// that is not kept.
+    CloseTabs {
+        surfaces: Vec<TabRef>,
+        #[serde(default)]
+        end_terminals: bool,
+        #[serde(default)]
+        transaction: Option<String>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
+    },
     /// Close a pane and all its tabs.
     ClosePane {
         pane: PaneId,
+        #[serde(default)]
+        end_terminals: bool,
     },
     CloseScreen {
         screen: ScreenId,
+        #[serde(default)]
+        end_terminals: bool,
     },
     CloseWorkspace {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
         #[serde(default)]
         key: Option<String>,
+        #[serde(default)]
+        end_terminals: bool,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1693,6 +2098,192 @@ impl Command {
     }
 }
 
+/// A tab named by its numeric surface id or its public `tab_...` id.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum TabRef {
+    Surface(SurfaceId),
+    Public(String),
+}
+
+/// A pane named by its numeric id or its public `pane_...` id.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum PaneRef {
+    Id(PaneId),
+    Public(String),
+}
+
+fn resolve_tab_refs(mux: &Mux, refs: &[TabRef]) -> anyhow::Result<Vec<SurfaceId>> {
+    mux.with_state(|state| {
+        refs.iter()
+            .map(|reference| match reference {
+                TabRef::Surface(surface) => Ok(*surface),
+                TabRef::Public(id) => state
+                    .resource_indexes
+                    .tabs
+                    .iter()
+                    .find_map(|(tab, surface)| (tab.as_str() == id).then_some(*surface))
+                    .ok_or_else(|| anyhow::anyhow!("unknown tab {id}")),
+            })
+            .collect()
+    })
+}
+
+fn resolve_pane_ref(mux: &Mux, reference: &PaneRef) -> anyhow::Result<PaneId> {
+    match reference {
+        PaneRef::Id(pane) => Ok(*pane),
+        PaneRef::Public(id) => mux
+            .with_state(|state| {
+                state
+                    .resource_indexes
+                    .panes
+                    .iter()
+                    .find_map(|(pane, slot)| (pane.as_str() == id).then_some(*slot))
+            })
+            .ok_or_else(|| anyhow::anyhow!("unknown pane {id}")),
+    }
+}
+
+/// Upper bound on one `close-tabs` request; larger sets split into several.
+const MAX_CLOSE_TABS_SURFACES: usize = 4096;
+
+fn batch_close_terminals_json(outcome: &crate::mux::BatchCloseOutcome) -> Value {
+    Value::Array(
+        outcome
+            .terminals()
+            .into_iter()
+            .map(|terminal| {
+                json!({
+                    "terminal_id": terminal.terminal_id,
+                    "terminal_incarnation": terminal.terminal_incarnation,
+                })
+            })
+            .collect(),
+    )
+}
+
+/// A client transaction id: opaque, 1-128 printable ASCII characters.
+fn validate_client_transaction(transaction: Option<&str>) -> anyhow::Result<()> {
+    if let Some(transaction) = transaction {
+        anyhow::ensure!(
+            !transaction.is_empty()
+                && transaction.len() <= 128
+                && transaction.bytes().all(|byte| byte.is_ascii_graphic()),
+            "bad request: transaction must be 1-128 printable ASCII characters"
+        );
+    }
+    Ok(())
+}
+
+fn surface_placement(mux: &Mux, surface: SurfaceId) -> (Option<WorkspaceId>, Option<PaneId>) {
+    mux.with_state(|state| {
+        let pane = state.pane_of(surface);
+        let workspace = pane
+            .and_then(|pane| state.screen_of(pane))
+            .map(|(workspace, _)| state.workspaces[workspace].id);
+        (workspace, pane)
+    })
+}
+
+/// The pane that anchors a column drop: the given pane, or the active pane
+/// of the given screen.
+fn column_anchor(
+    mux: &Mux,
+    pane: Option<PaneId>,
+    screen: Option<ScreenId>,
+) -> anyhow::Result<PaneId> {
+    match (pane, screen) {
+        (Some(pane), None) => Ok(pane),
+        (None, Some(screen)) => mux
+            .with_state(|state| {
+                state
+                    .workspaces
+                    .iter()
+                    .flat_map(|workspace| workspace.screens.iter())
+                    .find_map(|candidate| (candidate.id == screen).then_some(candidate.active_pane))
+            })
+            .ok_or_else(|| anyhow::anyhow!("unknown screen {screen}")),
+        _ => anyhow::bail!("bad request: exactly one of pane or screen"),
+    }
+}
+
+fn pane_tab_group_json(run: &crate::mux::PaneTabGroup, pane: Option<PaneId>) -> Value {
+    let mut value = json!({
+        "id": run.group.id,
+        "name": run.group.name,
+        "color": run.group.color,
+        "collapsed": run.group.collapsed,
+        "saved_id": run.group.saved_id,
+        "start": run.start,
+        "count": run.members.len(),
+        "surfaces": run.members,
+    });
+    if let Some(pane) = pane {
+        value["pane"] = json!(pane);
+    }
+    value
+}
+
+fn tab_group_outcome_json(outcome: &crate::TabGroupOutcome) -> Value {
+    json!({
+        "group": outcome.group.as_ref().map(|group| json!({
+            "id": group.id,
+            "name": group.name,
+            "color": group.color,
+            "collapsed": group.collapsed,
+            "saved_id": group.saved_id,
+        })),
+        "pane": outcome.pane,
+        "workspace": outcome.workspace,
+        "surfaces": outcome.members,
+    })
+}
+
+fn tab_drag_outcome_json(outcome: &crate::TabDragOutcome) -> Value {
+    json!({
+        "surface": outcome.surface,
+        "pane": outcome.pane,
+        "screen": outcome.screen,
+        "workspace": outcome.workspace,
+        "undoable": outcome.undoable,
+    })
+}
+
+/// Deserialize a field whose absence and `null` mean different things:
+/// absent is `None` (via `#[serde(default)]`), `null` is `Some(None)`.
+fn present_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+fn workspace_group_json(
+    group: &crate::workspace_registry::WorkspaceGroupRecord,
+    index: usize,
+) -> Value {
+    json!({
+        "id": group.id,
+        "name": group.name,
+        "color": group.color,
+        "collapsed": group.collapsed,
+        "index": index,
+    })
+}
+
+fn workspace_groups_json(presentation: &crate::workspace_registry::PresentationSnapshot) -> Value {
+    json!(
+        presentation
+            .groups
+            .iter()
+            .enumerate()
+            .map(|(index, group)| workspace_group_json(group, index))
+            .collect::<Vec<_>>()
+    )
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct MutationRequest {
     #[serde(default)]
@@ -1788,7 +2379,14 @@ impl std::error::Error for DeliveryClassifiedError {
     }
 }
 
-const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
+/// Re-check bound for a writer blocked on a full stream queue. It runs only
+/// while a stream is backpressured (active output), never while idle: the
+/// writer thread notifies after every pop, and this bound covers a stream
+/// closed by another thread while its queue stays full.
+const BACKPRESSURE_RECHECK: Duration = Duration::from_millis(100);
+/// First and longest pause after an accept error that can persist.
+const ACCEPT_RETRY_INITIAL: Duration = Duration::from_millis(10);
+const ACCEPT_RETRY_MAX: Duration = Duration::from_secs(1);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 const SHUTDOWN_ACK_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(not(test))]
@@ -2017,18 +2615,45 @@ struct ConnectionSurfaceState {
     requests: VecDeque<PendingSurfaceRequest>,
     queued_bytes: usize,
     active_clear_surfaces: HashSet<SurfaceId>,
+    /// Terminal creates handed to the terminal work pool and not yet
+    /// answered (`terminal_create`).
+    active_creations: usize,
     dispatcher_started: bool,
     dispatcher_done: bool,
     closed: bool,
+}
+
+/// Set when a connection's request scheduler closes. Request handlers that
+/// wait (wait-for) register an interrupt instead of polling the flag.
+#[derive(Default)]
+struct ConnectionCancellation {
+    flag: AtomicBool,
+    interrupts: InterruptSet,
+}
+
+impl ConnectionCancellation {
+    fn cancel(&self) {
+        self.flag.store(true, Ordering::Release);
+        self.interrupts.fire();
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.flag.load(Ordering::Acquire)
+    }
+
+    fn register_interrupt(&self, interrupt: &Arc<StreamInterrupt>) {
+        self.interrupts.register(interrupt);
+    }
 }
 
 struct ConnectionSurfaceScheduler {
     state: Mutex<ConnectionSurfaceState>,
     changed: Condvar,
     admission: Arc<ServerSurfaceOperationAdmission>,
-    cancelled: AtomicBool,
+    cancelled: ConnectionCancellation,
     dispatcher: Mutex<Option<JoinHandle<()>>>,
     connection_permit: Mutex<Option<ConnectionPermit>>,
+    creations: terminal_create::ConnectionCreations,
 }
 
 impl Default for ConnectionSurfaceScheduler {
@@ -2058,9 +2683,10 @@ impl ConnectionSurfaceScheduler {
             state: Mutex::new(ConnectionSurfaceState::default()),
             changed: Condvar::new(),
             admission,
-            cancelled: AtomicBool::new(false),
+            cancelled: ConnectionCancellation::default(),
             dispatcher: Mutex::new(None),
             connection_permit: Mutex::new(connection_permit),
+            creations: terminal_create::ConnectionCreations::default(),
         }
     }
 }
@@ -2539,6 +3165,8 @@ struct OutboundStream {
     open: Arc<AtomicBool>,
     terminal_enqueued: Arc<AtomicBool>,
     overflow_text: Arc<Mutex<Arc<BudgetedText>>>,
+    /// Fired by `close`, so stream loops block instead of polling `is_open`.
+    closed: InterruptSet,
 }
 
 impl OutboundStream {
@@ -2548,7 +3176,12 @@ impl OutboundStream {
             open: Arc::new(AtomicBool::new(true)),
             terminal_enqueued: Arc::new(AtomicBool::new(false)),
             overflow_text: Arc::new(Mutex::new(overflow_text)),
+            closed: InterruptSet::default(),
         }
+    }
+
+    fn register_interrupt(&self, interrupt: &Arc<StreamInterrupt>) {
+        self.closed.register(interrupt);
     }
 
     fn is_open(&self) -> bool {
@@ -2557,6 +3190,7 @@ impl OutboundStream {
 
     fn close(&self) {
         self.open.store(false, Ordering::Release);
+        self.closed.fire();
     }
 
     fn update_overflow(&self, text: Arc<BudgetedText>) {
@@ -2610,6 +3244,9 @@ struct MessageWriter {
     next_stream_id: Arc<AtomicU64>,
     render_service: Arc<RenderService>,
     wait_wakeups: Arc<Mutex<Vec<Weak<ResourceWaitWake>>>>,
+    /// Fired when the writer closes, so stream loops block instead of
+    /// polling `is_open`.
+    closed: InterruptSet,
 }
 
 impl MessageWriter {
@@ -2634,6 +3271,7 @@ impl MessageWriter {
             next_stream_id: Arc::new(AtomicU64::new(1)),
             render_service,
             wait_wakeups: Arc::new(Mutex::new(Vec::new())),
+            closed: InterruptSet::default(),
         }
     }
 
@@ -2828,6 +3466,14 @@ impl MessageWriter {
         result
     }
 
+    /// Fires `interrupt` when this writer closes (at once if it is closed).
+    fn register_interrupt(&self, interrupt: &Arc<StreamInterrupt>) {
+        self.closed.register(interrupt);
+        if !self.is_open() {
+            interrupt.fire();
+        }
+    }
+
     fn register_wait_wakeup(&self, wake: &Arc<ResourceWaitWake>) {
         let mut wakeups = self.wait_wakeups.lock().unwrap();
         wakeups.retain(|registered| registered.strong_count() > 0);
@@ -2845,6 +3491,7 @@ impl MessageWriter {
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }
+            self.closed.fire();
             if preserve_control {
                 self.sink.close_after_control();
             } else {
@@ -2859,6 +3506,7 @@ impl MessageWriter {
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }
+            self.closed.fire();
         }
         self.sink.abort();
     }
@@ -3017,7 +3665,7 @@ impl ConnectionSurfaceScheduler {
     }
 
     fn close(&self) {
-        self.cancelled.store(true, Ordering::Release);
+        self.cancelled.cancel();
         let mut state = self.state.lock().unwrap();
         state.closed = true;
         state.requests.clear();
@@ -3050,7 +3698,10 @@ impl ConnectionSurfaceScheduler {
     fn wait_for_completion(&self, timeout: Option<Duration>) -> bool {
         let deadline = timeout.map(|timeout| Instant::now() + timeout);
         let mut state = self.state.lock().unwrap();
-        while !state.dispatcher_done || !state.active_clear_surfaces.is_empty() {
+        while !state.dispatcher_done
+            || !state.active_clear_surfaces.is_empty()
+            || state.active_creations != 0
+        {
             if let Some(deadline) = deadline {
                 if Instant::now() >= deadline {
                     break;
@@ -3062,7 +3713,9 @@ impl ConnectionSurfaceScheduler {
                 state = self.changed.wait(state).unwrap();
             }
         }
-        let drained = state.dispatcher_done && state.active_clear_surfaces.is_empty();
+        let drained = state.dispatcher_done
+            && state.active_clear_surfaces.is_empty()
+            && state.active_creations == 0;
         drop(state);
         if drained && let Some(dispatcher) = self.dispatcher.lock().unwrap().take() {
             let _ = dispatcher.join();
@@ -3178,6 +3831,11 @@ fn run_connection_surface_dispatcher(
                     scheduler.close();
                     return;
                 }
+            }
+        } else if pending.request.cmd.creates_terminal() {
+            if !scheduler.submit_creation(&mux, client, pending, &writer) {
+                scheduler.close();
+                return;
             }
         } else if !run_pending_request(&scheduler, &mux, client, pending, &writer) {
             scheduler.close();
@@ -3311,7 +3969,7 @@ impl BoundedOutbound {
                 self.changed.notify_all();
                 return result;
             }
-            let (next, _) = self.changed.wait_timeout(state, STREAM_DISCONNECT_POLL).unwrap();
+            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).unwrap();
             state = next;
         }
     }
@@ -3490,7 +4148,7 @@ impl BoundedOutbound {
                 self.changed.notify_all();
                 return Ok(());
             }
-            let (next, _) = self.changed.wait_timeout(state, STREAM_DISCONNECT_POLL).unwrap();
+            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).unwrap();
             state = next;
         }
     }
@@ -4135,7 +4793,12 @@ struct ClientRegistryState {
 }
 
 pub(crate) struct ClientRegistry {
+    /// Called when a surface loses its last attached client (the idle-close
+    /// reaper starts that terminal's unattached period).
+    detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     url_opens: url_open::URLRequests,
+    /// Connection-scoped loopback streams (`loopback-forward-v1`).
+    loopback: loopback_forward::LoopbackForwarder,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -4145,8 +4808,10 @@ pub(crate) struct ClientRegistry {
 impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
+            detach_waker: Mutex::new(None),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
+            loopback: loopback_forward::LoopbackForwarder::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -4203,6 +4868,13 @@ impl ClientRegistry {
 
     pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
         self.state.lock().unwrap().daemon_handoff.is_some()
+    }
+
+    pub(crate) fn daemon_handoff_committed(&self) -> bool {
+        matches!(
+            self.state.lock().unwrap().daemon_handoff,
+            Some(DaemonHandoffReservation::Committed(_))
+        )
     }
 
     fn is_unix(&self, client: u64) -> bool {
@@ -4388,6 +5060,7 @@ impl ClientRegistry {
                     || capability == CREATION_RECEIPTS_CAPABILITY
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
+                    || capability == LOOPBACK_FORWARD_CAPABILITY
             }));
         }
         Ok((record.name.clone(), record.kind.clone()))
@@ -5082,6 +5755,7 @@ impl ClientRegistry {
                 clients.remove(&client);
                 if clients.is_empty() {
                     state.attached_by_surface.remove(&surface);
+                    self.notify_detach();
                 }
             }
             return DetachedSurface {
@@ -5180,18 +5854,25 @@ impl ClientRegistry {
 
     fn remove(&self, client: u64) -> Option<ClientRecord> {
         self.url_opens.disconnect(client);
+        self.loopback.disconnect(client);
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
             state.daemon_handoff = None;
         }
+        let mut detached = false;
         for surface in record.attached.keys() {
             if let Some(clients) = state.attached_by_surface.get_mut(surface) {
                 clients.remove(&client);
                 if clients.is_empty() {
                     state.attached_by_surface.remove(surface);
+                    detached = true;
                 }
             }
+        }
+        drop(state);
+        if detached {
+            self.notify_detach();
         }
         Some(record)
     }
@@ -5231,6 +5912,16 @@ impl ClientRegistry {
 
     /// Whether any client holds an attach stream on one of `surfaces`, and
     /// the newest attach epoch among them (0 when none was ever attached).
+    pub(crate) fn set_detach_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
+        *self.detach_waker.lock().unwrap() = Some(Box::new(waker));
+    }
+
+    fn notify_detach(&self) {
+        if let Some(waker) = self.detach_waker.lock().unwrap().as_ref() {
+            waker();
+        }
+    }
+
     pub(crate) fn attach_observation(&self, surfaces: &[SurfaceId]) -> (bool, u64) {
         let state = self.state.lock().unwrap();
         let attached =
@@ -5578,8 +6269,27 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
     let server_mux = mux.clone();
 
     let server = std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+        // Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across
+        // accepts, and an immediate retry ran this thread at 100% CPU until
+        // descriptors freed up. Space those retries; per-connection errors
+        // need none because the next accept blocks.
+        let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
         loop {
-            let Ok(stream) = listener.accept() else { continue };
+            let stream = match listener.accept() {
+                Ok(stream) => {
+                    backoff.reset();
+                    stream
+                }
+                Err(error) => {
+                    if server_shutdown.load(Ordering::Acquire) {
+                        break;
+                    }
+                    if crate::backoff::accept_error_needs_backoff(&error) {
+                        backoff.sleep();
+                    }
+                    continue;
+                }
+            };
             if server_shutdown.load(Ordering::Acquire) {
                 break;
             }
@@ -5664,16 +6374,21 @@ pub fn serve_websocket(
     let thread_connections = connections.clone();
     let render_service = Arc::new(RenderService::new());
     let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
+        let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
         while !thread_shutdown.load(Ordering::Acquire) {
             let (stream, peer) = match listener.accept() {
-                Ok(connection) => connection,
-                Err(_) => {
+                Ok(connection) => {
+                    backoff.reset();
+                    connection
+                }
+                Err(error) => {
                     if thread_shutdown.load(Ordering::Acquire) {
                         break;
                     }
                     // Accept errors can persist (for example, after resource exhaustion).
-                    // A short backoff prevents a hot retry loop while still recovering promptly.
-                    std::thread::sleep(STREAM_DISCONNECT_POLL);
+                    if crate::backoff::accept_error_needs_backoff(&error) {
+                        backoff.sleep();
+                    }
                     continue;
                 }
             };
@@ -6145,7 +6860,7 @@ pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
 fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
     match serde_json::from_str::<Request>(message) {
         Ok(request) => handle_request(mux, client, request, writer),
-        Err(error) => send_request_error(writer, None, &format!("bad request: {error}")),
+        Err(error) => send_bad_request(writer, message, &error),
     }
 }
 
@@ -8000,6 +8715,19 @@ fn send_resource_uncursored_stream_item(
         .is_ok()
 }
 
+/// One interrupt for a resource attach loop: its connection writer, its
+/// outbound stream (closed with `canceled`) and its attach lifecycle.
+fn resource_attach_interrupt(
+    writer: &MessageWriter,
+    start: &ResourceSurfaceAttachStart,
+) -> Arc<StreamInterrupt> {
+    let interrupt = StreamInterrupt::new();
+    writer.register_interrupt(&interrupt);
+    start.outbound.register_interrupt(&interrupt);
+    start.lifecycle.register_interrupt(&interrupt);
+    interrupt
+}
+
 fn finish_resource_surface_attach(
     mux: &Mux,
     client: u64,
@@ -8059,12 +8787,14 @@ fn start_terminal_resource_attach(
             sequence = sequence.saturating_add(1);
             let mut render_state =
                 RenderClientState::new(worker_writer.render_service.clone(), &start.attach.initial);
+            let interrupt = resource_attach_interrupt(&worker_writer, &start.common);
+            start.attach.stream.wake_on(&interrupt);
             while worker_writer.is_open()
                 && start.common.outbound.is_open()
                 && !start.common.canceled.load(Ordering::Acquire)
                 && !start.common.lifecycle.is_canceled()
             {
-                let item = match start.attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                let item = match start.attach.stream.recv_until_interrupted(&interrupt) {
                     Ok(RenderAttachFrame::Frame(frame)) => {
                         terminal_resource_patch(&start.terminal_id, &mut render_state, &frame)
                     }
@@ -8293,12 +9023,14 @@ fn start_browser_resource_attach(
                 }
                 sequence = sequence.saturating_add(1);
             }
+            let interrupt = resource_attach_interrupt(&worker_writer, &start.common);
+            start.frames.notify.wake_on(&interrupt);
             while worker_writer.is_open()
                 && start.common.outbound.is_open()
                 && !start.common.canceled.load(Ordering::Acquire)
                 && !start.common.lifecycle.is_canceled()
             {
-                match start.frames.notify.recv_timeout(STREAM_DISCONNECT_POLL) {
+                match start.frames.notify.recv_until_interrupted(&interrupt) {
                     Ok(()) => {}
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -8450,11 +9182,16 @@ fn start_sidebar_resource_attach(
             }
             sequence = sequence.saturating_add(1);
             let mut render_state = SidebarRenderClientState::new(&start.attachment.initial);
+            // `canceled` is only set together with closing `outbound`.
+            let interrupt = StreamInterrupt::new();
+            worker_writer.register_interrupt(&interrupt);
+            start.outbound.register_interrupt(&interrupt);
+            start.attachment.stream.wake_on(&interrupt);
             while worker_writer.is_open()
                 && start.outbound.is_open()
                 && !start.canceled.load(Ordering::Acquire)
             {
-                let item = match start.attachment.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                let item = match start.attachment.stream.recv_until_interrupted(&interrupt) {
                     Ok(RenderAttachFrame::Frame(frame)) => {
                         render_state.patch(&start.attachment.sidebar_view_id, &frame)
                     }
@@ -8773,11 +9510,17 @@ fn run_session_event_stream(
         stream.next_sequence = stream.next_sequence.saturating_add(1);
     }
 
+    // `canceled` is only set together with closing `outbound`. The stream
+    // used to wake every second to re-check both.
+    let interrupt = StreamInterrupt::new();
+    writer.register_interrupt(&interrupt);
+    stream.outbound.register_interrupt(&interrupt);
+    mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
         if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
             break;
         }
-        let epoch = mux.wait_for_resource_event(stream.epoch, Duration::from_secs(1));
+        let epoch = mux.wait_for_journal_event_until_interrupted(stream.epoch, &interrupt);
         if epoch == stream.epoch {
             continue;
         }
@@ -9332,6 +10075,11 @@ fn run_session_journal_stream(
     writer: &MessageWriter,
     mut stream: SessionJournalStreamStart,
 ) {
+    // `canceled` is only set together with closing `outbound`.
+    let interrupt = StreamInterrupt::new();
+    writer.register_interrupt(&interrupt);
+    stream.outbound.register_interrupt(&interrupt);
+    mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
         if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
             break;
@@ -9499,9 +10247,9 @@ fn run_session_journal_stream(
                 break 'stream;
             }
             let epoch = if stream.shared_fanout && stream.reader.is_none() {
-                mux.wait_for_shared_journal(stream.epoch, Duration::from_secs(1))
+                mux.wait_for_shared_journal_until_interrupted(stream.epoch, &interrupt)
             } else {
-                mux.wait_for_journal_event(stream.epoch, Duration::from_secs(1))
+                mux.wait_for_journal_event_until_interrupted(stream.epoch, &interrupt)
             };
             if epoch != stream.epoch {
                 stream.epoch = epoch;
@@ -9649,20 +10397,76 @@ fn handle_connection_message(
     // the transport, so lifecycle clients receive authoritative completion.
     // A pipelined message after the acknowledgement must not reach parsing or
     // dispatch; returning false makes the connection loop close that client.
-    if mux.daemon_shutdown_requested() || mux.daemon_handoff_in_progress() {
+    if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
         return false;
+    }
+    // Before the acknowledgement the handoff can still fail (for example
+    // while `end_terminals` awaits every host) and this daemon keeps
+    // serving. Closing here would drop the requester's pending
+    // `shutdown-daemon` reply along with its connection, so a message that
+    // arrives meanwhile (a subscriber's snapshot refresh) is refused
+    // without being executed and the connection stays open.
+    if mux.daemon_handoff_in_progress() {
+        return reject_message_during_pending_handoff(message, writer);
     }
     if crate::resource_router::is_resource_protocol_message(message) {
         return handle_resource_connection_message(mux, client, message, writer);
     }
+    if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
     let request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
-        Err(error) => return send_request_error(writer, None, &format!("bad request: {error}")),
+        Err(error) => return send_bad_request(writer, message, &error),
     };
     let mut pending = Some(request);
     match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
         Some(keep_open) => keep_open,
         None => handle_request(mux, client, pending.take().unwrap(), writer),
+    }
+}
+
+const PENDING_HANDOFF_ERROR: &str = "daemon shutdown is in progress; request was not executed";
+
+/// Refuses one message received while a daemon handoff is reserved but not
+/// yet acknowledged. Nothing is parsed into a command or dispatched.
+fn reject_message_during_pending_handoff(message: &str, writer: &MessageWriter) -> bool {
+    if crate::resource_router::is_resource_protocol_message(message) {
+        return match crate::resource_router::parse_resource_request(message) {
+            Ok(request) => {
+                let operation = request.envelope.operation;
+                send_resource_response(
+                    writer,
+                    request.envelope.id,
+                    operation,
+                    Err(ResourceError::new(
+                        "operation.failed",
+                        PENDING_HANDOFF_ERROR,
+                        json!({
+                            "operation": operation.wire_name(),
+                            "reason": "daemon_handoff_pending",
+                        }),
+                        false,
+                    )),
+                )
+            }
+            Err(error) => {
+                let response = crate::resource_router::malformed_resource_response(message, error);
+                writer.send_control(&response).is_ok()
+            }
+        };
+    }
+    match serde_json::from_str::<Request>(message) {
+        Ok(request) => {
+            let is_clear_history = request.cmd.is_clear_history();
+            send_request_error_with_delivery(
+                writer,
+                request.id,
+                PENDING_HANDOFF_ERROR,
+                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
+            )
+        }
+        Err(error) => send_bad_request(writer, message, &error),
     }
 }
 
@@ -9675,7 +10479,7 @@ fn handle_request_with_cancellation(
     client: u64,
     request: Request,
     writer: &MessageWriter,
-    cancellation: Option<&AtomicBool>,
+    cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
     let Request { id, cmd } = request;
     if let Command::UrlOpen { terminal_id, url } = cmd {
@@ -9815,6 +10619,23 @@ fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| {
             error.downcast_ref::<ViewportWidthError>().map(|error| error.code().to_string())
         })
+}
+
+/// Answers a request line that did not decode into a command. The reply
+/// echoes the line's `id` whenever the line is a JSON object that carries
+/// one: replies can arrive out of order, so a client matches each reply to
+/// its request by id, and an id-less error would reach the wrong request.
+fn send_bad_request(writer: &MessageWriter, message: &str, error: &serde_json::Error) -> bool {
+    send_request_error(writer, undecodable_request_id(message), &format!("bad request: {error}"))
+}
+
+/// The `id` member of a request line that failed to decode, if the line is a
+/// JSON object.
+fn undecodable_request_id(message: &str) -> Option<Value> {
+    match serde_json::from_str::<Value>(message) {
+        Ok(Value::Object(mut object)) => object.remove("id"),
+        _ => None,
+    }
 }
 
 fn send_request_error(writer: &MessageWriter, id: Option<Value>, error: &str) -> bool {
@@ -10246,10 +11067,14 @@ fn pane_json(
     state: &State,
     id: PaneId,
     short_ids: &HashMap<u64, String>,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
 ) -> Value {
     let Some(pane) = state.panes.get(&id) else {
         return json!({ "id": id, "dead": true });
+    };
+    let tab_groups = crate::mux::pane_tab_groups(state, &notifications.presentation, id);
+    let group_of = |surface: &SurfaceId| {
+        tab_groups.iter().find(|run| run.members.contains(surface)).map(|run| run.group.id.as_str())
     };
     json!({
         "id": id,
@@ -10258,6 +11083,7 @@ fn pane_json(
         "name": pane.name,
         "active_tab": pane.active_tab,
         "focused_at": pane.focused_at,
+        "tab_groups": tab_groups.iter().map(|run| pane_tab_group_json(run, None)).collect::<Vec<_>>(),
         "tabs": pane.tabs.iter().map(|sid| {
             let surface = state.surfaces.get(sid);
             let terminal_identity = surface.and_then(|surface| surface.terminal_host_identity());
@@ -10273,9 +11099,26 @@ fn pane_json(
             let content_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| identity.content_id.as_str());
+            let directory = notifications.directories.get(sid);
+            let frontend_browser = surface
+                .and_then(|surface| surface.resource_identity())
+                .and_then(|identity| match &identity.content_id {
+                    ContentPublicId::Browser(id) => {
+                        notifications.presentation.frontend_browsers.get(id.as_str())
+                    }
+                    ContentPublicId::Terminal(_) => None,
+                });
+            let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
+                notifications.presentation.pinned_tabs.contains(tab.as_str())
+            });
             json!({
                 "surface": sid,
                 "tab_resource_id": tab_resource_id,
+                "group": group_of(sid),
+                "pinned": pinned,
+                "cwd": directory.and_then(|directory| directory.cwd.as_deref()),
+                "git_branch": directory.and_then(|directory| directory.git_branch.as_deref()),
+                "git_detached": directory.is_some_and(|directory| directory.git_detached),
                 "content_resource_id": content_resource_id,
                 "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
                 "terminal_resource_id": terminal_resource_id,
@@ -10285,8 +11128,18 @@ fn pane_json(
                 "short_id": short_ids.get(sid).cloned().unwrap_or_default(),
                 "kind": surface.map(|s| s.kind().as_str()).unwrap_or("pty"),
                 "browser_source": surface.and_then(|s| s.browser_source().map(|source| source.as_str())),
-                "browser_status": surface.and_then(|s| s.browser_status().map(|status| status.as_str())),
-                "browser_error": surface.and_then(|s| s.browser_status().and_then(|status| status.error())),
+                "browser_status": surface
+                    .filter(|_| frontend_browser.is_none())
+                    .and_then(|s| s.browser_status().map(|status| status.as_str())),
+                "browser_error": surface
+                    .filter(|_| frontend_browser.is_none())
+                    .and_then(|s| s.browser_status().and_then(|status| status.error())),
+                "browser_renderer": surface
+                    .filter(|surface| surface.kind() == SurfaceKind::Browser)
+                    .map(|_| if frontend_browser.is_some() { "frontend" } else { "daemon" }),
+                "browser_engine": frontend_browser.map(|record| record.engine.as_str()),
+                "favicon_url": frontend_browser.and_then(|record| record.favicon_url.as_deref()),
+                "browser_profile_id": frontend_browser.and_then(|record| record.profile_id.as_deref()),
                 "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
                 "url": surface.and_then(|s| s.browser_url()),
                 "supports_clear_history_key_fallback": surface
@@ -10315,7 +11168,7 @@ fn screen_json(
     screen: &Screen,
     active: bool,
     short_ids: &HashMap<u64, String>,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
 ) -> Value {
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
@@ -10360,14 +11213,12 @@ fn screen_json(
     value
 }
 
-fn workspaces_json(
-    state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
-) -> Value {
+pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) -> Value {
     let short_ids = tree_short_ids(state);
     json!({
         "workspace_revision": state.workspace_revision,
         "pane_revision": state.pane_revision,
+        "groups": workspace_groups_json(&notifications.presentation),
         "workspaces": state.workspaces.iter().enumerate().map(|(index, workspace)| {
             workspace_json(state, workspace, index, &short_ids, notifications)
         }).collect::<Vec<_>>(),
@@ -10395,14 +11246,20 @@ fn workspace_json(
     workspace: &Workspace,
     index: usize,
     short_ids: &HashMap<u64, String>,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
 ) -> Value {
+    let presentation = notifications.presentation.workspace(&workspace.key);
     json!({
         "id": workspace.id,
         "resource_id": workspace.public_id,
         "key": workspace.key,
         "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
         "name": workspace.name,
+        "group": presentation.and_then(|presentation| presentation.group.as_deref()),
+        "color": presentation.and_then(|presentation| presentation.color.as_deref()),
+        "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
+        "title": presentation.and_then(|presentation| presentation.title.as_deref()),
+        "unread_count": workspace_unread_count(state, workspace, notifications),
         "active": index == state.active_workspace,
         "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {
             screen_json(
@@ -10416,9 +11273,25 @@ fn workspace_json(
     })
 }
 
+/// Tabs in a workspace whose content has an unread notification marker.
+fn workspace_unread_count(
+    state: &State,
+    workspace: &Workspace,
+    notifications: &TreeDecorations,
+) -> usize {
+    workspace
+        .screens
+        .iter()
+        .flat_map(|screen| screen.root.pane_ids_vec())
+        .filter_map(|pane| state.panes.get(&pane))
+        .flat_map(|pane| pane.tabs.iter())
+        .filter(|surface| notifications.get(surface).is_some_and(|marker| marker.unread))
+        .count()
+}
+
 pub(crate) fn tree_entity_json(
     state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
     kind: TreeDeltaKind,
     id: u64,
 ) -> Option<Value> {
@@ -10428,6 +11301,7 @@ pub(crate) fn tree_entity_json(
             | TreeDeltaKind::WorkspaceClosed
             | TreeDeltaKind::WorkspaceRenamed
             | TreeDeltaKind::WorkspaceMoved
+            | TreeDeltaKind::WorkspaceChanged
     ) {
         let short_ids = tree_short_ids(state);
         let index = state.workspace_index(id)?;
@@ -10440,7 +11314,8 @@ pub(crate) fn tree_entity_json(
         TreeDeltaKind::WorkspaceAdded
         | TreeDeltaKind::WorkspaceClosed
         | TreeDeltaKind::WorkspaceRenamed
-        | TreeDeltaKind::WorkspaceMoved => unreachable!("workspace deltas returned above"),
+        | TreeDeltaKind::WorkspaceMoved
+        | TreeDeltaKind::WorkspaceChanged => unreachable!("workspace deltas returned above"),
         TreeDeltaKind::ScreenAdded | TreeDeltaKind::ScreenClosed | TreeDeltaKind::ScreenRenamed => {
             workspaces
                 .iter()
@@ -10458,19 +11333,18 @@ pub(crate) fn tree_entity_json(
             .flat_map(|screen| screen.get("panes").and_then(Value::as_array).into_iter().flatten())
             .find(|pane| pane.get("id").and_then(Value::as_u64) == Some(id))
             .cloned(),
-        TreeDeltaKind::TabAdded | TreeDeltaKind::TabClosed | TreeDeltaKind::TabRenamed => {
-            workspaces
-                .iter()
-                .flat_map(|workspace| {
-                    workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
-                })
-                .flat_map(|screen| {
-                    screen.get("panes").and_then(Value::as_array).into_iter().flatten()
-                })
-                .flat_map(|pane| pane.get("tabs").and_then(Value::as_array).into_iter().flatten())
-                .find(|tab| tab.get("surface").and_then(Value::as_u64) == Some(id))
-                .cloned()
-        }
+        TreeDeltaKind::TabAdded
+        | TreeDeltaKind::TabClosed
+        | TreeDeltaKind::TabRenamed
+        | TreeDeltaKind::TabChanged => workspaces
+            .iter()
+            .flat_map(|workspace| {
+                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
+            })
+            .flat_map(|screen| screen.get("panes").and_then(Value::as_array).into_iter().flatten())
+            .flat_map(|pane| pane.get("tabs").and_then(Value::as_array).into_iter().flatten())
+            .find(|tab| tab.get("surface").and_then(Value::as_u64) == Some(id))
+            .cloned(),
     }
 }
 
@@ -10491,6 +11365,9 @@ fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
     }
     if let Some(index) = delta.index {
         value["index"] = json!(index);
+    }
+    if let Some(transaction) = &delta.transaction {
+        value["transaction"] = json!(transaction.as_ref());
     }
     if let Some(revision) = delta.workspace_revision {
         value["workspace_revision"] = json!(revision);
@@ -11439,8 +12316,13 @@ fn spawn_attach_notification_stream(
     std::thread::Builder::new()
         .name("mux-attach-notifications".into())
         .spawn(move || {
+            let interrupt = StreamInterrupt::new();
+            writer.register_interrupt(&interrupt);
+            outbound_stream.register_interrupt(&interrupt);
+            lifecycle.register_interrupt(&interrupt);
+            events.wake_on(&interrupt);
             while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
-                let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
+                let event = match events.recv_until_interrupted(&interrupt) {
                     Ok(event) => event,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -11840,7 +12722,7 @@ fn handle_command_with_cancellation(
     client: u64,
     cmd: Command,
     writer: &MessageWriter,
-    cancellation: Option<&AtomicBool>,
+    cancellation: Option<&ConnectionCancellation>,
 ) -> anyhow::Result<Value> {
     match cmd {
         Command::UrlOpenSubscribe { terminal_ids } => {
@@ -11903,15 +12785,30 @@ fn handle_command_with_cancellation(
                 "lifecycle_ready": mux.server_lifecycle_ready(),
             }))
         }
-        Command::ShutdownDaemon { pid, generation, force } => {
+        Command::ShutdownDaemon { pid, generation, force, end_terminals } => {
             let actual_identity = mux.begin_daemon_handoff(
                 client,
                 DaemonHandoffRequest::fenced(pid, generation, force),
             )?;
+            // The fenced handoff reservation is held, so no second shutdown
+            // can start while the hosts end. A failure releases it and keeps
+            // this daemon serving.
+            let ended_terminals = if end_terminals {
+                match mux.end_all_terminals() {
+                    Ok(ended) => Some(ended.len()),
+                    Err(error) => {
+                        mux.cancel_daemon_handoff(client);
+                        return Err(error);
+                    }
+                }
+            } else {
+                None
+            };
             Ok(json!({
                 "accepted": true,
                 "pid": actual_identity.pid,
                 "generation": actual_identity.generation,
+                "ended_terminals": ended_terminals,
             }))
         }
         Command::Ping => Ok(json!({
@@ -12194,7 +13091,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::ListWorkspaces => {
-            let notifications = mux.surface_notifications();
+            let notifications = mux.tree_decorations();
             let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
             let (registry_id, generation) = mux.registry_identity();
             workspaces["registry_id"] = json!(registry_id);
@@ -12326,7 +13223,7 @@ fn handle_command_with_cancellation(
             Ok(sidebar_plugin_status_json(mux.ensure_sidebar_plugin(cols, rows, relaunch)))
         }
         Command::WaitFor { surface, pattern, timeout_ms } => {
-            let cancelled = || cancellation.is_some_and(|flag| flag.load(Ordering::Acquire));
+            let cancelled = || cancellation.is_some_and(ConnectionCancellation::is_cancelled);
             if cancelled() {
                 anyhow::bail!("connection closed while waiting for pattern");
             }
@@ -12350,6 +13247,13 @@ fn handle_command_with_cancellation(
             }
             let deadline = start + Duration::from_millis(timeout_ms);
             let attach = surface.attach_stream()?;
+            // The wait ends on output, the deadline, or the connection
+            // closing; it used to wake every 100 ms to check the last.
+            let interrupt = StreamInterrupt::new();
+            if let Some(cancellation) = cancellation {
+                cancellation.register_interrupt(&interrupt);
+            }
+            attach.stream.wake_on(&interrupt);
             if let Some(text) = check()? {
                 return Ok(json!({
                     "matched": true,
@@ -12365,8 +13269,7 @@ fn handle_command_with_cancellation(
                 if now >= deadline {
                     anyhow::bail!("timeout waiting for pattern");
                 }
-                let remaining = deadline.saturating_duration_since(now);
-                match attach.stream.recv_timeout(remaining.min(STREAM_DISCONNECT_POLL)) {
+                match attach.stream.recv_interruptible(&interrupt, Some(deadline)) {
                     Ok(_) => {
                         if let Some(text) = check()? {
                             return Ok(json!({
@@ -12583,15 +13486,69 @@ fn handle_command_with_cancellation(
                 "idle_close_seconds": idle_close_seconds,
             }))
         }
-        Command::NewTab { pane, cwd, cols, rows } => {
-            let surface = mux.new_tab(pane, cwd, optional_surface_size(cols, rows))?;
-            let terminal_identity = surface.terminal_host_identity();
+        Command::SetTerminalKeep { surface, terminal_id, keep } => {
+            let terminal_id = match (surface, terminal_id) {
+                (Some(surface), None) => {
+                    let surface = get_surface(mux, surface)?;
+                    require_pty(&surface)?;
+                    let identity = mux.resource_terminal_host_identity(&surface);
+                    identity.ok_or_else(|| anyhow::anyhow!("terminal_not_hosted"))?.terminal_id
+                }
+                (None, Some(terminal_id)) => {
+                    let resolution = mux.resolve_terminal(&terminal_id)?;
+                    let resolution =
+                        resolution.ok_or_else(|| anyhow::anyhow!("terminal_not_found"))?;
+                    resolution.terminal.terminal_id
+                }
+                _ => anyhow::bail!("bad request: exactly one of surface or terminal_id"),
+            };
+            mux.set_terminal_keep(&terminal_id, keep)?;
+            Ok(json!({ "terminal_id": terminal_id, "keep": keep }))
+        }
+        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+            let surface =
+                mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
+            placed_terminal_result(mux, &surface, keep)
+        }
+        Command::NewFrontendBrowserTab {
+            url,
+            engine,
+            pane,
+            title,
+            favicon_url,
+            profile_id,
+            cols,
+            rows,
+        } => {
+            let record = crate::workspace_registry::FrontendBrowserRecord {
+                engine,
+                url,
+                title,
+                favicon_url,
+                profile_id,
+            };
+            let surface = mux.new_frontend_browser_tab(
+                pane,
+                record,
+                paired_surface_size("new-frontend-browser-tab", cols, rows)?,
+            )?;
+            let identity = surface.resource_identity();
             Ok(json!({
                 "surface": surface.id,
-                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
-                "terminal_incarnation": terminal_identity
-                    .as_ref()
-                    .map(|identity| &identity.incarnation),
+                "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
+                "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
+            }))
+        }
+        Command::UpdateFrontendBrowserTab { surface, url, title, favicon_url } => {
+            let (record, changed) =
+                mux.update_frontend_browser_tab(surface, url, title, favicon_url)?;
+            Ok(json!({
+                "surface": surface,
+                "url": record.url,
+                "title": record.title,
+                "favicon_url": record.favicon_url,
+                "changed": changed,
             }))
         }
         Command::NewBrowserTab { url, pane, cols, rows } => {
@@ -12820,8 +13777,15 @@ fn handle_command_with_cancellation(
             cols,
             rows,
             terminal_id,
+            env,
+            keep,
             mutation,
         } => {
+            let env = env
+                .as_ref()
+                .map(crate::mux::validate_terminal_env)
+                .transpose()?
+                .unwrap_or_default();
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
@@ -12836,7 +13800,9 @@ fn handle_command_with_cancellation(
             let size = paired_surface_size("create-terminal", cols, rows)?;
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
             let (registry_id, generation) = mux.registry_identity();
-            if terminal_id.is_some() || mutation.mutation_id.is_some() {
+            // A per-terminal environment rides the receipted path, which is
+            // the only one that carries a spawn reservation.
+            if terminal_id.is_some() || mutation.mutation_id.is_some() || !env.is_empty() {
                 let workspace_mutation = workspace_mutation(&mutation)?;
                 let result = mux.create_raw_terminal_in_workspace_with_mutation(
                     workspace,
@@ -12848,6 +13814,7 @@ fn handle_command_with_cancellation(
                     mutation.expected_generation.as_deref(),
                     mutation.expected_revision,
                     &workspace_mutation,
+                    env,
                 )?;
                 let projection_fingerprint = json!({
                     "terminal_id":result.terminal_id,
@@ -12865,6 +13832,9 @@ fn handle_command_with_cancellation(
                 mux.activate_created_terminal_surface(result.created_surface)?;
                 mux.reap_created_terminal_surface(result.created_surface);
                 let created = mux.created_terminal_run_result(&result.terminal_id)?;
+                if keep {
+                    keep_created_terminal(mux, Some(created.terminal.terminal_id.as_str()))?;
+                }
                 let placement = created.placement;
                 let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
                 Ok(json!({
@@ -12886,6 +13856,9 @@ fn handle_command_with_cancellation(
             } else {
                 let created =
                     mux.create_terminal_result_in_workspace(workspace, argv, cwd, name, size)?;
+                if keep {
+                    keep_created_terminal(mux, Some(created.terminal.terminal_id.as_str()))?;
+                }
                 let placement = created.placement;
                 let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
                 Ok(json!({
@@ -12910,22 +13883,28 @@ fn handle_command_with_cancellation(
             let surface = mux.new_screen(workspace, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::NewPane { pane, cols, rows } => {
-            let surface = mux.new_pane(pane, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
+        Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+            let surface =
+                mux.new_pane_with_options(pane, spawn, optional_surface_size(cols, rows))?;
+            placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewPaneRight { pane, width, cols, rows } => {
-            let surface = mux.new_pane_right(
+        Command::NewPaneRight { pane, width, cols, rows, cwd, env, keep, terminal_id } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+            let surface = mux.new_pane_right_with_options(
                 pane,
                 width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
+                spawn,
                 optional_surface_size(cols, rows),
             )?;
-            Ok(json!({ "surface": surface.id }))
+            placed_terminal_result(mux, &surface, keep)
         }
-        Command::Split { pane, dir, cols, rows } => {
+        Command::Split { pane, dir, cols, rows, cwd, env, keep, terminal_id } => {
             let dir = parse_split_dir(&dir)?;
-            let surface = mux.split(pane, dir, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+            let surface =
+                mux.split_with_options(pane, dir, spawn, optional_surface_size(cols, rows))?;
+            placed_terminal_result(mux, &surface, keep)
         }
         Command::SetRatio { pane, dir, ratio } => {
             let dir = parse_split_dir(&dir)?;
@@ -13020,6 +13999,9 @@ fn handle_command_with_cancellation(
                     .and_then(platform::foreground_process_name),
             }))
         }
+        Command::TerminalResources { surfaces } => {
+            Ok(terminal_resources::terminal_resources(mux, surfaces))
+        }
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
             let workspace_mutation = workspace_mutation(&mutation)?;
             let result = mux.move_terminal_with_mutation(
@@ -13047,11 +14029,52 @@ fn handle_command_with_cancellation(
                 "generation":generation,
             }))
         }
-        Command::MoveTabToWorkspace { surface, workspace } => {
+        Command::MoveTabToWorkspace { surface, workspace, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
             mux.move_tab_to_workspace(surface, workspace)?;
-            Ok(json!({}))
+            mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
+            let (workspace, pane) = surface_placement(mux, surface);
+            Ok(json!({"surface": surface, "workspace": workspace, "pane": pane, "undoable": false}))
         }
-        Command::MoveTab { surface, pane, index } => {
+        Command::MoveTabToSplit { surface, pane, edge, ratio, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            get_surface(mux, surface)?;
+            let edge = crate::TabDropEdge::parse(&edge)?;
+            let outcome = mux.move_tab_to_split(surface, pane, edge, ratio, transaction)?;
+            Ok(tab_drag_outcome_json(&outcome))
+        }
+        Command::MoveTabToColumn { surface, pane, screen, after_column, width, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            get_surface(mux, surface)?;
+            let anchor = column_anchor(mux, pane, screen)?;
+            let outcome =
+                mux.move_tab_to_column(surface, anchor, after_column, width, transaction)?;
+            Ok(tab_drag_outcome_json(&outcome))
+        }
+        Command::MoveTabToNewWorkspace { surface, group, index, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            get_surface(mux, surface)?;
+            let workspace = mux.move_tab_to_new_workspace(surface, group.clone(), index)?;
+            mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
+            let (key, workspace_index) = mux
+                .with_state(|state| {
+                    let index = state.workspace_index(workspace)?;
+                    Some((state.workspaces[index].key.clone(), index))
+                })
+                .ok_or_else(|| anyhow::anyhow!("new workspace disappeared"))?;
+            let (_, pane) = surface_placement(mux, surface);
+            Ok(json!({
+                "surface": surface,
+                "workspace": workspace,
+                "key": key,
+                "index": workspace_index,
+                "group": group,
+                "pane": pane,
+                "undoable": false,
+            }))
+        }
+        Command::MoveTab { surface, pane, index, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
             let valid = mux.with_state(|state| {
                 state.surfaces.contains_key(&surface)
                     && state.panes.contains_key(&pane)
@@ -13060,8 +14083,177 @@ fn handle_command_with_cancellation(
             if !valid {
                 anyhow::bail!("unknown surface/pane");
             }
-            mux.move_tab(surface, pane, index);
-            Ok(json!({}))
+            let index = mux.pinned_tab_move_index(surface, pane, index);
+            let (moved, undoable) = mux.move_tab_with_undo(surface, pane, index, transaction);
+            Ok(json!({"moved": moved, "undoable": undoable}))
+        }
+        Command::ListTabGroups => {
+            let presentation = mux.presentation_snapshot();
+            let groups = mux.with_state(|state| {
+                let mut groups = Vec::new();
+                for pane in state.panes.keys() {
+                    for run in crate::mux::pane_tab_groups(state, &presentation, *pane) {
+                        groups.push(pane_tab_group_json(&run, Some(*pane)));
+                    }
+                }
+                groups
+            });
+            Ok(json!({ "groups": groups }))
+        }
+        Command::CreateTabGroup { surfaces, name, color, group, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let surfaces = resolve_tab_refs(mux, &surfaces)?;
+            let outcome =
+                mux.create_tab_group(&surfaces, name, color, group, transaction.as_deref())?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::UpdateTabGroup { group, name, color, collapsed } => {
+            Ok(tab_group_outcome_json(&mux.update_tab_group(&group, name, color, collapsed)?))
+        }
+        Command::AddTabsToTabGroup { group, surfaces, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let surfaces = resolve_tab_refs(mux, &surfaces)?;
+            let outcome = mux.add_tabs_to_tab_group(&group, &surfaces, transaction.as_deref())?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::RemoveTabsFromTabGroup { surfaces, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let surfaces = resolve_tab_refs(mux, &surfaces)?;
+            let groups = mux.remove_tabs_from_tab_group(&surfaces, transaction.as_deref())?;
+            Ok(json!({ "surfaces": surfaces, "groups": groups }))
+        }
+        Command::MoveTabGroup { group, pane, index, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let pane =
+                match pane {
+                    Some(pane) => resolve_pane_ref(mux, &pane)?,
+                    None => mux
+                        .with_state(|state| {
+                            let presentation = mux.presentation_snapshot();
+                            let record = presentation.tab_groups.groups.get(&group)?;
+                            state.resource_indexes.panes.iter().find_map(|(id, slot)| {
+                                (id.as_str() == record.pane_id).then_some(*slot)
+                            })
+                        })
+                        .ok_or_else(|| anyhow::anyhow!("unknown tab group {group}"))?,
+                };
+            let outcome = mux.move_tab_group(
+                &group,
+                crate::TabGroupDestination::Strip { pane, index },
+                transaction.as_deref(),
+            )?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::MoveTabGroupToSplit { group, pane, edge, ratio, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let pane = resolve_pane_ref(mux, &pane)?;
+            if let Some(ratio) = ratio {
+                anyhow::ensure!(
+                    ratio.is_finite() && (0.05..=0.95).contains(&ratio),
+                    "bad request: ratio must be between 0.05 and 0.95"
+                );
+            }
+            let edge = crate::TabDropEdge::parse(&edge)?;
+            let outcome = mux.move_tab_group(
+                &group,
+                crate::TabGroupDestination::Split { pane, edge, ratio },
+                transaction.as_deref(),
+            )?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::MoveTabGroupToColumn { group, pane, screen, after_column, width, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let pane = pane.map(|pane| resolve_pane_ref(mux, &pane)).transpose()?;
+            let pane = column_anchor(mux, pane, screen)?;
+            let outcome = mux.move_tab_group(
+                &group,
+                crate::TabGroupDestination::Column { pane, after_column, width },
+                transaction.as_deref(),
+            )?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::MoveTabGroupToNewWorkspace { group, workspace_group, index, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let outcome = mux.move_tab_group(
+                &group,
+                crate::TabGroupDestination::NewWorkspace { group: workspace_group, index },
+                transaction.as_deref(),
+            )?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::UngroupTabGroup { group } => {
+            let members = mux.ungroup_tab_group(&group)?;
+            Ok(json!({ "group": group, "surfaces": members }))
+        }
+        Command::CloseTabGroup { group, end_terminals } => {
+            if !end_terminals {
+                let closed = mux.close_tab_group(&group)?;
+                return Ok(json!({ "group": group, "closed": closed }));
+            }
+            let outcome = mux.close_container_ending_terminals(
+                crate::BatchCloseTarget::TabGroup(group.clone()),
+            )?;
+            Ok(json!({
+                "group": group,
+                "closed": outcome.closed(),
+                "terminals": batch_close_terminals_json(&outcome),
+            }))
+        }
+        Command::ListSavedTabGroups => Ok(json!({ "saved_groups": mux.saved_tab_groups() })),
+        Command::SaveTabGroup { group } => {
+            let saved = mux.save_tab_group(&group)?;
+            Ok(json!({ "group": group, "saved": saved }))
+        }
+        Command::UnsaveTabGroup { group } => {
+            Ok(json!({ "group": group, "unsaved": mux.unsave_tab_group(&group)? }))
+        }
+        Command::DeleteSavedTabGroup { saved } => {
+            Ok(json!({ "saved": saved, "deleted": mux.delete_saved_tab_group(&saved)? }))
+        }
+        Command::ReopenSavedTabGroup { saved, pane, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let pane = resolve_pane_ref(mux, &pane)?;
+            let outcome = mux.reopen_saved_tab_group(&saved, pane, transaction.as_deref())?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::AckTabNotifications { surface } => {
+            let ack = mux.acknowledge_tab_notifications(surface)?;
+            Ok(json!({
+                "surface": surface,
+                "cleared": ack.cleared,
+                "acknowledged": ack.acknowledged,
+            }))
+        }
+        Command::ListNotifications { limit } => {
+            let rows = mux.notification_rows(limit.unwrap_or(256).min(256))?;
+            Ok(json!({
+                "notifications": rows
+                    .iter()
+                    .map(|(row, acknowledged)| {
+                        json!({
+                            "id": row.id,
+                            "title": row.title,
+                            "subtitle": row.subtitle,
+                            "body": row.body,
+                            "level": row.level.as_str(),
+                            "terminal_id": row.terminal_id,
+                            "surface": row.surface,
+                            "created_at_ms": row.created_at_ms,
+                            "acknowledged": acknowledged,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            }))
+        }
+        Command::SetTabPinned { surface, pinned } => {
+            get_surface(mux, surface)?;
+            let change = mux.set_tab_pinned(surface, pinned)?;
+            Ok(json!({
+                "surface": surface,
+                "pinned": pinned,
+                "index": change.index,
+                "changed": change.changed,
+            }))
         }
         Command::MoveWorkspace { workspace, key, index, mutation } => {
             let workspace_mutation = workspace_mutation(&mutation)?;
@@ -13078,6 +14270,90 @@ fn handle_command_with_cancellation(
                 "workspace": result.workspace,
                 "key": result.key,
                 "index": result.index,
+                "workspace_revision": result.revision,
+                "changed": result.changed,
+                "replayed": result.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
+        }
+        Command::SetWorkspaceMetadata { workspace, key, color, icon, title, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let update = crate::workspace_registry::WorkspacePresentationUpdate {
+                group: None,
+                color,
+                icon,
+                title,
+            };
+            let result = mux.set_workspace_metadata(
+                workspace,
+                key.as_deref(),
+                update,
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let presentation = mux.presentation_snapshot();
+            let record = presentation.workspace(&result.key).cloned().unwrap_or_default();
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "workspace": result.workspace,
+                "key": result.key,
+                "color": record.color,
+                "icon": record.icon,
+                "title": record.title,
+                "workspace_revision": result.revision,
+                "changed": result.changed,
+                "replayed": result.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
+        }
+        Command::ListWorkspaceGroups => {
+            Ok(json!({ "groups": workspace_groups_json(&mux.presentation_snapshot()) }))
+        }
+        Command::CreateWorkspaceGroup { name, group, color, collapsed, index } => {
+            let change = mux.create_workspace_group(group, name, color, collapsed, index)?;
+            Ok(json!({
+                "group": workspace_group_json(&change.group, change.index),
+                "changed": change.changed,
+            }))
+        }
+        Command::UpdateWorkspaceGroup { group, name, color, collapsed } => {
+            let change = mux.update_workspace_group(&group, name, color, collapsed)?;
+            Ok(json!({
+                "group": workspace_group_json(&change.group, change.index),
+                "changed": change.changed,
+            }))
+        }
+        Command::DeleteWorkspaceGroup { group } => {
+            let ungrouped = mux.delete_workspace_group(&group)?;
+            Ok(json!({ "group": group, "ungrouped_keys": ungrouped }))
+        }
+        Command::MoveWorkspaceGroup { group, index } => {
+            let change = mux.move_workspace_group(&group, index)?;
+            Ok(json!({
+                "group": workspace_group_json(&change.group, change.index),
+                "changed": change.changed,
+            }))
+        }
+        Command::MoveWorkspaceToGroup { workspace, key, group, index, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let result = mux.move_workspace_to_group(
+                workspace,
+                key.as_deref(),
+                group.clone(),
+                index,
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "workspace": result.workspace,
+                "key": result.key,
+                "index": result.index,
+                "group": group,
                 "workspace_revision": result.revision,
                 "changed": result.changed,
                 "replayed": result.replayed,
@@ -13152,27 +14428,68 @@ fn handle_command_with_cancellation(
             }
             Ok(json!({}))
         }
-        Command::ClosePane { pane } => {
-            if !mux.close_pane(pane)? {
+        Command::CloseTabs { surfaces, end_terminals, transaction, mutation } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            anyhow::ensure!(
+                mutation.expected_generation.is_none() && mutation.expected_revision.is_none(),
+                "close-tabs does not take expected_generation or expected_revision"
+            );
+            anyhow::ensure!(
+                surfaces.len() <= MAX_CLOSE_TABS_SURFACES,
+                "close-tabs takes at most {MAX_CLOSE_TABS_SURFACES} surfaces"
+            );
+            let surfaces = resolve_tab_refs(mux, &surfaces)?;
+            let outcome = mux.close_tabs(surfaces, end_terminals, &workspace_mutation)?;
+            let mut reply = json!({
+                "closed": outcome.closed(),
+                "terminals": batch_close_terminals_json(&outcome),
+                "resource_revision": outcome.resource_revision,
+                "replayed": outcome.replayed,
+            });
+            if let Some(transaction) = transaction {
+                reply["transaction"] = json!(transaction);
+            }
+            Ok(reply)
+        }
+        // With `end_terminals` the result shapes stay those of the plain
+        // closes; the ended terminals show in the terminal and resource streams.
+        Command::ClosePane { pane, end_terminals } => {
+            if end_terminals {
+                mux.close_container_ending_terminals(crate::BatchCloseTarget::Pane(pane))?;
+            } else if !mux.close_pane(pane)? {
                 anyhow::bail!("unknown pane {pane}");
             }
             Ok(json!({}))
         }
-        Command::CloseScreen { screen } => {
-            if !mux.close_screen(screen)? {
+        Command::CloseScreen { screen, end_terminals } => {
+            if end_terminals {
+                mux.close_container_ending_terminals(crate::BatchCloseTarget::Screen(screen))?;
+            } else if !mux.close_screen(screen)? {
                 anyhow::bail!("unknown screen {screen}");
             }
             Ok(json!({}))
         }
-        Command::CloseWorkspace { workspace, key, mutation } => {
+        Command::CloseWorkspace { workspace, key, end_terminals, mutation } => {
             let workspace_mutation = workspace_mutation(&mutation)?;
-            let result = mux.close_workspace_with_mutation(
-                workspace,
-                key.as_deref(),
-                mutation.expected_generation.as_deref(),
-                mutation.expected_revision,
-                &workspace_mutation,
-            )?;
+            let result = if end_terminals {
+                mux.close_workspace_ending_terminals(
+                    workspace,
+                    key.as_deref(),
+                    mutation.expected_generation.as_deref(),
+                    mutation.expected_revision,
+                    &workspace_mutation,
+                )?
+                .0
+            } else {
+                mux.close_workspace_with_mutation(
+                    workspace,
+                    key.as_deref(),
+                    mutation.expected_generation.as_deref(),
+                    mutation.expected_revision,
+                    &workspace_mutation,
+                )?
+            };
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
                 "workspace": result.workspace,
@@ -13552,8 +14869,12 @@ fn handle_command_with_cancellation(
                         break;
                     }
                 }
+                let interrupt = StreamInterrupt::new();
+                writer.register_interrupt(&interrupt);
+                outbound_stream.register_interrupt(&interrupt);
+                events.wake_on(&interrupt);
                 while writer.is_open() && outbound_stream.is_open() {
-                    let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
+                    let event = match events.recv_until_interrupted(&interrupt) {
                         Ok(event) => event,
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -13642,6 +14963,10 @@ fn handle_command_with_cancellation(
                 }
             };
             let surface = get_surface(mux, surface_id)?;
+            anyhow::ensure!(
+                !mux.is_frontend_browser_surface(&surface),
+                "surface {surface_id} is a frontend-rendered browser and has no daemon stream"
+            );
             match (expected_generation, expected_terminal_id) {
                 (Some(generation), Some(terminal)) => {
                     anyhow::ensure!(
@@ -13732,30 +15057,35 @@ fn handle_command_with_cancellation(
                         }
                         let mut state =
                             RenderClientState::new(writer.render_service.clone(), &attach.initial);
+                        let interrupt = StreamInterrupt::new();
+                        writer.register_interrupt(&interrupt);
+                        outbound_stream.register_interrupt(&interrupt);
+                        lifecycle.register_interrupt(&interrupt);
+                        attach.stream.wake_on(&interrupt);
                         while writer.is_open()
                             && outbound_stream.is_open()
                             && !lifecycle.is_canceled()
                         {
-                            let send_result =
-                                match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
-                                    Ok(RenderAttachFrame::Frame(frame)) => {
-                                        let message = state.delta_message(surface_id, &frame);
-                                        writer.send_stream_backpressured(&message, &outbound_stream)
-                                    }
-                                    Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
-                                        writer.send_stream_backpressured(
-                                            &json!({
-                                                "event": "scroll-changed",
-                                                "surface": surface_id,
-                                                "offset": offset,
-                                                "at_bottom": at_bottom,
-                                            }),
-                                            &outbound_stream,
-                                        )
-                                    }
-                                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                                };
+                            let send_result = match attach.stream.recv_until_interrupted(&interrupt)
+                            {
+                                Ok(RenderAttachFrame::Frame(frame)) => {
+                                    let message = state.delta_message(surface_id, &frame);
+                                    writer.send_stream_backpressured(&message, &outbound_stream)
+                                }
+                                Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
+                                    writer.send_stream_backpressured(
+                                        &json!({
+                                            "event": "scroll-changed",
+                                            "surface": surface_id,
+                                            "offset": offset,
+                                            "at_bottom": at_bottom,
+                                        }),
+                                        &outbound_stream,
+                                    )
+                                }
+                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                            };
                             if let Err(error) = send_result {
                                 handle_attach_send_error(&lifecycle, &error);
                                 break;
@@ -13887,11 +15217,16 @@ fn handle_command_with_cancellation(
                         if worker_committed.recv().is_err() {
                             return;
                         }
+                        let interrupt = StreamInterrupt::new();
+                        writer.register_interrupt(&interrupt);
+                        outbound_stream.register_interrupt(&interrupt);
+                        lifecycle.register_interrupt(&interrupt);
+                        frames.notify.wake_on(&interrupt);
                         while writer.is_open()
                             && outbound_stream.is_open()
                             && !lifecycle.is_canceled()
                         {
-                            match frames.notify.recv_timeout(STREAM_DISCONNECT_POLL) {
+                            match frames.notify.recv_until_interrupted(&interrupt) {
                                 Ok(()) => {}
                                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -14026,11 +15361,16 @@ fn handle_command_with_cancellation(
                     if worker_committed.recv().is_err() {
                         return;
                     }
+                    let interrupt = StreamInterrupt::new();
+                    writer.register_interrupt(&interrupt);
+                    outbound_stream.register_interrupt(&interrupt);
+                    attach.lifecycle.register_interrupt(&interrupt);
+                    attach.stream.wake_on(&interrupt);
                     while writer.is_open()
                         && outbound_stream.is_open()
                         && !attach.lifecycle.is_canceled()
                     {
-                        let frame = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                        let frame = match attach.stream.recv_interruptible(&interrupt, None) {
                             Ok(frame) => frame,
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -14081,6 +15421,43 @@ fn handle_command_with_cancellation(
             )?;
             Ok(attach_response(mux, surface_id, client, lease))
         }
+    }
+}
+
+/// Validate the start options of a placement command.
+fn placement_spawn_options(
+    cwd: Option<String>,
+    env: Option<&BTreeMap<String, String>>,
+    terminal_id: Option<String>,
+) -> anyhow::Result<crate::TerminalSpawnOptions> {
+    let env = env.map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
+    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id })
+}
+
+/// The reply of a placement command: the new view and the terminal it
+/// shows, after applying `keep`.
+fn placed_terminal_result(
+    mux: &Mux,
+    surface: &crate::Surface,
+    keep: bool,
+) -> anyhow::Result<Value> {
+    let identity = mux.resource_terminal_host_identity(surface);
+    if keep {
+        keep_created_terminal(mux, identity.as_ref().map(|i| i.terminal_id.as_str()))?;
+    }
+    Ok(json!({
+        "surface": surface.id,
+        "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
+        "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
+    }))
+}
+
+/// Apply `keep: true` from a creating command. A terminal without a durable
+/// host (an in-process test surface) has nothing to reap.
+fn keep_created_terminal(mux: &Mux, terminal_id: Option<&str>) -> anyhow::Result<()> {
+    match terminal_id {
+        Some(terminal_id) => mux.set_terminal_keep(terminal_id, true),
+        None => Ok(()),
     }
 }
 
@@ -14212,6 +15589,12 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "terminal_revision":terminal_revision,
             "refetch":"terminal-events-or-list-terminals",
         }),
+        MuxEvent::TerminalReaped { terminal_id, terminal, grace_ms } => json!({
+            "event": "terminal-reaped",
+            "terminal_id": terminal_id,
+            "terminal": terminal,
+            "grace_ms": grace_ms,
+        }),
         MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
         MuxEvent::ClientAttached { client, transport, name, kind } => json!({
             "event": "client-attached",
@@ -14264,6 +15647,10 @@ fn attach_overflow_json(surface: SurfaceId) -> Value {
 pub fn cleanup(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
+
+#[cfg(test)]
+#[path = "server/loopback_forward_tests.rs"]
+mod loopback_forward_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/image_paste_tests.rs"]
@@ -21105,6 +22492,8 @@ mod tests {
                     cols,
                     rows,
                     terminal_id: None,
+                    env: None,
+                    keep: false,
                     mutation: MutationRequest::default(),
                 },
                 &test_writer(),
@@ -21132,6 +22521,8 @@ mod tests {
             cols: Some(80),
             rows: Some(24),
             terminal_id: Some("00000000000040008000000000000001".to_string()),
+            env: None,
+            keep: false,
             mutation: MutationRequest {
                 origin: Some("raw-projection-test".to_string()),
                 mutation_id: Some("raw-terminal-create-once".to_string()),
@@ -21676,6 +23067,46 @@ mod tests {
         assert_eq!(response["data"]["accepted"], true);
     }
 
+    /// Replies can arrive out of order, so a client matches every reply to
+    /// its request by id. A request the server cannot decode must still echo
+    /// the id it carried, or the client hands the error to the wrong request.
+    #[test]
+    fn undecodable_requests_reply_with_their_request_id() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+
+        for (message, id) in [
+            (json!({"id": 41, "cmd": "no-such-command"}).to_string(), json!(41)),
+            (
+                json!({"id": "text-id", "cmd": "new-tab", "pane": "not-a-number"}).to_string(),
+                json!("text-id"),
+            ),
+            (
+                json!({"id": {"nested": [1, 2]}, "cmd": "rename-workspace"}).to_string(),
+                json!({"nested": [1, 2]}),
+            ),
+        ] {
+            assert!(handle_connection_message(&mux, client, &message, &writer, &scheduler));
+            let reply = pop_json(&outbound);
+            assert_eq!(reply["ok"], false, "{reply}");
+            assert!(reply["error"].as_str().unwrap().starts_with("bad request:"), "{reply}");
+            assert_eq!(reply["id"], id, "an undecodable request lost its id: {reply}");
+        }
+
+        // Without a readable id (not JSON, or no id member) the reply keeps
+        // the null id, as before.
+        for message in ["{not json", r#"{"cmd":"no-such-command"}"#, r#"[1,2]"#] {
+            assert!(handle_connection_message(&mux, client, message, &writer, &scheduler));
+            let reply = pop_json(&outbound);
+            assert_eq!(reply["ok"], false, "{reply}");
+            assert!(reply["id"].is_null(), "{reply}");
+        }
+    }
+
     #[test]
     fn shutdown_requester_waits_for_owner_eof_and_rejects_pipelined_mutations() {
         let mux = test_mux();
@@ -21741,6 +23172,65 @@ mod tests {
         assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler));
         assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
         assert!(outbound.try_pop().is_none());
+    }
+
+    /// While `shutdown-daemon` is still running (for example awaiting hosts
+    /// under `end_terminals`), a pipelined message from a subscriber must not
+    /// close the connection: that drops the pending shutdown reply and, if
+    /// the handoff then fails, leaves the client disconnected from a daemon
+    /// that keeps serving. The message is refused unexecuted instead.
+    #[test]
+    fn daemon_shutdown_pending_handoff_refuses_pipelined_messages_and_keeps_the_connection() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let (writer, outbound) = captured_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+        assert!(mux.control_clients.daemon_handoff_pending());
+
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let workspace_count = mux.with_state(|state| state.workspaces.len());
+        let pipelined = json!({
+            "id": 99,
+            "cmd": "new-workspace",
+            "name": "must-not-exist",
+        })
+        .to_string();
+        assert!(handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler));
+        let refused = pop_json(&outbound);
+        assert_eq!(refused["id"], 99);
+        assert_eq!(refused["ok"], false);
+        assert!(refused["error"].as_str().unwrap().contains("shutdown is in progress"));
+        assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+
+        let resource = resource_request(
+            "pending-get",
+            "session.get",
+            json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, requester, &resource, &writer, &scheduler));
+        let refused = pop_json(&outbound);
+        assert_eq!(refused["id"], "pending-get");
+        assert_eq!(refused["ok"], false);
+        assert_eq!(refused["error"]["code"], "operation.failed");
+        assert_eq!(refused["error"]["details"]["reason"], "daemon_handoff_pending");
+
+        assert!(writer.is_open());
+        assert!(mux.control_clients.contains(requester));
+        assert!(outbound.try_pop().is_none());
+
+        // A failed handoff leaves the same connection fully usable.
+        mux.cancel_daemon_handoff(requester);
+        let ping = json!({"id": 100, "cmd": "ping"}).to_string();
+        assert!(handle_request(
+            &mux,
+            requester,
+            serde_json::from_str::<Request>(&ping).unwrap(),
+            &writer
+        ));
+        assert_eq!(pop_json(&outbound)["ok"], true);
     }
 
     #[test]
@@ -21832,7 +23322,12 @@ mod tests {
         let error = handle_command(
             &owned,
             requester,
-            Command::ShutdownDaemon { pid: std::process::id(), generation, force: false },
+            Command::ShutdownDaemon {
+                pid: std::process::id(),
+                generation,
+                force: false,
+                end_terminals: false,
+            },
             &requester_writer,
         )
         .unwrap_err();
@@ -21849,7 +23344,12 @@ mod tests {
         handle_command(
             &fenced,
             requester,
-            Command::ShutdownDaemon { pid: std::process::id(), generation, force: false },
+            Command::ShutdownDaemon {
+                pid: std::process::id(),
+                generation,
+                force: false,
+                end_terminals: false,
+            },
             &requester_writer,
         )
         .unwrap();
@@ -21967,9 +23467,9 @@ mod tests {
             mux.set_terminal_close_failure_for_test(true).unwrap();
 
             let command = if close_screen {
-                Command::CloseScreen { screen }
+                Command::CloseScreen { screen, end_terminals: false }
             } else {
-                Command::ClosePane { pane }
+                Command::ClosePane { pane, end_terminals: false }
             };
             handle_command(&mux, 0, command, &test_writer()).unwrap();
 
@@ -21984,6 +23484,469 @@ mod tests {
             mux.set_terminal_close_failure_for_test(false).unwrap();
             mux.close_terminal(TERMINAL, INCARNATION).unwrap();
             assert!(mux.surface(surface).is_none());
+        }
+    }
+
+    fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
+        let command: Command = serde_json::from_value(request)?;
+        handle_command(mux, 0, command, &test_writer())
+    }
+
+    #[test]
+    fn cmux_next_workspace_group_commands_round_trip_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&WORKSPACE_GROUPS_CAPABILITY));
+        let first = mux.create_empty_workspace(None, None, None).unwrap();
+        let second = mux.create_empty_workspace(None, None, None).unwrap();
+        let created = run_json_command(
+            &mux,
+            json!({"cmd":"create-workspace-group","name":"Agents","color":"slate-2"}),
+        )
+        .unwrap();
+        let group = created["group"]["id"].as_str().unwrap().to_string();
+        assert!(group.starts_with("grp_"));
+        assert_eq!(created["group"]["index"], 0);
+        assert_eq!(created["changed"], true);
+        let moved = run_json_command(
+            &mux,
+            json!({
+                "cmd":"move-workspace-to-group",
+                "key": second.key,
+                "group": group,
+                "index": 0,
+                "origin":"wire-test",
+                "mutation_id":"group-1",
+            }),
+        )
+        .unwrap();
+        assert_eq!(moved["group"], json!(group));
+        assert_eq!(moved["replayed"], false);
+        // Absent color leaves it unchanged; collapsed flips.
+        let updated = run_json_command(
+            &mux,
+            json!({"cmd":"update-workspace-group","group":group,"collapsed":true}),
+        )
+        .unwrap();
+        assert_eq!(updated["group"]["color"], "slate-2");
+        assert_eq!(updated["group"]["collapsed"], true);
+        // `color: null` clears it.
+        let cleared = run_json_command(
+            &mux,
+            json!({"cmd":"update-workspace-group","group":group,"color":null}),
+        )
+        .unwrap();
+        assert!(cleared["group"]["color"].is_null());
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"create-workspace-group","name":"Bad","color":"not a color"}),
+            )
+            .is_err()
+        );
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        assert_eq!(tree["groups"][0]["id"], json!(group));
+        assert_eq!(tree["groups"][0]["collapsed"], true);
+        let by_key = |key: &str| {
+            tree["workspaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|workspace| workspace["key"] == json!(key))
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(by_key(&second.key)["group"], json!(group));
+        assert!(by_key(&first.key)["group"].is_null());
+        let listed = run_json_command(&mux, json!({"cmd":"list-workspace-groups"})).unwrap();
+        assert_eq!(listed["groups"].as_array().unwrap().len(), 1);
+        let deleted =
+            run_json_command(&mux, json!({"cmd":"delete-workspace-group","group":group})).unwrap();
+        assert_eq!(deleted["ungrouped_keys"], json!([second.key]));
+    }
+
+    #[test]
+    fn cmux_next_set_workspace_metadata_distinguishes_absent_from_null() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&WORKSPACE_METADATA_CAPABILITY));
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let set = run_json_command(
+            &mux,
+            json!({
+                "cmd":"set-workspace-metadata",
+                "key": workspace.key,
+                "color":"#336699",
+                "icon":"hammer",
+                "title":"Build",
+            }),
+        )
+        .unwrap();
+        assert_eq!(set["color"], "#336699");
+        assert_eq!(set["changed"], true);
+        let cleared = run_json_command(
+            &mux,
+            json!({"cmd":"set-workspace-metadata","key":workspace.key,"icon":null}),
+        )
+        .unwrap();
+        assert!(cleared["icon"].is_null());
+        assert_eq!(cleared["color"], "#336699");
+        assert_eq!(cleared["title"], "Build");
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let entry = tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["key"] == json!(workspace.key))
+            .cloned()
+            .unwrap();
+        assert_eq!(entry["color"], "#336699");
+        assert!(entry["icon"].is_null());
+        assert_eq!(entry["title"], "Build");
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"set-workspace-metadata","key":workspace.key,"icon":"NOT/AN ICON"}),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn cmux_next_set_tab_pinned_reports_pinned_first_order_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TAB_METADATA_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let second = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let pinned =
+            run_json_command(&mux, json!({"cmd":"set-tab-pinned","surface":second,"pinned":true}))
+                .unwrap();
+        assert_eq!(pinned["index"], 0);
+        assert_eq!(pinned["changed"], true);
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let tabs = tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"].as_array().unwrap();
+        assert_eq!(tabs[0]["surface"], second);
+        assert_eq!(tabs[0]["pinned"], true);
+        assert_eq!(tabs[1]["pinned"], false);
+        assert!(tabs[1].get("cwd").is_some());
+        assert!(tabs[1].get("git_branch").is_some());
+        // move-tab clamps an unpinned tab behind the pinned run.
+        run_json_command(&mux, json!({"cmd":"move-tab","surface":first,"pane":pane,"index":0}))
+            .unwrap();
+        assert_eq!(mux.with_state(|state| state.panes[&pane].tabs.clone()), vec![second, first]);
+        assert!(
+            run_json_command(&mux, json!({"cmd":"set-tab-pinned","surface":999999,"pinned":true}))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn cmux_next_frontend_browser_tab_commands_and_attach_refusal() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&FRONTEND_BROWSER_TABS_CAPABILITY));
+        let terminal = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(terminal)).unwrap();
+        let created = run_json_command(
+            &mux,
+            json!({
+                "cmd":"new-frontend-browser-tab",
+                "pane": pane,
+                "url":"https://cmux.com",
+                "engine":"cef",
+                "title":"cmux",
+            }),
+        )
+        .unwrap();
+        let surface = created["surface"].as_u64().unwrap();
+        assert!(created["content_resource_id"].as_str().unwrap().starts_with("browser_"));
+        let updated = run_json_command(
+            &mux,
+            json!({
+                "cmd":"update-frontend-browser-tab",
+                "surface": surface,
+                "title":"cmux docs",
+                "favicon_url":"https://cmux.com/icon.png",
+            }),
+        )
+        .unwrap();
+        assert_eq!(updated["changed"], true);
+        assert_eq!(updated["url"], "https://cmux.com");
+        let cleared = run_json_command(
+            &mux,
+            json!({"cmd":"update-frontend-browser-tab","surface":surface,"favicon_url":null}),
+        )
+        .unwrap();
+        assert!(cleared["favicon_url"].is_null());
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let tabs = tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"].as_array().unwrap();
+        let browser = tabs.iter().find(|tab| tab["surface"] == json!(surface)).unwrap();
+        assert_eq!(browser["browser_renderer"], "frontend");
+        assert_eq!(browser["browser_engine"], "cef");
+        assert_eq!(browser["title"], "cmux docs");
+        let terminal_tab = tabs.iter().find(|tab| tab["surface"] == json!(terminal)).unwrap();
+        assert!(terminal_tab["browser_renderer"].is_null());
+        let attach = run_json_command(
+            &mux,
+            json!({"cmd":"attach-surface","surface":surface,"cols":80,"rows":24}),
+        );
+        assert!(attach.unwrap_err().to_string().contains("frontend-rendered"));
+    }
+
+    #[test]
+    fn cmux_next_tab_drag_commands_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TAB_DRAG_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let second = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let third = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let split = run_json_command(
+            &mux,
+            json!({
+                "cmd":"move-tab-to-split",
+                "surface":second,
+                "pane":pane,
+                "edge":"right",
+                "transaction":"tx-split",
+            }),
+        )
+        .unwrap();
+        assert_eq!(split["undoable"], true);
+        let split_pane = split["pane"].as_u64().unwrap();
+        assert_ne!(split_pane, pane);
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"move-tab-to-split","surface":third,"pane":pane,"edge":"middle"}),
+            )
+            .is_err()
+        );
+        let screen = mux
+            .with_state(|state| {
+                state.screen_of(pane).map(|(w, s)| state.workspaces[w].screens[s].id)
+            })
+            .unwrap();
+        let column = run_json_command(
+            &mux,
+            json!({"cmd":"move-tab-to-column","surface":third,"screen":screen}),
+        )
+        .unwrap();
+        assert_eq!(column["screen"], screen);
+        let moved = run_json_command(
+            &mux,
+            json!({
+                "cmd":"move-tab",
+                "surface":third,
+                "pane":split_pane,
+                "index":0,
+                "transaction":"tx-move",
+            }),
+        )
+        .unwrap();
+        assert_eq!(moved["moved"], true);
+        let created = run_json_command(
+            &mux,
+            json!({"cmd":"move-tab-to-new-workspace","surface":third,"transaction":"tx-new"}),
+        )
+        .unwrap();
+        assert!(created["workspace"].as_u64().is_some());
+        assert!(created["key"].as_str().is_some());
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"move-tab","surface":first,"pane":split_pane,"index":0,"transaction":""}),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn cmux_next_tab_group_commands_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TAB_GROUPS_CAPABILITY));
+        assert!(advertised_capabilities(false).contains(&SAVED_TAB_GROUPS_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let second = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let created = run_json_command(
+            &mux,
+            json!({
+                "cmd":"create-tab-group",
+                "surfaces":[first, second],
+                "name":"Pair",
+                "color":"purple",
+                "transaction":"tx-group",
+            }),
+        )
+        .unwrap();
+        let group = created["group"]["id"].as_str().unwrap().to_string();
+        assert_eq!(created["surfaces"], json!([first, second]));
+        let listed = run_json_command(&mux, json!({"cmd":"list-tab-groups"})).unwrap();
+        assert_eq!(listed["groups"][0]["id"], json!(group));
+        assert_eq!(listed["groups"][0]["pane"], pane);
+        run_json_command(&mux, json!({"cmd":"update-tab-group","group":group,"collapsed":true}))
+            .unwrap();
+        let saved = run_json_command(&mux, json!({"cmd":"save-tab-group","group":group})).unwrap();
+        assert!(saved["saved"].as_str().unwrap().starts_with("saved_"));
+        let saved_list = run_json_command(&mux, json!({"cmd":"list-saved-tab-groups"})).unwrap();
+        assert_eq!(saved_list["saved_groups"][0]["name"], "Pair");
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let pane_json = &tree["workspaces"][0]["screens"][0]["panes"][0];
+        assert_eq!(pane_json["tab_groups"][0]["collapsed"], true);
+        assert_eq!(pane_json["tabs"][0]["group"], json!(group));
+        let ungrouped =
+            run_json_command(&mux, json!({"cmd":"ungroup-tab-group","group":group})).unwrap();
+        assert_eq!(ungrouped["surfaces"], json!([first, second]));
+        assert!(run_json_command(&mux, json!({"cmd":"close-tab-group","group":group})).is_err());
+    }
+
+    #[test]
+    fn cmux_next_close_tabs_and_end_terminals_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&BATCH_CLOSE_CAPABILITY));
+        assert!(advertised_capabilities(false).contains(&TERMINAL_RESOURCES_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let second = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let third = mux.new_tab(Some(pane), None, None).unwrap().id;
+        assert!(run_json_command(&mux, json!({"cmd":"close-tabs","surfaces":[]})).is_err());
+        assert!(
+            run_json_command(&mux, json!({"cmd":"close-tabs","surfaces":[first, 999_999]}))
+                .is_err()
+        );
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"close-tabs","surfaces":[first],"expected_revision":1}),
+            )
+            .is_err()
+        );
+        assert_eq!(mux.with_state(|state| state.panes[&pane].tabs.len()), 3);
+        let closed = run_json_command(
+            &mux,
+            json!({
+                "cmd":"close-tabs",
+                "surfaces":[first, second],
+                "end_terminals":true,
+                "transaction":"tx-close",
+                "origin":"cmux-next",
+                "mutation_id":"close-two",
+            }),
+        )
+        .unwrap();
+        assert_eq!(closed["closed"], json!([first, second]));
+        assert_eq!(closed["transaction"], "tx-close");
+        assert_eq!(closed["replayed"], false);
+        assert_eq!(mux.with_state(|state| state.panes[&pane].tabs.clone()), vec![third]);
+        let replayed = run_json_command(
+            &mux,
+            json!({
+                "cmd":"close-tabs",
+                "surfaces":[first, second],
+                "end_terminals":true,
+                "origin":"cmux-next",
+                "mutation_id":"close-two",
+            }),
+        )
+        .unwrap();
+        assert_eq!(replayed["replayed"], true);
+        assert_eq!(replayed["closed"], json!([first, second]));
+        let group = run_json_command(
+            &mux,
+            json!({"cmd":"create-tab-group","surfaces":[third],"name":"Last"}),
+        )
+        .unwrap()["group"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let group_closed = run_json_command(
+            &mux,
+            json!({"cmd":"close-tab-group","group":group,"end_terminals":true}),
+        )
+        .unwrap();
+        assert_eq!(group_closed["closed"], json!([third]));
+        assert!(group_closed["terminals"].is_array());
+        let listed = run_json_command(&mux, json!({"cmd":"list-tab-groups"})).unwrap();
+        assert_eq!(listed["groups"], json!([]));
+    }
+
+    #[test]
+    fn cmux_next_terminal_creation_accepts_a_per_terminal_env() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TERMINAL_ENV_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let created = run_json_command(
+            &mux,
+            json!({
+                "cmd":"new-tab",
+                "pane":pane,
+                "cwd":"/tmp",
+                "env":{"PATH":"/opt/homebrew/bin:/usr/bin","LANG":"en_US.UTF-8"},
+            }),
+        )
+        .unwrap();
+        assert!(created["surface"].as_u64().is_some());
+        let split = run_json_command(
+            &mux,
+            json!({"cmd":"split","pane":pane,"dir":"right","env":{"EDITOR":"vim"}}),
+        )
+        .unwrap();
+        assert!(split["surface"].as_u64().is_some());
+        for bad in [json!({"":"x"}), json!({"A=B":"x"}), json!({"A":"x\u{0}y"})] {
+            assert!(
+                run_json_command(&mux, json!({"cmd":"new-tab","pane":pane,"env":bad})).is_err()
+            );
+        }
+        let pairs = crate::mux::validate_terminal_env(
+            &[("B".to_string(), "2".to_string()), ("A".to_string(), "1".to_string())]
+                .into_iter()
+                .collect(),
+        )
+        .unwrap();
+        assert_eq!(pairs, vec![("A".into(), "1".into()), ("B".into(), "2".into())]);
+    }
+
+    #[test]
+    fn placement_commands_accept_a_caller_terminal_id_env_and_cwd() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TERMINAL_PLACEMENT_ENV_CAPABILITY));
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let commands = [
+            ("new-tab", json!({})),
+            ("split", json!({"dir":"right"})),
+            ("new-pane", json!({})),
+            ("new-pane-right", json!({"width":0.5})),
+        ];
+        for (index, (command, extra)) in commands.into_iter().enumerate() {
+            let terminal_id = format!("{:012x}4000{:04x}{:012x}", 0, 0x8000, 0x100 + index);
+            let mut request = json!({
+                "cmd":command,
+                "pane":pane,
+                "cols":80,
+                "rows":24,
+                "cwd":"/tmp",
+                "env":{"CMUX_SURFACE_ID":terminal_id},
+                "terminal_id":terminal_id,
+            });
+            for (key, value) in extra.as_object().unwrap() {
+                request[key] = value.clone();
+            }
+            let created = run_json_command(&mux, request.clone()).unwrap();
+            assert_eq!(created["terminal_id"], terminal_id.as_str(), "{command}: {created}");
+            assert!(created["surface"].as_u64().is_some(), "{command}: {created}");
+            let resolved = mux.resolve_terminal(&terminal_id).unwrap().unwrap();
+            assert_eq!(resolved.surface, created["surface"].as_u64(), "{command}");
+            assert!(
+                run_json_command(&mux, request).is_err(),
+                "{command} reused an existing terminal id"
+            );
+        }
+        for bad in ["not-hex", "00000000000000008000000000000001"] {
+            let error =
+                run_json_command(&mux, json!({"cmd":"new-tab","pane":pane,"terminal_id":bad}))
+                    .unwrap_err();
+            assert!(error.to_string().contains("terminal_id"), "{error}");
         }
     }
 
@@ -23919,6 +25882,7 @@ mod tests {
             Command::CloseWorkspace {
                 workspace: None,
                 key: Some(key.into()),
+                end_terminals: false,
                 mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
             },
             Command::RenameWorkspace {
@@ -24145,6 +26109,7 @@ mod tests {
                 Command::CloseWorkspace {
                     workspace: Some(workspace.workspace),
                     key: Some(workspace.key.clone()),
+                    end_terminals: false,
                     mutation: MutationRequest::default(),
                 },
                 "cannot close a provider-managed workspace directly; use the managed workspace lifecycle controls",

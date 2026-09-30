@@ -9,6 +9,7 @@
 //! themselves, which is what makes the backend attachable.
 
 mod agent_hooks;
+pub mod backoff;
 mod browser;
 mod browser_provider;
 pub mod diagnostics;
@@ -40,17 +41,20 @@ mod resource_api;
 mod resource_mutation;
 pub mod resource_name;
 mod resource_router;
+mod resource_screen;
 mod resource_selector;
 mod resource_tab;
 mod short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
+mod stream_interrupt;
 mod surface;
 mod terminal_metadata;
 mod workspace_registry;
 
 pub mod layout;
 pub mod platform;
+pub mod process_resources;
 pub mod server;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
@@ -60,6 +64,7 @@ pub mod unix_process_scope;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,
+    stamp_agent_hook_observed_now,
 };
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
@@ -73,6 +78,7 @@ pub use layout::{
     layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
 pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
+pub(crate) use mux::BatchCloseTarget;
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
     CellPixelUpdateFailure, ConfigReloadError, DiagnosticReporter, Direction, GraphicsStatus,
@@ -80,10 +86,16 @@ pub use mux::{
     Mux, MuxEvent, NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
     RunPlacement, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
-    SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,
+    SurfaceResizeReporter, TabDirectory, TabDragOutcome, TabDropEdge, TabGroupDestination,
+    TabGroupOutcome, TabNotificationAck, TabPinChange, TerminalSpawnOptions, TreeDecorations,
+    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceGroupChange, WorkspaceMutationResult,
     WorkspacePlacement, ZoomMode, ZoomState,
 };
-pub use mux::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
+pub use mux::{
+    DEFAULT_TERMINAL_REAP_GRACE, IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper,
+    MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_idle_terminal_reaper, start_terminal_reaper,
+    validate_terminal_reap_grace,
+};
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};

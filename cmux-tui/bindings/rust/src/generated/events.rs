@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8.
+// cmux-tui mux protocol 12, IR d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -417,6 +417,20 @@ pub struct TabAddedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabChangedEvent {
+    pub entity: T::Tab,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    pub pane: T::Id,
+    pub screen: T::Id,
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+    pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabClosedEvent {
     pub entity: T::Tab,
     pub index: u64,
@@ -434,6 +448,14 @@ pub struct TabRenamedEvent {
     pub screen: T::Id,
     pub surface: T::Id,
     pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalReapedEvent {
+    pub grace_ms: u64,
+    pub terminal: Nullable<String>,
+    pub terminal_id: String,
 }
 
 #[rustfmt::skip]
@@ -493,6 +515,22 @@ pub struct WorkspaceAddedEvent {
     pub entity: T::Workspace,
     pub generation: String,
     pub index: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub mutation_id: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+    pub registry_id: String,
+    pub workspace: T::Id,
+    pub workspace_revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceChangedEvent {
+    pub entity: T::Workspace,
+    pub generation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub mutation_id: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -596,8 +634,10 @@ pub enum Event {
     SurfaceResizeFailed(SurfaceResizeFailedEvent),
     SurfaceResized(SurfaceResizedEvent),
     TabAdded(TabAddedEvent),
+    TabChanged(TabChangedEvent),
     TabClosed(TabClosedEvent),
     TabRenamed(TabRenamedEvent),
+    TerminalReaped(TerminalReapedEvent),
     TerminalRegistryChanged(TerminalRegistryChangedEvent),
     TitleChanged(TitleChangedEvent),
     TreeChanged(TreeChangedEvent),
@@ -605,6 +645,7 @@ pub enum Event {
     VtState(VtStateEvent),
     WindowTitleRequested(WindowTitleRequestedEvent),
     WorkspaceAdded(WorkspaceAddedEvent),
+    WorkspaceChanged(WorkspaceChangedEvent),
     WorkspaceClosed(WorkspaceClosedEvent),
     WorkspaceMoved(WorkspaceMovedEvent),
     WorkspaceRenamed(WorkspaceRenamedEvent),
@@ -653,8 +694,10 @@ impl Event {
             Self::SurfaceResizeFailed(_) => Some("surface-resize-failed"),
             Self::SurfaceResized(_) => Some("surface-resized"),
             Self::TabAdded(_) => Some("tab-added"),
+            Self::TabChanged(_) => Some("tab-changed"),
             Self::TabClosed(_) => Some("tab-closed"),
             Self::TabRenamed(_) => Some("tab-renamed"),
+            Self::TerminalReaped(_) => Some("terminal-reaped"),
             Self::TerminalRegistryChanged(_) => Some("terminal-registry-changed"),
             Self::TitleChanged(_) => Some("title-changed"),
             Self::TreeChanged(_) => Some("tree-changed"),
@@ -662,6 +705,7 @@ impl Event {
             Self::VtState(_) => Some("vt-state"),
             Self::WindowTitleRequested(_) => Some("window-title-requested"),
             Self::WorkspaceAdded(_) => Some("workspace-added"),
+            Self::WorkspaceChanged(_) => Some("workspace-changed"),
             Self::WorkspaceClosed(_) => Some("workspace-closed"),
             Self::WorkspaceMoved(_) => Some("workspace-moved"),
             Self::WorkspaceRenamed(_) => Some("workspace-renamed"),
@@ -709,8 +753,10 @@ impl Event {
             Self::SurfaceResizeFailed(_) => Some(&SURFACE_RESIZE_FAILED_EVENT_METADATA),
             Self::SurfaceResized(_) => Some(&SURFACE_RESIZED_EVENT_METADATA),
             Self::TabAdded(_) => Some(&TAB_ADDED_EVENT_METADATA),
+            Self::TabChanged(_) => Some(&TAB_CHANGED_EVENT_METADATA),
             Self::TabClosed(_) => Some(&TAB_CLOSED_EVENT_METADATA),
             Self::TabRenamed(_) => Some(&TAB_RENAMED_EVENT_METADATA),
+            Self::TerminalReaped(_) => Some(&TERMINAL_REAPED_EVENT_METADATA),
             Self::TerminalRegistryChanged(_) => Some(&TERMINAL_REGISTRY_CHANGED_EVENT_METADATA),
             Self::TitleChanged(_) => Some(&TITLE_CHANGED_EVENT_METADATA),
             Self::TreeChanged(_) => Some(&TREE_CHANGED_EVENT_METADATA),
@@ -718,6 +764,7 @@ impl Event {
             Self::VtState(_) => Some(&VT_STATE_EVENT_METADATA),
             Self::WindowTitleRequested(_) => Some(&WINDOW_TITLE_REQUESTED_EVENT_METADATA),
             Self::WorkspaceAdded(_) => Some(&WORKSPACE_ADDED_EVENT_METADATA),
+            Self::WorkspaceChanged(_) => Some(&WORKSPACE_CHANGED_EVENT_METADATA),
             Self::WorkspaceClosed(_) => Some(&WORKSPACE_CLOSED_EVENT_METADATA),
             Self::WorkspaceMoved(_) => Some(&WORKSPACE_MOVED_EVENT_METADATA),
             Self::WorkspaceRenamed(_) => Some(&WORKSPACE_RENAMED_EVENT_METADATA),
@@ -1034,6 +1081,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("tab-changed") => match serde_json::from_value::<TabChangedEvent>(raw.clone()) {
+            Ok(event) => Event::TabChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("tab-closed") => match serde_json::from_value::<TabClosedEvent>(raw.clone()) {
             Ok(event) => Event::TabClosed(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1044,6 +1099,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("tab-renamed") => match serde_json::from_value::<TabRenamedEvent>(raw.clone()) {
             Ok(event) => Event::TabRenamed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("terminal-reaped") => match serde_json::from_value::<TerminalReapedEvent>(raw.clone()) {
+            Ok(event) => Event::TerminalReaped(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1100,6 +1163,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("workspace-added") => match serde_json::from_value::<WorkspaceAddedEvent>(raw.clone()) {
             Ok(event) => Event::WorkspaceAdded(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("workspace-changed") => match serde_json::from_value::<WorkspaceChangedEvent>(raw.clone()) {
+            Ok(event) => Event::WorkspaceChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

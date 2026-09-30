@@ -3481,6 +3481,9 @@ mod unix {
         force_drain: &AtomicBool,
         forced_at: &mut Option<Instant>,
     ) -> std::io::Result<bool> {
+        // A hung-up waiter stays readable forever, so once forced it is left
+        // out of the poll set; it used to busy-loop the rest of the window.
+        let mut waiter_closed = false;
         loop {
             if force_drain.load(Ordering::Acquire) {
                 let started = forced_at.get_or_insert_with(Instant::now);
@@ -3495,7 +3498,8 @@ mod unix {
                     revents: 0,
                 },
                 libc::pollfd {
-                    fd: drain_waiter.as_raw_fd(),
+                    // poll ignores negative descriptors.
+                    fd: if waiter_closed { -1 } else { drain_waiter.as_raw_fd() },
                     events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
                     revents: 0,
                 },
@@ -3528,10 +3532,11 @@ mod unix {
             if poll_fds[0].revents != 0 {
                 return Ok(true);
             }
-            if poll_fds[1].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
-                && !force_drain.load(Ordering::Acquire)
-            {
-                return Ok(false);
+            if poll_fds[1].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+                if !force_drain.load(Ordering::Acquire) {
+                    return Ok(false);
+                }
+                waiter_closed = true;
             }
             // A wake transitions the next iteration into forced mode. While
             // forced, an empty poll waits again until the remaining bounded
@@ -3580,6 +3585,10 @@ mod unix {
         launch_owner_stream_ready: AtomicBool,
         launch_owner_stream_gate: (Mutex<()>, Condvar),
         active_client_streams: AtomicUsize,
+        /// Wakes the host's accept loop when `dead` or
+        /// `active_client_streams` change, so the loop blocks instead of
+        /// polling them.
+        accept_waker: AcceptWaker,
         child_exit: (Mutex<Option<TerminalExit>>, Condvar),
         child_waitable: AtomicBool,
         pty_drained: AtomicBool,
@@ -3594,6 +3603,36 @@ mod unix {
         group_escalation_complete: AtomicBool,
         #[cfg(test)]
         fail_next_resize_publication: AtomicBool,
+    }
+
+    /// A self-pipe (socket pair) that the host's accept loop polls next to
+    /// its listener. Writes never block: a full buffer already means a wake
+    /// is pending.
+    struct AcceptWaker {
+        reader: UnixStream,
+        writer: UnixStream,
+    }
+
+    impl AcceptWaker {
+        fn new() -> std_io::Result<Self> {
+            let (reader, writer) = UnixStream::pair()?;
+            reader.set_nonblocking(true)?;
+            writer.set_nonblocking(true)?;
+            Ok(Self { reader, writer })
+        }
+
+        fn wake(&self) {
+            let _ = (&self.writer).write(&[1]);
+        }
+
+        fn drain(&self) {
+            let mut buffer = [0_u8; 64];
+            while matches!((&self.reader).read(&mut buffer), Ok(count) if count > 0) {}
+        }
+
+        fn fd(&self) -> RawFd {
+            self.reader.as_raw_fd()
+        }
     }
 
     struct LaunchOwnerConnection {
@@ -3647,6 +3686,9 @@ mod unix {
         fn drop(&mut self) {
             let previous = self.host.active_client_streams.fetch_sub(1, Ordering::AcqRel);
             debug_assert!(previous > 0, "active terminal-host stream underflow");
+            if previous == 1 {
+                self.host.accept_waker.wake();
+            }
         }
     }
 
@@ -4767,6 +4809,7 @@ mod unix {
                 {
                     let _term = self.term.lock().unwrap();
                     self.dead.store(true, Ordering::Release);
+                    self.accept_waker.wake();
                     let payload = encode_terminal_exit(&exit);
                     let cursor = self.smart.publish(Frame::new(MessageKind::Exit, payload.clone()));
                     self.smart.mark_applied(cursor);
@@ -5270,18 +5313,36 @@ mod unix {
                     )?;
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    // Wake as soon as an attachment arrives. The timeout keeps
-                    // the same lifecycle/owner-death polling bound without
-                    // imposing a 20 ms admission delay on each new connection.
-                    let mut fd =
-                        libc::pollfd { fd: listener.as_raw_fd(), events: libc::POLLIN, revents: 0 };
-                    // SAFETY: fd is valid for this call and listener owns the
-                    // descriptor until the accept loop exits.
-                    if unsafe { libc::poll(&mut fd, 1, 20) } < 0 {
+                    // Block until an attachment arrives or the accept waker
+                    // reports a lifecycle change (terminal exit, last client
+                    // stream closed). The only timeout is the one-shot launch
+                    // owner deadline, used until it passes; this loop used to
+                    // wake every 20 ms for the whole life of every terminal.
+                    let timeout = if shared.launch_owner_claimed.load(Ordering::Acquire) {
+                        -1
+                    } else {
+                        let remaining = launch_owner_deadline.saturating_duration_since(now);
+                        i32::try_from(remaining.as_millis().saturating_add(1)).unwrap_or(i32::MAX)
+                    };
+                    let mut fds = [
+                        libc::pollfd { fd: listener.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+                        libc::pollfd {
+                            fd: shared.accept_waker.fd(),
+                            events: libc::POLLIN,
+                            revents: 0,
+                        },
+                    ];
+                    // SAFETY: both descriptors stay open for this call: the
+                    // listener until the accept loop exits and the waker with
+                    // `shared`.
+                    if unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) } < 0 {
                         let error = std::io::Error::last_os_error();
                         if error.kind() != std::io::ErrorKind::Interrupted {
                             return Err(error.into());
                         }
+                    }
+                    if fds[1].revents != 0 {
+                        shared.accept_waker.drain();
                     }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
@@ -5395,6 +5456,7 @@ mod unix {
             launch_owner_stream_ready: AtomicBool::new(false),
             launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
             active_client_streams: AtomicUsize::new(0),
+            accept_waker: AcceptWaker::new()?,
             child_exit: (Mutex::new(None), Condvar::new()),
             child_waitable: AtomicBool::new(false),
             pty_drained: AtomicBool::new(false),
@@ -6861,6 +6923,7 @@ mod unix {
                 launch_owner_stream_ready: AtomicBool::new(true),
                 launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
                 active_client_streams: AtomicUsize::new(0),
+                accept_waker: AcceptWaker::new().unwrap(),
                 child_exit: (
                     Mutex::new(Some(TerminalExit {
                         outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit {
@@ -6952,6 +7015,7 @@ mod unix {
                 launch_owner_stream_ready: AtomicBool::new(false),
                 launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
                 active_client_streams: AtomicUsize::new(0),
+                accept_waker: AcceptWaker::new().unwrap(),
                 child_exit: (Mutex::new(None), Condvar::new()),
                 child_waitable: AtomicBool::new(false),
                 pty_drained: AtomicBool::new(false),

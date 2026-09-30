@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8.
+// cmux-tui mux protocol 12, IR d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -16,6 +16,10 @@ pub type DetachClientTarget = serde_json::Value;
 pub type Id = u64;
 #[rustfmt::skip]
 pub type JsonValue = serde_json::Value;
+#[rustfmt::skip]
+pub type PaneRef = serde_json::Value;
+#[rustfmt::skip]
+pub type TabRef = serde_json::Value;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1076,8 +1080,17 @@ pub struct SetTerminalIdlePolicyResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTerminalKeepResult {
+    pub keep: bool,
+    pub terminal_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShutdownDaemonResult {
     pub accepted: bool,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub ended_terminals: Optional<u64>,
     pub generation: String,
     pub pid: u32,
 }
@@ -1679,6 +1692,43 @@ pub struct TerminalRegistryEvent {
     pub terminal_id: String,
     pub terminal_revision: u64,
     pub workspace_key: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalResourceHost {
+    pub cpu_ns: u64,
+    pub memory_bytes: u64,
+    pub pid: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalResourceProcess {
+    pub cpu_ns: u64,
+    pub memory_bytes: u64,
+    pub name: String,
+    pub pid: u32,
+    pub ppid: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalResources {
+    pub host: Nullable<TerminalResourceHost>,
+    pub pid: Nullable<u32>,
+    pub processes: Vec<TerminalResourceProcess>,
+    pub surface: Id,
+    pub terminal_id: Nullable<String>,
+    pub truncated: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalResourcesResult {
+    pub missing: Vec<Id>,
+    pub sampled_at_ns: u64,
+    pub terminals: Vec<TerminalResources>,
 }
 
 #[rustfmt::skip]

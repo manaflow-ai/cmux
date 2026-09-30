@@ -123,6 +123,16 @@ pub enum PointerSnapshotProbe {
     Contended,
 }
 
+/// A hosted terminal that was asked to exit and has not yet been observed
+/// exiting.
+#[cfg(unix)]
+pub(crate) struct HostTermination {
+    identity: crate::terminal_host_runtime::TerminalHostIdentity,
+    path: PathBuf,
+    observed: u64,
+    already_exited: bool,
+}
+
 /// How to spawn surface children.
 #[derive(Debug, Clone)]
 pub struct SurfaceOptions {
@@ -656,6 +666,47 @@ impl AttachFrameReceiver {
         }
     }
 
+    /// Wakes a blocked `recv_interruptible` when `interrupt` fires.
+    pub(crate) fn wake_on(&self, interrupt: &crate::stream_interrupt::StreamInterrupt) {
+        let state = Arc::downgrade(&self.state);
+        interrupt.on_fire(move || {
+            if let Some(state) = state.upgrade() {
+                let _queue = state.queue.lock().unwrap_or_else(|error| error.into_inner());
+                state.ready.notify_all();
+            }
+        });
+    }
+
+    /// Blocks for a frame until `deadline` (if any). Returns `Timeout` when
+    /// the deadline passes or `interrupt` has fired with nothing queued.
+    pub(crate) fn recv_interruptible(
+        &self,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+        deadline: Option<Instant>,
+    ) -> Result<AttachFrame, RecvTimeoutError> {
+        let mut queue = self.state.queue.lock().unwrap();
+        loop {
+            if let Some(frame) = Self::pop(&mut queue) {
+                return Ok(frame);
+            }
+            if !queue.sender_alive {
+                return Err(RecvTimeoutError::Disconnected);
+            }
+            if interrupt.is_fired() {
+                return Err(RecvTimeoutError::Timeout);
+            }
+            queue = match deadline {
+                None => self.state.ready.wait(queue).unwrap(),
+                Some(deadline) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        return Err(RecvTimeoutError::Timeout);
+                    };
+                    self.state.ready.wait_timeout(queue, remaining).unwrap().0
+                }
+            };
+        }
+    }
+
     pub fn try_recv(&self) -> Result<AttachFrame, TryRecvError> {
         let mut queue = self.state.queue.lock().unwrap();
         if let Some(frame) = Self::pop(&mut queue) {
@@ -753,6 +804,8 @@ struct AttachLifecycleState {
     canceled: AtomicBool,
     overflowed: AtomicBool,
     overflow_reported: AtomicBool,
+    /// Fired by `cancel`, so attach loops block instead of polling it.
+    canceled_interrupts: crate::stream_interrupt::InterruptSet,
     /// Whether this viewer writes a replay's pending sequence after its own
     /// sequences (`terminal-pending-sequence-v1`). A viewer that does not
     /// would write color sequences into it, so it reconnects instead.
@@ -765,6 +818,7 @@ impl Default for AttachLifecycleState {
             canceled: AtomicBool::new(false),
             overflowed: AtomicBool::new(false),
             overflow_reported: AtomicBool::new(false),
+            canceled_interrupts: crate::stream_interrupt::InterruptSet::default(),
             resumes_pending_sequence: AtomicBool::new(true),
         }
     }
@@ -781,6 +835,15 @@ impl AttachLifecycle {
 
     pub(crate) fn cancel(&self) {
         self.state.canceled.store(true, Ordering::Release);
+        self.state.canceled_interrupts.fire();
+    }
+
+    /// Fires `interrupt` when this attachment is canceled.
+    pub(crate) fn register_interrupt(
+        &self,
+        interrupt: &Arc<crate::stream_interrupt::StreamInterrupt>,
+    ) {
+        self.state.canceled_interrupts.register(interrupt);
     }
 
     pub(crate) fn mark_overflow(&self) {
@@ -1117,6 +1180,38 @@ impl RenderAttachFrameReceiver {
         }
     }
 
+    /// Wakes a blocked `recv_until_interrupted` when `interrupt` fires.
+    pub(crate) fn wake_on(&self, interrupt: &crate::stream_interrupt::StreamInterrupt) {
+        let state = Arc::downgrade(&self.state);
+        interrupt.on_fire(move || {
+            if let Some(state) = state.upgrade() {
+                let _queue = state.queue.lock().unwrap_or_else(|error| error.into_inner());
+                state.ready.notify_all();
+            }
+        });
+    }
+
+    /// Blocks for an event. Returns `Timeout` once `interrupt` has fired
+    /// and nothing is queued.
+    pub(crate) fn recv_until_interrupted(
+        &self,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) -> Result<RenderAttachFrame, RecvTimeoutError> {
+        let mut queue = self.state.queue.lock().unwrap();
+        loop {
+            if let Some(event) = queue.pop() {
+                return Ok(event);
+            }
+            if !queue.sender_alive {
+                return Err(RecvTimeoutError::Disconnected);
+            }
+            if interrupt.is_fired() {
+                return Err(RecvTimeoutError::Timeout);
+            }
+            queue = self.state.ready.wait(queue).unwrap();
+        }
+    }
+
     pub fn try_recv(&self) -> Result<RenderAttachFrame, TryRecvError> {
         let mut queue = self.state.queue.lock().unwrap();
         if let Some(event) = queue.pop() {
@@ -1236,6 +1331,10 @@ impl TerminalHostConnectionState {
 const TERMINAL_HOST_RECONNECT_MAX_FAILURES: u8 = 16;
 #[cfg(unix)]
 const TERMINAL_HOST_RECONNECT_MAX_DELAY: Duration = Duration::from_secs(1);
+/// A host connection that lasted this long was healthy: the next loss starts
+/// its reconnect spacing from zero again.
+#[cfg(unix)]
+const TERMINAL_HOST_HEALTHY_CONNECTION: Duration = Duration::from_secs(10);
 
 #[cfg(unix)]
 #[derive(Default)]
@@ -1704,6 +1803,43 @@ impl Drop for PtyChildStartupGuard {
 enum PtyLifetime {
     SessionOwned,
     DaemonOwned,
+}
+
+/// When a new terminal surface takes its share of the Kitty image budget.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(unix), allow(dead_code))]
+enum KittyQuota {
+    /// Before its host launches, waiting for other surfaces to shrink.
+    AtLaunch,
+    /// Once the surface commits (`Mux::reserve_kitty_image_surface_without_quota`).
+    AfterCommit,
+}
+
+/// A launched terminal host whose surface is not built yet
+/// ([`Surface::prelaunch_hosted`]).
+#[cfg(unix)]
+pub(crate) struct PrelaunchedHost {
+    id: SurfaceId,
+    terminal_id: crate::terminal_host::TerminalId,
+    opts: SurfaceOptions,
+    attachment: crate::terminal_host_runtime::HostAttachment,
+    kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
+    terminal_public_id: Option<TerminalPublicId>,
+    resource_identity: TabResourceIdentity,
+}
+
+#[cfg(unix)]
+impl PrelaunchedHost {
+    pub(crate) fn terminal_id(&self) -> crate::terminal_host::TerminalId {
+        self.terminal_id
+    }
+
+    /// Write the workspace key into the host's recovery record now, so the
+    /// creation transaction finds it current and skips the synced write
+    /// (`Surface::persist_host_workspace`).
+    pub(crate) fn persist_workspace(&mut self, workspace_key: &str) -> anyhow::Result<()> {
+        self.attachment.persist_workspace(workspace_key)
+    }
 }
 
 #[cfg(unix)]
@@ -2310,17 +2446,20 @@ impl Surface {
         )
     }
 
-    fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
+    /// The identity environment and Kitty image budget every terminal
+    /// surface gets before its process starts.
+    fn spawn_prelude(
         id: SurfaceId,
         mut opts: SurfaceOptions,
-        mux: Weak<Mux>,
-        terminal_id: Option<crate::terminal_host::TerminalId>,
-        resource_identity: Option<TabResourceIdentity>,
-        lifetime: PtyLifetime,
-        cell_pixels: (u16, u16),
-    ) -> anyhow::Result<Arc<Surface>> {
+        mux: &Weak<Mux>,
+        resource_identity: Option<&TabResourceIdentity>,
+        kitty_quota: KittyQuota,
+    ) -> anyhow::Result<(
+        SurfaceOptions,
+        Option<TerminalPublicId>,
+        Option<crate::mux::KittyImageBudgetReservation>,
+    )> {
         let terminal_public_id = resource_identity
-            .as_ref()
             .map(|identity| {
                 terminal_public_id_from_resource_identity(
                     identity,
@@ -2339,8 +2478,105 @@ impl Surface {
                 mux.session_public_id().as_str(),
             );
         }
-        let kitty_reservation =
-            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
+        let kitty_reservation = mux
+            .upgrade()
+            .map(|mux| match kitty_quota {
+                KittyQuota::AtLaunch => mux.reserve_kitty_image_surface(id),
+                KittyQuota::AfterCommit => mux.reserve_kitty_image_surface_without_quota(id),
+            })
+            .transpose()?;
+        Ok((opts, terminal_public_id, kitty_reservation))
+    }
+
+    /// Launch the durable host of a new session-owned terminal without
+    /// building its surface, so a caller can launch several hosts in
+    /// parallel outside the creation transaction and finish each one with
+    /// [`Surface::spawn_prelaunched`] inside it. Dropping the result before
+    /// then exact-kills the host (the attachment's launch guard); a protocol
+    /// v4 host also never starts its child before activation. The host starts
+    /// with Kitty graphics disabled; its share of the image budget is applied
+    /// once the surface commits.
+    #[cfg(unix)]
+    pub(crate) fn prelaunch_hosted(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        terminal_id: crate::terminal_host::TerminalId,
+        cell_pixels: (u16, u16),
+    ) -> anyhow::Result<PrelaunchedHost> {
+        let root = opts
+            .terminal_host_root
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("prelaunch needs a terminal host root"))?;
+        let resource_identity = TabResourceIdentity::terminal(None)?;
+        let (opts, terminal_public_id, kitty_reservation) =
+            Self::spawn_prelude(id, opts, &mux, Some(&resource_identity), KittyQuota::AfterCommit)?;
+        let initial_kitty_limits = kitty_reservation
+            .as_ref()
+            .map(crate::mux::KittyImageBudgetReservation::initial_limits)
+            .unwrap_or_default();
+        let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        let attachment = crate::terminal_host_runtime::launch_terminal_host_with_identity(
+            &opts,
+            &root,
+            default_colors,
+            cell_pixels,
+            initial_kitty_limits,
+            terminal_id,
+        )?;
+        Ok(PrelaunchedHost {
+            id,
+            terminal_id,
+            opts,
+            attachment,
+            kitty_reservation,
+            terminal_public_id,
+            resource_identity,
+        })
+    }
+
+    /// Build the surface of a host from [`Surface::prelaunch_hosted`].
+    #[cfg(unix)]
+    pub(crate) fn spawn_prelaunched(
+        host: PrelaunchedHost,
+        mux: Weak<Mux>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let PrelaunchedHost {
+            id,
+            terminal_id: _,
+            opts,
+            attachment,
+            kitty_reservation,
+            terminal_public_id,
+            resource_identity,
+        } = host;
+        Self::spawn_hosted(
+            id,
+            opts,
+            mux,
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation,
+                terminate_on_error: true,
+                defer_launch_activation: true,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id,
+                resource_identity: Some(resource_identity),
+            },
+        )
+    }
+
+    fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        terminal_id: Option<crate::terminal_host::TerminalId>,
+        resource_identity: Option<TabResourceIdentity>,
+        lifetime: PtyLifetime,
+        cell_pixels: (u16, u16),
+    ) -> anyhow::Result<Arc<Surface>> {
+        let (opts, terminal_public_id, kitty_reservation) =
+            Self::spawn_prelude(id, opts, &mux, resource_identity.as_ref(), KittyQuota::AtLaunch)?;
         let initial_kitty_limits = kitty_reservation
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
@@ -2574,6 +2810,13 @@ impl Surface {
                             .clone(),
                     );
                     let mut buf = [0u8; 64 * 1024];
+                    // The PTY master is blocking, so WouldBlock should not
+                    // happen; if it does, retries are spaced instead of the
+                    // old fixed 1 ms (1 kHz) poll.
+                    let mut would_block = crate::backoff::Backoff::new(
+                        Duration::from_millis(1),
+                        Duration::from_millis(50),
+                    );
                     loop {
                         let pty = surface.as_pty().expect("surface reader got non-pty surface");
                         let journal_target = pty.journal_target();
@@ -2588,15 +2831,15 @@ impl Surface {
                         }
                         let n = match reader.read(&mut buf) {
                             Ok(0) => break,
-                            Ok(n) => n,
-                            Err(error)
-                                if matches!(
-                                    error.kind(),
-                                    std::io::ErrorKind::Interrupted
-                                        | std::io::ErrorKind::WouldBlock
-                                ) =>
-                            {
-                                std::thread::sleep(Duration::from_millis(1));
+                            Ok(n) => {
+                                would_block.reset();
+                                n
+                            }
+                            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                                continue;
+                            }
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                would_block.sleep();
                                 continue;
                             }
                             Err(_) => break,
@@ -3092,6 +3335,15 @@ impl Surface {
                 let mut smart_renderer = smart_renderer;
                 let mut applied_color_revision = initial_color_revision;
                 let mut applied_cursor_activity = initial_cursor_activity;
+                // One backoff across consecutive losses: a host that accepts
+                // and then drops at once (or keeps asking for a resync) used
+                // to be reconnected with no delay and no limit, because each
+                // loss started a fresh backoff. It resets only after a
+                // connection stayed up for TERMINAL_HOST_HEALTHY_CONNECTION.
+                let mut flap_backoff = TerminalHostReconnectBackoff::default();
+                // `None` until the first reconnect: the first loss of a
+                // connection keeps its immediate reconnect.
+                let mut connected_at: Option<Instant> = None;
                 'connection: loop {
                     let pty = surface.as_pty().expect("host reader owns a PTY surface");
                     let mut stager = HostedFrameStager::new_for_version(
@@ -3480,6 +3732,19 @@ impl Surface {
                         return;
                     }
 
+                    if connected_at
+                        .is_none_or(|at| at.elapsed() >= TERMINAL_HOST_HEALTHY_CONNECTION)
+                    {
+                        flap_backoff = TerminalHostReconnectBackoff::default();
+                    } else if resync_requested {
+                        // A live host's resync never fails the terminal, but
+                        // back-to-back resyncs are spaced.
+                        std::thread::sleep(
+                            flap_backoff.next_delay().unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY),
+                        );
+                    } else if !flap_backoff.wait_or_fail(pty) {
+                        return;
+                    }
                     let mut retry = TerminalHostReconnectBackoff::default();
                     loop {
                         if pty.owner_detaching.load(Ordering::Acquire) {
@@ -3806,6 +4071,7 @@ impl Surface {
                         smart_renderer = replacement_smart_renderer;
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Connected as u8, Ordering::Release);
+                        connected_at = Some(Instant::now());
                         continue 'connection;
                     }
                 }
@@ -4548,11 +4814,16 @@ impl Surface {
                 drop(runtime);
                 receipt.wait().map_err(ConfirmedInputFailure::Indeterminate)
             }
-            // Same keep-on-exit contract as `write_bytes`: the child is gone,
-            // so there is no reader to deliver to and nothing to retry.
-            // Input to the final screen is a successful no-op.
+            // Receipted input confirms delivery to the PTY owner, and a kept
+            // terminal's child is gone, so the write fails before any effect
+            // with a known error instead of claiming the bytes arrived.
+            // Unreceipted keystrokes to the final screen stay a silent no-op
+            // (`write_bytes`).
             #[cfg(unix)]
-            PtyRuntime::ExitedHosted => Ok(()),
+            PtyRuntime::ExitedHosted => Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "terminal has no live PTY owner for receipted input",
+            ))),
         }
     }
 
@@ -5711,19 +5982,15 @@ impl Surface {
         self.as_pty().and_then(|pty| pty.exit.lock().unwrap().clone())
     }
 
-    /// Terminate a hosted terminal through its existing owner connection and
-    /// wait for that same ordered stream to publish the durable exit receipt.
-    /// Local terminals return `None` and keep their existing kill path.
+    /// Ask a hosted terminal to exit through its existing owner connection,
+    /// without waiting. Local terminals return `None` and keep their existing
+    /// kill path. Pass the result to [`Self::wait_for_host_exit`].
     #[cfg(unix)]
-    pub(crate) fn terminate_host_and_wait_for_exit(
-        &self,
-        deadline: Instant,
-    ) -> anyhow::Result<Option<(PathBuf, crate::terminal_host_runtime::TerminalHostExitRecord)>>
-    {
+    pub(crate) fn begin_host_termination(&self) -> anyhow::Result<Option<HostTermination>> {
         let Some(pty) = self.as_pty() else { return Ok(None) };
         let Some(identity) = pty.host_identity.clone() else { return Ok(None) };
         let Some(path) = pty.host_exit_record_path.clone() else { return Ok(None) };
-        let mut observed = pty.stream_progress.revision();
+        let observed = pty.stream_progress.revision();
         let already_exited = {
             let mut runtime = pty.runtime.lock().unwrap();
             match &mut *runtime {
@@ -5737,12 +6004,27 @@ impl Surface {
                 PtyRuntime::Local { .. } => return Ok(None),
             }
         };
+        Ok(Some(HostTermination { identity, path, observed, already_exited }))
+    }
+
+    /// Wait for the ordered host stream to publish the durable exit receipt
+    /// after [`Self::begin_host_termination`].
+    #[cfg(unix)]
+    pub(crate) fn wait_for_host_exit(
+        &self,
+        termination: HostTermination,
+        deadline: Instant,
+    ) -> anyhow::Result<(PathBuf, crate::terminal_host_runtime::TerminalHostExitRecord)> {
+        let pty = self
+            .as_pty()
+            .ok_or_else(|| anyhow::anyhow!("terminal host termination lost its PTY runtime"))?;
+        let HostTermination { identity, path, mut observed, already_exited } = termination;
         loop {
             if let Some(exit) = pty.exit.lock().unwrap().clone() {
-                return Ok(Some((
+                return Ok((
                     path,
                     crate::terminal_host_runtime::TerminalHostExitRecord::new(&identity, exit),
-                )));
+                ));
             }
             anyhow::ensure!(
                 !already_exited,
@@ -7682,7 +7964,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn receipted_input_to_an_exited_host_is_a_no_op() {
+    fn receipted_input_rejects_an_exited_host_before_effect() {
         let mux = Mux::new_for_test("receipted-input-exited-host", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
@@ -7692,10 +7974,12 @@ mod tests {
             *runtime = PtyRuntime::ExitedHosted;
         }
 
-        // A keep-on-exit terminal keeps its final screen after the child
-        // exits; typing there succeeds without an effect, as `write_bytes`
-        // does.
-        surface.write_bytes_confirmed(b"ignored").unwrap();
+        let error = surface.write_bytes_confirmed(b"must-not-drop").unwrap_err();
+        let ConfirmedInputFailure::Known(error) = error else {
+            panic!("exited-host rejection became indeterminate");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
+        assert!(error.to_string().contains("no live PTY owner"));
     }
 
     #[test]

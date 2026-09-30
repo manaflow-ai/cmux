@@ -611,6 +611,12 @@ USAGE
   cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
   cmux workspace <selector> layout apply [OPTIONS]
   cmux workspace <selector> screen ...
+  cmux workspace group list
+  cmux workspace group create --name <value> [--color <token|#hex>] [--id <id>] [--index <n>] [--collapse]
+  cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color] [--collapse|--expand]
+  cmux workspace group <group> delete|move --index <n>
+  cmux workspace group <group> add --workspace <key|id> [--index <n>]
+  cmux workspace group remove --workspace <key|id>
   Nested panes support split --right or --down.
 ";
 
@@ -650,6 +656,19 @@ USAGE
   cmux tab create terminal [--correlation-key <value>] [OPTIONS]
   cmux tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
   cmux tab <selector> terminal|browser ...
+  cmux tab group list
+  cmux tab group create --tabs <id,...> [--name <value>] [--color <color>] [--id <id>]
+  cmux tab group <group> update [--name <value>] [--color <color>] [--collapse|--expand]
+  cmux tab group <group> add --tabs <id,...>
+  cmux tab group remove --tabs <id,...>
+  cmux tab group <group> move [--pane <id>] [--index <n>]
+  cmux tab group <group> split --pane <id> --edge <left|right|top|bottom> [--ratio <r>]
+  cmux tab group <group> column [--pane <id>|--screen <id>] [--after-column <id>] [--width <w>]
+  cmux tab group <group> new-workspace [--workspace-group <id>] [--index <n>]
+  cmux tab group <group> ungroup|close|save|unsave
+  cmux tab group saved list
+  cmux tab group saved <saved> delete|reopen --pane <id>
+  Tab ids are numeric or tab_... ids; pane ids are numeric or pane_... ids.
 ";
 
 const TERMINAL_HELP: &str = "\
@@ -669,9 +688,11 @@ USAGE
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> viewport scroll --delta-rows <n>
   cmux terminal <selector> move|project|attach|close [OPTIONS]
+  cmux terminal <term_id> keep on|off
 
 screen wait prints its result either way and exits 1 when the timeout
-passes without a match.
+passes without a match. keep on stops the owner from ending the terminal
+when it has no tab; keep off lets it end after the reap grace period.
 ";
 
 const BROWSER_HELP: &str = "\
@@ -833,7 +854,20 @@ mod tests {
         };
         assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
         assert!(global.session.is_none());
-        assert!(matches!(plan.action, lifecycle::ServerAction::Stop { force: true }));
+        assert!(matches!(
+            plan.action,
+            lifecycle::ServerAction::Stop { force: true, end_terminals: false }
+        ));
+
+        let ParsedCommand::Command { plan: CommandPlan::Server(plan), .. } =
+            parse(&strings(&["server", "stop", "--end-terminals"])).unwrap()
+        else {
+            panic!("server stop --end-terminals must produce a server plan");
+        };
+        assert!(matches!(
+            plan.action,
+            lifecycle::ServerAction::Stop { force: false, end_terminals: true }
+        ));
 
         let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
             parse(&strings(&[

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8.
+// cmux-tui mux protocol 12, IR d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -7,6 +7,28 @@ use super::types as T;
 use crate::{CmuxClient, CmuxStream, Nullable, Optional, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AckTabNotificationsRequest {
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type AckTabNotificationsResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AddTabsToTabGroupRequest {
+    pub group: String,
+    #[serde(alias = "tabs")]
+    pub surfaces: Vec<T::TabRef>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type AddTabsToTabGroupResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -276,6 +298,8 @@ pub struct ClientFocusResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClosePaneRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub end_terminals: Option<bool>,
     pub pane: T::Id,
 }
 
@@ -296,6 +320,8 @@ pub type CloseProviderManagedWorkspaceResult = T::ProviderWorkspaceMutationResul
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloseScreenRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub end_terminals: Option<bool>,
     pub screen: T::Id,
 }
 
@@ -310,6 +336,38 @@ pub struct CloseSurfaceRequest {
 
 #[rustfmt::skip]
 pub type CloseSurfaceResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloseTabGroupRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub end_terminals: Option<bool>,
+    pub group: String,
+}
+
+#[rustfmt::skip]
+pub type CloseTabGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloseTabsRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub end_terminals: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expected_generation: Optional<String>,
+    #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
+    pub expected_revision: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+    pub surfaces: Vec<T::TabRef>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type CloseTabsResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -330,6 +388,8 @@ pub struct CloseTerminalRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloseWorkspaceRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub end_terminals: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expected_generation: Optional<String>,
     #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
@@ -399,6 +459,24 @@ pub struct CreateSurfaceWithReceiptRequest {
 pub type CreateSurfaceWithReceiptResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreateTabGroupRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub color: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub group: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(alias = "tabs")]
+    pub surfaces: Vec<T::TabRef>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type CreateTabGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CreateTerminalRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -410,9 +488,13 @@ pub struct CreateTerminalRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expected_generation: Optional<String>,
     #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
     pub expected_revision: Optional<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -451,6 +533,41 @@ pub struct CreateWorkspaceRequest {
 
 #[rustfmt::skip]
 pub type CreateWorkspaceResult = T::WorkspaceMutationResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreateWorkspaceGroupRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub collapsed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub color: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub group: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    pub name: String,
+}
+
+#[rustfmt::skip]
+pub type CreateWorkspaceGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeleteSavedTabGroupRequest {
+    pub saved: String,
+}
+
+#[rustfmt::skip]
+pub type DeleteSavedTabGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeleteWorkspaceGroupRequest {
+    pub group: String,
+}
+
+#[rustfmt::skip]
+pub type DeleteWorkspaceGroupResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -586,8 +703,42 @@ pub type ListClientsResult = Vec<T::ClientInfo>;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ListNotificationsRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type ListNotificationsResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ListSavedTabGroupsRequest {
+}
+
+#[rustfmt::skip]
+pub type ListSavedTabGroupsResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ListTabGroupsRequest {
+}
+
+#[rustfmt::skip]
+pub type ListTabGroupsResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ListTerminalsRequest {
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ListWorkspaceGroupsRequest {
+}
+
+#[rustfmt::skip]
+pub type ListWorkspaceGroupsResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -641,6 +792,8 @@ pub struct MoveTabRequest {
     pub index: u64,
     pub pane: T::Id,
     pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -648,8 +801,123 @@ pub type MoveTabResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveTabGroupRequest {
+    pub group: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<T::PaneRef>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type MoveTabGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveTabGroupToColumnRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after_column: Optional<T::Id>,
+    pub group: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<T::PaneRef>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub width: Optional<f32>,
+}
+
+#[rustfmt::skip]
+pub type MoveTabGroupToColumnResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveTabGroupToNewWorkspaceRequest {
+    pub group: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace_group: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type MoveTabGroupToNewWorkspaceResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveTabGroupToSplitRequest {
+    pub edge: String,
+    pub group: String,
+    pub pane: T::PaneRef,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub ratio: Optional<f32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type MoveTabGroupToSplitResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveTabToColumnRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after_column: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen: Optional<T::Id>,
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub width: Optional<f32>,
+}
+
+#[rustfmt::skip]
+pub type MoveTabToColumnResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveTabToNewWorkspaceRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub group: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type MoveTabToNewWorkspaceResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveTabToSplitRequest {
+    pub edge: String,
+    pub pane: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub ratio: Optional<f32>,
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type MoveTabToSplitResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MoveTabToWorkspaceRequest {
     pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -697,6 +965,40 @@ pub type MoveWorkspaceResult = T::WorkspaceMutationResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveWorkspaceGroupRequest {
+    pub group: String,
+    pub index: u64,
+}
+
+#[rustfmt::skip]
+pub type MoveWorkspaceGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MoveWorkspaceToGroupRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expected_generation: Optional<String>,
+    #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
+    pub expected_revision: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub group: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub key: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<T::Id>,
+}
+
+#[rustfmt::skip]
+pub type MoveWorkspaceToGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewBrowserTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
@@ -712,12 +1014,42 @@ pub type NewBrowserTabResult = T::SurfaceResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewFrontendBrowserTabRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cols: Optional<u16>,
+    pub engine: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub favicon_url: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub profile_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub title: Optional<String>,
+    pub url: String,
+}
+
+#[rustfmt::skip]
+pub type NewFrontendBrowserTabResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewPaneRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -728,9 +1060,17 @@ pub type NewPaneResult = T::SurfaceResult;
 pub struct NewPaneRightRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub width: Optional<f32>,
 }
@@ -760,9 +1100,15 @@ pub struct NewTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -942,6 +1288,18 @@ pub struct ReloadConfigResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoveTabsFromTabGroupRequest {
+    #[serde(alias = "tabs")]
+    pub surfaces: Vec<T::TabRef>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type RemoveTabsFromTabGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenamePaneRequest {
     pub name: String,
     pub pane: T::Id,
@@ -1002,6 +1360,18 @@ pub struct RenameWorkspaceRequest {
 
 #[rustfmt::skip]
 pub type RenameWorkspaceResult = T::WorkspaceMutationResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReopenSavedTabGroupRequest {
+    pub pane: T::PaneRef,
+    pub saved: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type ReopenSavedTabGroupResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1078,6 +1448,15 @@ pub struct RunRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SaveTabGroupRequest {
+    pub group: String,
+}
+
+#[rustfmt::skip]
+pub type SaveTabGroupResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1277,10 +1656,30 @@ pub struct SetSplitRatioRequest {
 pub type SetSplitRatioResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTabPinnedRequest {
+    pub pinned: bool,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type SetTabPinnedResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SetTerminalIdlePolicyRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub idle_close_seconds: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTerminalKeepRequest {
+    pub keep: bool,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1309,8 +1708,36 @@ pub struct SetWindowTitleRequest {
 pub type SetWindowTitleResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SetWorkspaceMetadataRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub color: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expected_generation: Optional<String>,
+    #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
+    pub expected_revision: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub key: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub title: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<T::Id>,
+}
+
+#[rustfmt::skip]
+pub type SetWorkspaceMetadataResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShutdownDaemonRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub end_terminals: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub force: Option<bool>,
     pub generation: String,
@@ -1331,10 +1758,18 @@ pub struct SidebarPluginRequest {
 pub struct SplitRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
     pub dir: T::SplitDirection,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1382,6 +1817,13 @@ pub struct TerminalEventsRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TerminalResourcesRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surfaces: Optional<Vec<T::Id>>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UndoLayoutRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -1395,12 +1837,75 @@ pub struct UndoLayoutRequest {
 pub type UndoLayoutResult = T::LayoutUndoResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UngroupTabGroupRequest {
+    pub group: String,
+}
+
+#[rustfmt::skip]
+pub type UngroupTabGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct UnregisterBrowserProviderRequest {
 }
 
 #[rustfmt::skip]
 pub type UnregisterBrowserProviderResult = T::BrowserProviderUnregisterResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UnsaveTabGroupRequest {
+    pub group: String,
+}
+
+#[rustfmt::skip]
+pub type UnsaveTabGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateFrontendBrowserTabRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub favicon_url: Optional<String>,
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub title: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type UpdateFrontendBrowserTabResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateTabGroupRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub collapsed: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub color: Optional<String>,
+    pub group: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type UpdateTabGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateWorkspaceGroupRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub collapsed: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub color: Optional<String>,
+    pub group: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type UpdateWorkspaceGroupResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1477,6 +1982,14 @@ pub struct ZoomPaneRequest {
 
 #[rustfmt::skip]
 impl CmuxClient {
+    pub fn ack_tab_notifications(&mut self, request: AckTabNotificationsRequest) -> Result<AckTabNotificationsResult> {
+        self.execute(&ACK_TAB_NOTIFICATIONS_METADATA, &request)
+    }
+
+    pub fn add_tabs_to_tab_group(&mut self, request: AddTabsToTabGroupRequest) -> Result<AddTabsToTabGroupResult> {
+        self.execute(&ADD_TABS_TO_TAB_GROUP_METADATA, &request)
+    }
+
     pub fn apply_layout(&mut self, request: ApplyLayoutRequest) -> Result<T::ApplyLayoutResult> {
         self.execute(&APPLY_LAYOUT_METADATA, &request)
     }
@@ -1569,6 +2082,10 @@ impl CmuxClient {
     }
 
     pub fn close_pane(&mut self, request: ClosePaneRequest) -> Result<ClosePaneResult> {
+        if request.end_terminals.is_some() {
+            self.require_protocol_field("close-pane", 12)?;
+            self.require_capability_field("close-pane", "batch-close-v1")?;
+        }
         self.execute(&CLOSE_PANE_METADATA, &request)
     }
 
@@ -1577,6 +2094,10 @@ impl CmuxClient {
     }
 
     pub fn close_screen(&mut self, request: CloseScreenRequest) -> Result<CloseScreenResult> {
+        if request.end_terminals.is_some() {
+            self.require_protocol_field("close-screen", 12)?;
+            self.require_capability_field("close-screen", "batch-close-v1")?;
+        }
         self.execute(&CLOSE_SCREEN_METADATA, &request)
     }
 
@@ -1584,11 +2105,27 @@ impl CmuxClient {
         self.execute(&CLOSE_SURFACE_METADATA, &request)
     }
 
+    pub fn close_tab_group(&mut self, request: CloseTabGroupRequest) -> Result<CloseTabGroupResult> {
+        if request.end_terminals.is_some() {
+            self.require_protocol_field("close-tab-group", 12)?;
+            self.require_capability_field("close-tab-group", "batch-close-v1")?;
+        }
+        self.execute(&CLOSE_TAB_GROUP_METADATA, &request)
+    }
+
+    pub fn close_tabs(&mut self, request: CloseTabsRequest) -> Result<CloseTabsResult> {
+        self.execute(&CLOSE_TABS_METADATA, &request)
+    }
+
     pub fn close_terminal(&mut self, request: CloseTerminalRequest) -> Result<T::CloseTerminalResult> {
         self.execute(&CLOSE_TERMINAL_METADATA, &request)
     }
 
     pub fn close_workspace(&mut self, request: CloseWorkspaceRequest) -> Result<CloseWorkspaceResult> {
+        if request.end_terminals.is_some() {
+            self.require_protocol_field("close-workspace", 12)?;
+            self.require_capability_field("close-workspace", "batch-close-v1")?;
+        }
         if !request.expected_generation.is_missing() {
             self.require_protocol_field("close-workspace", 7)?;
         }
@@ -1619,7 +2156,19 @@ impl CmuxClient {
         self.execute(&CREATE_SURFACE_WITH_RECEIPT_METADATA, &request)
     }
 
+    pub fn create_tab_group(&mut self, request: CreateTabGroupRequest) -> Result<CreateTabGroupResult> {
+        self.execute(&CREATE_TAB_GROUP_METADATA, &request)
+    }
+
     pub fn create_terminal(&mut self, request: CreateTerminalRequest) -> Result<CreateTerminalResult> {
+        if !request.env.is_missing() {
+            self.require_protocol_field("create-terminal", 12)?;
+            self.require_capability_field("create-terminal", "terminal-env-v1")?;
+        }
+        if request.keep.is_some() {
+            self.require_protocol_field("create-terminal", 12)?;
+            self.require_capability_field("create-terminal", "terminal-reap-v1")?;
+        }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("create-terminal", 9)?;
         }
@@ -1628,6 +2177,18 @@ impl CmuxClient {
 
     pub fn create_workspace(&mut self, request: CreateWorkspaceRequest) -> Result<CreateWorkspaceResult> {
         self.execute(&CREATE_WORKSPACE_METADATA, &request)
+    }
+
+    pub fn create_workspace_group(&mut self, request: CreateWorkspaceGroupRequest) -> Result<CreateWorkspaceGroupResult> {
+        self.execute(&CREATE_WORKSPACE_GROUP_METADATA, &request)
+    }
+
+    pub fn delete_saved_tab_group(&mut self, request: DeleteSavedTabGroupRequest) -> Result<DeleteSavedTabGroupResult> {
+        self.execute(&DELETE_SAVED_TAB_GROUP_METADATA, &request)
+    }
+
+    pub fn delete_workspace_group(&mut self, request: DeleteWorkspaceGroupRequest) -> Result<DeleteWorkspaceGroupResult> {
+        self.execute(&DELETE_WORKSPACE_GROUP_METADATA, &request)
     }
 
     pub fn detach_attached_view(&mut self, request: DetachAttachedViewRequest) -> Result<DetachAttachedViewResult> {
@@ -1694,8 +2255,24 @@ impl CmuxClient {
         self.execute(&LIST_CLIENTS_METADATA, &request)
     }
 
+    pub fn list_notifications(&mut self, request: ListNotificationsRequest) -> Result<ListNotificationsResult> {
+        self.execute(&LIST_NOTIFICATIONS_METADATA, &request)
+    }
+
+    pub fn list_saved_tab_groups(&mut self, request: ListSavedTabGroupsRequest) -> Result<ListSavedTabGroupsResult> {
+        self.execute(&LIST_SAVED_TAB_GROUPS_METADATA, &request)
+    }
+
+    pub fn list_tab_groups(&mut self, request: ListTabGroupsRequest) -> Result<ListTabGroupsResult> {
+        self.execute(&LIST_TAB_GROUPS_METADATA, &request)
+    }
+
     pub fn list_terminals(&mut self, request: ListTerminalsRequest) -> Result<T::ListTerminalsResult> {
         self.execute(&LIST_TERMINALS_METADATA, &request)
+    }
+
+    pub fn list_workspace_groups(&mut self, request: ListWorkspaceGroupsRequest) -> Result<ListWorkspaceGroupsResult> {
+        self.execute(&LIST_WORKSPACE_GROUPS_METADATA, &request)
     }
 
     pub fn list_workspaces(&mut self, request: ListWorkspacesRequest) -> Result<ListWorkspacesResult> {
@@ -1723,10 +2300,46 @@ impl CmuxClient {
     }
 
     pub fn move_tab(&mut self, request: MoveTabRequest) -> Result<MoveTabResult> {
+        if !request.transaction.is_missing() {
+            self.require_protocol_field("move-tab", 12)?;
+            self.require_capability_field("move-tab", "tab-drag-v1")?;
+        }
         self.execute(&MOVE_TAB_METADATA, &request)
     }
 
+    pub fn move_tab_group(&mut self, request: MoveTabGroupRequest) -> Result<MoveTabGroupResult> {
+        self.execute(&MOVE_TAB_GROUP_METADATA, &request)
+    }
+
+    pub fn move_tab_group_to_column(&mut self, request: MoveTabGroupToColumnRequest) -> Result<MoveTabGroupToColumnResult> {
+        self.execute(&MOVE_TAB_GROUP_TO_COLUMN_METADATA, &request)
+    }
+
+    pub fn move_tab_group_to_new_workspace(&mut self, request: MoveTabGroupToNewWorkspaceRequest) -> Result<MoveTabGroupToNewWorkspaceResult> {
+        self.execute(&MOVE_TAB_GROUP_TO_NEW_WORKSPACE_METADATA, &request)
+    }
+
+    pub fn move_tab_group_to_split(&mut self, request: MoveTabGroupToSplitRequest) -> Result<MoveTabGroupToSplitResult> {
+        self.execute(&MOVE_TAB_GROUP_TO_SPLIT_METADATA, &request)
+    }
+
+    pub fn move_tab_to_column(&mut self, request: MoveTabToColumnRequest) -> Result<MoveTabToColumnResult> {
+        self.execute(&MOVE_TAB_TO_COLUMN_METADATA, &request)
+    }
+
+    pub fn move_tab_to_new_workspace(&mut self, request: MoveTabToNewWorkspaceRequest) -> Result<MoveTabToNewWorkspaceResult> {
+        self.execute(&MOVE_TAB_TO_NEW_WORKSPACE_METADATA, &request)
+    }
+
+    pub fn move_tab_to_split(&mut self, request: MoveTabToSplitRequest) -> Result<MoveTabToSplitResult> {
+        self.execute(&MOVE_TAB_TO_SPLIT_METADATA, &request)
+    }
+
     pub fn move_tab_to_workspace(&mut self, request: MoveTabToWorkspaceRequest) -> Result<MoveTabToWorkspaceResult> {
+        if !request.transaction.is_missing() {
+            self.require_protocol_field("move-tab-to-workspace", 12)?;
+            self.require_capability_field("move-tab-to-workspace", "tab-drag-v1")?;
+        }
         self.execute(&MOVE_TAB_TO_WORKSPACE_METADATA, &request)
     }
 
@@ -1754,15 +2367,59 @@ impl CmuxClient {
         self.execute(&MOVE_WORKSPACE_METADATA, &request)
     }
 
+    pub fn move_workspace_group(&mut self, request: MoveWorkspaceGroupRequest) -> Result<MoveWorkspaceGroupResult> {
+        self.execute(&MOVE_WORKSPACE_GROUP_METADATA, &request)
+    }
+
+    pub fn move_workspace_to_group(&mut self, request: MoveWorkspaceToGroupRequest) -> Result<MoveWorkspaceToGroupResult> {
+        self.execute(&MOVE_WORKSPACE_TO_GROUP_METADATA, &request)
+    }
+
     pub fn new_browser_tab(&mut self, request: NewBrowserTabRequest) -> Result<NewBrowserTabResult> {
         self.execute(&NEW_BROWSER_TAB_METADATA, &request)
     }
 
+    pub fn new_frontend_browser_tab(&mut self, request: NewFrontendBrowserTabRequest) -> Result<NewFrontendBrowserTabResult> {
+        self.execute(&NEW_FRONTEND_BROWSER_TAB_METADATA, &request)
+    }
+
     pub fn new_pane(&mut self, request: NewPaneRequest) -> Result<NewPaneResult> {
+        if !request.cwd.is_missing() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-placement-env-v1")?;
+        }
+        if !request.env.is_missing() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-placement-env-v1")?;
+        }
+        if request.keep.is_some() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-reap-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-placement-env-v1")?;
+        }
         self.execute(&NEW_PANE_METADATA, &request)
     }
 
     pub fn new_pane_right(&mut self, request: NewPaneRightRequest) -> Result<NewPaneRightResult> {
+        if !request.cwd.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
+        }
+        if !request.env.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
+        }
+        if request.keep.is_some() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-reap-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
+        }
         self.execute(&NEW_PANE_RIGHT_METADATA, &request)
     }
 
@@ -1771,6 +2428,18 @@ impl CmuxClient {
     }
 
     pub fn new_tab(&mut self, request: NewTabRequest) -> Result<NewTabResult> {
+        if !request.env.is_missing() {
+            self.require_protocol_field("new-tab", 12)?;
+            self.require_capability_field("new-tab", "terminal-env-v1")?;
+        }
+        if request.keep.is_some() {
+            self.require_protocol_field("new-tab", 12)?;
+            self.require_capability_field("new-tab", "terminal-reap-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("new-tab", 12)?;
+            self.require_capability_field("new-tab", "terminal-placement-env-v1")?;
+        }
         self.execute(&NEW_TAB_METADATA, &request)
     }
 
@@ -1838,6 +2507,10 @@ impl CmuxClient {
         self.execute(&RELOAD_CONFIG_METADATA, &request)
     }
 
+    pub fn remove_tabs_from_tab_group(&mut self, request: RemoveTabsFromTabGroupRequest) -> Result<RemoveTabsFromTabGroupResult> {
+        self.execute(&REMOVE_TABS_FROM_TAB_GROUP_METADATA, &request)
+    }
+
     pub fn rename_pane(&mut self, request: RenamePaneRequest) -> Result<RenamePaneResult> {
         self.execute(&RENAME_PANE_METADATA, &request)
     }
@@ -1874,6 +2547,10 @@ impl CmuxClient {
         self.execute(&RENAME_WORKSPACE_METADATA, &request)
     }
 
+    pub fn reopen_saved_tab_group(&mut self, request: ReopenSavedTabGroupRequest) -> Result<ReopenSavedTabGroupResult> {
+        self.execute(&REOPEN_SAVED_TAB_GROUP_METADATA, &request)
+    }
+
     pub fn report_agent(&mut self, request: ReportAgentRequest) -> Result<T::ReportAgentResult> {
         self.execute(&REPORT_AGENT_METADATA, &request)
     }
@@ -1907,6 +2584,10 @@ impl CmuxClient {
             self.require_protocol_field("run", 9)?;
         }
         self.execute(&RUN_METADATA, &request)
+    }
+
+    pub fn save_tab_group(&mut self, request: SaveTabGroupRequest) -> Result<SaveTabGroupResult> {
+        self.execute(&SAVE_TAB_GROUP_METADATA, &request)
     }
 
     pub fn scroll_surface(&mut self, request: ScrollSurfaceRequest) -> Result<ScrollSurfaceResult> {
@@ -2013,8 +2694,16 @@ impl CmuxClient {
         self.execute(&SET_SPLIT_RATIO_METADATA, &request)
     }
 
+    pub fn set_tab_pinned(&mut self, request: SetTabPinnedRequest) -> Result<SetTabPinnedResult> {
+        self.execute(&SET_TAB_PINNED_METADATA, &request)
+    }
+
     pub fn set_terminal_idle_policy(&mut self, request: SetTerminalIdlePolicyRequest) -> Result<T::SetTerminalIdlePolicyResult> {
         self.execute(&SET_TERMINAL_IDLE_POLICY_METADATA, &request)
+    }
+
+    pub fn set_terminal_keep(&mut self, request: SetTerminalKeepRequest) -> Result<T::SetTerminalKeepResult> {
+        self.execute(&SET_TERMINAL_KEEP_METADATA, &request)
     }
 
     pub fn set_viewport_pane_width(&mut self, request: SetViewportPaneWidthRequest) -> Result<SetViewportPaneWidthResult> {
@@ -2029,7 +2718,15 @@ impl CmuxClient {
         self.execute(&SET_WINDOW_TITLE_METADATA, &request)
     }
 
+    pub fn set_workspace_metadata(&mut self, request: SetWorkspaceMetadataRequest) -> Result<SetWorkspaceMetadataResult> {
+        self.execute(&SET_WORKSPACE_METADATA_METADATA, &request)
+    }
+
     pub fn shutdown_daemon(&mut self, request: ShutdownDaemonRequest) -> Result<T::ShutdownDaemonResult> {
+        if request.end_terminals.is_some() {
+            self.require_protocol_field("shutdown-daemon", 12)?;
+            self.require_capability_field("shutdown-daemon", "terminal-reap-v1")?;
+        }
         if request.force.is_some() {
             self.require_protocol_field("shutdown-daemon", 10)?;
             self.require_capability_field("shutdown-daemon", "daemon-handoff-force-v1")?;
@@ -2042,6 +2739,22 @@ impl CmuxClient {
     }
 
     pub fn split(&mut self, request: SplitRequest) -> Result<SplitResult> {
+        if !request.cwd.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "terminal-env-v1")?;
+        }
+        if !request.env.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "terminal-env-v1")?;
+        }
+        if request.keep.is_some() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "terminal-reap-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "terminal-placement-env-v1")?;
+        }
         self.execute(&SPLIT_METADATA, &request)
     }
 
@@ -2064,12 +2777,36 @@ impl CmuxClient {
         self.execute(&TERMINAL_EVENTS_METADATA, &request)
     }
 
+    pub fn terminal_resources(&mut self, request: TerminalResourcesRequest) -> Result<T::TerminalResourcesResult> {
+        self.execute(&TERMINAL_RESOURCES_METADATA, &request)
+    }
+
     pub fn undo_layout(&mut self, request: UndoLayoutRequest) -> Result<UndoLayoutResult> {
         self.execute(&UNDO_LAYOUT_METADATA, &request)
     }
 
+    pub fn ungroup_tab_group(&mut self, request: UngroupTabGroupRequest) -> Result<UngroupTabGroupResult> {
+        self.execute(&UNGROUP_TAB_GROUP_METADATA, &request)
+    }
+
     pub fn unregister_browser_provider(&mut self, request: UnregisterBrowserProviderRequest) -> Result<UnregisterBrowserProviderResult> {
         self.execute(&UNREGISTER_BROWSER_PROVIDER_METADATA, &request)
+    }
+
+    pub fn unsave_tab_group(&mut self, request: UnsaveTabGroupRequest) -> Result<UnsaveTabGroupResult> {
+        self.execute(&UNSAVE_TAB_GROUP_METADATA, &request)
+    }
+
+    pub fn update_frontend_browser_tab(&mut self, request: UpdateFrontendBrowserTabRequest) -> Result<UpdateFrontendBrowserTabResult> {
+        self.execute(&UPDATE_FRONTEND_BROWSER_TAB_METADATA, &request)
+    }
+
+    pub fn update_tab_group(&mut self, request: UpdateTabGroupRequest) -> Result<UpdateTabGroupResult> {
+        self.execute(&UPDATE_TAB_GROUP_METADATA, &request)
+    }
+
+    pub fn update_workspace_group(&mut self, request: UpdateWorkspaceGroupRequest) -> Result<UpdateWorkspaceGroupResult> {
+        self.execute(&UPDATE_WORKSPACE_GROUP_METADATA, &request)
     }
 
     pub fn url_open(&mut self, request: UrlOpenRequest) -> Result<UrlOpenResult> {

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8";
+pub const ir_sha256 = "d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -827,6 +827,9 @@ pub const PaneNeighborResult = struct {
     pane: wire.Nullable(Id),
 };
 
+/// A pane named by its numeric id or its public pane_ id.
+pub const PaneRef = wire.Value;
+
 pub const PingResult = struct {
     build_commit: wire.Field([]const u8) = .absent,
     ghostty_commit: wire.Field([]const u8) = .absent,
@@ -1189,8 +1192,14 @@ pub const SetTerminalIdlePolicyResult = struct {
     terminal_id: []const u8,
 };
 
+pub const SetTerminalKeepResult = struct {
+    keep: bool,
+    terminal_id: []const u8,
+};
+
 pub const ShutdownDaemonResult = struct {
     accepted: bool,
+    ended_terminals: wire.Field(u64) = .absent,
     generation: []const u8,
     pid: u32,
 };
@@ -1447,6 +1456,9 @@ pub const Tab = struct {
         "supports_clear_history_key_fallback",
     };
 };
+
+/// A tab named by its numeric surface id or its public tab_ id.
+pub const TabRef = wire.Value;
 
 pub const TerminalColorOverrides = struct {
     bg: wire.Nullable(ColorHex),
@@ -1987,6 +1999,35 @@ pub const TerminalRegistryEvent = struct {
     workspace_key: []const u8,
 };
 
+pub const TerminalResourceHost = struct {
+    cpu_ns: u64,
+    memory_bytes: u64,
+    pid: u32,
+};
+
+pub const TerminalResourceProcess = struct {
+    cpu_ns: u64,
+    memory_bytes: u64,
+    name: []const u8,
+    pid: u32,
+    ppid: u32,
+};
+
+pub const TerminalResources = struct {
+    host: wire.Nullable(TerminalResourceHost),
+    pid: wire.Nullable(u32),
+    processes: []const TerminalResourceProcess,
+    surface: Id,
+    terminal_id: wire.Nullable([]const u8),
+    truncated: bool,
+};
+
+pub const TerminalResourcesResult = struct {
+    missing: []const Id,
+    sampled_at_ns: u64,
+    terminals: []const TerminalResources,
+};
+
 pub const Tree = struct {
     generation: ?[]const u8 = null,
     pane_revision: ?u64 = null,
@@ -2078,6 +2119,46 @@ pub const ZoomPaneResult = struct {
     zoomed: bool,
     zoomed_pane: wire.Nullable(Id),
 };
+
+pub const AckTabNotificationsRequest = struct {
+    surface: Id,
+};
+
+pub const AckTabNotificationsResult = JsonValue;
+
+pub fn ackTabNotifications(client: anytype, request: AckTabNotificationsRequest) !wire.Decoded(AckTabNotificationsResult) {
+    return client.callTyped(
+        AckTabNotificationsResult,
+        .{
+            .name = "ack-tab-notifications",
+            .authority = "control",
+            .since = 12,
+            .capability = "notification-ack-v1",
+        },
+        request,
+    );
+}
+
+pub const AddTabsToTabGroupRequest = struct {
+    group: []const u8,
+    surfaces: []const TabRef,
+    transaction: wire.Field([]const u8) = .absent,
+};
+
+pub const AddTabsToTabGroupResult = JsonValue;
+
+pub fn addTabsToTabGroup(client: anytype, request: AddTabsToTabGroupRequest) !wire.Decoded(AddTabsToTabGroupResult) {
+    return client.callTyped(
+        AddTabsToTabGroupResult,
+        .{
+            .name = "add-tabs-to-tab-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-groups-v1",
+        },
+        request,
+    );
+}
 
 pub const ApplyLayoutRequest = struct {
     cols: wire.Field(u16) = .absent,
@@ -2553,7 +2634,12 @@ pub fn clientFocus(client: anytype, request: ClientFocusRequest) !wire.Decoded(C
 }
 
 pub const ClosePaneRequest = struct {
+    end_terminals: ?bool = null,
     pane: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "end_terminals",
+    };
 };
 
 pub const ClosePaneResult = EmptyResult;
@@ -2566,6 +2652,9 @@ pub fn closePane(client: anytype, request: ClosePaneRequest) !wire.Decoded(Close
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
+            },
         },
         request,
     );
@@ -2593,7 +2682,12 @@ pub fn closeProviderManagedWorkspace(client: anytype, request: CloseProviderMana
 }
 
 pub const CloseScreenRequest = struct {
+    end_terminals: ?bool = null,
     screen: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "end_terminals",
+    };
 };
 
 pub const CloseScreenResult = EmptyResult;
@@ -2606,6 +2700,9 @@ pub fn closeScreen(client: anytype, request: CloseScreenRequest) !wire.Decoded(C
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
+            },
         },
         request,
     );
@@ -2625,6 +2722,62 @@ pub fn closeSurface(client: anytype, request: CloseSurfaceRequest) !wire.Decoded
             .authority = "control",
             .since = 5,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const CloseTabGroupRequest = struct {
+    end_terminals: ?bool = null,
+    group: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "end_terminals",
+    };
+};
+
+pub const CloseTabGroupResult = JsonValue;
+
+pub fn closeTabGroup(client: anytype, request: CloseTabGroupRequest) !wire.Decoded(CloseTabGroupResult) {
+    return client.callTyped(
+        CloseTabGroupResult,
+        .{
+            .name = "close-tab-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-groups-v1",
+            .fields = &.{
+                .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
+            },
+        },
+        request,
+    );
+}
+
+pub const CloseTabsRequest = struct {
+    end_terminals: ?bool = null,
+    expected_generation: wire.Field([]const u8) = .absent,
+    expected_revision: wire.Field(u64) = .absent,
+    mutation_id: wire.Field([]const u8) = .absent,
+    origin: wire.Field([]const u8) = .absent,
+    surfaces: []const TabRef,
+    transaction: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "end_terminals",
+    };
+};
+
+pub const CloseTabsResult = JsonValue;
+
+pub fn closeTabs(client: anytype, request: CloseTabsRequest) !wire.Decoded(CloseTabsResult) {
+    return client.callTyped(
+        CloseTabsResult,
+        .{
+            .name = "close-tabs",
+            .authority = "control",
+            .since = 12,
+            .capability = "batch-close-v1",
         },
         request,
     );
@@ -2653,12 +2806,17 @@ pub fn closeTerminal(client: anytype, request: CloseTerminalRequest) !wire.Decod
 }
 
 pub const CloseWorkspaceRequest = struct {
+    end_terminals: ?bool = null,
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "end_terminals",
+    };
 };
 
 pub const CloseWorkspaceResult = WorkspaceMutationResult;
@@ -2672,6 +2830,7 @@ pub fn closeWorkspace(client: anytype, request: CloseWorkspaceRequest) !wire.Dec
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
                 .{ .name = "expected_generation", .since = 7, .capability = null },
                 .{ .name = "expected_revision", .since = 7, .capability = null },
                 .{ .name = "key", .since = 7, .capability = "workspace-registry-v1" },
@@ -2761,13 +2920,38 @@ pub fn createSurfaceWithReceipt(client: anytype, request: CreateSurfaceWithRecei
     );
 }
 
+pub const CreateTabGroupRequest = struct {
+    color: wire.Field([]const u8) = .absent,
+    group: wire.Field([]const u8) = .absent,
+    name: wire.Field([]const u8) = .absent,
+    surfaces: []const TabRef,
+    transaction: wire.Field([]const u8) = .absent,
+};
+
+pub const CreateTabGroupResult = JsonValue;
+
+pub fn createTabGroup(client: anytype, request: CreateTabGroupRequest) !wire.Decoded(CreateTabGroupResult) {
+    return client.callTyped(
+        CreateTabGroupResult,
+        .{
+            .name = "create-tab-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-groups-v1",
+        },
+        request,
+    );
+}
+
 pub const CreateTerminalRequest = struct {
     argv: wire.Field([]const []const u8) = .absent,
     cols: wire.Field(u16) = .absent,
     command: wire.Field([]const u8) = .absent,
     cwd: wire.Field([]const u8) = .absent,
+    env: wire.Field(wire.Map([]const u8)) = .absent,
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
+    keep: ?bool = null,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
@@ -2775,6 +2959,10 @@ pub const CreateTerminalRequest = struct {
     rows: wire.Field(u16) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keep",
+    };
 };
 
 pub const CreateTerminalResult = TerminalPlacement;
@@ -2788,6 +2976,8 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
             .since = 7,
             .capability = "workspace-registry-v1",
             .fields = &.{
+                .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
+                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "terminal_id", .since = 9, .capability = null },
             },
         },
@@ -2814,6 +3004,71 @@ pub fn createWorkspace(client: anytype, request: CreateWorkspaceRequest) !wire.D
             .authority = "control",
             .since = 7,
             .capability = "workspace-registry-v1",
+        },
+        request,
+    );
+}
+
+pub const CreateWorkspaceGroupRequest = struct {
+    collapsed: ?bool = null,
+    color: wire.Field([]const u8) = .absent,
+    group: wire.Field([]const u8) = .absent,
+    index: wire.Field(u64) = .absent,
+    name: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "collapsed",
+    };
+};
+
+pub const CreateWorkspaceGroupResult = JsonValue;
+
+pub fn createWorkspaceGroup(client: anytype, request: CreateWorkspaceGroupRequest) !wire.Decoded(CreateWorkspaceGroupResult) {
+    return client.callTyped(
+        CreateWorkspaceGroupResult,
+        .{
+            .name = "create-workspace-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "workspace-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const DeleteSavedTabGroupRequest = struct {
+    saved: []const u8,
+};
+
+pub const DeleteSavedTabGroupResult = JsonValue;
+
+pub fn deleteSavedTabGroup(client: anytype, request: DeleteSavedTabGroupRequest) !wire.Decoded(DeleteSavedTabGroupResult) {
+    return client.callTyped(
+        DeleteSavedTabGroupResult,
+        .{
+            .name = "delete-saved-tab-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "saved-tab-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const DeleteWorkspaceGroupRequest = struct {
+    group: []const u8,
+};
+
+pub const DeleteWorkspaceGroupResult = JsonValue;
+
+pub fn deleteWorkspaceGroup(client: anytype, request: DeleteWorkspaceGroupRequest) !wire.Decoded(DeleteWorkspaceGroupResult) {
+    return client.callTyped(
+        DeleteWorkspaceGroupResult,
+        .{
+            .name = "delete-workspace-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "workspace-groups-v1",
         },
         request,
     );
@@ -3102,6 +3357,59 @@ pub fn listClients(client: anytype, request: ListClientsRequest) !wire.Decoded(L
     );
 }
 
+pub const ListNotificationsRequest = struct {
+    limit: wire.Field(u64) = .absent,
+};
+
+pub const ListNotificationsResult = JsonValue;
+
+pub fn listNotifications(client: anytype, request: ListNotificationsRequest) !wire.Decoded(ListNotificationsResult) {
+    return client.callTyped(
+        ListNotificationsResult,
+        .{
+            .name = "list-notifications",
+            .authority = "control",
+            .since = 12,
+            .capability = "notification-ack-v1",
+        },
+        request,
+    );
+}
+
+pub const ListSavedTabGroupsRequest = struct {};
+
+pub const ListSavedTabGroupsResult = JsonValue;
+
+pub fn listSavedTabGroups(client: anytype, request: ListSavedTabGroupsRequest) !wire.Decoded(ListSavedTabGroupsResult) {
+    return client.callTyped(
+        ListSavedTabGroupsResult,
+        .{
+            .name = "list-saved-tab-groups",
+            .authority = "control",
+            .since = 12,
+            .capability = "saved-tab-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const ListTabGroupsRequest = struct {};
+
+pub const ListTabGroupsResult = JsonValue;
+
+pub fn listTabGroups(client: anytype, request: ListTabGroupsRequest) !wire.Decoded(ListTabGroupsResult) {
+    return client.callTyped(
+        ListTabGroupsResult,
+        .{
+            .name = "list-tab-groups",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-groups-v1",
+        },
+        request,
+    );
+}
+
 pub const ListTerminalsRequest = struct {};
 
 pub fn listTerminals(client: anytype, request: ListTerminalsRequest) !wire.Decoded(ListTerminalsResult) {
@@ -3112,6 +3420,23 @@ pub fn listTerminals(client: anytype, request: ListTerminalsRequest) !wire.Decod
             .authority = "control",
             .since = 9,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const ListWorkspaceGroupsRequest = struct {};
+
+pub const ListWorkspaceGroupsResult = JsonValue;
+
+pub fn listWorkspaceGroups(client: anytype, request: ListWorkspaceGroupsRequest) !wire.Decoded(ListWorkspaceGroupsResult) {
+    return client.callTyped(
+        ListWorkspaceGroupsResult,
+        .{
+            .name = "list-workspace-groups",
+            .authority = "control",
+            .since = 12,
+            .capability = "workspace-groups-v1",
         },
         request,
     );
@@ -3233,6 +3558,7 @@ pub const MoveTabRequest = struct {
     index: u64,
     pane: Id,
     surface: Id,
+    transaction: wire.Field([]const u8) = .absent,
 };
 
 pub const MoveTabResult = EmptyResult;
@@ -3245,6 +3571,169 @@ pub fn moveTab(client: anytype, request: MoveTabRequest) !wire.Decoded(MoveTabRe
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "transaction", .since = 12, .capability = "tab-drag-v1" },
+            },
+        },
+        request,
+    );
+}
+
+pub const MoveTabGroupRequest = struct {
+    group: []const u8,
+    index: wire.Field(u64) = .absent,
+    pane: wire.Field(PaneRef) = .absent,
+    transaction: wire.Field([]const u8) = .absent,
+};
+
+pub const MoveTabGroupResult = JsonValue;
+
+pub fn moveTabGroup(client: anytype, request: MoveTabGroupRequest) !wire.Decoded(MoveTabGroupResult) {
+    return client.callTyped(
+        MoveTabGroupResult,
+        .{
+            .name = "move-tab-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const MoveTabGroupToColumnRequest = struct {
+    after_column: wire.Field(Id) = .absent,
+    group: []const u8,
+    pane: wire.Field(PaneRef) = .absent,
+    screen: wire.Field(Id) = .absent,
+    transaction: wire.Field([]const u8) = .absent,
+    width: wire.Field(f32) = .absent,
+};
+
+pub const MoveTabGroupToColumnResult = JsonValue;
+
+pub fn moveTabGroupToColumn(client: anytype, request: MoveTabGroupToColumnRequest) !wire.Decoded(MoveTabGroupToColumnResult) {
+    return client.callTyped(
+        MoveTabGroupToColumnResult,
+        .{
+            .name = "move-tab-group-to-column",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const MoveTabGroupToNewWorkspaceRequest = struct {
+    group: []const u8,
+    index: wire.Field(u64) = .absent,
+    transaction: wire.Field([]const u8) = .absent,
+    workspace_group: wire.Field([]const u8) = .absent,
+};
+
+pub const MoveTabGroupToNewWorkspaceResult = JsonValue;
+
+pub fn moveTabGroupToNewWorkspace(client: anytype, request: MoveTabGroupToNewWorkspaceRequest) !wire.Decoded(MoveTabGroupToNewWorkspaceResult) {
+    return client.callTyped(
+        MoveTabGroupToNewWorkspaceResult,
+        .{
+            .name = "move-tab-group-to-new-workspace",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const MoveTabGroupToSplitRequest = struct {
+    edge: []const u8,
+    group: []const u8,
+    pane: PaneRef,
+    ratio: wire.Field(f32) = .absent,
+    transaction: wire.Field([]const u8) = .absent,
+};
+
+pub const MoveTabGroupToSplitResult = JsonValue;
+
+pub fn moveTabGroupToSplit(client: anytype, request: MoveTabGroupToSplitRequest) !wire.Decoded(MoveTabGroupToSplitResult) {
+    return client.callTyped(
+        MoveTabGroupToSplitResult,
+        .{
+            .name = "move-tab-group-to-split",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const MoveTabToColumnRequest = struct {
+    after_column: wire.Field(Id) = .absent,
+    pane: wire.Field(Id) = .absent,
+    screen: wire.Field(Id) = .absent,
+    surface: Id,
+    transaction: wire.Field([]const u8) = .absent,
+    width: wire.Field(f32) = .absent,
+};
+
+pub const MoveTabToColumnResult = JsonValue;
+
+pub fn moveTabToColumn(client: anytype, request: MoveTabToColumnRequest) !wire.Decoded(MoveTabToColumnResult) {
+    return client.callTyped(
+        MoveTabToColumnResult,
+        .{
+            .name = "move-tab-to-column",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-drag-v1",
+        },
+        request,
+    );
+}
+
+pub const MoveTabToNewWorkspaceRequest = struct {
+    group: wire.Field([]const u8) = .absent,
+    index: wire.Field(u64) = .absent,
+    surface: Id,
+    transaction: wire.Field([]const u8) = .absent,
+};
+
+pub const MoveTabToNewWorkspaceResult = JsonValue;
+
+pub fn moveTabToNewWorkspace(client: anytype, request: MoveTabToNewWorkspaceRequest) !wire.Decoded(MoveTabToNewWorkspaceResult) {
+    return client.callTyped(
+        MoveTabToNewWorkspaceResult,
+        .{
+            .name = "move-tab-to-new-workspace",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-drag-v1",
+        },
+        request,
+    );
+}
+
+pub const MoveTabToSplitRequest = struct {
+    edge: []const u8,
+    pane: Id,
+    ratio: wire.Field(f32) = .absent,
+    surface: Id,
+    transaction: wire.Field([]const u8) = .absent,
+};
+
+pub const MoveTabToSplitResult = JsonValue;
+
+pub fn moveTabToSplit(client: anytype, request: MoveTabToSplitRequest) !wire.Decoded(MoveTabToSplitResult) {
+    return client.callTyped(
+        MoveTabToSplitResult,
+        .{
+            .name = "move-tab-to-split",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-drag-v1",
         },
         request,
     );
@@ -3252,6 +3741,7 @@ pub fn moveTab(client: anytype, request: MoveTabRequest) !wire.Decoded(MoveTabRe
 
 pub const MoveTabToWorkspaceRequest = struct {
     surface: Id,
+    transaction: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
 };
 
@@ -3265,6 +3755,9 @@ pub fn moveTabToWorkspace(client: anytype, request: MoveTabToWorkspaceRequest) !
             .authority = "control",
             .since = 12,
             .capability = "tab-workspace-move-v1",
+            .fields = &.{
+                .{ .name = "transaction", .since = 12, .capability = "tab-drag-v1" },
+            },
         },
         request,
     );
@@ -3325,6 +3818,52 @@ pub fn moveWorkspace(client: anytype, request: MoveWorkspaceRequest) !wire.Decod
     );
 }
 
+pub const MoveWorkspaceGroupRequest = struct {
+    group: []const u8,
+    index: u64,
+};
+
+pub const MoveWorkspaceGroupResult = JsonValue;
+
+pub fn moveWorkspaceGroup(client: anytype, request: MoveWorkspaceGroupRequest) !wire.Decoded(MoveWorkspaceGroupResult) {
+    return client.callTyped(
+        MoveWorkspaceGroupResult,
+        .{
+            .name = "move-workspace-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "workspace-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const MoveWorkspaceToGroupRequest = struct {
+    expected_generation: wire.Field([]const u8) = .absent,
+    expected_revision: wire.Field(u64) = .absent,
+    group: wire.Field([]const u8) = .absent,
+    index: wire.Field(u64) = .absent,
+    key: wire.Field([]const u8) = .absent,
+    mutation_id: wire.Field([]const u8) = .absent,
+    origin: wire.Field([]const u8) = .absent,
+    workspace: wire.Field(Id) = .absent,
+};
+
+pub const MoveWorkspaceToGroupResult = JsonValue;
+
+pub fn moveWorkspaceToGroup(client: anytype, request: MoveWorkspaceToGroupRequest) !wire.Decoded(MoveWorkspaceToGroupResult) {
+    return client.callTyped(
+        MoveWorkspaceToGroupResult,
+        .{
+            .name = "move-workspace-to-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "workspace-groups-v1",
+        },
+        request,
+    );
+}
+
 pub const NewBrowserTabRequest = struct {
     cols: wire.Field(u16) = .absent,
     pane: wire.Field(Id) = .absent,
@@ -3347,10 +3886,44 @@ pub fn newBrowserTab(client: anytype, request: NewBrowserTabRequest) !wire.Decod
     );
 }
 
+pub const NewFrontendBrowserTabRequest = struct {
+    cols: wire.Field(u16) = .absent,
+    engine: []const u8,
+    favicon_url: wire.Field([]const u8) = .absent,
+    pane: wire.Field(Id) = .absent,
+    profile_id: wire.Field([]const u8) = .absent,
+    rows: wire.Field(u16) = .absent,
+    title: wire.Field([]const u8) = .absent,
+    url: []const u8,
+};
+
+pub const NewFrontendBrowserTabResult = JsonValue;
+
+pub fn newFrontendBrowserTab(client: anytype, request: NewFrontendBrowserTabRequest) !wire.Decoded(NewFrontendBrowserTabResult) {
+    return client.callTyped(
+        NewFrontendBrowserTabResult,
+        .{
+            .name = "new-frontend-browser-tab",
+            .authority = "control",
+            .since = 12,
+            .capability = "frontend-browser-tabs-v1",
+        },
+        request,
+    );
+}
+
 pub const NewPaneRequest = struct {
     cols: wire.Field(u16) = .absent,
+    cwd: wire.Field([]const u8) = .absent,
+    env: wire.Field(wire.Map([]const u8)) = .absent,
+    keep: ?bool = null,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keep",
+    };
 };
 
 pub const NewPaneResult = SurfaceResult;
@@ -3363,6 +3936,12 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
             .authority = "control",
             .since = 9,
             .capability = null,
+            .fields = &.{
+                .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
+                .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
+                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
+            },
         },
         request,
     );
@@ -3370,9 +3949,17 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
 
 pub const NewPaneRightRequest = struct {
     cols: wire.Field(u16) = .absent,
+    cwd: wire.Field([]const u8) = .absent,
+    env: wire.Field(wire.Map([]const u8)) = .absent,
+    keep: ?bool = null,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keep",
+    };
 };
 
 pub const NewPaneRightResult = SurfaceResult;
@@ -3385,6 +3972,12 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
             .authority = "control",
             .since = 9,
             .capability = "viewport-splits-v1",
+            .fields = &.{
+                .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
+                .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
+                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
+            },
         },
         request,
     );
@@ -3414,8 +4007,15 @@ pub fn newScreen(client: anytype, request: NewScreenRequest) !wire.Decoded(NewSc
 pub const NewTabRequest = struct {
     cols: wire.Field(u16) = .absent,
     cwd: wire.Field([]const u8) = .absent,
+    env: wire.Field(wire.Map([]const u8)) = .absent,
+    keep: ?bool = null,
     pane: wire.Field(Id) = .absent,
     rows: wire.Field(u16) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keep",
+    };
 };
 
 pub const NewTabResult = SurfaceResult;
@@ -3428,6 +4028,11 @@ pub fn newTab(client: anytype, request: NewTabRequest) !wire.Decoded(NewTabResul
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
+                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
+            },
         },
         request,
     );
@@ -3743,6 +4348,26 @@ pub fn reloadConfig(client: anytype, request: ReloadConfigRequest) !wire.Decoded
     );
 }
 
+pub const RemoveTabsFromTabGroupRequest = struct {
+    surfaces: []const TabRef,
+    transaction: wire.Field([]const u8) = .absent,
+};
+
+pub const RemoveTabsFromTabGroupResult = JsonValue;
+
+pub fn removeTabsFromTabGroup(client: anytype, request: RemoveTabsFromTabGroupRequest) !wire.Decoded(RemoveTabsFromTabGroupResult) {
+    return client.callTyped(
+        RemoveTabsFromTabGroupResult,
+        .{
+            .name = "remove-tabs-from-tab-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-groups-v1",
+        },
+        request,
+    );
+}
+
 pub const RenamePaneRequest = struct {
     name: []const u8,
     pane: Id,
@@ -3852,6 +4477,27 @@ pub fn renameWorkspace(client: anytype, request: RenameWorkspaceRequest) !wire.D
                 .{ .name = "mutation_id", .since = 7, .capability = null },
                 .{ .name = "origin", .since = 7, .capability = null },
             },
+        },
+        request,
+    );
+}
+
+pub const ReopenSavedTabGroupRequest = struct {
+    pane: PaneRef,
+    saved: []const u8,
+    transaction: wire.Field([]const u8) = .absent,
+};
+
+pub const ReopenSavedTabGroupResult = JsonValue;
+
+pub fn reopenSavedTabGroup(client: anytype, request: ReopenSavedTabGroupRequest) !wire.Decoded(ReopenSavedTabGroupResult) {
+    return client.callTyped(
+        ReopenSavedTabGroupResult,
+        .{
+            .name = "reopen-saved-tab-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "saved-tab-groups-v1",
         },
         request,
     );
@@ -3989,6 +4635,25 @@ pub fn run(client: anytype, request: RunRequest) !wire.Decoded(RunResult) {
             .fields = &.{
                 .{ .name = "key", .since = 9, .capability = null },
             },
+        },
+        request,
+    );
+}
+
+pub const SaveTabGroupRequest = struct {
+    group: []const u8,
+};
+
+pub const SaveTabGroupResult = JsonValue;
+
+pub fn saveTabGroup(client: anytype, request: SaveTabGroupRequest) !wire.Decoded(SaveTabGroupResult) {
+    return client.callTyped(
+        SaveTabGroupResult,
+        .{
+            .name = "save-tab-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "saved-tab-groups-v1",
         },
         request,
     );
@@ -4340,6 +5005,26 @@ pub fn setSplitRatio(client: anytype, request: SetSplitRatioRequest) !wire.Decod
     );
 }
 
+pub const SetTabPinnedRequest = struct {
+    pinned: bool,
+    surface: Id,
+};
+
+pub const SetTabPinnedResult = JsonValue;
+
+pub fn setTabPinned(client: anytype, request: SetTabPinnedRequest) !wire.Decoded(SetTabPinnedResult) {
+    return client.callTyped(
+        SetTabPinnedResult,
+        .{
+            .name = "set-tab-pinned",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-metadata-v1",
+        },
+        request,
+    );
+}
+
 pub const SetTerminalIdlePolicyRequest = struct {
     idle_close_seconds: wire.Field(u64) = .absent,
     surface: wire.Field(Id) = .absent,
@@ -4354,6 +5039,25 @@ pub fn setTerminalIdlePolicy(client: anytype, request: SetTerminalIdlePolicyRequ
             .authority = "control",
             .since = 12,
             .capability = "terminal-idle-close-v1",
+        },
+        request,
+    );
+}
+
+pub const SetTerminalKeepRequest = struct {
+    keep: bool,
+    surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+};
+
+pub fn setTerminalKeep(client: anytype, request: SetTerminalKeepRequest) !wire.Decoded(SetTerminalKeepResult) {
+    return client.callTyped(
+        SetTerminalKeepResult,
+        .{
+            .name = "set-terminal-keep",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-reap-v1",
         },
         request,
     );
@@ -4402,12 +5106,41 @@ pub fn setWindowTitle(client: anytype, request: SetWindowTitleRequest) !wire.Dec
     );
 }
 
+pub const SetWorkspaceMetadataRequest = struct {
+    color: wire.Field([]const u8) = .absent,
+    expected_generation: wire.Field([]const u8) = .absent,
+    expected_revision: wire.Field(u64) = .absent,
+    icon: wire.Field([]const u8) = .absent,
+    key: wire.Field([]const u8) = .absent,
+    mutation_id: wire.Field([]const u8) = .absent,
+    origin: wire.Field([]const u8) = .absent,
+    title: wire.Field([]const u8) = .absent,
+    workspace: wire.Field(Id) = .absent,
+};
+
+pub const SetWorkspaceMetadataResult = JsonValue;
+
+pub fn setWorkspaceMetadata(client: anytype, request: SetWorkspaceMetadataRequest) !wire.Decoded(SetWorkspaceMetadataResult) {
+    return client.callTyped(
+        SetWorkspaceMetadataResult,
+        .{
+            .name = "set-workspace-metadata",
+            .authority = "control",
+            .since = 12,
+            .capability = "workspace-metadata-v1",
+        },
+        request,
+    );
+}
+
 pub const ShutdownDaemonRequest = struct {
+    end_terminals: ?bool = null,
     force: ?bool = null,
     generation: []const u8,
     pid: u32,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "end_terminals",
         "force",
     };
 };
@@ -4421,6 +5154,7 @@ pub fn shutdownDaemon(client: anytype, request: ShutdownDaemonRequest) !wire.Dec
             .since = 9,
             .capability = null,
             .fields = &.{
+                .{ .name = "end_terminals", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "force", .since = 10, .capability = "daemon-handoff-force-v1" },
             },
         },
@@ -4453,9 +5187,17 @@ pub fn sidebarPlugin(client: anytype, request: SidebarPluginRequest) !wire.Decod
 
 pub const SplitRequest = struct {
     cols: wire.Field(u16) = .absent,
+    cwd: wire.Field([]const u8) = .absent,
     dir: SplitDirection,
+    env: wire.Field(wire.Map([]const u8)) = .absent,
+    keep: ?bool = null,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keep",
+    };
 };
 
 pub const SplitResult = SurfaceResult;
@@ -4468,6 +5210,12 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "cwd", .since = 12, .capability = "terminal-env-v1" },
+                .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
+                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
+            },
         },
         request,
     );
@@ -4557,6 +5305,23 @@ pub fn terminalEvents(client: anytype, request: TerminalEventsRequest) !wire.Dec
     );
 }
 
+pub const TerminalResourcesRequest = struct {
+    surfaces: wire.Field([]const Id) = .absent,
+};
+
+pub fn terminalResources(client: anytype, request: TerminalResourcesRequest) !wire.Decoded(TerminalResourcesResult) {
+    return client.callTyped(
+        TerminalResourcesResult,
+        .{
+            .name = "terminal-resources",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-resources-v1",
+        },
+        request,
+    );
+}
+
 pub const UndoLayoutRequest = struct {
     confirm_close: ?bool = null,
     pane: Id,
@@ -4582,6 +5347,25 @@ pub fn undoLayout(client: anytype, request: UndoLayoutRequest) !wire.Decoded(Und
     );
 }
 
+pub const UngroupTabGroupRequest = struct {
+    group: []const u8,
+};
+
+pub const UngroupTabGroupResult = JsonValue;
+
+pub fn ungroupTabGroup(client: anytype, request: UngroupTabGroupRequest) !wire.Decoded(UngroupTabGroupResult) {
+    return client.callTyped(
+        UngroupTabGroupResult,
+        .{
+            .name = "ungroup-tab-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-groups-v1",
+        },
+        request,
+    );
+}
+
 pub const UnregisterBrowserProviderRequest = struct {};
 
 pub const UnregisterBrowserProviderResult = BrowserProviderUnregisterResult;
@@ -4594,6 +5378,91 @@ pub fn unregisterBrowserProvider(client: anytype, request: UnregisterBrowserProv
             .authority = "local-admin",
             .since = 10,
             .capability = "browser-provider-v1",
+        },
+        request,
+    );
+}
+
+pub const UnsaveTabGroupRequest = struct {
+    group: []const u8,
+};
+
+pub const UnsaveTabGroupResult = JsonValue;
+
+pub fn unsaveTabGroup(client: anytype, request: UnsaveTabGroupRequest) !wire.Decoded(UnsaveTabGroupResult) {
+    return client.callTyped(
+        UnsaveTabGroupResult,
+        .{
+            .name = "unsave-tab-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "saved-tab-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const UpdateFrontendBrowserTabRequest = struct {
+    favicon_url: wire.Field([]const u8) = .absent,
+    surface: Id,
+    title: wire.Field([]const u8) = .absent,
+    url: wire.Field([]const u8) = .absent,
+};
+
+pub const UpdateFrontendBrowserTabResult = JsonValue;
+
+pub fn updateFrontendBrowserTab(client: anytype, request: UpdateFrontendBrowserTabRequest) !wire.Decoded(UpdateFrontendBrowserTabResult) {
+    return client.callTyped(
+        UpdateFrontendBrowserTabResult,
+        .{
+            .name = "update-frontend-browser-tab",
+            .authority = "control",
+            .since = 12,
+            .capability = "frontend-browser-tabs-v1",
+        },
+        request,
+    );
+}
+
+pub const UpdateTabGroupRequest = struct {
+    collapsed: wire.Field(bool) = .absent,
+    color: wire.Field([]const u8) = .absent,
+    group: []const u8,
+    name: wire.Field([]const u8) = .absent,
+};
+
+pub const UpdateTabGroupResult = JsonValue;
+
+pub fn updateTabGroup(client: anytype, request: UpdateTabGroupRequest) !wire.Decoded(UpdateTabGroupResult) {
+    return client.callTyped(
+        UpdateTabGroupResult,
+        .{
+            .name = "update-tab-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const UpdateWorkspaceGroupRequest = struct {
+    collapsed: wire.Field(bool) = .absent,
+    color: wire.Field([]const u8) = .absent,
+    group: []const u8,
+    name: wire.Field([]const u8) = .absent,
+};
+
+pub const UpdateWorkspaceGroupResult = JsonValue;
+
+pub fn updateWorkspaceGroup(client: anytype, request: UpdateWorkspaceGroupRequest) !wire.Decoded(UpdateWorkspaceGroupResult) {
+    return client.callTyped(
+        UpdateWorkspaceGroupResult,
+        .{
+            .name = "update-workspace-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "workspace-groups-v1",
         },
         request,
     );
@@ -5172,6 +6041,17 @@ pub const TabAddedEvent = struct {
     workspace: Id,
 };
 
+pub const TabChangedEvent = struct {
+    entity: Tab,
+    event: []const u8,
+    index: wire.Field(u64) = .absent,
+    pane: Id,
+    screen: Id,
+    surface: Id,
+    transaction: wire.Field([]const u8) = .absent,
+    workspace: Id,
+};
+
 pub const TabClosedEvent = struct {
     entity: Tab,
     event: []const u8,
@@ -5189,6 +6069,13 @@ pub const TabRenamedEvent = struct {
     screen: Id,
     surface: Id,
     workspace: Id,
+};
+
+pub const TerminalReapedEvent = struct {
+    event: []const u8,
+    grace_ms: u64,
+    terminal: wire.Nullable([]const u8),
+    terminal_id: []const u8,
 };
 
 pub const TerminalRegistryChangedEvent = struct {
@@ -5247,6 +6134,23 @@ pub const WorkspaceAddedEvent = struct {
     event: []const u8,
     generation: []const u8,
     index: u64,
+    mutation_id: ?[]const u8 = null,
+    origin: ?[]const u8 = null,
+    registry_id: []const u8,
+    workspace: Id,
+    workspace_revision: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "mutation_id",
+        "origin",
+    };
+};
+
+pub const WorkspaceChangedEvent = struct {
+    entity: Workspace,
+    event: []const u8,
+    generation: []const u8,
+    index: wire.Field(u64) = .absent,
     mutation_id: ?[]const u8 = null,
     origin: ?[]const u8 = null,
     registry_id: []const u8,
@@ -5353,8 +6257,10 @@ pub const Event = union(enum) {
     surface_resize_failed: SurfaceResizeFailedEvent,
     surface_resized: SurfaceResizedEvent,
     tab_added: TabAddedEvent,
+    tab_changed: TabChangedEvent,
     tab_closed: TabClosedEvent,
     tab_renamed: TabRenamedEvent,
+    terminal_reaped: TerminalReapedEvent,
     terminal_registry_changed: TerminalRegistryChangedEvent,
     title_changed: TitleChangedEvent,
     tree_changed: TreeChangedEvent,
@@ -5362,6 +6268,7 @@ pub const Event = union(enum) {
     vt_state: VtStateEvent,
     window_title_requested: WindowTitleRequestedEvent,
     workspace_added: WorkspaceAddedEvent,
+    workspace_changed: WorkspaceChangedEvent,
     workspace_closed: WorkspaceClosedEvent,
     workspace_moved: WorkspaceMovedEvent,
     workspace_renamed: WorkspaceRenamedEvent,
@@ -5408,8 +6315,10 @@ pub fn eventWireName(event: Event) []const u8 {
         .surface_resize_failed => "surface-resize-failed",
         .surface_resized => "surface-resized",
         .tab_added => "tab-added",
+        .tab_changed => "tab-changed",
         .tab_closed => "tab-closed",
         .tab_renamed => "tab-renamed",
+        .terminal_reaped => "terminal-reaped",
         .terminal_registry_changed => "terminal-registry-changed",
         .title_changed => "title-changed",
         .tree_changed => "tree-changed",
@@ -5417,6 +6326,7 @@ pub fn eventWireName(event: Event) []const u8 {
         .vt_state => "vt-state",
         .window_title_requested => "window-title-requested",
         .workspace_added => "workspace-added",
+        .workspace_changed => "workspace-changed",
         .workspace_closed => "workspace-closed",
         .workspace_moved => "workspace-moved",
         .workspace_renamed => "workspace-renamed",
@@ -5590,6 +6500,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(TabAddedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .tab_added = decoded } };
     }
+    if (std.mem.eql(u8, name, "tab-changed")) {
+        const decoded = try wire.decodeLeaky(TabChangedEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .tab_changed = decoded } };
+    }
     if (std.mem.eql(u8, name, "tab-closed")) {
         const decoded = try wire.decodeLeaky(TabClosedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .tab_closed = decoded } };
@@ -5597,6 +6511,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
     if (std.mem.eql(u8, name, "tab-renamed")) {
         const decoded = try wire.decodeLeaky(TabRenamedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .tab_renamed = decoded } };
+    }
+    if (std.mem.eql(u8, name, "terminal-reaped")) {
+        const decoded = try wire.decodeLeaky(TerminalReapedEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .terminal_reaped = decoded } };
     }
     if (std.mem.eql(u8, name, "terminal-registry-changed")) {
         const decoded = try wire.decodeLeaky(TerminalRegistryChangedEvent, arena.allocator(), value);
@@ -5625,6 +6543,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
     if (std.mem.eql(u8, name, "workspace-added")) {
         const decoded = try wire.decodeLeaky(WorkspaceAddedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .workspace_added = decoded } };
+    }
+    if (std.mem.eql(u8, name, "workspace-changed")) {
+        const decoded = try wire.decodeLeaky(WorkspaceChangedEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .workspace_changed = decoded } };
     }
     if (std.mem.eql(u8, name, "workspace-closed")) {
         const decoded = try wire.decodeLeaky(WorkspaceClosedEvent, arena.allocator(), value);
@@ -5663,8 +6585,10 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 117;
+pub const command_count: usize = 151;
 pub const commands = [_]CommandDescriptor{
+    .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
+    .{ .name = "add-tabs-to-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
     .{ .name = "browser-activate", .authority = "frontend", .since = 6, .capability = null, .stream = null },
@@ -5687,12 +6611,18 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "close-provider-managed-workspace", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "close-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "close-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
+    .{ .name = "close-tabs", .authority = "control", .since = 12, .capability = "batch-close-v1", .stream = null },
     .{ .name = "close-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "close-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "copy", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "create-surface-with-receipt", .authority = "control", .since = 10, .capability = "creation-receipts-v1", .stream = null },
+    .{ .name = "create-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "create-terminal", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },
     .{ .name = "create-workspace", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },
+    .{ .name = "create-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
+    .{ .name = "delete-saved-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
+    .{ .name = "delete-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "detach-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-detach-v1", .stream = null },
     .{ .name = "detach-client", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "export-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
@@ -5707,7 +6637,11 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "journal-frontend-event", .authority = "control", .since = 10, .capability = "frontend-journal-v1", .stream = null },
     .{ .name = "list-agents", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "list-clients", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "list-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
+    .{ .name = "list-saved-tab-groups", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
+    .{ .name = "list-tab-groups", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "list-terminals", .authority = "control", .since = 9, .capability = null, .stream = null },
+    .{ .name = "list-workspace-groups", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "list-workspaces", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "machine-listening-tcp", .authority = "control", .since = 12, .capability = "machine-listening-tcp-v1", .stream = null },
     .{ .name = "machine-usage", .authority = "control", .since = 12, .capability = "machine-usage-v1", .stream = null },
@@ -5715,10 +6649,20 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "move-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
+    .{ .name = "move-tab-group-to-column", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
+    .{ .name = "move-tab-group-to-new-workspace", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
+    .{ .name = "move-tab-group-to-split", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
+    .{ .name = "move-tab-to-column", .authority = "control", .since = 12, .capability = "tab-drag-v1", .stream = null },
+    .{ .name = "move-tab-to-new-workspace", .authority = "control", .since = 12, .capability = "tab-drag-v1", .stream = null },
+    .{ .name = "move-tab-to-split", .authority = "control", .since = 12, .capability = "tab-drag-v1", .stream = null },
     .{ .name = "move-tab-to-workspace", .authority = "control", .since = 12, .capability = "tab-workspace-move-v1", .stream = null },
     .{ .name = "move-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "move-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "move-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
+    .{ .name = "move-workspace-to-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "new-browser-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "new-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
     .{ .name = "new-pane", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "new-pane-right", .authority = "control", .since = 9, .capability = "viewport-splits-v1", .stream = null },
     .{ .name = "new-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -5738,17 +6682,20 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "remove-tabs-from-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "rename-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "rename-provider-managed-workspace", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "rename-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "rename-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "rename-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "reopen-saved-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
     .{ .name = "report-agent", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "report-focus", .authority = "control", .since = 12, .capability = "client-focus-v1", .stream = null },
     .{ .name = "resize-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "resize-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "resolve-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "run", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "save-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
     .{ .name = "scroll-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "select-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "select-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -5764,17 +6711,26 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-size-counts", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-size-policy", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
+    .{ .name = "set-tab-pinned", .authority = "control", .since = 12, .capability = "tab-metadata-v1", .stream = null },
     .{ .name = "set-terminal-idle-policy", .authority = "control", .since = 12, .capability = "terminal-idle-close-v1", .stream = null },
+    .{ .name = "set-terminal-keep", .authority = "control", .since = 12, .capability = "terminal-reap-v1", .stream = null },
     .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },
     .{ .name = "set-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "set-workspace-metadata", .authority = "control", .since = 12, .capability = "workspace-metadata-v1", .stream = null },
     .{ .name = "shutdown-daemon", .authority = "local-admin", .since = 9, .capability = null, .stream = null },
     .{ .name = "sidebar-plugin", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "split", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "subscribe", .authority = "frontend", .since = 5, .capability = null, .stream = "subscribe" },
     .{ .name = "swap-pane", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
+    .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
+    .{ .name = "ungroup-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "unregister-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
+    .{ .name = "unsave-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
+    .{ .name = "update-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
+    .{ .name = "update-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
+    .{ .name = "update-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "url-open", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "url-open-claim", .authority = "frontend", .since = 12, .capability = null, .stream = null },
     .{ .name = "url-open-result", .authority = "frontend", .since = 12, .capability = null, .stream = null },
@@ -5831,18 +6787,21 @@ const event_streams_36 = [_][]const u8{"subscribe"};
 const event_streams_37 = [_][]const u8{"subscribe-deltas"};
 const event_streams_38 = [_][]const u8{"subscribe-deltas"};
 const event_streams_39 = [_][]const u8{"subscribe-deltas"};
-const event_streams_40 = [_][]const u8{"subscribe"};
+const event_streams_40 = [_][]const u8{"subscribe-deltas"};
 const event_streams_41 = [_][]const u8{"subscribe"};
 const event_streams_42 = [_][]const u8{"subscribe"};
-const event_streams_43 = [_][]const u8{"control"};
-const event_streams_44 = [_][]const u8{"attach-byte"};
-const event_streams_45 = [_][]const u8{"subscribe"};
-const event_streams_46 = [_][]const u8{"subscribe-deltas"};
-const event_streams_47 = [_][]const u8{"subscribe-deltas"};
+const event_streams_43 = [_][]const u8{"subscribe"};
+const event_streams_44 = [_][]const u8{"subscribe"};
+const event_streams_45 = [_][]const u8{"control"};
+const event_streams_46 = [_][]const u8{"attach-byte"};
+const event_streams_47 = [_][]const u8{"subscribe"};
 const event_streams_48 = [_][]const u8{"subscribe-deltas"};
 const event_streams_49 = [_][]const u8{"subscribe-deltas"};
+const event_streams_50 = [_][]const u8{"subscribe-deltas"};
+const event_streams_51 = [_][]const u8{"subscribe-deltas"};
+const event_streams_52 = [_][]const u8{"subscribe-deltas"};
 
-pub const event_count: usize = 50;
+pub const event_count: usize = 53;
 pub const events = [_]EventDescriptor{
     .{ .name = "agent-changed", .since = 11, .capability = null, .streams = &event_streams_0 },
     .{ .name = "bell", .since = 5, .capability = null, .streams = &event_streams_1 },
@@ -5882,16 +6841,19 @@ pub const events = [_]EventDescriptor{
     .{ .name = "surface-resize-failed", .since = 7, .capability = null, .streams = &event_streams_35 },
     .{ .name = "surface-resized", .since = 5, .capability = null, .streams = &event_streams_36 },
     .{ .name = "tab-added", .since = 7, .capability = null, .streams = &event_streams_37 },
-    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_38 },
-    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_39 },
-    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_40 },
-    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_41 },
-    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_42 },
-    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_43 },
-    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_44 },
-    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_45 },
-    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_46 },
-    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_47 },
-    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_48 },
-    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_49 },
+    .{ .name = "tab-changed", .since = 12, .capability = "tab-metadata-v1", .streams = &event_streams_38 },
+    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_39 },
+    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_40 },
+    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_41 },
+    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_42 },
+    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_43 },
+    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_44 },
+    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_45 },
+    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_46 },
+    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_47 },
+    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_48 },
+    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_49 },
+    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_50 },
+    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_51 },
+    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_52 },
 };

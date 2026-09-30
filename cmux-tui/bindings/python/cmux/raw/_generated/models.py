@@ -1084,11 +1084,19 @@ class SetTerminalIdlePolicyResult:
 
 
 @dataclass(frozen=True)
+class SetTerminalKeepResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetTerminalKeepResult'
+    terminal_id: str
+    keep: bool
+
+
+@dataclass(frozen=True)
 class ShutdownDaemonResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ShutdownDaemonResult'
     accepted: Literal[True]
     generation: str
     pid: int
+    ended_terminals: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1316,6 +1324,43 @@ class TerminalRegistryEvent:
 
 
 @dataclass(frozen=True)
+class TerminalResourceHost:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalResourceHost'
+    cpu_ns: int
+    memory_bytes: int
+    pid: int
+
+
+@dataclass(frozen=True)
+class TerminalResourceProcess:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalResourceProcess'
+    cpu_ns: int
+    memory_bytes: int
+    name: str
+    pid: int
+    ppid: int
+
+
+@dataclass(frozen=True)
+class TerminalResources:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalResources'
+    surface: Id
+    terminal_id: Union[str, None]
+    host: Union[TerminalResourceHost, None]
+    pid: Union[int, None]
+    processes: List[TerminalResourceProcess]
+    truncated: bool
+
+
+@dataclass(frozen=True)
+class TerminalResourcesResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalResourcesResult'
+    missing: List[Id]
+    sampled_at_ns: int
+    terminals: List[TerminalResources]
+
+
+@dataclass(frozen=True)
 class Tree:
     __cmux_schema_path__: ClassVar[str] = 'types/Tree'
     workspaces: List[Workspace]
@@ -1374,6 +1419,20 @@ class ZoomPaneResult:
     pane: Id
     zoomed: bool
     zoomed_pane: Union[Id, None]
+
+
+@dataclass(frozen=True)
+class AckTabNotificationsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/ack-tab-notifications/request'
+    surface: Id
+
+
+@dataclass(frozen=True)
+class AddTabsToTabGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/add-tabs-to-tab-group/request'
+    group: str
+    surfaces: List[TabRef]
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1539,6 +1598,7 @@ class ClientFocusResult:
 class ClosePaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/close-pane/request'
     pane: Id
+    end_terminals: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1553,12 +1613,32 @@ class CloseProviderManagedWorkspaceRequest:
 class CloseScreenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/close-screen/request'
     screen: Id
+    end_terminals: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
 class CloseSurfaceRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/close-surface/request'
     surface: Id
+
+
+@dataclass(frozen=True)
+class CloseTabGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/close-tab-group/request'
+    group: str
+    end_terminals: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloseTabsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/close-tabs/request'
+    surfaces: List[TabRef]
+    end_terminals: Union[bool, MissingType] = field(default=MISSING)
+    expected_generation: Union[str, None, MissingType] = field(default=MISSING)
+    expected_revision: Union[int, None, MissingType] = field(default=MISSING)
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1581,6 +1661,7 @@ class CloseWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    end_terminals: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1610,6 +1691,16 @@ class CreateSurfaceWithReceiptRequest:
 
 
 @dataclass(frozen=True)
+class CreateTabGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/create-tab-group/request'
+    surfaces: List[TabRef]
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    group: Union[str, None, MissingType] = field(default=MISSING)
+    name: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class CreateTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/create-terminal/request'
     workspace: Union[Id, None, MissingType] = field(default=MISSING)
@@ -1625,6 +1716,8 @@ class CreateTerminalRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    keep: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1636,6 +1729,28 @@ class CreateWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CreateWorkspaceGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/create-workspace-group/request'
+    name: str
+    collapsed: Union[bool, MissingType] = field(default=MISSING)
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    group: Union[str, None, MissingType] = field(default=MISSING)
+    index: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class DeleteSavedTabGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/delete-saved-tab-group/request'
+    saved: str
+
+
+@dataclass(frozen=True)
+class DeleteWorkspaceGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/delete-workspace-group/request'
+    group: str
 
 
 @dataclass(frozen=True)
@@ -1736,8 +1851,32 @@ class ListClientsRequest:
 
 
 @dataclass(frozen=True)
+class ListNotificationsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/list-notifications/request'
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ListSavedTabGroupsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/list-saved-tab-groups/request'
+    pass
+
+
+@dataclass(frozen=True)
+class ListTabGroupsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/list-tab-groups/request'
+    pass
+
+
+@dataclass(frozen=True)
 class ListTerminalsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-terminals/request'
+    pass
+
+
+@dataclass(frozen=True)
+class ListWorkspaceGroupsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/list-workspace-groups/request'
     pass
 
 
@@ -1785,6 +1924,76 @@ class MoveTabRequest:
     surface: Id
     pane: Id
     index: int
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MoveTabGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-group/request'
+    group: str
+    pane: Union[PaneRef, None, MissingType] = field(default=MISSING)
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MoveTabGroupToColumnRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-group-to-column/request'
+    group: str
+    pane: Union[PaneRef, None, MissingType] = field(default=MISSING)
+    screen: Union[Id, None, MissingType] = field(default=MISSING)
+    after_column: Union[Id, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
+    width: Union[float, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MoveTabGroupToNewWorkspaceRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-group-to-new-workspace/request'
+    group: str
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
+    workspace_group: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MoveTabGroupToSplitRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-group-to-split/request'
+    pane: PaneRef
+    edge: str
+    group: str
+    ratio: Union[float, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MoveTabToColumnRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-to-column/request'
+    surface: Id
+    pane: Union[Id, None, MissingType] = field(default=MISSING)
+    screen: Union[Id, None, MissingType] = field(default=MISSING)
+    after_column: Union[Id, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
+    width: Union[float, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MoveTabToNewWorkspaceRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-to-new-workspace/request'
+    surface: Id
+    group: Union[str, None, MissingType] = field(default=MISSING)
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MoveTabToSplitRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-to-split/request'
+    surface: Id
+    pane: Id
+    edge: str
+    ratio: Union[float, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1792,6 +2001,7 @@ class MoveTabToWorkspaceRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-to-workspace/request'
     surface: Id
     workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1819,6 +2029,26 @@ class MoveWorkspaceRequest:
 
 
 @dataclass(frozen=True)
+class MoveWorkspaceGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-workspace-group/request'
+    group: str
+    index: int
+
+
+@dataclass(frozen=True)
+class MoveWorkspaceToGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-workspace-to-group/request'
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    expected_generation: Union[str, None, MissingType] = field(default=MISSING)
+    expected_revision: Union[int, None, MissingType] = field(default=MISSING)
+    group: Union[str, None, MissingType] = field(default=MISSING)
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    key: Union[str, None, MissingType] = field(default=MISSING)
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class NewBrowserTabRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-browser-tab/request'
     url: str
@@ -1828,10 +2058,27 @@ class NewBrowserTabRequest:
 
 
 @dataclass(frozen=True)
+class NewFrontendBrowserTabRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/new-frontend-browser-tab/request'
+    engine: str
+    url: str
+    pane: Union[Id, None, MissingType] = field(default=MISSING)
+    cols: Union[int, None, MissingType] = field(default=MISSING)
+    favicon_url: Union[str, None, MissingType] = field(default=MISSING)
+    profile_id: Union[str, None, MissingType] = field(default=MISSING)
+    rows: Union[int, None, MissingType] = field(default=MISSING)
+    title: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class NewPaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-pane/request'
     pane: Id
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    keep: Union[bool, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
 
 
@@ -1839,7 +2086,11 @@ class NewPaneRequest:
 class NewPaneRightRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-pane-right/request'
     pane: Id
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    keep: Union[bool, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
@@ -1859,6 +2110,9 @@ class NewTabRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    keep: Union[bool, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1998,6 +2252,13 @@ class ReloadConfigResult:
 
 
 @dataclass(frozen=True)
+class RemoveTabsFromTabGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remove-tabs-from-tab-group/request'
+    surfaces: List[TabRef]
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class RenamePaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/rename-pane/request'
     pane: Id
@@ -2037,6 +2298,14 @@ class RenameWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ReopenSavedTabGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/reopen-saved-tab-group/request'
+    pane: PaneRef
+    saved: str
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2093,6 +2362,12 @@ class RunRequest:
     name: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SaveTabGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/save-tab-group/request'
+    group: str
 
 
 @dataclass(frozen=True)
@@ -2224,11 +2499,26 @@ class SetSplitRatioRequest:
 
 
 @dataclass(frozen=True)
+class SetTabPinnedRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-tab-pinned/request'
+    surface: Id
+    pinned: bool
+
+
+@dataclass(frozen=True)
 class SetTerminalIdlePolicyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-terminal-idle-policy/request'
     surface: Union[Id, None, MissingType] = field(default=MISSING)
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     idle_close_seconds: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetTerminalKeepRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-terminal-keep/request'
+    keep: bool
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2246,11 +2536,26 @@ class SetWindowTitleRequest:
 
 
 @dataclass(frozen=True)
+class SetWorkspaceMetadataRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-workspace-metadata/request'
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    expected_generation: Union[str, None, MissingType] = field(default=MISSING)
+    expected_revision: Union[int, None, MissingType] = field(default=MISSING)
+    icon: Union[str, None, MissingType] = field(default=MISSING)
+    key: Union[str, None, MissingType] = field(default=MISSING)
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
+    title: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ShutdownDaemonRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/shutdown-daemon/request'
     pid: int
     generation: str
     force: Union[bool, MissingType] = field(default=MISSING)
+    end_terminals: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2266,7 +2571,11 @@ class SplitRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/split/request'
     pane: Id
     dir: SplitDirection
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    keep: Union[bool, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
 
 
@@ -2292,6 +2601,12 @@ class TerminalEventsRequest:
 
 
 @dataclass(frozen=True)
+class TerminalResourcesRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-resources/request'
+    surfaces: Union[List[Id], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class UndoLayoutRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/undo-layout/request'
     pane: Id
@@ -2300,9 +2615,48 @@ class UndoLayoutRequest:
 
 
 @dataclass(frozen=True)
+class UngroupTabGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/ungroup-tab-group/request'
+    group: str
+
+
+@dataclass(frozen=True)
 class UnregisterBrowserProviderRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/unregister-browser-provider/request'
     pass
+
+
+@dataclass(frozen=True)
+class UnsaveTabGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/unsave-tab-group/request'
+    group: str
+
+
+@dataclass(frozen=True)
+class UpdateFrontendBrowserTabRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/update-frontend-browser-tab/request'
+    surface: Id
+    favicon_url: Union[str, None, MissingType] = field(default=MISSING)
+    title: Union[str, None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class UpdateTabGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/update-tab-group/request'
+    group: str
+    collapsed: Union[bool, None, MissingType] = field(default=MISSING)
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    name: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class UpdateWorkspaceGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/update-workspace-group/request'
+    group: str
+    collapsed: Union[bool, None, MissingType] = field(default=MISSING)
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    name: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2767,6 +3121,20 @@ class TabAddedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class TabChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/tab-changed/payload'
+    surface: Id
+    pane: Id
+    screen: Id
+    workspace: Id
+    entity: Tab
+    event: Literal['tab-changed']
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class TabClosedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/tab-closed/payload'
     surface: Id
@@ -2788,6 +3156,16 @@ class TabRenamedEvent(EventBase):
     workspace: Id
     entity: Tab
     event: Literal['tab-renamed']
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class TerminalReapedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/terminal-reaped/payload'
+    terminal_id: str
+    event: Literal['terminal-reaped']
+    grace_ms: int
+    terminal: Union[str, None]
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -2866,6 +3244,21 @@ class WorkspaceAddedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class WorkspaceChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/workspace-changed/payload'
+    workspace: Id
+    entity: Workspace
+    event: Literal['workspace-changed']
+    generation: str
+    registry_id: str
+    workspace_revision: int
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    mutation_id: Union[str, MissingType] = field(default=MISSING)
+    origin: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class WorkspaceClosedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/workspace-closed/payload'
     workspace: Id
@@ -2920,9 +3313,11 @@ JsonValue = Any
 Layout = Union[LayoutLeaf, LayoutSplit, LayoutStack]
 LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
+PaneRef = Any
+TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -3039,6 +3434,7 @@ __all__ = [
     'SetSizeCountsResult',
     'SetSizePolicyResult',
     'SetTerminalIdlePolicyResult',
+    'SetTerminalKeepResult',
     'ShutdownDaemonResult',
     'SidebarPluginResult',
     'Size',
@@ -3061,12 +3457,18 @@ __all__ = [
     'TerminalPlacement',
     'TerminalRecord',
     'TerminalRegistryEvent',
+    'TerminalResourceHost',
+    'TerminalResourceProcess',
+    'TerminalResources',
+    'TerminalResourcesResult',
     'Tree',
     'VtStateResult',
     'WaitForResult',
     'Workspace',
     'WorkspaceMutationResult',
     'ZoomPaneResult',
+    'AckTabNotificationsRequest',
+    'AddTabsToTabGroupRequest',
     'ApplyLayoutRequest',
     'AttachSurfaceRequest',
     'BrowserActivateRequest',
@@ -3090,12 +3492,18 @@ __all__ = [
     'CloseProviderManagedWorkspaceRequest',
     'CloseScreenRequest',
     'CloseSurfaceRequest',
+    'CloseTabGroupRequest',
+    'CloseTabsRequest',
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
     'CopyRequest',
     'CreateSurfaceWithReceiptRequest',
+    'CreateTabGroupRequest',
     'CreateTerminalRequest',
     'CreateWorkspaceRequest',
+    'CreateWorkspaceGroupRequest',
+    'DeleteSavedTabGroupRequest',
+    'DeleteWorkspaceGroupRequest',
     'DetachAttachedViewRequest',
     'DetachClientRequest',
     'ExportLayoutRequest',
@@ -3111,7 +3519,11 @@ __all__ = [
     'JournalFrontendEventResult',
     'ListAgentsRequest',
     'ListClientsRequest',
+    'ListNotificationsRequest',
+    'ListSavedTabGroupsRequest',
+    'ListTabGroupsRequest',
     'ListTerminalsRequest',
+    'ListWorkspaceGroupsRequest',
     'ListWorkspacesRequest',
     'MachineListeningTcpRequest',
     'MachineUsageRequest',
@@ -3119,10 +3531,20 @@ __all__ = [
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
     'MoveTabRequest',
+    'MoveTabGroupRequest',
+    'MoveTabGroupToColumnRequest',
+    'MoveTabGroupToNewWorkspaceRequest',
+    'MoveTabGroupToSplitRequest',
+    'MoveTabToColumnRequest',
+    'MoveTabToNewWorkspaceRequest',
+    'MoveTabToSplitRequest',
     'MoveTabToWorkspaceRequest',
     'MoveTerminalRequest',
     'MoveWorkspaceRequest',
+    'MoveWorkspaceGroupRequest',
+    'MoveWorkspaceToGroupRequest',
     'NewBrowserTabRequest',
+    'NewFrontendBrowserTabRequest',
     'NewPaneRequest',
     'NewPaneRightRequest',
     'NewScreenRequest',
@@ -3144,17 +3566,20 @@ __all__ = [
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
     'ReloadConfigResult',
+    'RemoveTabsFromTabGroupRequest',
     'RenamePaneRequest',
     'RenameProviderManagedWorkspaceRequest',
     'RenameScreenRequest',
     'RenameSurfaceRequest',
     'RenameWorkspaceRequest',
+    'ReopenSavedTabGroupRequest',
     'ReportAgentRequest',
     'ReportFocusRequest',
     'ResizeAttachedViewRequest',
     'ResizeSurfaceRequest',
     'ResolveTerminalRequest',
     'RunRequest',
+    'SaveTabGroupRequest',
     'ScrollSurfaceRequest',
     'SelectScreenRequest',
     'SelectTabRequest',
@@ -3170,17 +3595,26 @@ __all__ = [
     'SetSizeCountsRequest',
     'SetSizePolicyRequest',
     'SetSplitRatioRequest',
+    'SetTabPinnedRequest',
     'SetTerminalIdlePolicyRequest',
+    'SetTerminalKeepRequest',
     'SetViewportPaneWidthRequest',
     'SetWindowTitleRequest',
+    'SetWorkspaceMetadataRequest',
     'ShutdownDaemonRequest',
     'SidebarPluginRequest',
     'SplitRequest',
     'SubscribeRequest',
     'SwapPaneRequest',
     'TerminalEventsRequest',
+    'TerminalResourcesRequest',
     'UndoLayoutRequest',
+    'UngroupTabGroupRequest',
     'UnregisterBrowserProviderRequest',
+    'UnsaveTabGroupRequest',
+    'UpdateFrontendBrowserTabRequest',
+    'UpdateTabGroupRequest',
+    'UpdateWorkspaceGroupRequest',
     'UrlOpenRequest',
     'UrlOpenClaimRequest',
     'UrlOpenResultRequest',
@@ -3226,8 +3660,10 @@ __all__ = [
     'SurfaceResizeFailedEvent',
     'SurfaceResizedEvent',
     'TabAddedEvent',
+    'TabChangedEvent',
     'TabClosedEvent',
     'TabRenamedEvent',
+    'TerminalReapedEvent',
     'TerminalRegistryChangedEvent',
     'TitleChangedEvent',
     'TreeChangedEvent',
@@ -3235,6 +3671,7 @@ __all__ = [
     'VtStateEvent',
     'WindowTitleRequestedEvent',
     'WorkspaceAddedEvent',
+    'WorkspaceChangedEvent',
     'WorkspaceClosedEvent',
     'WorkspaceMovedEvent',
     'WorkspaceRenamedEvent',
@@ -3248,5 +3685,7 @@ __all__ = [
     'Layout',
     'LayoutUndoResult',
     'Pane',
+    'PaneRef',
+    'TabRef',
     'TerminalExitOutcome',
 ]

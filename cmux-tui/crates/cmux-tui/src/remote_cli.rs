@@ -1816,10 +1816,89 @@ fn parent_process_is(_: u32) -> bool {
     true
 }
 
+/// Returns when the process `expected` (our parent at launch) exits. It
+/// waits on a kernel process-exit event (kqueue `NOTE_EXIT`, Linux pidfd);
+/// it used to re-check `getppid` every 100 ms. Kernels without pidfd keep
+/// the old check as a fallback.
 async fn wait_for_parent_exit(expected: u32) {
+    if !parent_process_is(expected) {
+        return;
+    }
+    let watched = tokio::task::spawn_blocking(move || wait_for_process_exit(expected)).await;
+    if matches!(watched, Ok(Ok(()))) {
+        return;
+    }
     while parent_process_is(expected) {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+}
+
+/// Blocks until process `pid` exits (at once when it is already gone).
+#[cfg(target_os = "macos")]
+fn wait_for_process_exit(pid: u32) -> io::Result<()> {
+    let pid = libc::pid_t::try_from(pid).map_err(|_| io::ErrorKind::InvalidInput)?;
+    // SAFETY: kqueue has no preconditions; the descriptor is closed below.
+    let queue = unsafe { libc::kqueue() };
+    if queue < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the kevent structs are fully initialized and outlive the call.
+    let mut change: libc::kevent = unsafe { std::mem::zeroed() };
+    change.ident = pid as libc::uintptr_t;
+    change.filter = libc::EVFILT_PROC;
+    change.flags = libc::EV_ADD | libc::EV_ONESHOT;
+    change.fflags = libc::NOTE_EXIT;
+    let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+    let mut changes = 1;
+    let result = loop {
+        let count =
+            unsafe { libc::kevent(queue, &change, changes, &mut event, 1, std::ptr::null()) };
+        if count > 0 {
+            break Ok(());
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::EINTR) => {
+                // The registration was applied before the interruption.
+                changes = 0;
+            }
+            Some(libc::ESRCH) => break Ok(()),
+            _ => break Err(error),
+        }
+    };
+    // SAFETY: `queue` is owned here.
+    unsafe { libc::close(queue) };
+    result
+}
+
+#[cfg(target_os = "linux")]
+fn wait_for_process_exit(pid: u32) -> io::Result<()> {
+    // SAFETY: pidfd_open takes a pid and flags and returns a descriptor.
+    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
+    if fd < 0 {
+        let error = io::Error::last_os_error();
+        return if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) };
+    }
+    let fd = fd as libc::c_int;
+    let mut pollfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+    let result = loop {
+        // SAFETY: `pollfd` names the pidfd owned here.
+        if unsafe { libc::poll(&mut pollfd, 1, -1) } > 0 {
+            break Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            break Err(error);
+        }
+    };
+    // SAFETY: `fd` is owned here.
+    unsafe { libc::close(fd) };
+    result
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn wait_for_process_exit(_pid: u32) -> io::Result<()> {
+    Err(io::ErrorKind::Unsupported.into())
 }
 
 /// A wg-quick file is small; anything larger is not one.

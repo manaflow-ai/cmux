@@ -19,15 +19,27 @@ fn expectExplicitNullRejected(
 }
 
 test "every generated optional non-null field rejects explicit null" {
+    try expectExplicitNullRejected(protocol.ClosePaneRequest, "end_terminals");
+    try expectExplicitNullRejected(protocol.CloseScreenRequest, "end_terminals");
+    try expectExplicitNullRejected(protocol.CloseTabGroupRequest, "end_terminals");
+    try expectExplicitNullRejected(protocol.CloseTabsRequest, "end_terminals");
+    try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CreateSurfaceWithReceiptRequest, "selector_fallbacks");
+    try expectExplicitNullRejected(protocol.CreateTerminalRequest, "keep");
+    try expectExplicitNullRejected(protocol.CreateWorkspaceGroupRequest, "collapsed");
     try expectExplicitNullRejected(protocol.MintTerminalRendererRequest, "ttl_ms");
     try expectExplicitNullRejected(protocol.MintTerminalRendererByTerminalRequest, "ttl_ms");
+    try expectExplicitNullRejected(protocol.NewPaneRequest, "keep");
+    try expectExplicitNullRejected(protocol.NewPaneRightRequest, "keep");
+    try expectExplicitNullRejected(protocol.NewTabRequest, "keep");
     try expectExplicitNullRejected(protocol.RunRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.SendRequest, "paste");
     try expectExplicitNullRejected(protocol.SetClientSizingRequest, "exclusive");
     try expectExplicitNullRejected(protocol.SetDefaultColorsRequest, "complete");
+    try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "force");
     try expectExplicitNullRejected(protocol.SidebarPluginRequest, "relaunch");
+    try expectExplicitNullRejected(protocol.SplitRequest, "keep");
     try expectExplicitNullRejected(protocol.TerminalEventsRequest, "after_revision");
     try expectExplicitNullRejected(protocol.UndoLayoutRequest, "confirm_close");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "overrides");
@@ -65,6 +77,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.VtStateEvent, "kitty_image_aliases");
     try expectExplicitNullRejected(protocol.WorkspaceAddedEvent, "mutation_id");
     try expectExplicitNullRejected(protocol.WorkspaceAddedEvent, "origin");
+    try expectExplicitNullRejected(protocol.WorkspaceChangedEvent, "mutation_id");
+    try expectExplicitNullRejected(protocol.WorkspaceChangedEvent, "origin");
     try expectExplicitNullRejected(protocol.WorkspaceClosedEvent, "mutation_id");
     try expectExplicitNullRejected(protocol.WorkspaceClosedEvent, "origin");
     try expectExplicitNullRejected(protocol.WorkspaceMovedEvent, "mutation_id");

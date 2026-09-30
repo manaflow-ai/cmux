@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8";
+    public static final String IR_SHA256 = "d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -54,8 +54,10 @@ public final class Protocol {
             case "surface-resize-failed" -> SurfaceResizeFailedEvent.fromWire(value);
             case "surface-resized" -> SurfaceResizedEvent.fromWire(value);
             case "tab-added" -> TabAddedEvent.fromWire(value);
+            case "tab-changed" -> TabChangedEvent.fromWire(value);
             case "tab-closed" -> TabClosedEvent.fromWire(value);
             case "tab-renamed" -> TabRenamedEvent.fromWire(value);
+            case "terminal-reaped" -> TerminalReapedEvent.fromWire(value);
             case "terminal-registry-changed" -> TerminalRegistryChangedEvent.fromWire(value);
             case "title-changed" -> TitleChangedEvent.fromWire(value);
             case "tree-changed" -> TreeChangedEvent.fromWire(value);
@@ -63,6 +65,7 @@ public final class Protocol {
             case "vt-state" -> VtStateEvent.fromWire(value);
             case "window-title-requested" -> WindowTitleRequestedEvent.fromWire(value);
             case "workspace-added" -> WorkspaceAddedEvent.fromWire(value);
+            case "workspace-changed" -> WorkspaceChangedEvent.fromWire(value);
             case "workspace-closed" -> WorkspaceClosedEvent.fromWire(value);
             case "workspace-moved" -> WorkspaceMovedEvent.fromWire(value);
             case "workspace-renamed" -> WorkspaceRenamedEvent.fromWire(value);

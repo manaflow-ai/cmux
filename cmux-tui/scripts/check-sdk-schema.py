@@ -21,6 +21,8 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::FrontendJournalEvent": "FrontendJournalEvent",
     "crate::ResourceSelectors": "ResourceSelectors",
     "ProtocolKeyInput": "TerminalKeyInput",
+    "TabRef": "TabRef",
+    "PaneRef": "PaneRef",
     "DetachClientTarget": "DetachClientTarget",
     "TerminalDetachActor": "SizeDetachActor",
     "TerminalSizingPolicy": "SizePolicy",
@@ -249,7 +251,11 @@ def _split_rust_generic(value: str, name: str) -> str | None:
 
 
 def _runtime_type_shape(rust_type: str) -> str:
-    rust_type, _ = _unwrap_rust_option(rust_type)
+    rust_type, optional = _unwrap_rust_option(rust_type)
+    # `Option<Option<T>>` with a present-or-null deserializer is an optional
+    # nullable T on the wire.
+    while optional:
+        rust_type, optional = _unwrap_rust_option(rust_type)
     if inner := _split_rust_generic(rust_type, "Vec"):
         return f"array<{_runtime_type_shape(inner)}>"
     if inner := _split_rust_generic(rust_type, "BTreeMap"):

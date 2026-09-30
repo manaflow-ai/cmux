@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8. */
+/* cmux-tui mux protocol 12, IR d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -409,6 +409,9 @@ export type PaneNeighborResult = {
   "pane": (Id) | null;
 };
 
+/** Opaque JSON: A pane named by its numeric id or its public pane_ id. */
+export type PaneRef = JsonValue;
+
 export type PingResult = {
   "build_commit"?: (string) | null;
   "ghostty_commit"?: (string) | null;
@@ -677,8 +680,14 @@ export type SetTerminalIdlePolicyResult = {
   "terminal_id": string;
 };
 
+export type SetTerminalKeepResult = {
+  "keep": boolean;
+  "terminal_id": string;
+};
+
 export type ShutdownDaemonResult = {
   "accepted": true;
+  "ended_terminals"?: (bigint) | null;
   "generation": string;
   "pid": number;
 };
@@ -768,6 +777,9 @@ export type Tab = {
   "terminal_resource_id"?: (string) | null;
   "title": string;
 };
+
+/** Opaque JSON: A tab named by its numeric surface id or its public tab_ id. */
+export type TabRef = JsonValue;
 
 export type TerminalColorOverrides = {
   "bg": (ColorHex) | null;
@@ -873,6 +885,35 @@ export type TerminalRegistryEvent = {
   "terminal_id": string;
   "terminal_revision": bigint;
   "workspace_key": string;
+};
+
+export type TerminalResourceHost = {
+  "cpu_ns": bigint;
+  "memory_bytes": bigint;
+  "pid": number;
+};
+
+export type TerminalResourceProcess = {
+  "cpu_ns": bigint;
+  "memory_bytes": bigint;
+  "name": string;
+  "pid": number;
+  "ppid": number;
+};
+
+export type TerminalResources = {
+  "host": (TerminalResourceHost) | null;
+  "pid": (number) | null;
+  "processes": Array<TerminalResourceProcess>;
+  "surface": Id;
+  "terminal_id": (string) | null;
+  "truncated": boolean;
+};
+
+export type TerminalResourcesResult = {
+  "missing": Array<Id>;
+  "sampled_at_ns": bigint;
+  "terminals": Array<TerminalResources>;
 };
 
 export type Tree = {

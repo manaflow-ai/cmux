@@ -92,12 +92,13 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
         }
     };
     let native = read_native_payload(io::stdin().lock())?;
-    let ingress = cmux_tui_core::agent_hook_journal_ingress(
+    let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
         &args.source,
         &args.native_event,
         terminal.as_deref(),
         native,
     )?;
+    cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
     let event = serde_json::to_value(ingress)?;
     let (request_id, encoded) = encode_request(event)?;
     let handoff = handoff_wait(&args.source, &args.native_event);
