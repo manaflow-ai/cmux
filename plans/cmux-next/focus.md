@@ -209,8 +209,12 @@ fields are removed. Tab selection stays client state in `WindowState.selection`,
 user selection goes through `selectTab` and the applier performs it.
 
 Context: the coordinator of the key (else last active) window publishes
-`terminalFocused`/`browserFocused` from `resolved`. Text inputs, the sidebar and overlays
-clear both, so content-scoped actions cannot run while the user types in a field.
+`terminalFocused`/`browserFocused` from `resolved`. The sidebar, its fields, other text
+fields, sheets and rename prompts clear both, so content-scoped actions cannot run while
+the user types there. The address bar and find bar keep `browserFocused` (browser chrome),
+and the palette keeps the bits of the target below it, because its commands act on that
+content. The registry context stays one process-wide value (the registry is shared); the
+state behind it is per window.
 
 ## 5. Keyboard routing (one router, `KeyRouter`)
 
@@ -221,7 +225,7 @@ Every action has a key tier (`ActionKeyTier`), default from the catalog, overrid
 | --- | --- | --- |
 | 0 system | Always runs, no content can capture it, also in browser focus mode and text fields | quit, closeTab, closeWorkspace, closeWindow, newWindow, commandPalette, toggleBrowserFocusMode, openSettings, showHideAllWindows, toggleFullScreen |
 | 1 navigation | Beats terminal keybinds, page shortcuts and text fields | window, workspace, pane, tab, sidebar, notification and cloud categories without a content requirement: focus pane (Cmd-Opt-arrows), next/previous tab, Cmd-1..9, Ctrl-1..9, workspaces, sidebar toggle, new tab, split, column focus, Cmd-L (`focusBrowserAddressBar`) |
-| 2 content | Runs only when its content has the keyboard; never in a text field | actions that require a content context (`terminalFocused`, `browserFocused`, viewer contexts): Copy, Paste, reload, back/forward, zoom, find next |
+| 2 content | Runs only when its content has the keyboard; never in a text field | actions that require a content context (`terminalFocused`, `browserFocused`, viewer contexts): Copy, Paste, reload, back/forward, zoom |
 | 3 raw | Not a registry action | the focused view: Ghostty keybinds and input, the page, the text field |
 
 Order in `ShellWindow.performKeyEquivalent` (and in the CEF pre-key hook, which now has
@@ -235,8 +239,14 @@ the same router):
 6. The focused view: Ghostty keybinds (`TerminalSurfaceView.performKeyEquivalent`), the
    page, then the main menu.
 
+The registry picks the most specific performable action for a chord first (Cmd-R in a
+page is `browserReload`, not `renameTab`), then the tier decides whether it may run now.
 A Ghostty keybind that collides with a tier 1 or tier 2 action loses, unless the user
-unbinds the action or moves it to a lower tier in `cmux.json`. The palette panel and
+unbinds the action (`shortcuts.bindings.<id>: null`) or moves it to a lower tier in
+`cmux.json`. `focusBrowserAddressBar` (Cmd-L) is tier 1 although it needs a browser tab.
+Residual: when the router declines a chord (focus mode, text field), AppKit still offers
+it to the main menu after the view, so a menu item with the same key equivalent can run
+if the page or field does not consume it. The palette panel and
 sheets are other windows: their own key handling runs, and the published context has no
 content bits while they are open.
 
@@ -256,6 +266,11 @@ when toggled off or when the tab closes or leaves the window.
   child key state, `LayoutModel.focusedPane`, tab ids whose Ghostty surface is focused,
   the published context, and `consistent` (model == AppKit == Ghostty, where Ghostty
   focus is expected only in the key window).
-- Events for other agents: `FocusCoordinator.send(_:)` with `dragBegan`, `dragEnded`,
-  `expect`, `contentPresented`; `debug.surfaces` (drag-panes) and `debug.focus` share the
-  pane and tab ids of `debug.focus.windows[].topology`.
+- Events for other agents: `WindowController.focus` (a `FocusCoordinator`) takes
+  `send(.dragBegan)`, `send(.dragEnded(.cancelled | .dropped(tabs:awayFrom:) | .movedAway))`,
+  `expect(.surface | .tab, target:, generation:)` after `beginIntent()`, and
+  `send(.contentPresented(pane:))`; `PaneController.showSelected` already sends the last.
+  `debug.surfaces` (drag-panes) and `debug.focus` use the daemon pane id and tab id
+  (`debug.focus.windows[].topology`).
+- Out of scope here, owned by drag-panes: `PaneContentView.show` removes its previous
+  content view even after another pane adopted it (R7 blank pane).
