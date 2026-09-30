@@ -121,6 +121,8 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet` | profile and `article[data-testid="tweet"]` cards in a background tab, scrolled for more | read |
 | `x.post(text \| { text, replyTo })` | draft; confirmed: Web Intent `/intent/post`, text checked, Post | write [9] |
 | `github.issue`, `.pull`, `.issues` | pages in a background tab | read |
+| `github.assigned({ issues, pulls, limit })` | GitHub's `/issues/assigned` and `/pulls/assigned` lists in a background tab | read |
+| `googleDrive.recent({ uid, limit })` | Drive's Recent view in a background tab, rows by `data-id` | read |
 | `github.diff`, `.file` | `/pull/N.diff`, `/raw/REF/PATH` with the session | read |
 | `linear.*` | client-api.linear.app GraphQL from a linear.app tab with the session | read |
 | `jira.*` | `/rest/api/3/issue`, `/search/jql` (falls back to `/search`), `/myself`, same-origin | read |
@@ -239,6 +241,13 @@ each, about 200 ms); cmux with the native-client path 30/30 (10 runs each,
 about 300 ms), same text lengths as Aside. ChatGPT's
 `exportYouTubeTranscript` was not measured: its reference client may open
 only the approved loopback origin.
+
+`live-diff.mjs` compares the reads live, on the user's own sign-ins, with
+Aside: `signed-in` reports which sites each side is signed in to (cookie
+names on cmux, account counts on Aside, no content); `run [--ops a,b]
+[--runs N] [--write-doc]` runs each read on both sides and keeps only
+summaries (counts, sha256-prefixed ids, key names, lengths, order agreement,
+latency) in the gitignored `sites/live-results/`, with the verdict per read.
 
 Tools against private accounts (Gmail, Calendar, Slack, Notion, LinkedIn, X
 timelines, Linear, Jira) are verified only against the mocks: running them

@@ -24,6 +24,35 @@
           t.fs.writeFileSync(file_, t.Buffer.from(await response.arrayBuffer()));
           return { path: file_, title, contentType };
         },
+        // Files in Drive's Recent view: [{ id, title, type, url }] (the view
+        // in a background tab; rows carry the file id as data-id).
+        async recent(options = {}) {
+          const uid = options.uid === undefined ? 0 : options.uid;
+          if (!Number.isInteger(uid) || uid < 0) throw new S.SiteError("invalid", `googleDrive.recent: uid: expected a non-negative integer, got ${JSON.stringify(options.uid)}`);
+          const SIGN_IN = [/^https:\/\/accounts\.google\.com\//, /^https:\/\/workspace\.google\.com\//, /\/drive\/about/];
+          return t.withTab(`https://drive.google.com/drive/u/${uid}/recent`, async (page) => {
+            await t.waitIn(page, () => !!document.querySelector('[role="row"][data-id], [data-id][role="gridcell"], [data-id] [role="gridcell"]') || /No files|Nothing in Recent|Files you open/i.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "googleDrive.recent", what: "Drive's Recent view", timeout: 30000 });
+            const rows = await page.evaluate((limit) => {
+              const clean = (x) => (x || "").replace(/\s+/g, " ").trim();
+              const out = [];
+              const seen = new Set();
+              for (const el of document.querySelectorAll("[data-id]")) {
+                const id = el.getAttribute("data-id");
+                if (!/^[\w-]{25,}$/.test(id) || seen.has(id) || !el.querySelector('[role="gridcell"]') && el.getAttribute("role") !== "row") continue;
+                seen.add(id);
+                const typeEl = el.querySelector("[data-tooltip]");
+                const type = typeEl ? clean(typeEl.getAttribute("data-tooltip")) : null;
+                const nameEl = el.querySelector(".name, [data-column-field='6'], strong") || null;
+                let title = nameEl ? clean(nameEl.textContent) : clean((el.innerText || "").split("\n")[0]);
+                if (!title) title = clean(el.getAttribute("aria-label")).replace(type ? new RegExp("\\s*" + type.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$") : /$^/, "");
+                out.push({ id, title, type, url: "https://drive.google.com/open?id=" + id });
+                if (out.length >= limit) break;
+              }
+              return out;
+            }, options.limit || 50);
+            return rows;
+          });
+        },
         // Exports a Docs/Sheets/Slides file given by any Drive or Docs URL; { path, title, format }.
         async export(file, options = {}) {
           const ref = g.parse(file, "googleDrive.export", options.kind);

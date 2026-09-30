@@ -106,6 +106,29 @@
             return p.evaluate(readList, { repo: name, limit: options.limit || 50 });
           });
         },
+        // Issues and pull requests assigned to the signed-in user, from
+        // GitHub's assigned lists: [{ repo, number, kind, title, url }].
+        // { pulls: false } or { issues: false } skips one list.
+        async assigned(options = {}) {
+          const out = [];
+          const seen = new Set();
+          const lists = [options.issues === false ? null : "/issues/assigned", options.pulls === false ? null : "/pulls/assigned"].filter(Boolean);
+          for (const listPath of lists) {
+            const rows = await t.withTab(ORIGIN + listPath, async (p) => {
+              t.assertSignedIn("github.assigned", p, SIGN_IN);
+              await t.waitIn(p, () => [...document.querySelectorAll("a[href]")].some((a) => /^\/[\w.-]+\/[\w.-]+\/(issues|pull)\/\d+$/.test(a.getAttribute("href") || "")) || /No results|nothing|No issues|No pull requests/i.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "github.assigned", what: "the assigned list", timeout: 20000 }).catch(() => {});
+              return p.evaluate(() => {
+                const clean = (x) => (x || "").replace(/\s+/g, " ").trim();
+                return [...document.querySelectorAll("a[href]")].map((a) => {
+                  const m = /^\/([\w.-]+\/[\w.-]+)\/(issues|pull)\/(\d+)$/.exec(a.getAttribute("href") || "");
+                  return m && { repo: m[1], number: Number(m[3]), kind: m[2] === "pull" ? "pull" : "issue", title: clean(a.textContent), url: new URL(a.getAttribute("href"), location.href).href };
+                }).filter((x) => x && x.title && !/^#?\d+$/.test(x.title));
+              });
+            });
+            for (const r of rows) if (!seen.has(r.url)) (seen.add(r.url), out.push(r));
+          }
+          return options.limit ? out.slice(0, options.limit) : out;
+        },
         // A file's text at a ref: file("owner/repo", "path/to/file", { ref: "main" }).
         async file(repo, filePath, options = {}) {
           const name = repoName(repo);
