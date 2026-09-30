@@ -83,9 +83,18 @@ public final class ControlSocketServer: Sendable {
         var nextConnection: UInt64 = 1
     }
 
-    public init(configuration: Configuration, router: ControlRouter) {
+    /// `accept(2)`, replaceable in tests.
+    typealias AcceptCall = @Sendable (Int32) -> Int32
+    private let acceptCall: AcceptCall
+
+    public convenience init(configuration: Configuration, router: ControlRouter) {
+        self.init(configuration: configuration, router: router, accept: { accept($0, nil, nil) })
+    }
+
+    init(configuration: Configuration, router: ControlRouter, accept: @escaping AcceptCall) {
         self.configuration = configuration
         self.router = router
+        self.acceptCall = accept
     }
 
     deinit {
@@ -219,7 +228,7 @@ public final class ControlSocketServer: Sendable {
 
     private func acceptPending(listener: Int32) {
         while true {
-            let client = accept(listener, nil, nil)
+            let client = acceptCall(listener)
             if client < 0 {
                 if errno == EINTR { continue }
                 return

@@ -2,6 +2,7 @@
 import CmuxNextSettings
 import Darwin
 import Foundation
+import Synchronization
 import Testing
 
 @Suite(.serialized) struct ControlSocketServerTests {
@@ -133,5 +134,43 @@ import Testing
             router: ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
         )
         #expect(throws: ControlSocketServer.StartError.disabled) { try server.start() }
+    }
+}
+
+/// Idle wakeups (plans/cmux-next/idle-wakeups.md): accept never spins.
+@Suite(.serialized) struct ControlSocketAcceptTests {
+    /// Regression: on EMFILE/ENFILE `accept` fails while the connection
+    /// stays in the backlog, so the level-triggered read source fired again
+    /// at once: 100% CPU on the accept queue until descriptors freed up.
+    @Test func descriptorExhaustionBacksOffInsteadOfSpinning() async throws {
+        let calls = Atomic<Int>(0)
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let server = ControlSocketServer(
+            configuration: .init(path: temporarySocketPath(), accessMode: .allowAll),
+            router: router,
+            accept: { _ in
+                calls.add(1, ordering: .relaxed)
+                errno = EMFILE
+                return -1
+            }
+        )
+        try server.start()
+        defer { server.stop() }
+        // A connection waits in the backlog, so the listener stays readable.
+        let client = socket(AF_UNIX, SOCK_STREAM, 0)
+        defer { close(client) }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.copyBytes(from: server.configuration.path.utf8)
+            buffer[server.configuration.path.utf8.count] = 0
+        }
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(client, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        #expect(connected == 0)
+        try await Task.sleep(for: .milliseconds(500))
+        // Backoff from 50 ms: a handful of attempts in 500 ms, not thousands.
+        #expect(calls.load(ordering: .relaxed) <= 10)
     }
 }
