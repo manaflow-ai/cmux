@@ -15,8 +15,7 @@ extension CloudMachinesFeature {
     }
 
     /// Off-main mirror of ``isAvailable`` for right-sidebar mode resolution.
-    nonisolated static func offMainIsAvailable(defaults: UserDefaults = .standard) -> Bool {
-        _ = defaults
+    nonisolated static func offMainIsAvailable() -> Bool {
         return isAvailable(
             policy: ManagedDevicePolicy(),
             remoteEnabled: CmuxFeatureFlags.offMainEffectiveValue(

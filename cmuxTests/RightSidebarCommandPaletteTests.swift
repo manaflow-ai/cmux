@@ -50,6 +50,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
@@ -58,6 +59,10 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             // Cloud Machines defaults on in dev builds (d6584c07e0); pin the toggle off so
             // the default-mode contract below is the same on every build.
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            let cloudFlag = CmuxFeatureFlags.cloudMachinesFlag
+            let previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: cloudFlag)
+            CmuxFeatureFlags.shared.setOverride(true, for: cloudFlag)
+            defer { CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: cloudFlag) }
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()

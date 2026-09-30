@@ -153,7 +153,13 @@ final class CloudActivationCoordinator {
                 self.notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
                 self.state = .enabled
             } catch is CancellationError {
-                await self.settle(id: id, state: .cancelled)
+                // User cancellation clears activationID first, so settle()
+                // ignores it. A cancellation that reaches this branch came
+                // from an auth/session fence inside preparation.
+                await self.settle(
+                    id: id,
+                    state: self.isAvailable() ? .failed(.signInRequired) : .unavailable
+                )
             } catch let error as VMClientError {
                 await self.settle(
                     id: id,

@@ -132,15 +132,13 @@ the single decision every tunnel consumer (browser navigation, `cmux vpn up`,
   stopped. Otherwise it is built on the first admitted start. A fresh install,
   or an update from a version without the tunnel, therefore never calls
   NetworkExtension at all.
-- The Beta Features toggle is honored while the app runs: turning it off
-  brings a running tunnel down; turning it on lets the next Cloud use start
-  the tunnel without a relaunch. The periodic fleet read (`GET /api/vm` from
-  the cmux-tui registry) runs only while the toggle is on **or** this Mac has
-  used Cloud before (the marker said the account had a machine, or a tunnel
-  role was enrolled here), so an idle app that never opted in makes no Cloud
-  API traffic, while an existing Cloud user's fleet keeps reconnecting even
-  with the toggle off. Sign-out clears that evidence and stops the poll; a
-  delete resets the marker to unknown until the next list.
+- The activation marker is honored while the app runs: clearing
+  `cloud.beta.machines.enabled` brings a running tunnel down, while the Cloud
+  tab's successful first-use flow commits it and lets the next Cloud use start
+  without a relaunch. The periodic fleet read (`GET /api/vm` from the cmux-tui
+  registry) runs only while `CloudMachinesFeature.isEnabled()` is true, so an
+  unactivated app makes no Cloud API traffic. Sign-out clears account evidence
+  and stops the poll; a delete resets the machine cache until the next list.
 - `down`, `revoke`, sign-out, and quit stay available regardless, so a tunnel
   from an earlier opted-in session is always cleaned up.
 
