@@ -895,7 +895,6 @@ final class SurfaceCatalog {
             throw SurfaceCatalogError.unavailable(id, reason: "projection closed while opening")
         }
         acknowledgeMaterialization(key, waiterID: waiterID)
-        if !result.reused { cloudPlacementCoordinator.projectionDidMove(projection, catalog: self) }
         if result.reused, focus { focusProjection?(projection) }
         return (projection, result.reused)
     }
