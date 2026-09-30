@@ -46,7 +46,7 @@ recording ended badly. `--json` prints the status object:
 | `width`, `height` | Frame size |
 | `notes` | The captions added so far |
 | `fps_requested`, `max_seconds` | What was asked for |
-| `fps_effective` | What the sampler managed, present once there are two frames |
+| `fps_effective` | What the sampler managed, present once two frames span a nonzero time |
 | `label` | Present when `--label` was given |
 | `error` | Present when the recording failed |
 
@@ -66,7 +66,7 @@ range value comes back as an error naming the socket field.
 | `--scale` | 0.1 to 1.0 (default 1) | 0.1 to 1.0 (default 1 for mp4, 0.5 for gif) |
 | `--max-width` | 64 to 8192 | 64 to 4096 (default none for mp4, 960 for gif) |
 | `--quality` | 0.1 to 1.0 (default 0.8, jpg only) | n/a |
-| `--region` | at least 8 points per side | at least 8 points per side |
+| `--region` | 8 to 100000 points per side | 8 to 100000 points per side |
 
 ## Window selection
 
@@ -78,11 +78,14 @@ rather than falling back to another window.
 ## Region
 
 `--region x,y,w,h` is in window points from the window's top left, the same
-coordinates in both commands and in a dogfood tour's `region`. The rectangle is
-clipped to the window, so a region larger than the window yields the window
-rather than black bars. A window resized mid-recording keeps the frame size it
-started with and its content is letterboxed inside it, so the clip never
-stretches.
+coordinates in both commands and in a dogfood tour's `region`. Each side is
+at least 8 points, and no number may pass 100000 points, which is far outside
+any window and the shape a typo such as `--region 0,0,1e19,1e19` takes. The
+rectangle is clipped to the window, so a region larger than the window yields
+the window rather than black bars. A region that starts at the window's origin
+is still a crop: it is the size that decides, not the offset. A window resized
+mid-recording keeps the frame size it started with and its content is
+letterboxed inside it, so the clip never stretches.
 
 ## Error codes
 
@@ -92,9 +95,9 @@ has no socket error code.
 
 | Code | When |
 | --- | --- |
-| `invalid_params` | A value out of range, a malformed region, or `--out` on a path that is not a file |
-| `not_found` | The named window does not exist, or it closed during the capture |
-| `conflict` | A recording is already active when another recording is started |
+| `invalid_params` | A value out of range, a malformed region, a region under 8 or over 100000 points, or an `--out` path that is relative, carries the wrong extension, or is not a file |
+| `not_found` | The named window does not exist, no cmux window is open, the window closed during the capture, or the named recording is unknown or already stopped |
+| `conflict` | A recording is already active when another recording is started, or a `stop` raced the start it was stopping |
 | `unsupported` | The system cannot capture windows at all |
 | `timeout` | The capture did not finish in time (20 seconds for a screenshot) |
 | `internal_error` | The capture or the encode failed for another reason |
@@ -108,7 +111,13 @@ keeps whatever frames it had, and ends in state `failed` with the reason in
 Without `--out`, the file lands in a temporary directory with a name built from
 the label and the time. With `--out`, the path is made absolute against the
 caller's cwd, the directory is created if needed, and the capture is written to a
-hidden sibling and moved into place only when it is complete. An existing file at
+hidden sibling and moved into place only when it is complete. The extension has
+to match the format, because a `.png` full of JPEG bytes is a file every later
+tool misreads: `.png` for png, `.jpg` or `.jpeg` for jpg, `.mp4` for mp4 and
+`.gif` for gif. `--out` picks the path, never the format, so `--out clip.gif`
+without `--gif` is refused rather than quietly writing an mp4 under that name.
+The socket itself takes only an absolute path; the CLI is what resolves a
+relative one. An existing file at
 that path is replaced at that moment and not before, and a directory there is
 refused with `invalid_params` and left alone.
 

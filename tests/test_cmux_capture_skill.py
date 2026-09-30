@@ -24,6 +24,23 @@ TASK_HELP = ROOT / "CLI" / "CMUXCLI+TaskHelp.swift"
 SESSION = ROOT / "Sources" / "WindowRecordingSession.swift"
 SHOT_METHOD = ROOT / "Sources" / "TerminalController+WindowScreenshotMethod.swift"
 RECORD_METHOD = ROOT / "Sources" / "TerminalController+WindowRecording.swift"
+FOUNDATION = ROOT / "Packages" / "macOS" / "CmuxFoundation" / "Sources" / "CmuxFoundation"
+SHOT_REQUEST = FOUNDATION / "WindowCapture" / "WindowScreenshotRequest.swift"
+RECORD_REQUEST = FOUNDATION / "WindowRecording" / "WindowRecordingRequest.swift"
+WORKFLOW = ROOT / ".github" / "workflows" / "cmux-skill-contract.yml"
+
+# Every Swift file these checks read. The workflow has to run them when one of
+# these changes, or a doc claim outlives the code it describes.
+WATCHED = (
+    RECORD_CLI,
+    SHOT_CLI,
+    TASK_HELP,
+    SESSION,
+    SHOT_METHOD,
+    RECORD_METHOD,
+    SHOT_REQUEST,
+    RECORD_REQUEST,
+)
 
 FLAG = re.compile(r"--[a-z][a-z-]*")
 SECTION = re.compile(r"^## (.+)$", re.MULTILINE)
@@ -82,9 +99,7 @@ class CaptureSkillTests(unittest.TestCase):
         self.assertEqual(cases, documented, "documented states differ from WindowRecordingStatus.State")
 
     def test_documented_screenshot_formats_match_the_enum(self) -> None:
-        request = ROOT / "Packages" / "macOS" / "CmuxFoundation" / "Sources" / "CmuxFoundation" \
-            / "WindowCapture" / "WindowScreenshotRequest.swift"
-        body = request.read_text(encoding="utf-8")
+        body = SHOT_REQUEST.read_text(encoding="utf-8")
         body = body[body.index("public enum Format: String"):]
         cases = set(re.findall(r"^\s*case ([a-z]+)$", body[:body.index("/// Extensions")], re.MULTILINE))
         row = [
@@ -155,6 +170,55 @@ class CaptureSkillTests(unittest.TestCase):
         customize_help = source[source.index("private var customizeCommandsHelp"):]
         customize_help = customize_help[:customize_help.index("private var automationCommandsHelp")]
         self.assertIn("docs [settings|shortcuts|api|browser|capture|agents|dock|sidebars]", customize_help)
+
+    def test_region_limits_match_the_constants(self) -> None:
+        """The documented region bounds are the ones both requests enforce."""
+        for request in (SHOT_REQUEST, RECORD_REQUEST):
+            body = request.read_text(encoding="utf-8")
+            for name, literal in (
+                ("minimumRegionExtent", "8"),
+                ("maximumRegionExtent", "100_000"),
+            ):
+                self.assertIn(
+                    f"public static let {name}: Double = {literal}",
+                    body,
+                    f"{request.name}: {name} changed; the reference page quotes it",
+                )
+        # Joined, because a bound can land either side of a line wrap.
+        region = " ".join(section("Region", reference_text()).split())
+        self.assertIn("at least 8 points", region)
+        self.assertIn("100000 points", region)
+
+    def test_relative_links_and_their_anchors_resolve(self) -> None:
+        """A link in either page points at a file, and at a heading that exists.
+
+        The forward reference this catches: the skill linked
+        `dogfood-scenarios.md#record-a-clip` while the heading was still in an
+        unmerged branch, so the link landed on main pointing at nothing.
+        """
+        for page in (SKILL, REFERENCE):
+            text = page.read_text(encoding="utf-8")
+            for target in re.findall(r"\]\((?!https?:|mailto:)([^)]+)\)", text):
+                path, _, fragment = target.partition("#")
+                resolved = (page.parent / path).resolve() if path else page
+                self.assertTrue(resolved.is_file(), f"{page.name} links to missing {target}")
+                if not fragment:
+                    continue
+                headings = {
+                    re.sub(r"[^a-z0-9]+", "-", line.lstrip("#").strip().lower()).strip("-")
+                    for line in resolved.read_text(encoding="utf-8").splitlines()
+                    if line.startswith("#")
+                }
+                self.assertIn(fragment, headings, f"{page.name}: no '{fragment}' in {path}")
+
+    def test_the_workflow_runs_this_guard_when_its_sources_change(self) -> None:
+        triggers = WORKFLOW.read_text(encoding="utf-8")
+        missing = [
+            str(path.relative_to(ROOT))
+            for path in WATCHED
+            if f'"{path.relative_to(ROOT)}"' not in triggers
+        ]
+        self.assertEqual([], missing, "sources this guard reads are missing from the triggers")
 
     def test_skill_points_at_its_reference(self) -> None:
         self.assertIn("references/commands.md", SKILL.read_text(encoding="utf-8"))

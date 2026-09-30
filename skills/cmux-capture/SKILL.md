@@ -45,9 +45,9 @@ cmux shot --region 0,0,420,900 --label sidebar-final     # keep the end state
 - A recording **stops itself** at `--max-seconds` (default 15, maximum 120), so
   a clip is never left running by an agent that stops paying attention. Set it
   above the time the actions take or the clip ends early.
-- **One at a time.** A second `record start` is refused while one is running.
-  `cmux record list` says whether anything is going, and `cmux record status`
-  reports the frame count and the effective frame rate.
+- **One at a time.** A second `record start` is refused with `conflict` while
+  one is running. `cmux record list` says whether anything is going, and
+  `cmux record status` reports the frame count and the effective frame rate.
 - **Caption as you go.** `cmux record note "<text>"` draws text into the clip
   from that moment on. A clip has no step list beside it, so one note before
   each thing a reviewer should notice is worth more than a longer clip.
@@ -62,14 +62,15 @@ cmux shot --region 0,0,420,900 --label sidebar-final     # keep the end state
   click to play. `scripts/pr-media.py` uploads either and converts an mp4 to a
   gif on the way.
 - Neither command replaces a directory or destroys an existing file before the
-  new one is closed. `--out` on a path that is not a file is refused.
+  new one is closed. `--out` on a path that is not a file is refused, and so is
+  one whose extension does not match the format: `--out clip.gif` needs `--gif`.
 
 ## In a CI dogfood tour
 
 A dogfood scenario records with a `record` step wrapping the steps that matter,
 and captions with `note`, rather than by calling the CLI. The step table and the
 options are in
-[cmux-testing/references/dogfood-scenarios.md](../cmux-testing/references/dogfood-scenarios.md#record-a-clip).
+[cmux-testing/references/dogfood-scenarios.md](../cmux-testing/references/dogfood-scenarios.md).
 
 ## Deep-dive references
 
