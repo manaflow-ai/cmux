@@ -187,7 +187,6 @@ struct MobilePrimaryTabScaffold<
                     iOS26TaskComposerButton
                 }
             }
-            .ignoresSafeArea(.container, edges: .bottom)
         } else if #available(iOS 18.0, *) {
             TabView(selection: $selection) {
                 primaryTabs
