@@ -22,7 +22,11 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
                 .modifier(MobilePrimarySearchLifecycleModifier(
                     scope: searchCoordinator.scope,
                     update: { scope, isSearching in
-                        guard isActive else { return }
+                        // Inactive stacks must stay quiet while they are
+                        // mounted, but the platform's false callback still
+                        // closes a search session when this stack leaves the
+                        // selected tab.
+                        guard isActive || !isSearching else { return }
                         searchCoordinator.updateLifecycle(scope: scope, isSearching: isSearching)
                     }
                 ))
