@@ -195,8 +195,6 @@ extension WorkspacesModel {
         }
     }
 
-    /// Hoist promoted (non-anchor) members to the front of their group's
-    /// member run, right after the anchor, preserving each group's position.
     /// Mirror of ``moveWorkspaceGroupMembersAfterAnchors(workspaceIds:)`` for the
     /// downward direction: the named members sink to the end of their group run
     /// instead of hoisting behind the anchor. The anchor itself never moves.
@@ -253,6 +251,8 @@ extension WorkspacesModel {
         tabs = reordered
     }
 
+    /// Hoist promoted (non-anchor) members to the front of their group's
+    /// member run, right after the anchor, preserving each group's position.
     func moveWorkspaceGroupMembersAfterAnchors(workspaceIds: [UUID]) {
         let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
