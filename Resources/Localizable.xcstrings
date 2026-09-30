@@ -59,8 +59,7 @@
           }
         }
       }
-    }
-  },
+    },
     "cli.session.help": {
       "extractionState": "manual",
       "localizations": {
