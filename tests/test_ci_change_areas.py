@@ -3877,6 +3877,7 @@ def test_linux_failure_still_blocks_tests_after_macos_succeeds() -> None:
         result = run_tests_gate(needs)
         assert result.returncode != 0, outcome
         if outcome == "cancelled":
+            # Cancellation is fail-closed and tells the operator to rerun.
             assert "cancelled: linux-preflight" in result.stderr
             assert "rerun it" in result.stderr
         else:
