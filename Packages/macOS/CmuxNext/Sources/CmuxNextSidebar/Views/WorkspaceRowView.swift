@@ -54,12 +54,13 @@ final class WorkspaceRowView: SidebarRowView {
         title.stringValue = ws.title
         title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
         subtitle.font = SidebarStyle.subtitleFont
-        // Only live status earns a second line; the cwd stays in the tooltip.
+        // Only live status earns a second line; the cwd is in the hover card.
         subtitle.stringValue = ws.liveDetail ?? ""
         hasSubtitle = ws.liveDetail != nil
         activity.configure(ws.activity)
         badge.configure(ws.unread)
-        toolTip = ws.subtitle.flatMap { $0.isEmpty ? nil : $0 }
+        // The workspace hover card shows the cwd (and CPU and memory).
+        toolTip = nil
         setAccessibilityElement(true)
         setAccessibilityRole(.row)
         setAccessibilityLabel(accessibilityText(ws))

@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextResources
 import Observation
 
 /// Footer slots the App fills (account, cloud, status).
@@ -77,6 +78,23 @@ public final class SidebarView: NSView {
     public func focusList() {
         window?.makeFirstResponder(list)
     }
+
+    /// CPU and memory for the workspace hover card. Sampled only while a
+    /// card is pending or shown.
+    public var resourceSource: (any ResourceSampleSource)? {
+        get { list.hoverCard.resources.source }
+        set { list.hoverCard.resources.setSource(newValue) }
+    }
+
+    /// Shows workspace `id`'s hover card (CPU and memory) now, until the
+    /// next key press, click or scroll. False when its row is not shown.
+    @discardableResult
+    public func showHoverCard(for id: WorkspaceID) -> Bool {
+        list.showHoverCard(for: id)
+    }
+
+    /// True while the workspace hover card samples resources.
+    public var isSamplingResources: Bool { list.hoverCard.resources.isOpen }
 
     /// Right-click menu for a target. The App fills this from the action
     /// registry (menus are ordered action-ID lists per context); nil means

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextResources
 import QuartzCore
 
 /// Borderless, non-activating child window hosting the glass card.
@@ -16,6 +17,9 @@ final class TabHoverCardPanel: NSPanel {
     private let titleLabel = NSTextField(wrappingLabelWithString: "")
     private let subtitleLabel = NSTextField(wrappingLabelWithString: "")
     private let thumbnail = NSView()
+    /// CPU and memory of the hovered tab (tab cards only).
+    let resources = ResourceSummaryView()
+    private var resourcesCollapsed: NSLayoutConstraint?
     private weak var parentWindowRef: NSWindow?
     private var thumbnailHeight: NSLayoutConstraint?
     private var thumbnailTop: NSLayoutConstraint?
@@ -33,7 +37,8 @@ final class TabHoverCardPanel: NSPanel {
         hasShadow = true
         ignoresMouseEvents = true
         isReleasedWhenClosed = false
-        hidesOnDeactivate = true
+        // A no-activate test run is never active; its cards must still show.
+        hidesOnDeactivate = !WindowPlacement.noActivate
         animationBehavior = .none
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
         contentView = glass
@@ -55,7 +60,7 @@ final class TabHoverCardPanel: NSPanel {
         thumbnail.layer?.contentsGravity = .resizeAspectFill
         thumbnail.layer?.actions = ["contents": Motion.crossfadeAction]
 
-        for view in [titleLabel, subtitleLabel, thumbnail] {
+        for view in [titleLabel, subtitleLabel, resources, thumbnail] {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
         }
@@ -68,11 +73,15 @@ final class TabHoverCardPanel: NSPanel {
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: Metrics.space1),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            resources.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: Metrics.space1),
+            resources.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            resources.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
             thumbnail.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             thumbnail.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             thumbnail.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
         ])
-        let top = thumbnail.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: Metrics.space4)
+        let top = thumbnail.topAnchor.constraint(equalTo: resources.bottomAnchor, constant: Metrics.space4)
+        resourcesCollapsed = resources.heightAnchor.constraint(equalToConstant: 0)
         let height = thumbnail.heightAnchor.constraint(equalToConstant: Self.thumbnailSize.height)
         NSLayoutConstraint.activate([top, height])
         thumbnailTop = top
@@ -86,6 +95,7 @@ final class TabHoverCardPanel: NSPanel {
         switch content {
         case .tab(let item):
             configure(title: item.title.isEmpty ? Strings.untitled : item.title, subtitle: item.subtitle, lines: 1)
+            setResourcesVisible(true)
             setThumbnailVisible(true)
         case .group(let group, let titles):
             let shown = titles.prefix(Self.maxGroupLines)
@@ -96,6 +106,7 @@ final class TabHoverCardPanel: NSPanel {
                 subtitle: lines.joined(separator: "\n"),
                 lines: lines.count
             )
+            setResourcesVisible(false)
             setThumbnailVisible(false)
         }
     }
@@ -106,6 +117,17 @@ final class TabHoverCardPanel: NSPanel {
         subtitleLabel.lineBreakMode = lines > 1 ? .byTruncatingTail : .byTruncatingMiddle
         subtitleLabel.stringValue = subtitle ?? ""
         subtitleLabel.isHidden = (subtitle ?? "").isEmpty
+    }
+
+    private func setResourcesVisible(_ visible: Bool) {
+        resources.isHidden = !visible
+        resourcesCollapsed?.isActive = !visible
+        if !visible { resources.show(nil) }
+    }
+
+    /// Shows the latest sample; nil shows the placeholder line.
+    func setResources(_ report: ResourceReport?) {
+        resources.show(report)
     }
 
     private func setThumbnailVisible(_ visible: Bool) {
