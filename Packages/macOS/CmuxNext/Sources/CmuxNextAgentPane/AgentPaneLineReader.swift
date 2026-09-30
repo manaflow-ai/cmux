@@ -6,13 +6,13 @@ import Synchronization
 /// stops reading and throws `CancellationError`, so a deadline never leaves
 /// the read behind.
 nonisolated final class AgentPaneLineReader: Sendable {
-    enum Failure: Error, Equatable {
+    nonisolated enum Failure: Error, Equatable {
         /// The writers closed the pipe before a full line.
         case endOfFile
         case lineTooLong
     }
 
-    private struct State {
+    private nonisolated struct State {
         var buffer = Data()
         var continuation: CheckedContinuation<String, any Error>?
         var outcome: Result<String, any Error>?

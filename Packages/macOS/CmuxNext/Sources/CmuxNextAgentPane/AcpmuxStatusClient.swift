@@ -6,7 +6,7 @@ import Network
 /// port and token. JSON-RPC 2.0, one JSON object per line. Network.framework
 /// keeps every read and write off the caller's thread.
 nonisolated enum AcpmuxStatusClient {
-    enum Failure: Error, Equatable {
+    nonisolated enum Failure: Error, Equatable {
         case unreachable(String)
         case closed
         case rpc(String)

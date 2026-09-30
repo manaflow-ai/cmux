@@ -11,7 +11,7 @@ public import Foundation
 public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public static let currentVersion = 1
 
-    public enum Transport: String, Codable, Sendable {
+    public nonisolated enum Transport: String, Codable, Sendable {
         /// Direct connection to acpmux's authenticated loopback WebSocket.
         case acpmuxWebSocket = "acpmux-websocket"
         /// No daemon: the page runs its in-memory mock transcript.

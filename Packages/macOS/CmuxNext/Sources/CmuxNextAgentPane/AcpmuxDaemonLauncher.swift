@@ -9,7 +9,7 @@ import Foundation
 /// durable state). Its fd 3 is our pipe; stdout and stderr go to
 /// `<home>/daemon.log`.
 nonisolated enum AcpmuxDaemonLauncher {
-    enum Failure: Error, Equatable {
+    nonisolated enum Failure: Error, Equatable {
         case spawnFailed(String)
         /// The daemon exited before it was ready; its log says why.
         case exited(logPath: String)
