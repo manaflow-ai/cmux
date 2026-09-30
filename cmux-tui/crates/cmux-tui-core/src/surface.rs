@@ -3341,6 +3341,9 @@ impl Surface {
                 // loss started a fresh backoff. It resets only after a
                 // connection stayed up for TERMINAL_HOST_HEALTHY_CONNECTION.
                 let mut flap_backoff = TerminalHostReconnectBackoff::default();
+                // Spaces back-to-back resyncs of a live host without spending
+                // the failure budget that decides whether a real loss fails.
+                let mut resync_backoff = TerminalHostReconnectBackoff::default();
                 // `None` until the first reconnect: the first loss of a
                 // connection keeps its immediate reconnect.
                 let mut connected_at: Option<Instant> = None;
@@ -3736,12 +3739,12 @@ impl Surface {
                         .is_none_or(|at| at.elapsed() >= TERMINAL_HOST_HEALTHY_CONNECTION)
                     {
                         flap_backoff = TerminalHostReconnectBackoff::default();
+                        resync_backoff = TerminalHostReconnectBackoff::default();
                     } else if resync_requested {
                         // A live host's resync never fails the terminal, but
                         // back-to-back resyncs are spaced.
-                        std::thread::sleep(
-                            flap_backoff.next_delay().unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY),
-                        );
+                        let delay = resync_backoff.next_delay();
+                        std::thread::sleep(delay.unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY));
                     } else if !flap_backoff.wait_or_fail(pty) {
                         return;
                     }

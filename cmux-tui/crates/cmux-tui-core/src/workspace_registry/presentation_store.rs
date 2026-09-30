@@ -1177,6 +1177,7 @@ impl WorkspaceRegistry {
 
     /// Forget a frontend browser whose tab creation failed.
     pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
+        validate_browser_public_id(browser_id)?;
         self.connection
             .execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
         Ok(())

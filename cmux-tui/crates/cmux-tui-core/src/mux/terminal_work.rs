@@ -93,29 +93,35 @@ impl TerminalWorkPool {
                     }
                 }
             };
-            job();
+            // A panicking job must not take its worker slot with it: the
+            // slot count would never drop and later jobs would queue forever.
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)).is_err() {
+                eprintln!("cmux-tui: a terminal work job panicked");
+            }
         }
     }
 
     /// Run every job on the pool, or inline when it is full, and return
-    /// their results in input order once all finished.
+    /// their results in input order once all finished. A job that panicked
+    /// reports `Err` with its payload instead of losing its result.
     pub(crate) fn run_all<T: Send + 'static>(
         &self,
         jobs: Vec<Box<dyn FnOnce() -> T + Send>>,
-    ) -> Vec<T> {
+    ) -> Vec<std::thread::Result<T>> {
         let (sender, receiver) = std::sync::mpsc::channel();
         let count = jobs.len();
         for (index, job) in jobs.into_iter().enumerate() {
             let sender = sender.clone();
             let queued = self.try_submit(Box::new(move || {
-                let _ = sender.send((index, job()));
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+                let _ = sender.send((index, result));
             }));
             if let Err(inline) = queued {
                 inline();
             }
         }
         drop(sender);
-        let mut results: Vec<Option<T>> = (0..count).map(|_| None).collect();
+        let mut results: Vec<Option<std::thread::Result<T>>> = (0..count).map(|_| None).collect();
         for (index, result) in receiver.iter().take(count) {
             results[index] = Some(result);
         }
@@ -297,7 +303,28 @@ mod tests {
                 }) as Box<dyn FnOnce() -> usize + Send>
             })
             .collect();
-        assert_eq!(pool.run_all(jobs), (0..50).map(|index| index * 2).collect::<Vec<_>>());
+        let results = pool.run_all(jobs).into_iter().map(Result::unwrap).collect::<Vec<_>>();
+        assert_eq!(results, (0..50).map(|index| index * 2).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn terminal_work_pool_survives_panicking_jobs() {
+        let pool = TerminalWorkPool::default();
+        let panicking: Vec<Box<dyn FnOnce() -> usize + Send>> = (0..2 * MAX_TERMINAL_WORKERS)
+            .map(|_| Box::new(|| panic!("job failed")) as Box<dyn FnOnce() -> usize + Send>)
+            .collect();
+        assert!(pool.run_all(panicking).iter().all(Result::is_err));
+        for _ in 0..2 * MAX_TERMINAL_WORKERS {
+            let queued = pool.try_submit(Box::new(|| panic!("raw job failed")));
+            assert!(queued.is_ok());
+        }
+        // Every worker slot came back, so later jobs still run.
+        let jobs: Vec<Box<dyn FnOnce() -> usize + Send>> = (0..MAX_TERMINAL_WORKERS)
+            .map(|index| Box::new(move || index) as Box<dyn FnOnce() -> usize + Send>)
+            .collect();
+        let results = pool.run_all(jobs).into_iter().map(Result::unwrap).collect::<Vec<_>>();
+        assert_eq!(results, (0..MAX_TERMINAL_WORKERS).collect::<Vec<_>>());
+        assert_eq!(pool.state.lock().unwrap().queue.len(), 0);
     }
 
     #[test]
