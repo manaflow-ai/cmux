@@ -1,6 +1,7 @@
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
+import { openSessionConnection } from "./connection";
 import type { HarnessRecommendation, HarnessCatalogs } from "../harness-contract";
 import { latestRouteStatus, normalizeRouteStatus, type RouteHealth, type RoutePhase, type RouteStatus } from "../route-status";
 
@@ -224,14 +225,7 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
       const existingIndex = closed.findIndex((block, index) => index >= currentTurnStart && block.kind === "plan");
       const plan = { kind: "plan" as const, entries: evt.entries };
       if (existingIndex < 0) return [...closed, plan];
-      return closed.reduce<Block[]>((next, block, index) => {
-        if (block.kind === "plan") {
-          if (index === existingIndex) next.push(plan);
-        } else {
-          next.push(block);
-        }
-        return next;
-      }, []);
+      return closed.map((block, index) => (index === existingIndex ? plan : block));
     }
     default:
       return blocks;
@@ -259,14 +253,15 @@ export interface SessionState {
   providerOptions: Record<string, SessionOption[]>;
   providerCommands: Record<string, CommandGroup[]>;
   filesByCwd: Record<string, string[]>;
-  cwdChecks: Record<string, { ok: boolean; message?: string }>;
+  cwdChecks: Record<string, { ok: boolean; message?: string; repositorySlug?: string }>;
   fileDiffs: Record<string, string>;
   lastError: string;
   forkPending: boolean;
   handoffPending: boolean;
   start(opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }): boolean;
   compose(): void;
-  reply(text: string): void;
+  /** Sends a reply, returning false when the WebSocket is not ready. */
+  reply(text: string): boolean;
   stop(): void;
   /** Focuses the terminal pane behind a terminal chat view. */
   focusTerminal(): void;
@@ -326,7 +321,7 @@ export function consumeOptimisticUserEcho(queue: string[], text: string): boolea
   return true;
 }
 
-export function shouldAcceptHandoffResponse(
+export function shouldAcceptSessionActionResponse(
   sourceSessionId: string | undefined,
   pendingSourceSessionId: string | null,
   currentSessionId: string | null,
@@ -356,8 +351,9 @@ export function useSession(): SessionState {
   const [commands, setCommands] = useState<CommandGroup[]>([]);
   const [providerOptions, setProviderOptions] = useState<Record<string, SessionOption[]>>({});
   const [providerCommands, setProviderCommands] = useState<Record<string, CommandGroup[]>>({});
+  const latestCommandRequestsRef = useRef(new Map<string, { requestId: string; cwd: string; pending: boolean }>());
   const [filesByCwd, setFilesByCwd] = useState<Record<string, string[]>>({});
-  const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string }>>({});
+  const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string; repositorySlug?: string }>>({});
   const [fileDiffs, setFileDiffs] = useState<Record<string, string>>({});
   const [lastError, setLastError] = useState("");
   const [forkPending, setForkPending] = useState(false);
@@ -367,6 +363,10 @@ export function useSession(): SessionState {
   // be rejected as a popup by the browser.
   const handoffWindowRef = useRef<Window | null>(null);
   const pendingHandoffSourceSessionRef = useRef<string | null>(null);
+  const pendingHandoffRequestRef = useRef<string | null>(null);
+  const forkWindowRef = useRef<Window | null>(null);
+  const pendingForkSourceSessionRef = useRef<string | null>(null);
+  const pendingForkRequestRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(routedSessionId);
   const pendingFileDiffKeysRef = useRef<Record<string, string[]>>({});
@@ -396,8 +396,24 @@ export function useSession(): SessionState {
     const popup = handoffWindowRef.current;
     handoffWindowRef.current = null;
     pendingHandoffSourceSessionRef.current = null;
+    pendingHandoffRequestRef.current = null;
     if (popup && !popup.closed) popup.close();
   }, []);
+
+  const closeForkWindow = useCallback(() => {
+    const popup = forkWindowRef.current;
+    forkWindowRef.current = null;
+    pendingForkSourceSessionRef.current = null;
+    pendingForkRequestRef.current = null;
+    if (popup && !popup.closed) popup.close();
+  }, []);
+
+  const resetSessionActions = useCallback(() => {
+    closeForkWindow();
+    closeHandoffWindow();
+    setForkPending(false);
+    setHandoffPending(false);
+  }, [closeForkWindow, closeHandoffWindow]);
 
   const clearPendingStartTimeout = useCallback(() => {
     if (pendingStartTimeoutRef.current) window.clearTimeout(pendingStartTimeoutRef.current);
@@ -443,19 +459,27 @@ export function useSession(): SessionState {
   }, []);
 
   useEffect(() => {
-    let closed = false;
-    const connect = () => {
-      const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws"));
-      wsRef.current = ws;
-      ws.onopen = () => {
+    const disconnect = openSessionConnection({
+      createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
+      onSocket: (ws) => {
+        wsRef.current = ws;
+        if (!ws) latestCommandRequestsRef.current.clear();
+      },
+      onOpen: () => {
         const pending = pendingStartRef.current;
         if (sessionIdRef.current) sendRaw({ op: "subscribe", sessionId: sessionIdRef.current });
         else if (pending && !pending.failed) {
           sendRaw({ op: "start", requestId: pending.requestId, conversationId: pending.conversationId, provider: pending.provider, cwd: pending.cwd, prompt: pending.prompt, options: pending.options });
           armPendingStartTimeout();
         }
-      };
-      ws.onmessage = (e) => {
+        if (sessionIdRef.current && pendingForkSourceSessionRef.current === sessionIdRef.current && pendingForkRequestRef.current) {
+          sendRaw({ op: "fork", sessionId: sessionIdRef.current, requestId: pendingForkRequestRef.current });
+        }
+        if (sessionIdRef.current && pendingHandoffSourceSessionRef.current === sessionIdRef.current && pendingHandoffRequestRef.current) {
+          sendRaw({ op: "handoff", sessionId: sessionIdRef.current, requestId: pendingHandoffRequestRef.current });
+        }
+      },
+      onMessage: (e) => {
         const msg = JSON.parse(e.data);
         switch (msg.kind) {
           case "hello": {
@@ -471,32 +495,29 @@ export function useSession(): SessionState {
             setConnectionEpoch((n) => n + 1);
             break;
           }
-          case "session-created":
-            if (
-              pendingHandoffSourceSessionRef.current
-              && pendingHandoffSourceSessionRef.current !== msg.session.id
-            ) {
-              closeHandoffWindow();
-              setHandoffPending(false);
+          case "session-created": {
+            const pending = pendingStartRef.current;
+            if (!pending || msg.requestId !== pending.requestId) {
+              // A timed-out or superseded start may still subscribe this
+              // socket on the server. Keep the current UI and restore its
+              // subscription rather than accepting that late selection.
+              const currentSessionId = sessionIdRef.current;
+              if (currentSessionId && currentSessionId !== msg.session.id) {
+                sendRaw({ op: "subscribe", sessionId: currentSessionId });
+              }
+              break;
             }
+            if (sessionIdRef.current !== msg.session.id) resetSessionActions();
             sessionIdRef.current = msg.session.id;
             history.replaceState(null, "", appPath("/s/" + msg.session.id));
             document.title = msg.session.title || "cmux agent";
-            if (msg.requestId && pendingStartRef.current?.requestId === msg.requestId) {
-              const queuedReplies = pendingStartRef.current.queuedReplies;
-              clearPendingStartTimeout();
-              pendingStartRef.current = null;
-              setSession({ ...msg.session, status: "running" });
-              setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
-              for (const queued of queuedReplies) {
-                sendRaw({ op: "send", sessionId: msg.session.id, requestId: queued.requestId, prompt: queued.prompt });
-              }
-            } else {
-              serverStatusRef.current = msg.session.status;
-              setSession(msg.session);
-              setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
-              setBlocks([]);
-              optimisticUsersRef.current = [];
+            const queuedReplies = pending.queuedReplies;
+            clearPendingStartTimeout();
+            pendingStartRef.current = null;
+            setSession({ ...msg.session, status: "running" });
+            setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
+            for (const queued of queuedReplies) {
+              sendRaw({ op: "send", sessionId: msg.session.id, requestId: queued.requestId, prompt: queued.prompt });
             }
             setOptions([]);
             setActions({});
@@ -505,14 +526,10 @@ export function useSession(): SessionState {
             setFileDiffs({});
             setPhase("chat");
             break;
+          }
           case "history":
-            if (
-              pendingHandoffSourceSessionRef.current
-              && pendingHandoffSourceSessionRef.current !== msg.session.id
-            ) {
-              closeHandoffWindow();
-              setHandoffPending(false);
-            }
+            if (msg.sessionId !== sessionIdRef.current) break;
+            if (sessionIdRef.current !== msg.session.id) resetSessionActions();
             sessionIdRef.current = msg.session.id;
             document.title = msg.session.title || "cmux agent";
             serverStatusRef.current = msg.session.status;
@@ -528,8 +545,8 @@ export function useSession(): SessionState {
             setPhase("chat");
             break;
           case "no-session":
-            closeHandoffWindow();
-            setHandoffPending(false);
+            if (!sessionIdRef.current || msg.sessionId !== sessionIdRef.current) break;
+            resetSessionActions();
             history.replaceState(null, "", appPath("/"));
             sessionIdRef.current = null;
             setSession(null);
@@ -570,7 +587,6 @@ export function useSession(): SessionState {
               if (evt.kind === "options") setOptions(evt.options);
               if (evt.kind === "options") setActions(evt.actions ?? {});
               if (evt.kind === "commands") setCommands((gs) => upsertCommands(gs, evt));
-              if (evt.kind === "error") setForkPending(false);
               if (evt.kind === "error" && evt.prompt !== undefined) {
                 // The prompt never reached the terminal: its echo will not
                 // come, and the agent is as busy as the server last said.
@@ -580,27 +596,46 @@ export function useSession(): SessionState {
               }
             }
             break;
-          case "session-forked":
+          case "session-forked": {
+            if (!shouldAcceptSessionActionResponse(
+              msg.session?.parentSessionId,
+              pendingForkSourceSessionRef.current,
+              sessionIdRef.current,
+            )) break;
+            if (msg.requestId && msg.requestId !== pendingForkRequestRef.current) break;
             setForkPending(false);
-            window.open(appPath("/s/" + msg.session.id), "_blank");
+            const target = appPath("/s/" + msg.session.id);
+            const popup = forkWindowRef.current;
+            forkWindowRef.current = null;
+            pendingForkSourceSessionRef.current = null;
+            pendingForkRequestRef.current = null;
+            if (popup && !popup.closed) {
+              popup.location.href = target;
+              popup.focus();
+            } else {
+              window.location.assign(target);
+            }
             break;
+          }
           case "session-handoff":
             {
               const sourceSessionId = typeof msg.sourceSessionId === "string"
                 ? msg.sourceSessionId
                 : undefined;
-              if (!shouldAcceptHandoffResponse(
+              if (!shouldAcceptSessionActionResponse(
                 sourceSessionId,
                 pendingHandoffSourceSessionRef.current,
                 sessionIdRef.current,
               )) {
                 break;
               }
+              if (msg.requestId && msg.requestId !== pendingHandoffRequestRef.current) break;
               setHandoffPending(false);
               const target = appPath("/s/" + msg.session.id);
               const popup = handoffWindowRef.current;
               handoffWindowRef.current = null;
               pendingHandoffSourceSessionRef.current = null;
+              pendingHandoffRequestRef.current = null;
               if (popup && !popup.closed) {
                 popup.location.href = target;
                 popup.focus();
@@ -619,14 +654,18 @@ export function useSession(): SessionState {
               setProviderOptions((current) => ({ ...current, ...msg.options }));
             }
             break;
-          case "commands-list":
+          case "commands-list": {
+            const request = latestCommandRequestsRef.current.get(msg.provider);
+            if (!request?.pending || request.requestId !== msg.requestId || request.cwd !== msg.cwd) break;
+            request.pending = false;
             setProviderCommands((m) => ({ ...m, [msg.provider]: msg.groups ?? [] }));
             break;
+          }
           case "files-list":
             setFilesByCwd((m) => ({ ...m, [msg.cwd]: msg.files ?? [] }));
             break;
           case "cwd-check":
-            setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message } }));
+            setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message, repositorySlug: typeof msg.repositorySlug === "string" ? msg.repositorySlug : undefined } }));
             if (Array.isArray(msg.harnesses) && acceptsCwdHarnessResponse(latestCwdRequestRef.current, msg)) {
               setHarnessSnapshot({ cwd: String(msg.cwd), harnesses: msg.harnesses as HarnessRecommendation[] });
             }
@@ -644,17 +683,23 @@ export function useSession(): SessionState {
             }
             break;
           case "error":
+            if (msg.op === "list-commands") {
+              for (const request of latestCommandRequestsRef.current.values()) {
+                if (request.requestId === msg.requestId && request.cwd === msg.cwd) request.pending = false;
+              }
+            }
             if (msg.op === "start") {
               const message = String(msg.message ?? "");
               const pending = pendingStartRef.current;
-              if (pending && (!msg.requestId || msg.requestId === pending.requestId)) {
+              if (pending && msg.requestId === pending.requestId) {
                 failPendingStart(message);
-              } else {
-                setLastError(message);
               }
             }
-            if (msg.op === "fork") setForkPending(false);
-            if (msg.op === "handoff") {
+            if (msg.op === "fork" && shouldAcceptSessionActionResponse(msg.sessionId, pendingForkSourceSessionRef.current, sessionIdRef.current)) {
+              closeForkWindow();
+              setForkPending(false);
+            }
+            if (msg.op === "handoff" && shouldAcceptSessionActionResponse(msg.sessionId, pendingHandoffSourceSessionRef.current, sessionIdRef.current)) {
               closeHandoffWindow();
               setHandoffPending(false);
             }
@@ -667,21 +712,14 @@ export function useSession(): SessionState {
             }
             break;
         }
-      };
-      ws.onclose = () => {
-        if (closed || wsRef.current !== ws) return;
-        setReady(false);
-        setTimeout(connect, 800);
-      };
-    };
-    connect();
+      },
+    });
     return () => {
-      closed = true;
+      disconnect();
       clearPendingStartTimeout();
-      closeHandoffWindow();
-      wsRef.current?.close();
+      resetSessionActions();
     };
-  }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, failPendingStart, sendRaw]);
+  }, [armPendingStartTimeout, clearPendingStartTimeout, closeForkWindow, closeHandoffWindow, failPendingStart, resetSessionActions, sendRaw]);
 
   const start = useCallback((opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }) => {
     const key = JSON.stringify([opts.provider, opts.cwd, opts.prompt, opts.options ?? {}]);
@@ -690,6 +728,7 @@ export function useSession(): SessionState {
     const requestId = newClientRequestId("start");
     const conversationId = crypto.randomUUID();
     if (!sendRaw({ op: "start", requestId, conversationId, ...opts })) return false;
+    resetSessionActions();
     pendingStartRef.current = { requestId, conversationId, key, queuedReplies: [], ...opts };
     armPendingStartTimeout();
     optimisticUsersRef.current = [opts.prompt];
@@ -715,11 +754,10 @@ export function useSession(): SessionState {
     setFileDiffs({});
     setPhase("chat");
     return true;
-  }, [armPendingStartTimeout, sendRaw]);
+  }, [armPendingStartTimeout, resetSessionActions, sendRaw]);
   const compose = useCallback(() => {
     clearPendingStartTimeout();
-    closeHandoffWindow();
-    setHandoffPending(false);
+    resetSessionActions();
     pendingStartRef.current = null;
     history.replaceState(null, "", appPath("/"));
     document.title = "cmux agent";
@@ -733,30 +771,31 @@ export function useSession(): SessionState {
     pendingFileDiffKeysRef.current = {};
     setFileDiffs({});
     setPhase("composer");
-  }, [clearPendingStartTimeout, closeHandoffWindow]);
+  }, [clearPendingStartTimeout, resetSessionActions]);
   const reply = useCallback((text: string) => {
     const pending = pendingStartRef.current;
     if (!sessionIdRef.current && pending?.failed) {
-      start({ provider: pending.provider, cwd: pending.cwd, prompt: text, options: pending.options });
-      return;
+      return start({ provider: pending.provider, cwd: pending.cwd, prompt: text, options: pending.options });
     }
     if (!sessionIdRef.current && pending && !pending.failed) {
       pending.queuedReplies.push({ requestId: newClientRequestId("turn"), prompt: text });
       optimisticUsersRef.current.push(text);
       setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
-      return;
+      return true;
     }
     if (sessionIdRef.current) {
-      if (sendRaw({ op: "send", sessionId: sessionIdRef.current, requestId: newClientRequestId("turn"), prompt: text })) {
-        setSession((s) => (s ? { ...s, status: "running" } : s));
-        // A terminal view's prompt only reaches the event log when the agent's
-        // transcript records it; show it now and drop that echo when it lands.
-        if (sessionModeRef.current === "transcript") {
-          optimisticUsersRef.current.push(text);
-          setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
-        }
+      const sent = sendRaw({ op: "send", sessionId: sessionIdRef.current, requestId: newClientRequestId("turn"), prompt: text });
+      if (!sent) return false;
+      setSession((s) => (s ? { ...s, status: "running" } : s));
+      // A terminal view's prompt only reaches the event log when the agent's
+      // transcript records it; show it now and drop that echo when it lands.
+      if (sessionModeRef.current === "transcript") {
+        optimisticUsersRef.current.push(text);
+        setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
       }
+      return true;
     }
+    return false;
   }, [sendRaw, start]);
   const focusTerminal = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });
@@ -768,21 +807,33 @@ export function useSession(): SessionState {
     if (sessionIdRef.current) sendRaw({ op: "set-option", sessionId: sessionIdRef.current, id, value });
   }, [sendRaw]);
   const fork = useCallback(() => {
-    if (sessionIdRef.current) {
-      if (sendRaw({ op: "fork", sessionId: sessionIdRef.current })) setForkPending(true);
+    const sourceSessionId = sessionIdRef.current;
+    if (sourceSessionId && !pendingForkSourceSessionRef.current) {
+      const popup = window.open("about:blank", "_blank");
+      const requestId = newClientRequestId("fork");
+      forkWindowRef.current = popup;
+      pendingForkSourceSessionRef.current = sourceSessionId;
+      pendingForkRequestRef.current = requestId;
+      if (sendRaw({ op: "fork", sessionId: sourceSessionId, requestId })) {
+        setForkPending(true);
+      } else {
+        closeForkWindow();
+      }
     }
-  }, [sendRaw]);
+  }, [closeForkWindow, sendRaw]);
   const handoff = useCallback(() => {
     const sourceSessionId = sessionIdRef.current;
-    if (sourceSessionId) {
+    if (sourceSessionId && !pendingHandoffSourceSessionRef.current) {
       closeHandoffWindow();
       const popup = window.open("about:blank", "_blank");
-      if (sendRaw({ op: "handoff", sessionId: sourceSessionId })) {
-        handoffWindowRef.current = popup;
-        pendingHandoffSourceSessionRef.current = sourceSessionId;
+      const requestId = newClientRequestId("handoff");
+      handoffWindowRef.current = popup;
+      pendingHandoffSourceSessionRef.current = sourceSessionId;
+      pendingHandoffRequestRef.current = requestId;
+      if (sendRaw({ op: "handoff", sessionId: sourceSessionId, requestId })) {
         setHandoffPending(true);
       } else {
-        popup?.close();
+        closeHandoffWindow();
       }
     }
   }, [closeHandoffWindow, sendRaw]);
@@ -790,7 +841,13 @@ export function useSession(): SessionState {
     sendRaw({ op: "list-options", provider, cwd });
   }, [sendRaw]);
   const requestProviderCommands = useCallback((provider: string, cwd: string) => {
-    sendRaw({ op: "list-commands", provider, cwd });
+    const previous = latestCommandRequestsRef.current.get(provider);
+    const request = { requestId: newClientRequestId("commands"), cwd, pending: true };
+    latestCommandRequestsRef.current.set(provider, request);
+    // Commands are discovered per cwd, but the menu is stored per provider.
+    // Never show the old project's commands while a new discovery is pending.
+    if (previous?.cwd !== cwd) setProviderCommands((m) => ({ ...m, [provider]: [] }));
+    if (!sendRaw({ op: "list-commands", provider, cwd, requestId: request.requestId })) request.pending = false;
   }, [sendRaw]);
   const requestFiles = useCallback((cwd: string, query?: string) => {
     sendRaw({ op: "list-files", cwd, query });
