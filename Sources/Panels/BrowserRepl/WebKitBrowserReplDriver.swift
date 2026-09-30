@@ -388,6 +388,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         let timeout = Self.timeout(params)
         let started = ContinuousClock.now
+        attachment(panel).rememberCredentials(in: url)
         let ticket = panel.beginAutomationNavigation(to: url, recordTypedNavigation: false)
         let outcome = try await withTimeoutThrowing(milliseconds: timeout, what: "navigating to \"\(raw)\"") {
             await panel.finishAutomationNavigation(ticket)
@@ -1210,6 +1211,19 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             if let text, !text.isEmpty {
                 BrowserReplNativeInput.insertText(text, into: webView)
             }
+        case "bold", "italic", "underline":
+            // Chrome's editor formats the selection of an editable element on
+            // Command+B/I/U; the page sees its usual beforeinput and input.
+            _ = try? await webView.callAsyncJavaScript(
+                """
+                const el = document.activeElement;
+                if (!(document.designMode === "on" || (el && el.isContentEditable))) return false;
+                return document.execCommand(command);
+                """,
+                arguments: ["command": command],
+                in: nil,
+                contentWorld: .page
+            )
         default:
             NSApp.sendAction(NSSelectorFromString(command), to: webView, from: nil)
         }

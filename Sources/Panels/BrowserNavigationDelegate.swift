@@ -242,6 +242,13 @@ import WebKit
             sslBypassState.recordObservedServerTrust(trust, for: challenge.protectionSpace)
         }
 
+        // A tab a REPL session drives has nobody to answer a prompt.
+        if let panel = owner,
+           let answer = BrowserReplTabAttachments.shared.attachment(for: panel.id)?.answerAuthenticationChallenge(challenge) {
+            completionHandler(answer.0, answer.1)
+            return
+        }
+
         if basicAuthPromptCoordinator.handle(
             challenge: challenge,
             startPrompt: { [presentAlert, owner] finishPrompt, registerCancelPrompt in

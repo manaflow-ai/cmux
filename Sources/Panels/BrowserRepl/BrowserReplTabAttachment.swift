@@ -101,6 +101,40 @@ final class BrowserReplTabAttachment {
     var clipboardItems: [[String: Any]] = []
     /// Target id of the tab that opened this one, for popups.
     var openerTargetID: String?
+    /// Credentials from `user:password@` in URLs a session navigated to, by
+    /// `host:port`. HTTP auth challenges in a driven tab answer from these
+    /// instead of showing a prompt nobody can answer.
+    private var httpCredentials: [String: URLCredential] = [:]
+
+    func rememberCredentials(in url: URL) {
+        guard let user = url.user, !user.isEmpty, let host = url.host else { return }
+        let port = url.port ?? (url.scheme == "https" ? 443 : 80)
+        httpCredentials["\(host.lowercased()):\(port)"] = URLCredential(
+            user: user.removingPercentEncoding ?? user,
+            password: (url.password ?? "").removingPercentEncoding ?? url.password ?? "",
+            persistence: .forSession
+        )
+    }
+
+    /// The answer to an HTTP authentication challenge in a driven tab: the
+    /// URL's credentials once, then the unauthenticated response (a 401
+    /// page the session sees) instead of a prompt.
+    func answerAuthenticationChallenge(_ challenge: URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?)? {
+        let space = challenge.protectionSpace
+        let httpMethods: Set<String> = [
+            NSURLAuthenticationMethodHTTPBasic,
+            NSURLAuthenticationMethodHTTPDigest,
+            NSURLAuthenticationMethodDefault,
+            NSURLAuthenticationMethodNTLM,
+            NSURLAuthenticationMethodNegotiate,
+        ]
+        guard httpMethods.contains(space.authenticationMethod), !space.isProxy() else { return nil }
+        let key = "\(space.host.lowercased()):\(space.port)"
+        if challenge.previousFailureCount == 0, let credential = httpCredentials[key] {
+            return (.useCredential, credential)
+        }
+        return (.rejectProtectionSpace, nil)
+    }
     /// Finished downloads by id.
     private(set) var downloadPaths: [String: String] = [:]
     /// HTTP status of the latest main-document response.
@@ -498,6 +532,59 @@ final class BrowserReplTabAttachment {
 
     /// Opens a page-requested window as a new background browser surface next
     /// to this tab, reported to the sessions as `tab.created`.
+    /// Opens a page-opened window as a background tab whose web view WebKit
+    /// created the page from (`createWebViewWith`), returning that web view.
+    /// `nil` when no tab could be opened; `.opened(nil)` when the tab opened
+    /// but loads the URL itself (the web view could not be adopted).
+    enum PopupAdoption {
+        case opened(WKWebView?)
+    }
+
+    func adoptPopup(request: URLRequest, configuration: WKWebViewConfiguration) -> PopupAdoption? {
+        guard isAttached, let panel,
+              let workspace = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId)?
+                .tabs.first(where: { $0.id == panel.workspaceId }),
+              let pane = workspace.paneId(forPanelId: panel.id) else {
+            return nil
+        }
+        let url = request.url ?? URL(string: "about:blank")!
+        BrowserPanel.configureWebViewConfiguration(configuration, websiteDataStore: panel.websiteDataStore)
+        let webView = CmuxWebView(frame: .zero, configuration: configuration, host: CmuxWebViewAppHost())
+        webView.allowsBackForwardNavigationGestures = true
+        webView.pageZoom = panel.webView.pageZoom
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
+        webView.applyBrowserUserAgentPolicy(for: url)
+        BrowserPanel.pendingPopupWebView = (url, webView)
+        defer { BrowserPanel.pendingPopupWebView = nil }
+        guard let created = workspace.newBrowserSurface(
+            inPane: pane,
+            url: url,
+            focus: false,
+            preferredProfileID: panel.profileID,
+            creationPolicy: .automationPreload,
+            websiteDataStore: panel.websiteDataStore
+        ) else {
+            return nil
+        }
+        announcePopup(created, url: url)
+        return .opened(created.webView === webView ? webView : nil)
+    }
+
+    private func announcePopup(_ created: BrowserPanel, url: URL) {
+        var child: BrowserReplTabAttachment?
+        for (sessionID, sink) in sinks {
+            child = BrowserReplTabAttachments.shared.attach(panel: created, sessionID: sessionID, sink: sink)
+        }
+        child?.openerTargetID = targetID
+        for sink in sinks.values {
+            sink("tab.created", [
+                "targetId": created.id.uuidString,
+                "openerTargetId": targetID,
+                "url": url.absoluteString,
+            ])
+        }
+    }
+
     func handlePopup(request: URLRequest) -> Bool {
         guard isAttached, let panel, let url = request.url,
               let workspace = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId)?

@@ -142,6 +142,11 @@ public struct BrowserReplKeyStroke: Equatable, Sendable {
         case ("v", false): return "paste:"
         case ("z", false): return "undo:"
         case ("z", true): return "redo:"
+        // Rich-text shortcuts Chrome's editor handles; WebKit leaves them to
+        // an app's Format menu, which a driven pane may not have.
+        case ("b", false): return "bold"
+        case ("i", false): return "italic"
+        case ("u", false): return "underline"
         default: return nil
         }
     }

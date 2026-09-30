@@ -3720,7 +3720,11 @@ final class BrowserPanel: Panel, ObservableObject {
             preservesExplicitEphemeralWebsiteDataStore
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
-        if let prewarmed = Self.claimedPrewarmedWebView(
+        if let popup = Self.takePendingPopupWebView(for: initialURL) {
+            // WebKit loads the popup's document into this web view itself.
+            webView = popup
+            adoptedPrewarmedWebView = true
+        } else if let prewarmed = Self.claimedPrewarmedWebView(
             isRemoteWorkspace: isRemoteWorkspace,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
@@ -8430,7 +8434,7 @@ private extension NSObject {
 /// Handles WKDownload lifecycle by saving to a temp file synchronously (no UI
 /// during WebKit callbacks), then moving the finished file to the user's
 /// Downloads folder unless the browser save-panel setting is enabled.
-class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFilenameOverriding {
+class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFilenameOverriding, BrowserScriptedDownloadRouting {
     private nonisolated static let maxDownloadDestinationCollisionRetries = 100
 
     private struct DownloadState: Sendable {
@@ -8453,6 +8457,12 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
     /// The REPL session attached to the owning tab, if any. Its downloads stay
     /// in the temporary directory and are reported to the session.
     var replAttachment: (@MainActor () -> BrowserReplTabAttachment?)?
+
+    /// A driven tab's scripted `data:` downloads come here as WebKit
+    /// downloads, so the session sees them.
+    var routesScriptedDownloadsThroughWebKit: Bool {
+        MainActor.assumeIsolated { replAttachment?() != nil }
+    }
 
     static let tempDir: URL = {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-downloads", isDirectory: true)
@@ -8773,10 +8783,16 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         )
 #endif
         // A REPL session driving this tab sees page-opened windows as new
-        // background tabs it can attach to (Playwright's "popup" event).
-        if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }),
-           attachment.handlePopup(request: navigationAction.request) {
-            return nil
+        // background tabs it can attach to (Playwright's "popup" event). The
+        // tab adopts a web view made from WebKit's configuration, so
+        // window.opener and postMessage to the opener work as in a browser.
+        if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }) {
+            if case .opened(let popup)? = attachment.adoptPopup(request: navigationAction.request, configuration: configuration) {
+                return popup
+            }
+            if attachment.handlePopup(request: navigationAction.request) {
+                return nil
+            }
         }
         if let url = navigationAction.request.url {
             if navigationAction.navigationType == .linkActivated,
@@ -8975,6 +8991,12 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
     ) {
         guard let owner else {
             decisionHandler(.prompt)
+            return
+        }
+        // A tab a REPL session drives denies at once, as its geolocation and
+        // notification requests do, instead of a sheet nobody can answer.
+        if BrowserReplTabAttachments.shared.attachment(for: owner.id) != nil {
+            decisionHandler(.deny)
             return
         }
         let allowLabel = String(localized: "common.allow", defaultValue: "Allow")

@@ -500,7 +500,18 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         } else throw new DriverError("invalid", `Unknown mouse event ${type}`);
       });
     },
-    "input.key": async ({ targetId, ...event }) => keyEvent(tabFor(targetId), event),
+    "input.key": async ({ targetId, ...event }) => {
+      await keyEvent(tabFor(targetId), event);
+      // As the app's driver: Command+B/I/U format an editable selection.
+      const mods = event.modifiers || [];
+      const cmd = { KeyB: "bold", KeyI: "italic", KeyU: "underline" }[event.code];
+      if (event.type === "down" && cmd && mods.length === 1 && mods[0] === "Meta") {
+        await tabFor(targetId).page.evaluate((c) => {
+          const el = document.activeElement;
+          if (document.designMode === "on" || (el && el.isContentEditable)) document.execCommand(c);
+        }, cmd);
+      }
+    },
     "input.insertText": async ({ targetId, text }) => tabFor(targetId).page.keyboard.insertText(text),
     "input.drag": async ({ targetId, path: points, button = "left", modifiers }) => {
       const page = tabFor(targetId).page;
