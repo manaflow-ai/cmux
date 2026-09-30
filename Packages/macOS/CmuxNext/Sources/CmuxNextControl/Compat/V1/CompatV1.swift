@@ -127,7 +127,9 @@ enum CompatV1 {
         let title = fields.first.flatMap { $0.isEmpty ? nil : $0 } ?? "Notification"
         let body = [fields.count > 1 ? fields[1] : "", fields.count > 2 ? fields[2] : ""].filter { !$0.isEmpty }.joined(separator: "\n")
         let handle = surface.handle
-        _ = try await service.daemon("notify", session: surface.sessionID) { try await $0.notify(title: title, body: body, surface: handle) }
+        _ = try await service.daemon("notify", session: surface.sessionID) {
+            try await $0.notify(title: title, body: body, surface: handle, source: "cli")
+        }
         return "OK"
     }
 }

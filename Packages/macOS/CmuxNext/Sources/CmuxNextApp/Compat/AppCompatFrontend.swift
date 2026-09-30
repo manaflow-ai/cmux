@@ -89,17 +89,9 @@ final class AppCompatFrontend: CompatFrontend {
             services.windows.didActivate(controller)
         case .closeWindow(let windowID):
             try window(windowID).close()
-        case .expectNotification:
-            services.notifications.expectCreate()
         case .checkTabMove(let from, let to):
             if services.windows.crossesIncognito(from: from, to: to) {
                 throw ControlError(code: "invalid_params", message: RefusalStrings.incognitoMismatch)
-            }
-        case .noteNotification(let id, let source):
-            if let id {
-                services.notifications.record(NotificationID(rawValue: id), source: NotificationSource(rawValue: source) ?? .agent)
-            } else {
-                services.notifications.createFailed()
             }
         }
         return [:]

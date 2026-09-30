@@ -268,8 +268,13 @@ extension DaemonConnection {
     }
 
     @discardableResult
-    public func notify(title: String, body: String = "", level: NotificationLevel = .info, surface: SurfaceID? = nil) async throws -> NotificationID {
-        try await request(NotifyRequest(title: title, body: body, level: level, surface: surface)).notification
+    /// Posts a notification. `source` (`notification-source-v1`: `cli`,
+    /// `terminal`, `agent`, `daemon`) reaches daemons that serve it.
+    public func notify(title: String, body: String = "", level: NotificationLevel = .info, surface: SurfaceID? = nil,
+                       source: String? = nil) async throws -> NotificationID {
+        let source = identity?.supports(DaemonCapabilities.notificationSource) == true ? source : nil
+        return try await request(NotifyRequest(title: title, body: body, level: level, surface: surface, source: source))
+            .notification
     }
 
     /// Clears a tab's unread marker without selecting it (`notification-ack-v1`).

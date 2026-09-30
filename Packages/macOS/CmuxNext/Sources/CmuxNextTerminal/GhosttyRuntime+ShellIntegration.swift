@@ -46,6 +46,14 @@ extension GhosttyRuntime {
         return (name ?? "block", hasBlink ? blink : nil)
     }
 
+    /// `desktop-notifications`: whether terminal programs may post desktop
+    /// notifications (OSC 9/777/99). True when no config loaded, as in Ghostty.
+    public var desktopNotificationsEnabled: Bool {
+        guard let config else { return true }
+        var enabled = true
+        return Self.configGet(config, &enabled, key: "desktop-notifications") ? enabled : true
+    }
+
     /// The Ghostty CLI helper bundled at `<Resources>/bin/ghostty`, which
     /// Ghostty's `ssh` wrapper runs as `$GHOSTTY_BIN +ssh`. Nil when this
     /// build does not ship it.

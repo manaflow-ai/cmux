@@ -3,7 +3,8 @@ import CmuxNextActions
 import CmuxNextTerminal
 
 /// Handles terminal requests that need the app: Ghostty keybinds for splits,
-/// tabs, and windows, the right-click menu, links, and notifications.
+/// tabs, and windows, the right-click menu, and links. OSC 9/777/99
+/// notifications come from the daemon, which parses every terminal's output.
 final class TerminalHostDelegate: TerminalSessionDelegate {
     weak var services: AppServices?
 
@@ -60,26 +61,6 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         }
         pane.newBrowserTab(url: url)
         return true
-    }
-
-    /// OSC 9, OSC 777 and OSC 99 from a program in this terminal: a daemon
-    /// notification on this terminal's tab, tagged as a terminal source.
-    /// (Only terminals the app shows reach here; see notifications.md.)
-    func terminalSession(_ session: TerminalSession, didPostNotification title: String, body: String) {
-        guard let services else { return }
-        let surface = services.cache.tabKey(for: session).flatMap { services.locateTab($0)?.0.surface }
-        let text = body
-        let notifications = services.notifications
-        notifications.expectCreate()
-        services.daemon.send("notify") { connection in
-            do {
-                let id = try await connection.notify(title: title, body: text, surface: surface)
-                await MainActor.run { notifications.record(id, source: .terminal) }
-            } catch {
-                await MainActor.run { notifications.createFailed() }
-                throw error
-            }
-        }
     }
 
     /// The tab showing `session`, or nil (the focused pane) for a surface the

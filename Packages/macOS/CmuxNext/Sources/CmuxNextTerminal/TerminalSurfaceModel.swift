@@ -48,8 +48,6 @@ public protocol TerminalSessionDelegate: AnyObject {
     /// A Ghostty keybind asked for a window, tab, or split change. Return
     /// true when handled; false lets Ghostty treat the key as unbound.
     func terminalSession(_ session: TerminalSession, perform action: TerminalHostAction) -> Bool
-    /// OSC 9 / OSC 777 desktop notification.
-    func terminalSession(_ session: TerminalSession, didPostNotification title: String, body: String)
     /// A link was activated (cmd-click or `open_url`). Return true when handled.
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool
     /// BEL with the `system` bell feature enabled.
@@ -64,7 +62,6 @@ public protocol TerminalSessionDelegate: AnyObject {
 public extension TerminalSessionDelegate {
     func terminalSession(_ session: TerminalSession, perform action: TerminalHostAction) -> Bool { false }
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu? { nil }
-    func terminalSession(_ session: TerminalSession, didPostNotification title: String, body: String) {}
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
         NSWorkspace.shared.open(url)
     }
