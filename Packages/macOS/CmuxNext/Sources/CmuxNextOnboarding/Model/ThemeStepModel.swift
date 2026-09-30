@@ -52,12 +52,15 @@ public final class ThemeStepModel {
     }
 
     public var hasChanges: Bool { selected != originalTheme || density != originalDensity }
+    /// Set by Continue on the welcome step: closing onboarding later keeps the pick.
+    public private(set) var isCommitted = false
 
     /// Continue keeps what is applied.
-    func commit() {}
+    func commit() { isCommitted = true }
 
     /// Skip puts back the theme and density from before onboarding.
     func revert() {
+        isCommitted = false
         guard hasChanges else { return }
         selected = originalTheme
         density = originalDensity

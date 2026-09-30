@@ -78,7 +78,8 @@ public final class OnboardingModel {
         guard !ended else { return }
         ended = true
         importer.cancel()
-        if !completed { theme.revert() }
+        // Closing before Continue on the welcome step undoes the live theme.
+        if !completed, !theme.isCommitted { theme.revert() }
         services.onboardingDidEnd(completed: completed)
         onEnd?(completed)
     }
