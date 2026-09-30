@@ -12,9 +12,11 @@ public final class RipgrepStreamDecoder {
     /// True once `matchLimit` matches were decoded; later input is ignored.
     public private(set) var isLimitReached = false
     private var pending: [UInt8] = []
+    private let parser: RipgrepJSONLineParser
 
-    public init(matchLimit: Int) {
+    public init(matchLimit: Int, parser: RipgrepJSONLineParser = RipgrepJSONLineParser()) {
         self.matchLimit = max(1, matchLimit)
+        self.parser = parser
     }
 
     /// Decodes every complete line in `chunk`.
@@ -55,7 +57,7 @@ public final class RipgrepStreamDecoder {
     }
 
     private func decodeLine(_ line: UnsafeBufferPointer<UInt8>, into output: inout [FileSearchFileMatches]) {
-        guard var group = RipgrepJSONLineParser.parseMatch(line: line) else { return }
+        guard var group = parser.parseMatch(line: line) else { return }
         // "Limited" means a match was dropped, so a search with exactly
         // `matchLimit` results still completes normally.
         let room = matchLimit - matchCount

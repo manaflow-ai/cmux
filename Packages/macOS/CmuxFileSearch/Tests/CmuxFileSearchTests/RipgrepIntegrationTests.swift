@@ -40,11 +40,7 @@ struct RipgrepIntegrationTests {
         let rg = try #require(InstalledRipgrep.path)
         defer { try? FileManager.default.removeItem(at: root) }
         let mailbox = FileSearchBatchMailbox()
-        let completion = await RipgrepStreamingSearch.run(
-            command: FileSearchCommand(executablePath: rg, arguments: RipgrepArguments.make(query: query, rootPath: root.path)),
-            matchLimit: 1_000,
-            sink: mailbox
-        )
+        let completion = await RipgrepStreamingSearch(command: FileSearchCommand(executablePath: rg, arguments: query.ripgrepArguments(rootPath: root.path)), matchLimit: 1_000).run(sink: mailbox)
         var counts: [String: Int] = [:]
         for group in mailbox.drain().groups {
             counts[String(group.path.dropFirst(root.path.count + 1)), default: 0] += group.matches.count

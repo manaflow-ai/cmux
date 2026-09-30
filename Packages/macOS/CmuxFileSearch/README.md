@@ -4,7 +4,7 @@ Project-wide search for the right sidebar's Find mode, independent of AppKit.
 
 - `FileSearchQuery` holds the VS Code style options (Match Case, Match Whole
   Word, Use Regular Expression, include and exclude globs, Use Exclude Settings
-  and Ignore Files). `RipgrepArguments` maps it to one `rg --json` argument
+  and Ignore Files). `FileSearchQuery.ripgrepArguments(rootPath:)` maps it to one `rg --json` argument
   vector that runs unchanged locally, over SSH and on a Cloud VM.
 - `RipgrepJSONLineParser` and `RipgrepStreamDecoder` turn ripgrep output into
   one `FileSearchMatch` per submatch, with UTF-16 columns and a bounded preview

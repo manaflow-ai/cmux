@@ -58,11 +58,10 @@ struct FileSearchProcessTests {
 
     @Test("A missing executable reports ripgrep as not found")
     func missingExecutable() async {
-        let completion = await RipgrepStreamingSearch.run(
+        let completion = await RipgrepStreamingSearch(
             command: FileSearchCommand(executablePath: "/nonexistent/rg", arguments: []),
-            matchLimit: 10,
-            sink: FileSearchBatchMailbox()
-        )
+            matchLimit: 10
+        ).run(sink: FileSearchBatchMailbox())
         #expect(completion == .failed(.ripgrepNotFound))
     }
 

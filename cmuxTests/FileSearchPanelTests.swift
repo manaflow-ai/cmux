@@ -395,18 +395,14 @@ struct SSHRipgrepScriptTests {
 
     private func run(script: String, matchLimit: Int = 100) async -> (FileSearchCompletion, [FileSearchFileMatches]) {
         let mailbox = FileSearchBatchMailbox()
-        let completion = await RipgrepStreamingSearch.run(
-            command: FileSearchCommand(executablePath: "/bin/sh", arguments: ["-s"], standardInput: Data(script.utf8)),
-            matchLimit: matchLimit,
-            sink: mailbox
-        )
+        let completion = await RipgrepStreamingSearch(command: FileSearchCommand(executablePath: "/bin/sh", arguments: ["-s"], standardInput: Data(script.utf8)), matchLimit: matchLimit).run(sink: mailbox)
         return (completion, mailbox.drain().groups)
     }
 
     @Test("Missing rg reports ripgrepNotFound")
     func missingRipgrep() async {
         let script = "PATH=/nonexistent\n" + SSHRipgrepFileSearchBackend.remoteScript(
-            ripgrepArguments: RipgrepArguments.make(query: FileSearchQuery(pattern: "x"), rootPath: "/tmp"),
+            ripgrepArguments: FileSearchQuery(pattern: "x").ripgrepArguments(rootPath: "/tmp"),
             fallbackDirectories: []
         )
         let (completion, groups) = await run(script: script)
@@ -423,7 +419,7 @@ struct SSHRipgrepScriptTests {
         try "before \(needle) after\n".write(to: root.appendingPathComponent("it's.txt"), atomically: true, encoding: .utf8)
         let directory = try #require(Self.ripgrep).replacingOccurrences(of: "/rg", with: "")
         let script = "PATH=/nonexistent\n" + SSHRipgrepFileSearchBackend.remoteScript(
-            ripgrepArguments: RipgrepArguments.make(query: FileSearchQuery(pattern: needle), rootPath: root.path),
+            ripgrepArguments: FileSearchQuery(pattern: needle).ripgrepArguments(rootPath: root.path),
             fallbackDirectories: [directory]
         )
         let (completion, groups) = await run(script: script)

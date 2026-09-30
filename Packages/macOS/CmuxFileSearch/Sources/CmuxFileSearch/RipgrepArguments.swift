@@ -1,17 +1,18 @@
 import Foundation
 
-/// Maps a ``FileSearchQuery`` to ripgrep's command line.
+/// Maps a query to ripgrep's command line.
 ///
 /// The same argument vector runs locally, over SSH, and on a Cloud VM, so the
 /// three scopes can never disagree about what a toggle means.
-public enum RipgrepArguments {
+extension FileSearchQuery {
     /// Generated directories skipped while "Use Exclude Settings and Ignore
     /// Files" is on. `.git` is always skipped because `--hidden` would
     /// otherwise search object storage.
     public static let defaultExcludedDirectories = ["node_modules", "dist", "build", "DerivedData"]
 
     /// The full argument vector after the `rg` executable name.
-    public static func make(query: FileSearchQuery, rootPath: String) -> [String] {
+    public func ripgrepArguments(rootPath: String) -> [String] {
+        let query = self
         var arguments = [
             "--json",
             "--no-config",
@@ -34,14 +35,14 @@ public enum RipgrepArguments {
         }
         arguments += ["--glob", "!.git"]
         if query.usesIgnoreFiles {
-            for directory in defaultExcludedDirectories {
+            for directory in Self.defaultExcludedDirectories {
                 arguments += ["--glob", "!\(directory)"]
             }
         }
-        for glob in FileSearchGlobPatterns.ripgrepGlobs(from: query.includePatterns) {
+        for glob in FileSearchGlobList(query.includePatterns).ripgrepGlobs {
             arguments += ["--glob", glob]
         }
-        for glob in FileSearchGlobPatterns.ripgrepGlobs(from: query.excludePatterns) {
+        for glob in FileSearchGlobList(query.excludePatterns).ripgrepGlobs {
             arguments += ["--glob", "!\(glob)"]
         }
         arguments += ["--", query.pattern, rootPath]
@@ -49,10 +50,17 @@ public enum RipgrepArguments {
     }
 }
 
-/// VS Code's comma-separated glob fields, translated to ripgrep globs.
-public enum FileSearchGlobPatterns {
+/// One of VS Code's comma-separated glob fields, translated to ripgrep globs.
+public struct FileSearchGlobList: Hashable, Sendable {
+    /// The trimmed, non-empty entries of the field.
+    public let entries: [String]
+
+    public init(_ text: String) {
+        entries = Self.split(text)
+    }
+
     /// Splits on commas outside `{...}` alternations and trims each entry.
-    public static func split(_ text: String) -> [String] {
+    private static func split(_ text: String) -> [String] {
         var entries: [String] = []
         var current = ""
         var braceDepth = 0
@@ -81,9 +89,9 @@ public enum FileSearchGlobPatterns {
     /// plain name, a variant that also matches everything inside a folder of
     /// that name. A name without a slash matches at any depth, like VS Code's
     /// `src` meaning `**/src/**`; a name with a slash stays anchored to the root.
-    public static func ripgrepGlobs(from text: String) -> [String] {
+    public var ripgrepGlobs: [String] {
         var globs: [String] = []
-        for rawEntry in split(text) {
+        for rawEntry in entries {
             var entry = rawEntry
             if entry.hasPrefix("!") { entry.removeFirst() }
             while entry.hasPrefix("./") { entry.removeFirst(2) }

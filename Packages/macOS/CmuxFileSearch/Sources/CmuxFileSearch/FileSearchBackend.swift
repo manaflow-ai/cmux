@@ -85,17 +85,25 @@ public final class FileSearchBatchMailbox: @unchecked Sendable {
     }
 }
 
-/// Runs a command that prints `rg --json` and decodes it as it streams.
-/// Shared by the local and SSH backends.
-public enum RipgrepStreamingSearch {
+extension FileSearchFailure {
     /// Printed on stderr by remote wrappers when `rg` is not on PATH.
     public static let missingRipgrepMarker = "cmux-file-search: rg not found"
+}
 
-    public static func run(
-        command: FileSearchCommand,
-        matchLimit: Int,
-        sink: FileSearchBatchMailbox
-    ) async -> FileSearchCompletion {
+/// Runs a command that prints `rg --json` and decodes it as it streams.
+/// Shared by the local and SSH backends.
+public struct RipgrepStreamingSearch: Sendable {
+    public let command: FileSearchCommand
+    public let matchLimit: Int
+
+    public init(command: FileSearchCommand, matchLimit: Int) {
+        self.command = command
+        self.matchLimit = matchLimit
+    }
+
+    public func run(sink: FileSearchBatchMailbox) async -> FileSearchCompletion {
+        let command = self.command
+        let matchLimit = self.matchLimit
         let process: FileSearchProcess
         do {
             process = try FileSearchProcess(command: command)
@@ -119,8 +127,8 @@ public enum RipgrepStreamingSearch {
             }
             sink.send(decoder.finish())
             let exit = await process.waitForExit()
-            return classify(
-                status: exit.status,
+            return FileSearchCompletion(
+                ripgrepExitStatus: exit.status,
                 standardError: exit.standardError,
                 matchCount: decoder.matchCount,
                 limitReached: decoder.isLimitReached,
@@ -130,28 +138,41 @@ public enum RipgrepStreamingSearch {
             process.terminate()
         }
     }
+}
 
+extension FileSearchCompletion {
     /// Maps ripgrep's exit to a completion. Exit 1 means no match; exit 2
     /// after matches means some files were unreadable, which is not a failure
     /// of the search as a whole.
-    public static func classify(
-        status: Int32,
+    public init(
+        ripgrepExitStatus status: Int32,
         standardError: String,
         matchCount: Int,
         limitReached: Bool,
         matchLimit: Int
-    ) -> FileSearchCompletion {
-        if limitReached { return .limited(matchLimit) }
-        if status == 0 || status == 1 { return .completed }
+    ) {
+        if limitReached {
+            self = .limited(matchLimit)
+            return
+        }
+        if status == 0 || status == 1 {
+            self = .completed
+            return
+        }
         let message = standardError.trimmingCharacters(in: .whitespacesAndNewlines)
-        if message.contains(missingRipgrepMarker) || (status == 127 && message.isEmpty) {
-            return .failed(.ripgrepNotFound)
+        if message.contains(FileSearchFailure.missingRipgrepMarker) || (status == 127 && message.isEmpty) {
+            self = .failed(.ripgrepNotFound)
+            return
         }
         if message.contains("regex parse error") || message.contains("error parsing regex") ||
             message.contains("PCRE2") && message.contains("error") {
-            return .failed(.invalidRegex(message))
+            self = .failed(.invalidRegex(message))
+            return
         }
-        if status == 2, matchCount > 0 { return .completed }
-        return .failed(.processFailed(status: status, message: message))
+        if status == 2, matchCount > 0 {
+            self = .completed
+            return
+        }
+        self = .failed(.processFailed(status: status, message: message))
     }
 }

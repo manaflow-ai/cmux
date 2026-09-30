@@ -211,7 +211,7 @@ if exit_code not in (0, 1):
 sys.exit(0 if exit_code in (0, 1) else exit_code)
 """#
         let command = "python3 -c \(Self.shellQuote(script)) \(lineLimit) "
-            + RipgrepArguments.make(query: query, rootPath: rootPath).map(Self.shellQuote).joined(separator: " ")
+            + query.ripgrepArguments(rootPath: rootPath).map(Self.shellQuote).joined(separator: " ")
         let result = try await commandRunner.run(vmID: vmID, command: command, timeoutMs: 30_000)
         if result.exitCode == 75 {
             return CloudFileSearchResult(groups: [], completion: .failed(.ripgrepNotFound))
@@ -220,8 +220,8 @@ sys.exit(0 if exit_code in (0, 1) else exit_code)
         var groups = decoder.consume(Array(result.stdout.utf8))
         groups.appendMerging(decoder.finish())
         let wasLimited = result.stdout.contains("__CMUX_LIMIT__")
-        let completion = RipgrepStreamingSearch.classify(
-            status: Int32(truncatingIfNeeded: result.exitCode),
+        let completion = FileSearchCompletion(
+            ripgrepExitStatus: Int32(truncatingIfNeeded: result.exitCode),
             standardError: result.stderr,
             matchCount: decoder.matchCount,
             limitReached: wasLimited,

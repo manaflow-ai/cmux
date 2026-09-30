@@ -6,23 +6,28 @@ import Foundation
 /// lines arrive as `{"text": ...}` or, when they are not valid UTF-8, as
 /// `{"bytes": base64}`. Byte offsets are converted to UTF-16 so AppKit text
 /// ranges and editor columns line up with what the user sees.
-public enum RipgrepJSONLineParser {
+public struct RipgrepJSONLineParser: Sendable {
     /// UTF-16 units of context kept before a match in a preview.
-    public static let previewLeadingContext = 40
+    public let previewLeadingContext: Int
     /// Upper bound on a stored preview, in UTF-16 units.
-    public static let previewMaximumLength = 250
+    public let previewMaximumLength: Int
+
+    public init(previewLeadingContext: Int = 40, previewMaximumLength: Int = 250) {
+        self.previewLeadingContext = previewLeadingContext
+        self.previewMaximumLength = previewMaximumLength
+    }
 
     private static let matchPrefix = Array(#"{"type":"match""#.utf8)
 
     /// The matches on one `match` line, or `nil` for any other event or a
     /// line that does not parse.
-    public static func parseMatch<Bytes: Collection<UInt8>>(line bytes: Bytes) -> FileSearchFileMatches? {
-        guard bytes.starts(with: matchPrefix) else { return nil }
+    public func parseMatch<Bytes: Collection<UInt8>>(line bytes: Bytes) -> FileSearchFileMatches? {
+        guard bytes.starts(with: Self.matchPrefix) else { return nil }
         let data = Data(bytes)
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let payload = object["data"] as? [String: Any],
               let pathObject = payload["path"] as? [String: Any],
-              let path = decodedString(from: pathObject),
+              let path = Self.decodedString(from: pathObject),
               let linesObject = payload["lines"] as? [String: Any],
               let lineNumber = payload["line_number"] as? Int else {
             return nil
@@ -46,12 +51,12 @@ public enum RipgrepJSONLineParser {
     /// Converts byte-offset submatches on a valid UTF-8 line into matches.
     /// Walks the UTF-16 view once, counting each scalar's UTF-8 width, which
     /// is much cheaper than re-encoding a bridged string to bytes.
-    static func makeMatches(textLine text: String, lineNumber: Int, byteRanges: [Range<Int>]) -> [FileSearchMatch] {
+    func makeMatches(textLine text: String, lineNumber: Int, byteRanges: [Range<Int>]) -> [FileSearchMatch] {
         var units = Array(text.utf16)
         if units.last == 0x0A { units.removeLast() }
         if units.last == 0x0D { units.removeLast() }
-        let ranges = sortedRanges(byteRanges)
-        let boundaries = sortedBoundaries(ranges)
+        let ranges = Self.sortedRanges(byteRanges)
+        let boundaries = Self.sortedBoundaries(ranges)
         var unitOffsets = [Int](repeating: units.count, count: boundaries.count)
         var boundaryIndex = 0
         var byteOffset = 0
@@ -87,13 +92,13 @@ public enum RipgrepJSONLineParser {
     /// Converts byte-offset submatches on a line that is not valid UTF-8.
     /// Each gap between boundaries decodes on its own, so every invalid
     /// sequence becomes one U+FFFD in both the offsets and the rendered line.
-    static func makeMatches(lineBytes rawLineBytes: [UInt8], lineNumber: Int, byteRanges: [Range<Int>]) -> [FileSearchMatch] {
+    func makeMatches(lineBytes rawLineBytes: [UInt8], lineNumber: Int, byteRanges: [Range<Int>]) -> [FileSearchMatch] {
         var lineBytes = rawLineBytes
         if lineBytes.last == 0x0A { lineBytes.removeLast() }
         if lineBytes.last == 0x0D { lineBytes.removeLast() }
         let byteCount = lineBytes.count
-        let ranges = sortedRanges(byteRanges)
-        let boundaries = sortedBoundaries(ranges).map { min($0, byteCount) }
+        let ranges = Self.sortedRanges(byteRanges)
+        let boundaries = Self.sortedBoundaries(ranges).map { min($0, byteCount) }
         var unitOffsets: [Int] = []
         var units: [UInt16] = []
         units.reserveCapacity(byteCount)
@@ -128,7 +133,7 @@ public enum RipgrepJSONLineParser {
         return boundaries
     }
 
-    private static func makeMatches(
+    private func makeMatches(
         units: inout [UInt16],
         lineNumber: Int,
         ranges: [Range<Int>],
@@ -163,7 +168,7 @@ public enum RipgrepJSONLineParser {
         }
     }
 
-    private static func makePreview(
+    private func makePreview(
         units: [UInt16],
         firstContent: Int,
         matchStart: Int,
@@ -178,12 +183,12 @@ public enum RipgrepJSONLineParser {
             windowStart = matchStart - previewLeadingContext
             elided = true
         }
-        windowStart = adjustedToScalarBoundary(windowStart, in: units)
+        windowStart = Self.adjustedToScalarBoundary(windowStart, in: units)
         // Keep a long match visible up to twice the preview budget; the
         // stored string stays bounded however long the line or match is.
         let budgetEnd = windowStart + previewMaximumLength
         var windowEnd = min(units.count, max(budgetEnd, min(matchEnd, budgetEnd + previewMaximumLength)))
-        windowEnd = adjustedToScalarBoundary(windowEnd, in: units)
+        windowEnd = Self.adjustedToScalarBoundary(windowEnd, in: units)
         while windowEnd > max(windowStart, matchEnd), units[windowEnd - 1] == 0x20 { windowEnd -= 1 }
 
         let prefix = elided ? "\u{2026}" : ""

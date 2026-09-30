@@ -70,8 +70,8 @@ struct RipgrepStreamDecoderTests {
         (143, "", 10, true, .limited(10)),
     ])
     func classification(status: Int32, stderr: String, matches: Int, limited: Bool, expected: FileSearchCompletion) {
-        let completion = RipgrepStreamingSearch.classify(
-            status: status,
+        let completion = FileSearchCompletion(
+            ripgrepExitStatus: status,
             standardError: stderr,
             matchCount: matches,
             limitReached: limited,

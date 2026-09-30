@@ -13,7 +13,7 @@ struct RipgrepJSONLineParserTests {
             lineNumber: 42,
             byteRanges: [17..<23]
         )
-        let group = try #require(RipgrepJSONLineParser.parseMatch(line: Array(line.utf8)))
+        let group = try #require(RipgrepJSONLineParser().parseMatch(line: Array(line.utf8)))
 
         #expect(group.path == "/tmp/project/Sources/App.swift")
         #expect(group.matches.count == 1)
@@ -33,7 +33,7 @@ struct RipgrepJSONLineParserTests {
             lineNumber: 3,
             byteRanges: [0..<3, 8..<11, 16..<19]
         )
-        let group = try #require(RipgrepJSONLineParser.parseMatch(line: Array(line.utf8)))
+        let group = try #require(RipgrepJSONLineParser().parseMatch(line: Array(line.utf8)))
 
         #expect(group.matches.map(\.column) == [1, 9, 17])
         #expect(group.matches.map(\.lineNumber) == [3, 3, 3])
@@ -51,7 +51,7 @@ struct RipgrepJSONLineParserTests {
             lineNumber: 1,
             byteRanges: [start..<(start + 6)]
         )
-        let match = try #require(RipgrepJSONLineParser.parseMatch(line: Array(line.utf8))?.matches.first)
+        let match = try #require(RipgrepJSONLineParser().parseMatch(line: Array(line.utf8))?.matches.first)
 
         #expect(match.column == 5)
         #expect(match.length == 6)
@@ -66,7 +66,7 @@ struct RipgrepJSONLineParserTests {
             lineNumber: 7,
             byteRanges: [4..<10]
         )
-        let group = try #require(RipgrepJSONLineParser.parseMatch(line: Array(line.utf8)))
+        let group = try #require(RipgrepJSONLineParser().parseMatch(line: Array(line.utf8)))
 
         #expect(group.path == "/p/Bytes.swift")
         #expect(group.matches.first?.column == 5)
@@ -83,7 +83,7 @@ struct RipgrepJSONLineParserTests {
             lineNumber: 1,
             byteRanges: [2..<4]
         )
-        let match = try #require(RipgrepJSONLineParser.parseMatch(line: Array(line.utf8))?.matches.first)
+        let match = try #require(RipgrepJSONLineParser().parseMatch(line: Array(line.utf8))?.matches.first)
 
         #expect(match.preview.unicodeScalars.map(\.value) == [0x66, 0xFFFD, 0x6F, 0x6F])
         #expect(match.column == 3)
@@ -96,19 +96,19 @@ struct RipgrepJSONLineParserTests {
         let suffix = String(repeating: "b", count: 5_000)
         let text = prefix + "needle" + suffix + "\n"
         let line = RipgrepFixture.matchLine(path: "/p/min.js", line: text, lineNumber: 1, byteRanges: [5_000..<5_006])
-        let match = try #require(RipgrepJSONLineParser.parseMatch(line: Array(line.utf8))?.matches.first)
+        let match = try #require(RipgrepJSONLineParser().parseMatch(line: Array(line.utf8))?.matches.first)
 
         #expect(match.column == 5_001)
         #expect(match.preview.hasPrefix("\u{2026}"))
         #expect(match.highlightedText == "needle")
-        #expect(match.preview.utf16.count <= RipgrepJSONLineParser.previewMaximumLength + 1)
-        #expect(match.previewMatchRange.lowerBound == RipgrepJSONLineParser.previewLeadingContext + 1)
+        #expect(match.preview.utf16.count <= RipgrepJSONLineParser().previewMaximumLength + 1)
+        #expect(match.previewMatchRange.lowerBound == RipgrepJSONLineParser().previewLeadingContext + 1)
     }
 
     @Test("Line endings are dropped and tabs render as spaces")
     func lineEndingsAndTabs() throws {
         let line = RipgrepFixture.matchLine(path: "/p/t.txt", line: "\tx\tneedle\r\n", lineNumber: 2, byteRanges: [3..<9])
-        let match = try #require(RipgrepJSONLineParser.parseMatch(line: Array(line.utf8))?.matches.first)
+        let match = try #require(RipgrepJSONLineParser().parseMatch(line: Array(line.utf8))?.matches.first)
 
         #expect(match.preview == "x needle")
         #expect(match.column == 4)
@@ -123,7 +123,7 @@ struct RipgrepJSONLineParserTests {
         "not json",
     ])
     func ignoresOtherEvents(line: String) {
-        #expect(RipgrepJSONLineParser.parseMatch(line: Array(line.utf8)) == nil)
+        #expect(RipgrepJSONLineParser().parseMatch(line: Array(line.utf8)) == nil)
     }
 }
 

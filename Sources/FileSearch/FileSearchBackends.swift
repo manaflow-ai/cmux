@@ -20,9 +20,9 @@ struct LocalRipgrepFileSearchBackend: FileSearchBackend {
         }
         let command = FileSearchCommand(
             executablePath: executable.url.path,
-            arguments: executable.prefixArguments + RipgrepArguments.make(query: query, rootPath: rootPath)
+            arguments: executable.prefixArguments + query.ripgrepArguments(rootPath: rootPath)
         )
-        return await RipgrepStreamingSearch.run(command: command, matchLimit: matchLimit, sink: sink)
+        return await RipgrepStreamingSearch(command: command, matchLimit: matchLimit).run(sink: sink)
     }
 }
 
@@ -56,9 +56,9 @@ struct SSHRipgrepFileSearchBackend: FileSearchBackend {
         let command = FileSearchCommand(
             executablePath: "/usr/bin/ssh",
             arguments: ProcessSSHFileExplorerTransport.sshArguments(connection: connection, command: "sh -s"),
-            standardInput: Data(Self.remoteScript(ripgrepArguments: RipgrepArguments.make(query: query, rootPath: rootPath)).utf8)
+            standardInput: Data(Self.remoteScript(ripgrepArguments: query.ripgrepArguments(rootPath: rootPath)).utf8)
         )
-        let completion = await RipgrepStreamingSearch.run(command: command, matchLimit: matchLimit, sink: sink)
+        let completion = await RipgrepStreamingSearch(command: command, matchLimit: matchLimit).run(sink: sink)
         // ssh itself exits 255 when it cannot connect or authenticate.
         if case .failed(.processFailed(let status, let message)) = completion, status == 255 {
             return .failed(.unavailable(FileExplorerSearchMessages.sshSearchFailed(message)))
@@ -82,7 +82,7 @@ struct SSHRipgrepFileSearchBackend: FileSearchBackend {
           done
         fi
         if [ -z "$RG" ]; then
-          echo '\(RipgrepStreamingSearch.missingRipgrepMarker)' >&2
+          echo '\(FileSearchFailure.missingRipgrepMarker)' >&2
           exit 127
         fi
         exec "$RG" \(arguments) </dev/null

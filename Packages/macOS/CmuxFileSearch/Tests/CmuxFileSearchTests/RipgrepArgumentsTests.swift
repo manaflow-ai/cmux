@@ -12,7 +12,7 @@ struct RipgrepArgumentsTests {
 
     @Test("Default query: literal, case-insensitive, ignore files honored")
     func defaults() {
-        let arguments = RipgrepArguments.make(query: FileSearchQuery(pattern: "needle"), rootPath: "/root")
+        let arguments = FileSearchQuery(pattern: "needle").ripgrepArguments(rootPath: "/root")
 
         #expect(arguments.contains("--json"))
         #expect(arguments.contains("--no-config"))
@@ -28,7 +28,7 @@ struct RipgrepArgumentsTests {
     @Test("Match Case, Whole Word and Regex map to their flags")
     func toggles() {
         let query = FileSearchQuery(pattern: "a.b", isCaseSensitive: true, matchesWholeWord: true, isRegex: true)
-        let arguments = RipgrepArguments.make(query: query, rootPath: "/root")
+        let arguments = query.ripgrepArguments(rootPath: "/root")
 
         #expect(arguments.contains("--case-sensitive"))
         #expect(!arguments.contains("--ignore-case"))
@@ -39,10 +39,7 @@ struct RipgrepArgumentsTests {
 
     @Test("Turning off ignore files searches ignored and generated folders but never .git")
     func ignoreToggleOff() {
-        let arguments = RipgrepArguments.make(
-            query: FileSearchQuery(pattern: "x", usesIgnoreFiles: false),
-            rootPath: "/root"
-        )
+        let arguments = FileSearchQuery(pattern: "x", usesIgnoreFiles: false).ripgrepArguments(rootPath: "/root")
 
         #expect(arguments.contains("--no-ignore"))
         #expect(globs(arguments) == ["!.git"])
@@ -50,7 +47,7 @@ struct RipgrepArgumentsTests {
 
     @Test("A pattern that looks like a flag stays the pattern")
     func dashPattern() {
-        let arguments = RipgrepArguments.make(query: FileSearchQuery(pattern: "--files"), rootPath: "/root")
+        let arguments = FileSearchQuery(pattern: "--files").ripgrepArguments(rootPath: "/root")
         #expect(Array(arguments.suffix(3)) == ["--", "--files", "/root"])
     }
 
@@ -64,20 +61,20 @@ struct RipgrepArgumentsTests {
     ])
     func includeGlobs(field: String, expected: [String]) {
         let query = FileSearchQuery(pattern: "x", includePatterns: field, usesIgnoreFiles: false)
-        let arguments = RipgrepArguments.make(query: query, rootPath: "/root")
+        let arguments = query.ripgrepArguments(rootPath: "/root")
         #expect(globs(arguments) == ["!.git"] + expected)
     }
 
     @Test("Exclude entries are negated")
     func excludeGlobs() {
         let query = FileSearchQuery(pattern: "x", excludePatterns: "vendor, *.min.js", usesIgnoreFiles: false)
-        let arguments = RipgrepArguments.make(query: query, rootPath: "/root")
+        let arguments = query.ripgrepArguments(rootPath: "/root")
         #expect(globs(arguments) == ["!.git", "!vendor", "!**/vendor/**", "!*.min.js"])
     }
 
     @Test("Commas inside braces do not split entries")
     func braceSplitting() {
-        #expect(FileSearchGlobPatterns.split("a,{b,c},d") == ["a", "{b,c}", "d"])
+        #expect(FileSearchGlobList("a,{b,c},d").entries == ["a", "{b,c}", "d"])
     }
 
     @Test("The local regex precheck rejects what cannot compile")
