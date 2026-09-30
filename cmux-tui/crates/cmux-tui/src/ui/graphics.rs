@@ -835,8 +835,15 @@ fn allocate_id(next: &mut u32, used: &mut HashSet<u32>) -> (u32, usize) {
 }
 
 fn transmit_image(image_id: u32, image: &GraphicImage) -> Vec<u8> {
-    record_image_transmission(image.key);
     let data = image.data.base64();
+    // Frame data from the daemon is written inside an APC string. Anything
+    // outside the base64 alphabet could end that string and inject terminal
+    // commands, so such an image is dropped.
+    if !data.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
+    {
+        return Vec::new();
+    }
+    record_image_transmission(image.key);
     let mut out = Vec::new();
     for (index, chunk) in data.as_bytes().chunks(CHUNK).enumerate() {
         let more = usize::from((index + 1) * CHUNK < data.len());

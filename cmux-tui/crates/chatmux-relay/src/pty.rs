@@ -462,7 +462,11 @@ struct Inner {
     cancelled_openings: Mutex<std::collections::HashSet<String>>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
-    auth: Mutex<Option<AuthSnapshot>>,
+    /// Latest trust and sink per transport (keyed by FrameContext::transport_id).
+    /// Output and trust checks for an attachment use its own transport's entry,
+    /// so a frame from another transport can neither receive its output nor
+    /// change its trust.
+    auth: Mutex<HashMap<Option<String>, AuthSnapshot>>,
 }
 
 struct ShellStartReservation {
@@ -513,7 +517,7 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
-                auth: Mutex::new(None),
+                auth: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -539,19 +543,22 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
-                auth: Mutex::new(None),
+                auth: Mutex::new(HashMap::new()),
             }),
         }
     }
 
     /// Handle one Worker -> relay PTY frame.
     pub async fn handle_frame(&self, frame: &Value, context: &FrameContext) {
-        *self.inner.auth.lock().expect("auth lock") = Some(AuthSnapshot {
-            trust: context.trust.clone(),
-            owner_user_id: context.owner_user_id.clone(),
-            send: Arc::clone(&context.send),
-            buffered_amount: Arc::clone(&context.buffered_amount),
-        });
+        self.inner.auth.lock().expect("auth lock").insert(
+            context.transport_id.clone(),
+            AuthSnapshot {
+                trust: context.trust.clone(),
+                owner_user_id: context.owner_user_id.clone(),
+                send: Arc::clone(&context.send),
+                buffered_amount: Arc::clone(&context.buffered_amount),
+            },
+        );
         let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
         match frame_type {
             "pty_open" => self.inner.clone().open(frame, context).await,
@@ -639,6 +646,7 @@ impl PtyManager {
     }
 
     fn detach_matching(&self, owns: impl Fn(Option<&str>) -> bool) {
+        self.inner.auth.lock().expect("auth lock").retain(|owner, _| !owns(owner.as_deref()));
         // Openings first: close() records cancellation for a reserved id, so
         // a late open cannot install an attachment after its transport died.
         let mut ids: Vec<String> = {
@@ -930,7 +938,7 @@ impl Inner {
     }
 
     fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
-        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
+        let Some(auth) = self.auth_for(context) else { return };
         if self.authorize_snapshot(pty_id, &auth, context, "output").is_none() {
             return;
         }
@@ -965,7 +973,7 @@ impl Inner {
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
-        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
+        let Some(auth) = self.auth_for(context) else { return };
         if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none() {
             return;
         }
@@ -1019,8 +1027,13 @@ impl Inner {
     }
 
     fn authorize(&self, pty_id: &str, context: &FrameContext, action: &str) -> Option<Attachment> {
-        let auth = self.auth.lock().expect("auth lock").clone()?;
+        let auth = self.auth_for(context)?;
         self.authorize_snapshot(pty_id, &auth, context, action)
+    }
+
+    /// The latest trust and sink of the transport `context` belongs to.
+    fn auth_for(&self, context: &FrameContext) -> Option<AuthSnapshot> {
+        self.auth.lock().expect("auth lock").get(&context.transport_id).cloned()
     }
 
     fn authorize_snapshot(

@@ -119,6 +119,8 @@ pub(crate) async fn diff(
     let scope = diff_page_scope(&normalized, staged, diff_context, format);
     let mut arguments = vec![
         "diff".to_string(),
+        // Scope output to the opened folder and print paths relative to it.
+        "--relative".to_string(),
         "--no-ext-diff".to_string(),
         "--no-textconv".to_string(),
         "--no-color".to_string(),
@@ -290,6 +292,9 @@ async fn run_git(
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_PAGER", "cat")
+        // Client paths are file names, never pathspec magic such as `:(top)`,
+        // which would reach files outside the opened folder.
+        .env("GIT_LITERAL_PATHSPECS", "1")
         .env("LC_ALL", "C")
         .kill_on_drop(true);
     #[cfg(not(unix))]
@@ -351,6 +356,7 @@ async fn read_diff_path_metadata(
 ) -> Result<Vec<u8>, RpcError> {
     let mut arguments = vec![
         "diff".to_string(),
+        "--relative".to_string(),
         "--name-status".to_string(),
         "-z".to_string(),
         "--no-ext-diff".to_string(),
