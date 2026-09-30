@@ -1,4 +1,19 @@
+import CmuxTerminalSizing
 import Foundation
+
+/// Shared-sizing fields of a cmux-tui response (`shared-sizing-v1`).
+public struct CloudTuiSizingResponse: Equatable, Sendable {
+    /// The host participant id of the attached view or relay sub-view.
+    public var participant: String?
+    /// The size state from `get-size-state` or a mutation answer.
+    public var state: TerminalSizingState?
+
+    /// Creates the response fields.
+    public init(participant: String? = nil, state: TerminalSizingState? = nil) {
+        self.participant = participant
+        self.state = state
+    }
+}
 
 /// One byte-oriented event delivered by a cmux-tui legacy `attach-surface` stream.
 ///
@@ -22,7 +37,11 @@ public enum CloudTuiManualIOFrame: Equatable, Sendable {
         colors: CloudTuiRemoteColors? = nil, pending: Data = Data()
     )
     case colorsChanged(surfaceID: UInt64, colors: CloudTuiRemoteColors)
-    case detached(surfaceID: UInt64)
+    /// `reason` defaults to `network` for daemons that send none; `view` names
+    /// a relay sub-view (a phone behind this Mac) when only it was detached.
+    case detached(surfaceID: UInt64, reason: TerminalDetachReason = .network, view: String? = nil)
+    /// The host's published size state (`size-state`, `shared-sizing-v1`).
+    case sizeState(surfaceID: UInt64, state: TerminalSizingState)
     case overflow(surfaceID: UInt64?)
     case response(
         requestID: UInt64,
@@ -31,7 +50,8 @@ public enum CloudTuiManualIOFrame: Equatable, Sendable {
         capabilities: [String],
         outcome: String?,
         accepted: Bool?,
-        error: String?
+        error: String?,
+        sizing: CloudTuiSizingResponse? = nil
     )
     /// Undecoded envelope for the per-machine resource multiplexer.
     case message(Data)

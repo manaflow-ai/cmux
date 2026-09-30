@@ -2660,7 +2660,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
     }
 
-    private func runDiffCLIAndReadHTML(
+    func runDiffCLIAndReadHTML(
         cliPath: String,
         arguments: [String],
         environmentOverrides: [String: String] = [:],
@@ -2851,7 +2851,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         return try XCTUnwrap(object as? [String: Any])
     }
 
-    private func diffViewerPayload(from html: String) throws -> [String: Any] {
+    func diffViewerPayload(from html: String) throws -> [String: Any] {
         try diffViewerPayload(from: diffViewerConfig(from: html))
     }
 
@@ -2911,7 +2911,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         return result
     }
 
-    private func runGit(_ arguments: [String], in directory: URL) throws {
+    func runGit(_ arguments: [String], in directory: URL) throws {
         let result = runGitProcess(arguments, in: directory)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertFalse(result.timedOut, result.stderr)

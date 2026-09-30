@@ -55,6 +55,7 @@ use crate::browser_provider::{
 };
 use crate::journal_kernel::{JournalDocument, SharedJournalPage, SharedJournalRead};
 use crate::model::{Screen, State, Workspace};
+use crate::mux::ClientSizingIdentity;
 use crate::mux::{DaemonHandoffRequest, ResourceWaitWake, clamp_terminal_size};
 use crate::platform::{self, transport};
 use crate::resource::{
@@ -65,6 +66,10 @@ use crate::resource::{
 use crate::sidebar_resource::{
     SidebarRenderAttachment, SidebarRenderClientState, attach_sidebar_render, resolve_sidebar_view,
     sidebar_attach_snapshot, sidebar_snapshot,
+};
+use crate::sizing_policy::{
+    TerminalDetachActor, TerminalDeviceKind, TerminalSizingPolicy, TerminalSizingState,
+    detach_reason,
 };
 use crate::surface::{
     AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
@@ -104,6 +109,11 @@ pub const FRONTEND_JOURNAL_CAPABILITY: &str = "frontend-journal-v1";
 const LOCAL_JOURNAL_PRINCIPAL: &str = "cmux.local-owner";
 pub const VIEW_ATTACHMENT_LEASE_CAPABILITY: &str = "view-attachment-lease-v1";
 pub const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
+/// Shared terminal sizing (`docs/shared-terminal-sizing.md`): `size-state`
+/// events, `set-size-policy`, `set-size-counts`, `get-size-state`, relay
+/// sub-views on `resize-attached-view`, client identity on `set-client-info`,
+/// and `reason`/`by` on `detached`.
+pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
 pub const TERMINAL_COLOR_OVERRIDES_CAPABILITY: &str = "terminal-color-overrides-v1";
 /// Byte viewers that write their own sequences after a replay advertise this
 /// to receive the replay's incomplete sequence as a separate `pending` field.
@@ -232,6 +242,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         FRONTEND_JOURNAL_CAPABILITY,
         VIEW_ATTACHMENT_LEASE_CAPABILITY,
         VIEW_ATTACHMENT_DETACH_CAPABILITY,
+        SHARED_SIZING_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
@@ -703,6 +714,111 @@ struct BrowserProviderTargetRequest {
     target_id: String,
 }
 
+/// Optional shared-sizing identity carried by `set-client-info` and relay
+/// sub-views.
+#[derive(Clone, Debug, Default, Deserialize)]
+struct ClientIdentityWire {
+    #[serde(default)]
+    user_id: Option<String>,
+    #[serde(default)]
+    display_name: Option<String>,
+    #[serde(default)]
+    device_kind: Option<String>,
+    #[serde(default)]
+    device_name: Option<String>,
+}
+
+impl ClientIdentityWire {
+    fn is_empty(&self) -> bool {
+        self.user_id.is_none()
+            && self.display_name.is_none()
+            && self.device_kind.is_none()
+            && self.device_name.is_none()
+    }
+
+    fn into_identity(self) -> ClientSizingIdentity {
+        ClientSizingIdentity {
+            user_id: self.user_id.map(clamp_client_label),
+            display_name: self.display_name.map(clamp_client_label),
+            device_kind: self
+                .device_kind
+                .as_deref()
+                .map_or(TerminalDeviceKind::Unknown, TerminalDeviceKind::parse),
+            device_name: self.device_name.map(clamp_client_label),
+        }
+    }
+}
+
+/// `detach-client` target: a numeric client id or a host participant id.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+enum DetachClientTarget {
+    Client(u64),
+    Participant(String),
+}
+
+impl DetachClientTarget {
+    /// The whole connection this target names, if it names one directly.
+    fn whole_client(&self) -> Option<u64> {
+        match self {
+            Self::Client(client) => Some(*client),
+            Self::Participant(id) => id.strip_prefix('c').and_then(|rest| rest.parse().ok()),
+        }
+    }
+}
+
+/// Why a connection or view was detached and who did it.
+struct DetachNotice {
+    reason: &'static str,
+    by: Option<TerminalDetachActor>,
+}
+
+impl DetachNotice {
+    const fn network() -> Self {
+        Self { reason: detach_reason::NETWORK, by: None }
+    }
+}
+
+fn detached_event_json(surface: SurfaceId, notice: &DetachNotice, view: Option<&str>) -> Value {
+    let mut event = json!({"event": "detached", "surface": surface, "reason": notice.reason});
+    if let Some(by) = notice.by.as_ref().filter(|by| !by.is_empty()) {
+        event["by"] = json!(by);
+    }
+    if let Some(view) = view {
+        event["view"] = json!(view);
+    }
+    event
+}
+
+fn size_state_event_json(
+    surface: SurfaceId,
+    runtime: SurfaceId,
+    state: &TerminalSizingState,
+    client: Option<u64>,
+) -> Value {
+    let mut event = json!({"event": "size-state", "surface": surface, "state": state});
+    if let Some(client) = client {
+        let id = crate::mux::view_participant_id(runtime, surface, client);
+        if state.participant(&id).is_some() {
+            event["self_participant"] = json!(id);
+        }
+    }
+    event
+}
+
+/// The actor recorded on a kick: the explicit `by`, else the requester's own
+/// identity.
+fn detach_actor(mux: &Mux, requester: u64, by: Option<TerminalDetachActor>) -> TerminalDetachActor {
+    by.unwrap_or_else(|| {
+        let identity = mux.control_clients.sizing_identity(requester).unwrap_or_default();
+        TerminalDetachActor {
+            user_id: identity.user_id,
+            display_name: identity.display_name,
+            device_name: identity.device_name,
+        }
+    })
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
@@ -754,6 +870,16 @@ enum Command {
         kind: Option<String>,
         #[serde(default)]
         capabilities: Option<Vec<String>>,
+        /// Shared-sizing identity. `user_id` is asserted by the connection
+        /// and is not verified by this daemon.
+        #[serde(default)]
+        user_id: Option<String>,
+        #[serde(default)]
+        display_name: Option<String>,
+        #[serde(default)]
+        device_kind: Option<String>,
+        #[serde(default)]
+        device_name: Option<String>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
@@ -795,7 +921,42 @@ enum Command {
         approve: bool,
     },
     DetachClient {
-        client: u64,
+        client: DetachClientTarget,
+        #[serde(default)]
+        by: Option<TerminalDetachActor>,
+    },
+    /// Set the shared sizing policy of one terminal (override) or the default
+    /// of one workspace. `policy:null` clears it.
+    SetSizePolicy {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        policy: Option<TerminalSizingPolicy>,
+    },
+    /// Set or clear (`counts:null`) one participant's counts-toward-size
+    /// override. Without a selector it targets the caller's own view.
+    SetSizeCounts {
+        surface: SurfaceId,
+        #[serde(default)]
+        client: Option<u64>,
+        #[serde(default)]
+        lease: Option<String>,
+        #[serde(default)]
+        view: Option<String>,
+        #[serde(default)]
+        participant: Option<String>,
+        counts: Option<bool>,
+    },
+    GetSizeState {
+        surface: SurfaceId,
+    },
+    /// Record explicit input or focus activity for the caller's own view, or
+    /// with `view` for one of its relay sub-views (input a relay forwards).
+    NoteSizeActivity {
+        surface: SurfaceId,
+        #[serde(default)]
+        view: Option<String>,
     },
     ReloadConfig,
     SetWindowTitle {
@@ -1347,9 +1508,18 @@ enum Command {
     },
     /// Resize one negotiated view attachment. The opaque lease prevents a
     /// delayed request from mutating a replacement view or another terminal.
+    ///
+    /// With `view` instead of `lease` it creates or updates a relay sub-view
+    /// (a leaf behind this connection, such as a phone behind a Mac mirror)
+    /// that participates in shared sizing with its own `identity`.
     ResizeAttachedView {
         surface: SurfaceId,
-        lease: String,
+        #[serde(default)]
+        lease: Option<String>,
+        #[serde(default)]
+        view: Option<String>,
+        #[serde(default)]
+        identity: Option<ClientIdentityWire>,
         cols: u16,
         rows: u16,
     },
@@ -1361,13 +1531,19 @@ enum Command {
     /// Stop one negotiated view attachment from contributing geometry.
     ReleaseAttachedViewSize {
         surface: SurfaceId,
-        lease: String,
+        #[serde(default)]
+        lease: Option<String>,
+        #[serde(default)]
+        view: Option<String>,
     },
     /// Close one negotiated view attachment without affecting the terminal or
     /// any other placement or client view.
     DetachAttachedView {
         surface: SurfaceId,
-        lease: String,
+        #[serde(default)]
+        lease: Option<String>,
+        #[serde(default)]
+        view: Option<String>,
     },
     FocusPane {
         pane: PaneId,
@@ -1476,11 +1652,15 @@ impl Command {
             | Self::ReleaseSurfaceSize { surface }
             | Self::ReleaseAttachedViewSize { surface, .. }
             | Self::DetachAttachedView { surface, .. }
+            | Self::SetSizeCounts { surface, .. }
+            | Self::GetSizeState { surface }
+            | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
             Self::AttachSurface { surface, .. }
             | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
-            | Self::Subscribe { surface, .. } => *surface,
+            | Self::Subscribe { surface, .. }
+            | Self::SetSizePolicy { surface, .. } => *surface,
             _ => None,
         }
     }
@@ -2473,7 +2653,6 @@ impl MessageWriter {
         Ok(())
     }
 
-    #[cfg(test)]
     fn send_stream<T: Serialize + ?Sized>(
         &self,
         value: &T,
@@ -3908,6 +4087,9 @@ struct ClientRecord {
     connected_at: Instant,
     name: Option<String>,
     kind: Option<String>,
+    /// Shared-sizing identity from `set-client-info`. `user_id` is asserted
+    /// by the connection; this daemon has no Stack session to verify it.
+    identity: ClientIdentityWire,
     capabilities: HashSet<String>,
     browser_pointer_owner: Option<BrowserPointerOwner>,
     attached: BTreeMap<SurfaceId, AttachedSurface>,
@@ -3992,6 +4174,7 @@ impl ClientRegistry {
                 connected_at: Instant::now(),
                 name: None,
                 kind: None,
+                identity: ClientIdentityWire::default(),
                 capabilities: HashSet::new(),
                 browser_pointer_owner: None,
                 attached: BTreeMap::new(),
@@ -4199,6 +4382,7 @@ impl ClientRegistry {
                 capability == GUARDED_BROWSER_POINTER_CAPABILITY
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
+                    || capability == SHARED_SIZING_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
@@ -4207,6 +4391,122 @@ impl ClientRegistry {
             }));
         }
         Ok((record.name.clone(), record.kind.clone()))
+    }
+
+    /// Merge identity fields: absent fields keep their previous value.
+    fn set_sizing_identity(&self, client: u64, identity: ClientIdentityWire) {
+        let mut state = self.state.lock().unwrap();
+        let Some(record) = state.clients.get_mut(&client) else { return };
+        let current = &mut record.identity;
+        if identity.user_id.is_some() {
+            current.user_id = identity.user_id;
+        }
+        if identity.display_name.is_some() {
+            current.display_name = identity.display_name;
+        }
+        if identity.device_kind.is_some() {
+            current.device_kind = identity.device_kind;
+        }
+        if identity.device_name.is_some() {
+            current.device_name = identity.device_name;
+        }
+    }
+
+    /// The connection's identity for shared sizing. Without explicit
+    /// fields it falls back to `name` and a device kind parsed from `kind`.
+    pub(crate) fn sizing_identity(&self, client: u64) -> Option<ClientSizingIdentity> {
+        let state = self.state.lock().unwrap();
+        let record = state.clients.get(&client)?;
+        let mut identity = record.identity.clone();
+        if identity.display_name.is_none() {
+            identity.display_name.clone_from(&record.name);
+        }
+        if identity.device_kind.is_none() {
+            identity.device_kind.clone_from(&record.kind);
+        }
+        Some(identity.into_identity())
+    }
+
+    /// Deliver a `size-state` event on every attach stream of `surface`.
+    /// A full stream queue terminates that stream with its overflow notice,
+    /// so a slow viewer re-attaches instead of silently missing a state.
+    pub(crate) fn send_size_state(
+        &self,
+        surface: SurfaceId,
+        runtime: SurfaceId,
+        size_state: &TerminalSizingState,
+    ) {
+        let targets = {
+            let state = self.state.lock().unwrap();
+            state
+                .attached_by_surface
+                .get(&surface)
+                .into_iter()
+                .flatten()
+                .filter_map(|client| {
+                    let record = state.clients.get(client)?;
+                    // Only clients that opted in receive the new event, so
+                    // older clients keep their exact attach-stream sequence.
+                    if !record.capabilities.contains(SHARED_SIZING_CAPABILITY) {
+                        return None;
+                    }
+                    Some((*client, record.writer.clone(), Self::event_streams(record, surface)))
+                })
+                .collect::<Vec<_>>()
+        };
+        for (client, writer, streams) in targets {
+            let event = size_state_event_json(surface, runtime, size_state, Some(client));
+            for stream in streams {
+                let _ = writer.send_stream(&event, &stream);
+            }
+        }
+    }
+
+    /// Legacy JSON attach streams of `surface`. Resource-protocol streams
+    /// carry framed `stream_item`s and never receive raw events.
+    fn event_streams(record: &ClientRecord, surface: SurfaceId) -> Vec<OutboundStream> {
+        let resource_streams = record
+            .resource_streams
+            .values()
+            .map(|stream| stream.outbound.id)
+            .collect::<HashSet<_>>();
+        record
+            .attached
+            .get(&surface)
+            .into_iter()
+            .flat_map(|attached| attached.streams.values())
+            .filter(|stream| !resource_streams.contains(&stream.id))
+            .cloned()
+            .collect()
+    }
+
+    /// Send one event on a client's attach stream for `surface` (the given
+    /// stream, else its first one), falling back to the control channel.
+    fn send_surface_event(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: Option<u64>,
+        event: &Value,
+    ) -> bool {
+        let target = {
+            let state = self.state.lock().unwrap();
+            state.clients.get(&client).map(|record| {
+                let streams = Self::event_streams(record, surface);
+                let target = match stream {
+                    Some(stream) => {
+                        streams.into_iter().find(|candidate| candidate.id == stream).map(Some)
+                    }
+                    None => Some(streams.into_iter().next()),
+                };
+                (record.writer.clone(), target)
+            })
+        };
+        let Some((writer, Some(stream))) = target else { return false };
+        match stream {
+            Some(stream) => writer.send_stream(event, &stream).is_ok(),
+            None => writer.send_control(event).is_ok(),
+        }
     }
 
     fn set_resource_info(
@@ -5698,7 +5998,20 @@ fn authenticate_websocket(
 }
 
 fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool) -> bool {
-    disconnect_client_with_notice(mux, client, send_detached, None)
+    disconnect_client_with_notice(mux, client, send_detached, None, &DetachNotice::network())
+}
+
+/// Disconnect a client because another participant (or the client itself)
+/// asked. Its `detached` events carry `reason:"disconnected-by"` and `by`, so
+/// the viewer does not reconnect automatically.
+fn kick_client(mux: &Arc<Mux>, client: u64, by: TerminalDetachActor) -> bool {
+    disconnect_client_with_notice(
+        mux,
+        client,
+        true,
+        None,
+        &DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) },
+    )
 }
 
 fn disconnect_client_with_notice(
@@ -5706,6 +6019,7 @@ fn disconnect_client_with_notice(
     client: u64,
     send_detached: bool,
     notice: Option<&str>,
+    detach: &DetachNotice,
 ) -> bool {
     let record = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
@@ -5747,7 +6061,7 @@ fn disconnect_client_with_notice(
             for stream in attached.streams.values() {
                 let _ = record
                     .writer
-                    .send_terminal(&json!({"event": "detached", "surface": surface}), stream);
+                    .send_terminal(&detached_event_json(*surface, detach, None), stream);
             }
         }
         record.writer.close_after_control();
@@ -5778,7 +6092,13 @@ fn complete_daemon_shutdown_after_ack(
         .is_ok();
     for peer in mux.control_clients.client_ids() {
         if peer != requesting_client {
-            disconnect_client_with_notice(mux, peer, true, Some(DAEMON_SHUTDOWN_EVENT));
+            disconnect_client_with_notice(
+                mux,
+                peer,
+                true,
+                Some(DAEMON_SHUTDOWN_EVENT),
+                &DetachNotice { reason: detach_reason::HOST_SHUTDOWN, by: None },
+            );
         }
     }
     // Keep the owner alive until every detached client has received the
@@ -5786,6 +6106,35 @@ fn complete_daemon_shutdown_after_ack(
     // while these notices are being flushed.
     mux.request_daemon_shutdown();
     requester_notice_sent
+}
+
+/// Disconnects one shared-sizing participant on behalf of `requester` (the
+/// in-process frontend's `detach-client {client: <participant>}`): a relay
+/// sub-view leaves alone and its relay forwards the notice; any other
+/// participant's whole client is kicked with `disconnected-by`.
+pub fn detach_size_participant(
+    mux: &Arc<Mux>,
+    requester: u64,
+    participant: &str,
+) -> anyhow::Result<()> {
+    let by = detach_actor(mux, requester, None);
+    let Some((client, placement, view)) = mux.terminal_participant_member(participant) else {
+        anyhow::bail!("unknown participant {participant}");
+    };
+    if let Some(view) = view {
+        mux.detach_terminal_sub_view(placement, client, &view);
+        let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
+        mux.control_clients.send_surface_event(
+            client,
+            placement,
+            None,
+            &detached_event_json(placement, &notice, Some(&view)),
+        );
+        return Ok(());
+    }
+    anyhow::ensure!(client != requester, "cannot disconnect this client");
+    anyhow::ensure!(kick_client(mux, client, by), "unknown client {client}");
+    Ok(())
 }
 
 pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
@@ -6322,7 +6671,7 @@ fn handle_resource_connection_message(
                     false
                 }
                 Ok(target) => {
-                    let result = if disconnect_client(mux, target, true) {
+                    let result = if kick_client(mux, target, detach_actor(mux, client, None)) {
                         Ok(json!({}))
                     } else {
                         Err(ResourceError::not_found(
@@ -9344,7 +9693,12 @@ fn handle_request_with_cancellation(
         };
     }
 
-    let detach_self = matches!(&cmd, Command::DetachClient { client: target } if *target == client);
+    let detach_self = match &cmd {
+        Command::DetachClient { client: target, by } if target.whole_client() == Some(client) => {
+            Some(detach_actor(mux, client, by.clone()))
+        }
+        _ => None,
+    };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
         Ok(data) => Response {
@@ -9380,8 +9734,11 @@ fn handle_request_with_cancellation(
             mux.cancel_daemon_handoff(client);
         }
     }
-    if detach_self && response_ok && sent {
-        disconnect_client(mux, client, true);
+    if let Some(by) = detach_self
+        && response_ok
+        && sent
+    {
+        kick_client(mux, client, by);
         return false;
     }
     sent
@@ -11312,6 +11669,32 @@ fn announce_client_attached(mux: &Mux, client: u64) -> anyhow::Result<bool> {
     Ok(false)
 }
 
+/// `attach-surface` result: the view lease when negotiated and, for a
+/// `shared-sizing-v1` client on a terminal, this view's host participant id
+/// and the current size state.
+fn attach_response(mux: &Mux, surface: SurfaceId, client: u64, lease: Option<String>) -> Value {
+    let mut response = json!({});
+    if let Some(lease) = lease {
+        response["lease"] = json!(lease);
+    }
+    if mux.control_clients.supports_capability(client, SHARED_SIZING_CAPABILITY)
+        && let Some(participant) = mux.terminal_view_participant_id(surface, client)
+        && let Some(state) = mux.terminal_size_state(surface)
+    {
+        response["participant"] = json!(participant);
+        response["size_state"] = json!(state);
+    }
+    response
+}
+
+fn validate_relay_view(view: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !view.is_empty() && view.len() <= 128 && !view.chars().any(char::is_control),
+        "bad request: view must be 1-128 printable characters"
+    );
+    Ok(())
+}
+
 fn commit_client_attach(
     mux: &Mux,
     client: u64,
@@ -11321,6 +11704,10 @@ fn commit_client_attach(
     rollback: Option<crate::mux::ClientSizeRollback>,
 ) -> anyhow::Result<()> {
     mux.control_clients.commit_surface(client, surface, stream, rollback)?;
+    // Attaching is activity: the view joins the terminal's sizing engine and,
+    // once it has a viewport, takes the grid under the default policy. The
+    // attaching client reads the resulting state from the attach response.
+    mux.sync_terminal_client_view(surface, client);
     let newly_announced = announce_client_attached(mux, client)?;
     if !newly_announced && let Some((name, kind)) = changed {
         mux.emit(MuxEvent::ClientChanged { client, name, kind });
@@ -11534,8 +11921,22 @@ fn handle_command_with_cancellation(
             "ghostty_commit": stamped_ghostty_commit(),
             "protocol": PROTOCOL_VERSION,
         })),
-        Command::SetClientInfo { name, kind, capabilities } => {
+        Command::SetClientInfo {
+            name,
+            kind,
+            capabilities,
+            user_id,
+            display_name,
+            device_kind,
+            device_name,
+        } => {
+            let identity = ClientIdentityWire { user_id, display_name, device_kind, device_name };
+            let identity_changed = !identity.is_empty();
             let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
+            if identity_changed {
+                mux.control_clients.set_sizing_identity(client, identity);
+            }
+            mux.refresh_terminal_client_identity(client);
             mux.emit(MuxEvent::ClientChanged { client, name, kind });
             Ok(json!({}))
         }
@@ -11662,15 +12063,120 @@ fn handle_command_with_cancellation(
             }
             Ok(json!({}))
         }
-        Command::DetachClient { client: target } => {
-            if target == client {
-                if !mux.control_clients.contains(target) {
-                    anyhow::bail!("unknown client {target}");
+        Command::DetachClient { client: target, by } => {
+            let by = detach_actor(mux, client, by);
+            if let DetachClientTarget::Participant(participant) = &target
+                && let Some((relay, placement, Some(view))) =
+                    mux.terminal_participant_member(participant)
+            {
+                // A relay sub-view leaves alone; its relay stays attached and
+                // forwards the notice to that leaf only.
+                mux.detach_terminal_sub_view(placement, relay, &view);
+                let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
+                mux.control_clients.send_surface_event(
+                    relay,
+                    placement,
+                    None,
+                    &detached_event_json(placement, &notice, Some(&view)),
+                );
+                return Ok(json!({}));
+            }
+            let target_client = match &target {
+                DetachClientTarget::Client(target) => Some(*target),
+                DetachClientTarget::Participant(participant) => {
+                    target.whole_client().or_else(|| {
+                        mux.terminal_participant_member(participant).map(|member| member.0)
+                    })
                 }
-            } else if !disconnect_client(mux, target, true) {
-                anyhow::bail!("unknown client {target}");
+            };
+            let Some(target_client) = target_client else {
+                match target {
+                    DetachClientTarget::Participant(participant) => {
+                        anyhow::bail!("unknown participant {participant}")
+                    }
+                    DetachClientTarget::Client(target) => anyhow::bail!("unknown client {target}"),
+                }
+            };
+            if target_client == client {
+                if !mux.control_clients.contains(target_client) {
+                    anyhow::bail!("unknown client {target_client}");
+                }
+            } else if !kick_client(mux, target_client, by) {
+                anyhow::bail!("unknown client {target_client}");
             }
             Ok(json!({}))
+        }
+        Command::SetSizePolicy { surface, workspace, policy } => match (surface, workspace) {
+            (Some(surface), None) => {
+                get_surface(mux, surface)?;
+                let state = mux
+                    .set_terminal_size_policy(surface, policy)
+                    .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?;
+                Ok(json!({"state": state}))
+            }
+            (None, Some(workspace)) => {
+                mux.set_workspace_size_policy(workspace, policy)?;
+                Ok(json!({}))
+            }
+            _ => anyhow::bail!(
+                "bad request: set-size-policy needs exactly one of surface or workspace"
+            ),
+        },
+        Command::SetSizeCounts { surface, client: target, lease, view, participant, counts } => {
+            get_surface(mux, surface)?;
+            let selectors = usize::from(target.is_some())
+                + usize::from(lease.is_some())
+                + usize::from(view.is_some())
+                + usize::from(participant.is_some());
+            anyhow::ensure!(
+                selectors <= 1,
+                "bad request: set-size-counts takes at most one of client, lease, view or participant"
+            );
+            let participant = if let Some(participant) = participant {
+                participant
+            } else if let Some(view) = view {
+                crate::mux::sub_view_participant_id(client, &view)
+            } else {
+                if let Some(lease) = &lease {
+                    match mux.control_clients.view_lease_status(client, surface, lease)? {
+                        ViewLeaseStatus::Current { .. } => {}
+                        ViewLeaseStatus::Superseded => return Ok(json!({"outcome": "superseded"})),
+                    }
+                }
+                mux.terminal_view_participant_id(surface, target.unwrap_or(client))
+                    .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?
+            };
+            let changed = mux
+                .set_terminal_size_counts(surface, &participant, counts)
+                .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
+            Ok(json!({"outcome": "applied", "changed": changed, "participant": participant}))
+        }
+        Command::NoteSizeActivity { surface, view } => {
+            anyhow::ensure!(
+                mux.control_clients.supports_capability(client, SHARED_SIZING_CAPABILITY),
+                "note-size-activity requires client capability {SHARED_SIZING_CAPABILITY}"
+            );
+            get_surface(mux, surface)?;
+            let participant = match view.as_deref() {
+                Some(view) => crate::mux::sub_view_participant_id(client, view),
+                None => mux
+                    .terminal_view_participant_id(surface, client)
+                    .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?,
+            };
+            let changed = mux
+                .note_terminal_activity(surface, client, view.as_deref())
+                .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
+            Ok(json!({"participant": participant, "changed": changed}))
+        }
+        Command::GetSizeState { surface } => {
+            get_surface(mux, surface)?;
+            let state = mux
+                .terminal_size_state(surface)
+                .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?;
+            let self_participant = mux
+                .terminal_view_participant_id(surface, client)
+                .filter(|id| state.participant(id).is_some());
+            Ok(json!({"state": state, "self_participant": self_participant}))
         }
         Command::ReloadConfig => {
             mux.request_config_reload()?;
@@ -11771,6 +12277,7 @@ fn handle_command_with_cancellation(
                     surface.write_bytes(&raw)?;
                 }
             }
+            mux.note_terminal_input(surface.id, client);
             Ok(json!({}))
         }
         Command::ReadScreen { surface } => {
@@ -11947,6 +12454,7 @@ fn handle_command_with_cancellation(
                 Ok::<(), anyhow::Error>(())
             })??;
             surface.write_bytes(&encoded)?;
+            mux.note_terminal_input(surface.id, client);
             Ok(json!({}))
         }
         Command::Copy { surface, mode } => {
@@ -12788,9 +13296,31 @@ fn handle_command_with_cancellation(
                 "outcome": "applied",
             }))
         }
-        Command::ResizeAttachedView { surface, lease, cols, rows } => {
-            let _lifecycle = mux.lock_client_sizing_lifecycle();
+        Command::ResizeAttachedView { surface, lease, view, identity, cols, rows } => {
             let (cols, rows) = clamp_terminal_size(cols, rows);
+            let lease = match (lease, view) {
+                (Some(lease), None) => lease,
+                (None, Some(view)) => {
+                    validate_relay_view(&view)?;
+                    let (participant, accepted) = mux.report_terminal_sub_view(
+                        surface,
+                        client,
+                        &view,
+                        identity.map(ClientIdentityWire::into_identity),
+                        Some((cols, rows)),
+                    )?;
+                    return Ok(json!({
+                        "accepted": accepted,
+                        "reservation_id": null,
+                        "outcome": "applied",
+                        "participant": participant,
+                    }));
+                }
+                _ => anyhow::bail!(
+                    "bad request: resize-attached-view needs exactly one of lease or view"
+                ),
+            };
+            let _lifecycle = mux.lock_client_sizing_lifecycle();
             match mux.control_clients.view_lease_status(client, surface, &lease)? {
                 ViewLeaseStatus::Superseded => {
                     return Ok(json!({
@@ -12882,7 +13412,19 @@ fn handle_command_with_cancellation(
             }
             Ok(json!({"outcome": "applied"}))
         }
-        Command::ReleaseAttachedViewSize { surface, lease } => {
+        Command::ReleaseAttachedViewSize { surface, lease, view } => {
+            let lease = match (lease, view) {
+                (Some(lease), None) => lease,
+                (None, Some(view)) => {
+                    return Ok(match mux.release_terminal_sub_view(surface, client, &view) {
+                        Some(_) => json!({"outcome": "applied"}),
+                        None => json!({"outcome": "superseded"}),
+                    });
+                }
+                _ => anyhow::bail!(
+                    "bad request: release-attached-view-size needs exactly one of lease or view"
+                ),
+            };
             let _lifecycle = mux.lock_client_sizing_lifecycle();
             match mux.control_clients.view_lease_status(client, surface, &lease)? {
                 ViewLeaseStatus::Superseded => {
@@ -12908,7 +13450,19 @@ fn handle_command_with_cancellation(
                 }
             }
         }
-        Command::DetachAttachedView { surface, lease } => {
+        Command::DetachAttachedView { surface, lease, view } => {
+            let lease = match (lease, view) {
+                (Some(lease), None) => lease,
+                (None, Some(view)) => {
+                    return Ok(match mux.detach_terminal_sub_view(surface, client, &view) {
+                        Some(_) => json!({"outcome": "applied"}),
+                        None => json!({"outcome": "superseded"}),
+                    });
+                }
+                _ => anyhow::bail!(
+                    "bad request: detach-attached-view needs exactly one of lease or view"
+                ),
+            };
             let Some((stream, outbound)) =
                 mux.control_clients.view_stream(client, surface, &lease)?
             else {
@@ -13029,6 +13583,15 @@ fn handle_command_with_cancellation(
                             json!({"event": "tree-changed"})
                         }
                         MuxEvent::TreeSelectionChanged => continue,
+                        MuxEvent::SizeStateChanged { surface, runtime, state } => {
+                            if !event_mux
+                                .control_clients
+                                .supports_capability(client, SHARED_SIZING_CAPABILITY)
+                            {
+                                continue;
+                            }
+                            size_state_event_json(*surface, *runtime, state, Some(client))
+                        }
                         _ => subscribed_event_json(&event),
                     };
                     if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
@@ -13230,7 +13793,7 @@ fn handle_command_with_cancellation(
                         size_rollback,
                     },
                 )?;
-                return Ok(lease.map_or_else(|| json!({}), |lease| json!({"lease": lease})));
+                return Ok(attach_response(mux, surface_id, client, lease));
             }
             if surface.kind() == SurfaceKind::Browser {
                 let MarkedClientAttach {
@@ -13382,7 +13945,7 @@ fn handle_command_with_cancellation(
                         size_rollback,
                     },
                 )?;
-                return Ok(lease.map_or_else(|| json!({}), |lease| json!({"lease": lease})));
+                return Ok(attach_response(mux, surface_id, client, lease));
             }
             let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
                 mark_client_attached(
@@ -13516,7 +14079,7 @@ fn handle_command_with_cancellation(
                     size_rollback,
                 },
             )?;
-            Ok(lease.map_or_else(|| json!({}), |lease| json!({"lease": lease})))
+            Ok(attach_response(mux, surface_id, client, lease))
         }
     }
 }
@@ -13558,6 +14121,9 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "reservation_id": reservation_id,
         }),
         MuxEvent::SurfaceExited(id) => json!({"event": "surface-exited", "surface": id}),
+        MuxEvent::SizeStateChanged { surface, runtime, state } => {
+            size_state_event_json(*surface, *runtime, state, None)
+        }
         MuxEvent::TitleChanged { surface, title } => {
             json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
         }
@@ -17443,6 +18009,10 @@ mod tests {
                 name: Some("browser owner".to_string()),
                 kind: Some("native-browser".to_string()),
                 capabilities: None,
+                user_id: None,
+                display_name: None,
+                device_kind: None,
+                device_name: None,
             },
             &owner_writer,
         )
@@ -19507,7 +20077,7 @@ mod tests {
         assert!(disconnect_client(&mux, client, true));
 
         let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
-        assert_eq!(terminal, json!({"event": "detached", "surface": 41}));
+        assert_eq!(terminal, json!({"event": "detached", "surface": 41, "reason": "network"}));
         assert_eq!(outbound.try_pop(), None);
     }
 
@@ -19538,7 +20108,10 @@ mod tests {
         assert_eq!(response["id"], 9);
         assert_eq!(response["ok"], true);
         let detached: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
-        assert_eq!(detached, json!({"event": "detached", "surface": surface.id}));
+        assert_eq!(
+            detached,
+            json!({"event": "detached", "surface": surface.id, "reason": "disconnected-by"})
+        );
         assert_eq!(outbound.try_pop(), None, "stream data followed the terminal detach marker");
         assert_eq!(mux.client_surface_size(surface.id, client), None);
         assert!(mux.control_clients_json(client).as_array().unwrap().is_empty());
@@ -19561,7 +20134,7 @@ mod tests {
         handle_command(
             &mux,
             initiator,
-            Command::DetachClient { client: target },
+            Command::DetachClient { client: DetachClientTarget::Client(target), by: None },
             &initiator_writer,
         )
         .unwrap();
@@ -19573,11 +20146,318 @@ mod tests {
         let error = handle_command(
             &mux,
             initiator,
-            Command::DetachClient { client: target },
+            Command::DetachClient { client: DetachClientTarget::Client(target), by: None },
             &initiator_writer,
         )
         .unwrap_err();
         assert!(error.to_string().contains(&format!("unknown client {target}")));
+    }
+
+    fn json_command(value: Value) -> Command {
+        serde_json::from_value::<Request>(value).unwrap().cmd
+    }
+
+    fn drain_json(outbound: &BoundedOutbound) -> Vec<Value> {
+        std::iter::from_fn(|| outbound.try_pop())
+            .map(|message| serde_json::from_str(&message).expect("outbound JSON"))
+            .collect()
+    }
+
+    fn attach_test_view(mux: &Arc<Mux>, client: u64, surface: SurfaceId, writer: &MessageWriter) {
+        let stream = writer.start_stream(&attach_overflow_json(surface)).unwrap();
+        mux.control_clients.attach_surface(client, surface, stream.clone()).unwrap();
+        commit_client_attach(mux, client, surface, stream.id, None, None).unwrap();
+    }
+
+    #[test]
+    fn owner_disconnect_elects_the_next_terminal_owner() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let join = |cols, rows| {
+            let writer = test_writer();
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            attach_test_view(&mux, client, surface.id, &writer);
+            handle_command(
+                &mux,
+                client,
+                Command::ResizeSurface { surface: surface.id, cols, rows },
+                &writer,
+            )
+            .unwrap();
+            client
+        };
+        let first = join(150, 42);
+        let second = join(118, 38);
+        assert_eq!(surface.size(), (118, 38));
+
+        assert!(disconnect_client(&mux, second, false));
+        assert_eq!(surface.size(), (150, 42), "the grid must not freeze at the departed owner");
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert_eq!(state.owners, [format!("c{first}")]);
+        assert_eq!(state.participants.len(), 1);
+    }
+
+    #[test]
+    fn relay_sub_views_join_shared_sizing_with_their_own_identity() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
+        let (writer, outbound) = captured_writer();
+        let relay = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "set-client-info", "name": "mirror", "kind": "mac",
+                "capabilities": [SHARED_SIZING_CAPABILITY],
+                "user_id": "u1", "display_name": "Maya", "device_kind": "mac",
+                "device_name": "Mac Studio",
+            })),
+            &writer,
+        )
+        .unwrap();
+        attach_test_view(&mux, relay, surface.id, &writer);
+        handle_command(
+            &mux,
+            relay,
+            Command::ResizeSurface { surface: surface.id, cols: 150, rows: 42 },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(surface.size(), (150, 42));
+
+        // The same user's phone defers to their Mac.
+        let phone = handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "resize-attached-view", "surface": surface.id, "view": "mobile:p1",
+                "identity": {"user_id": "u1", "display_name": "Maya", "device_kind": "iphone",
+                             "device_name": "Maya's iPhone"},
+                "cols": 54, "rows": 26,
+            })),
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(phone["participant"], format!("c{relay}/mobile:p1"));
+        assert_eq!(phone["accepted"], false);
+        assert_eq!(surface.size(), (150, 42));
+        let state = handle_command(
+            &mux,
+            relay,
+            json_command(json!({"cmd": "get-size-state", "surface": surface.id})),
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(state["self_participant"], format!("c{relay}"));
+        let row = state["state"]["participants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == format!("c{relay}/mobile:p1"))
+            .unwrap()
+            .clone();
+        assert_eq!(row["via"], format!("c{relay}"));
+        assert_eq!(row["device_kind"], "iphone");
+        assert_eq!(row["counts"], false);
+        assert_eq!(row["priority_key"], "u1/iphone");
+        let mac = &state["state"]["participants"][0];
+        assert_eq!(mac["id"], format!("c{relay}"));
+        assert_eq!(mac["user_id"], "u1");
+        assert_eq!(mac["device_name"], "Mac Studio");
+
+        // Another user's phone counts and, as the newest view, takes the grid.
+        drain_json(&outbound);
+        let other = handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "resize-attached-view", "surface": surface.id, "view": "mobile:p2",
+                "identity": {"user_id": "u2", "device_kind": "iphone"}, "cols": 40, "rows": 20,
+            })),
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(other["accepted"], true);
+        assert_eq!(surface.size(), (40, 20));
+        let published = drain_json(&outbound)
+            .into_iter()
+            .rfind(|event| event["event"] == "size-state")
+            .expect("the attach stream receives size-state");
+        assert_eq!(published["surface"], surface.id);
+        assert_eq!(published["self_participant"], format!("c{relay}"));
+        assert_eq!(published["state"]["owners"], json!([format!("c{relay}/mobile:p2")]));
+
+        // Detaching the sub-view hands the grid to the next owner.
+        let detached = handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "detach-attached-view", "surface": surface.id, "view": "mobile:p2",
+            })),
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(detached["outcome"], "applied");
+        assert_eq!(surface.size(), (150, 42));
+
+        assert!(disconnect_client(&mux, relay, false));
+        assert!(mux.terminal_size_state(surface.id).unwrap().participants.is_empty());
+    }
+
+    #[test]
+    fn detach_client_reports_the_kick_reason_and_actor() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let kicker_writer = test_writer();
+        let kicker = mux.control_clients.register(ClientTransport::Unix, kicker_writer.clone());
+        handle_command(
+            &mux,
+            kicker,
+            json_command(json!({
+                "cmd": "set-client-info", "user_id": "u_maya", "display_name": "Maya",
+                "device_name": "Mac Studio",
+            })),
+            &kicker_writer,
+        )
+        .unwrap();
+
+        let (target_writer, target_outbound) = captured_writer();
+        let target = mux.control_clients.register(ClientTransport::Unix, target_writer.clone());
+        attach_test_view(&mux, target, surface.id, &target_writer);
+        handle_command(
+            &mux,
+            kicker,
+            json_command(json!({"cmd": "detach-client", "client": format!("c{target}")})),
+            &kicker_writer,
+        )
+        .unwrap();
+        let detached = drain_json(&target_outbound)
+            .into_iter()
+            .find(|event| event["event"] == "detached")
+            .expect("kicked client receives detached");
+        assert_eq!(
+            detached,
+            json!({
+                "event": "detached", "surface": surface.id, "reason": "disconnected-by",
+                "by": {"user_id": "u_maya", "display_name": "Maya", "device_name": "Mac Studio"},
+            })
+        );
+        assert!(!mux.control_clients.contains(target));
+
+        // Kicking a relay sub-view detaches only that view.
+        let (relay_writer, relay_outbound) = captured_writer();
+        let relay = mux.control_clients.register(ClientTransport::Unix, relay_writer.clone());
+        attach_test_view(&mux, relay, surface.id, &relay_writer);
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "resize-attached-view", "surface": surface.id, "view": "mobile:p1",
+                "cols": 54, "rows": 26,
+            })),
+            &relay_writer,
+        )
+        .unwrap();
+        drain_json(&relay_outbound);
+        handle_command(
+            &mux,
+            kicker,
+            json_command(json!({
+                "cmd": "detach-client", "client": format!("c{relay}/mobile:p1"),
+                "by": {"display_name": "Kai"},
+            })),
+            &kicker_writer,
+        )
+        .unwrap();
+        let notice = drain_json(&relay_outbound)
+            .into_iter()
+            .find(|event| event["event"] == "detached")
+            .expect("relay receives the sub-view detach");
+        assert_eq!(
+            notice,
+            json!({
+                "event": "detached", "surface": surface.id, "reason": "disconnected-by",
+                "by": {"display_name": "Kai"}, "view": "mobile:p1",
+            })
+        );
+        assert!(mux.control_clients.contains(relay));
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert_eq!(
+            state.participants.iter().map(|row| row.participant.id.clone()).collect::<Vec<_>>(),
+            [format!("c{relay}")]
+        );
+        let error = handle_command(
+            &mux,
+            kicker,
+            json_command(json!({"cmd": "detach-client", "client": format!("c{relay}/gone")})),
+            &kicker_writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("unknown participant"));
+    }
+
+    #[test]
+    fn relay_forwarded_input_counts_as_the_phone_sub_view_activity() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
+        let writer = test_writer();
+        let relay = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let activity = |view: Option<&str>| {
+            let mut request = json!({"cmd": "note-size-activity", "surface": surface.id});
+            if let Some(view) = view {
+                request["view"] = json!(view);
+            }
+            handle_command(&mux, relay, json_command(request), &writer)
+        };
+        // The command is gated on the client capability.
+        assert!(activity(None).unwrap_err().to_string().contains(SHARED_SIZING_CAPABILITY));
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "set-client-info", "capabilities": [SHARED_SIZING_CAPABILITY],
+                "user_id": "u1", "device_kind": "mac",
+            })),
+            &writer,
+        )
+        .unwrap();
+        attach_test_view(&mux, relay, surface.id, &writer);
+        mux.resize_surface_for_client(surface.id, relay, 150, 42).unwrap();
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "resize-attached-view", "surface": surface.id, "view": "mobile:p1",
+                "identity": {"user_id": "u1", "device_kind": "iphone"}, "cols": 54, "rows": 26,
+            })),
+            &writer,
+        )
+        .unwrap();
+        let phone = format!("c{relay}/mobile:p1");
+        assert_eq!(mux.set_terminal_size_counts(surface.id, &phone, Some(true)), Some(true));
+
+        // The Mac's own activity keeps the grid on the Mac.
+        assert_eq!(activity(None).unwrap()["participant"], format!("c{relay}"));
+        assert_eq!(surface.size(), (150, 42));
+        assert_eq!(mux.terminal_size_state(surface.id).unwrap().owners, [format!("c{relay}")]);
+
+        // Forwarded phone input marks the phone, which then owns the grid.
+        let response = activity(Some("mobile:p1")).unwrap();
+        assert_eq!(response["participant"], phone);
+        assert_eq!(response["changed"], true);
+        assert_eq!(surface.size(), (54, 26));
+        assert_eq!(mux.terminal_size_state(surface.id).unwrap().owners, [phone]);
+
+        assert!(
+            activity(Some("mobile:gone")).unwrap_err().to_string().contains("unknown participant")
+        );
+    }
+
+    #[test]
+    fn shared_sizing_is_advertised() {
+        assert!(advertised_capabilities(false).contains(&SHARED_SIZING_CAPABILITY));
     }
 
     #[test]
@@ -19586,8 +20466,13 @@ mod tests {
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
 
-        let error =
-            handle_command(&mux, client, Command::DetachClient { client: 0 }, &writer).unwrap_err();
+        let error = handle_command(
+            &mux,
+            client,
+            Command::DetachClient { client: DetachClientTarget::Client(0), by: None },
+            &writer,
+        )
+        .unwrap_err();
 
         assert!(error.to_string().contains("unknown client 0"));
         assert!(
@@ -20312,6 +21197,10 @@ mod tests {
                     name: Some("receipt test".to_string()),
                     kind: Some("tui".to_string()),
                     capabilities: Some(capabilities),
+                    user_id: None,
+                    display_name: None,
+                    device_kind: None,
+                    device_name: None,
                 },
                 writer,
             )
@@ -20413,6 +21302,10 @@ mod tests {
                 name: Some("native browser bootstrap".to_string()),
                 kind: Some("native-browser".to_string()),
                 capabilities: Some(vec![CREATION_RECEIPTS_CAPABILITY.to_string()]),
+                user_id: None,
+                display_name: None,
+                device_kind: None,
+                device_name: None,
             },
             &writer,
         )
@@ -20500,6 +21393,10 @@ mod tests {
                     capabilities: Some(
                         capabilities.iter().map(|capability| (*capability).to_string()).collect(),
                     ),
+                    user_id: None,
+                    display_name: None,
+                    device_kind: None,
+                    device_name: None,
                 },
                 writer,
             )
@@ -20539,9 +21436,10 @@ mod tests {
     }
 
     #[test]
-    fn attached_terminal_resizes_are_view_local_until_geometry_is_claimed() {
+    fn attached_terminal_resizes_follow_the_latest_view_until_claimed() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
 
         let first_writer = test_writer();
         let first_stream = first_writer.start_stream(&attach_overflow_json(surface.id)).unwrap();
@@ -20562,8 +21460,8 @@ mod tests {
             &first_writer,
         )
         .unwrap();
-        assert_eq!(first_result["accepted"].as_bool(), Some(false));
-        assert_eq!(surface.size(), (80, 24));
+        assert_eq!(first_result["accepted"].as_bool(), Some(true));
+        assert_eq!(surface.size(), (100, 30));
 
         let second_result = handle_command(
             &mux,
@@ -20572,8 +21470,8 @@ mod tests {
             &second_writer,
         )
         .unwrap();
-        assert_eq!(second_result["accepted"].as_bool(), Some(false));
-        assert_eq!(surface.size(), (80, 24));
+        assert_eq!(second_result["accepted"].as_bool(), Some(true));
+        assert_eq!(surface.size(), (132, 44));
 
         handle_command(
             &mux,
@@ -20858,6 +21756,10 @@ mod tests {
                 name: Some("browser owner".to_string()),
                 kind: Some("native-browser".to_string()),
                 capabilities: None,
+                user_id: None,
+                display_name: None,
+                device_kind: None,
+                device_name: None,
             },
             &owner_writer,
         )
@@ -20918,6 +21820,10 @@ mod tests {
                 name: Some("existing browser".to_string()),
                 kind: Some("native-browser".to_string()),
                 capabilities: None,
+                user_id: None,
+                display_name: None,
+                device_kind: None,
+                device_name: None,
             },
             &owner_writer,
         )
@@ -20954,6 +21860,10 @@ mod tests {
                 name: Some("late browser".to_string()),
                 kind: Some("native-browser".to_string()),
                 capabilities: None,
+                user_id: None,
+                display_name: None,
+                device_kind: None,
+                device_name: None,
             },
             &late_writer,
         )
@@ -21176,6 +22086,10 @@ mod tests {
                 name: Some("\u{1b}]0;evil\u{07}name".to_string()),
                 kind: Some("web".to_string()),
                 capabilities: None,
+                user_id: None,
+                display_name: None,
+                device_kind: None,
+                device_name: None,
             },
             &writer,
         )
@@ -21186,7 +22100,15 @@ mod tests {
         handle_command(
             &mux,
             client,
-            Command::SetClientInfo { name: Some("n".repeat(80)), kind: None, capabilities: None },
+            Command::SetClientInfo {
+                name: Some("n".repeat(80)),
+                kind: None,
+                capabilities: None,
+                user_id: None,
+                display_name: None,
+                device_kind: None,
+                device_name: None,
+            },
             &writer,
         )
         .unwrap();
@@ -21197,6 +22119,10 @@ mod tests {
                 name: None,
                 kind: Some("tui".to_string()),
                 capabilities: None,
+                user_id: None,
+                display_name: None,
+                device_kind: None,
+                device_name: None,
             },
             &writer,
         )
@@ -21242,8 +22168,9 @@ mod tests {
         )
         .unwrap();
 
+        // Attaching with a viewport joins shared sizing and takes the grid.
         let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
-        assert_eq!(listed[0]["sizes"][0]["size_participating"], false);
+        assert_eq!(listed[0]["sizes"][0]["size_participating"], true);
 
         handle_command(
             &mux,
@@ -21311,6 +22238,7 @@ mod tests {
     fn client_sizing_command_applies_exclusive_and_all_modes_atomically() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
         let first_writer = test_writer();
         let second_writer = test_writer();
         let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
@@ -21328,7 +22256,7 @@ mod tests {
             )
             .unwrap();
         }
-        assert_eq!(surface.size(), (120, 40));
+        assert_eq!(surface.size(), (80, 30));
 
         handle_command(
             &mux,
@@ -21346,6 +22274,8 @@ mod tests {
         assert!(mux.client_size_participates(surface.id, first));
         assert!(!mux.client_size_participates(surface.id, second));
 
+        // "All sizes" restores automatic counting; it no longer freezes the
+        // grid, so the latest active view keeps it.
         handle_command(
             &mux,
             first,
@@ -21359,7 +22289,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(surface.size(), (120, 40));
-        assert!(!mux.client_size_participates(surface.id, first));
+        assert!(mux.client_size_participates(surface.id, first));
         assert!(!mux.client_size_participates(surface.id, second));
     }
 
@@ -21388,14 +22318,14 @@ mod tests {
         let stream_id = stream.id;
         mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
         mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
-        let passive = handle_command(
+        let joined = handle_command(
             &mux,
             client,
             Command::ResizeSurface { surface: surface.id, cols: 90, rows: 28 },
             &writer,
         )
         .unwrap();
-        assert_eq!(passive["accepted"], false);
+        assert_eq!(joined["accepted"], true);
 
         handle_command(
             &mux,
@@ -21441,6 +22371,8 @@ mod tests {
         let mux = test_mux();
         let current = mux.new_workspace(None, Some((120, 40))).unwrap();
         let other = mux.new_workspace(None, Some((110, 35))).unwrap();
+        mux.pin_latest_size_policy_for_test(current.id);
+        mux.pin_latest_size_policy_for_test(other.id);
         let writer = test_writer();
         let first = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let second = mux.control_clients.register(ClientTransport::Unix, test_writer());
@@ -21452,8 +22384,8 @@ mod tests {
         mux.resize_surface_for_client(current.id, second, 80, 30).unwrap();
         mux.resize_surface_for_client(other.id, first, 90, 28).unwrap();
         mux.resize_surface_for_client(other.id, second, 70, 20).unwrap();
-        assert_eq!(current.size(), (120, 40));
-        assert_eq!(other.size(), (110, 35));
+        assert_eq!(current.size(), (80, 30));
+        assert_eq!(other.size(), (70, 20));
 
         let request = serde_json::from_value::<Request>(json!({
             "cmd": "set-client-sizing",
@@ -21466,7 +22398,7 @@ mod tests {
         handle_command(&mux, first, request.cmd, &writer).unwrap();
 
         assert_eq!(current.size(), (100, 32));
-        assert_eq!(other.size(), (110, 35));
+        assert_eq!(other.size(), (70, 20));
     }
 
     #[test]
@@ -21612,73 +22544,65 @@ mod tests {
     }
 
     #[test]
-    fn displaced_terminal_owner_reclaims_geometry_when_the_new_owner_leaves() {
+    fn remaining_view_takes_the_grid_when_the_newer_owner_stops_counting() {
+        // Shared sizing (`latest`): when the newest owner stops counting, the
+        // next counting view takes the grid in the same step, so a laptop
+        // regains its size when a phone stops sizing the terminal.
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-        let laptop = mux.control_clients.register(ClientTransport::Unix, test_writer());
-        let phone = mux.control_clients.register(ClientTransport::Unix, test_writer());
-        mux.resize_surface_for_client(surface.id, laptop, 120, 40).unwrap();
-        assert_eq!(mux.claim_terminal_geometry(surface.id, laptop), Some(true));
+        mux.pin_latest_size_policy_for_test(surface.id);
+        let join = |cols, rows| {
+            let writer = test_writer();
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            attach_test_view(&mux, client, surface.id, &writer);
+            handle_command(
+                &mux,
+                client,
+                Command::ResizeSurface { surface: surface.id, cols, rows },
+                &writer,
+            )
+            .unwrap();
+            client
+        };
+        let laptop = join(120, 40);
+        let phone = join(66, 52);
+        assert_eq!(surface.size(), (66, 52));
+
+        mux.set_client_size_participation(surface.id, phone, false).unwrap();
         assert_eq!(surface.size(), (120, 40));
-
-        // The phone views the terminal, then releases its viewport while
-        // keeping its stream (release-attached-view-size).
-        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
-        assert_eq!(mux.claim_terminal_geometry(surface.id, phone), Some(true));
-        assert_eq!(surface.size(), (66, 52));
-        assert!(!mux.client_size_participates(surface.id, laptop));
-        mux.remove_surface_size_client(surface.id, phone);
-        assert_eq!(surface.size(), (120, 40));
-        assert!(mux.client_size_participates(surface.id, laptop));
-        mux.resize_surface_for_client(surface.id, laptop, 118, 38).unwrap();
-        assert_eq!(surface.size(), (118, 38));
-
-        // The phone claims again, then disables its sizing.
-        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
-        mux.claim_terminal_geometry(surface.id, phone).unwrap();
-        assert_eq!(surface.size(), (66, 52));
-        assert_eq!(mux.set_client_size_participation(surface.id, phone, false), Some(true));
-        assert_eq!(surface.size(), (118, 38));
-        assert!(mux.client_size_participates(surface.id, laptop));
-
-        // The phone claims again, then disconnects.
-        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
-        mux.claim_terminal_geometry(surface.id, phone).unwrap();
-        assert_eq!(surface.size(), (66, 52));
-        assert!(disconnect_client(&mux, phone, false));
-        assert_eq!(surface.size(), (118, 38));
-        assert!(mux.client_size_participates(surface.id, laptop));
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert_eq!(state.owners, [format!("c{laptop}")]);
     }
 
     #[test]
-    fn departed_or_frozen_owners_do_not_reclaim_terminal_geometry() {
+    fn departed_owner_never_reclaims_terminal_geometry() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-        let laptop = mux.control_clients.register(ClientTransport::Unix, test_writer());
-        let phone = mux.control_clients.register(ClientTransport::Unix, test_writer());
-        mux.resize_surface_for_client(surface.id, laptop, 120, 40).unwrap();
-        mux.claim_terminal_geometry(surface.id, laptop).unwrap();
-        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
-        mux.claim_terminal_geometry(surface.id, phone).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
+        let join = |cols, rows| {
+            let writer = test_writer();
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            attach_test_view(&mux, client, surface.id, &writer);
+            handle_command(
+                &mux,
+                client,
+                Command::ResizeSurface { surface: surface.id, cols, rows },
+                &writer,
+            )
+            .unwrap();
+            client
+        };
+        let laptop = join(120, 40);
+        let phone = join(66, 52);
+        assert_eq!(surface.size(), (66, 52));
 
-        // A displaced owner that disconnected is never re-elected.
+        // A disconnected view leaves the engine and never returns; with no
+        // counting view left the grid keeps its last size.
         assert!(disconnect_client(&mux, laptop, false));
-        mux.remove_surface_size_client(surface.id, phone);
+        assert!(disconnect_client(&mux, phone, false));
         assert_eq!(surface.size(), (66, 52));
-        assert!(!mux.client_size_participates(surface.id, phone));
-
-        // An explicit release freezes the grid and forgets displaced owners.
-        let laptop = mux.control_clients.register(ClientTransport::Unix, test_writer());
-        mux.resize_surface_for_client(surface.id, laptop, 120, 40).unwrap();
-        mux.claim_terminal_geometry(surface.id, laptop).unwrap();
-        assert_eq!(surface.size(), (120, 40));
-        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
-        mux.claim_terminal_geometry(surface.id, phone).unwrap();
-        assert_eq!(mux.release_terminal_geometry(surface.id), Some(true));
-        assert_eq!(surface.size(), (66, 52));
-        mux.remove_surface_size_client(surface.id, phone);
-        assert_eq!(surface.size(), (66, 52));
-        assert!(!mux.client_size_participates(surface.id, laptop));
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert!(state.participants.is_empty());
     }
 
     #[test]
@@ -22086,7 +23010,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_geometry_authority_excludes_clients_that_attach_later() {
+    fn terminal_viewer_that_opts_out_never_takes_geometry() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
         let target_writer = test_writer();
@@ -22119,6 +23043,22 @@ mod tests {
         let later_stream_id = later_stream.id;
         mux.control_clients.attach_surface(later, surface.id, later_stream).unwrap();
         mux.control_clients.commit_surface(later, surface.id, later_stream_id, None).unwrap();
+        // tmux `attach -f ignore-size`: the later viewer opts out first.
+        mux.sync_terminal_client_view(surface.id, later);
+        handle_command(
+            &mux,
+            later,
+            Command::SetSizeCounts {
+                surface: surface.id,
+                client: None,
+                lease: None,
+                view: None,
+                participant: None,
+                counts: Some(false),
+            },
+            &later_writer,
+        )
+        .unwrap();
         handle_command(
             &mux,
             later,
@@ -22138,7 +23078,7 @@ mod tests {
     }
 
     #[test]
-    fn enabling_late_unsized_terminal_client_transfers_geometry_authority() {
+    fn enabling_late_unsized_terminal_client_takes_geometry_on_first_report() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
         let target_writer = test_writer();
@@ -22190,9 +23130,23 @@ mod tests {
         )
         .unwrap();
 
+        // Without a viewport the late view cannot set the grid, so the
+        // current owner keeps it instead of freezing.
+        assert!(!mux.client_size_participates(surface.id, late));
+        assert!(mux.client_size_participates(surface.id, target));
+        assert_eq!(surface.size(), (120, 40));
+
+        handle_command(
+            &mux,
+            late,
+            Command::ResizeSurface { surface: surface.id, cols: 90, rows: 30 },
+            &late_writer,
+        )
+        .unwrap();
         assert!(mux.client_size_participates(surface.id, late));
         assert!(!mux.client_size_participates(surface.id, target));
         assert!(!mux.client_size_participates(surface.id, other));
+        assert_eq!(surface.size(), (90, 30));
     }
 
     #[test]
@@ -22383,6 +23337,10 @@ mod tests {
                     VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string(),
                     VIEW_ATTACHMENT_DETACH_CAPABILITY.to_string(),
                 ]),
+                user_id: None,
+                display_name: None,
+                device_kind: None,
+                device_name: None,
             },
             &writer,
         )
@@ -22428,7 +23386,9 @@ mod tests {
             client,
             Command::ResizeAttachedView {
                 surface: surface.id,
-                lease: first_lease.clone(),
+                lease: Some(first_lease.clone()),
+                view: None,
+                identity: None,
                 cols: 110,
                 rows: 35,
             },
@@ -22443,7 +23403,9 @@ mod tests {
             client,
             Command::ResizeAttachedView {
                 surface: surface.id,
-                lease: second_lease.clone(),
+                lease: Some(second_lease.clone()),
+                view: None,
+                identity: None,
                 cols: 70,
                 rows: 20,
             },
@@ -22461,7 +23423,14 @@ mod tests {
             let error = handle_command(
                 &mux,
                 request_client,
-                Command::ResizeAttachedView { surface: request_surface, lease, cols: 40, rows: 10 },
+                Command::ResizeAttachedView {
+                    surface: request_surface,
+                    lease: Some(lease),
+                    view: None,
+                    identity: None,
+                    cols: 40,
+                    rows: 10,
+                },
                 &writer,
             )
             .unwrap_err();
@@ -22474,7 +23443,9 @@ mod tests {
             foreign,
             Command::ResizeAttachedView {
                 surface: surface.id,
-                lease: second_lease.clone(),
+                lease: Some(second_lease.clone()),
+                view: None,
+                identity: None,
                 cols: 40,
                 rows: 10,
             },
@@ -22487,7 +23458,11 @@ mod tests {
         let detached = handle_command(
             &mux,
             client,
-            Command::DetachAttachedView { surface: surface.id, lease: first_lease.clone() },
+            Command::DetachAttachedView {
+                surface: surface.id,
+                lease: Some(first_lease.clone()),
+                view: None,
+            },
             &writer,
         )
         .unwrap();
@@ -22496,7 +23471,11 @@ mod tests {
         let repeated = handle_command(
             &mux,
             client,
-            Command::DetachAttachedView { surface: surface.id, lease: first_lease.clone() },
+            Command::DetachAttachedView {
+                surface: surface.id,
+                lease: Some(first_lease.clone()),
+                view: None,
+            },
             &writer,
         )
         .unwrap();
@@ -22505,11 +23484,17 @@ mod tests {
         for command in [
             Command::ResizeAttachedView {
                 surface: surface.id,
-                lease: first_lease.clone(),
+                lease: Some(first_lease.clone()),
+                view: None,
+                identity: None,
                 cols: 60,
                 rows: 18,
             },
-            Command::ReleaseAttachedViewSize { surface: surface.id, lease: first_lease.clone() },
+            Command::ReleaseAttachedViewSize {
+                surface: surface.id,
+                lease: Some(first_lease.clone()),
+                view: None,
+            },
         ] {
             let retired = handle_command(&mux, client, command, &writer).unwrap();
             assert_eq!(retired["outcome"], "superseded");
@@ -22520,7 +23505,9 @@ mod tests {
             client,
             Command::ResizeAttachedView {
                 surface: surface.id,
-                lease: second_lease.clone(),
+                lease: Some(second_lease.clone()),
+                view: None,
+                identity: None,
                 cols: 90,
                 rows: 28,
             },
@@ -22536,7 +23523,9 @@ mod tests {
             client,
             Command::ResizeAttachedView {
                 surface: surface.id,
-                lease: second_lease.clone(),
+                lease: Some(second_lease.clone()),
+                view: None,
+                identity: None,
                 cols: 55,
                 rows: 16,
             },
@@ -22565,7 +23554,11 @@ mod tests {
         let old_after_reattach = handle_command(
             &mux,
             client,
-            Command::ReleaseAttachedViewSize { surface: surface.id, lease: second_lease },
+            Command::ReleaseAttachedViewSize {
+                surface: surface.id,
+                lease: Some(second_lease),
+                view: None,
+            },
             &writer,
         )
         .unwrap();
@@ -22591,6 +23584,10 @@ mod tests {
                 name: Some("lease fence".to_string()),
                 kind: Some("tui".to_string()),
                 capabilities: Some(vec![VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string()]),
+                user_id: None,
+                display_name: None,
+                device_kind: None,
+                device_name: None,
             },
             &writer,
         )
@@ -22614,7 +23611,14 @@ mod tests {
             let result = handle_command(
                 &resize_mux,
                 client,
-                Command::ResizeAttachedView { surface: surface_id, lease, cols: 80, rows: 24 },
+                Command::ResizeAttachedView {
+                    surface: surface_id,
+                    lease: Some(lease),
+                    view: None,
+                    identity: None,
+                    cols: 80,
+                    rows: 24,
+                },
                 &resize_writer,
             );
             result_tx.send(result).unwrap();
@@ -22651,6 +23655,10 @@ mod tests {
                 name: Some("lease stress".to_string()),
                 kind: Some("tui".to_string()),
                 capabilities: Some(vec![VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string()]),
+                user_id: None,
+                display_name: None,
+                device_kind: None,
+                device_name: None,
             },
             &writer,
         )
@@ -22678,7 +23686,9 @@ mod tests {
                 client,
                 Command::ResizeAttachedView {
                     surface: surface.id,
-                    lease: lease.clone(),
+                    lease: Some(lease.clone()),
+                    view: None,
+                    identity: None,
                     cols: resized.0,
                     rows: resized.1,
                 },
@@ -22691,7 +23701,14 @@ mod tests {
             let stale = handle_command(
                 &mux,
                 client,
-                Command::ResizeAttachedView { surface: surface.id, lease, cols: 40, rows: 10 },
+                Command::ResizeAttachedView {
+                    surface: surface.id,
+                    lease: Some(lease),
+                    view: None,
+                    identity: None,
+                    cols: 40,
+                    rows: 10,
+                },
                 &writer,
             )
             .unwrap();
