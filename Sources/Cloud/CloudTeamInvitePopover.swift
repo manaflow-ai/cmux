@@ -141,7 +141,7 @@ final class CloudTeamInviteModel {
             if open == 0 {
                 return (String(localized: "cloudInvite.seatsFull.short", defaultValue: "No seats left on this plan. Upgrade to Team to invite more."), true)
             }
-            return (String(format: String(localized: "cloudInvite.seatsOpen", defaultValue: "%1$d of %2$d seats open on this plan."), open, limit), false)
+            return (String.localizedStringWithFormat(String(localized: "cloudInvite.seatsOpen", defaultValue: "%1$d of %2$d seats open on this plan."), open, limit), false)
         }
         return nil
     }
