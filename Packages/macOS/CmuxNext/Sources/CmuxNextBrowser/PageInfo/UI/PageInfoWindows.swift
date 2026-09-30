@@ -7,6 +7,8 @@ final class PageInfoWindows {
     private var certificate: CertificateViewerWindow?
     private var siteSettings: SiteSettingsWindow?
     private var siteData: SiteDataWindow?
+    /// The shell window the bubble belongs to (`WindowPlacement`).
+    var parentWindow: () -> NSWindow? = { nil }
 
     func showCertificate(_ chain: [PageInfoCertificate], site: PageInfoSite, failure: String?) {
         certificate?.close()
@@ -48,8 +50,7 @@ final class PageInfoWindows {
 
     private func present(_ window: NSWindow) {
         ThemeStore.shared.adopt(window)
-        if !window.isVisible { window.center() }
-        window.makeKeyAndOrderFront(nil)
+        WindowPlacement.present(window, parent: parentWindow())
     }
 }
 

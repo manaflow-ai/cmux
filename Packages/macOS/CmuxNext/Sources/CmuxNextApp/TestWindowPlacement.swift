@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CoreGraphics
 
 /// Where an agent's visual-evidence launch puts the app's windows, so a
@@ -18,10 +19,7 @@ import CoreGraphics
 /// never activated and no window becomes key. Each further window cascades
 /// by ``cascadeStep`` so every one stays visible.
 struct TestWindowPlacement: Sendable, Equatable {
-    enum Screen: Sendable, Equatable {
-        case index(Int)
-        case last
-    }
+    typealias Screen = WindowPlacement.TestScreen
 
     static let screenKey = "CMUX_NEXT_TEST_WINDOW_SCREEN"
     static let frameKey = "CMUX_NEXT_TEST_WINDOW_FRAME"
@@ -60,11 +58,8 @@ struct TestWindowPlacement: Sendable, Equatable {
     /// window, given each screen's visible frame in `NSScreen.screens` order.
     func windowFrame(ordinal: Int, visibleFrames: [CGRect]) -> CGRect? {
         guard !visibleFrames.isEmpty else { return nil }
-        let visible: CGRect
-        switch screen {
-        case .last: visible = visibleFrames[visibleFrames.count - 1]
-        case .index(let index): visible = visibleFrames[min(index, visibleFrames.count - 1)]
-        }
+        guard let index = WindowPlacement.screenIndex(test: screen, parent: nil, count: visibleFrames.count) else { return nil }
+        let visible = visibleFrames[index]
         let width = min(frame?.width ?? Self.defaultSize.width, visible.width)
         let height = min(frame?.height ?? Self.defaultSize.height, visible.height)
         let offset = Self.cascadeStep * CGFloat(max(ordinal, 0))

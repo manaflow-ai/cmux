@@ -174,6 +174,7 @@ let package = Package(
         .target(
             name: "CmuxNextTerminal",
             dependencies: [
+                "CmuxNextDesign",
                 "CmuxNextTerminalGeometry",
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
             ],

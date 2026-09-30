@@ -29,7 +29,7 @@ final class SiteSettingsWindow: PageInfoWindow {
         reset.action = #selector(resetPermissions)
 
         let grid = NSGridView()
-        grid.rowSpacing = PageInfoStyle.spacing
+        grid.rowSpacing = PageInfoStyle.spacing * 2
         grid.columnSpacing = PageInfoStyle.inset
         for kind in SitePermissionKind.allCases where provider.supportedSitePermissions.contains(kind) {
             let icon = NSImageView(image: PageInfoStyle.symbol(PageInfoPages.symbol(kind, blocked: false)) ?? NSImage())
@@ -46,8 +46,17 @@ final class SiteSettingsWindow: PageInfoWindow {
             menus[kind] = menu
             grid.addRow(with: [icon, name, menu])
         }
+        grid.column(at: 0).width = PageInfoStyle.iconColumn
         grid.column(at: 1).xPlacement = .leading
         grid.column(at: 2).xPlacement = .trailing
+        grid.setContentHuggingPriority(.required, for: .vertical)
+        // One width for every value menu (the widest title), as Chrome's
+        // site details page aligns its dropdowns.
+        let menuWidth = menus.values.map { $0.intrinsicContentSize.width }.max() ?? 0
+        for menu in menus.values {
+            menu.translatesAutoresizingMaskIntoConstraints = false
+            menu.widthAnchor.constraint(equalToConstant: menuWidth).isActive = true
+        }
 
         let views: [NSView] = [
             PageInfoWindow.sectionTitle(PageInfoStrings.usage), usage, deleteData,

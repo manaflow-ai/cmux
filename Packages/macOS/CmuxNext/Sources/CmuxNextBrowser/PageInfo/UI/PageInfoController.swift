@@ -32,6 +32,8 @@ public final class PageInfoController {
     init(tab: @escaping () -> (any BrowserTab)?, anchor: @escaping () -> NSView?) {
         tabSource = tab
         anchorSource = anchor
+        // The page's shell window: its windows open on that screen.
+        windows.parentWindow = { anchor()?.window.map { $0.parent ?? $0 } }
     }
 
     public var isShown: Bool { panel?.isVisible ?? false }

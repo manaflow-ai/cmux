@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Development window: one terminal surface on a local shell PTY, with a
 /// live hover-preview mirror in the corner. Lets the terminal module be
@@ -30,11 +31,10 @@ public enum TerminalDebugWindow {
 
         let container = DebugContainerView(session: session)
         window.contentView = container
-        window.center()
 
         let controller = DebugWindowController(window: window, session: session, io: io)
         controllers.append(controller)
-        controller.showWindow(nil)
+        WindowPlacement.present(window)
         session.focus()
         if let initialInput { session.sendText(initialInput) }
         return controller
@@ -58,7 +58,7 @@ public enum TerminalDebugWindow {
         window.contentView = session.view
         let controller = DebugWindowController(window: window, session: session, io: nil)
         controllers.append(controller)
-        controller.showWindow(nil)
+        WindowPlacement.present(window)
 
         let esc = "\u{1B}"
         io.send(.replay(Data("\(esc)c\(esc)[3Jfirst replay (must disappear)\r\n".utf8)))

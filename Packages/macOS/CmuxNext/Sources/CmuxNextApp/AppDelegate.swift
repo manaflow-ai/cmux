@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextSettings
 import os
 
@@ -14,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         control.startWatchdog()
+        // Every window, shell or auxiliary, opens by one placement rule.
+        WindowPlacement.noActivate = environment.noActivate
+        WindowPlacement.testScreen = environment.testWindow?.screen
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start()
         let services = AppServices(environment: environment)

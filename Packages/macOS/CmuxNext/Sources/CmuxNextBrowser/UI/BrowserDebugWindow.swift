@@ -65,11 +65,8 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         window.isReleasedWhenClosed = false
         window.contentView = chrome
         tab.delegate = self
-        if activate {
-            window.makeKeyAndOrderFront(nil)
-        } else {
-            window.orderFrontRegardless()
-        }
+        if !activate { WindowPlacement.noActivate = true }
+        WindowPlacement.present(window)
         observe()
     }
 
