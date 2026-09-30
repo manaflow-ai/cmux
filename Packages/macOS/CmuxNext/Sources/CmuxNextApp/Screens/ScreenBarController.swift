@@ -20,6 +20,8 @@ final class ScreenBarController {
     /// Called when the bar should appear (two or more screens) or hide.
     var onVisibilityChange: ((Bool) -> Void)?
     private(set) var isVisible = false
+    /// A screen dragged out of the bar (to another workspace or window).
+    private var drag: ScreenDragSession?
 
     private struct Snapshot: Equatable {
         var bar: ScreenBarMapping.Snapshot
@@ -109,9 +111,12 @@ final class ScreenBarController {
         case .duplicate(let id):
             if let ref = ref(id) { ScreenCommands.duplicate(ref) }
         case .dragBegan(let start):
-            // A screen dragged out of the bar returns to its slot; moving it
-            // to another workspace or window goes through the move actions.
-            view.restoreDetachedTab(start.tabID)
+            guard let screen = screen(start.tabID) else { return view.restoreDetachedTab(start.tabID) }
+            let session = ScreenDragSession(services: services, screen: screen, daemon: daemon, source: workspace,
+                                            strip: view, tabID: start.tabID)
+            session.onEnd = { [weak self] in self?.drag = nil }
+            drag = session
+            session.begin()
         case .groupDragBegan(let start):
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
