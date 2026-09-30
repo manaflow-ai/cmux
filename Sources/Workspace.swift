@@ -2197,15 +2197,13 @@ extension Workspace {
                     )
                 )
             }
-            if let restorableAgent {
-                if let restoredHibernation,
-                   restorableAgent.resumeCommand != nil {
-                    terminalPanel.enterAgentHibernation(
-                        agent: restorableAgent,
-                        lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
-                        hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
-                    )
-                }
+            if let restorableAgent,
+               let restoredHibernation {
+                terminalPanel.enterAgentHibernation(
+                    agent: restorableAgent,
+                    lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
+                    hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
+                )
             }
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
