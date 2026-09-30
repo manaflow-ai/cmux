@@ -115,6 +115,21 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.adaptiveDefaultTheme"
     )
 
+    /// Predictive local echo: draw typed characters over a terminal whose
+    /// shell runs on another machine before the remote echoes them, and
+    /// withdraw them if the remote disagrees. Only engages at a shell prompt
+    /// on a link slow enough to notice, never in a full-screen application,
+    /// never in a local terminal, and never until the remote has been seen
+    /// echoing, so a password prompt displays nothing. On by default.
+    ///
+    /// Stored under its former Beta Features key, so a choice made while it
+    /// was a beta carries over.
+    public let predictiveLocalEcho = DefaultsKey<Bool>(
+        id: "terminal.predictiveLocalEcho",
+        defaultValue: true,
+        userDefaultsKey: "terminal.beta.predictedEcho.enabled"
+    )
+
     /// Whether cmux shows a lock badge in the terminal chrome while the
     /// foreground program has turned echo off for a password prompt. On by
     /// default. The badge is drawn by cmux and never touches terminal text.
