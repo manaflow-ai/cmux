@@ -214,6 +214,16 @@ extension TerminalController {
                 return "internal_error"
             }
         }
+        if let failure = error as? WindowRecordingWriterError {
+            switch failure {
+            case .setup:
+                // Opening the clip is the caller's path: a directory that
+                // cannot be written, or a volume mounted read only.
+                return "invalid_params"
+            case .frame, .finish, .noFrames:
+                return "internal_error"
+            }
+        }
         if error is WindowRecordingFrameGeometry.Failure {
             return "invalid_params"
         }
