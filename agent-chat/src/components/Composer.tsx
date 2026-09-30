@@ -136,6 +136,11 @@ export function Composer() {
 
   return (
     <section id="composer-view">
+      {!ready ? (
+        <div className="connection-notice" role="status">
+          {connectionEpoch > 0 ? "Connection lost. Reconnecting… Your draft stays here." : "Connecting to cmux…"}
+        </div>
+      ) : null}
       <div id="composer-card">
         <div className="input-wrap">
           <textarea
