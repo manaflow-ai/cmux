@@ -1,16 +1,16 @@
 {
-  "version": "cef-154.0.28-cmux.3-band",
+  "version": "cef-154.0.28-cmux.4-ext",
   "cef": "154.0.28",
   "chromium": "154.0.8037.58",
   "arch": "arm64",
   "repo": "manaflow-ai/cef",
-  "tag": "cef-154.0.28-cmux.3-band",
-  "asset": "cef-154.0.28-cmux.3-band-macos-arm64.tar.xz",
-  "url": "https://github.com/manaflow-ai/cef/releases/download/cef-154.0.28-cmux.3-band/cef-154.0.28-cmux.3-band-macos-arm64.tar.xz",
-  "sha256": "8575cd240981bcf86ea56311792bb85689586a93217f59c6705c0b2dbfad850a",
-  "debug_asset": "cef-154.0.28-cmux.3-band-macos-arm64-debug.tar.xz",
-  "debug_sha256": "229a1d32de5a52fcaa045d311530108bb437f555d1d6e8e761bcb2c316c7cd39",
-  "fork_branch": "cmux/8037-band",
-  "fork_ref": "3a68cdd612e8167cf67dafabb7f840d4cd606aa6",
-  "cmux_cef_api_version": 2
+  "tag": "cef-154.0.28-cmux.4-ext",
+  "asset": "cef-154.0.28-cmux.4-ext-macos-arm64.tar.xz",
+  "url": "https://github.com/manaflow-ai/cef/releases/download/cef-154.0.28-cmux.4-ext/cef-154.0.28-cmux.4-ext-macos-arm64.tar.xz",
+  "sha256": "a486df88006e618d87770fa009bf96f2dc703eb2f1fa45301d9f46fd9886fc50",
+  "debug_asset": "cef-154.0.28-cmux.4-ext-macos-arm64-debug.tar.xz",
+  "debug_sha256": "871d2a99e980a2f228aad14cdf9ab0bd5e8745b6c4c2bd1eda86b973ca7ed119",
+  "fork_branch": "cmux/8037-ext",
+  "fork_ref": "8bd6f75a34a9e40ab2853636eab3eab2c79ce9c9",
+  "cmux_cef_api_version": 3
 }
