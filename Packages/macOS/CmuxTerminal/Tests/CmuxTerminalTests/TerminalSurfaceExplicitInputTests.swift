@@ -128,7 +128,7 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.surface.sendNamedKey("ctrl+p") == .sent)
         #expect(cmuxTestGhosttySurfaceKeyWasCalled())
         #expect(cmuxTestGhosttySurfaceKeyMods() == Int32(GHOSTTY_MODS_CTRL.rawValue))
-        #expect(cmuxTestGhosttySurfaceKeyUnshiftedCodepoint() == UInt32(Character("p").asciiValue!))
+        #expect(cmuxTestGhosttySurfaceKeyUnshiftedCodepoint() == UInt32("p".unicodeScalars.first!.value))
         #expect(String(cString: cmuxTestGhosttySurfaceKeyText()) == "p")
     }
 
