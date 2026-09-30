@@ -43,5 +43,6 @@ extension AppServices {
             }
             journalObserver?(event)
         }
+        guardian.start()
     }
 }
