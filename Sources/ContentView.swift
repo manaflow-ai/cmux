@@ -17172,7 +17172,15 @@ extension String {
 
         guard truncated else { return self }
         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "..." : trimmed + "..."
+        // A single ellipsis character, not three periods. Sidebar text is
+        // scanned for GitHub references after it is bounded, and the reference
+        // parser trims trailing `.` before reading a number, so an ASCII marker
+        // lets a row cut mid-number parse as a shorter reference and offer a
+        // link to a different issue than the author wrote. `…` is not trimmed,
+        // so the cut fails to parse and stays plain text. It is also what the
+        // rest of the app already uses wherever it shortens something a person
+        // reads.
+        return trimmed.isEmpty ? "…" : trimmed + "…"
     }
 }
 
