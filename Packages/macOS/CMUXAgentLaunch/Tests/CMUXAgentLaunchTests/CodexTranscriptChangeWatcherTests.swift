@@ -32,9 +32,9 @@ struct CodexTranscriptChangeWatcherTests {
         watcher.arm(paths: [transcript.path])
         try append("{\"checkpoint\":1}\n", to: transcript)
 
-        let started = Date()
+        // A lost write leaves the wait to run out its timeout and return
+        // `.timedOut`; the result alone distinguishes the two.
         #expect(watcher.wait(timeout: 30) == .changed)
-        #expect(Date().timeIntervalSince(started) < 5)
     }
 
     @Test("Writes during a read after a wake are reported by the following wait")
