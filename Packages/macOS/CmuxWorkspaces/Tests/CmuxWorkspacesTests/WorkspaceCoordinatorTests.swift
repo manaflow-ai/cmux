@@ -39,6 +39,7 @@ final class StubGroupHost: WorkspaceGroupHosting {
     private(set) var groupNameChangeCount = 0
     var shouldFailGroupAnchorCreation = false
     var shouldFailWorkspaceCreation = false
+    var untouchedGeneratedAnchorIds: Set<UUID> = []
 
     init(model: WorkspacesModel<CoordinatorStubTab>) {
         self.model = model
@@ -57,6 +58,7 @@ final class StubGroupHost: WorkspaceGroupHosting {
     ) -> CoordinatorStubTab? {
         guard !shouldFailGroupAnchorCreation else { return nil }
         let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")
+        untouchedGeneratedAnchorIds.insert(tab.id)
         let pinnedCount = model.tabs.prefix(while: \.isPinned).count
         model.tabs.insert(tab, at: pinnedCount)
         if select { model.selectedTabId = tab.id }
@@ -91,6 +93,10 @@ final class StubGroupHost: WorkspaceGroupHosting {
     func selectWorkspace(_ tab: CoordinatorStubTab) {
         selectedWorkspaceIds.append(tab.id)
         model.selectedTabId = tab.id
+    }
+
+    func workspaceGroupGeneratedAnchorIsUntouched(_ anchor: CoordinatorStubTab) -> Bool {
+        untouchedGeneratedAnchorIds.contains(anchor.id)
     }
 
     func collapseSidebarSelectionForGroupCreation(hiddenWorkspaceIds: Set<UUID>, anchorId: UUID) {
@@ -847,7 +853,7 @@ struct WorkspaceCoordinatorTests {
 
         let groupId = groups.createWorkspaceGroup(
             name: "Unavailable",
-            childWorkspaceIds: [first.id, second.id]
+            childWorkspaceIds: []
         )
 
         #expect(groupId == nil)
@@ -911,8 +917,9 @@ struct WorkspaceCoordinatorTests {
         #expect(model.tabs.first(where: { $0.id == child1.id })?.groupId == groupId)
         #expect(model.tabs.first(where: { $0.id == child2.id })?.groupId == groupId)
         // Section is contiguous and anchor-first at the first child's slot.
-        #expect(model.tabs.map(\.id) == [anchorId, child1.id, child2.id, other.id])
-        #expect(host.orderChanges.last == [anchorId, child1.id, child2.id])
+        #expect(anchorId == child1.id)
+        #expect(model.tabs.map(\.id) == [child1.id, child2.id, other.id])
+        #expect(host.orderChanges.last == [child1.id, child2.id])
     }
 
     @Test
@@ -930,13 +937,12 @@ struct WorkspaceCoordinatorTests {
 
         #expect(pinnedChild.groupId == groupId)
         #expect(unpinnedChild.groupId == groupId)
+        #expect(group.anchorWorkspaceId == pinnedChild.id)
         #expect(model.tabs.filter { $0.groupId == groupId }.map(\.id) == [
-            group.anchorWorkspaceId,
             pinnedChild.id,
             unpinnedChild.id,
         ])
         #expect(host.orderChanges.last == [
-            group.anchorWorkspaceId,
             pinnedChild.id,
             unpinnedChild.id,
         ])
@@ -1150,12 +1156,12 @@ struct WorkspaceCoordinatorTests {
         let a = CoordinatorStubTab()
         let b = CoordinatorStubTab()
         model.tabs = [a, b]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: a.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: b.id, groupId: groupId)
         let anchorId = model.workspaceGroups[0].anchorWorkspaceId
-        // createWorkspaceGroup mints a fresh synthetic anchor; `a`/`b` are members.
-        #expect(anchorId != a.id)
-        #expect(anchorId != b.id)
-        // `a` precedes `b` in tabs order, so `a` is the deterministic promotion
+        // The generated anchor is followed by the real members; `a` precedes `b`
+        // in tabs order, so `a` is the deterministic promotion
         // target once the anchor is removed.
         let aIndex = try #require(model.tabs.firstIndex(where: { $0.id == a.id }))
         let bIndex = try #require(model.tabs.firstIndex(where: { $0.id == b.id }))
