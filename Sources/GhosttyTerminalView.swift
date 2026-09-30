@@ -7586,9 +7586,9 @@ final class GhosttySurfaceScrollView: NSView {
     /// Single source of truth for whether passive scrollbar packets may move the viewport.
     ///
     /// The AppKit wrapper treats `contentView.bounds.origin.y == 0` as live-bottom.
-    /// A user wheel event creates a one-packet explicit sync window; `synchronizeScrollView()`
-    /// then resolves the state from the actual AppKit pixel target so row and point thresholds
-    /// cannot diverge.
+    /// A user wheel event waits for a fresh scrollbar packet. Geometry-only syncs must
+    /// preserve that intent; only scrollbar notification ingress may consume it and
+    /// resolve follow/review from the actual AppKit origin using one pixel threshold.
     private enum ScrollFollowState: Equatable {
         case followingOutput
         case reviewingScrollback
@@ -10592,7 +10592,7 @@ final class GhosttySurfaceScrollView: NSView {
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
-    private func synchronizeScrollView() {
+    private func synchronizeScrollView(resolvingExplicitScrollbarSync: Bool = false) {
         var didChangeGeometry = false
         let targetDocumentHeight = documentHeight()
         if abs(documentView.frame.height - targetDocumentHeight) > 0.5 {
@@ -10600,7 +10600,11 @@ final class GhosttySurfaceScrollView: NSView {
             didChangeGeometry = true
         }
 
-        if !isLiveScrolling {
+        // Layout and cell-size updates still see the cached packet. They may resize the
+        // document, but must not apply that packet or consume a pending wheel's intent.
+        let isWaitingForFreshPacket = scrollFollowState.isAwaitingExplicitScrollbarSync
+            && !resolvingExplicitScrollbarSync
+        if !isLiveScrolling && !isWaitingForFreshPacket {
             let cellHeight = surfaceView.cellSize.height
             if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
                 let offsetY =
@@ -10628,13 +10632,17 @@ final class GhosttySurfaceScrollView: NSView {
                     didChangeGeometry = true
                 }
                 if isExplicitScrollbarSync {
-                    scrollFollowState = resolvedScrollFollowState(distanceFromBottom: targetOrigin.y)
+                    scrollFollowState = resolvedScrollFollowState(
+                        distanceFromBottom: scrollView.contentView.bounds.origin.y
+                    )
                 }
                 lastSentRow = Int(scrollbar.offset)
             }
         }
 
-        restorePreviousScrollFollowStateIfExplicitSyncCouldNotResolve()
+        if resolvingExplicitScrollbarSync {
+            restorePreviousScrollFollowStateIfExplicitSyncCouldNotResolve()
+        }
 
         if didChangeGeometry {
             scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -10697,9 +10705,8 @@ final class GhosttySurfaceScrollView: NSView {
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
-            return
         }
-        synchronizeScrollView()
+        synchronizeScrollView(resolvingExplicitScrollbarSync: true)
     }
 
     @discardableResult
