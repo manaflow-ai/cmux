@@ -700,7 +700,11 @@ enum CloudTreeNodeBuilder {
                 children: projected.map {
                     terminalNode($0, snapshot: snapshot, projectionIndex: projectionIndex)
                 },
-                dragGroup: SurfaceResourceGroup(title: title, resources: (projected + projectedBrowsers).map(\.id))
+                dragGroup: SurfaceResourceGroup(
+                    title: title,
+                    resources: (projected + projectedBrowsers).map(\.id),
+                    representsWorkspace: true
+                )
             )
         }
         children.append(contentsOf: unplaced.map {

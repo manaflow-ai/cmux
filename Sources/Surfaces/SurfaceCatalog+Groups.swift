@@ -17,6 +17,15 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
     var resources: [SurfaceResourceID] { placements.map(\.resource) }
     var isEmpty: Bool { placements.isEmpty }
 
+    /// Pane projection creates a new local view for remote resources. A local
+    /// workspace group is already made of concrete panes on this Mac, and
+    /// projecting the whole group would move those panes out of their source
+    /// workspace. Individual local resources retain their existing move
+    /// semantics; only whole-workspace groups require a true clone operation.
+    var supportsNonDestructivePaneProjection: Bool {
+        !placements.isEmpty && (!representsWorkspace || placements.allSatisfy { !$0.resource.machine.isLocal })
+    }
+
     func withRemoteWorkspaceID(_ id: String?) -> Self {
         SurfaceResourceGroup(title: title, placements: placements, remoteWorkspaceID: id ?? remoteWorkspaceID, representsWorkspace: representsWorkspace)
     }

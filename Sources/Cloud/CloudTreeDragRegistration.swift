@@ -14,6 +14,7 @@ enum CloudTreeDragRegistration {
             return
         }
         guard node.isDragSource, let group = node.dragGroup,
+              group.supportsNonDestructivePaneProjection,
               let lead = group.resources.first, let registry else { return nil }
         let id = SurfaceResourceDragRegistry.shared.register(group)
         guard let registration = SurfaceResourceDragPayload(group: group, leadKind: lead.kind, dragID: id).register(with: registry) else {

@@ -19,6 +19,7 @@ import CmuxExtensionSidebarExamples
 import CmuxSettingsUI
 import CmuxSidebar
 import CmuxSidebarRemoteRender
+import CmuxSurfaceCatalogModel
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import CmuxUpdater
@@ -12828,8 +12829,17 @@ struct VerticalTabsSidebar: View, Equatable {
                     remoteTabID: projection.remoteTabID
                 )
             }
-            guard !placements.isEmpty else { return nil }
-            return SurfaceResourceGroup(title: workspace.title, placements: placements)
+            guard !placements.isEmpty else {
+                // Local providers can only move an existing pane when they
+                // materialize it. Do not turn a local workspace row into a
+                // destructive pane-transfer drag; it remains reorder-only.
+                return nil
+            }
+            return SurfaceResourceGroup(
+                title: workspace.title,
+                placements: placements,
+                representsWorkspace: true
+            )
         }
         return actions
     }

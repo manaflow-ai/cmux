@@ -105,7 +105,7 @@ struct SidebarWorkspaceDragDelegateTests {
         let group = SurfaceResourceGroup(
             title: "workspace",
             placements: [SurfaceResourcePlacement(resource: SurfaceResourceID(
-                machine: .local,
+                machine: .cloud("test-machine"),
                 kind: .terminal,
                 key: UUID().uuidString
             ))]
@@ -137,6 +137,22 @@ struct SidebarWorkspaceDragDelegateTests {
         writer.releaseSourceGraph()
         #expect(registry.resolve(from: pasteboard) == nil)
         #expect(SurfaceResourceDragRegistry.shared.group(id: transfer.tab.id.uuid) == nil)
+    }
+
+    @Test
+    func localWorkspaceGroupDoesNotRegisterPaneProjection() {
+        let local = SurfaceResourceGroup(
+            title: "local",
+            resources: [SurfaceResourceID(machine: .local, kind: .terminal, key: UUID().uuidString)],
+            representsWorkspace: true
+        )
+        #expect(!local.supportsNonDestructivePaneProjection)
+
+        let remote = SurfaceResourceGroup(
+            title: "remote",
+            resources: [SurfaceResourceID(machine: .cloud("test-machine"), kind: .terminal, key: "term-1")]
+        )
+        #expect(remote.supportsNonDestructivePaneProjection)
     }
 
     private func makeWriter(

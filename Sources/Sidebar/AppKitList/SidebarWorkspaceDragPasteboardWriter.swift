@@ -267,7 +267,7 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
 
     private func registerSurfaceProjection() {
         guard let group = surfaceResourceGroup,
-              !group.isEmpty,
+              group.supportsNonDestructivePaneProjection,
               let transferRegistry,
               let lead = group.resources.first else { return }
         let id = SurfaceResourceDragRegistry.shared.register(group)
