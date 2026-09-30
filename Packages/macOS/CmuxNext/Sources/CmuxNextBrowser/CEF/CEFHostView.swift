@@ -4,7 +4,8 @@ import AppKit
 /// `CmuxParentViewTracker` keeps the page window over this view, clips it to
 /// the visible rect, and punches holes where `cmuxOcclusionRects` says native
 /// UI must show above the page (find bar, prompt bar) or must get the mouse
-/// (the window's dividers and switcher, `BrowserWindowOcclusionProviding`).
+/// (the window's dividers and switcher, `BrowserWindowOcclusionProviding`),
+/// and masks it to `cmuxClipPath` (rounded pane and window corners).
 final class CEFHostView: NSView {
     /// Rects in this view's coordinates where native UI covers the page.
     var occlusionRects: [CGRect] = [] {
@@ -32,6 +33,13 @@ final class CEFHostView: NSView {
     /// position.
     @objc func cmuxOcclusionRects() -> NSArray {
         allOcclusionRects.map { NSValue(rect: $0) } as NSArray
+    }
+
+    /// Read by the fork (`-cmuxClipPath`) on every geometry update: the
+    /// pane's rounded clip and the window's rounded corners, so no square
+    /// page corner shows past either. Nil when the page is a plain rect.
+    @objc func cmuxClipPath() -> NSBezierPath? {
+        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self)).map { NSBezierPath(cgPath: $0) }
     }
 
     /// The chrome's rects plus the window's interactive overlays over this
