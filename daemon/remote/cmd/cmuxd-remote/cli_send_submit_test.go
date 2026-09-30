@@ -284,3 +284,53 @@ func TestSendSubmitRejectsOversizedText(t *testing.T) {
 		t.Fatalf("oversized text sent requests: %v", mock.requests)
 	}
 }
+
+func TestSendSubmitRejectsStaleEmptyAfterPaste(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+	}, nil)
+	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
+		t.Fatal("stale empty composer was reported submitted")
+	}
+	if mock.request("surface.send_key") != nil {
+		t.Fatal("submit key was sent before paste became visible")
+	}
+}
+
+func TestSendSubmitHooklessDraftRefusal(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{{"agent": false, "state": "unknown"}}, []string{"Claude Code\n❯ human draft\n"})
+	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
+		t.Fatal("hookless draft was not refused")
+	}
+	if mock.request("terminal.paste") != nil {
+		t.Fatal("pasted over hookless human draft")
+	}
+}
+
+func TestSendSubmitScreenClassifier(t *testing.T) {
+	for _, tc := range []struct {
+		name, screen, kind, state string
+		busy                      bool
+	}{
+		{"claude boxed placeholder", "Claude Code\n│\x1b[2m❯ Try asking for a change\x1b[0m│\n", "claude", "empty", false},
+		{"claude multiline draft", "Claude Code\n│❯ │\n│ human draft │\n╰────╯\n", "claude", "draft", false},
+		{"codex busy", "OpenAI Codex\nWorking (esc to interrupt)\n› hello\n", "codex", "draft", true},
+		{"codex queued", "OpenAI Codex\nQueued messages: 1\n›\n", "codex", "queued", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := sendStateFromScreen(tc.screen)
+			if stateString(state, "agent_kind") != tc.kind || stateString(state, "state") != tc.state || boolValue(state, "busy") != tc.busy {
+				t.Fatalf("screen state = %v", state)
+			}
+		})
+	}
+}
+
+func TestSendSubmitBusyFlagChoosesTab(t *testing.T) {
+	if !sendStateLooksLikeBusyCodex(map[string]any{"agent": true, "agent_kind": "codex", "busy": true}, "") {
+		t.Fatal("busy:true Codex ignored")
+	}
+}
