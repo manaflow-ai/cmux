@@ -287,6 +287,29 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(catalog.projectionVersions[machine] == version)
     }
 
+    /// Any consumer that requests another pass without changing the graph (the
+    /// nightly b36a9b3 livelock) must end in a bounded number of passes.
+    @Test("Reconciling one graph stops when every pass requests another")
+    func reconcileOfOneGraphIsBounded() async throws {
+        let fixture = boundWorkspaceFixture()
+        defer { fixture.workspace.teardownAllPanels() }
+        let catalog = fixture.catalog
+        let coordinator = fixture.coordinator
+        let machine = self.machine
+        var passes = 0
+        coordinator.environment.applyLayout = { [unowned catalog, unowned coordinator] _, _, _ in
+            passes += 1
+            if passes < 1_000 { coordinator.request(machine: machine, catalog: catalog) }
+        }
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await coordinator.waitForIdle()
+
+        #expect(passes > 0, "The fixture must reach the layout step")
+        #expect(passes <= 8)
+        #expect(catalog.projections.contains { $0.workspaceID == fixture.workspace.id && $0.remoteTabID == "first" })
+    }
+
     @Test("Lifecycle cancellation is not retained as a projection failure")
     func cancelledMaterializationIsNotAnError() async throws {
         let live = LiveWorkspaceFixture()
