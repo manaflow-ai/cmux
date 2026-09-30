@@ -18,6 +18,8 @@ import SwiftUI
 public struct AppSection: View {
     private let catalog: SettingCatalog
     private let defaultsStore: UserDefaultsSettingsStore
+    private let jsonStore: JSONConfigStore
+    private let errorLog: SettingsErrorLog
     private let hostActions: SettingsHostActions
 
     // Every bound value-model lives here as view state, constructed once
@@ -36,6 +38,7 @@ public struct AppSection: View {
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
+    @State private var agentSessionRenderer: JSONValueModel<String>
     @State private var globalFontMagnification: DefaultsValueModel<Int>
     @State private var markdownFontSize: DefaultsValueModel<Int>
     @State private var markdownFontFamily: DefaultsValueModel<String>
@@ -86,12 +89,16 @@ public struct AppSection: View {
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
+        jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
         hostActions: SettingsHostActions,
+        errorLog: SettingsErrorLog,
         soundAgentCache: NotificationSoundAgentCache = NotificationSoundAgentCache()
     ) {
         self.catalog = catalog
         self.defaultsStore = defaultsStore
+        self.jsonStore = jsonStore
+        self.errorLog = errorLog
         self.hostActions = hostActions
         self.soundAgentCache = soundAgentCache
         _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.language))
@@ -107,6 +114,7 @@ public struct AppSection: View {
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
+        _agentSessionRenderer = State(initialValue: JSONValueModel(store: jsonStore, key: catalog.app.agentSessionRenderer, errorLog: errorLog))
         _globalFontMagnification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.globalFontMagnification))
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
         _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
@@ -170,7 +178,7 @@ public struct AppSection: View {
             AppChannelSwitchCard(hostActions: hostActions)
         }
         .task {
-            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, agentSessionRenderer, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -428,6 +436,21 @@ public struct AppSection: View {
                 Toggle("", isOn: Binding(get: { openMarkdown.current }, set: { openMarkdown.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("agentSession.renderer"),
+                String(localized: "settings.agentSession.renderer", defaultValue: "Agent Session Renderer"),
+                subtitle: String(localized: "settings.agentSession.renderer.subtitle", defaultValue: "Choose the native pane or the TypeScript React renderer for new agent sessions."),
+                controlWidth: Self.columnWidth
+            ) {
+                Picker("", selection: Binding(get: { agentSessionRenderer.current }, set: { agentSessionRenderer.set($0) })) {
+                    Text(String(localized: "settings.agentSession.renderer.native", defaultValue: "Native")).tag("native")
+                    Text(String(localized: "settings.agentSession.renderer.typescript", defaultValue: "TypeScript (React)")).tag("typescript")
+                }
+                .labelsHidden()
+                .controlSize(.small)
             }
             SettingsCardDivider()
 

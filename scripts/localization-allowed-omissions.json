@@ -1,4 +1,30 @@
 {
+  "agentSession.renderer.typescript": {
+    "source": "TypeScript",
+    "identityLocales": {
+      "de": "TypeScript is the product and programming-language name.",
+      "fr": "TypeScript is the product and programming-language name.",
+      "ar": "TypeScript is the product and programming-language name.",
+      "es": "TypeScript is the product and programming-language name.",
+      "zh-Hant": "TypeScript is the product and programming-language name.",
+      "zh-Hans": "TypeScript is the product and programming-language name.",
+      "ko": "TypeScript is the product and programming-language name.",
+      "ja": "TypeScript is the product and programming-language name."
+    }
+  },
+  "settings.agentSession.renderer.typescript": {
+    "source": "TypeScript (React)",
+    "identityLocales": {
+      "de": "TypeScript and React are product and programming-language names.",
+      "fr": "TypeScript and React are product and programming-language names.",
+      "ar": "TypeScript and React are product and programming-language names.",
+      "es": "TypeScript and React are product and programming-language names.",
+      "zh-Hant": "TypeScript and React are product and programming-language names.",
+      "zh-Hans": "TypeScript and React are product and programming-language names.",
+      "ko": "TypeScript and React are product and programming-language names.",
+      "ja": "TypeScript and React are product and programming-language names."
+    }
+  },
   "mobile.ios106PairingUpdate.releaseLabel": {
     "source": "1.0.6 · September 2026",
     "identityLocales": {

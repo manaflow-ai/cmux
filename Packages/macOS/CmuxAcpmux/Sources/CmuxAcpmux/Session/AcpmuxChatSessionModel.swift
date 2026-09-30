@@ -346,6 +346,18 @@ public final class AcpmuxChatSessionModel {
         Task { try? await api.setModel(sessionId: sessionId, modelId: modelId) }
     }
 
+    /// Selects an ACP mode exposed by the active harness.
+    public func setMode(_ modeId: String) {
+        guard let api, let sessionId else { return }
+        Task { try? await api.setMode(sessionId: sessionId, modeId: modeId) }
+    }
+
+    /// Changes a harness configuration option, such as reasoning effort.
+    public func setConfigOption(id: String, value: JSONValue) {
+        guard let api, let sessionId else { return }
+        Task { try? await api.setConfigOption(sessionId: sessionId, configId: id, value: value) }
+    }
+
     /// Replaces the transcript with `records`, for DEBUG performance measurements only.
     public func debugReplaceTranscript(with records: [AcpmuxEventRecord]) {
         reducer = TranscriptReducer()

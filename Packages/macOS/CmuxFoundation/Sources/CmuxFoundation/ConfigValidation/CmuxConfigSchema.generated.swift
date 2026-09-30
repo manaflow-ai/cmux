@@ -145,6 +145,21 @@ enum CmuxEmbeddedConfigSchema {
         }
       }
     },
+    "agentSession": {
+      "x-cmux-scopes": ["global"],
+      "title": "agentSession",
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Agent session pane renderer settings.",
+      "properties": {
+        "renderer": {
+          "type": "string",
+          "enum": ["native", "typescript"],
+          "default": "native",
+          "description": "Renderer for new agent session panes. TypeScript uses the React web renderer over the acpmux bridge."
+        }
+      }
+    },
     "agentChat": {
       "title": "agentChat",
       "description": "Agent Chat GUI server settings. The built-in New agent chat action opens this URL in a browser workspace, probing /healthz first and optionally starting the server with startCommand.",

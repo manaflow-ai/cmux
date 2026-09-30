@@ -43,6 +43,10 @@ public struct AcpmuxSessionSummary: Sendable, Hashable, Codable, Identifiable {
     public var model: String?
     /// The reasoning effort.
     public var effort: String?
+    /// Harness configuration choices returned by attach, such as effort.
+    public var configOptions: [AcpmuxConfigOption]?
+    /// Mode choices and the selected mode returned by attach.
+    public var modes: AcpmuxModeCatalog?
     /// Whether output arrived while nobody was attached.
     public var unread: Bool?
     /// The peer daemon name for remote sessions.
@@ -68,6 +72,44 @@ public struct AcpmuxSessionSummary: Sendable, Hashable, Codable, Identifiable {
 
     /// Whether a turn is in progress.
     public var isWorking: Bool { status == "running" || status == "waiting" || turn != nil }
+}
+
+/// A selectable session configuration option.
+public struct AcpmuxConfigOption: Sendable, Hashable, Codable, Identifiable {
+    /// Stable config id passed to `session/set_config_option`.
+    public var id: String
+    /// Display name.
+    public var name: String?
+    /// Harness category, such as `thought_level`.
+    public var category: String?
+    /// Current value.
+    public var currentValue: String?
+    /// Available values.
+    public var options: [Value]
+
+    public struct Value: Sendable, Hashable, Codable, Identifiable {
+        /// Display name.
+        public var name: String?
+        /// Value passed back to acpmux.
+        public var value: String
+        /// Stable value id.
+        public var id: String { value }
+    }
+}
+
+/// ACP modes exposed by a harness.
+public struct AcpmuxModeCatalog: Sendable, Hashable, Codable {
+    /// Modes exposed by the harness.
+    public var availableModes: [Mode]
+    /// Current mode id.
+    public var currentModeId: String?
+
+    public struct Mode: Sendable, Hashable, Codable, Identifiable {
+        /// Stable mode id.
+        public var id: String
+        /// Display name.
+        public var name: String?
+    }
 }
 
 /// The running turn attached to a session summary.
