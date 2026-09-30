@@ -170,6 +170,13 @@ test("shape: names and texts compare without case; off-site links say where they
     ['- link "Docs" [ref=e2] [url=https://example.org/docs/page]']);
 });
 
+test("render: an unnamed link's URL is short: host form off-site, capped on-site", () => {
+  const long = "/clk/?p=" + "x".repeat(200);
+  assert.deepEqual(tree([{ role: "link", ref: "e1", url: "https://ads.example.com" + long, offsite: "ads.example.com/clk/…" }]), ['- link [ref=e1] [url=ads.example.com/clk/…]']);
+  assert.deepEqual(tree([{ role: "link", ref: "e2", url: long }]), [`- link [ref=e2] [url=${long.slice(0, 99)}…]`]);
+  assert.deepEqual(tree([{ role: "link", ref: "e2", url: long }], { urls: true }), [`- link [ref=e2] [url=${long}]`]);
+});
+
 test("diff: an interactive diff carries added or changed text from the full tree", () => {
   const before = ["- main:", '  - textbox "Email" [ref=e1]', '  - text: "Waiting"'];
   const after = ["- main:", '  - textbox "Email" [ref=e1]: "me@x.com"', '  - text: "Submitted me@x.com"'];
