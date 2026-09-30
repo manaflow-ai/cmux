@@ -40,10 +40,30 @@ struct PaneAlignmentTests {
         #expect(tab.icon == Metrics.paneContentInset)
         // The terminal host sits at the pane's content edge (x 0).
         let surface = TerminalHostView.surfaceFrame(in: CGRect(x: 0, y: 0, width: 600, height: 400), contentInset: Metrics.paneContentInset)
-        #expect(surface.minX + TerminalHostView.ghosttyDefaultPaddingX == tab.icon)
+        #expect(surface.minX + TerminalPadding.ghosttyDefault.leading == tab.icon)
         #expect(surface.maxX == 600 - surface.minX)
         // The browser toolbar's first button shape starts on the pills' line.
         #expect(BrowserChromeView.toolbarMetrics.inset == tab.pill)
+    }
+
+    /// The user's window-padding-x comes from libghostty's config API
+    /// (manaflow-ai/ghostty `c_get` for WindowPadding), not a guessed default.
+    @Test func theTerminalPaddingIsReadFromTheGhosttyConfig() throws {
+        _ = GhosttyRuntime.shared
+        let padding = try #require(GhosttyRuntime.terminalPadding(
+            configText: "window-padding-x = 6,4\nwindow-padding-y = 3\nwindow-padding-balance = true\n"))
+        #expect(padding == TerminalPadding(leading: 6, trailing: 4, top: 3, bottom: 3, balanced: true))
+        let plain = try #require(GhosttyRuntime.terminalPadding(configText: ""))
+        #expect(plain == .ghosttyDefault)
+    }
+
+    @Test func eachSideSubtractsItsOwnPadding() {
+        let padding = TerminalPadding(leading: 6, trailing: 4, top: 2, bottom: 2, balanced: false)
+        let surface = TerminalHostView.surfaceFrame(in: CGRect(x: 0, y: 0, width: 400, height: 40), contentInset: 10, padding: padding)
+        #expect(surface.minX + padding.leading == 10)
+        #expect(400 - surface.maxX + padding.trailing == 10)
+        let wide = TerminalPadding(leading: 20, trailing: 20, top: 2, bottom: 2, balanced: false)
+        #expect(TerminalHostView.surfaceFrame(in: CGRect(x: 0, y: 0, width: 400, height: 40), contentInset: 10, padding: wide).minX == 0)
     }
 
     @Test func aNarrowHostKeepsItsWidth() {
