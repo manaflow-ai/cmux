@@ -2033,7 +2033,8 @@
           "ampIntegration": "Activa o desactiva los hooks de cmux para Amp. Al desactivarlos, el plugin incluido sigue instalado pero inactivo.",
           "suppressSubagentNotifications": "Suprime las notificaciones visibles de finalización y los cambios de estado de agentes secundarios anidados de Codex o Claude, manteniendo sus eventos en la telemetría de Feed.",
           "workspaceAutoNaming": "Nombrado automático opcional de espacios de trabajo y pestañas mediante IA a partir del contenido de la conversación del agente. Cuando está activado, cmux resume las sesiones de agentes compatibles en títulos cortos usando el binario propio de cada agente; los renombrados manuales siempre prevalecen.",
-          "autoNamingAgent": "Qué agente genera los nombres automáticos en cada sesión. «auto» (predeterminado) nombra cada sesión con su propio agente; cualquier identificador de agente (claude, codex, grok, opencode, pi, omp, …) anula el nombrado de todas las sesiones, incluso las de otros agentes. Los agentes no compatibles o no instalados recurren al agente propio de la sesión, por lo que el nombrado nunca falla."
+          "autoNamingAgent": "Qué agente genera los nombres automáticos en cada sesión. «auto» (predeterminado) nombra cada sesión con su propio agente; cualquier identificador de agente (claude, codex, grok, opencode, pi, omp, …) anula el nombrado de todas las sesiones, incluso las de otros agentes. Los agentes no compatibles o no instalados recurren al agente propio de la sesión, por lo que el nombrado nunca falla.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Controla cuándo cmux pide confirmación antes de salir. Las compilaciones DEV siempre se cierran inmediatamente sin importar esta opción. El app.warnBeforeQuit heredado aún se acepta como alternativa booleana.",
@@ -2084,7 +2085,12 @@
           "compactAgentStatus": "Mostrar cada espacio de trabajo en una sola línea: un icono de color antes del título indica el estado del agente, lo no leído y la pull request, y reemplaza las filas de estado del agente (por ejemplo, En ejecución o Necesita entrada), la línea de rama y directorio y las filas de pull request, cuyos detalles pasan a la descripción emergente del icono. Las demás entradas de estado conservan sus filas.",
           "compactStatusIcons": "Nombres de SF Symbol que sustituyen el glifo de compactAgentStatus para cada estado, por ejemplo {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Los estados sin definir conservan el símbolo integrado, y un nombre que no se puede mostrar vuelve a él.",
           "notificationMessageLineLimit": "Número máximo de líneas que se muestran para la notificación más reciente debajo del título de cada espacio de trabajo.",
-          "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
+          "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado.",
+          "beta": {
+            "conversations": {
+              "enabled": "Mostrar la vista unificada de conversaciones en el selector de la barra lateral."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Ajustes del explorador de archivos (árbol de archivos) de la barra lateral derecha.",
@@ -2290,7 +2296,8 @@
         "wn-reload": "Recargar configuración",
         "wn-quit": "Salir"
       },
-      "metaTitle": "Atajos de teclado"
+      "metaTitle": "Atajos de teclado",
+      "fileEditorWordWrap": "Alternar el ajuste de línea del editor de archivos (Option+Z)."
     },
     "api": {
       "title": "Referencia de CLI",
@@ -2729,7 +2736,8 @@
       "maxLinesSetting": "TextBox Max Lines limita la altura de TextBox antes de que su contenido se desplace.",
       "configTitle": "cmux.json",
       "configDesc": "Define los mismos valores predeterminados en ~/.config/cmux/cmux.json dentro de terminal:",
-      "focusNote": "Las sesiones restauradas conservan su visibilidad y estado de foco de TextBox guardados. Estos valores solo se aplican a superficies de terminal nuevas."
+      "focusNote": "Las sesiones restauradas conservan su visibilidad y estado de foco de TextBox guardados. Estos valores solo se aplican a superficies de terminal nuevas.",
+      "betaCallout": "TextBox es una función beta. Sus valores predeterminados y su comportamiento pueden cambiar durante las pruebas."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multiagente en cmux",

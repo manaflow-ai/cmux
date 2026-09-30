@@ -2033,7 +2033,8 @@
           "ampIntegration": "开启或关闭 cmux 的 Amp 钩子。关闭后，捆绑的插件仍保持安装，但处于闲置状态。",
           "suppressSubagentNotifications": "隐藏嵌套 Codex 或 Claude 子代理的可见完成通知和状态变更，同时将其事件保留在 Feed 遥测中。",
           "workspaceAutoNaming": "可选的 AI 自动命名：根据代理对话内容自动命名工作区和标签页。启用后，cmux 会使用各受支持代理自己的二进制文件将会话总结为简短标题；手动重命名始终优先。",
-          "autoNamingAgent": "为每个会话生成自动名称的代理。\"auto\"（默认）使用各会话自己的代理来命名；任意代理标识（claude、codex、grok、opencode、pi、omp 等）会覆盖所有会话的命名，包括其他代理的会话。无法驱动或未安装的代理会回退到会话自身的代理，因此命名永不中断。"
+          "autoNamingAgent": "为每个会话生成自动名称的代理。\"auto\"（默认）使用各会话自己的代理来命名；任意代理标识（claude、codex、grok、opencode、pi、omp 等）会覆盖所有会话的命名，包括其他代理的会话。无法驱动或未安装的代理会回退到会话自身的代理，因此命名永不中断。",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
@@ -2084,7 +2085,12 @@
           "compactAgentStatus": "每个工作区只显示一行：标题前的单个彩色图标表示代理、未读和拉取请求状态，取代代理状态行（例如“运行中”或“需要输入”）、分支和目录行以及拉取请求行，这些详细信息移到图标的提示中。其他状态条目保留各自的行。",
           "compactStatusIcons": "按状态替换 compactAgentStatus 字形的 SF Symbol 名称，例如 {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}。未设置的状态使用内置符号，无法显示的名称也会回退到内置符号。",
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
-          "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
+          "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。",
+          "beta": {
+            "conversations": {
+              "enabled": "在侧边栏选择器中显示统一的对话视图。"
+            }
+          }
         },
         "fileExplorer": {
           "description": "右侧边栏文件浏览器（文件树）设置。",
@@ -2291,7 +2297,8 @@
         "wn-reload": "重新加载配置",
         "wn-quit": "退出"
       },
-      "metaTitle": "键盘快捷键"
+      "metaTitle": "键盘快捷键",
+      "fileEditorWordWrap": "切换文件编辑器自动换行 (Option+Z)."
     },
     "api": {
       "title": "CLI 参考",
@@ -2730,7 +2737,8 @@
       "maxLinesSetting": "TextBox Max Lines 会限制 TextBox 在内容滚动前的最大高度。",
       "configTitle": "cmux.json",
       "configDesc": "也可以在 ~/.config/cmux/cmux.json 的 terminal 下设置相同默认值：",
-      "focusNote": "恢复的会话会保留已保存的 TextBox 可见性和焦点状态。这些默认值只适用于新建的终端界面。"
+      "focusNote": "恢复的会话会保留已保存的 TextBox 可见性和焦点状态。这些默认值只适用于新建的终端界面。",
+      "betaCallout": "TextBox 是测试版功能。在测试期间，默认值和行为可能会变化。"
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode：在 cmux 中运行 OpenCode 多 agent",

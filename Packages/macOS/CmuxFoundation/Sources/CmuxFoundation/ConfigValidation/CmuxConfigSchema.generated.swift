@@ -1352,6 +1352,18 @@ enum CmuxEmbeddedConfigSchema {
           "additionalProperties": false,
           "description": "Experimental sidebar features.",
           "properties": {
+            "conversations": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "descriptionKey": "schemaDescriptions.sidebar.beta.conversations.enabled",
+                  "description": "Show the unified Conversations view in the sidebar picker."
+                }
+              }
+            },
             "workspaceTodos": {
               "type": "object",
               "additionalProperties": false,
@@ -1676,6 +1688,7 @@ enum CmuxEmbeddedConfigSchema {
           "description": "Enable cmux integration hooks for Claude Code."
         },
         "codexIntegration": {"type": "boolean", "default": true, "description": "Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe."},
+        "canonicalAgentScratch": {"type": "boolean", "default": false, "descriptionKey": "schemaDescriptions.automation.canonicalAgentScratch", "description": "Use a cmux-owned scratch directory for native agent panels, organized per session."},
         "piIntegration": {"type": "boolean", "default": true, "description": "Enable cmux integration hooks for Pi."},
         "claudeBinaryPath": {
           "type": "string",

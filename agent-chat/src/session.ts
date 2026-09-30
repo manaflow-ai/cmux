@@ -171,6 +171,14 @@ export interface SessionSummary {
 }
 
 export interface QueuedAgentMessage { id: string; from: string; body: string }
+
+/** Whether a terminal-backed chat must be answered in the terminal itself. */
+export function transcriptComposerLocked(
+  session: Pick<SessionSummary, "mode" | "attention"> | null,
+): boolean {
+  return session?.mode === "transcript" && Boolean(session.attention?.trim());
+}
+
 export type CtrlJMode = "newline" | "menu";
 
 function closeStreaming(blocks: Block[]): Block[] {

@@ -2033,7 +2033,8 @@
           "ampIntegration": "開啟或關閉 cmux 的 Amp 掛鉤。關閉後，隨附的外掛仍會保持安裝，但處於閒置狀態。",
           "suppressSubagentNotifications": "隱藏巢狀 Codex 或 Claude 子代理的可見完成通知和狀態變更，同時將其事件保留在 Feed 遙測中。",
           "workspaceAutoNaming": "可選的 AI 自動命名：根據代理對話內容自動命名工作區與分頁。啟用後，cmux 會使用各受支援代理自己的二進位檔將工作階段摘要為簡短標題；手動重新命名永遠優先。",
-          "autoNamingAgent": "為每個工作階段產生自動名稱的代理。\"auto\"（預設）使用各工作階段自己的代理來命名；任意代理識別碼（claude、codex、grok、opencode、pi、omp 等）會覆寫所有工作階段的命名，包括其他代理的工作階段。無法驅動或未安裝的代理會回退到工作階段自身的代理，因此命名永不中斷。"
+          "autoNamingAgent": "為每個工作階段產生自動名稱的代理。\"auto\"（預設）使用各工作階段自己的代理來命名；任意代理識別碼（claude、codex、grok、opencode、pi、omp 等）會覆寫所有工作階段的命名，包括其他代理的工作階段。無法驅動或未安裝的代理會回退到工作階段自身的代理，因此命名永不中斷。",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
@@ -2084,7 +2085,12 @@
           "compactAgentStatus": "每個工作區只顯示一行：標題前的單一彩色圖示表示代理、未讀與拉取請求狀態，取代代理狀態列（例如「執行中」或「需要輸入」）、分支與目錄列以及拉取請求列，這些詳細資訊移到圖示的提示中。其他狀態項目保留各自的列。",
           "compactStatusIcons": "依狀態取代 compactAgentStatus 字符的 SF Symbol 名稱，例如 {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}。未設定的狀態使用內建符號，無法顯示的名稱也會回退到內建符號。",
           "notificationMessageLineLimit": "每個工作區標題下方顯示的最新通知最大行數。",
-          "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。"
+          "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。",
+          "beta": {
+            "conversations": {
+              "enabled": "在側邊欄選擇器中顯示整合的對話檢視。"
+            }
+          }
         },
         "fileExplorer": {
           "description": "右側邊欄檔案瀏覽器（檔案樹）設定。",
@@ -2290,7 +2296,8 @@
         "wn-reload": "重新載入設定",
         "wn-quit": "結束"
       },
-      "metaTitle": "鍵盤快捷鍵"
+      "metaTitle": "鍵盤快捷鍵",
+      "fileEditorWordWrap": "切換檔案編輯器自動換行 (Option+Z)."
     },
     "api": {
       "title": "CLI 參考",
@@ -2729,7 +2736,8 @@
       "maxLinesSetting": "TextBox Max Lines 會限制 TextBox 在內容開始捲動前的最大高度。",
       "configTitle": "cmux.json",
       "configDesc": "也可以在 ~/.config/cmux/cmux.json 的 terminal 下設定相同預設值：",
-      "focusNote": "還原的工作階段會保留已儲存的 TextBox 顯示和焦點狀態。這些預設值只會套用到新建的終端機介面。"
+      "focusNote": "還原的工作階段會保留已儲存的 TextBox 顯示和焦點狀態。這些預設值只會套用到新建的終端機介面。",
+      "betaCallout": "TextBox 是測試版功能。測試期間，預設值和行為可能會變更。"
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode：在 cmux 中執行 OpenCode 多代理",
