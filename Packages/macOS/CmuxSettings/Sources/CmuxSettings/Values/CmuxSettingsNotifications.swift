@@ -1,8 +1,8 @@
 import Foundation
 
 /// Notification names shared by the settings UI and the app host.
-public enum CmuxSettingsNotifications {
-    public static let agentHibernationSettingsDidChange = Notification.Name(
+public extension Notification.Name {
+    static let cmuxAgentHibernationSettingsDidChange = Notification.Name(
         "cmux.agentHibernationSettingsDidChange"
     )
 }

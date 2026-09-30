@@ -302,7 +302,10 @@ extension CMUXCLI {
         )
         defer { client.close() }
 
-        let payload = try client.sendV2(method: "agent.sessions.list")
+        let payload = try client.sendV2(
+            method: "agent.sessions.list",
+            params: ["include_output": parsed.tailLines != nil]
+        )
         let all = payload["sessions"] as? [[String: Any]] ?? []
         let effectiveStateFilter = parsed.needsMe ? "needs_input" : stateFilter
         let matched = all.filter { session in

@@ -297,7 +297,7 @@ public struct TerminalSection: View {
                     set: {
                         settledAutoClose.set($0) {
                             NotificationCenter.default.post(
-                                name: CmuxSettingsNotifications.agentHibernationSettingsDidChange,
+                                name: Notification.Name.cmuxAgentHibernationSettingsDidChange,
                                 object: nil
                             )
                         }
@@ -319,7 +319,7 @@ public struct TerminalSection: View {
                     set: {
                         settledAutoCloseHours.set($0) {
                             NotificationCenter.default.post(
-                                name: CmuxSettingsNotifications.agentHibernationSettingsDidChange,
+                                name: Notification.Name.cmuxAgentHibernationSettingsDidChange,
                                 object: nil
                             )
                         }

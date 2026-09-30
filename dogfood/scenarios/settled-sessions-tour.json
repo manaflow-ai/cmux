@@ -10,7 +10,7 @@
   "steps": [
     {
       "socket": "workspace.create",
-      "params": {"title": "Settled Agent", "initial_input": "printf 'last agent output: changes are ready\\n'\\n", "focus": true},
+      "params": {"title": "Settled Agent", "initial_input": "printf 'last agent output: changes are ready\\n'\n", "focus": true},
       "save": "settled"
     },
     {"wait": 1},

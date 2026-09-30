@@ -7269,6 +7269,72 @@
             "state": "translated",
             "value": "完了したセッションを自動で閉じる"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski zatvori završene sesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luk afsluttede sessioner automatisk"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi automaticamente le sessioni concluse"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទសម័យដែលបានបញ្ចប់ដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lukk fullførte økter automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie zamykaj ukończone sesje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fechar sessões concluídas automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически закрывать завершённые сеансы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดเซสชันที่เสร็จสิ้นโดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamamlanan oturumları otomatik kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично закривати завершені сеанси"
+          }
         }
       }
     },
@@ -7327,6 +7393,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "アイドル時間後に閉じる"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatvori nakon sati neaktivnosti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luk efter inaktivitetstimer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi dopo ore di inattività"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទបន្ទាប់ពីម៉ោងអសកម្ម"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lukk etter timer uten aktivitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamknij po godzinach bezczynności"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fechar após horas de inatividade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрывать после часов простоя"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดหลังจากไม่มีการใช้งานตามจำนวนชั่วโมง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boşta geçen saatlerden sonra kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закривати після годин простою"
           }
         }
       }
@@ -7387,6 +7519,72 @@
             "state": "translated",
             "value": "完了したセッションを閉じるまでの最小アイドル時間です。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimalno vreme neaktivnosti pre zatvaranja završene sesije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den minimale inaktivitetstid, før en afsluttet session kan lukkes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tempo minimo di inattività prima di poter chiudere una sessione conclusa."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រយៈពេលអសកម្មអប្បបរមាមុនពេលអាចបិទសម័យដែលបានបញ្ចប់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimum inaktivitetstid før en fullført økt kan lukkes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimalny czas bezczynności przed zamknięciem ukończonej sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O tempo mínimo de inatividade antes que uma sessão concluída possa ser fechada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Минимальное время простоя перед закрытием завершённого сеанса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวลาที่ไม่มีการใช้งานขั้นต่ำก่อนปิดเซสชันที่เสร็จสิ้นแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamamlanmış bir oturum kapatılmadan önceki minimum boşta kalma süresi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мінімальний час простою перед закриттям завершеного сеансу."
+          }
         }
       }
     },
@@ -7445,6 +7643,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "デフォルトではオフです。ターンが終了し、出力がアイドル状態で、リンクされたプルリクエストが閉じられるかマージされた後にのみセッションを閉じます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podrazumevano isključeno. Sesije se zatvaraju tek kada se potez završi, izlaz miruje, a povezani zahtevi za povlačenje budu zatvoreni ili spojeni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra som standard. Sessioner lukkes først, når turen er afsluttet, outputtet er inaktivt, og tilknyttede pull requests er lukket eller flettet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato per impostazione predefinita. Le sessioni vengono chiuse solo quando il turno è terminato, l’output è inattivo e le pull request collegate sono chiuse o unite."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទជាលំនាំដើម។ បិទសម័យតែបន្ទាប់ពីវេនបញ្ចប់ លទ្ធផលអសកម្ម ហើយសំណើទាញដែលបានភ្ជាប់ត្រូវបានបិទ ឬបញ្ចូល។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av som standard. Økter lukkes først når turen er ferdig, utdataene er inaktive, og tilknyttede pull requests er lukket eller flettet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domyślnie wyłączone. Sesje są zamykane dopiero po zakończeniu tury, bezczynności wyjścia oraz zamknięciu lub scaleniu powiązanych pull requestów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado por padrão. As sessões só são fechadas quando o turno termina, a saída fica ociosa e os pull requests vinculados são fechados ou mesclados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По умолчанию выключено. Сеансы закрываются только после завершения хода, простоя вывода и закрытия или слияния связанных запросов на включение изменений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดไว้เป็นค่าเริ่มต้น เซสชันจะปิดเมื่อจบรอบ เอาต์พุตไม่มีการใช้งาน และคำขอดึงที่เชื่อมโยงถูกปิดหรือผสานแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan olarak kapalıdır. Oturumlar yalnızca tur tamamlandığında, çıktı boşta olduğunda ve bağlantılı çekme istekleri kapatıldığında veya birleştirildiğinde kapanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнено за замовчуванням. Сеанси закриваються лише після завершення ходу, простою виводу та закриття або злиття пов’язаних запитів на злиття."
           }
         }
       }

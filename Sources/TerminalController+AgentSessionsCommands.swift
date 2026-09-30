@@ -27,13 +27,15 @@ extension TerminalController {
     /// every workspace on the Mac and carries conversation titles, working
     /// directories, transcript paths and pids. That is local state a remote
     /// session has no business reading, so the method stays local-only.
-    func v2AgentSessionsList() -> V2CallResult {
+    func v2AgentSessionsList(params: [String: Any]) -> V2CallResult {
         guard let service = agentChatTranscriptService else {
             return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
         }
         // `AgentSessionListPayload.list` applies the attention ordering, so
         // every client of this verb shares one triage order.
+        let includeOutput = params["include_output"] as? Bool ?? false
         let records = service.sessionRecords(workspaceID: nil).map { record -> AgentChatSessionRecord in
+            guard includeOutput else { return record }
             guard record.lastOutput == nil,
                   let rawSurfaceID = record.surfaceID,
                   let surfaceID = UUID(uuidString: rawSurfaceID),

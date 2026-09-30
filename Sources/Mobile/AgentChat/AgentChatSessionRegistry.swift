@@ -133,6 +133,7 @@ final class AgentChatSessionRegistry {
     /// hook-derived state.
     func applyObservedSessions(_ observed: [ObservedAgentSession]) {
         let now = Date()
+        var checkoutChanged = false
         for session in observed {
             let canonicalSessionID = canonicalClaudeSessionID(incomingSessionID: session.sessionID, source: session.agentKind.sourceName, surfaceID: session.surfaceID)
             let targetSessionID = observedClaudeSessionID(canonicalSessionID: canonicalSessionID, observed: session)
@@ -147,6 +148,7 @@ final class AgentChatSessionRegistry {
             )
             #endif
             if records[targetSessionID] == nil {
+                checkoutChanged = true
                 var record = AgentChatSessionRecord(
                     sessionID: targetSessionID,
                     agentKind: session.agentKind,
@@ -181,6 +183,9 @@ final class AgentChatSessionRegistry {
                             && current.hookStoreSessionID != session.sessionID
                     )
                 guard needsBackfill else { continue }
+                if current.workingDirectory == nil, session.workingDirectory != nil {
+                    checkoutChanged = true
+                }
                 update(sessionID: targetSessionID) { rec in
                     if observedHasRealHookStoreIdentity, targetSessionID != session.sessionID {
                         rec.rememberHookStoreSessionID(session.sessionID)
@@ -193,7 +198,9 @@ final class AgentChatSessionRegistry {
                 }
             }
         }
-        scheduleMetadataRefresh(force: true)
+        if checkoutChanged {
+            scheduleMetadataRefresh(force: true)
+        }
     }
 
     /// The watched agent exited; verify before ending the session.
