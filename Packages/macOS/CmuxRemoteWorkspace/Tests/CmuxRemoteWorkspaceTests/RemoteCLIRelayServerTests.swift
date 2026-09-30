@@ -254,6 +254,47 @@ struct RemoteCLIRelayServerTests {
         )
     }
 
+    @Test("idle unauthenticated connections cannot lock out the relay's own client")
+    func idleUnauthenticatedConnectionsDoNotStarveAuthenticatedClient() throws {
+        let unixServer = try FakeUnixSocketServer(response: Data("{\"ok\":true,\"result\":42}\n".utf8))
+        defer { unixServer.close() }
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: unixServer.path,
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        var idleClients: [RelayTestClient] = []
+        defer {
+            for client in idleClients {
+                client.cancel()
+            }
+        }
+
+        // Another remote user opens more idle connections than any budget
+        // and never authenticates.
+        for _ in 0..<64 {
+            let client = RelayTestClient(port: port)
+            idleClients.append(client)
+            #expect(client.wait { data, closed in data.contains(0x0A) || closed })
+        }
+
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+        #expect(
+            client.wait { data, _ in data.contains(0x0A) },
+            "The relay's own client must still receive a challenge"
+        )
+        guard client.receivedJSONLines().first?["nonce"] is String else { return }
+        try authenticate(client)
+        client.send(Data((#"{"id":"relay-test","method":"system.ping","params":{}}"# + "\n").utf8))
+        #expect(client.wait { data, closed in
+            String(decoding: data, as: UTF8.self).contains("\"result\":42") && closed
+        })
+    }
+
     @Test("unauthenticated relay sessions expire and release capacity")
     func unauthenticatedSessionsExpireAndReleaseCapacity() throws {
         let clock = ManualRetryClock()
