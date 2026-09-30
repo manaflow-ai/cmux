@@ -32,8 +32,10 @@ extension WindowManager {
     /// Places a workspace this app just made (by a command whose reply
     /// names it) at `slot` of window `windowID`: now when it is mirrored,
     /// else once the daemon reports it.
-    func place(newWorkspace id: String, in windowID: String, at slot: WorkspaceSlot) {
-        pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, then: nil)
+    /// `then` runs after the placement, with the window's sidebar.
+    func place(newWorkspace id: String, in windowID: String, at slot: WorkspaceSlot?,
+               then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) {
+        pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, then: then)
         if services.machines.workspace(id: id) != nil { applyPendingPlacements(live: [id]) }
     }
 }

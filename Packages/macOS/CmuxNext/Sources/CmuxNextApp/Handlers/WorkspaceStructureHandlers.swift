@@ -122,11 +122,16 @@ enum WorkspaceStructureHandlers {
         let services = context.services
         services.registry.track(Task {
             guard let key = await TabMoves.toNewWorkspace(first, services: services) else { return "move-tab-to-new-workspace failed (see the app log)" }
-            if let workspace, let state = services.windows.registry.value.owner(of: workspace.id).flatMap({ services.windows.states[$0] }) {
-                services.windows.claim(workspaceID: key.rawValue, in: state)
+            guard let workspace, let state = services.windows.registry.value.owner(of: workspace.id).flatMap({ services.windows.states[$0] })
+            else { return nil }
+            // Once the daemon reports it: below the pane's workspace, the
+            // other tabs follow in order, and the window shows it (tmux
+            // break-pane selects the new window).
+            services.windows.claim(workspaceID: key.rawValue, in: state)
+            services.windows.place(newWorkspace: key.rawValue, in: state.id, at: .below(workspace.id)) { id, _ in
+                if let created = services.workspace(id: id) { moveTabs(rest, into: created, context) {} }
+                services.windows.show(workspaceID: id, in: state)
             }
-            guard !rest.isEmpty, let created = services.workspace(id: key.rawValue) else { return nil }
-            moveTabs(rest, into: created, context) {}
             return nil
         })
     }
