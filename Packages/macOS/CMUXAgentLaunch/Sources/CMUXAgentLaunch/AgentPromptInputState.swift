@@ -163,10 +163,11 @@ private extension AgentPromptSubmissionSnapshot {
             promptRow: promptRow,
             bottomRows: bottomRows
         )
-        if bottomRows.contains(where: { row in
+        let hasDialogHint = bottomRows.contains(where: { row in
             let lowered = row.lowercased()
             return dialogHints.contains { lowered.contains($0) }
-        }) {
+        })
+        if hasDialogHint || slashCommandPopup {
             return DetectionResult(
                 state: .dialog,
                 agentKind: detectedKind,
@@ -278,15 +279,20 @@ private extension AgentPromptSubmissionSnapshot {
         bottomRows: [String]
     ) -> Bool {
         guard let promptRow else { return false }
+        let promptBody = plainRows[promptRow]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let promptText = String(promptBody.dropFirst(promptPrefix(in: plainRows[promptRow])?.count ?? 0))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let hasSlashOption = plainRows.dropFirst(promptRow + 1).contains { row in
             row.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
         }
         guard hasSlashOption else { return false }
-        return bottomRows.contains { row in
+        let hasSelectionHint = bottomRows.contains { row in
             let lowered = row.lowercased()
             return lowered.contains("enter to select") || lowered.contains("tab to select")
                 || lowered.contains("esc to cancel")
         }
+        return hasSelectionHint || promptText.hasPrefix("/")
     }
 
     private static func isPlaceholder(_ text: String, kind: AgentPromptAgentKind?) -> Bool {
