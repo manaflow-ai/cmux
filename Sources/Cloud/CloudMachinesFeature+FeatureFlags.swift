@@ -8,7 +8,7 @@ extension CloudMachinesFeature {
     /// managed-policy decision; it intentionally does not include the local
     /// activation marker so the Cloud tab can host first-use enablement.
     @MainActor static var isAvailable: Bool {
-        isAvailable(
+        return isAvailable(
             policy: ManagedDevicePolicy(),
             remoteEnabled: CmuxFeatureFlags.shared.isCloudMachinesEnabled
         )
@@ -17,7 +17,7 @@ extension CloudMachinesFeature {
     /// Off-main mirror of ``isAvailable`` for right-sidebar mode resolution.
     nonisolated static func offMainIsAvailable(defaults: UserDefaults = .standard) -> Bool {
         _ = defaults
-        isAvailable(
+        return isAvailable(
             policy: ManagedDevicePolicy(),
             remoteEnabled: CmuxFeatureFlags.offMainEffectiveValue(
                 for: CmuxFeatureFlags.cloudMachinesFlag
