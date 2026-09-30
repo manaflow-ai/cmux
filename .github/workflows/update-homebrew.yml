@@ -41,7 +41,17 @@ jobs:
     # The cask downloads that DMG from the published release and verifies its
     # SHA256 below, so the only thing it needs from the run is that the signed
     # build job succeeded.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion != 'cancelled' }}
+    # `workflow_run` matches the source by display name, so a run of any
+    # workflow with that name (a fork pull request's copy, for one) triggers
+    # this. Accept only the real release workflow run from a tag push in this
+    # repository; everything else about the run is attacker-controlled.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.path == '.github/workflows/release.yml' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.event == 'push'
+      ) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
@@ -79,12 +89,19 @@ jobs:
     steps:
       - name: Get version
         id: version
+        # Run metadata and the dispatch input reach the script only through
+        # env: substituted into the script text, a branch name like
+        # `$(cmd)` would run with this job's tap token.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
           else
             # workflow_run: extract tag from the triggering workflow's head branch
-            VERSION="${{ github.event.workflow_run.head_branch }}"
+            VERSION="$HEAD_BRANCH"
           fi
           VERSION="${VERSION#v}"
           if [ -z "$VERSION" ]; then
@@ -92,7 +109,7 @@ jobs:
             exit 1
           fi
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
               echo "Invalid version: ${VERSION}" >&2
               exit 1
             fi
