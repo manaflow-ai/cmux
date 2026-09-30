@@ -15,7 +15,7 @@ import Testing
 /// window must expose its rendered pane surfaces through the same control-plane
 /// seams that back `list-panes`, `list-pane-surfaces`, and `send`.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedMainWindowDefaults)
 struct RemoteTmuxMirrorCLIObservabilityTests {
     @Test func explicitSurfaceFocusSurvivesWorkspaceRestoration() throws {
         let harness = try Harness(focusAwayFromMirror: true, addPeerSurface: true, connectedTransport: true)
