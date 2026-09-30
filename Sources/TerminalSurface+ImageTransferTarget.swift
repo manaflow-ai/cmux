@@ -55,6 +55,16 @@ extension TerminalSurface {
         return .remote(.detectedSSH(session))
     }
 
+    /// The TTY to check for a user-started SSH session, or nil when the
+    /// transfer is local without any process lookup.
+    ///
+    /// Every drop and paste calls this on the main actor, and a nil result
+    /// inserts the path in the same turn, as upstream Ghostty does. Keep the
+    /// work here bounded by the foreground job: the PTY names its foreground
+    /// group (`tcgetpgrp`), and only a group with an `ssh` or `et` member
+    /// needs the bounded async lookup. Never add per-process work over the
+    /// whole TTY or machine here, or make every drop wait on a background
+    /// hop; on a loaded Mac either one delayed every dropped path by seconds.
     @MainActor
     func imageTransferDetectionTTY(
         mode: TerminalImageTransferMode = .paste,
@@ -64,6 +74,21 @@ extension TerminalSurface {
         guard resolvedImageTransferTarget(mode: mode, in: workspace) == .local,
               let ttyName = workspace?.surfaceTTYNames[id],
               !ttyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        // The fast check reads this surface's own PTY. It applies only when the
+        // reported TTY is that PTY: inside tmux the report can name a tmux
+        // pane's TTY, whose foreground job the cmux PTY cannot see. Without a
+        // live PTY, on a mismatch, or when the group cannot be read at all
+        // (`nil` rather than `false`), keep the async lookup so an unknown job
+        // is never assumed local.
+        if let surfaceDevice = controllingTTYDeviceIdentifier,
+           surfaceDevice == CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName),
+           let processGroupID = foregroundProcessID(),
+           TerminalSSHSessionDetector.foregroundJobHasRemoteShell(
+               processGroupID: Int32(processGroupID),
+               ttyName: ttyName
+           ) == false {
             return nil
         }
         return ttyName

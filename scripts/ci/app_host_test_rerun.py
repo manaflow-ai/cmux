@@ -65,12 +65,21 @@ def gh_api(path: str) -> dict:
     return json.loads(subprocess.check_output(["gh", "api", path], text=True))
 
 
+# A run's artifacts pile up across re-run attempts; an older attempt's product may sit past page 1.
+MAX_ARTIFACT_PAGES = 5
+
+
 def products_artifact(repository: str, run_id: str, api: Callable[[str], dict]) -> dict | None:
     """The unexpired app-host product artifact a run uploaded, if any."""
-    listing = api(f"repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100")
-    for artifact in listing.get("artifacts", []):
-        if artifact.get("name", "").startswith(PRODUCTS_PREFIX) and not artifact.get("expired"):
-            return artifact
+    for page in range(1, MAX_ARTIFACT_PAGES + 1):
+        more = f"&page={page}" if page > 1 else ""
+        artifacts = api(f"repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100{more}").get(
+            "artifacts", [])
+        for artifact in artifacts:
+            if artifact.get("name", "").startswith(PRODUCTS_PREFIX) and not artifact.get("expired"):
+                return artifact
+        if len(artifacts) < 100:
+            break
     return None
 
 

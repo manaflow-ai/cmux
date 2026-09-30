@@ -228,6 +228,55 @@ struct GhosttyTerminalStartupEnvironmentTests {
     }
 
     @Test
+    func testLiveAgentCommandShimSurvivesTemporaryDirectoryReaping() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LiveCommandShimTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let temporary = root.appendingPathComponent("tmp", isDirectory: true)
+        let wrappers = root.appendingPathComponent("wrappers", isDirectory: true)
+        let userBin = root.appendingPathComponent("user-bin", isDirectory: true)
+        for directory in [home, temporary, wrappers, userBin] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        let wrapper = wrappers.appendingPathComponent("cmux-claude-wrapper")
+        let realClaude = userBin.appendingPathComponent("claude")
+        try "#!/bin/sh\nprintf 'wrapped:%s\\n' \"$*\"\n".write(
+            to: wrapper, atomically: true, encoding: .utf8
+        )
+        try "#!/bin/sh\necho UNWRAPPED\n".write(to: realClaude, atomically: true, encoding: .utf8)
+        for executable in [wrapper, realClaude] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        }
+
+        let filesystem = TerminalSurfaceRuntimeFilesystem.live(homeDirectory: home)
+        let installed = await filesystem.installAgentCommandShims(
+            wrappers, UUID(), filesystem.agentCommandShimRootDirectory, [.claude]
+        )
+        let shims = try #require(installed)
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["--noprofile", "--norc", "-c", """
+        command claude before "two words"
+        /bin/rm -rf -- "$TMPDIR/cmux-cli-shims"
+        command claude after "two words"
+        """]
+        process.environment = [
+            "HOME": home.path,
+            "TMPDIR": temporary.path,
+            "PATH": "\(shims.directoryPath):\(userBin.path):/usr/bin:/bin"
+        ]
+        process.standardOutput = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        #expect(String(decoding: data, as: UTF8.self) == "wrapped:before two words\nwrapped:after two words\n")
+        #expect(shims.directoryPath.hasPrefix(home.appendingPathComponent(".cmuxterm/").path))
+    }
+
+    @Test
     func testInstallAgentCommandShimsCreatesAmpHermesAndClaudeExecutablesOutsideBundleBin() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -271,7 +320,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
             TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: bundleBin,
                 surfaceId: surfaceId,
-                temporaryDirectory: tempRoot
+                rootDirectory: tempRoot
             ))
         let shim = try #require(shims.shim(named: "claude"))
         let hermesShim = try #require(shims.shim(named: "hermes"))
@@ -356,7 +405,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
             TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: oldBundleBin,
                 surfaceId: UUID(),
-                temporaryDirectory: tempRoot
+                rootDirectory: tempRoot
             ))
         let shim = try #require(shims.shim(named: "claude"))
         try FileManager.default.removeItem(at: staleWrapperURL)
@@ -423,7 +472,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
             TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: bundleBin,
                 surfaceId: UUID(),
-                temporaryDirectory: tempRoot
+                rootDirectory: tempRoot
             ))
         let shim = try #require(shims.shim(named: "claude"))
         try FileManager.default.removeItem(at: wrapperURL)

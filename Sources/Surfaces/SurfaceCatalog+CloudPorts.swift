@@ -172,23 +172,27 @@ extension SurfaceCatalog {
 }
 
 extension CmuxTuiSurfaceProvider {
-    /// Converts one port-probe result into a complete scan. A non-zero exit is
-    /// incomplete (the command or transport was unavailable); a successful
-    /// header-only listing is authoritative and intentionally returns `[]`.
+    /// Classifies the authenticated loopback route, excluding provider-owned display ports.
+    nonisolated static func portScan(
+        from result: VMExecResult,
+        privateAddress: String? = nil,
+        displayPortsOwned: Bool = false
+    ) -> CloudPortScanResult? {
+        guard result.exitCode == 0, let scan = CloudPortScanResult(socketListing: result.stdout) else { return nil }
+        let excluded = displayPortsOwned ? CmuxTuiSnapshotParser.displayPorts : []
+        return CloudPortScanResult(
+            ports: scan.ports.filter { !excluded.contains($0) },
+            loopbackOnlyPorts: scan.loopbackOnlyPorts.filter { !excluded.contains($0) },
+            otherBindingPorts: scan.otherBindingPorts.filter { !excluded.contains($0) }
+        )
+    }
+
     nonisolated static func ports(
         from result: VMExecResult,
         privateAddress: String? = nil,
         displayPortsOwned: Bool = false
     ) -> [Int]? {
-        guard result.exitCode == 0 else { return nil }
-        return CmuxTuiSnapshotParser.reachableListeningPorts(
-            fromSocketListing: result.stdout,
-            privateAddress: privateAddress
-        )
-            .filter {
-                !CmuxTuiSnapshotParser.internalPorts.contains($0)
-                    && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0))
-            }
+        portScan(from: result, privateAddress: privateAddress, displayPortsOwned: displayPortsOwned)?.ports
     }
 
     /// Reconciles one machine's port scan with its prior catalog values.
@@ -206,7 +210,8 @@ extension CmuxTuiSurfaceProvider {
         let previous: [SurfaceResourceID: SurfaceResource] = Dictionary(
             uniqueKeysWithValues: previousResources
                 .filter {
-                    $0.id.isForwardedPort
+                    $0.id.machine == machine
+                        && $0.id.isForwardedPort
                         && !CmuxTuiSnapshotParser.internalPorts.contains($0.id.forwardedPort ?? -1)
                         && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0.id.forwardedPort ?? -1))
                 }

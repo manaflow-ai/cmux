@@ -927,7 +927,10 @@ extension CMUXCLI {
     }
 
     static func queuedAgentHookDataEnvironmentKeys(agent: String) -> [String] {
-        [
+        // The routed-launch metadata is Claude's; the session-start capture
+        // validates it before recording (`AgentLaunchEnvironmentPolicy`).
+        let routedLaunchKeys = agent == "claude" ? SubrouterClaudeResumeRouting.hookCapturedEnvironmentKeys : []
+        return [
             "PWD",
             "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
             "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
@@ -935,7 +938,7 @@ extension CMUXCLI {
             "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
             "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", agentHookRouteSnapshotEnvironmentKey,
             agentHookPIDEnvironmentVariable(agentName: agent),
-        ]
+        ] + routedLaunchKeys
     }
 
     static func agentHookPIDEnvironmentVariable(agentName: String) -> String {

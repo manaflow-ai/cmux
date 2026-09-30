@@ -265,6 +265,7 @@ extension CMUXCLI {
         vault checkpoints --agent <id> --session <id> [--json]
         vault checkpoint --agent <id> --session <id> [--name <text>] [--json]
         vault fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open] [--json]
+        recover [--query <text>] [--session <id>] [--limit <n>] [--focus] [--json]
         list-workspaces [--window <id|ref|index>]
         list-panes [--workspace <id|ref|index>] [--window <id|ref|index>]
         list-pane-surfaces [--workspace <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>]
