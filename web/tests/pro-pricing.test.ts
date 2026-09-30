@@ -195,6 +195,22 @@ describe("VM defaults and pricing copy", () => {
     }
   });
 
+  test("no native pricing string in any locale sells the retired limits or a free trial", () => {
+    const catalog = JSON.parse(readFileSync(new URL("../../Resources/Localizable.xcstrings", import.meta.url), "utf8"));
+    const stale: string[] = [];
+    for (const [key, entry] of Object.entries(catalog.strings as Record<string, { localizations?: Record<string, { stringUnit?: { value?: string } }> }>)) {
+      if (!key.startsWith("pricing.native.") && !key.startsWith("settings.account.pro.")) continue;
+      for (const [locale, localization] of Object.entries(entry.localizations ?? {})) {
+        const value = localization.stringUnit?.value ?? "";
+        if (/(?<!\d)50(?!\d)(?!\s*\/|\s*\$| \$|\s*美元)|(?<!\d)(?:24|64)\s?(?:GB|Go)|\btrial\b|\$480/i.test(value) &&
+          !/^\$?50$|\$50|50\s?\$|50\$|月額\$50|\$50\//.test(value)) {
+          stale.push(`${key} ${locale}: ${value}`);
+        }
+      }
+    }
+    expect(stale).toEqual([]);
+  });
+
   test("native pricing translations preserve the plan quantities", () => {
     const catalog = JSON.parse(readFileSync(new URL("../../Resources/Localizable.xcstrings", import.meta.url), "utf8"));
     for (const key of ["pricing.native.pro.feature.hours", "pricing.native.team.feature.compute", "pricing.native.sizes.body"]) {
