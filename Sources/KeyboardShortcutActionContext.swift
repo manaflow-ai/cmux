@@ -262,7 +262,7 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToMachines, .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return .rightSidebarFocus
-        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .pasteLastScreenshot, .clearScreenKeepScrollback:
+        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow, .clearScreenKeepScrollback:
             return .nonBrowserPanel
         case .focusHistoryBack, .focusHistoryForward:
             return .outsideBrowserPanel
