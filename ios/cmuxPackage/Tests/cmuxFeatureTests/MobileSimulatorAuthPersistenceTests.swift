@@ -68,6 +68,20 @@ import Testing
         }
     }
 
+    @Test func unresolvableSupportDirectoryFallsBackToMemory() throws {
+        let namespace = try makeNamespace()
+        let choice = MobileAuthComposition.tokenStore(
+            appNamespace: namespace,
+            accessGroup: nil,
+            legacyProjectID: "project-a",
+            simulatorSupportDirectory: nil
+        )
+        guard case .memory = choice else {
+            Issue.record("An unresolvable support directory must not select .none, which traps the SDK")
+            return
+        }
+    }
+
     private func store(
         namespace: MobileIOSAppNamespace,
         project: String
