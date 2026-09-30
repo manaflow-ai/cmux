@@ -26,6 +26,15 @@ final class NotificationCenterService {
     /// Banner ids posted per tab id, withdrawn once the tab is read.
     @ObservationIgnored private var banners: [String: [String]] = [:]
     @ObservationIgnored private var lastSeen: UInt64 = 0
+    /// The Dock badge this service set last (nil: none).
+    @ObservationIgnored var dockBadgeLabel: String?
+    /// App requests to create a notification still waiting for the daemon's
+    /// reply: an arrival with no known source waits for them (the daemon's
+    /// event can come before its reply), at most `parkLimit`.
+    @ObservationIgnored private var pendingCreates = 0
+    @ObservationIgnored private var parked: [DaemonNotification] = []
+    @ObservationIgnored private lazy var parkTimer = DemandTimer(owner: "notifications.origin", clock: clock)
+    private static let parkLimit: Duration = .seconds(1)
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
@@ -65,11 +74,34 @@ final class NotificationCenterService {
         })
     }
 
+    /// The app is about to create a notification; `record` or
+    /// `createFailed` must follow.
+    func expectCreate() {
+        pendingCreates += 1
+    }
+
     /// Tags a notification the app just created.
     func record(_ id: NotificationID, source: NotificationSource) {
         origins[id.rawValue] = source
         originOrder.append(id.rawValue)
         if originOrder.count > Self.originLimit { origins[originOrder.removeFirst()] = nil }
+        settleCreate()
+    }
+
+    func createFailed() {
+        settleCreate()
+    }
+
+    private func settleCreate() {
+        pendingCreates = max(0, pendingCreates - 1)
+        if pendingCreates == 0 { flushParked() }
+    }
+
+    private func flushParked() {
+        parkTimer.cancel()
+        let waiting = parked
+        parked.removeAll()
+        for notification in waiting { arrived(notification) }
     }
 
     func source(of tab: TabModel) -> NotificationSource {
@@ -130,6 +162,14 @@ final class NotificationCenterService {
 
     private func arrived(_ notification: DaemonNotification) {
         guard let services else { return }
+        if origins[notification.notification.rawValue] == nil, pendingCreates > 0 {
+            parked.append(notification)
+            parkTimer.scheduleIfIdle(after: Self.parkLimit) { @MainActor [weak self] in
+                self?.pendingCreates = 0
+                self?.flushParked()
+            }
+            return
+        }
         let store = services.daemon.store
         let source = origins[notification.notification.rawValue] ?? .agent
         let located = notification.surface.flatMap { locate(surface: $0, in: store) }

@@ -90,10 +90,7 @@ enum CompatFeed {
             decision = decision || attention.needsDecision
             let surface = event["surface_id"]?.stringValue.flatMap { try? world.resolveSurface($0, in: nil, refs: call.service.refs) }
             let handle = surface?.handle
-            let id = try await call.service.daemon("notify") {
-                try await $0.notify(title: attention.title, body: attention.body, surface: handle)
-            }
-            _ = try? await call.perform(.noteNotification(id: id.rawValue, source: "agent"))
+            let id = try await call.service.createNotification(title: attention.title, body: attention.body, surface: handle, source: "agent")
             ids.append(.string(String(id.rawValue)))
         }
         var result: [String: JSON] = ["status": .string(wait > 0 && decision ? "timed_out" : "acknowledged"),
@@ -179,9 +176,6 @@ enum CompatFeed {
         guard let world = try? await service.world(),
               let surface = try? world.resolveSurface(surfaceID, in: nil, refs: service.refs) else { return }
         let handle = surface.handle
-        guard let id = try? await service.daemon("notify", {
-            try await $0.notify(title: note.title, body: note.body, level: note.level, surface: handle)
-        }) else { return }
-        _ = try? await service.perform(.noteNotification(id: id.rawValue, source: "agent"))
+        _ = try? await service.createNotification(title: note.title, body: note.body, level: note.level, surface: handle, source: "agent")
     }
 }

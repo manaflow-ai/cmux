@@ -49,9 +49,15 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         let surface = services.cache.tabKey(for: session).flatMap { services.locateTab($0)?.0.surface }
         let text = body
         let notifications = services.notifications
+        notifications.expectCreate()
         services.daemon.send("notify") { connection in
-            let id = try await connection.notify(title: title, body: text, surface: surface)
-            await MainActor.run { notifications.record(id, source: .terminal) }
+            do {
+                let id = try await connection.notify(title: title, body: text, surface: surface)
+                await MainActor.run { notifications.record(id, source: .terminal) }
+            } catch {
+                await MainActor.run { notifications.createFailed() }
+                throw error
+            }
         }
     }
 

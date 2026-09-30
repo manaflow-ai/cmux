@@ -49,7 +49,7 @@ enum DebugNotifications {
             }),
             "authorization": .string(center.desktop.authorization),
             "log": .array(center.log.map(JSONValue.string)),
-            "dock_badge": NSApp.dockTile.badgeLabel.map(JSONValue.string) ?? .null,
+            "dock_badge": center.dockBadgeLabel.map(JSONValue.string) ?? .null,
             "preferences": [
                 "dismissal": .string(prefs.dismissal.rawValue), "desktop": .string(prefs.desktop.rawValue),
                 "sound": .string(prefs.sound), "muted_workspaces": .array(prefs.mutedWorkspaces.sorted().map(JSONValue.string)),

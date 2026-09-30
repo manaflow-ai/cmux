@@ -51,9 +51,13 @@ extension NotificationCenterService {
         store?.workspaces.reduce(0) { $0 + $1.unreadCount } ?? 0
     }
 
+    /// Sets the Dock tile's unread count. Compares with the label it set
+    /// last: reading `dockTile.badgeLabel` asks the Dock and can block.
     func updateDockBadge(_ count: Int) {
         let label = preferences.dockBadge && count > 0 ? String(count) : nil
-        if NSApp.dockTile.badgeLabel != label { NSApp.dockTile.badgeLabel = label }
+        guard label != dockBadgeLabel else { return }
+        dockBadgeLabel = label
+        NSApp.dockTile.badgeLabel = label
     }
 
     static func seconds(_ duration: Duration) -> Double {

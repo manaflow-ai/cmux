@@ -24,9 +24,13 @@ public final class WorkspaceModel: Identifiable {
         return name
     }
 
-    /// Tabs with an unread marker: the daemon rollup when served, else counted.
+    /// Tabs with an unread marker, counted from the mirrored tabs, which
+    /// every tab delta (an acknowledgement included) keeps current. The
+    /// daemon rollup arrives only with workspace snapshots, so it goes stale
+    /// after an ack; it serves only a workspace whose tree is not mirrored.
     public var unreadCount: Int {
-        daemonUnreadCount ?? screens.reduce(0) { total, screen in
+        guard !screens.isEmpty else { return daemonUnreadCount ?? 0 }
+        return screens.reduce(0) { total, screen in
             total + screen.panes.reduce(0) { $0 + $1.tabs.filter(\.hasUnread).count }
         }
     }
