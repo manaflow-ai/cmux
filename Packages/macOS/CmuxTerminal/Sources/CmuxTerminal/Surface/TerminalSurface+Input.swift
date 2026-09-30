@@ -653,6 +653,7 @@ extension TerminalSurface {
             Self.canonicalUnshiftedCodepoint(keycode: keycode)
             ?? canonicalText?.unicodeScalars.first?.value
             ?? 0
+        let generation = runtimeSurfaceGeneration
 
         let handled: Bool
         if let canonicalText {
@@ -669,6 +670,16 @@ extension TerminalSurface {
             handled = withRuntimeClipboardPasteIntent {
                 ghostty_surface_key(surface, keyEvent)
             }
+        }
+
+        // A named key is a complete stroke. Let Ghostty decide whether the
+        // negotiated protocol reports its release. A press can run a binding
+        // that tears down or replaces the runtime, so never release into a
+        // different surface generation.
+        if self.surface == surface, runtimeSurfaceGeneration == generation {
+            keyEvent.action = GHOSTTY_ACTION_RELEASE
+            keyEvent.text = nil
+            _ = ghostty_surface_key(surface, keyEvent)
         }
 
 #if DEBUG
