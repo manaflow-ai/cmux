@@ -237,6 +237,12 @@ jobs:
         run: ./scripts/ci/run-iroh-tailscale-compatibility-gate.sh
 
   simulator-e2e:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
+    # Production Stack credentials: only this run's own revision, never a
+    # requested ref (the ref input may name any commit).
+    if: ${{ needs.resolve-ref.outputs.sha == github.sha }}
     needs: resolve-ref
     env:
       # The app gates compile optimized Swift for both endpoints. Xcode 26's

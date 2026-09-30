@@ -1302,6 +1302,9 @@ jobs:
           echo "commit=$cmux_tui_commit" >> "$GITHUB_OUTPUT"
 
   build-sign-notarize-nightly:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
@@ -1834,6 +1837,9 @@ jobs:
           rm -f /tmp/cert.p12
 
   publish-nightly:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     # rc/** branches share one release. Serialize its mutable aliases and feeds
     # by channel, even when workflow-level groups have different branch names.
     concurrency:
