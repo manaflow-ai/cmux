@@ -26,6 +26,27 @@ import Testing
         #expect(surface.renderHealth == .awaitingFrame)
     }
 
+    @Test func hiddenPresentationCallbackClearsItsTokenBeforeTheNextShow() {
+        let fixture = PresentedSurfaceFixture()
+        defer { fixture.tearDown() }
+        let surface = fixture.surface
+
+        surface.setRendererWindowVisible(false)
+        surface.setRendererPortalVisible(false, presentationReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
+        surface.setRendererWindowVisible(true)
+        #expect(surface.rendererPresentationState.inFlightToken != nil)
+
+        surface.setRendererWindowVisible(false)
+        #expect(cmux_test_ghostty_renderer_present(fixture.runtimeSurface))
+        #expect(surface.rendererPresentationState.inFlightToken == nil)
+
+        surface.setRendererWindowVisible(true)
+        #expect(surface.rendererPresentationState.inFlightToken != nil)
+        fixture.acknowledgePendingPresentation()
+        #expect(surface.isRendererPresented)
+    }
+
     private func failProbe(on surface: TerminalSurface) {
         #expect(cmux_test_ghostty_renderer_fail(
             surface.runtimeSurfacePointer,
