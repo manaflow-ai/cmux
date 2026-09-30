@@ -68,7 +68,7 @@ public struct AccountTeamCard: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(String(localized: "settings.team.members", defaultValue: "Members"))
+                Text(String(localized: "settings.team.members", defaultValue: "Members", bundle: .module))
                     .cmuxFont(size: 13, weight: .medium)
                 Text(model.subtitle)
                     .cmuxFont(size: 11)
@@ -83,8 +83,8 @@ public struct AccountTeamCard: View {
                     if model.isComposingInvite { inviteFieldFocused = true }
                 } label: {
                     Text(model.isComposingInvite
-                        ? String(localized: "settings.team.invite.cancel", defaultValue: "Cancel")
-                        : String(localized: "settings.team.invite.short", defaultValue: "Invite…"))
+                        ? String(localized: "settings.team.invite.cancel", defaultValue: "Cancel", bundle: .module)
+                        : String(localized: "settings.team.invite.short", defaultValue: "Invite…", bundle: .module))
                 }
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsTeamInviteButton")
@@ -98,7 +98,7 @@ public struct AccountTeamCard: View {
     private var loadingRow: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small)
-            Text(String(localized: "settings.team.loading", defaultValue: "Loading members…"))
+            Text(String(localized: "settings.team.loading", defaultValue: "Loading members…", bundle: .module))
                 .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
         }
@@ -112,7 +112,7 @@ public struct AccountTeamCard: View {
     private var inviteComposer: some View {
         HStack(spacing: 8) {
             TextField(
-                String(localized: "settings.team.invite.placeholder", defaultValue: "Email addresses, comma separated"),
+                String(localized: "settings.team.invite.placeholder", defaultValue: "Email addresses, comma separated", bundle: .module),
                 text: $model.inviteEmails
             )
             .textFieldStyle(.roundedBorder)
@@ -122,18 +122,18 @@ public struct AccountTeamCard: View {
             .disabled(model.isInviting)
             .accessibilityIdentifier("SettingsTeamInviteField")
             Picker("", selection: $model.inviteRole) {
-                Text(String(localized: "settings.team.role.member", defaultValue: "Member")).tag(AccountTeamRole.member)
-                Text(String(localized: "settings.team.role.admin", defaultValue: "Admin")).tag(AccountTeamRole.admin)
+                Text(String(localized: "settings.team.role.member", defaultValue: "Member", bundle: .module)).tag(AccountTeamRole.member)
+                Text(String(localized: "settings.team.role.admin", defaultValue: "Admin", bundle: .module)).tag(AccountTeamRole.admin)
             }
             .labelsHidden()
             .controlSize(.small)
             .frame(width: 88)
             .disabled(model.isInviting)
-            .accessibilityLabel(String(localized: "settings.team.invite.roleLabel", defaultValue: "Invite role"))
+            .accessibilityLabel(String(localized: "settings.team.invite.roleLabel", defaultValue: "Invite role", bundle: .module))
             if model.isInviting {
                 ProgressView().controlSize(.small).frame(width: 44)
             } else {
-                Button(String(localized: "settings.team.invite.sendShort", defaultValue: "Send")) {
+                Button(String(localized: "settings.team.invite.sendShort", defaultValue: "Send", bundle: .module)) {
                     model.submitInvite()
                 }
                 .controlSize(.small)
@@ -141,7 +141,7 @@ public struct AccountTeamCard: View {
                 .disabled(!model.canSendInvite)
                 .accessibilityIdentifier("SettingsTeamSendInvitesButton")
             }
-            Button(String(localized: "settings.team.link.copyShort", defaultValue: "Copy link")) {
+            Button(String(localized: "settings.team.link.copyShort", defaultValue: "Copy link", bundle: .module)) {
                 model.copyInviteLink()
             }
             .controlSize(.small)
@@ -170,7 +170,7 @@ public struct AccountTeamCard: View {
                 HStack(spacing: 6) {
                     Text(member.label).cmuxFont(size: 13, weight: .medium).lineLimit(1)
                     if member.isViewer {
-                        Text(String(localized: "settings.team.you", defaultValue: "you"))
+                        Text(String(localized: "settings.team.you", defaultValue: "you", bundle: .module))
                             .cmuxFont(size: 11)
                             .foregroundColor(.secondary)
                     }
@@ -188,13 +188,13 @@ public struct AccountTeamCard: View {
                         get: { member.role },
                         set: { model.setRole($0, for: member) }
                     )) {
-                        Text(String(localized: "settings.team.role.member", defaultValue: "Member")).tag(AccountTeamRole.member)
-                        Text(String(localized: "settings.team.role.admin", defaultValue: "Admin")).tag(AccountTeamRole.admin)
+                        Text(String(localized: "settings.team.role.member", defaultValue: "Member", bundle: .module)).tag(AccountTeamRole.member)
+                        Text(String(localized: "settings.team.role.admin", defaultValue: "Admin", bundle: .module)).tag(AccountTeamRole.admin)
                     }
                     .labelsHidden()
                     .controlSize(.small)
                     .frame(width: 88)
-                    .accessibilityLabel(String(localized: "settings.team.invite.roleLabel", defaultValue: "Invite role"))
+                    .accessibilityLabel(String(localized: "settings.team.invite.roleLabel", defaultValue: "Invite role", bundle: .module))
                 } else {
                     Text(roleTitle(member.role))
                         .cmuxFont(size: 11)
@@ -202,18 +202,18 @@ public struct AccountTeamCard: View {
                 }
                 if member.isViewer {
                     if detail.members.count > 1 {
-                        Button(String(localized: "settings.team.leave", defaultValue: "Leave")) {
+                        Button(String(localized: "settings.team.leave", defaultValue: "Leave", bundle: .module)) {
                             model.remove(member)
                         }
                         .controlSize(.small)
                     }
                 } else if detail.canRemoveMembers {
-                    Button(String(localized: "settings.team.removeShort", defaultValue: "Remove")) {
+                    Button(String(localized: "settings.team.removeShort", defaultValue: "Remove", bundle: .module)) {
                         model.remove(member)
                     }
                     .controlSize(.small)
                     .accessibilityLabel(String.localizedStringWithFormat(
-                        String(localized: "settings.team.remove", defaultValue: "Remove %@"),
+                        String(localized: "settings.team.remove", defaultValue: "Remove %@", bundle: .module),
                         member.label
                     ))
                 }
@@ -226,7 +226,7 @@ public struct AccountTeamCard: View {
 
     private func invitationRows(_ invitations: [AccountTeamInvitation]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionLabel(String(localized: "settings.team.section.invitations", defaultValue: "Pending invitations"))
+            sectionLabel(String(localized: "settings.team.section.invitations", defaultValue: "Pending invitations", bundle: .module))
             ForEach(invitations) { invitation in
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -245,7 +245,7 @@ public struct AccountTeamCard: View {
 
     private func linkRows(_ links: [AccountTeamInviteLink]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionLabel(String(localized: "settings.team.section.links", defaultValue: "Invite links"))
+            sectionLabel(String(localized: "settings.team.section.links", defaultValue: "Invite links", bundle: .module))
             ForEach(links) { link in
                 HStack(alignment: .center, spacing: 12) {
                     Text(model.linkSummary(link)).cmuxFont(size: 13, weight: .medium).lineLimit(1)
@@ -264,7 +264,7 @@ public struct AccountTeamCard: View {
         if model.pendingID == id {
             ProgressView().controlSize(.small)
         } else {
-            Button(String(localized: "settings.team.revoke", defaultValue: "Revoke"), action: action)
+            Button(String(localized: "settings.team.revoke", defaultValue: "Revoke", bundle: .module), action: action)
                 .controlSize(.small)
         }
     }
@@ -279,8 +279,8 @@ public struct AccountTeamCard: View {
 
     private func roleTitle(_ role: AccountTeamRole) -> String {
         role == .admin
-            ? String(localized: "settings.team.role.admin", defaultValue: "Admin")
-            : String(localized: "settings.team.role.member", defaultValue: "Member")
+            ? String(localized: "settings.team.role.admin", defaultValue: "Admin", bundle: .module)
+            : String(localized: "settings.team.role.member", defaultValue: "Member", bundle: .module)
     }
 }
 
@@ -320,19 +320,19 @@ final class AccountTeamCardModel {
     var subtitle: String {
         guard let detail else {
             return isLoading
-                ? String(localized: "settings.team.loading", defaultValue: "Loading members…")
-                : String(localized: "settings.team.subtitle.empty", defaultValue: "People who share this team's Cloud machines.")
+                ? String(localized: "settings.team.loading", defaultValue: "Loading members…", bundle: .module)
+                : String(localized: "settings.team.subtitle.empty", defaultValue: "People who share this team's Cloud machines.", bundle: .module)
         }
         if let limit = detail.memberLimit {
             return String.localizedStringWithFormat(
-                String(localized: "settings.team.seatSummary", defaultValue: "%1$@ · %2$d of %3$d seats used"),
+                String(localized: "settings.team.seatSummary", defaultValue: "%1$@ · %2$d of %3$d seats used", bundle: .module),
                 detail.teamName,
                 detail.seatsUsed,
                 limit
             )
         }
         return String.localizedStringWithFormat(
-            String(localized: "settings.team.memberCount", defaultValue: "%1$@ · %2$d members"),
+            String(localized: "settings.team.memberCount", defaultValue: "%1$@ · %2$d members", bundle: .module),
             detail.teamName,
             detail.members.count
         )
@@ -378,11 +378,11 @@ final class AccountTeamCardModel {
             if outcome.failedEmails.isEmpty {
                 inviteEmails = ""
                 isComposingInvite = false
-                notice = String(localized: "settings.team.invite.sent", defaultValue: "Invitations sent.")
+                notice = String(localized: "settings.team.invite.sent", defaultValue: "Invitations sent.", bundle: .module)
             } else {
                 inviteEmails = outcome.failedEmails.joined(separator: ", ")
                 notice = String.localizedStringWithFormat(
-                    String(localized: "settings.team.invite.partial", defaultValue: "Could not invite: %@"),
+                    String(localized: "settings.team.invite.partial", defaultValue: "Could not invite: %@", bundle: .module),
                     outcome.failedEmails.joined(separator: ", ")
                 )
             }
@@ -395,7 +395,7 @@ final class AccountTeamCardModel {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(created.url, forType: .string)
-            notice = String(localized: "settings.team.link.copied", defaultValue: "Invite link copied. It expires in 7 days.")
+            notice = String(localized: "settings.team.link.copied", defaultValue: "Invite link copied. It expires in 7 days.", bundle: .module)
         }
     }
 
@@ -430,19 +430,19 @@ final class AccountTeamCardModel {
         let uses: String
         if let maxUses = link.maxUses {
             uses = String.localizedStringWithFormat(
-                String(localized: "settings.team.link.usesOf", defaultValue: "%1$d of %2$d uses"),
+                String(localized: "settings.team.link.usesOf", defaultValue: "%1$d of %2$d uses", bundle: .module),
                 link.useCount,
                 maxUses
             )
         } else {
             uses = String.localizedStringWithFormat(
-                String(localized: "settings.team.link.uses", defaultValue: "%d uses"),
+                String(localized: "settings.team.link.uses", defaultValue: "%d uses", bundle: .module),
                 link.useCount
             )
         }
         guard let expiresAt = link.expiresAt else { return uses }
         return String.localizedStringWithFormat(
-            String(localized: "settings.team.link.summary", defaultValue: "%1$@ · expires %2$@"),
+            String(localized: "settings.team.link.summary", defaultValue: "%1$@ · expires %2$@", bundle: .module),
             uses,
             expiresAt.formatted(date: .abbreviated, time: .omitted)
         )

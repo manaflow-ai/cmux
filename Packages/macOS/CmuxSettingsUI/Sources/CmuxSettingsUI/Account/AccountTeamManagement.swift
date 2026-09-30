@@ -165,6 +165,6 @@ extension AccountFlow {
         throw AccountTeamManagementError.unsupported
     }
     public func teamManagementMessage(for error: Error) -> String {
-        String(localized: "settings.team.error.generic", defaultValue: "Could not update the team. Try again.")
+        String(localized: "settings.team.error.generic", defaultValue: "Could not update the team. Try again.", bundle: .module)
     }
 }
