@@ -47,13 +47,39 @@ extension FeedCoordinator {
         return true
     }
     @MainActor
-    func clearSemanticFeedNotification(requestId: String) {
+    func clearSemanticFeedNotification(
+        requestId: String,
+        source: String? = nil,
+        sessionId: String? = nil,
+        workspaceId: UUID? = nil,
+        surfaceId: UUID? = nil
+    ) {
         let store = TerminalNotificationStore.shared
+        let before = store.notifications.count
         for notification in store.notifications where notification.correlationKey == requestId {
-            guard let surfaceID = notification.surfaceId else { continue }
-            store.clearNotifications(forTabId: notification.tabId, surfaceId: surfaceID,
+            guard let notificationSurfaceID = notification.surfaceId else { continue }
+            store.clearNotifications(forTabId: notification.tabId, surfaceId: notificationSurfaceID,
                 correlationKey: requestId)
         }
+        guard store.notifications.count == before else { return }
+
+        // Some older agent hooks did not carry a producer key. The later
+        // same-session hook still identifies the prompt by agent and surface;
+        // when that metadata is unavailable, only a single pending prompt is
+        // safe to retire so a second unanswered prompt keeps its ring.
+        let candidates = store.notifications.filter {
+            !$0.isRead && $0.agentCategory == AgentNotifyCategory.needsPermission.rawValue &&
+                (workspaceId == nil || $0.tabId == workspaceId) &&
+                (surfaceId == nil || $0.surfaceId == surfaceId)
+        }
+        guard candidates.count == 1, let candidate = candidates.first,
+              let candidateSurfaceID = candidate.surfaceId else { return }
+        _ = store.clearAgentAttentionNotification(
+            forTabId: candidate.tabId,
+            surfaceId: candidateSurfaceID,
+            agentKind: source ?? candidate.agentKind,
+            sessionId: sessionId ?? candidate.agentSessionId
+        )
     }
 
     /// Feed frames are normalized on the existing journal worker, not the UI actor.

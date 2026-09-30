@@ -1539,6 +1539,9 @@ final class TerminalNotificationStore: ObservableObject {
             clickAction: clickAction,
             replyShape: request.replyShape,
             soundContext: request.soundContext,
+            agentKind: request.agent?.kind,
+            agentCategory: request.agent?.category,
+            agentSessionId: request.agent?.sessionId,
             origin: request.origin
         )
         if effects.record {
@@ -2085,6 +2088,35 @@ final class TerminalNotificationStore: ObservableObject {
         // for each active record; do not issue a second pending-removal batch.
     }
 
+    /// Clears the oldest unread agent prompt on a surface when a later hook
+    /// proves that the prompt was answered. Correlation keys are preferred,
+    /// but older hooks may omit them, so the agent/session/category identity is
+    /// retained on the notification as the shared fallback.
+    @discardableResult
+    func clearAgentAttentionNotification(
+        forTabId tabId: UUID,
+        surfaceId: UUID,
+        agentKind: String? = nil,
+        sessionId: String? = nil,
+        correlationKey: String? = nil
+    ) -> Bool {
+        let liveTabId = AppDelegate.shared?
+            .agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: surfaceId)?.tabId ?? tabId
+        let matching = notifications.enumerated().filter { _, notification in
+            guard !notification.isRead,
+                  notification.agentCategory == AgentNotifyCategory.needsPermission.rawValue,
+                  notification.matchesClear(tabId: tabId, liveTabId: liveTabId, surfaceId: surfaceId) else {
+                return false
+            }
+            if let agentKind, notification.agentKind != agentKind { return false }
+            if let sessionId, notification.agentSessionId != sessionId { return false }
+            return correlationKey == nil || notification.correlationKey == correlationKey
+        }
+        guard let index = matching.first?.offset else { return false }
+        remove(id: notifications[index].id)
+        return true
+    }
+
     /// Clears one surface notification by its producer correlation key. This
     /// is intentionally narrower than a surface clear: a completion callback
     /// may arrive after a newer question, error, or approval was delivered to
@@ -2174,7 +2206,11 @@ final class TerminalNotificationStore: ObservableObject {
             scrollPosition: notification.scrollPosition,
             clickAction: notification.clickAction,
             replyShape: notification.replyShape,
-            soundContext: notification.soundContext
+            soundContext: notification.soundContext,
+            agentKind: notification.agentKind,
+            agentCategory: notification.agentCategory,
+            agentSessionId: notification.agentSessionId,
+            origin: notification.origin
         )
     }
 
@@ -2301,6 +2337,9 @@ final class TerminalNotificationStore: ObservableObject {
                 clickAction: notification.clickAction,
                 replyShape: notification.replyShape,
                 soundContext: notification.soundContext,
+                agentKind: notification.agentKind,
+                agentCategory: notification.agentCategory,
+                agentSessionId: notification.agentSessionId,
                 origin: notification.origin
             )
         }

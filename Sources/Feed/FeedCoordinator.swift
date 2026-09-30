@@ -463,7 +463,13 @@ final class FeedCoordinator: @unchecked Sendable {
                         agentKey: Self.lifecycleStatusKey(forSource: event.source),
                         requestID: requestId, resolvesRequest: true))
                 }
-                FeedCoordinator.shared.clearSemanticFeedNotification(requestId: requestId)
+                FeedCoordinator.shared.clearSemanticFeedNotification(
+                    requestId: requestId,
+                    source: reply?.event.source,
+                    sessionId: reply?.event.sessionId,
+                    workspaceId: reply?.event.workspaceId.flatMap(UUID.init(uuidString:)),
+                    surfaceId: reply?.event.surfaceId.flatMap(UUID.init(uuidString:))
+                )
                 if let store = FeedCoordinator.shared.store,
                    let itemId = Self.findItemId(for: requestId, in: store.items) {
                     store.markResolved(itemId, decision: decision)
@@ -519,7 +525,13 @@ final class FeedCoordinator: @unchecked Sendable {
             notificationJournal.observeFeed(AgentFeedSemanticInput(event: reply.event,
                 agentKey: Self.lifecycleStatusKey(forSource: reply.event.source),
                 requestID: reply.requestID, resolvesRequest: true))
-            clearSemanticFeedNotification(requestId: reply.requestID)
+            clearSemanticFeedNotification(
+                requestId: reply.requestID,
+                source: reply.event.source,
+                sessionId: reply.event.sessionId,
+                workspaceId: reply.event.workspaceId.flatMap(UUID.init(uuidString:)),
+                surfaceId: reply.event.surfaceId.flatMap(UUID.init(uuidString:))
+            )
             expireTimedOutItem(itemID)
             waiterRegistry.cleanupStored(requestID: reply.requestID, groupID: reply.groupID)
         }
