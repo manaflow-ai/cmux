@@ -104,7 +104,8 @@ public final class PaletteModel {
     /// a menu or shortcut). A `.perform` effect runs immediately.
     public func reset(to effect: PaletteEffect, fallback: PalettePageSpec) {
         clearStack()
-        switch effect {
+        switch effect.resolved() {
+        case .deferred: break
         case .push(let page): push(page)
         case .textInput(let spec): pushTextInput(spec)
         case .perform(let handler), .performKeepingOpen(let handler):
@@ -172,7 +173,9 @@ public final class PaletteModel {
             frecency.record(key, at: now())
             persistence?.save(frecency)
         }
-        switch command.effect {
+        switch command.effect.resolved() {
+        case .deferred:
+            break
         case .perform(let handler):
             onDismiss?()
             handler()

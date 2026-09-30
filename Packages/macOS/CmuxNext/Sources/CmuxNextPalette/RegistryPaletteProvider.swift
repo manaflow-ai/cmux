@@ -88,9 +88,19 @@ public final class RegistryPaletteProvider: PaletteProvider {
         return items
     }
 
+    /// Decided when the row runs (`PaletteEffect.deferred`): an action
+    /// with arguments builds its argument page, target list included, only
+    /// then, never for every row on open.
     private func defaultEffect(for descriptor: ActionDescriptor) -> PaletteEffect {
-        PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: targets)
-            .effect(collected: ActionInvocation())
+        let registry = registry
+        let id = descriptor.id
+        guard descriptor.arguments.contains(where: \.isRequired) else {
+            return .perform { registry.perform(id, invocation: ActionInvocation()) }
+        }
+        return .deferred { [targets] in
+            PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: targets)
+                .effect(collected: ActionInvocation())
+        }
     }
 
     static func primaryTitle(for descriptor: ActionDescriptor) -> String {

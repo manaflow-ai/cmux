@@ -34,6 +34,17 @@ public enum PaletteEffect {
     case push(PalettePageSpec)
     /// Replace the list with inline text entry ("Rename Tab…").
     case textInput(PaletteTextInputSpec)
+    /// Decided when the command runs, not when the row is built: rows are
+    /// built for every action on every open, and deciding can be costly
+    /// (an argument's target list reads every workspace or tab).
+    case deferred(@MainActor () -> PaletteEffect)
+
+    /// The effect to run: a deferred one is decided now.
+    public func resolved() -> PaletteEffect {
+        var effect = self
+        while case .deferred(let decide) = effect { effect = decide() }
+        return effect
+    }
 }
 
 /// One invocable command on an item. The first command is the primary
