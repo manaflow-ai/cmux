@@ -87,17 +87,10 @@ export function DashboardShell({
         {
           to: "/dashboard/settings",
           label: t("settings"),
-          active: pathname.startsWith("/dashboard/settings"),
-        },
-        {
-          to: "/dashboard/teams",
-          label: t("teams"),
-          active: pathname.startsWith("/dashboard/teams"),
-        },
-        {
-          to: "/dashboard/billing",
-          label: t("billing"),
-          active: pathname.startsWith("/dashboard/billing"),
+          // Settings is the hub for billing and teams too.
+          active: ["/dashboard/settings", "/dashboard/billing", "/dashboard/teams"].some(
+            (hub) => pathname === hub || pathname.startsWith(`${hub}/`),
+          ),
         },
       ],
     },

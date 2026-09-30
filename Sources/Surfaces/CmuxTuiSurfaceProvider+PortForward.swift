@@ -180,7 +180,7 @@ extension CmuxTuiSurfaceProvider {
                     // desktop is checked through the existing browser carrier below.
                     if !self.isAwake {
                         guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-                        _ = try await client.openPort(id: self.machineID, port: target.port)
+                        _ = try await client.openPort(id: self.machineID, port: target.port, teamID: self.ownerTeamID)
                     }
                     guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
                 },
@@ -220,7 +220,7 @@ extension CmuxTuiSurfaceProvider {
 #if DEBUG
                         cmuxDebugLog("cloud.desktop.proxy.heal.begin machine=\(self.machineID) port=\(port)")
 #endif
-                        _ = try await client.openPort(id: self.machineID, port: port)
+                        _ = try await client.openPort(id: self.machineID, port: port, teamID: self.ownerTeamID)
 #if DEBUG
                         cmuxDebugLog("cloud.desktop.proxy.heal.complete machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
 #endif
@@ -282,7 +282,7 @@ extension CmuxTuiSurfaceProvider {
     /// Explicit provider preview API retained for diagnostic callers only.
     func controlPlanePreviewURL(port: Int) async throws -> URL {
         guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-        let endpoint = try await client.openPort(id: machineID, port: port)
+        let endpoint = try await client.openPort(id: machineID, port: port, teamID: ownerTeamID)
         guard let url = URL(string: endpoint.openUrl), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { throw ProviderError.invalidPreviewURL }
         return url
     }
