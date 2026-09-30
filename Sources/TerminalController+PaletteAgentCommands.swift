@@ -27,25 +27,25 @@ extension TerminalController {
     /// most of the time for an agent, so the request names its target window
     /// rather than leaving the answer to the key-window default.
     nonisolated func v2PaletteAgentCommandsList(params: [String: Any]) -> V2CallResult {
-        let rawWindowId = (params["window_id"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         var requestedWindowId: UUID?
-        if let rawWindowId {
-            // An empty `window_id` is reported the same way a malformed one is.
-            // It resolves no window either, and answering "no cmux window is
-            // open" to a caller that did name a target sends an agent looking
-            // for a window that is right there.
-            guard let parsed = UUID(uuidString: rawWindowId) else {
+        if v2HasNonNullParam(params, "window_id") {
+            // Resolved through `v2UUID`, so a handle ref from `window.list` is
+            // accepted here the way every other window-scoped method accepts
+            // one. A named value that resolves to nothing is malformed, empty
+            // strings and wrong JSON types included: answering "no cmux window
+            // is open" to a caller that did name a target sends an agent
+            // looking for a window that is right there.
+            guard let resolved = v2UUID(params, "window_id") else {
                 return .err(
                     code: "invalid_params",
                     message: String(
                         localized: "socket.palette.list.invalidWindowId",
-                        defaultValue: "window_id must be a window UUID."
+                        defaultValue: "window_id must be a window UUID or ref from `window.list`."
                     ),
                     data: nil
                 )
             }
-            requestedWindowId = parsed
+            requestedWindowId = resolved
         }
 
         // Resolve the target window up front so a request no window can answer

@@ -600545,55 +600545,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "window_id must be a window UUID."
+            "value": "window_id must be a window UUID or ref from `window.list`."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يجب أن يكون window_id معرّف UUID لنافذة."
+            "value": "يجب أن يكون window_id معرّف UUID لنافذة أو مرجعًا من `window.list`."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "window_id muss eine Fenster-UUID sein."
+            "value": "window_id muss eine Fenster-UUID oder eine Referenz aus `window.list` sein."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "window_id debe ser un UUID de ventana."
+            "value": "window_id debe ser un UUID de ventana o una referencia de `window.list`."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "window_id doit être un UUID de fenêtre."
+            "value": "window_id doit être un UUID de fenêtre ou une référence de `window.list`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "window_id はウインドウの UUID である必要があります。"
+            "value": "window_id はウインドウの UUID または `window.list` の参照である必要があります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "window_id는 창 UUID여야 합니다."
+            "value": "window_id는 창 UUID 또는 `window.list`의 참조여야 합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "window_id 必须是窗口 UUID。"
+            "value": "window_id 必须是窗口 UUID 或来自 `window.list` 的引用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "window_id 必須是視窗 UUID。"
+            "value": "window_id 必須是視窗 UUID 或來自 `window.list` 的參照。"
           }
         }
       }
