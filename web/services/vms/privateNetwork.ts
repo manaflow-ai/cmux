@@ -628,6 +628,10 @@ export function readVmTunnel(input: {
         new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }),
       );
     }
+    // This read returns the config, so it is activity: the stale-tunnel reaper
+    // must not remove a tunnel a client still reads. Best effort, because a
+    // failed timestamp write must not fail the read.
+    yield* repo.updateTunnel({ id: existing.id, configIssued: true }).pipe(Effect.ignore);
     const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: live, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
     return describeTunnel(live, existing, network, { created: false, rotated: false }, teamNetworks);
   });
@@ -660,6 +664,111 @@ export function revokeVmTunnel(input: {
     const revoked = yield* repo.revokeTunnel(existing.id);
     return { revoked } as const;
   });
+}
+
+/** A tunnel replaced on its Mac is reaped after this many days with no enrollment or config read. */
+export const DEFAULT_VM_TUNNEL_STALE_AFTER_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const TUNNEL_REAP_BATCH_LIMIT = 25;
+// The reconcile cron runs other work first; this pass stays well inside a
+// 60-second function budget even when every provider call is slow.
+const TUNNEL_REAP_BUDGET_MS = 20_000;
+const TUNNEL_REAP_DELETE_TIMEOUT_MS = 10_000;
+
+/** The stale window, from `CMUX_VM_TUNNEL_STALE_AFTER_DAYS` when it is a positive number. */
+export function vmTunnelStaleAfterMs(env: Readonly<Record<string, string | undefined>> = process.env): number {
+  const days = Number(env.CMUX_VM_TUNNEL_STALE_AFTER_DAYS);
+  return (Number.isFinite(days) && days > 0 ? days : DEFAULT_VM_TUNNEL_STALE_AFTER_DAYS) * DAY_MS;
+}
+
+export type VmTunnelReapResult = {
+  readonly candidates: number;
+  readonly reaped: number;
+  readonly skipped: number;
+  readonly failed: number;
+  readonly budgetExhausted: boolean;
+};
+
+/** When a tunnel was last enrolled or had its config read; mirrors the repository query. */
+function tunnelLastActivityMs(row: CloudVmTunnelRow): number {
+  return Math.max(row.updatedAt.getTime(), (row.lastConfigIssuedAt ?? row.createdAt).getTime());
+}
+
+/**
+ * Frees private-network addresses held by abandoned tunnels. Every dogfood
+ * build and reinstall enrolls a new per-installation tunnel and nothing
+ * removed the old ones, so a network filled up. A tunnel is reaped only when
+ * it has had no enrollment or config read for the stale window AND a newer
+ * tunnel of the same purpose on the same Mac replaced it; the newest tunnel
+ * per Mac is never reaped. Removal holds the Mac's mutation lease, rechecks
+ * the row, and goes through {@link revokeVmTunnel}. Never fails: counts are
+ * returned and logged, and anything skipped is retried on the next run.
+ */
+export function reapStaleVmTunnels(input: {
+  readonly now?: () => number;
+  readonly staleAfterMs?: number;
+  readonly limit?: number;
+  readonly budgetMs?: number;
+} = {}): Effect.Effect<VmTunnelReapResult, never, VmRepository | VmProviderGateway> {
+  const empty: VmTunnelReapResult = { candidates: 0, reaped: 0, skipped: 0, failed: 0, budgetExhausted: false };
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const access = privateAccessRepo(repo);
+    const listCandidates = repo.listStaleTunnelCandidates;
+    if (!access || !listCandidates) return empty;
+    const now = input.now ?? Date.now;
+    const startedAt = now();
+    const inactiveBefore = new Date(startedAt - (input.staleAfterMs ?? vmTunnelStaleAfterMs()));
+    const candidates = yield* listCandidates({ inactiveBefore, limit: input.limit ?? TUNNEL_REAP_BATCH_LIMIT });
+    const counts = { reaped: 0, skipped: 0, failed: 0 };
+    let budgetExhausted = false;
+    for (const row of candidates) {
+      if (now() - startedAt >= (input.budgetMs ?? TUNNEL_REAP_BUDGET_MS)) {
+        budgetExhausted = true;
+        break;
+      }
+      const outcome = yield* reapStaleTunnel(access, row, inactiveBefore);
+      counts[outcome] += 1;
+    }
+    const result = { candidates: candidates.length, ...counts, budgetExhausted };
+    yield* Effect.logInfo("Cloud stale tunnel reap finished", result);
+    return result;
+  }).pipe(Effect.catchAllCause((cause) =>
+    Effect.logWarning("Cloud stale tunnel reap failed", { cause }).pipe(Effect.as(empty))));
+}
+
+function reapStaleTunnel(
+  repo: PrivateAccessRepo,
+  row: CloudVmTunnelRow,
+  inactiveBefore: Date,
+): Effect.Effect<"reaped" | "skipped" | "failed", never, VmRepository | VmProviderGateway> {
+  const reap = withAccessGrantMutationLease(repo, row.accessGrantId, Effect.gen(function* () {
+    // An enrollment can refresh the row between the query and the lease.
+    const current = yield* repo.findTunnel({
+      userId: row.userId,
+      deviceFingerprint: row.deviceFingerprint,
+      tunnelPurpose: row.tunnelPurpose,
+    });
+    if (!current || current.id !== row.id || tunnelLastActivityMs(current) >= inactiveBefore.getTime()) {
+      return "skipped" as const;
+    }
+    const { revoked } = yield* revokeVmTunnel({
+      userId: row.userId,
+      provider: row.provider,
+      deviceFingerprint: row.deviceFingerprint,
+      tunnelPurpose: row.tunnelPurpose,
+    }).pipe(Effect.timeoutFail({
+      duration: TUNNEL_REAP_DELETE_TIMEOUT_MS,
+      onTimeout: () => new Error("stale tunnel delete deadline"),
+    }));
+    return revoked ? "reaped" as const : "skipped" as const;
+  }));
+  return reap.pipe(Effect.catchAll((error) => error instanceof VmAccessGrantMutationBusyError
+    ? Effect.succeed("skipped" as const)
+    : Effect.logWarning("Cloud stale tunnel reap skipped a tunnel", {
+      tunnelId: row.id,
+      errorDescription: privateNetworkErrorDescription(error),
+    }).pipe(Effect.as("failed" as const))));
 }
 
 /** Revoke one Mac and every Freestyle peer owned by its Cloud access grant. */

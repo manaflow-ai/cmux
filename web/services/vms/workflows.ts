@@ -141,13 +141,14 @@ export {
   networkSlugForUser,
   networkSlugForTeam,
   readVmTunnel,
+  reapStaleVmTunnels,
   renameVmAccessGrant,
   resolveOwnerNetwork,
   revokeVmAccessGrant,
   revokeVmTunnel,
   tunnelSlugForDevice,
 } from "./privateNetwork";
-export type { VmTunnelDescriptor } from "./privateNetwork";
+export type { VmTunnelDescriptor, VmTunnelReapResult } from "./privateNetwork";
 export { reapVmResources } from "./reaper";
 export type {
   VmReaperOptions,
