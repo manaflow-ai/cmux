@@ -64,7 +64,8 @@ function PersonalBilling({ data }: { data: PersonalBillingJson }) {
       scope={{ kind: "personal", returnTo: localeHref(locale, "/dashboard/billing") }}
       periodEnd={subscription?.currentPeriodEnd ?? null}
       canManagePayment={status.billingManagement === "stripe"}
-      currentPrice={subscription ? personalPriceCopy(t, subscription.price, subscriptionPlan(subscription.plan)) : undefined}
+      // A plan granted without a subscription charges nothing, so it shows no price.
+      currentPrice={subscription ? personalPriceCopy(t, subscription.price, subscriptionPlan(subscription.plan)) : status.isPro ? null : undefined}
     />
   );
   return (

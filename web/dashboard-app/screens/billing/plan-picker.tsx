@@ -10,7 +10,7 @@ import { formatBillingDate } from "./billing-format";
 import { CancelPlanDialog } from "./cancel-plan-dialog";
 import { ChangePlanDialog } from "./change-plan-dialog";
 import { personalCheckoutHref, teamCheckoutHref, teamPortalHref } from "./checkout-links";
-import type { PickerPlanId, PlanCard, SwitchPlanId } from "./plan-model";
+import { type PickerPlanId, type PlanCard, sharedUnavailableReason, type SwitchPlanId } from "./plan-model";
 
 const MONTHLY_USD: Readonly<Record<PickerPlanId, number>> = {
   free: 0,
@@ -58,6 +58,7 @@ export function PlanPicker({
   const current = cards.find((card) => card.current);
   const paidCurrent = current && current.id !== "free" ? current.id : null;
   const portalHref = teamId ? teamPortalHref(teamId) : "/api/billing/portal";
+  const sharedReason = sharedUnavailableReason(cards);
 
   const action = (card: PlanCard): ReactNode => {
     const name = t(`names.${card.id}`);
@@ -104,7 +105,8 @@ export function PlanPicker({
           </button>
         );
       case "unavailable":
-        return <p className="text-xs text-muted">{t(`unavailable.${card.action.reason}`)}</p>;
+        // A reason every other card shares is said once, under the cards.
+        return sharedReason ? null : <p className="text-xs text-muted">{t(`unavailable.${card.action.reason}`)}</p>;
     }
   };
 
@@ -138,6 +140,7 @@ export function PlanPicker({
         ))}
       </div>
 
+      {sharedReason ? <p className="mt-2 text-xs text-muted" data-testid="plan-picker-note">{t(`unavailable.${sharedReason}`)}</p> : null}
       {canManagePayment ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {/* The portal route creates a Stripe session: a full document navigation. */}

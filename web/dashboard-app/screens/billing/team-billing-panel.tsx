@@ -49,7 +49,7 @@ export function TeamBillingPanel({
         scope={{ kind: "team", teamId: view.team.id }}
         periodEnd={view.subscription?.currentPeriodEnd ?? null}
         canManagePayment={view.canManageBilling && view.billingManagement === "stripe"}
-        currentPrice={view.subscription ? teamPriceCopy(t, view.subscription.price) : undefined}
+        currentPrice={view.subscription ? teamPriceCopy(t, view.subscription.price) : view.granted ? null : undefined}
       />
     </div>
   );

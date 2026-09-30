@@ -89,3 +89,14 @@ export function teamPlanCards(input: {
       : input.granted ? "granted" : "free";
   return cards(["free", "team"], current, state);
 }
+
+/**
+ * The reason every non-current card shares, when they all have one, so the
+ * picker says it once under the cards instead of on each card.
+ */
+export function sharedUnavailableReason(cards: readonly PlanCard[]): Extract<PlanCardAction, { kind: "unavailable" }>["reason"] | null {
+  const others = cards.filter((card) => !card.current);
+  const reasons = new Set(others.map((card) => (card.action.kind === "unavailable" ? card.action.reason : null)));
+  const [only] = [...reasons];
+  return reasons.size === 1 && only ? only : null;
+}
