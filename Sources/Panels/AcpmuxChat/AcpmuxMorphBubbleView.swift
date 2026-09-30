@@ -72,14 +72,10 @@ final class AcpmuxMorphBubbleView: NSView {
         let start = frame
         CATransaction.begin()
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
-        // Final model values first, then springs from the old values.
-        frame = target
-        fill.frame = CGRect(origin: .zero, size: target.size)
-        fill.cornerRadius = 17.5
-        fill.opacity = 1
-        for label in [sourceLabel, finalLabel] { label.frame.origin = textOrigin }
-        sourceLabel.alphaValue = 0
-        finalLabel.alphaValue = 1
+        // The model stays at the start state: AppKit applies view geometry in its own
+        // display pass, so moving the view's frame to the target could show the end state
+        // for a frame before the springs start. Every animation holds its end value
+        // (fillMode forwards) until the completion hides this reusable overlay.
 
         let hostLayer = layer!
         add(spring("position", from: Self.position(of: start, in: hostLayer), to: Self.position(of: target, in: hostLayer)), to: hostLayer)
@@ -92,16 +88,17 @@ final class AcpmuxMorphBubbleView: NSView {
         fillFade.fromValue = 0
         fillFade.toValue = 1
         fillFade.duration = 0.12
-        fill.add(fillFade, forKey: "fade")
+        add(fillFade, to: fill)
         for (label, from, to) in [(sourceLabel, 1.0, 0.0), (finalLabel, 0.0, 1.0)] {
             guard let labelLayer = label.layer else { continue }
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = from
             fade.toValue = to
             fade.duration = 0.16
-            labelLayer.add(fade, forKey: "fade")
-            add(spring("position", from: NSValue(point: CGPoint(x: labelLayer.position.x - textOrigin.x, y: labelLayer.position.y - textOrigin.y)),
-                       to: NSValue(point: labelLayer.position)), to: labelLayer)
+            add(fade, to: labelLayer)
+            let startPosition = labelLayer.position
+            add(spring("position", from: NSValue(point: startPosition),
+                       to: NSValue(point: CGPoint(x: startPosition.x + textOrigin.x, y: startPosition.y + textOrigin.y))), to: labelLayer)
         }
         CATransaction.commit()
     }
@@ -115,6 +112,8 @@ final class AcpmuxMorphBubbleView: NSView {
     }
 
     private func add(_ animation: CAAnimation, to layer: CALayer) {
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
         layer.add(animation, forKey: (animation as? CAPropertyAnimation)?.keyPath)
     }
 
