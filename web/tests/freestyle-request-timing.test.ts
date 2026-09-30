@@ -3,23 +3,29 @@ import { preconnectFreestyle } from "../services/vms/drivers/freestyle";
 import { freestyleRequestFetch, type FreestyleRequestTiming } from "../services/vms/drivers/freestyleRequestTiming";
 
 describe("Freestyle enrollment request timings", () => {
-  test("coalesces concurrent cold connection warm-ups", async () => {
+  test("coalesces concurrent production connection warm-ups and keeps success sticky", async () => {
+    const originalFetch = globalThis.fetch;
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     let calls = 0;
-    const fetch = (async () => {
+    globalThis.fetch = (async () => {
       calls += 1;
       await gate;
       return new Response(null, { status: 204 });
     }) as typeof globalThis.fetch;
+    try {
+      const first = preconnectFreestyle();
+      const second = preconnectFreestyle();
+      expect(second).toBe(first);
+      expect(calls).toBe(1);
 
-    const first = preconnectFreestyle({ baseUrl: "https://provider.example.test", fetch });
-    const second = preconnectFreestyle({ baseUrl: "https://provider.example.test", fetch });
-    expect(second).toBe(first);
-    expect(calls).toBe(1);
-
-    release();
-    await Promise.all([first, second]);
+      release();
+      await Promise.all([first, second]);
+      await preconnectFreestyle();
+      expect(calls).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test.each(["workflow", "init", "request"])("forwards %s cancellation alongside the provider timeout", async (source) => {

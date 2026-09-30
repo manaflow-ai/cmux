@@ -15,13 +15,14 @@ import { pathToFileURL } from "node:url";
 import { elapsedMs, formatSummary, ownerNetworkSlug, parseServerTiming, pollBoundedFetch, providerCredentialsFromEnv, summarizeFields, summarizeStages } from "./benchStats.mjs";
 import { loadTargetEnv, optionValue, parseWebDirAndTarget, requireEnvKeys, runVercel } from "./projects.mjs";
 
-const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--allow-preview] [--allow-any-url] [--skip-pause] [--skip-exec] [--edge-check] [--edge-alias <host>] [--label <text>] [--out <file.json>]";
+const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--allow-preview] [--allow-any-url] [--skip-initial-list] [--skip-pause] [--skip-exec] [--edge-check] [--edge-alias <host>] [--label <text>] [--out <file.json>]";
 const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
 const trials = positiveInteger(optionValue(rest, "--trials") ?? "3", "--trials");
 const concurrency = Math.min(positiveInteger(optionValue(rest, "--concurrency") ?? "1", "--concurrency"), trials);
 const targetUrl = resolveTargetUrl(project, rest);
 const skipPause = rest.includes("--skip-pause");
 const skipExec = rest.includes("--skip-exec");
+const skipInitialList = rest.includes("--skip-initial-list");
 // Full-feature readiness: poll the model-plane edge alias from inside the
 // guest until the coderouter reflection route answers, so the report can
 // separate "terminal usable" from "agents can reach their credentials". The
@@ -279,12 +280,20 @@ async function rowUntilVisible(vmId) {
     if (elapsed >= ROW_READY_BUDGET_MS || interrupted) {
       throw new Error(`VM row for ${vmId} did not become visible within ${ROW_READY_BUDGET_MS} ms (${attempts.length} attempts)`);
     }
-    const response = await fetchTimed(`${targetUrl}/api/vm`, { headers: authHeaders });
+    const remainingMs = ROW_READY_BUDGET_MS - (performance.now() - startedAt);
+    const response = await fetchTimed(
+      `${targetUrl}/api/vm`,
+      { headers: authHeaders },
+      Math.min(REQUEST_TIMEOUT_MS, remainingMs),
+    );
     const body = json(response.text);
     attempts.push({ status: response.status, ms: response.ms });
     if (response.status === 200) {
       const row = (body.vms ?? []).find((entry) => entry?.id === vmId);
-      if (row) {
+      if (row?.status === "failed") {
+        throw new Error(`VM row for ${vmId} became failed while waiting for readiness`);
+      }
+      if (row?.status === "running") {
         return {
           rowReadyMs: elapsedMs(startedAt),
           rowReadyStatus: row.status ?? null,
@@ -294,7 +303,6 @@ async function rowUntilVisible(vmId) {
     } else if (response.status >= 500) {
       throw new Error(`VM row list failed while waiting for ${vmId}: ${response.status} ${response.text.slice(0, 300)}`);
     }
-    const remainingMs = ROW_READY_BUDGET_MS - (performance.now() - startedAt);
     await sleep(Math.min(remainingMs, 250));
   }
 }
@@ -330,6 +338,7 @@ async function runTrial(trial) {
   const { index } = trial;
   const idempotencyKey = `bench-${suffix}-${index}`;
   const createRequestedAt = Date.now();
+  const createStartedAt = performance.now();
   let create;
   try {
     create = await fetchTimed(`${targetUrl}/api/vm`, {
@@ -346,6 +355,7 @@ async function runTrial(trial) {
   trial.createMs = create.ms;
   trial.createStatus = create.status;
   trial.createTraceId = create.headers.get("x-cmux-trace-id");
+  trial.createVercelId = create.headers.get("x-vercel-id");
   trial.createStages = parseServerTiming(create.headers.get("server-timing"));
   if (create.status >= 500) {
     // A 5xx (a gateway or function timeout above all) can end the invocation
@@ -363,13 +373,13 @@ async function runTrial(trial) {
   trial.size = created.size?.name ?? null;
   Object.assign(trial, await rowUntilVisible(vmId));
   Object.assign(trial, await attachUntilReady(vmId, "attach"));
-  // Create plus the attach-endpoint's own time: the route and lease exist,
-  // but the link, the terminal and the shell prompt come after this point
-  // (bench-private-link.ts measures those). Trusted-carrier attach is the
-  // first usable machine boundary; rowReadyMs is the durable fleet-row boundary.
-  trial.createToAttachReadyMs = trial.createMs + trial.attachMs;
-  trial.createToRowReadyMs = trial.createMs + trial.rowReadyMs;
+  // Row polling is serialized before endpoint issuance. Use one monotonic
+  // origin so the totals include both phases; endpoint issuance is not a
+  // terminal-ready claim (bench-private-link.ts measures the real prompt).
+  trial.createToRowReadyMs = elapsedMs(createStartedAt);
+  trial.createToAttachReadyMs = undefined;
   Object.assign(trial, await attachUntilReady(vmId, "warmAttach"));
+  trial.createToAttachReadyMs = elapsedMs(createStartedAt);
   if (!skipExec) {
     const exec = await fetchTimed(vmUrl(vmId, "/exec"), {
       method: "POST",
@@ -960,9 +970,11 @@ try {
   const sessionMs = Math.min(24 * 60 * 60 * 1000, 30 * 60 * 1000 + Math.ceil(trials / concurrency) * trialWorstMs);
   authHeaders = await mintSessionHeaders(sessionMs);
 
-  const list = await fetchTimed(`${targetUrl}/api/vm`, { headers: authHeaders });
-  if (list.status !== 200) throw new Error(`authenticated GET /api/vm expected 200, got ${list.status}: ${list.text.slice(0, 200)}`);
-  listMs = list.ms;
+  if (!skipInitialList) {
+    const list = await fetchTimed(`${targetUrl}/api/vm`, { headers: authHeaders });
+    if (list.status !== 200) throw new Error(`authenticated GET /api/vm expected 200, got ${list.status}: ${list.text.slice(0, 200)}`);
+    listMs = list.ms;
+  }
 
   startedAt = performance.now();
   results = await runBatches();
