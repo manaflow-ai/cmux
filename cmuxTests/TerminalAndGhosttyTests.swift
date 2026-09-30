@@ -5991,3 +5991,79 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     }
 
 }
+
+
+@Suite(.serialized)
+@MainActor
+struct GhosttyScrollFollowRegressionTests {
+    private func scrollbar(offset: UInt64) -> GhosttyScrollbar {
+        GhosttyScrollbar(c: ghostty_action_scrollbar_s(total: 100, offset: offset, len: 10))
+    }
+
+    @Test(arguments: [false, true])
+    func explicitWheelIntentSurvivesGeometryBeforePacket(updateCellSize: Bool) throws {
+        let surface = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
+        surface.cellSize = CGSize(width: 10, height: 10)
+        let host = GhosttySurfaceScrollView(surfaceView: surface)
+        host.frame = NSRect(x: 0, y: 0, width: 360, height: 240)
+        host.layoutSubtreeIfNeeded()
+        let scrollView = try #require(host.subviews.first { $0 is NSScrollView } as? NSScrollView)
+        func packet(_ offset: UInt64) {
+            NotificationCenter.default.post(
+                name: .ghosttyDidUpdateScrollbar, object: surface,
+                userInfo: [GhosttyNotificationKey.scrollbar: scrollbar(offset: offset)]
+            )
+        }
+        packet(90)
+        #expect(abs(scrollView.contentView.bounds.origin.y) < 0.01)
+        NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: surface)
+        if updateCellSize {
+            NotificationCenter.default.post(name: .ghosttyDidUpdateCellSize, object: surface)
+        } else {
+            host.frame.size.height = 200
+            host.layoutSubtreeIfNeeded()
+        }
+        packet(40)
+        #expect(abs(scrollView.contentView.bounds.origin.y - 500) < 0.01)
+        packet(90)
+        #expect(abs(scrollView.contentView.bounds.origin.y - 500) < 0.01)
+
+        // A later wheel while already reviewing must still move to its fresh packet.
+        NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: surface)
+        NotificationCenter.default.post(name: .ghosttyDidUpdateCellSize, object: surface)
+        packet(30)
+        #expect(abs(scrollView.contentView.bounds.origin.y - 600) < 0.01)
+        packet(90)
+        #expect(abs(scrollView.contentView.bounds.origin.y - 600) < 0.01)
+
+        // Returning to output is also explicit and must survive a geometry-only sync.
+        NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: surface)
+        NotificationCenter.default.post(name: .ghosttyDidUpdateCellSize, object: surface)
+        #expect(abs(scrollView.contentView.bounds.origin.y - 600) < 0.01)
+        packet(90)
+        #expect(abs(scrollView.contentView.bounds.origin.y) < 0.01)
+    }
+
+    @Test(arguments: [CGFloat(4), CGFloat(6)])
+    func explicitSyncUsesSamePixelThresholdAsNativeScroll(cellHeight: CGFloat) throws {
+        let surface = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
+        surface.cellSize = CGSize(width: 10, height: cellHeight)
+        let host = GhosttySurfaceScrollView(surfaceView: surface)
+        host.frame = NSRect(x: 0, y: 0, width: 360, height: 240)
+        host.layoutSubtreeIfNeeded()
+        let scrollView = try #require(host.subviews.first { $0 is NSScrollView } as? NSScrollView)
+        func packet(_ offset: UInt64) {
+            NotificationCenter.default.post(
+                name: .ghosttyDidUpdateScrollbar, object: surface,
+                userInfo: [GhosttyNotificationKey.scrollbar: scrollbar(offset: offset)]
+            )
+        }
+        packet(90)
+        NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: surface)
+        packet(89)
+        #expect(abs(scrollView.contentView.bounds.origin.y - cellHeight) < 0.01)
+        packet(90)
+        let expectedOrigin: CGFloat = cellHeight > 5 ? cellHeight : 0
+        #expect(abs(scrollView.contentView.bounds.origin.y - expectedOrigin) < 0.01)
+    }
+}
