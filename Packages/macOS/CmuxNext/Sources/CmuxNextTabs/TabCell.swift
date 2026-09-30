@@ -18,6 +18,8 @@ final class TabCell {
     var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
+    /// Hover may start the title marquee (off while a drag or rename runs).
+    var allowsMarquee = true { didSet { if !allowsMarquee { titleFade.stopMarquee(animated: false) } } }
     var showsSeparator = false { didSet { if oldValue != showsSeparator { separatorLayer.opacity = showsSeparator ? 1 : 0 } } }
     var style: TabStripStyle = .chrome { didSet { if oldValue != style { layoutLayers() } } }
     var metrics: TabStripMetrics = .standard {
@@ -58,7 +60,9 @@ final class TabCell {
     private let backgroundLayer = CALayer()
     let iconLayer = CALayer()
     let titleLayer = ChromeTextLayer()
-    private let titleMask = CAGradientLayer()
+    /// Fades the clipped title and runs its hover marquee (one mask layer,
+    /// present only while the title is clipped).
+    private(set) lazy var titleFade = TitleFade(textLayer: titleLayer)
     private let separatorLayer = CALayer()
     // Created on first need and removed when unused, so 100 idle tabs cost
     // five layers each (architecture.md 3): spinner while busy, badge while
@@ -115,11 +119,6 @@ final class TabCell {
         backgroundLayer.cornerCurve = .continuous
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
-        titleMask.startPoint = CGPoint(x: 0, y: 0.5)
-        titleMask.endPoint = CGPoint(x: 1, y: 0.5)
-        // Opaque, fading out, clear to the end (the x can sit over the end).
-        titleMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor, NSColor.clear.cgColor]
-        titleMask.actions = Self.noActions
         separatorLayer.opacity = 0
         for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
@@ -165,6 +164,17 @@ final class TabCell {
         animatesCloseChange = true
         layoutLayers()
         animatesCloseChange = false
+        updateMarquee()
+    }
+
+    /// The pointer resting on a clipped title scrolls it after the hover
+    /// delay; leaving stops it at once (TitleFade, Motion `MotionMarquee`).
+    private func updateMarquee() {
+        if isHovered, allowsMarquee, !isLifted, visibility.showsTitle {
+            titleFade.startMarquee()
+        } else {
+            titleFade.stopMarquee()
+        }
     }
 
     private func updateLift() {
@@ -173,6 +183,7 @@ final class TabCell {
         backgroundLayer.shadowOffset = CGSize(width: 0, height: Metrics.space1)
         backgroundLayer.shadowOpacity = isLifted ? 0.22 : 0
         layer.zPosition = isLifted ? 10 : 0
+        if isLifted { titleFade.stopMarquee(animated: false) }
         updateColors(animated: true)
     }
 
@@ -352,41 +363,24 @@ final class TabCell {
             // or resizes when the x appears; the x overlays its end and the
             // title fades out before it (Chrome, Safari).
             let titleX = iconFrame.maxX + m.iconTitleSpacing
-            let width = max(0, bounds.width - m.contentTrailingInset - titleX)
+            let span = max(0, bounds.width - m.contentTrailingInset - titleX)
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
-            titleLayer.frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: width, height: lineHeight)
             titleLayer.opacity = 1
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
-            let visible = max(0, layoutProfileBadge(titleX: titleX, titleEnd: layoutMachineBadge(titleX: titleX, titleEnd: titleEnd, midY: midY), midY: midY) - titleX)
-            applyTitleMask(width: width, visible: min(visible, width))
+            let visibleEnd = layoutProfileBadge(titleX: titleX, titleEnd: layoutMachineBadge(titleX: titleX, titleEnd: titleEnd, midY: midY), midY: midY)
+            // The marquee fades glyphs out across the icon-title gap.
+            let geometry = TitleFadeGeometry(
+                textWidth: titleWidth(), span: span, visibleWidth: visibleEnd - titleX,
+                leadingPadding: m.iconTitleSpacing, trailingPadding: 0, fadeWidth: m.titleFadeWidth
+            )
+            let frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: span, height: lineHeight)
+            titleFade.apply(geometry, frame: frame, animated: animatesCloseChange)
         } else {
+            titleFade.stopMarquee(animated: false)
             titleLayer.opacity = 0
             titleLayer.mask = nil
             machineLayer?.opacity = 0
             profileLayer?.opacity = 0
-        }
-    }
-
-    /// Clipped titles fade out instead of showing an ellipsis: opaque,
-    /// then a fade that ends at `visible` (title coordinates), clear after.
-    private func applyTitleMask(width: CGFloat, visible: CGFloat) {
-        guard width > 0, titleWidth() > visible else {
-            titleLayer.mask = nil
-            return
-        }
-        let fade = min(metrics.titleFadeWidth, max(visible, 1) * 0.5)
-        let end = max(0, visible / width)
-        let start = max(0, (visible - fade) / width)
-        let locations: [NSNumber] = [0, NSNumber(value: Double(start)), NSNumber(value: Double(end)), 1]
-        titleMask.frame = titleLayer.bounds
-        let wasMasked = titleLayer.mask === titleMask
-        titleLayer.mask = titleMask
-        if animatesCloseChange, (titleMask.locations ?? []) != locations {
-            // A title that was not clipped starts fully visible.
-            let from: [NSNumber]? = wasMasked ? nil : [0, 1, 1, 1]
-            Motion.set(titleMask, "locations", to: locations, fade: .hover, from: from)
-        } else {
-            titleMask.locations = locations
         }
     }
 
