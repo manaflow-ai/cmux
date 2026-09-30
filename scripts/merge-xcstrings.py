@@ -344,7 +344,7 @@ def main(argv: list[str]) -> int:
         _materialize_conflict(ours_path, base_text, ours_text, theirs_text, marker_size, name)
         print(f"merge-xcstrings: {name}: cannot parse ({error}); falling back", file=sys.stderr)
         return 1
-    except (OSError, ValueError) as error:
+    except Exception as error:
         _materialize_conflict(ours_path, base_text, ours_text, theirs_text, marker_size, name)
         print(f"merge-xcstrings: {name}: cannot merge ({error}); falling back", file=sys.stderr)
         return 1
@@ -364,7 +364,11 @@ def main(argv: list[str]) -> int:
         _materialize_conflict(ours_path, base_text, ours_text, theirs_text, marker_size, name)
         print(f"merge-xcstrings: {name}: refusing to write invalid JSON ({error})", file=sys.stderr)
         return 1
-    if list(reparsed.get("strings", {})) != planned:
+    try:
+        actual_keys = list(reparsed.get("strings", {}))
+    except (AttributeError, TypeError):
+        actual_keys = []
+    if actual_keys != planned:
         _materialize_conflict(ours_path, base_text, ours_text, theirs_text, marker_size, name)
         print(f"merge-xcstrings: {name}: merged key set did not match the plan", file=sys.stderr)
         return 1
