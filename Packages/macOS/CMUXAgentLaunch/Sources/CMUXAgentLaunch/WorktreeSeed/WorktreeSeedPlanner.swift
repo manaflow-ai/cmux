@@ -40,7 +40,10 @@ public struct WorktreeSeedPlanner: Sendable {
     /// Returns the children of a repository-relative directory. `""` is the root.
     public typealias Listing = @Sendable (String) -> [WorktreeSeedListedEntry]
 
-    /// How many directories a single expansion may list before the plan gives up.
+    /// How many directories a single expansion may list before it gives up.
+    ///
+    /// Counted per pattern, not per file, so one greedy line cannot starve the
+    /// rest. A pattern that hits it is reported in `WorktreeSeedPlan.truncated`.
     public var maximumVisitedDirectories: Int
 
     private let listing: Listing
@@ -59,12 +62,20 @@ public struct WorktreeSeedPlanner: Sendable {
     public func plan(for file: WorktreeSeedFile, alreadyPresent: Set<String> = []) -> WorktreeSeedPlan {
         var plan = WorktreeSeedPlan()
         var matchesByLine: [Int: [String: WorktreeSeedListedEntry]] = [:]
-        var visited = 0
 
         for pattern in file.patterns {
+            // The budget is per pattern. Sharing one across the file made a
+            // single `**` starve every line after it, and those lines then
+            // looked like patterns that matched nothing, which is advice to
+            // delete a line that was never tried.
+            var visited = 0
             let expansion = expand(pattern, visited: &visited)
-            if expansion.reachedLimit { plan.reachedWalkLimit = true }
             matchesByLine[pattern.line] = expansion.matches
+            if expansion.reachedLimit {
+                plan.reachedWalkLimit = true
+                plan.truncated.append(pattern)
+                continue
+            }
             if expansion.matches.isEmpty { plan.unmatched.append(pattern) }
         }
 
