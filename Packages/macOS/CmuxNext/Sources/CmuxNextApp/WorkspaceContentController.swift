@@ -45,8 +45,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     func unpark() {
         isParked = false
         layoutView.keepsPanesWhenDetached = false
-        // Window-level state that changed while parked.
-        if layoutModel.showsScreenSwitcher != state.showsScreenSwitcher { layoutModel.showsScreenSwitcher = state.showsScreenSwitcher }
         applyCurrent()
     }
 
