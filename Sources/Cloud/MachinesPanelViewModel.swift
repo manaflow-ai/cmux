@@ -518,7 +518,6 @@ final class MachinesPanelViewModel: ObservableObject {
                   isCloudEnabled() else { return }
             let previous = resourceStats?.snapshot ?? [:]
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
-            self.freeAccessWindowDays = freeAccessWindowDays
             var snapshots = page.vms.map {
                 MachineSnapshotBuilder.snapshot(
                     from: $0,
@@ -533,11 +532,17 @@ final class MachinesPanelViewModel: ObservableObject {
             machineIndexByID = Dictionary(uniqueKeysWithValues: snapshots.enumerated().map { ($0.element.id, $0.offset) })
             machines = snapshots
             lastLimits = page.limits
-            scheduleFreeAccessTransition()
             refreshStats()
             refreshUsage()
             readCatalog()
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)
+            if let plan {
+                machines = MachineSnapshotBuilder.applyingFreeAccess(to: machines, plan: plan)
+                self.freeAccessWindowDays = plan.isCloudAccessGranted ? 0 : freeAccessWindowDays
+            } else {
+                self.freeAccessWindowDays = freeAccessWindowDays
+            }
+            scheduleFreeAccessTransition()
             lastErrorDescription = nil
             listProblem = nil
             initialTransientFailureCount = 0

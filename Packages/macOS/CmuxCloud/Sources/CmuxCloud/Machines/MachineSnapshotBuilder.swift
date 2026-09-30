@@ -177,6 +177,24 @@ public enum MachineSnapshotBuilder: Sendable {
         }
     }
 
+    /// Applies the plan's single Cloud-access decision to every machine row.
+    /// Granted accounts do not have a free-access lock even when stale window
+    /// metadata is present in the response.
+    public static func applyingFreeAccess(
+        to snapshots: [MachineSnapshot],
+        plan: MachinePlanSnapshot,
+        now: Date = Date()
+    ) -> [MachineSnapshot] {
+        guard !plan.isCloudAccessGranted else {
+            return snapshots.map { snapshot in
+                var next = snapshot
+                next.freeAccess = .unrestricted
+                return next
+            }
+        }
+        return applyingFreeAccess(to: snapshots, windowDays: plan.freeAccessWindowDays, now: now)
+    }
+
     public static func activity(fromStatus status: String) -> MachineSnapshot.Activity {
         switch status.lowercased() {
         case "running", "ready", "standby", "paused":
@@ -196,7 +214,7 @@ public enum MachineSnapshotBuilder: Sendable {
     ) -> MachinePlanSnapshot? {
         guard let limits else { return nil }
         let isPaidPlan = MachinePlanSnapshot.isPaidPlanID(limits.planId)
-        let hasPlanMeter = (limits.maxActiveVms ?? 0) > 0
+        let hasPlanMeter = (limits.maxActiveVms ?? 1) > 0
         // A non-metered account with machines already has Cloud access, so
         // free-plan metadata is stale and must not create an expiry warning.
         let staleFreePlan = !hasPlanMeter && (activeCount > 0 || !machines.isEmpty)
@@ -207,7 +225,8 @@ public enum MachineSnapshotBuilder: Sendable {
             planId: limits.planId,
             freeAccessWindowDays: limits.freeAccessWindowDays,
             freeAccessExpiresAt: expiresAt,
-            freeAccessBanner: freeAccessBanner(expiresAt: expiresAt, isPaidPlan: isPaidPlan, now: now)
+            freeAccessBanner: freeAccessBanner(expiresAt: expiresAt, isPaidPlan: isPaidPlan, now: now),
+            isCloudAccessGranted: staleFreePlan
         )
     }
 }

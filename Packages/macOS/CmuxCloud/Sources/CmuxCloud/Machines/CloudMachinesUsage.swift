@@ -11,9 +11,7 @@ public struct CloudMachinesUsage: Equatable, Sendable {
     ///   - isPaidPlan: Whether limit help should omit the free-plan upgrade prompt.
     public init(activeCount: Int, maxActiveVms: Int? = nil, isPaidPlan: Bool) {
         self.activeCount = activeCount
-        // The server sends zero for accounts whose Cloud access is granted
-        // outside the plan row; it is not a machine ceiling.
-        self.maxActiveVms = maxActiveVms.flatMap { $0 > 0 ? $0 : nil }
+        self.maxActiveVms = maxActiveVms
         self.isPaidPlan = isPaidPlan
     }
 

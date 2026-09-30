@@ -118,7 +118,10 @@ final class CloudMenuModel {
         switch result {
         case .success(let page):
             let windowDays = page.limits?.freeAccessWindowDays ?? 0
-            let snapshots = page.vms.map { MachineSnapshotBuilder.snapshot(from: $0, freeAccessWindowDays: windowDays) }
+            var snapshots = page.vms.map { MachineSnapshotBuilder.snapshot(from: $0, freeAccessWindowDays: windowDays) }
+            if let plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots) {
+                snapshots = MachineSnapshotBuilder.applyingFreeAccess(to: snapshots, plan: plan)
+            }
             lastLoadedAt = ContinuousClock.now
             publish(machines: ordered(snapshots), loadState: .loaded)
         case .failure(let error as VMClientError):

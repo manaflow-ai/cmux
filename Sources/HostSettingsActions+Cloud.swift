@@ -14,13 +14,17 @@ extension HostSettingsActions {
         // Same classifier as the Machines panel so Settings and the panel never
         // disagree about an unknown plan id (both fail closed to "not paid").
         let isPaid = MachinePlanSnapshot.isPaidPlanID(limits.planId)
+        let plan = MachineSnapshotBuilder.planSnapshot(
+            activeCount: page.vms.count,
+            limits: limits
+        )
         let planLabel = isPaid
             ? limits.planId.capitalized
             : String(localized: "settings.cloudMachines.plan.free", defaultValue: "Free")
         return CloudMachinesPlanSummary(
             planLabel: planLabel,
             activeMachines: page.vms.count,
-            maxMachines: limits.maxActiveVms,
+            maxMachines: plan?.meterMaxActiveVms,
             isPaidPlan: isPaid
         )
     }

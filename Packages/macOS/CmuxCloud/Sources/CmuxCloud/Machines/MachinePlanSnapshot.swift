@@ -8,23 +8,25 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
         planId: String,
         freeAccessWindowDays: Int = 0,
         freeAccessExpiresAt: Date? = nil,
-        freeAccessBanner: FreeAccessBanner = .none
+        freeAccessBanner: FreeAccessBanner = .none,
+        isCloudAccessGranted: Bool = false
     ) {
         self.activeCount = activeCount
-        // The server sends zero for accounts whose Cloud access is granted
-        // outside the plan row; it is not a machine ceiling.
-        self.maxActiveVms = maxActiveVms.flatMap { $0 > 0 ? $0 : nil }
+        self.maxActiveVms = maxActiveVms
         self.planId = planId
         self.freeAccessWindowDays = freeAccessWindowDays
         self.freeAccessExpiresAt = freeAccessExpiresAt
         self.freeAccessBanner = freeAccessBanner
+        self.isCloudAccessGranted = isCloudAccessGranted
     }
 
     public let activeCount: Int
     /// Active-machine ceiling; nil when the plan has no cap (every paid plan).
     public let maxActiveVms: Int?
-    /// Whether the plan has a machine ceiling to display and enforce.
-    public var hasPlanMeter: Bool { maxActiveVms != nil }
+    /// Whether Cloud access is granted outside the plan's machine allowance.
+    /// This is decided once from the fleet snapshot, where the machine list is
+    /// available to distinguish a granted zero cap from an unentitled one.
+    public let isCloudAccessGranted: Bool
     public let planId: String
     /// Days the plan keeps a machine reachable after creation; 0 = no window.
     public var freeAccessWindowDays: Int = 0
@@ -32,9 +34,18 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     public var freeAccessExpiresAt: Date? = nil
     public var freeAccessBanner: FreeAccessBanner = .none
 
+    /// The ceiling shown and enforced by the client. A granted zero cap is
+    /// inventory-only; an unentitled zero cap remains a paywall ceiling.
+    public var meterMaxActiveVms: Int? {
+        guard isCloudAccessGranted, (maxActiveVms ?? 1) <= 0 else { return maxActiveVms }
+        return nil
+    }
+    /// Whether the plan has a machine ceiling to display and enforce.
+    public var hasPlanMeter: Bool { meterMaxActiveVms != nil }
+
     /// The count the Cloud Machines header shows, and whether it is at the ceiling.
     public var usage: CloudMachinesUsage {
-        CloudMachinesUsage(activeCount: activeCount, maxActiveVms: maxActiveVms, isPaidPlan: isPaidPlan)
+        CloudMachinesUsage(activeCount: activeCount, maxActiveVms: meterMaxActiveVms, isPaidPlan: isPaidPlan)
     }
     /// An uncapped plan is never at the limit.
     public var isAtLimit: Bool { usage.isAtLimit }
