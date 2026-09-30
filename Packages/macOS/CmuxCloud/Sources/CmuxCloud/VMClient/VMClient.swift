@@ -1,5 +1,6 @@
 import CMUXDebugLog
 import CmuxAuthRuntime
+import CmuxCloudMachines
 import CMUXMobileCore
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -53,13 +54,20 @@ public func formattedCloudVMHTTPError(status: Int, body: String) -> String {
 
     let errorCode = cloudVMString(object["error"]) ?? "http_\(status)"
     let ui = object["ui"] as? [String: Any]
-    let displayTitle = cloudVMString(ui?["title"])
+    var displayTitle = cloudVMString(ui?["title"])
     let message = cloudVMString(object["message"])
         ?? cloudVMString(object["reason"])
         ?? defaultCloudVMMessage(status: status)
-    let displayMessage = cloudVMString(ui?["message"]) ?? message
-    let action = cloudVMString(object["action"])
+    var displayMessage = cloudVMString(ui?["message"]) ?? message
+    var action = cloudVMString(object["action"])
         ?? defaultCloudVMAction(status: status, errorCode: errorCode, response: object)
+    if errorCode == CloudAttachRetryGate.recreateRequiredErrorCode {
+        // Permanent machine state: the app's own copy, in the app's language,
+        // so the sidebar and CLI name the one fix instead of a retry.
+        displayTitle = cloudVMRecreateRequiredTitle()
+        displayMessage = cloudVMRecreateRequiredMessage()
+        action = cloudVMRecreateRequiredAction()
+    }
     let retryAfterSeconds = cloudVMInt(object["retryAfterSeconds"])
         ?? cloudVMInt(ui?["retryAfterSeconds"])
     let details = cloudVMDetails(from: object)
@@ -88,6 +96,27 @@ public func formattedCloudVMHTTPError(status: Int, body: String) -> String {
         lines.append(cloudVMReferenceLine(traceId: traceId))
     }
     return lines.joined(separator: "\n")
+}
+
+/// Title for a machine that must be deleted and created again (`vm_recreate_required`).
+public func cloudVMRecreateRequiredTitle() -> String {
+    String(localized: "cloudVM.error.recreateRequired.title", defaultValue: "Recreate this machine")
+}
+
+/// One-line state shown for a machine that can never be opened again.
+public func cloudVMRecreateRequiredMessage() -> String {
+    String(
+        localized: "cloudVM.error.recreateRequired.message",
+        defaultValue: "This machine was created before a Cloud update and can't be attached."
+    )
+}
+
+/// The one fix for `vm_recreate_required`; retrying never helps.
+public func cloudVMRecreateRequiredAction() -> String {
+    String(
+        localized: "cloudVM.error.recreateRequired.action",
+        defaultValue: "Create a new machine, copy your files over with cmux vm pull and cmux vm push, then delete this one."
+    )
 }
 
 public func cloudVMReferenceLine(traceId: String) -> String {
@@ -1070,6 +1099,12 @@ public actor VMClient {
     private let readRequests: CloudReadRequestCoordinator
     private let isCloudEnabled: @Sendable () -> Bool
     private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
+    /// Per-machine attach refusal windows, keyed by account, session generation and machine.
+    private var attachRetryGate = CloudAttachRetryGate()
+    /// The refusal a gated attach answers with, so every caller shows the server's reason.
+    private var attachLastFailure: [String: VMClientError] = [:]
+    /// One attach request per machine, device fingerprint and capability set at a time.
+    private var cmuxRemoteInFlight: [String: Task<VMCmuxRemoteEndpoint, Error>] = [:]
 
     public init(
         session: URLSession = .shared,
@@ -2004,72 +2039,146 @@ public actor VMClient {
         return tokens
     }
 
+    /// Open (or reuse) the cmux-tui remote endpoint for one machine.
+    ///
+    /// This is the single choke point for every in-app attach caller, so it
+    /// owns the retry policy: concurrent callers for the same machine share one
+    /// request, and after a refusal the machine's ``CloudAttachRetryGate``
+    /// answers the stored error without a request until its window passes.
+    /// `vm_recreate_required` holds for half an hour; every other refusal
+    /// backs off exponentially. Pollers therefore cannot turn a permanent
+    /// machine state into a request loop.
     public func openCmuxRemote(
         id: String,
         deviceFingerprint: String? = nil,
         clientCapabilities: [String] = []
     ) async throws -> VMCmuxRemoteEndpoint {
         return try await withOperation(.open, foreground: true) {
-            let encodedID = try pathSegment(id, fieldName: "vm id")
-            var body: [String: Any] = ["transport": "cmux-remote"]
-            if let deviceFingerprint, !deviceFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                body["deviceFingerprint"] = deviceFingerprint
-            }
-            let capabilities = Self.sanitizedClientCapabilities(clientCapabilities)
-            if !capabilities.isEmpty {
-                body["clientCapabilities"] = capabilities
-            }
-            // Terminal and metadata traffic uses the user-space WireGuard hub.
-            // Do not start or require the browser Network Extension here.
-            let obj = try await {
-                let (data, http) = try await request(
-                    "POST",
-                    path: "/api/vm/\(encodedID)/attach-endpoint",
-                    jsonBody: body,
-                    timeoutSeconds: 20
-                )
-                try ensureOK(http, data: data)
-                return try decodeJSONObject(data)
-            }()
-            guard (obj["transport"] as? String) == "cmux-remote",
-                  let route = obj["route"] as? String, !route.isEmpty,
-                  let token = obj["token"] as? String,
-                  let session = obj["session"] as? String else {
-                throw VMClientError.malformedResponse("Cloud VM cmux-remote attach response was missing required fields.")
-            }
-            let expiresAtUnix = (obj["expiresAtUnix"] as? Int64) ?? Int64((obj["expiresAtUnix"] as? Double) ?? 0)
-            // Absent on a control plane older than the trusted listener: such a
-            // daemon would still expect enrollment, which this build no longer does.
-            let trustedCarrier = (obj["trustedCarrier"] as? Bool) ?? false
-            var daemonBuild: VMCmuxRemoteEndpoint.DaemonBuild?
-            if let raw = obj["daemonBuild"] as? [String: Any] {
-                daemonBuild = .init(
-                    commit: raw["commit"] as? String,
-                    remoteProtocol: (raw["remoteProtocol"] as? Int) ?? (raw["remoteProtocol"] as? Double).map(Int.init),
-                    version: raw["version"] as? String
-                )
-            }
-            var networkAddresses: VMCmuxRemoteEndpoint.NetworkAddresses?
-            // The HTTP API uses camelCase. The local control socket uses the
-            // snake_case wire contract. Accept both at this boundary so a proxy
-            // or an older app cannot silently drop the address metadata.
-            if let raw = (obj["network_addresses"] ?? obj["networkAddresses"]) as? [String: Any] {
-                let ipv4 = raw["ipv4"] as? String
-                let ipv6 = raw["ipv6"] as? String
-                if ipv4 != nil || ipv6 != nil {
-                    networkAddresses = .init(ipv4: ipv4, ipv6: ipv6)
-                }
-            }
-            return VMCmuxRemoteEndpoint(
-                route: route,
-                token: token,
-                expiresAtUnix: expiresAtUnix,
-                session: session,
-                trustedCarrier: trustedCarrier,
-                networkAddresses: networkAddresses,
-                daemonBuild: daemonBuild
+            try await self.openCmuxRemoteGated(
+                id: id,
+                deviceFingerprint: deviceFingerprint,
+                clientCapabilities: clientCapabilities
             )
         }
+    }
+
+    private func openCmuxRemoteGated(
+        id: String,
+        deviceFingerprint: String?,
+        clientCapabilities: [String]
+    ) async throws -> VMCmuxRemoteEndpoint {
+        let identity = await auth.authenticatedSessionIdentity
+        let gateKey = [identity?.accountID ?? "-", identity.map { String($0.generation) } ?? "-", id].joined(separator: "|")
+        if attachRetryGate.blockedUntil(gateKey, now: Date()) != nil, let stored = attachLastFailure[gateKey] {
+            throw stored
+        }
+        let flightKey = [gateKey, deviceFingerprint ?? "", Self.sanitizedClientCapabilities(clientCapabilities).joined(separator: ",")]
+            .joined(separator: "|")
+        if let inFlight = cmuxRemoteInFlight[flightKey] {
+            return try await inFlight.value
+        }
+        let task = Task<VMCmuxRemoteEndpoint, Error> {
+            do {
+                let endpoint = try await self.requestCmuxRemoteEndpoint(
+                    id: id,
+                    deviceFingerprint: deviceFingerprint,
+                    clientCapabilities: clientCapabilities
+                )
+                self.attachRetryGate.recordSuccess(gateKey)
+                self.attachLastFailure[gateKey] = nil
+                return endpoint
+            } catch let error as VMClientError {
+                self.recordAttachFailure(error, gateKey: gateKey)
+                throw error
+            }
+        }
+        cmuxRemoteInFlight[flightKey] = task
+        defer { if cmuxRemoteInFlight[flightKey] == task { cmuxRemoteInFlight[flightKey] = nil } }
+        let endpoint = try await task.value
+        try Task.checkCancellation()
+        return endpoint
+    }
+
+    /// Only answers the control plane (or its absence) produced gate the
+    /// machine; local refusals (signed out, Cloud disabled) never send a request.
+    private func recordAttachFailure(_ error: VMClientError, gateKey: String) {
+        let failure: CloudAttachRetryGate.Failure
+        switch error {
+        case .httpStatus(let status, let body):
+            failure = CloudAttachRetryGate.classify(status: status, body: Data(body.utf8))
+        case .backendUnreachable, .malformedResponse:
+            failure = .init(kind: .retryable)
+        case .notSignedIn, .sessionRefreshFailed, .disabledByManagedPolicy, .cloudMachinesDisabled, .lifecycleUnsupported:
+            return
+        }
+        attachRetryGate.recordFailure(gateKey, failure, now: Date())
+        attachLastFailure[gateKey] = error
+    }
+
+    private func requestCmuxRemoteEndpoint(
+        id: String,
+        deviceFingerprint: String?,
+        clientCapabilities: [String]
+    ) async throws -> VMCmuxRemoteEndpoint {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        var body: [String: Any] = ["transport": "cmux-remote"]
+        if let deviceFingerprint, !deviceFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["deviceFingerprint"] = deviceFingerprint
+        }
+        let capabilities = Self.sanitizedClientCapabilities(clientCapabilities)
+        if !capabilities.isEmpty {
+            body["clientCapabilities"] = capabilities
+        }
+        // Terminal and metadata traffic uses the user-space WireGuard hub.
+        // Do not start or require the browser Network Extension here.
+        let obj = try await {
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/\(encodedID)/attach-endpoint",
+                jsonBody: body,
+                timeoutSeconds: 20
+            )
+            try ensureOK(http, data: data)
+            return try decodeJSONObject(data)
+        }()
+        guard (obj["transport"] as? String) == "cmux-remote",
+              let route = obj["route"] as? String, !route.isEmpty,
+              let token = obj["token"] as? String,
+              let session = obj["session"] as? String else {
+            throw VMClientError.malformedResponse("Cloud VM cmux-remote attach response was missing required fields.")
+        }
+        let expiresAtUnix = (obj["expiresAtUnix"] as? Int64) ?? Int64((obj["expiresAtUnix"] as? Double) ?? 0)
+        // Absent on a control plane older than the trusted listener: such a
+        // daemon would still expect enrollment, which this build no longer does.
+        let trustedCarrier = (obj["trustedCarrier"] as? Bool) ?? false
+        var daemonBuild: VMCmuxRemoteEndpoint.DaemonBuild?
+        if let raw = obj["daemonBuild"] as? [String: Any] {
+            daemonBuild = .init(
+                commit: raw["commit"] as? String,
+                remoteProtocol: (raw["remoteProtocol"] as? Int) ?? (raw["remoteProtocol"] as? Double).map(Int.init),
+                version: raw["version"] as? String
+            )
+        }
+        var networkAddresses: VMCmuxRemoteEndpoint.NetworkAddresses?
+        // The HTTP API uses camelCase. The local control socket uses the
+        // snake_case wire contract. Accept both at this boundary so a proxy
+        // or an older app cannot silently drop the address metadata.
+        if let raw = (obj["network_addresses"] ?? obj["networkAddresses"]) as? [String: Any] {
+            let ipv4 = raw["ipv4"] as? String
+            let ipv6 = raw["ipv6"] as? String
+            if ipv4 != nil || ipv6 != nil {
+                networkAddresses = .init(ipv4: ipv4, ipv6: ipv6)
+            }
+        }
+        return VMCmuxRemoteEndpoint(
+            route: route,
+            token: token,
+            expiresAtUnix: expiresAtUnix,
+            session: session,
+            trustedCarrier: trustedCarrier,
+            networkAddresses: networkAddresses,
+            daemonBuild: daemonBuild
+        )
     }
 
     /// Enroll (or refresh) this Mac's WireGuard tunnel into the user's private

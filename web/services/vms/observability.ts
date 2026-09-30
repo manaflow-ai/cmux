@@ -58,6 +58,8 @@ const CLIENT_STATE_VM_ERROR_CODES: ReadonlySet<string> = new Set([
   "vm_access_grant_not_found",
   "vm_attach_transport_unsupported",
   "vm_memory_size_unknown",
+  // A machine created before the attach contract; only recreating it helps.
+  "vm_recreate_required",
 ]);
 
 export function isOperatorFaultVmError(input: {

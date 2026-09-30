@@ -3,6 +3,7 @@ import type { Freestyle } from "freestyle";
 
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { VmProviderOperationError } from "../services/vms/errors";
+import { isOperatorFaultVmError } from "../services/vms/observability";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
 import { locales } from "../i18n/routing";
 
@@ -76,5 +77,22 @@ describe("attach to a machine that predates the attach contract", () => {
       expect(payload.action.length).toBeGreaterThan(0);
       if (locale !== "en") expect(payload.message).not.toBe(english.message);
     }
+  });
+
+  // Production 2026-09: the same refusal as a 502 counted as an operator
+  // fault; one looping client produced 62k incident events in three days.
+  test("is a permanent client-state code, never an operator fault", () => {
+    expect(isOperatorFaultVmError({ error: "vm_recreate_required", status: 409 })).toBe(false);
+    expect(isOperatorFaultVmError({ error: "vm_recreate_required", status: 502 })).toBe(false);
+  });
+
+  test("an unrelated provider failure during attach stays a retryable outage", async () => {
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "openCmuxRemote",
+      cause: new Error("socket hang up"),
+    }));
+    expect(response?.status).toBe(502);
+    expect(await response?.json()).toMatchObject({ error: "vm_cloud_service_unavailable", retryable: true });
   });
 });
