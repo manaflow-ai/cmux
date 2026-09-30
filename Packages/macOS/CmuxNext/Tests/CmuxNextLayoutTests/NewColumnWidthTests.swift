@@ -88,17 +88,29 @@ import Testing
         return (model, recorder)
     }
 
-    @Test func newColumnNextToALoneFullColumnShrinksItOptimistically() throws {
+    /// cmux-tui keeps a lone column as a leaf root (no viewport) and refuses
+    /// a viewport width for it, so the width change must wait until the new
+    /// column exists. Sent first, it was refused and the first column stayed
+    /// full width, scrolled off screen (seen live on tag nxset).
+    @Test func newColumnSendsNoWidthBeforeTheNewColumnExists() {
         let (model, recorder) = makeModel([LayoutColumn(id: "c0", width: 1.0, root: .leaf("p0"))])
         model.newColumn()
+        #expect(recorder.intents == [.newColumn(after: "p0", width: 0.5)])
+        #expect(model.screens[0].layout.columns.first?.width == 1.0)
+    }
+
+    @Test func commitShrinksTheLoneColumnOptimisticallyAfterward() throws {
+        let (model, recorder) = makeModel([LayoutColumn(id: "c0", width: 1.0, root: .leaf("p0"))])
+        let request = model.prepareNewColumn(nextTo: "p0")
+        #expect(request.width == 0.5)
+        #expect(recorder.intents.isEmpty)
+        model.commitNewColumnResize(request)
         #expect(model.screens[0].layout.columns.first?.width == 0.5)
-        #expect(recorder.intents.count == 2)
-        guard case let .setColumnWidth(column, anyPane, width, _, phase) = recorder.intents.first else {
-            Issue.record("expected the width intent first, got \(recorder.intents)")
+        guard case let .setColumnWidth(column, anyPane, width, _, phase)? = recorder.intents.first, recorder.intents.count == 1 else {
+            Issue.record("expected one width intent, got \(recorder.intents)")
             return
         }
         #expect(column == "c0" && anyPane == "p0" && width == 0.5 && phase == .ended)
-        #expect(recorder.intents.last == .newColumn(after: "p0", width: 0.5))
     }
 
     @Test func newColumnUsesTheConfiguredWidthAndKeepsOtherColumns() {
@@ -114,10 +126,9 @@ import Testing
 
     @Test func prepareReturnsTheWidthForOtherNewColumnPaths() {
         let (model, recorder) = makeModel([LayoutColumn(id: "c0", width: 1.0, root: .leaf("p0"))])
-        #expect(model.prepareNewColumn(nextTo: "p0") == 0.5)
-        #expect(recorder.intents.count == 1)
-        #expect(model.prepareNewColumn(nextTo: "missing") == 0.5)
-        #expect(recorder.intents.count == 1)
+        #expect(model.prepareNewColumn(nextTo: "p0").width == 0.5)
+        #expect(model.prepareNewColumn(nextTo: "missing").width == 0.5)
+        #expect(recorder.intents.isEmpty)
     }
 
     @Test func followsTheDesignSettingWithoutAnOverride() {
@@ -127,5 +138,23 @@ import Testing
         #expect(model.defaultColumnWidth == ColumnWidthPreset.defaultWidth)
         model.followsDesignMetrics = true
         #expect(model.defaultColumnWidth == DesignSettings.shared.defaultColumnWidth)
+    }
+
+    /// A workspace that never had a second column mirrors as a split tree
+    /// (the daemon root is a leaf, not a viewport). The live app only ever
+    /// sees this shape for "one full-width column", so the rule must cover it.
+    @Test func aSplitTreeScreenCountsAsALoneFullColumn() throws {
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "", layout: .splits(.leaf("p0")))])
+        model.defaultColumnWidthOverride = 0.5
+        let recorder = Recorder()
+        model.intentHandler = { recorder.intents.append($0) }
+        model.newColumn()
+        #expect(recorder.intents == [.newColumn(after: "p0", width: 0.5)])
+        model.commitNewColumnResize(model.prepareNewColumn(nextTo: "p0"))
+        guard case let .setColumnWidth(_, anyPane, width, _, phase)? = recorder.intents.last, recorder.intents.count == 2 else {
+            Issue.record("expected a width intent after the new column, got \(recorder.intents)")
+            return
+        }
+        #expect(anyPane == "p0" && width == 0.5 && phase == .ended)
     }
 }
