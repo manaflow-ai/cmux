@@ -3,2762 +3,3451 @@
  "interactive": [
   {
    "role": "link",
-   "name": "Jump to content"
+   "name": "Jump to content",
+   "path": "1.1"
   },
   {
    "role": "button",
-   "name": "Main menu"
+   "name": "Main menu",
+   "path": "1.2.0.0.0.0.0"
   },
   {
    "role": "link",
-   "name": "Wikipedia The Free Encyclopedia"
+   "name": "Wikipedia The Free Encyclopedia",
+   "path": "1.2.0.0.1"
   },
   {
    "role": "searchbox",
-   "name": "Search Wikipedia"
+   "name": "Search Wikipedia",
+   "path": "1.2.0.1.0.1.0.0.0.0.0"
   },
   {
    "role": "button",
-   "name": "Search"
+   "name": "Search",
+   "path": "1.2.0.1.0.1.0.0.1"
   },
   {
    "role": "link",
-   "name": "Donate"
+   "name": "Donate",
+   "path": "1.2.0.1.1.0.4.0.0.0.0"
   },
   {
    "role": "link",
-   "name": "Create account"
+   "name": "Create account",
+   "path": "1.2.0.1.1.0.4.0.0.1.0"
   },
   {
    "role": "link",
-   "name": "Log in"
+   "name": "Log in",
+   "path": "1.2.0.1.1.0.4.0.0.2.0"
   },
   {
    "role": "button",
-   "name": "Hide Contents"
+   "name": "Hide Contents",
+   "path": "1.3.0.1.1.0.0.0.0.2"
   },
   {
    "role": "link",
-   "name": "(Top)"
+   "name": "(Top)",
+   "path": "1.3.0.1.1.0.0.0.1.0.0"
   },
   {
    "role": "link",
-   "name": "Origins"
+   "name": "Origins",
+   "path": "1.3.0.1.1.0.0.0.1.1.0"
   },
   {
    "role": "button",
-   "name": "Toggle Origins subsection"
+   "name": "Toggle Origins subsection",
+   "path": "1.3.0.1.1.0.0.0.1.1.1"
   },
   {
    "role": "link",
-   "name": "Split development"
+   "name": "Split development",
+   "path": "1.3.0.1.1.0.0.0.1.1.2.0.0"
   },
   {
    "role": "link",
-   "name": "Open-sourcing"
+   "name": "Open-sourcing",
+   "path": "1.3.0.1.1.0.0.0.1.1.2.1.0"
   },
   {
    "role": "link",
-   "name": "Further development"
+   "name": "Further development",
+   "path": "1.3.0.1.1.0.0.0.1.1.2.2.0"
   },
   {
    "role": "link",
-   "name": "WebKit2"
+   "name": "WebKit2",
+   "path": "1.3.0.1.1.0.0.0.1.1.2.3.0"
   },
   {
    "role": "link",
-   "name": "Use"
+   "name": "Use",
+   "path": "1.3.0.1.1.0.0.0.1.2.0"
   },
   {
    "role": "button",
-   "name": "Toggle Use subsection"
+   "name": "Toggle Use subsection",
+   "path": "1.3.0.1.1.0.0.0.1.2.1"
   },
   {
    "role": "link",
-   "name": "Installed base"
+   "name": "Installed base",
+   "path": "1.3.0.1.1.0.0.0.1.2.2.0.0"
   },
   {
    "role": "link",
-   "name": "Ports"
+   "name": "Ports",
+   "path": "1.3.0.1.1.0.0.0.1.2.2.1.0"
   },
   {
    "role": "link",
-   "name": "Web Platform for Embedded"
+   "name": "Web Platform for Embedded",
+   "path": "1.3.0.1.1.0.0.0.1.2.2.1.1.0.0"
   },
   {
    "role": "link",
-   "name": "Forking by Google"
+   "name": "Forking by Google",
+   "path": "1.3.0.1.1.0.0.0.1.2.2.2.0"
   },
   {
    "role": "link",
-   "name": "Components"
+   "name": "Components",
+   "path": "1.3.0.1.1.0.0.0.1.3.0"
   },
   {
    "role": "button",
-   "name": "Toggle Components subsection"
+   "name": "Toggle Components subsection",
+   "path": "1.3.0.1.1.0.0.0.1.3.1"
   },
   {
    "role": "link",
-   "name": "WebCore"
+   "name": "WebCore",
+   "path": "1.3.0.1.1.0.0.0.1.3.2.0.0"
   },
   {
    "role": "link",
-   "name": "JavaScriptCore"
+   "name": "JavaScriptCore",
+   "path": "1.3.0.1.1.0.0.0.1.3.2.1.0"
   },
   {
    "role": "link",
-   "name": "See also"
+   "name": "See also",
+   "path": "1.3.0.1.1.0.0.0.1.4.0"
   },
   {
    "role": "link",
-   "name": "References"
+   "name": "References",
+   "path": "1.3.0.1.1.0.0.0.1.5.0"
   },
   {
    "role": "link",
-   "name": "External links"
+   "name": "External links",
+   "path": "1.3.0.1.1.0.0.0.1.6.0"
   },
   {
    "role": "button",
-   "name": "37 languages"
+   "name": "37 languages",
+   "path": "1.3.0.2.0.0.2.0"
   },
   {
    "role": "link",
-   "name": "Article"
+   "name": "Article",
+   "path": "1.3.0.2.0.1.0.0.0.0.0.0.0.0"
   },
   {
    "role": "link",
-   "name": "Talk"
+   "name": "Talk",
+   "path": "1.3.0.2.0.1.0.0.0.0.0.0.1.0"
   },
   {
    "role": "link",
-   "name": "Read"
+   "name": "Read",
+   "path": "1.3.0.2.0.1.0.1.0.0.0.0.0.0"
   },
   {
    "role": "link",
-   "name": "Edit"
+   "name": "Edit",
+   "path": "1.3.0.2.0.1.0.1.0.0.0.0.1.0"
   },
   {
    "role": "link",
-   "name": "View history"
+   "name": "View history",
+   "path": "1.3.0.2.0.1.0.1.0.0.0.0.2.0"
   },
   {
    "role": "button",
-   "name": "Tools"
+   "name": "Tools",
+   "path": "1.3.0.2.0.1.0.1.1.0.0"
   },
   {
    "role": "button",
-   "name": "Hide Appearance"
+   "name": "Hide Appearance",
+   "path": "1.3.0.2.0.2.0.1.0.0.0.2"
   },
   {
    "role": "radio",
-   "name": "Small"
+   "name": "Small",
+   "path": "1.3.0.2.0.2.0.1.0.0.1.1.0.0.0.0.0.0"
   },
   {
    "role": "radio",
-   "name": "Standard"
+   "name": "Standard",
+   "path": "1.3.0.2.0.2.0.1.0.0.1.1.0.0.0.0.1.0"
   },
   {
    "role": "radio",
-   "name": "Large"
+   "name": "Large",
+   "path": "1.3.0.2.0.2.0.1.0.0.1.1.0.0.0.0.2.0"
   },
   {
    "role": "radio",
-   "name": "Standard"
+   "name": "Standard",
+   "path": "1.3.0.2.0.2.0.1.0.0.2.1.0.0.0.0.0.0"
   },
   {
    "role": "radio",
-   "name": "Wide"
+   "name": "Wide",
+   "path": "1.3.0.2.0.2.0.1.0.0.2.1.0.0.0.0.1.0"
   },
   {
    "role": "radio",
-   "name": "Automatic"
+   "name": "Automatic",
+   "path": "1.3.0.2.0.2.0.1.0.0.3.1.0.0.0.0.0.0"
   },
   {
    "role": "radio",
-   "name": "Light"
+   "name": "Light",
+   "path": "1.3.0.2.0.2.0.1.0.0.3.1.0.0.0.0.1.0"
   },
   {
    "role": "radio",
-   "name": "Dark"
+   "name": "Dark",
+   "path": "1.3.0.2.0.2.0.1.0.0.3.1.0.0.0.0.2.0"
   },
   {
    "role": "link",
-   "name": "TrueType core fonts for the Web"
+   "name": "TrueType core fonts for the Web",
+   "path": "1.3.0.2.0.3.1.0.0.4.0"
   },
   {
    "role": "link",
-   "name": "Internet aesthetic § 2020s"
+   "name": "Internet aesthetic § 2020s",
+   "path": "1.3.0.2.0.3.1.0.0.4.1"
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.1.0.0.0"
   },
   {
    "role": "link",
-   "name": "Original author"
+   "name": "Original author",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.2.0.0"
   },
   {
    "role": "link",
-   "name": "Apple Inc."
+   "name": "Apple Inc.",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.2.1.0"
   },
   {
    "role": "link",
-   "name": "[1]"
+   "name": "[1]",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.2.1.1.0"
   },
   {
    "role": "link",
-   "name": "[2]"
+   "name": "[2]",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.2.1.2.0"
   },
   {
    "role": "link",
-   "name": "Developers"
+   "name": "Developers",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.3.0.0"
   },
   {
    "role": "link",
-   "name": "Adobe Systems"
+   "name": "Adobe Systems",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.3.1.0"
   },
   {
    "role": "link",
-   "name": "Sony"
+   "name": "Sony",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.3.1.1"
   },
   {
    "role": "link",
-   "name": "KDE"
+   "name": "KDE",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.3.1.2"
   },
   {
    "role": "link",
-   "name": "Igalia"
+   "name": "Igalia",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.3.1.3"
   },
   {
    "role": "link",
-   "name": "Preview release"
+   "name": "Preview release",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.6.0.0"
   },
   {
    "role": "link",
-   "name": "[3]"
+   "name": "[3]",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.6.1.0.0.0"
   },
   {
    "role": "link",
-   "name": "C++"
+   "name": "C++",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.8.1.0"
   },
   {
    "role": "link",
-   "name": "[4]"
+   "name": "[4]",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.8.1.1.0"
   },
   {
    "role": "link",
-   "name": "Operating system"
+   "name": "Operating system",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.9.0.0"
   },
   {
    "role": "link",
-   "name": "macOS"
+   "name": "macOS",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.9.1.0"
   },
   {
    "role": "link",
-   "name": "iOS"
+   "name": "iOS",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.9.1.1"
   },
   {
    "role": "link",
-   "name": "iPadOS"
+   "name": "iPadOS",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.9.1.2"
   },
   {
    "role": "link",
-   "name": "Linux"
+   "name": "Linux",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.9.1.3"
   },
   {
    "role": "link",
-   "name": "[5]"
+   "name": "[5]",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.9.1.4.0"
   },
   {
    "role": "link",
-   "name": "Microsoft Windows"
+   "name": "Microsoft Windows",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.9.1.5"
   },
   {
    "role": "link",
-   "name": "[6]"
+   "name": "[6]",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.9.1.6.0"
   },
   {
    "role": "link",
-   "name": "[7]"
+   "name": "[7]",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.9.1.7.0"
   },
   {
    "role": "link",
-   "name": "Type"
+   "name": "Type",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.10.0.0"
   },
   {
    "role": "link",
-   "name": "Browser engine"
+   "name": "Browser engine",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.10.1.0"
   },
   {
    "role": "link",
-   "name": "License"
+   "name": "License",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.11.0.0"
   },
   {
    "role": "link",
-   "name": "LGPL"
+   "name": "LGPL",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.11.1.0"
   },
   {
    "role": "link",
-   "name": "BSD 2-Clause"
+   "name": "BSD 2-Clause",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.11.1.1"
   },
   {
    "role": "link",
-   "name": "[8]"
+   "name": "[8]",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.11.1.2.0"
   },
   {
    "role": "link",
-   "name": "webkit.org"
+   "name": "webkit.org",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.12.1.0.0"
   },
   {
    "role": "link",
-   "name": "Repository"
+   "name": "Repository",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.13.0.0"
   },
   {
    "role": "link",
-   "name": "github.com/WebKit/WebKit"
+   "name": "github.com/WebKit/WebKit",
+   "path": "1.3.0.2.0.3.1.0.0.6.0.13.1.0.0"
   },
   {
    "role": "link",
-   "name": "browser engine"
+   "name": "browser engine",
+   "path": "1.3.0.2.0.3.1.0.0.8.2"
   },
   {
    "role": "link",
-   "name": "Safari"
+   "name": "Safari",
+   "path": "1.3.0.2.0.3.1.0.0.8.3"
   },
   {
    "role": "link",
-   "name": "web browser"
+   "name": "web browser",
+   "path": "1.3.0.2.0.3.1.0.0.8.4"
   },
   {
    "role": "link",
-   "name": "iOS"
+   "name": "iOS",
+   "path": "1.3.0.2.0.3.1.0.0.8.5"
   },
   {
    "role": "link",
-   "name": "iPadOS"
+   "name": "iPadOS",
+   "path": "1.3.0.2.0.3.1.0.0.8.6"
   },
   {
    "role": "link",
-   "name": "PlayStation"
+   "name": "PlayStation",
+   "path": "1.3.0.2.0.3.1.0.0.8.7"
   },
   {
    "role": "link",
-   "name": "Tizen"
+   "name": "Tizen",
+   "path": "1.3.0.2.0.3.1.0.0.8.8"
   },
   {
    "role": "link",
-   "name": "e-book"
+   "name": "e-book",
+   "path": "1.3.0.2.0.3.1.0.0.8.9"
   },
   {
    "role": "link",
-   "name": "Nintendo consoles"
+   "name": "Nintendo consoles",
+   "path": "1.3.0.2.0.3.1.0.0.8.10"
   },
   {
    "role": "link",
-   "name": "GNOME Web"
+   "name": "GNOME Web",
+   "path": "1.3.0.2.0.3.1.0.0.8.11"
   },
   {
    "role": "link",
-   "name": "fork"
+   "name": "fork",
+   "path": "1.3.0.2.0.3.1.0.0.9.0"
   },
   {
    "role": "link",
-   "name": "KHTML"
+   "name": "KHTML",
+   "path": "1.3.0.2.0.3.1.0.0.9.1"
   },
   {
    "role": "link",
-   "name": "KJS"
+   "name": "KJS",
+   "path": "1.3.0.2.0.3.1.0.0.9.2"
   },
   {
    "role": "link",
-   "name": "KDE"
+   "name": "KDE",
+   "path": "1.3.0.2.0.3.1.0.0.9.3"
   },
   {
    "role": "link",
-   "name": "[1]"
+   "name": "[1]",
+   "path": "1.3.0.2.0.3.1.0.0.9.4.0"
   },
   {
    "role": "link",
-   "name": "[9]"
+   "name": "[9]",
+   "path": "1.3.0.2.0.3.1.0.0.9.5.0"
   },
   {
    "role": "link",
-   "name": "KDE"
+   "name": "KDE",
+   "path": "1.3.0.2.0.3.1.0.0.9.6"
   },
   {
    "role": "link",
-   "name": "Apple"
+   "name": "Apple",
+   "path": "1.3.0.2.0.3.1.0.0.9.7"
   },
   {
    "role": "link",
-   "name": "Google"
+   "name": "Google",
+   "path": "1.3.0.2.0.3.1.0.0.9.8"
   },
   {
    "role": "link",
-   "name": "Nokia"
+   "name": "Nokia",
+   "path": "1.3.0.2.0.3.1.0.0.9.9"
   },
   {
    "role": "link",
-   "name": "[9]"
+   "name": "[9]",
+   "path": "1.3.0.2.0.3.1.0.0.9.10.0"
   },
   {
    "role": "link",
-   "name": "Bitstream"
+   "name": "Bitstream",
+   "path": "1.3.0.2.0.3.1.0.0.9.11"
   },
   {
    "role": "link",
-   "name": "Sony"
+   "name": "Sony",
+   "path": "1.3.0.2.0.3.1.0.0.9.12"
   },
   {
    "role": "link",
-   "name": "Igalia"
+   "name": "Igalia",
+   "path": "1.3.0.2.0.3.1.0.0.9.13"
   },
   {
    "role": "link",
-   "name": "[10]"
+   "name": "[10]",
+   "path": "1.3.0.2.0.3.1.0.0.9.14.0"
   },
   {
    "role": "link",
-   "name": "macOS"
+   "name": "macOS",
+   "path": "1.3.0.2.0.3.1.0.0.9.15"
   },
   {
    "role": "link",
-   "name": "Linux"
+   "name": "Linux",
+   "path": "1.3.0.2.0.3.1.0.0.9.16"
   },
   {
    "role": "link",
-   "name": "Unix-like"
+   "name": "Unix-like",
+   "path": "1.3.0.2.0.3.1.0.0.9.17"
   },
   {
    "role": "link",
-   "name": "[11]"
+   "name": "[11]",
+   "path": "1.3.0.2.0.3.1.0.0.9.18.0"
   },
   {
    "role": "link",
-   "name": "Google Chrome"
+   "name": "Google Chrome",
+   "path": "1.3.0.2.0.3.1.0.0.9.19"
   },
   {
    "role": "link",
-   "name": "Blink"
+   "name": "Blink",
+   "path": "1.3.0.2.0.3.1.0.0.9.20"
   },
   {
    "role": "link",
-   "name": "[12]"
+   "name": "[12]",
+   "path": "1.3.0.2.0.3.1.0.0.9.21.0"
   },
   {
    "role": "link",
-   "name": "[13]"
+   "name": "[13]",
+   "path": "1.3.0.2.0.3.1.0.0.9.22.0"
   },
   {
    "role": "link",
-   "name": "Opera web browser"
+   "name": "Opera web browser",
+   "path": "1.3.0.2.0.3.1.0.0.9.23"
   },
   {
    "role": "link",
-   "name": "JavaScript"
+   "name": "JavaScript",
+   "path": "1.3.0.2.0.3.1.0.0.10.0"
   },
   {
    "role": "link",
-   "name": "Bun"
+   "name": "Bun",
+   "path": "1.3.0.2.0.3.1.0.0.10.1"
   },
   {
    "role": "link",
-   "name": "[14]"
+   "name": "[14]",
+   "path": "1.3.0.2.0.3.1.0.0.10.2.0"
   },
   {
    "role": "link",
-   "name": "V8"
+   "name": "V8",
+   "path": "1.3.0.2.0.3.1.0.0.10.3"
   },
   {
    "role": "link",
-   "name": "Node.js"
+   "name": "Node.js",
+   "path": "1.3.0.2.0.3.1.0.0.10.4"
   },
   {
    "role": "link",
-   "name": "Deno"
+   "name": "Deno",
+   "path": "1.3.0.2.0.3.1.0.0.10.5"
   },
   {
    "role": "link",
-   "name": "Blink"
+   "name": "Blink",
+   "path": "1.3.0.2.0.3.1.0.0.10.6"
   },
   {
    "role": "link",
-   "name": "C++"
+   "name": "C++",
+   "path": "1.3.0.2.0.3.1.0.0.10.7"
   },
   {
    "role": "link",
-   "name": "application programming interface"
+   "name": "application programming interface",
+   "path": "1.3.0.2.0.3.1.0.0.10.8"
   },
   {
    "role": "link",
-   "name": "classes"
+   "name": "classes",
+   "path": "1.3.0.2.0.3.1.0.0.10.9"
   },
   {
    "role": "link",
-   "name": "Web"
+   "name": "Web",
+   "path": "1.3.0.2.0.3.1.0.0.10.10"
   },
   {
    "role": "link",
-   "name": "open source"
+   "name": "open source",
+   "path": "1.3.0.2.0.3.1.0.0.11.0"
   },
   {
    "role": "link",
-   "name": "BSD 2-Clause"
+   "name": "BSD 2-Clause",
+   "path": "1.3.0.2.0.3.1.0.0.11.1"
   },
   {
    "role": "link",
-   "name": "[15]"
+   "name": "[15]",
+   "path": "1.3.0.2.0.3.1.0.0.11.2.0"
   },
   {
    "role": "link",
-   "name": "[8]"
+   "name": "[8]",
+   "path": "1.3.0.2.0.3.1.0.0.11.3.0"
   },
   {
    "role": "link",
-   "name": "WebCore"
+   "name": "WebCore",
+   "path": "1.3.0.2.0.3.1.0.0.11.4"
   },
   {
    "role": "link",
-   "name": "JavaScriptCore"
+   "name": "JavaScriptCore",
+   "path": "1.3.0.2.0.3.1.0.0.11.5"
   },
   {
    "role": "link",
-   "name": "GNU Lesser General Public License"
+   "name": "GNU Lesser General Public License",
+   "path": "1.3.0.2.0.3.1.0.0.11.6"
   },
   {
    "role": "link",
-   "name": "United States Patent and Trademark Office"
+   "name": "United States Patent and Trademark Office",
+   "path": "1.3.0.2.0.3.1.0.0.11.7"
   },
   {
    "role": "link",
-   "name": "[16]"
+   "name": "[16]",
+   "path": "1.3.0.2.0.3.1.0.0.11.8.0"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "KHTML"
+   "name": "KHTML",
+   "path": "1.3.0.2.0.3.1.0.1.1.1"
   },
   {
    "role": "link",
-   "name": "KJS"
+   "name": "KJS",
+   "path": "1.3.0.2.0.3.1.0.1.1.3"
   },
   {
    "role": "link",
-   "name": "[17]"
+   "name": "[17]",
+   "path": "1.3.0.2.0.3.1.0.1.1.4.0"
   },
   {
    "role": "link",
-   "name": "[18]"
+   "name": "[18]",
+   "path": "1.3.0.2.0.3.1.0.1.1.5.0"
   },
   {
    "role": "link",
-   "name": "[19]"
+   "name": "[19]",
+   "path": "1.3.0.2.0.3.1.0.1.1.6.0"
   },
   {
    "role": "link",
-   "name": "fork"
+   "name": "fork",
+   "path": "1.3.0.2.0.3.1.0.1.1.7"
   },
   {
    "role": "link",
-   "name": "KHTML"
+   "name": "KHTML",
+   "path": "1.3.0.2.0.3.1.0.1.1.8"
   },
   {
    "role": "link",
-   "name": "KJS"
+   "name": "KJS",
+   "path": "1.3.0.2.0.3.1.0.1.1.9"
   },
   {
    "role": "link",
-   "name": "[1]"
+   "name": "[1]",
+   "path": "1.3.0.2.0.3.1.0.1.1.10.0"
   },
   {
    "role": "link",
-   "name": "KHTML"
+   "name": "KHTML",
+   "path": "1.3.0.2.0.3.1.0.1.1.11"
   },
   {
    "role": "link",
-   "name": "KJS"
+   "name": "KJS",
+   "path": "1.3.0.2.0.3.1.0.1.1.12"
   },
   {
    "role": "link",
-   "name": "lines of code"
+   "name": "lines of code",
+   "path": "1.3.0.2.0.3.1.0.1.1.13"
   },
   {
    "role": "link",
-   "name": "macOS"
+   "name": "macOS",
+   "path": "1.3.0.2.0.3.1.0.1.1.14"
   },
   {
    "role": "link",
-   "name": "library"
+   "name": "library",
+   "path": "1.3.0.2.0.3.1.0.1.1.15"
   },
   {
    "role": "link",
-   "name": "[1]"
+   "name": "[1]",
+   "path": "1.3.0.2.0.3.1.0.1.1.16.0"
   },
   {
    "role": "link",
-   "name": "mailing list"
+   "name": "mailing list",
+   "path": "1.3.0.2.0.3.1.0.1.1.17"
   },
   {
    "role": "link",
-   "name": "[20]"
+   "name": "[20]",
+   "path": "1.3.0.2.0.3.1.0.1.1.18.0"
   },
   {
    "role": "link",
-   "name": "Objective-C"
+   "name": "Objective-C",
+   "path": "1.3.0.2.0.3.1.0.1.2.0"
   },
   {
    "role": "link",
-   "name": "[21]"
+   "name": "[21]",
+   "path": "1.3.0.2.0.3.1.0.1.2.1.0"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "[22]"
+   "name": "[22]",
+   "path": "1.3.0.2.0.3.1.0.1.3.1.0.0"
   },
   {
    "role": "link",
-   "name": "[23]"
+   "name": "[23]",
+   "path": "1.3.0.2.0.3.1.0.1.3.1.1.0"
   },
   {
    "role": "link",
-   "name": "KDE"
+   "name": "KDE",
+   "path": "1.3.0.2.0.3.1.0.1.3.1.2"
   },
   {
    "role": "link",
-   "name": "[24]"
+   "name": "[24]",
+   "path": "1.3.0.2.0.3.1.0.1.3.1.3.0"
   },
   {
    "role": "link",
-   "name": "[25]"
+   "name": "[25]",
+   "path": "1.3.0.2.0.3.1.0.1.3.1.4.0"
   },
   {
    "role": "link",
-   "name": "backport"
+   "name": "backport",
+   "path": "1.3.0.2.0.3.1.0.1.3.2.1"
   },
   {
    "role": "link",
-   "name": "[26]"
+   "name": "[26]",
+   "path": "1.3.0.2.0.3.1.0.1.3.2.2.0"
   },
   {
    "role": "link",
-   "name": "Acid2"
+   "name": "Acid2",
+   "path": "1.3.0.2.0.3.1.0.1.3.2.3"
   },
   {
    "role": "link",
-   "name": "[27]"
+   "name": "[27]",
+   "path": "1.3.0.2.0.3.1.0.1.3.2.4.0"
   },
   {
    "role": "link",
-   "name": "revision-control"
+   "name": "revision-control",
+   "path": "1.3.0.2.0.3.1.0.1.3.3.0"
   },
   {
    "role": "link",
-   "name": "[28]"
+   "name": "[28]",
+   "path": "1.3.0.2.0.3.1.0.1.3.3.1.0"
   },
   {
    "role": "link",
-   "name": "[29]"
+   "name": "[29]",
+   "path": "1.3.0.2.0.3.1.0.1.3.4.0.0"
   },
   {
    "role": "link",
-   "name": "Ars Technica"
+   "name": "Ars Technica",
+   "path": "1.3.0.2.0.3.1.0.1.3.5.0.0"
   },
   {
    "role": "link",
-   "name": "[30]"
+   "name": "[30]",
+   "path": "1.3.0.2.0.3.1.0.1.3.5.1.0"
   },
   {
    "role": "link",
-   "name": "[31]"
+   "name": "[31]",
+   "path": "1.3.0.2.0.3.1.0.1.3.5.2.0"
   },
   {
    "role": "link",
-   "name": "[32]"
+   "name": "[32]",
+   "path": "1.3.0.2.0.3.1.0.1.3.5.3.0"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Dave Hyatt"
+   "name": "Dave Hyatt",
+   "path": "1.3.0.2.0.3.1.0.1.4.1.0"
   },
   {
    "role": "link",
-   "name": "weblog"
+   "name": "weblog",
+   "path": "1.3.0.2.0.3.1.0.1.4.1.1"
   },
   {
    "role": "link",
-   "name": "revision control"
+   "name": "revision control",
+   "path": "1.3.0.2.0.3.1.0.1.4.1.2"
   },
   {
    "role": "link",
-   "name": "[28]"
+   "name": "[28]",
+   "path": "1.3.0.2.0.3.1.0.1.4.1.3.0"
   },
   {
    "role": "link",
-   "name": "Scalable Vector Graphics"
+   "name": "Scalable Vector Graphics",
+   "path": "1.3.0.2.0.3.1.0.1.4.2.0"
   },
   {
    "role": "link",
-   "name": "[33]"
+   "name": "[33]",
+   "path": "1.3.0.2.0.3.1.0.1.4.2.1.0"
   },
   {
    "role": "link",
-   "name": "[8]"
+   "name": "[8]",
+   "path": "1.3.0.2.0.3.1.0.1.4.3.0.0"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Cascading Style Sheets"
+   "name": "Cascading Style Sheets",
+   "path": "1.3.0.2.0.3.1.0.1.5.4.0"
   },
   {
    "role": "link",
-   "name": "animation"
+   "name": "animation",
+   "path": "1.3.0.2.0.3.1.0.1.5.4.1"
   },
   {
    "role": "link",
-   "name": "[34]"
+   "name": "[34]",
+   "path": "1.3.0.2.0.3.1.0.1.5.4.2.0"
   },
   {
    "role": "link",
-   "name": "World Wide Web Consortium"
+   "name": "World Wide Web Consortium",
+   "path": "1.3.0.2.0.3.1.0.1.5.4.3"
   },
   {
    "role": "link",
-   "name": "[35]"
+   "name": "[35]",
+   "path": "1.3.0.2.0.3.1.0.1.5.4.4.0"
   },
   {
    "role": "link",
-   "name": "HTML5"
+   "name": "HTML5",
+   "path": "1.3.0.2.0.3.1.0.1.5.5.0"
   },
   {
    "role": "link",
-   "name": "[36]"
+   "name": "[36]",
+   "path": "1.3.0.2.0.3.1.0.1.5.5.1.0"
   },
   {
    "role": "link",
-   "name": "bytecode interpreter"
+   "name": "bytecode interpreter",
+   "path": "1.3.0.2.0.3.1.0.1.5.6.0"
   },
   {
    "role": "link",
-   "name": "[37]"
+   "name": "[37]",
+   "path": "1.3.0.2.0.3.1.0.1.5.6.1.0"
   },
   {
    "role": "link",
-   "name": "[38]"
+   "name": "[38]",
+   "path": "1.3.0.2.0.3.1.0.1.5.6.2.0"
   },
   {
    "role": "link",
-   "name": "compiles"
+   "name": "compiles",
+   "path": "1.3.0.2.0.3.1.0.1.5.6.3"
   },
   {
    "role": "link",
-   "name": "machine code"
+   "name": "machine code",
+   "path": "1.3.0.2.0.3.1.0.1.5.6.4"
   },
   {
    "role": "link",
-   "name": "[39]"
+   "name": "[39]",
+   "path": "1.3.0.2.0.3.1.0.1.5.6.5.0"
   },
   {
    "role": "link",
-   "name": "x86"
+   "name": "x86",
+   "path": "1.3.0.2.0.3.1.0.1.5.6.6"
   },
   {
    "role": "link",
-   "name": "x86-64"
+   "name": "x86-64",
+   "path": "1.3.0.2.0.3.1.0.1.5.6.7"
   },
   {
    "role": "link",
-   "name": "[40]"
+   "name": "[40]",
+   "path": "1.3.0.2.0.3.1.0.1.5.6.8.0"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "page layout"
+   "name": "page layout",
+   "path": "1.3.0.2.0.3.1.0.1.6.1.0"
   },
   {
    "role": "link",
-   "name": "rendering"
+   "name": "rendering",
+   "path": "1.3.0.2.0.3.1.0.1.6.1.1"
   },
   {
    "role": "link",
-   "name": "[41]"
+   "name": "[41]",
+   "path": "1.3.0.2.0.3.1.0.1.6.1.2.0"
   },
   {
    "role": "link",
-   "name": "GTK"
+   "name": "GTK",
+   "path": "1.3.0.2.0.3.1.0.1.6.2.0"
   },
   {
    "role": "link",
-   "name": "MeeGo"
+   "name": "MeeGo",
+   "path": "1.3.0.2.0.3.1.0.1.6.2.1"
   },
   {
    "role": "link",
-   "name": "[42]"
+   "name": "[42]",
+   "path": "1.3.0.2.0.3.1.0.1.6.2.2.0"
   },
   {
    "role": "link",
-   "name": "[43]"
+   "name": "[43]",
+   "path": "1.3.0.2.0.3.1.0.1.6.2.3.0"
   },
   {
    "role": "link",
-   "name": "[44]"
+   "name": "[44]",
+   "path": "1.3.0.2.0.3.1.0.1.6.2.4.0"
   },
   {
    "role": "link",
-   "name": "[45]"
+   "name": "[45]",
+   "path": "1.3.0.2.0.3.1.0.1.6.2.5.0"
   },
   {
    "role": "link",
-   "name": "[46]"
+   "name": "[46]",
+   "path": "1.3.0.2.0.3.1.0.1.6.3.0.0"
   },
   {
    "role": "link",
-   "name": "[47]"
+   "name": "[47]",
+   "path": "1.3.0.2.0.3.1.0.1.6.3.1.0"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "path": "1.3.0.2.0.3.1.0.2.1.0"
   },
   {
    "role": "link",
-   "name": "Usage share of web browsers"
+   "name": "Usage share of web browsers",
+   "path": "1.3.0.2.0.3.1.0.2.1.1.0"
   },
   {
    "role": "link",
-   "name": "StatCounter"
+   "name": "StatCounter",
+   "path": "1.3.0.2.0.3.1.0.2.1.1.1"
   },
   {
    "role": "link",
-   "name": "Safari"
+   "name": "Safari",
+   "path": "1.3.0.2.0.3.1.0.2.2.0"
   },
   {
    "role": "link",
-   "name": "Google"
+   "name": "Google",
+   "path": "1.3.0.2.0.3.1.0.2.2.1"
   },
   {
    "role": "link",
-   "name": "Chrome"
+   "name": "Chrome",
+   "path": "1.3.0.2.0.3.1.0.2.2.2"
   },
   {
    "role": "link",
-   "name": "Android"
+   "name": "Android",
+   "path": "1.3.0.2.0.3.1.0.2.2.3"
   },
   {
    "role": "link",
-   "name": "JavaScript engine"
+   "name": "JavaScript engine",
+   "path": "1.3.0.2.0.3.1.0.2.2.4"
   },
   {
    "role": "link",
-   "name": "V8"
+   "name": "V8",
+   "path": "1.3.0.2.0.3.1.0.2.2.5"
   },
   {
    "role": "link",
-   "name": "[48]"
+   "name": "[48]",
+   "path": "1.3.0.2.0.3.1.0.2.2.6.0"
   },
   {
    "role": "link",
-   "name": "iOS"
+   "name": "iOS",
+   "path": "1.3.0.2.0.3.1.0.2.2.7"
   },
   {
    "role": "link",
-   "name": "[49]"
+   "name": "[49]",
+   "path": "1.3.0.2.0.3.1.0.2.2.8.0"
   },
   {
    "role": "link",
-   "name": "Mail"
+   "name": "Mail",
+   "path": "1.3.0.2.0.3.1.0.2.2.9"
   },
   {
    "role": "link",
-   "name": "Entourage"
+   "name": "Entourage",
+   "path": "1.3.0.2.0.3.1.0.2.2.10"
   },
   {
    "role": "link",
-   "name": "personal information manager"
+   "name": "personal information manager",
+   "path": "1.3.0.2.0.3.1.0.2.2.11"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "S60"
+   "name": "S60",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.0"
   },
   {
    "role": "link",
-   "name": "[50]"
+   "name": "[50]",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.1.0"
   },
   {
    "role": "link",
-   "name": "Symbian"
+   "name": "Symbian",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.2"
   },
   {
    "role": "link",
-   "name": "BlackBerry"
+   "name": "BlackBerry",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.3"
   },
   {
    "role": "link",
-   "name": "Midori"
+   "name": "Midori",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.4"
   },
   {
    "role": "link",
-   "name": "Chrome"
+   "name": "Chrome",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.5"
   },
   {
    "role": "link",
-   "name": "[51]"
+   "name": "[51]",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.6.0"
   },
   {
    "role": "link",
-   "name": "[52]"
+   "name": "[52]",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.7.0"
   },
   {
    "role": "link",
-   "name": "Android"
+   "name": "Android",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.8"
   },
   {
    "role": "link",
-   "name": "PlayStation 3 system software"
+   "name": "PlayStation 3 system software",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.9"
   },
   {
    "role": "link",
-   "name": "[53]"
+   "name": "[53]",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.10.0"
   },
   {
    "role": "link",
-   "name": "unreliable source?"
+   "name": "unreliable source?",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.13.1.0"
   },
   {
    "role": "link",
-   "name": "Plasma Workspaces"
+   "name": "Plasma Workspaces",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.14"
   },
   {
    "role": "link",
-   "name": "OmniWeb"
+   "name": "OmniWeb",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.15"
   },
   {
    "role": "link",
-   "name": "iCab"
+   "name": "iCab",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.16"
   },
   {
    "role": "link",
-   "name": "Web"
+   "name": "Web",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.17"
   },
   {
    "role": "link",
-   "name": "Sleipnir"
+   "name": "Sleipnir",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.18"
   },
   {
    "role": "link",
-   "name": "Gecko"
+   "name": "Gecko",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.19"
   },
   {
    "role": "link",
-   "name": "[54]"
+   "name": "[54]",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.20.0"
   },
   {
    "role": "link",
-   "name": "webOS"
+   "name": "webOS",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.21"
   },
   {
    "role": "link",
-   "name": "[55]"
+   "name": "[55]",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.22.0"
   },
   {
    "role": "link",
-   "name": "Adobe Integrated Runtime"
+   "name": "Adobe Integrated Runtime",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.23"
   },
   {
    "role": "link",
-   "name": "Adobe Creative Suite"
+   "name": "Adobe Creative Suite",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.24"
   },
   {
    "role": "link",
-   "name": "[56]"
+   "name": "[56]",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.25.0"
   },
   {
    "role": "link",
-   "name": "browser market share"
+   "name": "browser market share",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.26"
   },
   {
    "role": "link",
-   "name": "[57]"
+   "name": "[57]",
+   "path": "1.3.0.2.0.3.1.0.2.3.1.27.0"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Symbian"
+   "name": "Symbian",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.0"
   },
   {
    "role": "link",
-   "name": "Web Browser for S60"
+   "name": "Web Browser for S60",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.1"
   },
   {
    "role": "link",
-   "name": "iOS"
+   "name": "iOS",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.2"
   },
   {
    "role": "link",
-   "name": "iPhone"
+   "name": "iPhone",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.3"
   },
   {
    "role": "link",
-   "name": "iPod Touch"
+   "name": "iPod Touch",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.4"
   },
   {
    "role": "link",
-   "name": "iPad"
+   "name": "iPad",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.5"
   },
   {
    "role": "link",
-   "name": "[58]"
+   "name": "[58]",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.6.0"
   },
   {
    "role": "link",
-   "name": "Android"
+   "name": "Android",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.7"
   },
   {
    "role": "link",
-   "name": "Blink fork"
+   "name": "Blink fork",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.8"
   },
   {
    "role": "link",
-   "name": "[59]"
+   "name": "[59]",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.9.0"
   },
   {
    "role": "link",
-   "name": "[60]"
+   "name": "[60]",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.10.0"
   },
   {
    "role": "link",
-   "name": "[61]"
+   "name": "[61]",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.11.0"
   },
   {
    "role": "link",
-   "name": "Palm Pre"
+   "name": "Palm Pre",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.12"
   },
   {
    "role": "link",
-   "name": "[62]"
+   "name": "[62]",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.13.0"
   },
   {
    "role": "link",
-   "name": "Amazon Kindle"
+   "name": "Amazon Kindle",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.14"
   },
   {
    "role": "link",
-   "name": "[63]"
+   "name": "[63]",
+   "path": "1.3.0.2.0.3.1.0.2.4.1.15.0"
   },
   {
    "role": "link",
-   "name": "Microsoft Windows"
+   "name": "Microsoft Windows",
+   "path": "1.3.0.2.0.3.1.0.2.4.2.0"
   },
   {
    "role": "link",
-   "name": "[64]"
+   "name": "[64]",
+   "path": "1.3.0.2.0.3.1.0.2.4.2.1.0"
   },
   {
    "role": "link",
-   "name": "[65]"
+   "name": "[65]",
+   "path": "1.3.0.2.0.3.1.0.2.4.2.2.0"
   },
   {
    "role": "link",
-   "name": "[66]"
+   "name": "[66]",
+   "path": "1.3.0.2.0.3.1.0.2.4.2.3.0"
   },
   {
    "role": "link",
-   "name": "[67]"
+   "name": "[67]",
+   "path": "1.3.0.2.0.3.1.0.2.4.2.4.0"
   },
   {
    "role": "link",
-   "name": "[68]"
+   "name": "[68]",
+   "path": "1.3.0.2.0.3.1.0.2.4.2.5.0"
   },
   {
    "role": "link",
-   "name": "[69]"
+   "name": "[69]",
+   "path": "1.3.0.2.0.3.1.0.2.4.2.6.0"
   },
   {
    "role": "link",
-   "name": "[70]"
+   "name": "[70]",
+   "path": "1.3.0.2.0.3.1.0.2.4.2.7.0"
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "path": "1.3.0.2.0.3.1.0.2.4.3.0"
   },
   {
    "role": "link",
-   "name": "GNOME Web"
+   "name": "GNOME Web",
+   "path": "1.3.0.2.0.3.1.0.2.4.3.1.0"
   },
   {
    "role": "link",
-   "name": "GTK"
+   "name": "GTK",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.0"
   },
   {
    "role": "link",
-   "name": "Linux"
+   "name": "Linux",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.1"
   },
   {
    "role": "link",
-   "name": "[71]"
+   "name": "[71]",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.3.0"
   },
   {
    "role": "link",
-   "name": "full citation needed"
+   "name": "full citation needed",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.6.1.0"
   },
   {
    "role": "link",
-   "name": "GNOME Web"
+   "name": "GNOME Web",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.7"
   },
   {
    "role": "link",
-   "name": "[72]"
+   "name": "[72]",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.8.0"
   },
   {
    "role": "link",
-   "name": "[73]"
+   "name": "[73]",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.9.0"
   },
   {
    "role": "link",
-   "name": "Adobe Integrated Runtime"
+   "name": "Adobe Integrated Runtime",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.10"
   },
   {
    "role": "link",
-   "name": "Enlightenment Foundation Libraries"
+   "name": "Enlightenment Foundation Libraries",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.11"
   },
   {
    "role": "link",
-   "name": "[74]"
+   "name": "[74]",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.12.0"
   },
   {
    "role": "link",
-   "name": "Qt Software"
+   "name": "Qt Software",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.13"
   },
   {
    "role": "link",
-   "name": "[75]"
+   "name": "[75]",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.14.0"
   },
   {
    "role": "link",
-   "name": "Qt WebEngine"
+   "name": "Qt WebEngine",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.15"
   },
   {
    "role": "link",
-   "name": "Iris Browser"
+   "name": "Iris Browser",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.16"
   },
   {
    "role": "link",
-   "name": "Samsung"
+   "name": "Samsung",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.17"
   },
   {
    "role": "link",
-   "name": "[76]"
+   "name": "[76]",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.18.0"
   },
   {
    "role": "link",
-   "name": "citation needed"
+   "name": "citation needed",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.21.1.0"
   },
   {
    "role": "link",
-   "name": "Collabora"
+   "name": "Collabora",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.22"
   },
   {
    "role": "link",
-   "name": "Robert Bosch GmbH"
+   "name": "Robert Bosch GmbH",
+   "path": "1.3.0.2.0.3.1.0.2.4.4.23"
   },
   {
    "role": "link",
-   "name": "[77]"
+   "name": "[77]",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.0.0"
   },
   {
    "role": "link",
-   "name": "not specific enough to verify"
+   "name": "not specific enough to verify",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.2.1.0"
   },
   {
    "role": "link",
-   "name": "Origyn Web Browser"
+   "name": "Origyn Web Browser",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.3.0"
   },
   {
    "role": "link",
-   "name": "[78]"
+   "name": "[78]",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.4.0"
   },
   {
    "role": "link",
-   "name": "set-top boxes"
+   "name": "set-top boxes",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.5"
   },
   {
    "role": "link",
-   "name": "further explanation needed"
+   "name": "further explanation needed",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.7.1.0"
   },
   {
    "role": "link",
-   "name": "AmigaOS"
+   "name": "AmigaOS",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.8"
   },
   {
    "role": "link",
-   "name": "[79]"
+   "name": "[79]",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.9.0"
   },
   {
    "role": "link",
-   "name": "AROS"
+   "name": "AROS",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.10"
   },
   {
    "role": "link",
-   "name": "[80]"
+   "name": "[80]",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.11.0"
   },
   {
    "role": "link",
-   "name": "MorphOS"
+   "name": "MorphOS",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.12"
   },
   {
    "role": "link",
-   "name": "Origyn Web Browser"
+   "name": "Origyn Web Browser",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.13"
   },
   {
    "role": "link",
-   "name": "HTML5"
+   "name": "HTML5",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.14"
   },
   {
    "role": "link",
-   "name": "[81]"
+   "name": "[81]",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.15.0"
   },
   {
    "role": "link",
-   "name": "[82]"
+   "name": "[82]",
+   "path": "1.3.0.2.0.3.1.0.2.4.5.16.0"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Igalia"
+   "name": "Igalia",
+   "path": "1.3.0.2.0.3.1.0.2.4.6.1.2"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Blink"
+   "name": "Blink",
+   "path": "1.3.0.2.0.3.1.0.2.5.1.0"
   },
   {
    "role": "link",
-   "name": "Opera Software"
+   "name": "Opera Software",
+   "path": "1.3.0.2.0.3.1.0.2.5.1.1"
   },
   {
    "role": "link",
-   "name": "Chromium"
+   "name": "Chromium",
+   "path": "1.3.0.2.0.3.1.0.2.5.1.2"
   },
   {
    "role": "link",
-   "name": "Opera web browser"
+   "name": "Opera web browser",
+   "path": "1.3.0.2.0.3.1.0.2.5.1.3"
   },
   {
    "role": "link",
-   "name": "[48]"
+   "name": "[48]",
+   "path": "1.3.0.2.0.3.1.0.2.5.1.4.0"
   },
   {
    "role": "link",
-   "name": "[83]"
+   "name": "[83]",
+   "path": "1.3.0.2.0.3.1.0.2.5.1.5.0"
   },
   {
    "role": "link",
-   "name": "citation needed"
+   "name": "citation needed",
+   "path": "1.3.0.2.0.3.1.0.2.5.1.8.1.0"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Document Object Model"
+   "name": "Document Object Model",
+   "path": "1.3.0.2.0.3.1.0.3.1.1.0"
   },
   {
    "role": "link",
-   "name": "library"
+   "name": "library",
+   "path": "1.3.0.2.0.3.1.0.3.1.1.1"
   },
   {
    "role": "link",
-   "name": "Scalable Vector Graphics"
+   "name": "Scalable Vector Graphics",
+   "path": "1.3.0.2.0.3.1.0.3.1.1.2"
   },
   {
    "role": "link",
-   "name": "GNU Lesser General Public License"
+   "name": "GNU Lesser General Public License",
+   "path": "1.3.0.2.0.3.1.0.3.1.1.3"
   },
   {
    "role": "link",
-   "name": "application programming interface"
+   "name": "application programming interface",
+   "path": "1.3.0.2.0.3.1.0.3.1.1.4"
   },
   {
    "role": "link",
-   "name": "C++"
+   "name": "C++",
+   "path": "1.3.0.2.0.3.1.0.3.1.1.5"
   },
   {
    "role": "link",
-   "name": "Cocoa API"
+   "name": "Cocoa API",
+   "path": "1.3.0.2.0.3.1.0.3.1.1.6"
   },
   {
    "role": "link",
-   "name": "cross-platform"
+   "name": "cross-platform",
+   "path": "1.3.0.2.0.3.1.0.3.1.1.7"
   },
   {
    "role": "link",
-   "name": "citation needed"
+   "name": "citation needed",
+   "path": "1.3.0.2.0.3.1.0.3.1.1.10.1.0"
   },
   {
    "role": "link",
-   "name": "Acid2"
+   "name": "Acid2",
+   "path": "1.3.0.2.0.3.1.0.3.1.2.0"
   },
   {
    "role": "link",
-   "name": "Acid3"
+   "name": "Acid3",
+   "path": "1.3.0.2.0.3.1.0.3.1.2.1"
   },
   {
    "role": "link",
-   "name": "[84]"
+   "name": "[84]",
+   "path": "1.3.0.2.0.3.1.0.3.1.2.2.0"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "JavaScript engine"
+   "name": "JavaScript engine",
+   "path": "1.3.0.2.0.3.1.0.3.2.1.0"
   },
   {
    "role": "link",
-   "name": "[20]"
+   "name": "[20]",
+   "path": "1.3.0.2.0.3.1.0.3.2.1.1.0"
   },
   {
    "role": "link",
-   "name": "[85]"
+   "name": "[85]",
+   "path": "1.3.0.2.0.3.1.0.3.2.1.2.0"
   },
   {
    "role": "link",
-   "name": "KDE"
+   "name": "KDE",
+   "path": "1.3.0.2.0.3.1.0.3.2.1.3"
   },
   {
    "role": "link",
-   "name": "KJS"
+   "name": "KJS",
+   "path": "1.3.0.2.0.3.1.0.3.2.1.4"
   },
   {
    "role": "link",
-   "name": "PCRE"
+   "name": "PCRE",
+   "path": "1.3.0.2.0.3.1.0.3.2.1.5"
   },
   {
    "role": "link",
-   "name": "regular expression"
+   "name": "regular expression",
+   "path": "1.3.0.2.0.3.1.0.3.2.1.6"
   },
   {
    "role": "link",
-   "name": "example needed"
+   "name": "example needed",
+   "path": "1.3.0.2.0.3.1.0.3.2.1.9.1.0"
   },
   {
    "role": "link",
-   "name": "[86]"
+   "name": "[86]",
+   "path": "1.3.0.2.0.3.1.0.3.2.1.10.0"
   },
   {
    "role": "link",
-   "name": "[37]"
+   "name": "[37]",
+   "path": "1.3.0.2.0.3.1.0.3.2.2.0.0"
   },
   {
    "role": "link",
-   "name": "[38]"
+   "name": "[38]",
+   "path": "1.3.0.2.0.3.1.0.3.2.2.1.0"
   },
   {
    "role": "link",
-   "name": "register"
+   "name": "register",
+   "path": "1.3.0.2.0.3.1.0.3.2.2.2"
   },
   {
    "role": "link",
-   "name": "bytecode interpreter"
+   "name": "bytecode interpreter",
+   "path": "1.3.0.2.0.3.1.0.3.2.2.3"
   },
   {
    "role": "link",
-   "name": "Just-in-time compilation"
+   "name": "Just-in-time compilation",
+   "path": "1.3.0.2.0.3.1.0.3.2.2.4"
   },
   {
    "role": "link",
-   "name": "[39]"
+   "name": "[39]",
+   "path": "1.3.0.2.0.3.1.0.3.2.2.5.0"
   },
   {
    "role": "link",
-   "name": "just-in-time"
+   "name": "just-in-time",
+   "path": "1.3.0.2.0.3.1.0.3.2.3.0"
   },
   {
    "role": "link",
-   "name": "[87]"
+   "name": "[87]",
+   "path": "1.3.0.2.0.3.1.0.3.2.3.2.0"
   },
   {
    "role": "link",
-   "name": "LLVM"
+   "name": "LLVM",
+   "path": "1.3.0.2.0.3.1.0.3.2.3.3"
   },
   {
    "role": "link",
-   "name": "faster-than-light"
+   "name": "faster-than-light",
+   "path": "1.3.0.2.0.3.1.0.3.2.3.4"
   },
   {
    "role": "link",
-   "name": "[88]"
+   "name": "[88]",
+   "path": "1.3.0.2.0.3.1.0.3.2.3.5.0"
   },
   {
    "role": "link",
-   "name": "[89]"
+   "name": "[89]",
+   "path": "1.3.0.2.0.3.1.0.3.2.3.6.0"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Free and open-source software portal"
+   "name": "Free and open-source software portal",
+   "path": "1.3.0.2.0.3.1.0.4.1.0.1.0"
   },
   {
    "role": "link",
-   "name": "Comparison of browser engines"
+   "name": "Comparison of browser engines",
+   "path": "1.3.0.2.0.3.1.0.4.2.0.0"
   },
   {
    "role": "link",
-   "name": "List of WebKit-based browsers"
+   "name": "List of WebKit-based browsers",
+   "path": "1.3.0.2.0.3.1.0.4.2.1.0"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Jump up to:"
+   "name": "Jump up to:",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"(fwd) Greetings from the Safari team at Apple Computer\""
+   "name": "\"(fwd) Greetings from the Safari team at Apple Computer\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.0.1.0.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.0.1.0.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Safari is released to the world\""
+   "name": "\"Safari is released to the world\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.1.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.1.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"WebKit Nightly Builds\""
+   "name": "\"WebKit Nightly Builds\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.2.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.2.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Code Style Guidelines\""
+   "name": "\"Code Style Guidelines\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.3.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.3.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"WebKit Download\""
+   "name": "\"WebKit Download\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.4.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.4.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"WebKit on Windows\""
+   "name": "\"WebKit on Windows\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.5.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.5.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"BuildingCairoOnWindows – WebKit\""
+   "name": "\"BuildingCairoOnWindows – WebKit\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.6.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.6.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up to:"
+   "name": "Jump up to:",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Licensing WebKit | WebKit\""
+   "name": "\"Licensing WebKit | WebKit\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.7.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.7.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up to:"
+   "name": "Jump up to:",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"The WebKit Open Source Project\""
+   "name": "\"The WebKit Open Source Project\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.8.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.8.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Companies and Organizations that have contributed to WebKit\""
+   "name": "\"Companies and Organizations that have contributed to WebKit\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.9.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.9.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"The WebKit Open Source Project – Getting the Code\""
+   "name": "\"The WebKit Open Source Project – Getting the Code\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.10.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.10.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.11.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Hello Blink\""
+   "name": "\"Hello Blink\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.12.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.12.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"What Is Bun.js and Why Is the JavaScript Community Excited About It?\""
+   "name": "\"What Is Bun.js and Why Is the JavaScript Community Excited About It?\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.13.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.13.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Open Source – WebKit\""
+   "name": "\"Open Source – WebKit\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.14.1.1.0"
   },
   {
    "role": "link",
-   "name": "the original"
+   "name": "the original",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.14.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Apple's 'WebKit' is now a Registered Trademark in the US\""
+   "name": "\"Apple's 'WebKit' is now a Registered Trademark in the US\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.15.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.15.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Introduction\""
+   "name": "\"Introduction\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.16.1.1.0"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Sweet sixteen for Safari and WebKit\""
+   "name": "\"Sweet sixteen for Safari and WebKit\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.17.1.1.0"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Happy 20th Birthday, Safari and Webkit!\""
+   "name": "\"Happy 20th Birthday, Safari and Webkit!\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.18.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.18.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up to:"
+   "name": "Jump up to:",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Stachowiak, Maciej"
+   "name": "Stachowiak, Maciej",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.19.1.1.0"
   },
   {
    "role": "link",
-   "name": "\"JavaScriptCore, Apple's JavaScript framework based on KJS\""
+   "name": "\"JavaScriptCore, Apple's JavaScript framework based on KJS\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.19.1.1.1"
   },
   {
    "role": "link",
-   "name": "the original"
+   "name": "the original",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.19.1.1.3"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Safari and KHTML again\""
+   "name": "\"Safari and KHTML again\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.20.1.1.0"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"So, when will KHTML merge all the WebCore changes?\""
+   "name": "\"So, when will KHTML merge all the WebCore changes?\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.21.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.21.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"The bitter failure named 'safari and khtml'\""
+   "name": "\"The bitter failure named 'safari and khtml'\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.22.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.22.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Open-source divorce for Apple's Safari?\""
+   "name": "\"Open-source divorce for Apple's Safari?\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.23.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.23.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"WebCore open source changes\""
+   "name": "\"WebCore open source changes\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.24.1.1.0"
   },
   {
    "role": "link",
-   "name": "the original"
+   "name": "the original",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.24.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Konqueror now passes Acid2\""
+   "name": "\"Konqueror now passes Acid2\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.26.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.26.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up to:"
+   "name": "Jump up to:",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Apple Opens WebKit CVS and Bug Database\""
+   "name": "\"Apple Opens WebKit CVS and Bug Database\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.27.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.27.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Ars Technica"
+   "name": "Ars Technica",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.28.1.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.28.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"The unforking of KDE's KHTML and WebKit\""
+   "name": "\"The unforking of KDE's KHTML and WebKit\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.29.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.29.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"KDE Development Platform 4.5.0 gains performance, stability, new high-speed cache and support for WebKit\""
+   "name": "\"KDE Development Platform 4.5.0 gains performance, stability, new high-speed cache and support for WebKit\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.30.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.30.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"KHTML\""
+   "name": "\"KHTML\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.31.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.31.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Next Generation KDE Technologies Ported to WebCore\""
+   "name": "\"Next Generation KDE Technologies Ported to WebCore\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.32.1.1.0"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"CSS Transforms\""
+   "name": "\"CSS Transforms\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.33.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.33.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"CSS3 Animations\""
+   "name": "\"CSS3 Animations\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.34.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.34.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"HTML5 Media Support\""
+   "name": "\"HTML5 Media Support\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.35.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.35.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up to:"
+   "name": "Jump up to:",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Announcing SquirrelFish\""
+   "name": "\"Announcing SquirrelFish\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.36.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.36.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up to:"
+   "name": "Jump up to:",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"SquirrelFish project\""
+   "name": "\"SquirrelFish project\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.37.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.37.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up to:"
+   "name": "Jump up to:",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Introducing SquirrelFish Extreme\""
+   "name": "\"Introducing SquirrelFish Extreme\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.38.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.38.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Changeset 40439\""
+   "name": "\"Changeset 40439\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.39.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.39.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"WebKit2 wiki\""
+   "name": "\"WebKit2 wiki\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.40.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.40.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Announcing WebKit2\""
+   "name": "\"Announcing WebKit2\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.41.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.41.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "the original"
+   "name": "the original",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.42.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Source code repository for public parts of Safari 5.1\""
+   "name": "\"Source code repository for public parts of Safari 5.1\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.43.1.1.0"
   },
   {
    "role": "link",
-   "name": "the original"
+   "name": "the original",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.43.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"WWDC 2014 Session 206 - Introducing the Modern WebKit API - ASCIIwwdc\""
+   "name": "\"WWDC 2014 Session 206 - Introducing the Modern WebKit API - ASCIIwwdc\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.44.1.1.0"
   },
   {
    "role": "link",
-   "name": "the original"
+   "name": "the original",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.44.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"132399 – Move the legacy WebKit API into WebKitLegacy.framework and move it inside WebKit.framework\""
+   "name": "\"132399 – Move the legacy WebKit API into WebKitLegacy.framework and move it inside WebKit.framework\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.45.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.45.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Renaming Directories and Project Files to Match Framework Names\""
+   "name": "\"Renaming Directories and Project Files to Match Framework Names\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.46.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.46.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up to:"
+   "name": "Jump up to:",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Google going its own way, forking WebKit rendering engine\""
+   "name": "\"Google going its own way, forking WebKit rendering engine\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.47.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.47.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"App Store Review Guidelines\""
+   "name": "\"App Store Review Guidelines\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.48.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.48.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Nokia S60 Webkit Browser\""
+   "name": "\"Nokia S60 Webkit Browser\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.49.1.1.0"
   },
   {
    "role": "link",
-   "name": "the original"
+   "name": "the original",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.49.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Google Chrome, Google's Browser Project\""
+   "name": "\"Google Chrome, Google's Browser Project\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.50.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.50.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Comic describing the Google Chrome Project\""
+   "name": "\"Comic describing the Google Chrome Project\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.51.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.51.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "PS3、ファームウェアv4.10からWebKitへ。 - あまたの何かしら。"
+   "name": "PS3、ファームウェアv4.10からWebKitへ。 - あまたの何かしら。",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.52.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.52.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.53.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"HP Launches WebOS-Powered Tablet, Phones\""
+   "name": "\"HP Launches WebOS-Powered Tablet, Phones\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.54.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.54.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"100 Million Club (H1 2010 update)\""
+   "name": "\"100 Million Club (H1 2010 update)\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.55.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.55.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Top 5 Desktop, Tablet & Console Browsers\""
+   "name": "\"Top 5 Desktop, Tablet & Console Browsers\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.56.1.1.0"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"The Obligatory iPhone Post\""
+   "name": "\"The Obligatory iPhone Post\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.57.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.57.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Android Uses WebKit\""
+   "name": "\"Android Uses WebKit\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.58.1.1.0"
   },
   {
    "role": "link",
-   "name": "the original"
+   "name": "the original",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.58.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"WebKit in the News\""
+   "name": "\"WebKit in the News\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.59.1.1.0"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"The Amazing Rise of WebKit Mobile\""
+   "name": "\"The Amazing Rise of WebKit Mobile\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.60.1.1.0"
   },
   {
    "role": "link",
-   "name": "the original"
+   "name": "the original",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.60.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Palm Pre in-depth impressions, video, and huge hands-on gallery\""
+   "name": "\"Palm Pre in-depth impressions, video, and huge hands-on gallery\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.61.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.61.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.62.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Safari 6 available for Mountain Lion and Lion, but not Windows\""
+   "name": "\"Safari 6 available for Mountain Lion and Lion, but not Windows\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.63.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.63.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"About the security content of iCloud for Windows 12.3\""
+   "name": "\"About the security content of iCloud for Windows 12.3\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.66.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.66.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"About the security content of iTunes 12.11.3 for Windows\""
+   "name": "\"About the security content of iTunes 12.11.3 for Windows\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.67.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.67.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"BuildingCairoOnWindows – WebKit\""
+   "name": "\"BuildingCairoOnWindows – WebKit\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.68.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.68.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.69.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"World / Eolie\""
+   "name": "\"World / Eolie\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.70.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.70.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"WebKitGTK+ project website\""
+   "name": "\"WebKitGTK+ project website\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.71.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.71.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"WebKit/Gtk+ is coming\""
+   "name": "\"WebKit/Gtk+ is coming\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.72.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.72.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"WebKitClutter project website\""
+   "name": "\"WebKitClutter project website\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.73.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.73.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"QT WebKit\""
+   "name": "\"QT WebKit\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.74.1.1.0"
   },
   {
    "role": "link",
-   "name": "the original"
+   "name": "the original",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.74.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Home\""
+   "name": "\"Home\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.75.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.75.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"pleyo\""
+   "name": "\"pleyo\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.76.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.76.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Welcome to OWB\""
+   "name": "\"Welcome to OWB\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.77.1.1.0"
   },
   {
    "role": "link",
-   "name": "the original"
+   "name": "the original",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.77.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Origyn Web Browser 1.1 For m68k AmigaOS\""
+   "name": "\"Origyn Web Browser 1.1 For m68k AmigaOS\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.78.1.1.0"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Origyn Web Browser for AROS\""
+   "name": "\"Origyn Web Browser for AROS\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.79.1.1.0"
   },
   {
    "role": "link",
-   "name": "the original"
+   "name": "the original",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.79.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Origyn Web Browser for MorphOS\""
+   "name": "\"Origyn Web Browser for MorphOS\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.80.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.80.1.1.1"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Origyn Web Browser 1.7 Supports HTML5 Media, More\""
+   "name": "\"Origyn Web Browser 1.7 Supports HTML5 Media, More\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.81.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.81.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"WebKit developers planning Chromium extraction\""
+   "name": "\"WebKit developers planning Chromium extraction\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.82.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.82.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Full Pass Of Acid3\""
+   "name": "\"Full Pass Of Acid3\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.83.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.83.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"The WebKit Open Source Project – JavaScript\""
+   "name": "\"The WebKit Open Source Project – JavaScript\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.84.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.84.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"The Great Browser JavaScript Showdown\""
+   "name": "\"The Great Browser JavaScript Showdown\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.85.1.1.0"
   },
   {
    "role": "link",
-   "name": "the original"
+   "name": "the original",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.85.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Introducing the WebKit FTL JIT\""
+   "name": "\"Introducing the WebKit FTL JIT\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.86.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.86.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Apple integrates LLVM compiler to boost WebKit JavaScript performance\""
+   "name": "\"Apple integrates LLVM compiler to boost WebKit JavaScript performance\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.87.1.1.0"
   },
   {
    "role": "link",
-   "name": "Ars Technica"
+   "name": "Ars Technica",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.87.1.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.87.1.1.2"
   },
   {
    "role": "link",
-   "name": "Jump up"
+   "name": "Jump up",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "\"Introducing the B3 JIT Compiler\""
+   "name": "\"Introducing the B3 JIT Compiler\"",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.88.1.1.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.5.2.0.88.1.1.2"
   },
   {
    "role": "link",
-   "name": "edit"
+   "name": "edit",
+   "boxless": true
   },
   {
    "role": "link",
-   "name": "Official website"
+   "name": "Official website",
+   "path": "1.3.0.2.0.3.1.0.6.1.0.0.0.0"
   },
   {
    "role": "link",
-   "name": "Edit this at Wikidata"
+   "name": "Edit this at Wikidata",
+   "path": "1.3.0.2.0.3.1.0.6.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "Official website"
+   "name": "Official website",
+   "path": "1.3.0.2.0.3.1.0.6.1.1.0.0.0"
   },
   {
    "role": "link",
-   "name": "WebKitGTK"
+   "name": "WebKitGTK",
+   "path": "1.3.0.2.0.3.1.0.6.1.1.2"
   },
   {
    "role": "link",
-   "name": "SunSpider 1.0 JavaScript Benchmark"
+   "name": "SunSpider 1.0 JavaScript Benchmark",
+   "path": "1.3.0.2.0.3.1.0.6.1.2.0"
   },
   {
    "role": "link",
-   "name": "Archived"
+   "name": "Archived",
+   "path": "1.3.0.2.0.3.1.0.6.1.2.1"
   },
   {
    "role": "link",
-   "name": "Wayback Machine"
+   "name": "Wayback Machine",
+   "path": "1.3.0.2.0.3.1.0.6.1.2.3"
   },
   {
    "role": "button",
-   "name": "[show]"
+   "name": "[show]",
+   "path": "1.3.0.2.0.3.1.0.6.3.0.0.0.0.0"
   },
   {
    "role": "link",
-   "name": "v"
+   "name": "v",
+   "path": "1.3.0.2.0.3.1.0.6.3.0.0.0.0.2.0.0.0"
   },
   {
    "role": "link",
-   "name": "t"
+   "name": "t",
+   "path": "1.3.0.2.0.3.1.0.6.3.0.0.0.0.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "e"
+   "name": "e",
+   "path": "1.3.0.2.0.3.1.0.6.3.0.0.0.0.2.0.2.0"
   },
   {
    "role": "link",
-   "name": "Browser engines"
+   "name": "Browser engines",
+   "path": "1.3.0.2.0.3.1.0.6.3.0.0.0.0.3.0"
   },
   {
    "role": "link",
-   "name": "comparison"
+   "name": "comparison",
+   "path": "1.3.0.2.0.3.1.0.6.3.0.0.0.0.3.1"
   },
   {
    "role": "button",
-   "name": "[show]"
+   "name": "[show]",
+   "path": "1.3.0.2.0.3.1.0.6.5.0.0.0.0.0"
   },
   {
    "role": "link",
-   "name": "v"
+   "name": "v",
+   "path": "1.3.0.2.0.3.1.0.6.5.0.0.0.0.2.0.0.0"
   },
   {
    "role": "link",
-   "name": "t"
+   "name": "t",
+   "path": "1.3.0.2.0.3.1.0.6.5.0.0.0.0.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "e"
+   "name": "e",
+   "path": "1.3.0.2.0.3.1.0.6.5.0.0.0.0.2.0.2.0"
   },
   {
    "role": "link",
-   "name": "macOS"
+   "name": "macOS",
+   "path": "1.3.0.2.0.3.1.0.6.5.0.0.0.0.3.0"
   },
   {
    "role": "button",
-   "name": "[show]"
+   "name": "[show]",
+   "path": "1.3.0.2.0.3.1.0.6.7.0.0.0.0.0"
   },
   {
    "role": "link",
-   "name": "v"
+   "name": "v",
+   "path": "1.3.0.2.0.3.1.0.6.7.0.0.0.0.2.0.0.0"
   },
   {
    "role": "link",
-   "name": "t"
+   "name": "t",
+   "path": "1.3.0.2.0.3.1.0.6.7.0.0.0.0.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "e"
+   "name": "e",
+   "path": "1.3.0.2.0.3.1.0.6.7.0.0.0.0.2.0.2.0"
   },
   {
    "role": "link",
-   "name": "ECMAScript"
+   "name": "ECMAScript",
+   "path": "1.3.0.2.0.3.1.0.6.7.0.0.0.0.3.0"
   },
   {
    "role": "button",
-   "name": "[show]"
+   "name": "[show]",
+   "path": "1.3.0.2.0.3.1.0.6.9.0.0.0.0.0"
   },
   {
    "role": "link",
-   "name": "v"
+   "name": "v",
+   "path": "1.3.0.2.0.3.1.0.6.9.0.0.0.0.2.0.0.0"
   },
   {
    "role": "link",
-   "name": "t"
+   "name": "t",
+   "path": "1.3.0.2.0.3.1.0.6.9.0.0.0.0.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "e"
+   "name": "e",
+   "path": "1.3.0.2.0.3.1.0.6.9.0.0.0.0.2.0.2.0"
   },
   {
    "role": "link",
-   "name": "Widget engines"
+   "name": "Widget engines",
+   "path": "1.3.0.2.0.3.1.0.6.9.0.0.0.0.3.0"
   },
   {
    "role": "button",
-   "name": "[show]"
+   "name": "[show]",
+   "path": "1.3.0.2.0.3.1.0.6.11.0.0.0.0.0"
   },
   {
    "role": "link",
-   "name": "v"
+   "name": "v",
+   "path": "1.3.0.2.0.3.1.0.6.11.0.0.0.0.2.0.0.0"
   },
   {
    "role": "link",
-   "name": "t"
+   "name": "t",
+   "path": "1.3.0.2.0.3.1.0.6.11.0.0.0.0.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "e"
+   "name": "e",
+   "path": "1.3.0.2.0.3.1.0.6.11.0.0.0.0.2.0.2.0"
   },
   {
    "role": "link",
-   "name": "Web browsers"
+   "name": "Web browsers",
+   "path": "1.3.0.2.0.3.1.0.6.11.0.0.0.0.3.0"
   },
   {
    "role": "link",
-   "name": "Categories"
+   "name": "Categories",
+   "path": "1.3.0.2.0.3.2.0.0"
   },
   {
    "role": "link",
-   "name": "1999 software"
+   "name": "1999 software",
+   "path": "1.3.0.2.0.3.2.0.1.0.0"
   },
   {
    "role": "link",
-   "name": "2005 software"
+   "name": "2005 software",
+   "path": "1.3.0.2.0.3.2.0.1.1.0"
   },
   {
    "role": "link",
-   "name": "Apple Inc. developed frameworks"
+   "name": "Apple Inc. developed frameworks",
+   "path": "1.3.0.2.0.3.2.0.1.2.0"
   },
   {
    "role": "link",
-   "name": "Application programming interfaces"
+   "name": "Application programming interfaces",
+   "path": "1.3.0.2.0.3.2.0.1.3.0"
   },
   {
    "role": "link",
-   "name": "Free layout engines"
+   "name": "Free layout engines",
+   "path": "1.3.0.2.0.3.2.0.1.4.0"
   },
   {
    "role": "link",
-   "name": "Free software programmed in C++"
+   "name": "Free software programmed in C++",
+   "path": "1.3.0.2.0.3.2.0.1.5.0"
   },
   {
    "role": "link",
-   "name": "Mobile software"
+   "name": "Mobile software",
+   "path": "1.3.0.2.0.3.2.0.1.6.0"
   },
   {
    "role": "link",
-   "name": "Software based on WebKit"
+   "name": "Software based on WebKit",
+   "path": "1.3.0.2.0.3.2.0.1.7.0"
   },
   {
    "role": "link",
-   "name": "Software forks"
+   "name": "Software forks",
+   "path": "1.3.0.2.0.3.2.0.1.8.0"
   },
   {
    "role": "link",
-   "name": "Software that uses Cairo (graphics)"
+   "name": "Software that uses Cairo (graphics)",
+   "path": "1.3.0.2.0.3.2.0.1.9.0"
   },
   {
    "role": "link",
-   "name": "Software that uses GTK"
+   "name": "Software that uses GTK",
+   "path": "1.3.0.2.0.3.2.0.1.10.0"
   },
   {
    "role": "link",
-   "name": "Software using the BSD license"
+   "name": "Software using the BSD license",
+   "path": "1.3.0.2.0.3.2.0.1.11.0"
   },
   {
    "role": "link",
-   "name": "Parsoid"
+   "name": "Parsoid",
+   "path": "1.3.0.3.0.0.1.0"
   },
   {
    "role": "link",
-   "name": "Creative Commons Attribution-ShareAlike 4.0 License"
+   "name": "Creative Commons Attribution-ShareAlike 4.0 License",
+   "path": "1.3.0.3.0.0.2.0"
   },
   {
    "role": "link",
-   "name": "Terms of Use"
+   "name": "Terms of Use",
+   "path": "1.3.0.3.0.0.2.1"
   },
   {
    "role": "link",
-   "name": "Privacy Policy"
+   "name": "Privacy Policy",
+   "path": "1.3.0.3.0.0.2.2"
   },
   {
    "role": "link",
-   "name": "Wikimedia Foundation, Inc."
+   "name": "Wikimedia Foundation, Inc.",
+   "path": "1.3.0.3.0.0.2.3"
   },
   {
    "role": "link",
-   "name": "Privacy policy"
+   "name": "Privacy policy",
+   "path": "1.3.0.3.0.1.0.0"
   },
   {
    "role": "link",
-   "name": "About Wikipedia"
+   "name": "About Wikipedia",
+   "path": "1.3.0.3.0.1.1.0"
   },
   {
    "role": "link",
-   "name": "Disclaimers"
+   "name": "Disclaimers",
+   "path": "1.3.0.3.0.1.2.0"
   },
   {
    "role": "link",
-   "name": "Contact Wikipedia"
+   "name": "Contact Wikipedia",
+   "path": "1.3.0.3.0.1.3.0"
   },
   {
    "role": "link",
-   "name": "Legal & safety contacts"
+   "name": "Legal & safety contacts",
+   "path": "1.3.0.3.0.1.4.0"
   },
   {
    "role": "link",
-   "name": "Code of Conduct"
+   "name": "Code of Conduct",
+   "path": "1.3.0.3.0.1.5.0"
   },
   {
    "role": "link",
-   "name": "Developers"
+   "name": "Developers",
+   "path": "1.3.0.3.0.1.6.0"
   },
   {
    "role": "link",
-   "name": "Statistics"
+   "name": "Statistics",
+   "path": "1.3.0.3.0.1.7.0"
   },
   {
    "role": "link",
-   "name": "Cookie statement"
+   "name": "Cookie statement",
+   "path": "1.3.0.3.0.1.8.0"
   },
   {
    "role": "link",
-   "name": "Mobile view"
+   "name": "Mobile view",
+   "path": "1.3.0.3.0.1.9.0"
   },
   {
    "role": "link",
-   "name": "Wikimedia Foundation"
+   "name": "Wikimedia Foundation",
+   "path": "1.3.0.3.0.2.0.0"
   },
   {
    "role": "link",
-   "name": "Powered by MediaWiki"
+   "name": "Powered by MediaWiki",
+   "path": "1.3.0.3.0.2.1.0"
   }
  ],
- "clippedInteractive": 0,
+ "hiddenInChrome": 0,
  "hidden": [
   "Community portal",
   "Toggle the table of contents",
@@ -2835,5 +3524,5 @@
   "Webarchive template wayback links",
   "Edit preview settings"
  ],
- "chromeAiSnapshotBytes": 210081
+ "chromeAiSnapshotBytes": 198392
 }

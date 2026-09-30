@@ -21,7 +21,7 @@ import { scoreStructure, focusProbe } from "./probes.mjs";
 import { writeSummary } from "./report.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const TOOLS = ["cmux", "cmux-i", "aside", "aside-i", "chatgpt-ax", "chatgpt-dom", "chatgpt-pw", "chatgpt-live-ax", "chatgpt-live-dom", "chatgpt-live-pw", "pw-mcp", "browser-use", "stagehand"];
+export const TOOLS = ["cmux", "cmux-i", "cmux-v", "aside", "aside-i", "chatgpt-ax", "chatgpt-dom", "chatgpt-pw", "chatgpt-live-ax", "chatgpt-live-dom", "chatgpt-live-pw", "pw-mcp", "browser-use", "stagehand"];
 // Captured by chatgpt-live.ts in the user's Chrome; read from its output.
 const LIVE_TOOLS = ["chatgpt-live-ax", "chatgpt-live-dom", "chatgpt-live-pw"];
 const CORPUS = fs.readdirSync(path.join(here, "../fixtures/corpus")).filter((f) => f.endsWith(".html")).map((f) => f.replace(/\.html$/, ""));
@@ -268,9 +268,11 @@ async function main() {
       log(`${p.name} ${p.url}`);
       const startedAt = new Date().toISOString();
       const settleMs = p.kind === "live" ? 2500 : p.kind === "corpus" ? 1200 : 500;
-      const { steps, meta } = await runAll(adapters, p.url, [{ op: "capture", mode: "full" }, { op: "capture", mode: "interactive" }], settleMs, log);
+      // The third capture is cmux's viewport scope (cmux-v); the other tools
+      // have none and take it as a repeat of the full capture.
+      const { steps, meta } = await runAll(adapters, p.url, [{ op: "capture", mode: "full" }, { op: "capture", mode: "interactive" }, { op: "capture", mode: "viewport" }], settleMs, log);
       Object.assign(versions, meta.versions);
-      const outputs = { ...steps[0], ...steps[1], ...readLive(p.name) };
+      const outputs = { ...steps[2], ...steps[0], ...steps[1], ...readLive(p.name) };
       const rawDir = path.join(here, p.kind === "live" ? "results/raw-live" : "results/raw", safe(p.name));
       fs.mkdirSync(rawDir, { recursive: true });
       const gt = meta.groundTruth;

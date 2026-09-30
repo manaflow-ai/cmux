@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const TOOLS = ["cmux", "cmux-i", "aside", "aside-i", "chatgpt-ax", "chatgpt-dom", "chatgpt-pw", "chatgpt-live-ax", "chatgpt-live-dom", "chatgpt-live-pw", "pw-mcp", "browser-use", "stagehand"];
+const TOOLS = ["cmux", "cmux-i", "cmux-v", "aside", "aside-i", "chatgpt-ax", "chatgpt-dom", "chatgpt-pw", "chatgpt-live-ax", "chatgpt-live-dom", "chatgpt-live-pw", "pw-mcp", "browser-use", "stagehand"];
 const pct = (x) => (x == null ? "n/a" : `${Math.round(x * 100)}%`);
 const k = (n) => (n == null ? "n/a" : n >= 10000 ? `${(n / 1000).toFixed(0)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 const row = (cells) => `| ${cells.join(" | ")} |`;

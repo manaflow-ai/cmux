@@ -34,7 +34,7 @@ function replProgram(steps, { snapshotCall, open, close, settleMs, wait }) {
   const body = [];
   steps.forEach((s) => {
     if (s.op === "capture") {
-      body.push(`{ const __s = await ${snapshotCall(s.mode === "interactive")}; __out.push({ text: __s.tree, incremental: __s.diff ?? null, printed: String(__s) }); }`);
+      body.push(`{ const __s = await ${snapshotCall(s.mode === "interactive", s.mode)}; __out.push({ text: __s.tree, incremental: __s.diff ?? null, printed: String(__s) }); }`);
     } else if (s.op === "eval") {
       body.push(`await page.evaluate(${JSON.stringify(s.js)}); await ${wait}(250); __out.push(null);`);
     } else if (s.op === "act") {
@@ -85,7 +85,8 @@ export async function createCmuxAdapter() {
       const host = createNodeHost({ workDir, sessionId: `cmp-${Date.now()}`, print: (_l, t) => lines.push(t) });
       const repl = ns.replHost.createBrowserRepl({ host, driver });
       const code = replProgram(steps, {
-        snapshotCall: (i) => (i ? "snapshot({ interactive: true })" : "snapshot()"),
+        // cmux-v: the viewport scope (only cmux has one).
+        snapshotCall: (i, mode) => (mode === "viewport" ? "snapshot({ viewport: true })" : i ? "snapshot({ interactive: true })" : "snapshot()"),
         open: `await page.goto(${JSON.stringify(url)});`,
         close: "",
         settleMs,
@@ -95,7 +96,7 @@ export async function createCmuxAdapter() {
         const r = await withTimeout(repl.evaluate(code), 150_000, "cmux");
         if (!r.ok) throw new Error(String(r.error));
         const out = parseMarked(lines.join("\n"));
-        return steps.map((s, i) => (s.op === "capture" ? { [s.mode === "interactive" ? "cmux-i" : "cmux"]: out[i] } : out[i] && { cmux: out[i] }));
+        return steps.map((s, i) => (s.op === "capture" ? { [s.mode === "interactive" ? "cmux-i" : s.mode === "viewport" ? "cmux-v" : "cmux"]: out[i] } : out[i] && { cmux: out[i] }));
       } finally {
         repl.dispose();
         await driver.detach().catch(() => {});

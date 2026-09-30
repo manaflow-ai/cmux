@@ -21,6 +21,7 @@ export function tokens(text) {
 export const REF_RE = {
   cmux: /\[ref=([^\]\s]+)\]/,
   "cmux-i": /\[ref=([^\]\s]+)\]/,
+  "cmux-v": /\[ref=([^\]\s]+)\]/,
   aside: /\[ref=([^\]\s]+)\]/,
   "aside-i": /\[ref=([^\]\s]+)\]/,
   "pw-mcp": /\[ref=([^\]\s]+)\]/,

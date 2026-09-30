@@ -10,9 +10,10 @@
 //     iframes inlined as srcdoc.
 //   node tests/browser-parity/lib/corpus.mjs oracle [--only NAME]
 //     Serves the frozen pages and records, from Chrome, what the snapshot
-//     invariants compare against (fixtures/corpus/NAME.oracle.json):
-//     interactive elements in Playwright's AI snapshot that no overflow:hidden
-//     ancestor clips out, and text Chrome does not render.
+//     invariants compare against (fixtures/corpus/NAME.oracle.json): the
+//     interactive elements in Playwright's AI snapshot with each element's
+//     path, and text Chrome does not render. Scenario 27 judges each path's
+//     visibility in the engine that renders cmux (fixtures/corpus/gt.js).
 //
 // Sizes of Aside's snapshots of the same frozen pages live in
 // fixtures/corpus/aside-sizes.json (recorded once with `aside repl`).
@@ -134,7 +135,11 @@ function freezeDocument() {
     }
     if (tag === "use" && /^(https?:)?\/\//.test(el.getAttribute("href") || "")) el.removeAttribute("href");
     if (tag === "path") el.removeAttribute("d");
-    if (tag === "a" && el.getAttribute("href")) el.setAttribute("href", el.href);
+    // Links on the page's own host stay root-relative, so they stay on-site
+    // when the fixture server serves the page; others become absolute.
+    if (tag === "a" && el.getAttribute("href")) {
+      el.setAttribute("href", el.host === location.host ? el.pathname + el.search + el.hash : el.href);
+    }
     if (tag === "form" && el.getAttribute("action")) el.setAttribute("action", el.action);
     // Live form state becomes markup.
     if (tag === "input" && el.type !== "hidden" && el.type !== "file") {
@@ -242,50 +247,8 @@ function interactiveFromAiSnapshot(text) {
   return out;
 }
 
-// Runs in the page: whether an ancestor with overflow hidden or clip cuts
-// the element out entirely, following CSS containing blocks (an absolutely
-// positioned element escapes clippers below its positioned ancestor, a fixed
-// one all but those at or above a transformed ancestor). Chrome's AI
-// snapshot lists such elements; nobody can see them. Returns "clipped",
-// "edge" when a clipper around it overflows or holds one clipped line (what
-// such a box cuts depends on text metrics, which differ between engines), or "".
-function clippedOut(el) {
-  let edge = false;
-  const r = el.getBoundingClientRect();
-  if (!r.width || !r.height) return "";
-  const clips = (v) => v === "hidden" || v === "clip";
-  let skip = null; // "positioned" | "transformed" while escaping
-  const own = getComputedStyle(el).position;
-  if (own === "absolute") skip = "positioned";
-  if (own === "fixed") skip = "transformed";
-  for (let a = el.parentElement; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
-    const cs = getComputedStyle(a);
-    const transformed = cs.transform !== "none" || cs.filter !== "none" || /paint|strict|content|layout/.test(cs.contain);
-    const positioned = cs.position !== "static" || transformed;
-    const escaping = (skip === "positioned" && !positioned) || (skip === "transformed" && !transformed);
-    if (!escaping) {
-      const x = clips(cs.overflowX) || /paint|strict|content/.test(cs.contain);
-      const y = clips(cs.overflowY) || /paint|strict|content/.test(cs.contain);
-      if (x || y) {
-        const b = a.getBoundingClientRect();
-        const left = b.left + a.clientLeft, top = b.top + a.clientTop;
-        const right = left + a.clientWidth, bottom = top + a.clientHeight;
-        const cut = (x && (r.right <= left + 0.5 || r.left >= right - 0.5)) || (y && (r.bottom <= top + 0.5 || r.top >= bottom - 0.5));
-        if (cut) return "clipped";
-        // Inside a clipper whose content overflows (an ellipsized line), what
-        // is cut depends on text metrics, which differ between engines.
-        // A single clipped line (nowrap, ellipsis) may overflow in another
-        // engine even when it fits here.
-        const oneLine = /nowrap|pre/.test(cs.whiteSpace) || cs.textOverflow === "ellipsis";
-        if ((x && (oneLine || a.scrollWidth > a.clientWidth + 1)) || (y && a.scrollHeight > a.clientHeight + 1)) edge = true;
-      }
-      skip = null;
-    }
-    if (cs.position === "absolute") skip = "positioned";
-    else if (cs.position === "fixed") skip = "transformed";
-  }
-  return edge ? "edge" : "";
-}
+// Visibility ground truth shared with scenario 27 (fixtures/corpus/gt.js).
+const gtSource = fs.readFileSync(path.join(corpusDir, "gt.js"), "utf8");
 
 async function oracle(only) {
   const { chromium } = loadPlaywright();
@@ -299,14 +262,23 @@ async function oracle(only) {
       await page.waitForTimeout(300);
       const ai = await page._snapshotForAI();
       const aiText = typeof ai === "string" ? ai : ai.full;
-      // _snapshotForAI inlines frames; parse the whole text once, and leave
-      // out what an overflow:hidden ancestor cuts off.
+      // _snapshotForAI inlines frames; parse the whole text once. Each entry
+      // carries its element's path, so a check can judge visibility in the
+      // engine that renders cmux (scenario 27); Chrome's own judgement is
+      // only counted here.
       const interactive = [];
-      let clipped = 0;
+      let hiddenInChrome = 0;
       for (const item of interactiveFromAiSnapshot(aiText)) {
-        const cut = item.ref ? await page.locator(`aria-ref=${item.ref}`).evaluate(clippedOut).catch(() => "") : "";
-        if (cut === "clipped") clipped++;
-        else interactive.push(cut === "edge" ? { role: item.role, name: item.name, edge: true } : { role: item.role, name: item.name });
+        const r = item.ref
+          ? await page.locator(`aria-ref=${item.ref}`).evaluate((el, src) => {
+              const gt = (0, eval)(src + "; ({ shown, pathOf })");
+              return { shown: gt.shown(el), path: gt.pathOf(el) };
+            }, gtSource).catch(() => null)
+          : null;
+        if (r && !r.shown) hiddenInChrome++;
+        // Playwright gives no ref to an element without a visible box.
+        if (!item.ref) interactive.push({ role: item.role, name: item.name, boxless: true });
+        else interactive.push({ role: item.role, name: item.name, path: r ? r.path : null });
       }
       // Hidden text can still name an element (aria-labelledby a hidden
       // tooltip); Chrome prints such names, so they are not leaks.
@@ -315,9 +287,9 @@ async function oracle(only) {
       const hidden = [];
       for (const frame of page.frames()) hidden.push(...(await frame.evaluate(hiddenTexts).catch(() => [])));
       hidden.splice(0, hidden.length, ...hidden.filter((t) => !aiSquashed.includes(squash(t))));
-      const record = { url: entry.url, interactive, clippedInteractive: clipped, hidden, chromeAiSnapshotBytes: Buffer.byteLength(aiText) };
+      const record = { url: entry.url, interactive, hiddenInChrome, hidden, chromeAiSnapshotBytes: Buffer.byteLength(aiText) };
       fs.writeFileSync(path.join(corpusDir, `${entry.name}.oracle.json`), JSON.stringify(record, null, 1) + "\n");
-      console.log(`${entry.name}: ${interactive.length} interactive, ${clipped} clipped out, ${hidden.length} hidden texts`);
+      console.log(`${entry.name}: ${interactive.length} interactive (${hiddenInChrome} not shown in Chrome), ${hidden.length} hidden texts`);
       await page.close();
     }
   } finally {

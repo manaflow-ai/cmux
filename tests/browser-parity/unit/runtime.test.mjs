@@ -13,7 +13,7 @@ import { loadRuntime, runDevRepl, createFsOp } from "../lib/dev-driver.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
 
 const ns = loadRuntime();
-const { shape, interactiveOnly, render, diffLines, Snapshot } = ns.snapshot;
+const { shape, interactiveOnly, render, diffLines, textChanges, Snapshot } = ns.snapshot;
 const { describeKey, splitKeyCombo, MiniURL } = ns.core;
 const { rewriteTopLevel, createReplSession } = ns.replHost;
 const { inspect } = ns.api;
@@ -152,6 +152,30 @@ test("print choice: a small tree prints its diff when shorter; a large one needs
   assert.equal(String(same), "title: T\nurl: http://h/\n# no changes since the previous snapshot");
   const cut = new Snapshot({ header, body, maxChars: 60 });
   assert.match(cut.tree, /# truncated: \d+ of \d+ characters shown/);
+});
+
+test("shape: a control with its own ref keeps its name when its children have refs", () => {
+  assert.deepEqual(tree([{ role: "button", name: "Guides", ref: "e1", act: 1, expanded: false, children: [{ role: "link", name: "Guides", ref: "e2", act: 1 }] }]),
+    ['- button "Guides" [ref=e1] [expanded=false]:', '  - link "Guides" [ref=e2]']);
+  // Without a ref of its own the name still gives way to the children.
+  assert.deepEqual(tree([{ role: "heading", name: "Intro", level: 2, children: [{ role: "link", name: "Intro", ref: "e3", act: 1 }] }]),
+    ['- heading [level=2]:', '  - link "Intro" [ref=e3]']);
+});
+
+test("shape: names and texts compare without case; off-site links say where they go", () => {
+  assert.deepEqual(tree([{ role: "link", name: "main content", ref: "e1", children: ["Main content"] }]), ['- link "main content" [ref=e1]']);
+  assert.deepEqual(tree([{ role: "link", name: "Docs", ref: "e2", url: "https://example.org/docs/page", offsite: "example.org/docs/…", children: ["Docs"] }]),
+    ['- link "Docs" [ref=e2] [url=example.org/docs/…]']);
+  assert.deepEqual(tree([{ role: "link", name: "Docs", ref: "e2", url: "https://example.org/docs/page", offsite: "example.org/docs/…", children: ["Docs"] }], { urls: true }),
+    ['- link "Docs" [ref=e2] [url=https://example.org/docs/page]']);
+});
+
+test("diff: an interactive diff carries added or changed text from the full tree", () => {
+  const before = ["- main:", '  - textbox "Email" [ref=e1]', '  - text: "Waiting"'];
+  const after = ["- main:", '  - textbox "Email" [ref=e1]: "me@x.com"', '  - text: "Submitted me@x.com"'];
+  assert.deepEqual(textChanges(diffLines(before, after)), ["  - main:", '+   - text: "Submitted me@x.com"']);
+  const s = new Snapshot({ header: [], body: ['- textbox "Email" [ref=e1]: "me@x.com"'], previous: ['- textbox "Email" [ref=e1]'], extraChanges: textChanges(diffLines(before, after)) });
+  assert.match(s.diff, /Submitted me@x\.com/);
 });
 
 test("keys: combos split on + with a trailing plus key", () => {

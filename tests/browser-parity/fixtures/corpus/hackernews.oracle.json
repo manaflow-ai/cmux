@@ -3,870 +3,1086 @@
  "interactive": [
   {
    "role": "link",
-   "name": ""
+   "name": "",
+   "path": "1.0.0.0.0.0.0.0.0.0.0"
   },
   {
    "role": "link",
-   "name": "Hacker News"
+   "name": "Hacker News",
+   "path": "1.0.0.0.0.0.0.0.0.1.0.0.0"
   },
   {
    "role": "link",
-   "name": "new"
+   "name": "new",
+   "path": "1.0.0.0.0.0.0.0.0.1.0.1"
   },
   {
    "role": "link",
-   "name": "past"
+   "name": "past",
+   "path": "1.0.0.0.0.0.0.0.0.1.0.2"
   },
   {
    "role": "link",
-   "name": "comments"
+   "name": "comments",
+   "path": "1.0.0.0.0.0.0.0.0.1.0.3"
   },
   {
    "role": "link",
-   "name": "ask"
+   "name": "ask",
+   "path": "1.0.0.0.0.0.0.0.0.1.0.4"
   },
   {
    "role": "link",
-   "name": "show"
+   "name": "show",
+   "path": "1.0.0.0.0.0.0.0.0.1.0.5"
   },
   {
    "role": "link",
-   "name": "jobs"
+   "name": "jobs",
+   "path": "1.0.0.0.0.0.0.0.0.1.0.6"
   },
   {
    "role": "link",
-   "name": "submit"
+   "name": "submit",
+   "path": "1.0.0.0.0.0.0.0.0.1.0.7"
   },
   {
    "role": "link",
-   "name": "login"
+   "name": "login",
+   "path": "1.0.0.0.0.0.0.0.0.2.0.0"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.0.1.0.0"
   },
   {
    "role": "link",
-   "name": "github.com/ninjahawk"
+   "name": "github.com/ninjahawk",
+   "path": "1.0.0.0.2.0.0.0.0.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "bryan0"
+   "name": "bryan0",
+   "path": "1.0.0.0.2.0.0.0.1.1.0.1"
   },
   {
    "role": "link",
-   "name": "5 hours ago"
+   "name": "5 hours ago",
+   "path": "1.0.0.0.2.0.0.0.1.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.1.1.0.4"
   },
   {
    "role": "link",
-   "name": "143 comments"
+   "name": "143 comments",
+   "path": "1.0.0.0.2.0.0.0.1.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.3.1.0.0"
   },
   {
    "role": "link",
-   "name": "U.S. postal inspectors shut down website selling counterfeit postage labels"
+   "name": "U.S. postal inspectors shut down website selling counterfeit postage labels",
+   "path": "1.0.0.0.2.0.0.0.3.2.0.0"
   },
   {
    "role": "link",
-   "name": "postalemployeenetwork.com"
+   "name": "postalemployeenetwork.com",
+   "path": "1.0.0.0.2.0.0.0.3.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "ilamont"
+   "name": "ilamont",
+   "path": "1.0.0.0.2.0.0.0.4.1.0.1"
   },
   {
    "role": "link",
-   "name": "8 hours ago"
+   "name": "8 hours ago",
+   "path": "1.0.0.0.2.0.0.0.4.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.4.1.0.4"
   },
   {
    "role": "link",
-   "name": "113 comments"
+   "name": "113 comments",
+   "path": "1.0.0.0.2.0.0.0.4.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.6.1.0.0"
   },
   {
    "role": "link",
-   "name": "America.gov"
+   "name": "America.gov",
+   "path": "1.0.0.0.2.0.0.0.6.2.0.0"
   },
   {
    "role": "link",
-   "name": "america.gov"
+   "name": "america.gov",
+   "path": "1.0.0.0.2.0.0.0.6.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "plesiv"
+   "name": "plesiv",
+   "path": "1.0.0.0.2.0.0.0.7.1.0.1"
   },
   {
    "role": "link",
-   "name": "13 hours ago"
+   "name": "13 hours ago",
+   "path": "1.0.0.0.2.0.0.0.7.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.7.1.0.4"
   },
   {
    "role": "link",
-   "name": "347 comments"
+   "name": "347 comments",
+   "path": "1.0.0.0.2.0.0.0.7.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.9.1.0.0"
   },
   {
    "role": "link",
-   "name": "bl2.net"
+   "name": "bl2.net",
+   "path": "1.0.0.0.2.0.0.0.9.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "wanick"
+   "name": "wanick",
+   "path": "1.0.0.0.2.0.0.0.10.1.0.1"
   },
   {
    "role": "link",
-   "name": "8 hours ago"
+   "name": "8 hours ago",
+   "path": "1.0.0.0.2.0.0.0.10.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.10.1.0.4"
   },
   {
    "role": "link",
-   "name": "35 comments"
+   "name": "35 comments",
+   "path": "1.0.0.0.2.0.0.0.10.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.12.1.0.0"
   },
   {
    "role": "link",
-   "name": "Strange Parodies of Atari 2600 Video Game Box Cover Art (2008)"
+   "name": "Strange Parodies of Atari 2600 Video Game Box Cover Art (2008)",
+   "path": "1.0.0.0.2.0.0.0.12.2.0.0"
   },
   {
    "role": "link",
-   "name": "mightygodking.com"
+   "name": "mightygodking.com",
+   "path": "1.0.0.0.2.0.0.0.12.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "peter_d_sherman"
+   "name": "peter_d_sherman",
+   "path": "1.0.0.0.2.0.0.0.13.1.0.1"
   },
   {
    "role": "link",
-   "name": "2 hours ago"
+   "name": "2 hours ago",
+   "path": "1.0.0.0.2.0.0.0.13.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.13.1.0.4"
   },
   {
    "role": "link",
-   "name": "3 comments"
+   "name": "3 comments",
+   "path": "1.0.0.0.2.0.0.0.13.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.15.1.0.0"
   },
   {
    "role": "link",
-   "name": "github.com/sparticle62ops"
+   "name": "github.com/sparticle62ops",
+   "path": "1.0.0.0.2.0.0.0.15.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "sparticle62"
+   "name": "sparticle62",
+   "path": "1.0.0.0.2.0.0.0.16.1.0.1"
   },
   {
    "role": "link",
-   "name": "28 minutes ago"
+   "name": "28 minutes ago",
+   "path": "1.0.0.0.2.0.0.0.16.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.16.1.0.4"
   },
   {
    "role": "link",
-   "name": "discuss"
+   "name": "discuss",
+   "path": "1.0.0.0.2.0.0.0.16.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.18.1.0.0"
   },
   {
    "role": "link",
-   "name": "openai.com"
+   "name": "openai.com",
+   "path": "1.0.0.0.2.0.0.0.18.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "crorella"
+   "name": "crorella",
+   "path": "1.0.0.0.2.0.0.0.19.1.0.1"
   },
   {
    "role": "link",
-   "name": "10 hours ago"
+   "name": "10 hours ago",
+   "path": "1.0.0.0.2.0.0.0.19.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.19.1.0.4"
   },
   {
    "role": "link",
-   "name": "756 comments"
+   "name": "756 comments",
+   "path": "1.0.0.0.2.0.0.0.19.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.21.1.0.0"
   },
   {
    "role": "link",
-   "name": "How Delhi cut electricity loss from 50 to 5 percent"
+   "name": "How Delhi cut electricity loss from 50 to 5 percent",
+   "path": "1.0.0.0.2.0.0.0.21.2.0.0"
   },
   {
    "role": "link",
-   "name": "ieee.org"
+   "name": "ieee.org",
+   "path": "1.0.0.0.2.0.0.0.21.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "rbanffy"
+   "name": "rbanffy",
+   "path": "1.0.0.0.2.0.0.0.22.1.0.1"
   },
   {
    "role": "link",
-   "name": "15 hours ago"
+   "name": "15 hours ago",
+   "path": "1.0.0.0.2.0.0.0.22.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.22.1.0.4"
   },
   {
    "role": "link",
-   "name": "268 comments"
+   "name": "268 comments",
+   "path": "1.0.0.0.2.0.0.0.22.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.24.1.0.0"
   },
   {
    "role": "link",
-   "name": "PS5 Relapse Exploit"
+   "name": "PS5 Relapse Exploit",
+   "path": "1.0.0.0.2.0.0.0.24.2.0.0"
   },
   {
    "role": "link",
-   "name": "github.com/ntfargo"
+   "name": "github.com/ntfargo",
+   "path": "1.0.0.0.2.0.0.0.24.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "therepanic"
+   "name": "therepanic",
+   "path": "1.0.0.0.2.0.0.0.25.1.0.1"
   },
   {
    "role": "link",
-   "name": "12 hours ago"
+   "name": "12 hours ago",
+   "path": "1.0.0.0.2.0.0.0.25.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.25.1.0.4"
   },
   {
    "role": "link",
-   "name": "139 comments"
+   "name": "139 comments",
+   "path": "1.0.0.0.2.0.0.0.25.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.27.1.0.0"
   },
   {
    "role": "link",
-   "name": "sebastianraschka.com"
+   "name": "sebastianraschka.com",
+   "path": "1.0.0.0.2.0.0.0.27.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "Anon84"
+   "name": "Anon84",
+   "path": "1.0.0.0.2.0.0.0.28.1.0.1"
   },
   {
    "role": "link",
-   "name": "6 hours ago"
+   "name": "6 hours ago",
+   "path": "1.0.0.0.2.0.0.0.28.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.28.1.0.4"
   },
   {
    "role": "link",
-   "name": "1 comment"
+   "name": "1 comment",
+   "path": "1.0.0.0.2.0.0.0.28.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.30.1.0.0"
   },
   {
    "role": "link",
-   "name": "Backblaze drive stats for Q2 2026"
+   "name": "Backblaze drive stats for Q2 2026",
+   "path": "1.0.0.0.2.0.0.0.30.2.0.0"
   },
   {
    "role": "link",
-   "name": "backblaze.com"
+   "name": "backblaze.com",
+   "path": "1.0.0.0.2.0.0.0.30.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "HieronymusBosch"
+   "name": "HieronymusBosch",
+   "path": "1.0.0.0.2.0.0.0.31.1.0.1"
   },
   {
    "role": "link",
-   "name": "11 hours ago"
+   "name": "11 hours ago",
+   "path": "1.0.0.0.2.0.0.0.31.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.31.1.0.4"
   },
   {
    "role": "link",
-   "name": "22 comments"
+   "name": "22 comments",
+   "path": "1.0.0.0.2.0.0.0.31.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.33.1.0.0"
   },
   {
    "role": "link",
-   "name": "jagi.studio"
+   "name": "jagi.studio",
+   "path": "1.0.0.0.2.0.0.0.33.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "evakhoury"
+   "name": "evakhoury",
+   "path": "1.0.0.0.2.0.0.0.34.1.0.1"
   },
   {
    "role": "link",
-   "name": "1 day ago"
+   "name": "1 day ago",
+   "path": "1.0.0.0.2.0.0.0.34.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.34.1.0.4"
   },
   {
    "role": "link",
-   "name": "45 comments"
+   "name": "45 comments",
+   "path": "1.0.0.0.2.0.0.0.34.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.36.1.0.0"
   },
   {
    "role": "link",
-   "name": "Needed 1+1, built a functional programming language"
+   "name": "Needed 1+1, built a functional programming language",
+   "path": "1.0.0.0.2.0.0.0.36.2.0.0"
   },
   {
    "role": "link",
-   "name": "hereticpleb.vercel.app"
+   "name": "hereticpleb.vercel.app",
+   "path": "1.0.0.0.2.0.0.0.36.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "birdculture"
+   "name": "birdculture",
+   "path": "1.0.0.0.2.0.0.0.37.1.0.1"
   },
   {
    "role": "link",
-   "name": "5 hours ago"
+   "name": "5 hours ago",
+   "path": "1.0.0.0.2.0.0.0.37.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.37.1.0.4"
   },
   {
    "role": "link",
-   "name": "14 comments"
+   "name": "14 comments",
+   "path": "1.0.0.0.2.0.0.0.37.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.39.1.0.0"
   },
   {
    "role": "link",
-   "name": "Remembering the Chicago Pile, the First Nuclear Reactor"
+   "name": "Remembering the Chicago Pile, the First Nuclear Reactor",
+   "path": "1.0.0.0.2.0.0.0.39.2.0.0"
   },
   {
    "role": "link",
-   "name": "newyorker.com"
+   "name": "newyorker.com",
+   "path": "1.0.0.0.2.0.0.0.39.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "conorcleary"
+   "name": "conorcleary",
+   "path": "1.0.0.0.2.0.0.0.40.1.0.1"
   },
   {
    "role": "link",
-   "name": "2 hours ago"
+   "name": "2 hours ago",
+   "path": "1.0.0.0.2.0.0.0.40.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.40.1.0.4"
   },
   {
    "role": "link",
-   "name": "1 comment"
+   "name": "1 comment",
+   "path": "1.0.0.0.2.0.0.0.40.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.42.1.0.0"
   },
   {
    "role": "link",
-   "name": "somethingbig.ai"
+   "name": "somethingbig.ai",
+   "path": "1.0.0.0.2.0.0.0.42.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "rossant"
+   "name": "rossant",
+   "path": "1.0.0.0.2.0.0.0.43.1.0.1"
   },
   {
    "role": "link",
-   "name": "10 hours ago"
+   "name": "10 hours ago",
+   "path": "1.0.0.0.2.0.0.0.43.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.43.1.0.4"
   },
   {
    "role": "link",
-   "name": "62 comments"
+   "name": "62 comments",
+   "path": "1.0.0.0.2.0.0.0.43.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.45.1.0.0"
   },
   {
    "role": "link",
-   "name": "We’re forgetting what darkness feels like"
+   "name": "We’re forgetting what darkness feels like",
+   "path": "1.0.0.0.2.0.0.0.45.2.0.0"
   },
   {
    "role": "link",
-   "name": "theguardian.com"
+   "name": "theguardian.com",
+   "path": "1.0.0.0.2.0.0.0.45.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "pseudolus"
+   "name": "pseudolus",
+   "path": "1.0.0.0.2.0.0.0.46.1.0.1"
   },
   {
    "role": "link",
-   "name": "5 hours ago"
+   "name": "5 hours ago",
+   "path": "1.0.0.0.2.0.0.0.46.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.46.1.0.4"
   },
   {
    "role": "link",
-   "name": "54 comments"
+   "name": "54 comments",
+   "path": "1.0.0.0.2.0.0.0.46.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.48.1.0.0"
   },
   {
    "role": "link",
-   "name": "enigma.design"
+   "name": "enigma.design",
+   "path": "1.0.0.0.2.0.0.0.48.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "primitivesuave"
+   "name": "primitivesuave",
+   "path": "1.0.0.0.2.0.0.0.49.1.0.1"
   },
   {
    "role": "link",
-   "name": "6 hours ago"
+   "name": "6 hours ago",
+   "path": "1.0.0.0.2.0.0.0.49.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.49.1.0.4"
   },
   {
    "role": "link",
-   "name": "12 comments"
+   "name": "12 comments",
+   "path": "1.0.0.0.2.0.0.0.49.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.51.1.0.0"
   },
   {
    "role": "link",
-   "name": "gamesexplained.com"
+   "name": "gamesexplained.com",
+   "path": "1.0.0.0.2.0.0.0.51.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "a1r"
+   "name": "a1r",
+   "path": "1.0.0.0.2.0.0.0.52.1.0.1"
   },
   {
    "role": "link",
-   "name": "7 hours ago"
+   "name": "7 hours ago",
+   "path": "1.0.0.0.2.0.0.0.52.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.52.1.0.4"
   },
   {
    "role": "link",
-   "name": "6 comments"
+   "name": "6 comments",
+   "path": "1.0.0.0.2.0.0.0.52.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.54.1.0.0"
   },
   {
    "role": "link",
-   "name": "frostyard.github.io"
+   "name": "frostyard.github.io",
+   "path": "1.0.0.0.2.0.0.0.54.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "bketelsen"
+   "name": "bketelsen",
+   "path": "1.0.0.0.2.0.0.0.55.1.0.1"
   },
   {
    "role": "link",
-   "name": "12 hours ago"
+   "name": "12 hours ago",
+   "path": "1.0.0.0.2.0.0.0.55.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.55.1.0.4"
   },
   {
    "role": "link",
-   "name": "70 comments"
+   "name": "70 comments",
+   "path": "1.0.0.0.2.0.0.0.55.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.57.1.0.0"
   },
   {
    "role": "link",
-   "name": "A Staff Engineer's Guide to Inventing Work"
+   "name": "A Staff Engineer's Guide to Inventing Work",
+   "path": "1.0.0.0.2.0.0.0.57.2.0.0"
   },
   {
    "role": "link",
-   "name": "sujithjay.com"
+   "name": "sujithjay.com",
+   "path": "1.0.0.0.2.0.0.0.57.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "amortize"
+   "name": "amortize",
+   "path": "1.0.0.0.2.0.0.0.58.1.0.1"
   },
   {
    "role": "link",
-   "name": "15 hours ago"
+   "name": "15 hours ago",
+   "path": "1.0.0.0.2.0.0.0.58.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.58.1.0.4"
   },
   {
    "role": "link",
-   "name": "44 comments"
+   "name": "44 comments",
+   "path": "1.0.0.0.2.0.0.0.58.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.60.1.0.0"
   },
   {
    "role": "link",
-   "name": "pocoo.org"
+   "name": "pocoo.org",
+   "path": "1.0.0.0.2.0.0.0.60.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "tosh"
+   "name": "tosh",
+   "path": "1.0.0.0.2.0.0.0.61.1.0.1"
   },
   {
    "role": "link",
-   "name": "6 hours ago"
+   "name": "6 hours ago",
+   "path": "1.0.0.0.2.0.0.0.61.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.61.1.0.4"
   },
   {
    "role": "link",
-   "name": "6 comments"
+   "name": "6 comments",
+   "path": "1.0.0.0.2.0.0.0.61.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.63.1.0.0"
   },
   {
    "role": "link",
-   "name": "dan-bailey"
+   "name": "dan-bailey",
+   "path": "1.0.0.0.2.0.0.0.64.1.0.1"
   },
   {
    "role": "link",
-   "name": "12 hours ago"
+   "name": "12 hours ago",
+   "path": "1.0.0.0.2.0.0.0.64.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.64.1.0.4"
   },
   {
    "role": "link",
-   "name": "422 comments"
+   "name": "422 comments",
+   "path": "1.0.0.0.2.0.0.0.64.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.66.1.0.0"
   },
   {
    "role": "link",
-   "name": "Tcl/Tk 9.1"
+   "name": "Tcl/Tk 9.1",
+   "path": "1.0.0.0.2.0.0.0.66.2.0.0"
   },
   {
    "role": "link",
-   "name": "tcl-lang.org"
+   "name": "tcl-lang.org",
+   "path": "1.0.0.0.2.0.0.0.66.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "dmux"
+   "name": "dmux",
+   "path": "1.0.0.0.2.0.0.0.67.1.0.1"
   },
   {
    "role": "link",
-   "name": "10 hours ago"
+   "name": "10 hours ago",
+   "path": "1.0.0.0.2.0.0.0.67.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.67.1.0.4"
   },
   {
    "role": "link",
-   "name": "91 comments"
+   "name": "91 comments",
+   "path": "1.0.0.0.2.0.0.0.67.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.69.1.0.0"
   },
   {
    "role": "link",
-   "name": "Stuck in the Suez Canal – the short version (2021)"
+   "name": "Stuck in the Suez Canal – the short version (2021)",
+   "path": "1.0.0.0.2.0.0.0.69.2.0.0"
   },
   {
    "role": "link",
-   "name": "cathsenker.co.uk"
+   "name": "cathsenker.co.uk",
+   "path": "1.0.0.0.2.0.0.0.69.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "joebig"
+   "name": "joebig",
+   "path": "1.0.0.0.2.0.0.0.70.1.0.1"
   },
   {
    "role": "link",
-   "name": "8 hours ago"
+   "name": "8 hours ago",
+   "path": "1.0.0.0.2.0.0.0.70.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.70.1.0.4"
   },
   {
    "role": "link",
-   "name": "5 comments"
+   "name": "5 comments",
+   "path": "1.0.0.0.2.0.0.0.70.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.72.1.0.0"
   },
   {
    "role": "link",
-   "name": "Vermont replacing power plants with home batteries"
+   "name": "Vermont replacing power plants with home batteries",
+   "path": "1.0.0.0.2.0.0.0.72.2.0.0"
   },
   {
    "role": "link",
-   "name": "bbc.com"
+   "name": "bbc.com",
+   "path": "1.0.0.0.2.0.0.0.72.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "devonnull"
+   "name": "devonnull",
+   "path": "1.0.0.0.2.0.0.0.73.1.0.1"
   },
   {
    "role": "link",
-   "name": "6 hours ago"
+   "name": "6 hours ago",
+   "path": "1.0.0.0.2.0.0.0.73.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.73.1.0.4"
   },
   {
    "role": "link",
-   "name": "104 comments"
+   "name": "104 comments",
+   "path": "1.0.0.0.2.0.0.0.73.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.75.1.0.0"
   },
   {
    "role": "link",
-   "name": "Everybody’s home. No one’s coming over"
+   "name": "Everybody’s home. No one’s coming over",
+   "path": "1.0.0.0.2.0.0.0.75.2.0.0"
   },
   {
    "role": "link",
-   "name": "derekthompson.org"
+   "name": "derekthompson.org",
+   "path": "1.0.0.0.2.0.0.0.75.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "barry-cotter"
+   "name": "barry-cotter",
+   "path": "1.0.0.0.2.0.0.0.76.1.0.1"
   },
   {
    "role": "link",
-   "name": "16 hours ago"
+   "name": "16 hours ago",
+   "path": "1.0.0.0.2.0.0.0.76.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.76.1.0.4"
   },
   {
    "role": "link",
-   "name": "684 comments"
+   "name": "684 comments",
+   "path": "1.0.0.0.2.0.0.0.76.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.78.1.0.0"
   },
   {
    "role": "link",
-   "name": "openai.com"
+   "name": "openai.com",
+   "path": "1.0.0.0.2.0.0.0.78.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "alvis"
+   "name": "alvis",
+   "path": "1.0.0.0.2.0.0.0.79.1.0.1"
   },
   {
    "role": "link",
-   "name": "10 hours ago"
+   "name": "10 hours ago",
+   "path": "1.0.0.0.2.0.0.0.79.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.79.1.0.4"
   },
   {
    "role": "link",
-   "name": "360 comments"
+   "name": "360 comments",
+   "path": "1.0.0.0.2.0.0.0.79.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.81.1.0.0"
   },
   {
    "role": "link",
-   "name": "Sustainable energy without the hot air (2008)"
+   "name": "Sustainable energy without the hot air (2008)",
+   "path": "1.0.0.0.2.0.0.0.81.2.0.0"
   },
   {
    "role": "link",
-   "name": "withouthotair.com"
+   "name": "withouthotair.com",
+   "path": "1.0.0.0.2.0.0.0.81.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "0sake_rs"
+   "name": "0sake_rs",
+   "path": "1.0.0.0.2.0.0.0.82.1.0.1"
   },
   {
    "role": "link",
-   "name": "15 hours ago"
+   "name": "15 hours ago",
+   "path": "1.0.0.0.2.0.0.0.82.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.82.1.0.4"
   },
   {
    "role": "link",
-   "name": "80 comments"
+   "name": "80 comments",
+   "path": "1.0.0.0.2.0.0.0.82.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.84.1.0.0"
   },
   {
    "role": "link",
-   "name": "Building a certificate authority for the whole Internet"
+   "name": "Building a certificate authority for the whole Internet",
+   "path": "1.0.0.0.2.0.0.0.84.2.0.0"
   },
   {
    "role": "link",
-   "name": "cloudflare.com"
+   "name": "cloudflare.com",
+   "path": "1.0.0.0.2.0.0.0.84.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "ewpratten"
+   "name": "ewpratten",
+   "path": "1.0.0.0.2.0.0.0.85.1.0.1"
   },
   {
    "role": "link",
-   "name": "9 hours ago"
+   "name": "9 hours ago",
+   "path": "1.0.0.0.2.0.0.0.85.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.85.1.0.4"
   },
   {
    "role": "link",
-   "name": "21 comments"
+   "name": "21 comments",
+   "path": "1.0.0.0.2.0.0.0.85.1.0.5"
   },
   {
    "role": "link",
-   "name": "upvote"
+   "name": "upvote",
+   "path": "1.0.0.0.2.0.0.0.87.1.0.0"
   },
   {
    "role": "link",
-   "name": "How our vibe coded website looks like a designer made it"
+   "name": "How our vibe coded website looks like a designer made it",
+   "path": "1.0.0.0.2.0.0.0.87.2.0.0"
   },
   {
    "role": "link",
-   "name": "railcode.dev"
+   "name": "railcode.dev",
+   "path": "1.0.0.0.2.0.0.0.87.2.0.1.0"
   },
   {
    "role": "link",
-   "name": "yakkomajuri"
+   "name": "yakkomajuri",
+   "path": "1.0.0.0.2.0.0.0.88.1.0.1"
   },
   {
    "role": "link",
-   "name": "4 hours ago"
+   "name": "4 hours ago",
+   "path": "1.0.0.0.2.0.0.0.88.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "hide"
+   "name": "hide",
+   "path": "1.0.0.0.2.0.0.0.88.1.0.4"
   },
   {
    "role": "link",
-   "name": "50 comments"
+   "name": "50 comments",
+   "path": "1.0.0.0.2.0.0.0.88.1.0.5"
   },
   {
    "role": "link",
-   "name": "More"
+   "name": "More",
+   "path": "1.0.0.0.2.0.0.0.91.1.0"
   },
   {
    "role": "link",
-   "name": "Guidelines"
+   "name": "Guidelines",
+   "path": "1.0.0.0.3.0.3.0.0"
   },
   {
    "role": "link",
-   "name": "FAQ"
+   "name": "FAQ",
+   "path": "1.0.0.0.3.0.3.0.1"
   },
   {
    "role": "link",
-   "name": "Lists"
+   "name": "Lists",
+   "path": "1.0.0.0.3.0.3.0.2"
   },
   {
    "role": "link",
-   "name": "API"
+   "name": "API",
+   "path": "1.0.0.0.3.0.3.0.3"
   },
   {
    "role": "link",
-   "name": "Security"
+   "name": "Security",
+   "path": "1.0.0.0.3.0.3.0.4"
   },
   {
    "role": "link",
-   "name": "Legal"
+   "name": "Legal",
+   "path": "1.0.0.0.3.0.3.0.5"
   },
   {
    "role": "link",
-   "name": "Apply to YC"
+   "name": "Apply to YC",
+   "path": "1.0.0.0.3.0.3.0.6"
   },
   {
    "role": "link",
-   "name": "Contact"
+   "name": "Contact",
+   "path": "1.0.0.0.3.0.3.0.7"
   },
   {
    "role": "textbox",
-   "name": ""
+   "name": "",
+   "path": "1.0.0.0.3.0.3.3.0"
   }
  ],
- "clippedInteractive": 0,
+ "hiddenInChrome": 0,
  "hidden": [],
- "chromeAiSnapshotBytes": 62999
+ "chromeAiSnapshotBytes": 57539
 }

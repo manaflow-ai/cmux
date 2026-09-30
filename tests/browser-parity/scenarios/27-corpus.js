@@ -1,11 +1,13 @@
 // Real-site corpus (fixtures/corpus, frozen by lib/corpus.mjs): on each page
 // the snapshot must hold every interactive element of Chrome's Playwright AI
-// snapshot with the same role and name (recall; an element inside an
-// overflowing overflow:hidden box is optional, since what such a box cuts
-// depends on each engine's text metrics), print no text Chrome does
+// snapshot with the same role and name (recall), print no text Chrome does
 // not render (leaks), and stay within 10% of the size of Aside's snapshot of
 // the same page (Aside drops some visible text cmux keeps, such as card
-// descriptions). Exact byte counts are printed, not compared.
+// descriptions). Recall is judged in the engine that renders cmux: each
+// recorded element is found by its path and fixtures/corpus/gt.js, which is
+// independent of the page agent, decides whether a user can see it here; an
+// element Playwright gave no ref (no visible box in Chrome) is not required.
+// Exact byte counts are printed, not compared.
 // oracle: skip (compares cmux snapshots against Chrome records made by lib/corpus.mjs)
 // ---- cell session=corpus
 const squash = (s) => String(s).replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, "").toLowerCase();
@@ -17,6 +19,11 @@ globalThis.corpusCheck = async (name) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`${PRIMARY}/corpus/${name}.html`);
   const tree = (await snapshot()).tree;
+  const gtSource = await (await fetch(`${PRIMARY}/corpus/gt.js`)).text();
+  const shownHere = await page.evaluate(({ src, paths }) => {
+    const gt = (0, eval)(src + "; ({ shown, byPath })");
+    return paths.map((p) => (p ? gt.shown(gt.byPath(p)) : null));
+  }, { src: gtSource, paths: oracle.interactive.map((w) => w.path || null) });
   const entries = [];
   const texts = [];
   for (const line of tree.split("\n")) {
@@ -49,18 +56,23 @@ globalThis.corpusCheck = async (name) => {
     return !pieces[pieces.length - 1] || full.endsWith(pieces[pieces.length - 1]);
   };
   const missing = [];
-  for (const want of oracle.interactive) {
+  let notShownHere = 0;
+  oracle.interactive.forEach((want, i) => {
+    if (want.boxless) return;
+    if (shownHere[i] === false) {
+      notShownHere++;
+      return;
+    }
     const n = squash(want.name);
     const hit = entries.find((e) => !e.used && e.role === want.role &&
       (sameText(e.name, n) || (!e.name && sameText(e.content, n))));
     if (hit) hit.used = true;
-    // An element at a clipper's edge may be clipped by this engine's layout.
-    else if (!want.edge) missing.push(`${want.role} "${want.name}"`);
-  }
+    else missing.push(`${want.role} "${want.name}"`);
+  });
   const shown = squash(texts.join("\n"));
   const leaks = oracle.hidden.filter((t) => shown.includes(squash(t)));
   const bytes = Buffer.byteLength(tree);
-  console.log(`${name}: cmux ${bytes} bytes, Aside ${aside[name]} bytes, Chrome AI snapshot ${oracle.chromeAiSnapshotBytes} bytes; ${oracle.interactive.length} interactive`);
+  console.log(`${name}: ${notShownHere} recorded elements not shown in this engine; cmux ${bytes} bytes, Aside ${aside[name]} bytes, Chrome AI snapshot ${oracle.chromeAiSnapshotBytes} bytes; ${oracle.interactive.length} interactive`);
   return { missing, leaks, withinAside: bytes <= 1.1 * aside[name] };
 };
 // ---- cell session=corpus

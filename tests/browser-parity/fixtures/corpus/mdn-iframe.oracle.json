@@ -3,1791 +3,2231 @@
  "interactive": [
   {
    "role": "link",
-   "name": "Skip to main content"
+   "name": "Skip to main content",
+   "path": "1.0.0.0"
   },
   {
    "role": "link",
-   "name": "Skip to search"
+   "name": "Skip to search",
+   "path": "1.0.1.0"
   },
   {
    "role": "link",
-   "name": "MDN"
-  },
-  {
-   "role": "button",
-   "name": "HTML"
-  },
-  {
-   "role": "link",
-   "name": "Elements"
-  },
-  {
-   "role": "link",
-   "name": "Global attributes"
-  },
-  {
-   "role": "link",
-   "name": "Attributes"
-  },
-  {
-   "role": "link",
-   "name": "See all HTML references"
-  },
-  {
-   "role": "link",
-   "name": "Responsive images"
-  },
-  {
-   "role": "link",
-   "name": "HTML cheatsheet"
-  },
-  {
-   "role": "link",
-   "name": "Date & time formats"
-  },
-  {
-   "role": "link",
-   "name": "See all HTML guides"
-  },
-  {
-   "role": "link",
-   "name": "SVG"
-  },
-  {
-   "role": "link",
-   "name": "MathML"
-  },
-  {
-   "role": "link",
-   "name": "XML"
+   "name": "MDN",
+   "path": "1.2.0.0.0"
   },
   {
    "role": "button",
-   "name": "CSS"
-  },
-  {
-   "role": "link",
-   "name": "Properties"
-  },
-  {
-   "role": "link",
-   "name": "Selectors"
-  },
-  {
-   "role": "link",
-   "name": "At-rules"
-  },
-  {
-   "role": "link",
-   "name": "Values"
-  },
-  {
-   "role": "link",
-   "name": "See all CSS references"
-  },
-  {
-   "role": "link",
-   "name": "Box model"
-  },
-  {
-   "role": "link",
-   "name": "Animations"
-  },
-  {
-   "role": "link",
-   "name": "Flexbox"
-  },
-  {
-   "role": "link",
-   "name": "Colors"
-  },
-  {
-   "role": "link",
-   "name": "See all CSS guides"
-  },
-  {
-   "role": "link",
-   "name": "Column layouts"
-  },
-  {
-   "role": "link",
-   "name": "Centering an element"
-  },
-  {
-   "role": "link",
-   "name": "Card component"
-  },
-  {
-   "role": "link",
-   "name": "See all…"
-  },
-  {
-   "role": "button",
-   "name": "JavaScript"
-  },
-  {
-   "role": "link",
-   "name": "Standard built-in objects"
-  },
-  {
-   "role": "link",
-   "name": "Expressions & operators"
-  },
-  {
-   "role": "link",
-   "name": "Statements & declarations"
-  },
-  {
-   "role": "link",
-   "name": "Functions"
-  },
-  {
-   "role": "link",
-   "name": "See all JavaScript references"
-  },
-  {
-   "role": "link",
-   "name": "Control flow & error handling"
-  },
-  {
-   "role": "link",
-   "name": "Loops and iteration"
-  },
-  {
-   "role": "link",
-   "name": "Working with objects"
-  },
-  {
-   "role": "link",
-   "name": "Using classes"
-  },
-  {
-   "role": "link",
-   "name": "See all JavaScript guides"
-  },
-  {
-   "role": "button",
-   "name": "Web APIs"
-  },
-  {
-   "role": "link",
-   "name": "File system API"
-  },
-  {
-   "role": "link",
-   "name": "Fetch API"
-  },
-  {
-   "role": "link",
-   "name": "Geolocation API"
-  },
-  {
-   "role": "link",
-   "name": "HTML DOM API"
-  },
-  {
-   "role": "link",
-   "name": "Push API"
-  },
-  {
-   "role": "link",
-   "name": "Service worker API"
-  },
-  {
-   "role": "link",
-   "name": "See all Web API guides"
-  },
-  {
-   "role": "link",
-   "name": "Using the Web animation API"
-  },
-  {
-   "role": "link",
-   "name": "Using the Fetch API"
-  },
-  {
-   "role": "link",
-   "name": "Working with the History API"
-  },
-  {
-   "role": "link",
-   "name": "Using the Web speech API"
-  },
-  {
-   "role": "link",
-   "name": "Using web workers"
-  },
-  {
-   "role": "button",
-   "name": "All"
-  },
-  {
-   "role": "link",
-   "name": "All web technology"
-  },
-  {
-   "role": "link",
-   "name": "Accessibility"
-  },
-  {
-   "role": "link",
-   "name": "HTTP"
-  },
-  {
-   "role": "link",
-   "name": "URI"
-  },
-  {
-   "role": "link",
-   "name": "Web extensions"
-  },
-  {
-   "role": "link",
-   "name": "WebAssembly"
-  },
-  {
-   "role": "link",
-   "name": "WebDriver"
-  },
-  {
-   "role": "link",
-   "name": "See all web technology references"
-  },
-  {
-   "role": "link",
-   "name": "Media"
-  },
-  {
-   "role": "link",
-   "name": "Performance"
-  },
-  {
-   "role": "link",
-   "name": "Privacy"
-  },
-  {
-   "role": "link",
-   "name": "Security"
-  },
-  {
-   "role": "link",
-   "name": "Progressive web apps"
-  },
-  {
-   "role": "button",
-   "name": "Learn"
-  },
-  {
-   "role": "link",
-   "name": "Learn web development"
-  },
-  {
-   "role": "link",
-   "name": "Getting started modules"
-  },
-  {
-   "role": "link",
-   "name": "Core modules"
-  },
-  {
-   "role": "link",
-   "name": "MDN Curriculum"
-  },
-  {
-   "role": "link",
-   "name": "Check out the video course from Scrimba, our partner (external)"
-  },
-  {
-   "role": "link",
-   "name": "Structuring content with HTML module"
-  },
-  {
-   "role": "link",
-   "name": "CSS styling basics module"
-  },
-  {
-   "role": "link",
-   "name": "CSS layout module"
-  },
-  {
-   "role": "link",
-   "name": "Dynamic scripting with JavaScript module"
-  },
-  {
-   "role": "button",
-   "name": "Tools"
-  },
-  {
-   "role": "link",
-   "name": "Playground"
-  },
-  {
-   "role": "link",
-   "name": "HTTP Observatory"
-  },
-  {
-   "role": "link",
-   "name": "Border-image generator"
-  },
-  {
-   "role": "link",
-   "name": "Border-radius generator"
-  },
-  {
-   "role": "link",
-   "name": "Box-shadow generator"
-  },
-  {
-   "role": "link",
-   "name": "Color format converter"
-  },
-  {
-   "role": "link",
-   "name": "Color mixer"
-  },
-  {
-   "role": "link",
-   "name": "Shape generator"
-  },
-  {
-   "role": "button",
-   "name": "About"
-  },
-  {
-   "role": "link",
-   "name": "About MDN"
-  },
-  {
-   "role": "link",
-   "name": "Advertise with us"
-  },
-  {
-   "role": "link",
-   "name": "Community"
-  },
-  {
-   "role": "link",
-   "name": "MDN on GitHub (external)"
-  },
-  {
-   "role": "link",
-   "name": "Blog"
-  },
-  {
-   "role": "link",
-   "name": "Web",
-   "edge": true
-  },
-  {
-   "role": "link",
    "name": "HTML",
-   "edge": true
-  },
-  {
-   "role": "link",
-   "name": "Reference",
-   "edge": true
+   "path": "1.2.0.3.0.0.0.0.0"
   },
   {
    "role": "link",
    "name": "Elements",
-   "edge": true
+   "path": "1.2.0.3.0.0.0.0.1.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Global attributes",
+   "path": "1.2.0.3.0.0.0.0.1.1.0.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Attributes",
+   "path": "1.2.0.3.0.0.0.0.1.1.0.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "See all HTML references",
+   "path": "1.2.0.3.0.0.0.0.1.1.0.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Responsive images",
+   "path": "1.2.0.3.0.0.0.0.1.1.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "HTML cheatsheet",
+   "path": "1.2.0.3.0.0.0.0.1.1.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Date & time formats",
+   "path": "1.2.0.3.0.0.0.0.1.1.1.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "See all HTML guides",
+   "path": "1.2.0.3.0.0.0.0.1.1.1.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "SVG",
+   "path": "1.2.0.3.0.0.0.0.1.1.2.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "MathML",
+   "path": "1.2.0.3.0.0.0.0.1.1.2.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "XML",
+   "path": "1.2.0.3.0.0.0.0.1.1.2.1.0.2.0"
+  },
+  {
+   "role": "button",
+   "name": "CSS",
+   "path": "1.2.0.3.0.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Properties",
+   "path": "1.2.0.3.0.0.1.0.1.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Selectors",
+   "path": "1.2.0.3.0.0.1.0.1.1.0.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "At-rules",
+   "path": "1.2.0.3.0.0.1.0.1.1.0.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Values",
+   "path": "1.2.0.3.0.0.1.0.1.1.0.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "See all CSS references",
+   "path": "1.2.0.3.0.0.1.0.1.1.0.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Box model",
+   "path": "1.2.0.3.0.0.1.0.1.1.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Animations",
+   "path": "1.2.0.3.0.0.1.0.1.1.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Flexbox",
+   "path": "1.2.0.3.0.0.1.0.1.1.1.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Colors",
+   "path": "1.2.0.3.0.0.1.0.1.1.1.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "See all CSS guides",
+   "path": "1.2.0.3.0.0.1.0.1.1.1.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Column layouts",
+   "path": "1.2.0.3.0.0.1.0.1.1.2.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Centering an element",
+   "path": "1.2.0.3.0.0.1.0.1.1.2.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Card component",
+   "path": "1.2.0.3.0.0.1.0.1.1.2.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "See all…",
+   "path": "1.2.0.3.0.0.1.0.1.1.2.1.0.3.0"
+  },
+  {
+   "role": "button",
+   "name": "JavaScript",
+   "path": "1.2.0.3.0.0.2.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Standard built-in objects",
+   "path": "1.2.0.3.0.0.2.0.1.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Expressions & operators",
+   "path": "1.2.0.3.0.0.2.0.1.1.0.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Statements & declarations",
+   "path": "1.2.0.3.0.0.2.0.1.1.0.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Functions",
+   "path": "1.2.0.3.0.0.2.0.1.1.0.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "See all JavaScript references",
+   "path": "1.2.0.3.0.0.2.0.1.1.0.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Control flow & error handling",
+   "path": "1.2.0.3.0.0.2.0.1.1.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Loops and iteration",
+   "path": "1.2.0.3.0.0.2.0.1.1.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Working with objects",
+   "path": "1.2.0.3.0.0.2.0.1.1.1.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Using classes",
+   "path": "1.2.0.3.0.0.2.0.1.1.1.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "See all JavaScript guides",
+   "path": "1.2.0.3.0.0.2.0.1.1.1.1.0.4.0"
+  },
+  {
+   "role": "button",
+   "name": "Web APIs",
+   "path": "1.2.0.3.0.0.3.0.0"
+  },
+  {
+   "role": "link",
+   "name": "File system API",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Fetch API",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Geolocation API",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "HTML DOM API",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Push API",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Service worker API",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.5.0"
+  },
+  {
+   "role": "link",
+   "name": "See all Web API guides",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.6.0"
+  },
+  {
+   "role": "link",
+   "name": "Using the Web animation API",
+   "path": "1.2.0.3.0.0.3.0.1.1.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Using the Fetch API",
+   "path": "1.2.0.3.0.0.3.0.1.1.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Working with the History API",
+   "path": "1.2.0.3.0.0.3.0.1.1.1.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Using the Web speech API",
+   "path": "1.2.0.3.0.0.3.0.1.1.1.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Using web workers",
+   "path": "1.2.0.3.0.0.3.0.1.1.1.1.0.4.0"
+  },
+  {
+   "role": "button",
+   "name": "All",
+   "path": "1.2.0.3.0.0.4.0.0"
+  },
+  {
+   "role": "link",
+   "name": "All web technology",
+   "path": "1.2.0.3.0.0.4.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Accessibility",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "HTTP",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "URI",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Web extensions",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "WebAssembly",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "WebDriver",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.5.0"
+  },
+  {
+   "role": "link",
+   "name": "See all web technology references",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.6.0"
+  },
+  {
+   "role": "link",
+   "name": "Media",
+   "path": "1.2.0.3.0.0.4.0.1.1.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Performance",
+   "path": "1.2.0.3.0.0.4.0.1.1.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Privacy",
+   "path": "1.2.0.3.0.0.4.0.1.1.1.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Security",
+   "path": "1.2.0.3.0.0.4.0.1.1.1.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Progressive web apps",
+   "path": "1.2.0.3.0.0.4.0.1.1.1.1.0.4.0"
+  },
+  {
+   "role": "button",
+   "name": "Learn",
+   "path": "1.2.0.3.0.0.5.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Learn web development",
+   "path": "1.2.0.3.0.0.5.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Getting started modules",
+   "path": "1.2.0.3.0.0.5.0.1.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Core modules",
+   "path": "1.2.0.3.0.0.5.0.1.1.0.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN Curriculum",
+   "path": "1.2.0.3.0.0.5.0.1.1.0.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Check out the video course from Scrimba, our partner (external)",
+   "path": "1.2.0.3.0.0.5.0.1.1.0.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Structuring content with HTML module",
+   "path": "1.2.0.3.0.0.5.0.1.1.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "CSS styling basics module",
+   "path": "1.2.0.3.0.0.5.0.1.1.2.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "CSS layout module",
+   "path": "1.2.0.3.0.0.5.0.1.1.2.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Dynamic scripting with JavaScript module",
+   "path": "1.2.0.3.0.0.5.0.1.1.3.1.0.0.0"
+  },
+  {
+   "role": "button",
+   "name": "Tools",
+   "path": "1.2.0.3.0.0.6.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Playground",
+   "path": "1.2.0.3.0.0.6.0.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "HTTP Observatory",
+   "path": "1.2.0.3.0.0.6.0.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Border-image generator",
+   "path": "1.2.0.3.0.0.6.0.1.1.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Border-radius generator",
+   "path": "1.2.0.3.0.0.6.0.1.1.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Box-shadow generator",
+   "path": "1.2.0.3.0.0.6.0.1.1.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Color format converter",
+   "path": "1.2.0.3.0.0.6.0.1.1.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Color mixer",
+   "path": "1.2.0.3.0.0.6.0.1.1.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Shape generator",
+   "path": "1.2.0.3.0.0.6.0.1.1.1.5.0"
+  },
+  {
+   "role": "button",
+   "name": "About",
+   "path": "1.2.0.3.0.0.7.0.0"
+  },
+  {
+   "role": "link",
+   "name": "About MDN",
+   "path": "1.2.0.3.0.0.7.0.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Advertise with us",
+   "path": "1.2.0.3.0.0.7.0.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Community",
+   "path": "1.2.0.3.0.0.7.0.1.1.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN on GitHub (external)",
+   "path": "1.2.0.3.0.0.7.0.1.1.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Blog",
+   "path": "1.2.0.3.0.0.8.0"
+  },
+  {
+   "role": "link",
+   "name": "Web",
+   "path": "1.2.2.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "HTML",
+   "path": "1.2.2.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Reference",
+   "path": "1.2.2.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Elements",
+   "path": "1.2.2.1.3.0"
   },
   {
    "role": "link",
    "name": "<iframe>",
-   "edge": true
+   "path": "1.2.2.1.4.0"
   },
   {
    "role": "link",
-   "name": "HTML"
+   "name": "HTML",
+   "path": "1.3.0.0.0.3.0.1"
   },
   {
    "role": "link",
-   "name": "browsing context"
+   "name": "browsing context",
+   "path": "1.3.0.0.0.3.0.2"
   },
   {
    "role": "link",
-   "name": "Try it"
+   "name": "Try it",
+   "path": "1.3.0.0.1.0.1.0.0"
   },
   {
    "role": "link",
-   "name": "Attributes"
+   "name": "Attributes",
+   "path": "1.3.0.0.1.0.1.1.0"
   },
   {
    "role": "link",
-   "name": "Usage notes"
+   "name": "Usage notes",
+   "path": "1.3.0.0.1.0.1.2.0"
   },
   {
    "role": "link",
-   "name": "Accessibility"
+   "name": "Accessibility",
+   "path": "1.3.0.0.1.0.1.3.0"
   },
   {
    "role": "link",
-   "name": "Examples"
+   "name": "Examples",
+   "path": "1.3.0.0.1.0.1.4.0"
   },
   {
    "role": "link",
-   "name": "Technical summary"
+   "name": "Technical summary",
+   "path": "1.3.0.0.1.0.1.5.0"
   },
   {
    "role": "link",
-   "name": "Specifications"
+   "name": "Specifications",
+   "path": "1.3.0.0.1.0.1.6.0"
   },
   {
    "role": "link",
-   "name": "Browser compatibility"
+   "name": "Browser compatibility",
+   "path": "1.3.0.0.1.0.1.7.0"
   },
   {
    "role": "link",
-   "name": "See also"
+   "name": "See also",
+   "path": "1.3.0.0.1.0.1.8.0"
   },
   {
    "role": "link",
-   "name": "Try it"
+   "name": "Try it",
+   "path": "1.3.0.0.2.0.0.0"
   },
   {
    "role": "link",
-   "name": "document"
+   "name": "document",
+   "path": "1.3.0.0.2.0.4.0"
   },
   {
    "role": "link",
-   "name": "session history"
+   "name": "session history",
+   "path": "1.3.0.0.2.0.4.1"
   },
   {
    "role": "link",
-   "name": "Window"
+   "name": "Window",
+   "path": "1.3.0.0.2.0.4.5"
   },
   {
    "role": "link",
-   "name": "Attributes"
+   "name": "Attributes",
+   "path": "1.3.0.0.2.1.0.0"
   },
   {
    "role": "link",
-   "name": "global attributes"
+   "name": "global attributes",
+   "path": "1.3.0.0.2.1.1.0"
   },
   {
    "role": "link",
-   "name": "allow"
+   "name": "allow",
+   "path": "1.3.0.0.2.1.2.0.0"
   },
   {
    "role": "link",
-   "name": "Permissions Policy"
+   "name": "Permissions Policy",
+   "path": "1.3.0.0.2.1.2.1.0.0"
   },
   {
    "role": "link",
-   "name": "iframes"
+   "name": "iframes",
+   "path": "1.3.0.0.2.1.2.1.1.0"
   },
   {
    "role": "link",
-   "name": "Permissions-Policy"
+   "name": "Permissions-Policy",
+   "path": "1.3.0.0.2.1.2.1.2.0.2"
   },
   {
    "role": "link",
-   "name": "allowfullscreen"
+   "name": "allowfullscreen",
+   "path": "1.3.0.0.2.1.2.2.0"
   },
   {
    "role": "link",
-   "name": "requestFullscreen()"
+   "name": "requestFullscreen()",
+   "path": "1.3.0.0.2.1.2.3.0.2"
   },
   {
    "role": "link",
-   "name": "allowpaymentrequest Deprecated"
+   "name": "allowpaymentrequest Deprecated",
+   "path": "1.3.0.0.2.1.2.4.0"
   },
   {
    "role": "link",
-   "name": "Payment Request API"
+   "name": "Payment Request API",
+   "path": "1.3.0.0.2.1.2.5.0.2"
   },
   {
    "role": "link",
-   "name": "browsingtopics Non-standard Deprecated"
+   "name": "browsingtopics Non-standard Deprecated",
+   "path": "1.3.0.0.2.1.2.6.0"
   },
   {
    "role": "link",
-   "name": "credentialless Experimental"
+   "name": "credentialless Experimental",
+   "path": "1.3.0.0.2.1.2.8.0"
   },
   {
    "role": "link",
-   "name": "Cross-Origin-Embedder-Policy"
+   "name": "Cross-Origin-Embedder-Policy",
+   "path": "1.3.0.0.2.1.2.9.0.2"
   },
   {
    "role": "link",
-   "name": "IFrame credentialless"
+   "name": "IFrame credentialless",
+   "path": "1.3.0.0.2.1.2.9.0.3"
   },
   {
    "role": "link",
-   "name": "csp Experimental"
+   "name": "csp Experimental",
+   "path": "1.3.0.0.2.1.2.10.0"
   },
   {
    "role": "link",
-   "name": "Content Security Policy"
+   "name": "Content Security Policy",
+   "path": "1.3.0.0.2.1.2.11.0.0"
   },
   {
    "role": "link",
-   "name": "HTMLIFrameElement.csp"
+   "name": "HTMLIFrameElement.csp",
+   "path": "1.3.0.0.2.1.2.11.0.1"
   },
   {
    "role": "link",
-   "name": "height"
+   "name": "height",
+   "path": "1.3.0.0.2.1.2.12.0"
   },
   {
    "role": "link",
-   "name": "loading"
+   "name": "loading",
+   "path": "1.3.0.0.2.1.2.14.0"
   },
   {
    "role": "link",
-   "name": "eager"
+   "name": "eager",
+   "path": "1.3.0.0.2.1.2.15.1.0.0"
   },
   {
    "role": "link",
-   "name": "lazy"
+   "name": "lazy",
+   "path": "1.3.0.0.2.1.2.15.1.2.0"
   },
   {
    "role": "link",
-   "name": "visual viewport"
+   "name": "visual viewport",
+   "path": "1.3.0.0.2.1.2.15.1.3.0.0"
   },
   {
    "role": "link",
-   "name": "name"
+   "name": "name",
+   "path": "1.3.0.0.2.1.2.16.0"
   },
   {
    "role": "link",
-   "name": "<a>"
+   "name": "<a>",
+   "path": "1.3.0.0.2.1.2.17.0.1"
   },
   {
    "role": "link",
-   "name": "<form>"
+   "name": "<form>",
+   "path": "1.3.0.0.2.1.2.17.0.2"
   },
   {
    "role": "link",
-   "name": "<base>"
+   "name": "<base>",
+   "path": "1.3.0.0.2.1.2.17.0.3"
   },
   {
    "role": "link",
-   "name": "<input>"
+   "name": "<input>",
+   "path": "1.3.0.0.2.1.2.17.0.5"
   },
   {
    "role": "link",
-   "name": "<button>"
+   "name": "<button>",
+   "path": "1.3.0.0.2.1.2.17.0.6"
   },
   {
    "role": "link",
-   "name": "window.open()"
+   "name": "window.open()",
+   "path": "1.3.0.0.2.1.2.17.0.8"
   },
   {
    "role": "link",
-   "name": "Window"
+   "name": "Window",
+   "path": "1.3.0.0.2.1.2.17.0.9"
   },
   {
    "role": "link",
-   "name": "Document"
+   "name": "Document",
+   "path": "1.3.0.0.2.1.2.17.0.10"
   },
   {
    "role": "link",
-   "name": "privateToken Experimental"
+   "name": "privateToken Experimental",
+   "path": "1.3.0.0.2.1.2.18.0"
   },
   {
    "role": "link",
-   "name": "private state token"
+   "name": "private state token",
+   "path": "1.3.0.0.2.1.2.19.0.0"
   },
   {
    "role": "link",
-   "name": "privateToken"
+   "name": "privateToken",
+   "path": "1.3.0.0.2.1.2.19.0.2"
   },
   {
    "role": "link",
-   "name": "referrerpolicy"
+   "name": "referrerpolicy",
+   "path": "1.3.0.0.2.1.2.20.0"
   },
   {
    "role": "link",
-   "name": "referrer"
+   "name": "referrer",
+   "path": "1.3.0.0.2.1.2.21.0.0"
   },
   {
    "role": "link",
-   "name": "no-referrer"
+   "name": "no-referrer",
+   "path": "1.3.0.0.2.1.2.21.1.0.0"
   },
   {
    "role": "link",
-   "name": "Referer"
+   "name": "Referer",
+   "path": "1.3.0.0.2.1.2.21.1.1.0.0"
   },
   {
    "role": "link",
-   "name": "no-referrer-when-downgrade"
+   "name": "no-referrer-when-downgrade",
+   "path": "1.3.0.0.2.1.2.21.1.2.0"
   },
   {
    "role": "link",
-   "name": "Referer"
+   "name": "Referer",
+   "path": "1.3.0.0.2.1.2.21.1.3.0.0"
   },
   {
    "role": "link",
-   "name": "origin"
+   "name": "origin",
+   "path": "1.3.0.0.2.1.2.21.1.3.0.1"
   },
   {
    "role": "link",
-   "name": "TLS"
+   "name": "TLS",
+   "path": "1.3.0.0.2.1.2.21.1.3.0.2"
   },
   {
    "role": "link",
-   "name": "HTTPS"
+   "name": "HTTPS",
+   "path": "1.3.0.0.2.1.2.21.1.3.0.3"
   },
   {
    "role": "link",
-   "name": "origin"
+   "name": "origin",
+   "path": "1.3.0.0.2.1.2.21.1.4.0"
   },
   {
    "role": "link",
-   "name": "scheme"
+   "name": "scheme",
+   "path": "1.3.0.0.2.1.2.21.1.5.0.0"
   },
   {
    "role": "link",
-   "name": "host"
+   "name": "host",
+   "path": "1.3.0.0.2.1.2.21.1.5.0.1"
   },
   {
    "role": "link",
-   "name": "port"
+   "name": "port",
+   "path": "1.3.0.0.2.1.2.21.1.5.0.2"
   },
   {
    "role": "link",
-   "name": "origin-when-cross-origin"
+   "name": "origin-when-cross-origin",
+   "path": "1.3.0.0.2.1.2.21.1.6.0"
   },
   {
    "role": "link",
-   "name": "same-origin"
+   "name": "same-origin",
+   "path": "1.3.0.0.2.1.2.21.1.8.0"
   },
   {
    "role": "link",
-   "name": "same origin"
+   "name": "same origin",
+   "path": "1.3.0.0.2.1.2.21.1.9.0.0"
   },
   {
    "role": "link",
-   "name": "strict-origin"
+   "name": "strict-origin",
+   "path": "1.3.0.0.2.1.2.21.1.10.0"
   },
   {
    "role": "link",
-   "name": "strict-origin-when-cross-origin (default)"
+   "name": "strict-origin-when-cross-origin (default)",
+   "path": "1.3.0.0.2.1.2.21.1.12.0"
   },
   {
    "role": "link",
-   "name": "unsafe-url"
+   "name": "unsafe-url",
+   "path": "1.3.0.0.2.1.2.21.1.14.0"
   },
   {
    "role": "link",
-   "name": "fragment"
+   "name": "fragment",
+   "path": "1.3.0.0.2.1.2.21.1.15.0.1"
   },
   {
    "role": "link",
-   "name": "password"
+   "name": "password",
+   "path": "1.3.0.0.2.1.2.21.1.15.0.2"
   },
   {
    "role": "link",
-   "name": "username"
+   "name": "username",
+   "path": "1.3.0.0.2.1.2.21.1.15.0.3"
   },
   {
    "role": "link",
-   "name": "sandbox"
+   "name": "sandbox",
+   "path": "1.3.0.0.2.1.2.22.0"
   },
   {
    "role": "link",
-   "name": "allow-downloads"
+   "name": "allow-downloads",
+   "path": "1.3.0.0.2.1.2.23.1.0.0"
   },
   {
    "role": "link",
-   "name": "<a>"
+   "name": "<a>",
+   "path": "1.3.0.0.2.1.2.23.1.1.0.0"
   },
   {
    "role": "link",
-   "name": "<area>"
+   "name": "<area>",
+   "path": "1.3.0.0.2.1.2.23.1.1.0.1"
   },
   {
    "role": "link",
-   "name": "download"
+   "name": "download",
+   "path": "1.3.0.0.2.1.2.23.1.1.0.2"
   },
   {
    "role": "link",
-   "name": "allow-forms"
+   "name": "allow-forms",
+   "path": "1.3.0.0.2.1.2.23.1.2.0"
   },
   {
    "role": "link",
-   "name": "allow-modals"
+   "name": "allow-modals",
+   "path": "1.3.0.0.2.1.2.23.1.4.0"
   },
   {
    "role": "link",
-   "name": "Window.alert()"
+   "name": "Window.alert()",
+   "path": "1.3.0.0.2.1.2.23.1.5.0.0"
   },
   {
    "role": "link",
-   "name": "Window.confirm()"
+   "name": "Window.confirm()",
+   "path": "1.3.0.0.2.1.2.23.1.5.0.1"
   },
   {
    "role": "link",
-   "name": "Window.print()"
+   "name": "Window.print()",
+   "path": "1.3.0.0.2.1.2.23.1.5.0.2"
   },
   {
    "role": "link",
-   "name": "Window.prompt()"
+   "name": "Window.prompt()",
+   "path": "1.3.0.0.2.1.2.23.1.5.0.3"
   },
   {
    "role": "link",
-   "name": "<dialog>"
+   "name": "<dialog>",
+   "path": "1.3.0.0.2.1.2.23.1.5.0.4"
   },
   {
    "role": "link",
-   "name": "BeforeUnloadEvent"
+   "name": "BeforeUnloadEvent",
+   "path": "1.3.0.0.2.1.2.23.1.5.0.5"
   },
   {
    "role": "link",
-   "name": "allow-orientation-lock"
+   "name": "allow-orientation-lock",
+   "path": "1.3.0.0.2.1.2.23.1.6.0"
   },
   {
    "role": "link",
-   "name": "lock the screen orientation"
+   "name": "lock the screen orientation",
+   "path": "1.3.0.0.2.1.2.23.1.7.0.0"
   },
   {
    "role": "link",
-   "name": "allow-pointer-lock"
+   "name": "allow-pointer-lock",
+   "path": "1.3.0.0.2.1.2.23.1.8.0"
   },
   {
    "role": "link",
-   "name": "Pointer Lock API"
+   "name": "Pointer Lock API",
+   "path": "1.3.0.0.2.1.2.23.1.9.0.0"
   },
   {
    "role": "link",
-   "name": "allow-popups"
+   "name": "allow-popups",
+   "path": "1.3.0.0.2.1.2.23.1.10.0"
   },
   {
    "role": "link",
-   "name": "Window.open()"
+   "name": "Window.open()",
+   "path": "1.3.0.0.2.1.2.23.1.11.0.0"
   },
   {
    "role": "link",
-   "name": "allow-popups-to-escape-sandbox"
+   "name": "allow-popups-to-escape-sandbox",
+   "path": "1.3.0.0.2.1.2.23.1.12.0"
   },
   {
    "role": "link",
-   "name": "allow-presentation"
+   "name": "allow-presentation",
+   "path": "1.3.0.0.2.1.2.23.1.14.0"
   },
   {
    "role": "link",
-   "name": "presentation session"
+   "name": "presentation session",
+   "path": "1.3.0.0.2.1.2.23.1.15.0.0"
   },
   {
    "role": "link",
-   "name": "allow-same-origin"
+   "name": "allow-same-origin",
+   "path": "1.3.0.0.2.1.2.23.1.16.0"
   },
   {
    "role": "link",
-   "name": "same-origin policy"
+   "name": "same-origin policy",
+   "path": "1.3.0.0.2.1.2.23.1.17.0.0"
   },
   {
    "role": "link",
-   "name": "data storage/cookies"
+   "name": "data storage/cookies",
+   "path": "1.3.0.0.2.1.2.23.1.17.0.1"
   },
   {
    "role": "link",
-   "name": "allow-scripts"
+   "name": "allow-scripts",
+   "path": "1.3.0.0.2.1.2.23.1.18.0"
   },
   {
    "role": "link",
-   "name": "allow-storage-access-by-user-activation Experimental"
+   "name": "allow-storage-access-by-user-activation Experimental",
+   "path": "1.3.0.0.2.1.2.23.1.20.0"
   },
   {
    "role": "link",
-   "name": "Storage Access API"
+   "name": "Storage Access API",
+   "path": "1.3.0.0.2.1.2.23.1.21.0.1"
   },
   {
    "role": "link",
-   "name": "allow-top-navigation"
+   "name": "allow-top-navigation",
+   "path": "1.3.0.0.2.1.2.23.1.22.0"
   },
   {
    "role": "link",
-   "name": "allow-top-navigation-by-user-activation"
+   "name": "allow-top-navigation-by-user-activation",
+   "path": "1.3.0.0.2.1.2.23.1.24.0"
   },
   {
    "role": "link",
-   "name": "allow-top-navigation-to-custom-protocols"
+   "name": "allow-top-navigation-to-custom-protocols",
+   "path": "1.3.0.0.2.1.2.23.1.26.0"
   },
   {
    "role": "link",
-   "name": "registered by a website"
+   "name": "registered by a website",
+   "path": "1.3.0.0.2.1.2.23.1.27.0.1"
   },
   {
    "role": "link",
-   "name": "Embedding PDFs"
+   "name": "Embedding PDFs",
+   "path": "1.3.0.0.2.1.2.23.2.1.0.1"
   },
   {
    "role": "link",
-   "name": "src"
+   "name": "src",
+   "path": "1.3.0.0.2.1.2.24.0"
   },
   {
    "role": "link",
-   "name": "same-origin policy"
+   "name": "same-origin policy",
+   "path": "1.3.0.0.2.1.2.25.0.1"
   },
   {
    "role": "link",
-   "name": "Element.removeAttribute()"
+   "name": "Element.removeAttribute()",
+   "path": "1.3.0.0.2.1.2.25.0.3"
   },
   {
    "role": "link",
-   "name": "srcdoc"
+   "name": "srcdoc",
+   "path": "1.3.0.0.2.1.2.26.0"
   },
   {
    "role": "link",
-   "name": "width"
+   "name": "width",
+   "path": "1.3.0.0.2.1.2.28.0"
   },
   {
    "role": "link",
-   "name": "Deprecated attributes"
+   "name": "Deprecated attributes",
+   "path": "1.3.0.0.2.2.0.0"
   },
   {
    "role": "link",
-   "name": "align Deprecated"
+   "name": "align Deprecated",
+   "path": "1.3.0.0.2.2.2.0.0"
   },
   {
    "role": "link",
-   "name": "frameborder Deprecated"
+   "name": "frameborder Deprecated",
+   "path": "1.3.0.0.2.2.2.2.0"
   },
   {
    "role": "link",
-   "name": "border"
+   "name": "border",
+   "path": "1.3.0.0.2.2.2.3.0.2"
   },
   {
    "role": "link",
-   "name": "longdesc Deprecated"
+   "name": "longdesc Deprecated",
+   "path": "1.3.0.0.2.2.2.4.0"
   },
   {
    "role": "link",
-   "name": "marginheight Deprecated"
+   "name": "marginheight Deprecated",
+   "path": "1.3.0.0.2.2.2.6.0"
   },
   {
    "role": "link",
-   "name": "marginwidth Deprecated"
+   "name": "marginwidth Deprecated",
+   "path": "1.3.0.0.2.2.2.8.0"
   },
   {
    "role": "link",
-   "name": "scrolling Deprecated"
+   "name": "scrolling Deprecated",
+   "path": "1.3.0.0.2.2.2.10.0"
   },
   {
    "role": "link",
-   "name": "auto"
+   "name": "auto",
+   "path": "1.3.0.0.2.2.2.11.1.0.0"
   },
   {
    "role": "link",
-   "name": "yes"
+   "name": "yes",
+   "path": "1.3.0.0.2.2.2.11.1.2.0"
   },
   {
    "role": "link",
-   "name": "no"
+   "name": "no",
+   "path": "1.3.0.0.2.2.2.11.1.4.0"
   },
   {
    "role": "link",
-   "name": "Usage notes"
+   "name": "Usage notes",
+   "path": "1.3.0.0.2.3.0.0"
   },
   {
    "role": "link",
-   "name": "Scripting"
+   "name": "Scripting",
+   "path": "1.3.0.0.2.4.0.0"
   },
   {
    "role": "link",
-   "name": "<frame>"
+   "name": "<frame>",
+   "path": "1.3.0.0.2.4.1.0"
   },
   {
    "role": "link",
-   "name": "window.frames"
+   "name": "window.frames",
+   "path": "1.3.0.0.2.4.1.1"
   },
   {
    "role": "link",
-   "name": "HTMLIFrameElement"
+   "name": "HTMLIFrameElement",
+   "path": "1.3.0.0.2.4.2.0"
   },
   {
    "role": "link",
-   "name": "window"
+   "name": "window",
+   "path": "1.3.0.0.2.4.2.1"
   },
   {
    "role": "link",
-   "name": "contentWindow"
+   "name": "contentWindow",
+   "path": "1.3.0.0.2.4.2.2"
   },
   {
    "role": "link",
-   "name": "contentDocument"
+   "name": "contentDocument",
+   "path": "1.3.0.0.2.4.2.3"
   },
   {
    "role": "link",
-   "name": "window.parent"
+   "name": "window.parent",
+   "path": "1.3.0.0.2.4.3.0"
   },
   {
    "role": "link",
-   "name": "same-origin policy"
+   "name": "same-origin policy",
+   "path": "1.3.0.0.2.4.4.0"
   },
   {
    "role": "link",
-   "name": "Window.postMessage()"
+   "name": "Window.postMessage()",
+   "path": "1.3.0.0.2.4.4.2"
   },
   {
    "role": "link",
-   "name": "Window.top"
+   "name": "Window.top",
+   "path": "1.3.0.0.2.4.6.0"
   },
   {
    "role": "link",
-   "name": "window.top.location"
+   "name": "window.top.location",
+   "path": "1.3.0.0.2.4.6.1"
   },
   {
    "role": "link",
-   "name": "sticky activation"
+   "name": "sticky activation",
+   "path": "1.3.0.0.2.4.7.1"
   },
   {
    "role": "link",
-   "name": "allow-top-navigation"
+   "name": "allow-top-navigation",
+   "path": "1.3.0.0.2.4.8.1"
   },
   {
    "role": "link",
-   "name": "allow-top-navigation-by-user-activation"
+   "name": "allow-top-navigation-by-user-activation",
+   "path": "1.3.0.0.2.4.8.2"
   },
   {
    "role": "link",
-   "name": "Embedding PDFs"
+   "name": "Embedding PDFs",
+   "path": "1.3.0.0.2.5.0.0"
   },
   {
    "role": "link",
-   "name": "<object>"
+   "name": "<object>",
+   "path": "1.3.0.0.2.5.1.1"
   },
   {
    "role": "link",
-   "name": "sandbox"
+   "name": "sandbox",
+   "path": "1.3.0.0.2.5.2.0"
   },
   {
    "role": "link",
-   "name": "Positioning and scaling"
+   "name": "Positioning and scaling",
+   "path": "1.3.0.0.2.6.0.0"
   },
   {
    "role": "link",
-   "name": "replaced element"
+   "name": "replaced element",
+   "path": "1.3.0.0.2.6.1.0"
   },
   {
    "role": "link",
-   "name": "object-position"
+   "name": "object-position",
+   "path": "1.3.0.0.2.6.1.2"
   },
   {
    "role": "link",
-   "name": "object-fit"
+   "name": "object-fit",
+   "path": "1.3.0.0.2.6.2.0.1"
   },
   {
    "role": "link",
-   "name": "error and load event behavior"
+   "name": "error and load event behavior",
+   "path": "1.3.0.0.2.7.0.0"
   },
   {
    "role": "link",
-   "name": "error"
+   "name": "error",
+   "path": "1.3.0.0.2.7.1.3"
   },
   {
    "role": "link",
-   "name": "load"
+   "name": "load",
+   "path": "1.3.0.0.2.7.1.5"
   },
   {
    "role": "link",
-   "name": "Responsive <iframe> sizing"
+   "name": "Responsive <iframe> sizing",
+   "path": "1.3.0.0.2.8.0.0"
   },
   {
    "role": "link",
-   "name": "<meta name=\"responsive-embedded-sizing\">"
+   "name": "<meta name=\"responsive-embedded-sizing\">",
+   "path": "1.3.0.0.2.8.2.1"
   },
   {
    "role": "link",
-   "name": "frame-sizing"
+   "name": "frame-sizing",
+   "path": "1.3.0.0.2.8.2.2"
   },
   {
    "role": "link",
-   "name": "Window.requestResize()"
+   "name": "Window.requestResize()",
+   "path": "1.3.0.0.2.8.3.1"
   },
   {
    "role": "link",
-   "name": "Accessibility"
+   "name": "Accessibility",
+   "path": "1.3.0.0.2.9.0.0"
   },
   {
    "role": "link",
-   "name": "title attribute"
+   "name": "title attribute",
+   "path": "1.3.0.0.2.9.1.0"
   },
   {
    "role": "link",
-   "name": "Examples"
+   "name": "Examples",
+   "path": "1.3.0.0.2.10.0.0"
   },
   {
    "role": "link",
-   "name": "A basic <iframe>"
+   "name": "A basic <iframe>",
+   "path": "1.3.0.0.2.11.0.0"
   },
   {
    "role": "link",
-   "name": "https://example.org (external)"
+   "name": "https://example.org (external)",
+   "path": "1.3.0.0.2.11.1.0"
   },
   {
    "role": "link",
-   "name": "try it"
+   "name": "try it",
+   "path": "1.3.0.0.2.11.1.1"
   },
   {
    "role": "link",
-   "name": "Embedding source code in an <iframe>"
+   "name": "Embedding source code in an <iframe>",
+   "path": "1.3.0.0.2.12.0.0"
   },
   {
    "role": "link",
-   "name": "Technical summary"
+   "name": "Technical summary",
+   "path": "1.3.0.0.2.13.0.0"
   },
   {
    "role": "link",
-   "name": "Content categories"
+   "name": "Content categories",
+   "path": "1.3.0.0.2.13.1.0.0.0.0.0"
   },
   {
    "role": "link",
-   "name": "Flow content"
+   "name": "Flow content",
+   "path": "1.3.0.0.2.13.1.0.0.0.1.0"
   },
   {
    "role": "link",
-   "name": "phrasing content"
+   "name": "phrasing content",
+   "path": "1.3.0.0.2.13.1.0.0.0.1.1"
   },
   {
    "role": "link",
-   "name": "No corresponding role (external)"
+   "name": "No corresponding role (external)",
+   "path": "1.3.0.0.2.13.1.0.0.4.1.0"
   },
   {
    "role": "link",
-   "name": "application"
+   "name": "application",
+   "path": "1.3.0.0.2.13.1.0.0.5.1.0"
   },
   {
    "role": "link",
-   "name": "document"
+   "name": "document",
+   "path": "1.3.0.0.2.13.1.0.0.5.1.1"
   },
   {
    "role": "link",
-   "name": "img"
+   "name": "img",
+   "path": "1.3.0.0.2.13.1.0.0.5.1.2"
   },
   {
    "role": "link",
-   "name": "none"
+   "name": "none",
+   "path": "1.3.0.0.2.13.1.0.0.5.1.3"
   },
   {
    "role": "link",
-   "name": "presentation"
+   "name": "presentation",
+   "path": "1.3.0.0.2.13.1.0.0.5.1.4"
   },
   {
    "role": "link",
-   "name": "HTMLIFrameElement"
+   "name": "HTMLIFrameElement",
+   "path": "1.3.0.0.2.13.1.0.0.6.1.0"
   },
   {
    "role": "link",
-   "name": "Specifications"
+   "name": "Specifications",
+   "path": "1.3.0.0.2.14.0.0"
   },
   {
    "role": "link",
-   "name": "Browser compatibility"
+   "name": "Browser compatibility",
+   "path": "1.3.0.0.2.15.0.0"
   },
   {
    "role": "link",
-   "name": "See also"
+   "name": "See also",
+   "path": "1.3.0.0.2.16.0.0"
   },
   {
    "role": "link",
-   "name": "Privacy, permissions, and information security"
+   "name": "Privacy, permissions, and information security",
+   "path": "1.3.0.0.2.16.1.1.0"
   },
   {
    "role": "link",
-   "name": "Local network access"
+   "name": "Local network access",
+   "path": "1.3.0.0.2.16.1.2.0"
   },
   {
    "role": "link",
-   "name": "Learn how to contribute"
+   "name": "Learn how to contribute",
+   "path": "1.3.0.0.2.17.0.3"
   },
   {
    "role": "link",
-   "name": "MDN contributors"
+   "name": "MDN contributors",
+   "path": "1.3.0.0.2.17.0.4.1"
   },
   {
    "role": "link",
-   "name": "View this page on GitHub (external)"
+   "name": "View this page on GitHub (external)",
+   "path": "1.3.0.0.2.17.0.5.0"
   },
   {
    "role": "link",
-   "name": "Report a problem with this content (external)"
+   "name": "Report a problem with this content (external)",
+   "path": "1.3.0.0.2.17.0.5.1"
   },
   {
    "role": "link",
-   "name": "HTML"
+   "name": "HTML",
+   "path": "1.3.0.1.0.1.0.0.0"
   },
   {
    "role": "link",
-   "name": "Guides"
+   "name": "Guides",
+   "path": "1.3.0.1.0.1.0.1.0.0.0"
   },
   {
    "role": "link",
-   "name": "How to"
+   "name": "How to",
+   "path": "1.3.0.1.0.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "Define terms with HTML"
+   "name": "Define terms with HTML",
+   "path": "1.3.0.1.0.1.0.3.0"
   },
   {
    "role": "link",
-   "name": "Use data attributes"
+   "name": "Use data attributes",
+   "path": "1.3.0.1.0.1.0.4.0"
   },
   {
    "role": "link",
-   "name": "Use cross-origin images"
+   "name": "Use cross-origin images",
+   "path": "1.3.0.1.0.1.0.5.0"
   },
   {
    "role": "link",
-   "name": "Add a hitmap on top of an image"
+   "name": "Add a hitmap on top of an image",
+   "path": "1.3.0.1.0.1.0.6.0"
   },
   {
    "role": "link",
-   "name": "Author fast-loading HTML pages"
+   "name": "Author fast-loading HTML pages",
+   "path": "1.3.0.1.0.1.0.7.0"
   },
   {
    "role": "link",
-   "name": "Add JavaScript"
+   "name": "Add JavaScript",
+   "path": "1.3.0.1.0.1.0.8.0"
   },
   {
    "role": "link",
-   "name": "Reference"
+   "name": "Reference",
+   "path": "1.3.0.1.0.1.0.9.0"
   },
   {
    "role": "link",
-   "name": "Elements"
+   "name": "Elements",
+   "path": "1.3.0.1.0.1.0.10.0.0.0"
   },
   {
    "role": "link",
-   "name": "<a>"
+   "name": "<a>",
+   "path": "1.3.0.1.0.1.0.10.0.1.0.0"
   },
   {
    "role": "link",
-   "name": "<abbr>"
+   "name": "<abbr>",
+   "path": "1.3.0.1.0.1.0.10.0.1.1.0"
   },
   {
    "role": "link",
-   "name": "<acronym> Deprecated"
+   "name": "<acronym> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.2.0"
   },
   {
    "role": "link",
-   "name": "<address>"
+   "name": "<address>",
+   "path": "1.3.0.1.0.1.0.10.0.1.3.0"
   },
   {
    "role": "link",
-   "name": "<area>"
+   "name": "<area>",
+   "path": "1.3.0.1.0.1.0.10.0.1.4.0"
   },
   {
    "role": "link",
-   "name": "<article>"
+   "name": "<article>",
+   "path": "1.3.0.1.0.1.0.10.0.1.5.0"
   },
   {
    "role": "link",
-   "name": "<aside>"
+   "name": "<aside>",
+   "path": "1.3.0.1.0.1.0.10.0.1.6.0"
   },
   {
    "role": "link",
-   "name": "<audio>"
+   "name": "<audio>",
+   "path": "1.3.0.1.0.1.0.10.0.1.7.0"
   },
   {
    "role": "link",
-   "name": "<b>"
+   "name": "<b>",
+   "path": "1.3.0.1.0.1.0.10.0.1.8.0"
   },
   {
    "role": "link",
-   "name": "<base>"
+   "name": "<base>",
+   "path": "1.3.0.1.0.1.0.10.0.1.9.0"
   },
   {
    "role": "link",
-   "name": "<bdi>"
+   "name": "<bdi>",
+   "path": "1.3.0.1.0.1.0.10.0.1.10.0"
   },
   {
    "role": "link",
-   "name": "<bdo>"
+   "name": "<bdo>",
+   "path": "1.3.0.1.0.1.0.10.0.1.11.0"
   },
   {
    "role": "link",
-   "name": "<big> Deprecated"
+   "name": "<big> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.12.0"
   },
   {
    "role": "link",
-   "name": "<blockquote>"
+   "name": "<blockquote>",
+   "path": "1.3.0.1.0.1.0.10.0.1.13.0"
   },
   {
    "role": "link",
-   "name": "<body>"
+   "name": "<body>",
+   "path": "1.3.0.1.0.1.0.10.0.1.14.0"
   },
   {
    "role": "link",
-   "name": "<br>"
+   "name": "<br>",
+   "path": "1.3.0.1.0.1.0.10.0.1.15.0"
   },
   {
    "role": "link",
-   "name": "<button>"
+   "name": "<button>",
+   "path": "1.3.0.1.0.1.0.10.0.1.16.0"
   },
   {
    "role": "link",
-   "name": "<canvas>"
+   "name": "<canvas>",
+   "path": "1.3.0.1.0.1.0.10.0.1.17.0"
   },
   {
    "role": "link",
-   "name": "<caption>"
+   "name": "<caption>",
+   "path": "1.3.0.1.0.1.0.10.0.1.18.0"
   },
   {
    "role": "link",
-   "name": "<center> Deprecated"
+   "name": "<center> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.19.0"
   },
   {
    "role": "link",
-   "name": "<cite>"
+   "name": "<cite>",
+   "path": "1.3.0.1.0.1.0.10.0.1.20.0"
   },
   {
    "role": "link",
-   "name": "<code>"
+   "name": "<code>",
+   "path": "1.3.0.1.0.1.0.10.0.1.21.0"
   },
   {
    "role": "link",
-   "name": "<col>"
+   "name": "<col>",
+   "path": "1.3.0.1.0.1.0.10.0.1.22.0"
   },
   {
    "role": "link",
-   "name": "<colgroup>"
+   "name": "<colgroup>",
+   "path": "1.3.0.1.0.1.0.10.0.1.23.0"
   },
   {
    "role": "link",
-   "name": "<data>"
+   "name": "<data>",
+   "path": "1.3.0.1.0.1.0.10.0.1.24.0"
   },
   {
    "role": "link",
-   "name": "<datalist>"
+   "name": "<datalist>",
+   "path": "1.3.0.1.0.1.0.10.0.1.25.0"
   },
   {
    "role": "link",
-   "name": "<dd>"
+   "name": "<dd>",
+   "path": "1.3.0.1.0.1.0.10.0.1.26.0"
   },
   {
    "role": "link",
-   "name": "<del>"
+   "name": "<del>",
+   "path": "1.3.0.1.0.1.0.10.0.1.27.0"
   },
   {
    "role": "link",
-   "name": "<details>"
+   "name": "<details>",
+   "path": "1.3.0.1.0.1.0.10.0.1.28.0"
   },
   {
    "role": "link",
-   "name": "<dfn>"
+   "name": "<dfn>",
+   "path": "1.3.0.1.0.1.0.10.0.1.29.0"
   },
   {
    "role": "link",
-   "name": "<dialog>"
+   "name": "<dialog>",
+   "path": "1.3.0.1.0.1.0.10.0.1.30.0"
   },
   {
    "role": "link",
-   "name": "<dir> Deprecated"
+   "name": "<dir> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.31.0"
   },
   {
    "role": "link",
-   "name": "<div>"
+   "name": "<div>",
+   "path": "1.3.0.1.0.1.0.10.0.1.32.0"
   },
   {
    "role": "link",
-   "name": "<dl>"
+   "name": "<dl>",
+   "path": "1.3.0.1.0.1.0.10.0.1.33.0"
   },
   {
    "role": "link",
-   "name": "<dt>"
+   "name": "<dt>",
+   "path": "1.3.0.1.0.1.0.10.0.1.34.0"
   },
   {
    "role": "link",
-   "name": "<em>"
+   "name": "<em>",
+   "path": "1.3.0.1.0.1.0.10.0.1.35.0"
   },
   {
    "role": "link",
-   "name": "<embed>"
+   "name": "<embed>",
+   "path": "1.3.0.1.0.1.0.10.0.1.36.0"
   },
   {
    "role": "link",
-   "name": "<fencedframe> Deprecated, pending removal"
+   "name": "<fencedframe> Deprecated, pending removal",
+   "path": "1.3.0.1.0.1.0.10.0.1.37.0"
   },
   {
    "role": "link",
-   "name": "<fieldset>"
+   "name": "<fieldset>",
+   "path": "1.3.0.1.0.1.0.10.0.1.38.0"
   },
   {
    "role": "link",
-   "name": "<figcaption>"
+   "name": "<figcaption>",
+   "path": "1.3.0.1.0.1.0.10.0.1.39.0"
   },
   {
    "role": "link",
-   "name": "<figure>"
+   "name": "<figure>",
+   "path": "1.3.0.1.0.1.0.10.0.1.40.0"
   },
   {
    "role": "link",
-   "name": "<font> Deprecated"
+   "name": "<font> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.41.0"
   },
   {
    "role": "link",
-   "name": "<footer>"
+   "name": "<footer>",
+   "path": "1.3.0.1.0.1.0.10.0.1.42.0"
   },
   {
    "role": "link",
-   "name": "<form>"
+   "name": "<form>",
+   "path": "1.3.0.1.0.1.0.10.0.1.43.0"
   },
   {
    "role": "link",
-   "name": "<frame> Deprecated"
+   "name": "<frame> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.44.0"
   },
   {
    "role": "link",
-   "name": "<frameset> Deprecated"
+   "name": "<frameset> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.45.0"
   },
   {
    "role": "link",
-   "name": "<geolocation> Experimental"
+   "name": "<geolocation> Experimental",
+   "path": "1.3.0.1.0.1.0.10.0.1.46.0"
   },
   {
    "role": "link",
-   "name": "<h1>–<h6>"
+   "name": "<h1>–<h6>",
+   "path": "1.3.0.1.0.1.0.10.0.1.47.0"
   },
   {
    "role": "link",
-   "name": "<head>"
+   "name": "<head>",
+   "path": "1.3.0.1.0.1.0.10.0.1.48.0"
   },
   {
    "role": "link",
-   "name": "<header>"
+   "name": "<header>",
+   "path": "1.3.0.1.0.1.0.10.0.1.49.0"
   },
   {
    "role": "link",
-   "name": "<hgroup>"
+   "name": "<hgroup>",
+   "path": "1.3.0.1.0.1.0.10.0.1.50.0"
   },
   {
    "role": "link",
-   "name": "<hr>"
+   "name": "<hr>",
+   "path": "1.3.0.1.0.1.0.10.0.1.51.0"
   },
   {
    "role": "link",
-   "name": "<html>"
+   "name": "<html>",
+   "path": "1.3.0.1.0.1.0.10.0.1.52.0"
   },
   {
    "role": "link",
-   "name": "<i>"
+   "name": "<i>",
+   "path": "1.3.0.1.0.1.0.10.0.1.53.0"
   },
   {
    "role": "link",
-   "name": "<iframe>"
+   "name": "<iframe>",
+   "path": "1.3.0.1.0.1.0.10.0.1.54.0.0"
   },
   {
    "role": "link",
-   "name": "<img>"
+   "name": "<img>",
+   "path": "1.3.0.1.0.1.0.10.0.1.55.0"
   },
   {
    "role": "link",
-   "name": "<input>"
+   "name": "<input>",
+   "path": "1.3.0.1.0.1.0.10.0.1.56.0"
   },
   {
    "role": "link",
-   "name": "<ins>"
+   "name": "<ins>",
+   "path": "1.3.0.1.0.1.0.10.0.1.57.0"
   },
   {
    "role": "link",
-   "name": "<kbd>"
+   "name": "<kbd>",
+   "path": "1.3.0.1.0.1.0.10.0.1.58.0"
   },
   {
    "role": "link",
-   "name": "<label>"
+   "name": "<label>",
+   "path": "1.3.0.1.0.1.0.10.0.1.59.0"
   },
   {
    "role": "link",
-   "name": "<legend>"
+   "name": "<legend>",
+   "path": "1.3.0.1.0.1.0.10.0.1.60.0"
   },
   {
    "role": "link",
-   "name": "<li>"
+   "name": "<li>",
+   "path": "1.3.0.1.0.1.0.10.0.1.61.0"
   },
   {
    "role": "link",
-   "name": "<link>"
+   "name": "<link>",
+   "path": "1.3.0.1.0.1.0.10.0.1.62.0"
   },
   {
    "role": "link",
-   "name": "<main>"
+   "name": "<main>",
+   "path": "1.3.0.1.0.1.0.10.0.1.63.0"
   },
   {
    "role": "link",
-   "name": "<map>"
+   "name": "<map>",
+   "path": "1.3.0.1.0.1.0.10.0.1.64.0"
   },
   {
    "role": "link",
-   "name": "<mark>"
+   "name": "<mark>",
+   "path": "1.3.0.1.0.1.0.10.0.1.65.0"
   },
   {
    "role": "link",
-   "name": "<marquee> Deprecated"
+   "name": "<marquee> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.66.0"
   },
   {
    "role": "link",
-   "name": "<menu>"
+   "name": "<menu>",
+   "path": "1.3.0.1.0.1.0.10.0.1.67.0"
   },
   {
    "role": "link",
-   "name": "<meta>"
+   "name": "<meta>",
+   "path": "1.3.0.1.0.1.0.10.0.1.68.0"
   },
   {
    "role": "link",
-   "name": "<meter>"
+   "name": "<meter>",
+   "path": "1.3.0.1.0.1.0.10.0.1.69.0"
   },
   {
    "role": "link",
-   "name": "<nav>"
+   "name": "<nav>",
+   "path": "1.3.0.1.0.1.0.10.0.1.70.0"
   },
   {
    "role": "link",
-   "name": "<nobr> Deprecated"
+   "name": "<nobr> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.71.0"
   },
   {
    "role": "link",
-   "name": "<noembed> Deprecated"
+   "name": "<noembed> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.72.0"
   },
   {
    "role": "link",
-   "name": "<noframes> Deprecated"
+   "name": "<noframes> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.73.0"
   },
   {
    "role": "link",
-   "name": "<noscript>"
+   "name": "<noscript>",
+   "path": "1.3.0.1.0.1.0.10.0.1.74.0"
   },
   {
    "role": "link",
-   "name": "<object>"
+   "name": "<object>",
+   "path": "1.3.0.1.0.1.0.10.0.1.75.0"
   },
   {
    "role": "link",
-   "name": "<ol>"
+   "name": "<ol>",
+   "path": "1.3.0.1.0.1.0.10.0.1.76.0"
   },
   {
    "role": "link",
-   "name": "<optgroup>"
+   "name": "<optgroup>",
+   "path": "1.3.0.1.0.1.0.10.0.1.77.0"
   },
   {
    "role": "link",
-   "name": "<option>"
+   "name": "<option>",
+   "path": "1.3.0.1.0.1.0.10.0.1.78.0"
   },
   {
    "role": "link",
-   "name": "<output>"
+   "name": "<output>",
+   "path": "1.3.0.1.0.1.0.10.0.1.79.0"
   },
   {
    "role": "link",
-   "name": "<p>"
+   "name": "<p>",
+   "path": "1.3.0.1.0.1.0.10.0.1.80.0"
   },
   {
    "role": "link",
-   "name": "<param> Deprecated"
+   "name": "<param> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.81.0"
   },
   {
    "role": "link",
-   "name": "<picture>"
+   "name": "<picture>",
+   "path": "1.3.0.1.0.1.0.10.0.1.82.0"
   },
   {
    "role": "link",
-   "name": "<plaintext> Deprecated"
+   "name": "<plaintext> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.83.0"
   },
   {
    "role": "link",
-   "name": "<pre>"
+   "name": "<pre>",
+   "path": "1.3.0.1.0.1.0.10.0.1.84.0"
   },
   {
    "role": "link",
-   "name": "<progress>"
+   "name": "<progress>",
+   "path": "1.3.0.1.0.1.0.10.0.1.85.0"
   },
   {
    "role": "link",
-   "name": "<q>"
+   "name": "<q>",
+   "path": "1.3.0.1.0.1.0.10.0.1.86.0"
   },
   {
    "role": "link",
-   "name": "<rb> Deprecated"
+   "name": "<rb> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.87.0"
   },
   {
    "role": "link",
-   "name": "<rp>"
+   "name": "<rp>",
+   "path": "1.3.0.1.0.1.0.10.0.1.88.0"
   },
   {
    "role": "link",
-   "name": "<rt>"
+   "name": "<rt>",
+   "path": "1.3.0.1.0.1.0.10.0.1.89.0"
   },
   {
    "role": "link",
-   "name": "<rtc> Deprecated"
+   "name": "<rtc> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.90.0"
   },
   {
    "role": "link",
-   "name": "<ruby>"
+   "name": "<ruby>",
+   "path": "1.3.0.1.0.1.0.10.0.1.91.0"
   },
   {
    "role": "link",
-   "name": "<s>"
+   "name": "<s>",
+   "path": "1.3.0.1.0.1.0.10.0.1.92.0"
   },
   {
    "role": "link",
-   "name": "<samp>"
+   "name": "<samp>",
+   "path": "1.3.0.1.0.1.0.10.0.1.93.0"
   },
   {
    "role": "link",
-   "name": "<script>"
+   "name": "<script>",
+   "path": "1.3.0.1.0.1.0.10.0.1.94.0"
   },
   {
    "role": "link",
-   "name": "<search>"
+   "name": "<search>",
+   "path": "1.3.0.1.0.1.0.10.0.1.95.0"
   },
   {
    "role": "link",
-   "name": "<section>"
+   "name": "<section>",
+   "path": "1.3.0.1.0.1.0.10.0.1.96.0"
   },
   {
    "role": "link",
-   "name": "<select>"
+   "name": "<select>",
+   "path": "1.3.0.1.0.1.0.10.0.1.97.0"
   },
   {
    "role": "link",
-   "name": "<selectedcontent>"
+   "name": "<selectedcontent>",
+   "path": "1.3.0.1.0.1.0.10.0.1.98.0"
   },
   {
    "role": "link",
-   "name": "<slot>"
+   "name": "<slot>",
+   "path": "1.3.0.1.0.1.0.10.0.1.99.0"
   },
   {
    "role": "link",
-   "name": "<small>"
+   "name": "<small>",
+   "path": "1.3.0.1.0.1.0.10.0.1.100.0"
   },
   {
    "role": "link",
-   "name": "<source>"
+   "name": "<source>",
+   "path": "1.3.0.1.0.1.0.10.0.1.101.0"
   },
   {
    "role": "link",
-   "name": "<span>"
+   "name": "<span>",
+   "path": "1.3.0.1.0.1.0.10.0.1.102.0"
   },
   {
    "role": "link",
-   "name": "<strike> Deprecated"
+   "name": "<strike> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.103.0"
   },
   {
    "role": "link",
-   "name": "<strong>"
+   "name": "<strong>",
+   "path": "1.3.0.1.0.1.0.10.0.1.104.0"
   },
   {
    "role": "link",
-   "name": "<style>"
+   "name": "<style>",
+   "path": "1.3.0.1.0.1.0.10.0.1.105.0"
   },
   {
    "role": "link",
-   "name": "<sub>"
+   "name": "<sub>",
+   "path": "1.3.0.1.0.1.0.10.0.1.106.0"
   },
   {
    "role": "link",
-   "name": "<summary>"
+   "name": "<summary>",
+   "path": "1.3.0.1.0.1.0.10.0.1.107.0"
   },
   {
    "role": "link",
-   "name": "<sup>"
+   "name": "<sup>",
+   "path": "1.3.0.1.0.1.0.10.0.1.108.0"
   },
   {
    "role": "link",
-   "name": "<table>"
+   "name": "<table>",
+   "path": "1.3.0.1.0.1.0.10.0.1.109.0"
   },
   {
    "role": "link",
-   "name": "<tbody>"
+   "name": "<tbody>",
+   "path": "1.3.0.1.0.1.0.10.0.1.110.0"
   },
   {
    "role": "link",
-   "name": "<td>"
+   "name": "<td>",
+   "path": "1.3.0.1.0.1.0.10.0.1.111.0"
   },
   {
    "role": "link",
-   "name": "<template>"
+   "name": "<template>",
+   "path": "1.3.0.1.0.1.0.10.0.1.112.0"
   },
   {
    "role": "link",
-   "name": "<textarea>"
+   "name": "<textarea>",
+   "path": "1.3.0.1.0.1.0.10.0.1.113.0"
   },
   {
    "role": "link",
-   "name": "<tfoot>"
+   "name": "<tfoot>",
+   "path": "1.3.0.1.0.1.0.10.0.1.114.0"
   },
   {
    "role": "link",
-   "name": "<th>"
+   "name": "<th>",
+   "path": "1.3.0.1.0.1.0.10.0.1.115.0"
   },
   {
    "role": "link",
-   "name": "<thead>"
+   "name": "<thead>",
+   "path": "1.3.0.1.0.1.0.10.0.1.116.0"
   },
   {
    "role": "link",
-   "name": "<time>"
+   "name": "<time>",
+   "path": "1.3.0.1.0.1.0.10.0.1.117.0"
   },
   {
    "role": "link",
-   "name": "<title>"
+   "name": "<title>",
+   "path": "1.3.0.1.0.1.0.10.0.1.118.0"
   },
   {
    "role": "link",
-   "name": "<tr>"
+   "name": "<tr>",
+   "path": "1.3.0.1.0.1.0.10.0.1.119.0"
   },
   {
    "role": "link",
-   "name": "<track>"
+   "name": "<track>",
+   "path": "1.3.0.1.0.1.0.10.0.1.120.0"
   },
   {
    "role": "link",
-   "name": "<tt> Deprecated"
+   "name": "<tt> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.121.0"
   },
   {
    "role": "link",
-   "name": "<u>"
+   "name": "<u>",
+   "path": "1.3.0.1.0.1.0.10.0.1.122.0"
   },
   {
    "role": "link",
-   "name": "<ul>"
+   "name": "<ul>",
+   "path": "1.3.0.1.0.1.0.10.0.1.123.0"
   },
   {
    "role": "link",
-   "name": "<var>"
+   "name": "<var>",
+   "path": "1.3.0.1.0.1.0.10.0.1.124.0"
   },
   {
    "role": "link",
-   "name": "<video>"
+   "name": "<video>",
+   "path": "1.3.0.1.0.1.0.10.0.1.125.0"
   },
   {
    "role": "link",
-   "name": "<wbr>"
+   "name": "<wbr>",
+   "path": "1.3.0.1.0.1.0.10.0.1.126.0"
   },
   {
    "role": "link",
-   "name": "<xmp> Deprecated"
+   "name": "<xmp> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.127.0"
   },
   {
    "role": "link",
-   "name": "Attributes"
+   "name": "Attributes",
+   "path": "1.3.0.1.0.1.0.11.0.0.0"
   },
   {
    "role": "link",
-   "name": "Global attributes"
+   "name": "Global attributes",
+   "path": "1.3.0.1.0.1.0.12.0.0.0"
   },
   {
    "role": "link",
-   "name": "MDN logo"
+   "name": "MDN logo",
+   "path": "1.4.1.0.0.0"
   },
   {
    "role": "link",
-   "name": "MDN on GitHub"
+   "name": "MDN on GitHub",
+   "path": "1.4.1.0.1.0.0"
   },
   {
    "role": "link",
-   "name": "MDN on Bluesky"
+   "name": "MDN on Bluesky",
+   "path": "1.4.1.0.1.1.0"
   },
   {
    "role": "link",
-   "name": "MDN on X"
+   "name": "MDN on X",
+   "path": "1.4.1.0.1.2.0"
   },
   {
    "role": "link",
-   "name": "MDN on Mastodon"
+   "name": "MDN on Mastodon",
+   "path": "1.4.1.0.1.3.0"
   },
   {
    "role": "link",
-   "name": "MDN blog RSS feed"
+   "name": "MDN blog RSS feed",
+   "path": "1.4.1.0.1.4.0"
   },
   {
    "role": "link",
-   "name": "About"
+   "name": "About",
+   "path": "1.4.1.0.2.1.0.0.0"
   },
   {
    "role": "link",
-   "name": "Blog"
+   "name": "Blog",
+   "path": "1.4.1.0.2.1.0.1.0"
   },
   {
    "role": "link",
-   "name": "Mozilla careers (external)"
+   "name": "Mozilla careers (external)",
+   "path": "1.4.1.0.2.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "Advertise with us"
+   "name": "Advertise with us",
+   "path": "1.4.1.0.2.1.0.3.0"
   },
   {
    "role": "link",
-   "name": "MDN Plus"
+   "name": "MDN Plus",
+   "path": "1.4.1.0.2.1.0.4.0"
   },
   {
    "role": "link",
-   "name": "Product help (external)"
+   "name": "Product help (external)",
+   "path": "1.4.1.0.2.1.0.5.0"
   },
   {
    "role": "link",
-   "name": "MDN Community"
+   "name": "MDN Community",
+   "path": "1.4.1.0.3.1.0.0.0"
   },
   {
    "role": "link",
-   "name": "Community resources"
+   "name": "Community resources",
+   "path": "1.4.1.0.3.1.0.1.0"
   },
   {
    "role": "link",
-   "name": "Writing guidelines"
+   "name": "Writing guidelines",
+   "path": "1.4.1.0.3.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "MDN Discord (external)"
+   "name": "MDN Discord (external)",
+   "path": "1.4.1.0.3.1.0.3.0"
   },
   {
    "role": "link",
-   "name": "MDN on GitHub (external)"
+   "name": "MDN on GitHub (external)",
+   "path": "1.4.1.0.3.1.0.4.0"
   },
   {
    "role": "link",
-   "name": "Web technologies"
+   "name": "Web technologies",
+   "path": "1.4.1.0.4.1.0.0.0"
   },
   {
    "role": "link",
-   "name": "Learn web development"
+   "name": "Learn web development",
+   "path": "1.4.1.0.4.1.0.1.0"
   },
   {
    "role": "link",
-   "name": "Guides"
+   "name": "Guides",
+   "path": "1.4.1.0.4.1.0.2.0"
   },
   {
    "role": "link",
-   "name": "Tutorials"
+   "name": "Tutorials",
+   "path": "1.4.1.0.4.1.0.3.0"
   },
   {
    "role": "link",
-   "name": "Glossary"
+   "name": "Glossary",
+   "path": "1.4.1.0.4.1.0.4.0"
   },
   {
    "role": "link",
-   "name": "Hacks blog (external)"
+   "name": "Hacks blog (external)",
+   "path": "1.4.1.0.4.1.0.5.0"
   },
   {
    "role": "link",
-   "name": "Mozilla logo"
+   "name": "Mozilla logo",
+   "path": "1.4.1.1.0"
   },
   {
    "role": "link",
-   "name": "Website Privacy Notice (external)"
+   "name": "Website Privacy Notice (external)",
+   "path": "1.4.1.1.1.0.0"
   },
   {
    "role": "link",
-   "name": "Telemetry Settings (external)"
+   "name": "Telemetry Settings (external)",
+   "path": "1.4.1.1.1.1.0"
   },
   {
    "role": "link",
-   "name": "Legal (external)"
+   "name": "Legal (external)",
+   "path": "1.4.1.1.1.2.0"
   },
   {
    "role": "link",
-   "name": "Community Participation Guidelines (external)"
+   "name": "Community Participation Guidelines (external)",
+   "path": "1.4.1.1.1.3.0"
   },
   {
    "role": "link",
-   "name": "a Creative Commons license"
+   "name": "a Creative Commons license",
+   "path": "1.4.1.1.2.0"
   }
  ],
- "clippedInteractive": 0,
+ "hiddenInChrome": 0,
  "hidden": [
   "This feature is well established and works across many devices and browser versions. It’s been available across browsers since July 2015.",
   "* Some parts of this feature may have varying levels of support.",
@@ -1824,5 +2264,5 @@
   "alternate stylesheet",
   "compression-dictionary"
  ],
- "chromeAiSnapshotBytes": 146590
+ "chromeAiSnapshotBytes": 134323
 }
