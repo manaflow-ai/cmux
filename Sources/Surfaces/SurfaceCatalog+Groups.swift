@@ -139,7 +139,6 @@ extension SurfaceCatalog {
         for member in group.placements {
             // The first new resource takes the drop spot; the rest join its pane as tabs.
             // A reserved lead that already rolled back hands the spot to the next one.
-            if let lead = anchor?.panelID, !projections.contains(where: { $0.panelID == lead }) { anchor = nil }
             let target = anchor?.destination ?? destination
             do {
                 let remoteView = try resolveRemoteView(
