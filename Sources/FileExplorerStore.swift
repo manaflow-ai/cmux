@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCore
 import CmuxFoundation
 import AppKit
 import Combine
@@ -636,23 +637,21 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         return result.stdout
     }
 
+    // Probes reuse the workspace's master through its ControlPath and must
+    // never become one, like cmux's other background ssh runs.
     static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
-        var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
-        if let port = connection.port {
-            args += ["-p", String(port)]
-        }
-        if let identityFile = connection.identityFile {
-            args += ["-i", identityFile]
-        }
-        for option in connection.sshOptions {
-            args += ["-o", option]
-        }
-        // Batch mode, no TTY, connection timeout
-        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
-        // Forwarding stays as configured: without `ControlMaster=no` this run
-        // can become the shared master that interactive sessions reuse.
-        args += ["--", connection.destination, command]
-        return args
+        WorkspaceRemoteConfiguration(
+            destination: connection.destination,
+            port: connection.port,
+            identityFile: connection.identityFile,
+            sshOptions: connection.sshOptions,
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        ).batchSSHCommandArguments(command: command, effectiveSSHOptions: connection.sshOptions)
     }
 
     private static func runSSHListCommand(
