@@ -5700,23 +5700,14 @@ struct CMUXCLI {
                 }
                 if let limits = response["limits"] as? [String: Any],
                    let planId = limits["planId"] as? String {
-                    let maxActiveVms = limits["maxActiveVms"] as? Int
-                    let cloudAccessGranted = maxActiveVms.map { $0 <= 0 && !vms.isEmpty } ?? false
-                    // A zero cap with an existing fleet is the server's
-                    // inventory-only shape for granted Cloud access.
-                    if cloudAccessGranted {
-                        let format = String(
-                            localized: "cli.vm.list.planMeter.unlimited",
-                            defaultValue: "%1$d machines on the %2$@ plan, no limit"
-                        )
-                        print(String(format: format, vms.count, planId))
-                    } else if maxActiveVms == 1 {
+                    // Absent or null means the plan has no active-machine cap.
+                    if let maxActiveVms = limits["maxActiveVms"] as? Int, maxActiveVms == 1 {
                         let format = String(
                             localized: "cli.vm.list.planMeter.single",
                             defaultValue: "%1$d of 1 machine on the %2$@ plan"
                         )
                         print(String(format: format, vms.count, planId))
-                    } else if let maxActiveVms {
+                    } else if let maxActiveVms = limits["maxActiveVms"] as? Int {
                         let format = String(
                             localized: "cli.vm.list.planMeter",
                             defaultValue: "%1$d of %2$d machines on the %3$@ plan"
@@ -5734,7 +5725,7 @@ struct CMUXCLI {
                     let expiresAtMs = (limits["freeAccessExpiresAt"] as? Int64)
                         ?? (limits["freeAccessExpiresAt"] as? Int).map(Int64.init)
                         ?? (limits["freeAccessExpiresAt"] as? Double).map(Int64.init)
-                    if !cloudAccessGranted, let expiresAtMs {
+                    if let expiresAtMs {
                         let expiresAt = Date(timeIntervalSince1970: TimeInterval(expiresAtMs) / 1000)
                         let remaining = expiresAt.timeIntervalSinceNow
                         // Attribution only: the pricing page forwards it to checkout.

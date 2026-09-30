@@ -365,7 +365,7 @@ final class NewMachineModel {
     /// Uncapped plans read "2 machines in use".
     var planMeterText: String? {
         guard let plan else { return nil }
-        guard let maxActiveVms = plan.meterMaxActiveVms else {
+        guard let maxActiveVms = plan.maxActiveVms else {
             if plan.activeCount == 1 {
                 return String(localized: "machines.new.plan.unlimited.single", defaultValue: "1 machine in use")
             }
@@ -381,7 +381,7 @@ final class NewMachineModel {
 
     /// The free plan's access window, so nobody is surprised a week later.
     var freeAccessNoteText: String? {
-        guard let plan, !plan.isPaidPlan, !plan.isCloudAccessGranted, plan.freeAccessWindowDays > 0 else { return nil }
+        guard let plan, !plan.isPaidPlan, plan.freeAccessWindowDays > 0 else { return nil }
         let format = String(
             localized: "machines.new.plan.freeWindow",
             defaultValue: "Free plan: this machine stays reachable for %d days. Upgrade to keep it."

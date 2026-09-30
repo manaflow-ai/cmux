@@ -8,8 +8,10 @@ import Testing
 @testable import cmux
 #endif
 
-/// A zero machine ceiling is granted access only when the fleet already has
-/// machines; an empty fleet still has the free-plan paywall.
+/// A zero machine ceiling closes Cloud provisioning for the plan. The server
+/// refuses the create at any fleet size and, once the free window passes,
+/// every access verb on the machines already there, so owning machines is not
+/// evidence of an entitlement and the client must keep gating on the cap.
 @Suite("Cloud machines zero-cap plan")
 struct MachinesPanelZeroCapPlanTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -26,7 +28,7 @@ struct MachinesPanelZeroCapPlanTests {
         }
     }
 
-    private func limits(maxActiveVms: Int, planId: String = "free") -> VMPlanLimits {
+    private func limits(maxActiveVms: Int?, planId: String = "free") -> VMPlanLimits {
         VMPlanLimits(
             maxActiveVms: maxActiveVms,
             planId: planId,
@@ -35,129 +37,64 @@ struct MachinesPanelZeroCapPlanTests {
         )
     }
 
-    @Test("A zero cap is inventory-only for an account with machines")
-    func zeroCapIsUnmeteredWhenMachinesExist() throws {
-        let plan = try #require(MachineSnapshotBuilder.planSnapshot(
-            activeCount: 3,
-            limits: limits(maxActiveVms: 0),
-            machines: machines(count: 3),
+    private func plan(activeCount: Int, maxActiveVms: Int?, planId: String = "free") throws -> MachinePlanSnapshot {
+        try #require(MachineSnapshotBuilder.planSnapshot(
+            activeCount: activeCount,
+            limits: limits(maxActiveVms: maxActiveVms, planId: planId),
+            machines: machines(count: activeCount),
             now: now
         ))
-        #expect(plan.usage.compactCount == "3")
-        #expect(plan.isAtLimit == false)
-        #expect(CloudTreeGroupCount(usage: plan.usage).isWarning == false)
-        #expect(plan.usage.countLabel == "3 machines")
-        #expect(plan.maxActiveVms == 0)
-        #expect(plan.isCloudAccessGranted)
-        #expect(plan.usage.maxActiveVms == nil)
-        #expect(plan.hasPlanMeter == false)
-        #expect(plan.freeAccessBanner == .none)
-        #expect(plan.freeAccessBannerText == nil)
     }
 
-    @Test("A genuine free plan still meters and banners")
-    func positiveFreeCapKeepsMeter() throws {
-        let plan = try #require(MachineSnapshotBuilder.planSnapshot(
-            activeCount: 1,
-            limits: limits(maxActiveVms: 1),
-            machines: machines(count: 1),
-            now: now
-        ))
-        #expect(plan.usage.compactCount == "1/1")
-        #expect(plan.isAtLimit == true)
-        #expect(plan.freeAccessBanner != .none)
+    @Test("A zero cap gates an account that already has machines")
+    @MainActor
+    func zeroCapGatesAnExistingFleet() throws {
+        let plan = try plan(activeCount: 3, maxActiveVms: 0)
+        #expect(plan.maxActiveVms == 0)
+        #expect(plan.isAtLimit, "a zero cap refuses the next create at any fleet size")
+        #expect(NewMachineSheetPresenter.shouldPresentUpgrade(for: plan))
+        #expect(CloudTreeGroupCount(usage: plan.usage).isWarning)
+        #expect(plan.freeAccessBanner != .none, "the server's expiry is authoritative")
         #expect(plan.freeAccessBannerText != nil)
     }
 
-    @Test("A zero-cap account without machines keeps its free-access banner")
-    func zeroCapWithoutMachinesKeepsBanner() throws {
-        let plan = try #require(MachineSnapshotBuilder.planSnapshot(
-            activeCount: 0,
-            limits: limits(maxActiveVms: 0),
-            machines: [],
-            now: now
-        ))
-        #expect(plan.maxActiveVms == 0)
-        #expect(plan.isCloudAccessGranted == false)
-        #expect(plan.hasPlanMeter)
+    @Test("A zero cap gates an empty fleet the same way")
+    @MainActor
+    func zeroCapGatesAnEmptyFleet() throws {
+        let plan = try plan(activeCount: 0, maxActiveVms: 0)
         #expect(plan.isAtLimit)
-        #expect(plan.freeAccessBanner != .none)
+        #expect(NewMachineSheetPresenter.shouldPresentUpgrade(for: plan))
         #expect(plan.freeAccessBannerText != nil)
     }
 
-    @Test("Granted access clears row locks and the new-machine free-window note")
+    @Test("A positive free cap still reads as a meter")
     @MainActor
-    func grantedAccessClearsFreeWindowPresentation() throws {
-        let plan = try #require(MachineSnapshotBuilder.planSnapshot(
-            activeCount: 3,
-            limits: limits(maxActiveVms: 0),
-            machines: machines(count: 3),
-            now: now
-        ))
-        let locked = machines(count: 3).map { machine -> MachineSnapshot in
-            var machine = machine
-            machine.freeAccess = .expired
-            return machine
-        }
-        let unlocked = MachineSnapshotBuilder.applyingFreeAccess(to: locked, plan: plan, now: now)
-        #expect(unlocked.allSatisfy { $0.freeAccess == .unrestricted })
-
-        let model = NewMachineModel(
-            mode: .newMachine,
-            plan: plan,
-            memoryOptionsMb: [],
-            submit: { _ in false }
-        )
-        #expect(model.freeAccessNoteText == nil)
+    func positiveFreeCapKeepsItsMeter() throws {
+        let plan = try plan(activeCount: 1, maxActiveVms: 1)
+        #expect(plan.usage.compactCount == "1/1")
+        #expect(plan.usage.countLabel == "1 of 1 machine")
+        #expect(plan.isAtLimit)
+        #expect(NewMachineSheetPresenter.shouldPresentUpgrade(for: plan))
     }
 
-    @Test("The presenter keeps the upgrade gate only for an unentitled zero-cap account")
+    @Test("A room-to-spare free cap is neither at the limit nor tinted")
     @MainActor
-    func presenterUpgradeGateDistinguishesGrant() throws {
-        let granted = try #require(MachineSnapshotBuilder.planSnapshot(
-            activeCount: 3,
-            limits: limits(maxActiveVms: 0),
-            machines: machines(count: 3),
-            now: now
-        ))
-        let unentitled = try #require(MachineSnapshotBuilder.planSnapshot(
-            activeCount: 0,
-            limits: limits(maxActiveVms: 0),
-            machines: [],
-            now: now
-        ))
-        #expect(NewMachineSheetPresenter.shouldPresentUpgrade(for: granted) == false)
-        #expect(NewMachineSheetPresenter.shouldPresentUpgrade(for: unentitled))
+    func freeCapWithRoomIsNotGated() throws {
+        let plan = try plan(activeCount: 0, maxActiveVms: 1)
+        #expect(plan.usage.compactCount == "0/1")
+        #expect(plan.isAtLimit == false)
+        #expect(NewMachineSheetPresenter.shouldPresentUpgrade(for: plan) == false)
+        #expect(CloudTreeGroupCount(usage: plan.usage).isWarning == false)
     }
 
-    @Test("A non-granted plan preserves the server's machine expiry")
-    func serverExpirySurvivesPlanProjection() throws {
-        let createdAt = now.addingTimeInterval(-2 * 86_400)
-        let serverExpiry = now.addingTimeInterval(10 * 86_400)
-        let summary = VMSummary(
-            id: "machine-server-expiry",
-            provider: "freestyle",
-            status: "running",
-            image: "cmuxd",
-            createdAt: Int64(createdAt.timeIntervalSince1970 * 1000),
-            freeAccessExpiresAt: Int64(serverExpiry.timeIntervalSince1970 * 1000)
-        )
-        let snapshot = MachineSnapshotBuilder.snapshot(
-            from: summary,
-            freeAccessWindowDays: 7,
-            now: now
-        )
-        let plan = try #require(MachineSnapshotBuilder.planSnapshot(
-            activeCount: 1,
-            limits: limits(maxActiveVms: 1),
-            machines: [snapshot],
-            now: now
-        ))
-        let projected = MachineSnapshotBuilder.applyingFreeAccess(
-            to: [snapshot],
-            plan: plan,
-            now: now
-        )
-        #expect(projected[0].freeAccess == .active(daysLeft: 10))
+    @Test("A paid plan with no cap is uncapped, not gated")
+    @MainActor
+    func paidPlanWithoutCapIsUngated() throws {
+        let plan = try plan(activeCount: 3, maxActiveVms: nil, planId: "pro")
+        #expect(plan.usage.compactCount == "3")
+        #expect(plan.usage.countLabel == "3 machines")
+        #expect(plan.isAtLimit == false)
+        #expect(NewMachineSheetPresenter.shouldPresentUpgrade(for: plan) == false)
+        #expect(plan.freeAccessBanner == .none)
     }
 }

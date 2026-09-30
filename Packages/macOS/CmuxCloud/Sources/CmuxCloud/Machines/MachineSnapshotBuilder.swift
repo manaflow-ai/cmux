@@ -177,23 +177,6 @@ public enum MachineSnapshotBuilder: Sendable {
         }
     }
 
-    /// Clears row locks for a granted account and leaves every other account's
-    /// rows exactly as built, including any server-authoritative expiry.
-    public static func applyingFreeAccess(
-        to snapshots: [MachineSnapshot],
-        plan: MachinePlanSnapshot,
-        now: Date = Date()
-    ) -> [MachineSnapshot] {
-        guard !plan.isCloudAccessGranted else {
-            return snapshots.map { snapshot in
-                var next = snapshot
-                next.freeAccess = .unrestricted
-                return next
-            }
-        }
-        return snapshots
-    }
-
     public static func activity(fromStatus status: String) -> MachineSnapshot.Activity {
         switch status.lowercased() {
         case "running", "ready", "standby", "paused":
@@ -213,19 +196,14 @@ public enum MachineSnapshotBuilder: Sendable {
     ) -> MachinePlanSnapshot? {
         guard let limits else { return nil }
         let isPaidPlan = MachinePlanSnapshot.isPaidPlanID(limits.planId)
-        let hasPlanMeter = (limits.maxActiveVms ?? 1) > 0
-        // A non-metered account with machines already has Cloud access, so
-        // free-plan metadata is stale and must not create an expiry warning.
-        let staleFreePlan = !hasPlanMeter && (activeCount > 0 || !machines.isEmpty)
-        let expiresAt = (isPaidPlan || staleFreePlan) ? nil : earliestFreeAccessExpiry(limits: limits, machines: machines)
+        let expiresAt = isPaidPlan ? nil : earliestFreeAccessExpiry(limits: limits, machines: machines)
         return MachinePlanSnapshot(
             activeCount: activeCount,
             maxActiveVms: limits.maxActiveVms,
             planId: limits.planId,
             freeAccessWindowDays: limits.freeAccessWindowDays,
             freeAccessExpiresAt: expiresAt,
-            freeAccessBanner: freeAccessBanner(expiresAt: expiresAt, isPaidPlan: isPaidPlan, now: now),
-            isCloudAccessGranted: staleFreePlan
+            freeAccessBanner: freeAccessBanner(expiresAt: expiresAt, isPaidPlan: isPaidPlan, now: now)
         )
     }
 }

@@ -615,7 +615,7 @@ struct MachinesPanelView: View {
     /// to cite: upgrading is what grants access in the first place (the paid
     /// allowance itself is stated on /pricing, not guessed here).
     private func upgradeNudgeLabel(_ plan: MachinePlanSnapshot) -> String {
-        guard let maxActiveVms = plan.meterMaxActiveVms, maxActiveVms > 0 else {
+        guard let maxActiveVms = plan.maxActiveVms, maxActiveVms > 0 else {
             return String(
                 localized: "machines.empty.upgrade.none",
                 defaultValue: "Subscribe to cmux Pro to create Cloud machines"
@@ -638,7 +638,7 @@ struct MachinesPanelView: View {
     /// header shows a count. The uncapped wording only appears when an
     /// operator lifted the cap.
     private func planIncludesLabel(_ plan: MachinePlanSnapshot) -> String {
-        guard let maxActiveVms = plan.meterMaxActiveVms else {
+        guard let maxActiveVms = plan.maxActiveVms else {
             return String(
                 localized: "machines.empty.planIncludes.unlimited",
                 defaultValue: "Your plan includes unlimited machines"
