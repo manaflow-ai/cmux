@@ -115,11 +115,23 @@ extension CMUXCLI {
         return VMDevRecipe(setup: setup, checks: checks, lockHash: hash, source: ".cmux/cloud.json")
     }
 
-    static func vmDevSetupCommand(_ recipe: VMDevRecipe) -> String {
-        let setup = recipe.setup.joined(separator: " && ")
-        guard let hash = recipe.lockHash else { return setup }
-        let marker = "$HOME/.cache/cmux/setup/\(hash)"
-        return "if [ -f \(marker) ]; then :; else (\(setup)) && mkdir -p $HOME/.cache/cmux/setup && touch \(marker); fi"
+    static func vmDevSetupCommand(_ recipe: VMDevRecipe, remote: String) -> String {
+        guard let hash = recipe.lockHash else { return ":" }
+        // The same recipe can be used by two checkouts on one machine. Include
+        // the remote project path in the cache scope so an install for one
+        // checkout never suppresses setup for another.
+        let scope = SHA256.hash(data: Data("\(remote)\0\(hash)".utf8)).map { String(format: "%02x", $0) }.joined()
+        let root = "$HOME/.cache/cmux/setup/\(scope)"
+        let marker = "\(root)/ready"
+        let lock = "\(root)/lock"
+        let setup = recipe.setup
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { "(\($0))" }
+            .joined(separator: " && ")
+        let run = setup.isEmpty ? ":" : setup
+        // mkdir is an atomic lock on the Linux guest. A failed recipe removes
+        // the lock before returning, so a later invocation can retry.
+        return "mkdir -p \"\(root)\"; while [ ! -f \"\(marker)\" ]; do if mkdir \"\(lock)\" 2>/dev/null; then \(run) && : > \"\(marker)\"; status=$?; rmdir \"\(lock)\" 2>/dev/null || true; [ \"$status\" -eq 0 ] || exit \"$status\"; else sleep 0.1; fi; done"
     }
 
     /// Framework → default dev port, decided from the script's words (what the author
@@ -492,9 +504,9 @@ extension CMUXCLI {
         let detectedCommand = options.command ?? detection.command
         let command: String?
         if let recipe, let detectedCommand {
-            command = "\(Self.vmDevSetupCommand(recipe)) && \(detectedCommand)"
+            command = "\(Self.vmDevSetupCommand(recipe, remote: remote)) && \(detectedCommand)"
         } else if let recipe {
-            command = Self.vmDevSetupCommand(recipe)
+            command = Self.vmDevSetupCommand(recipe, remote: remote)
         } else {
             command = detectedCommand
         }

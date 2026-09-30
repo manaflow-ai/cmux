@@ -67,6 +67,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    private final class VMDevProcessResults: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [ProcessRunResult] = []
+
+        func append(_ value: ProcessRunResult) {
+            lock.lock()
+            values.append(value)
+            lock.unlock()
+        }
+
+        func snapshot() -> [ProcessRunResult] {
+            lock.lock()
+            defer { lock.unlock() }
+            return values
+        }
+    }
+
     /// The base64 body of a `printf %s '<b64>' | base64 -d …` command.
     private static func vmDevBase64Payload(inCommand command: String) -> Data? {
         guard let start = command.range(of: "printf %s '"),
@@ -219,6 +236,48 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return plan
     }
 
+    /// Execute a generated dev command in the same way the machine shell does.
+    /// Keeping this at the integration boundary lets setup replay tests exercise
+    /// the lock/marker protocol even though the CLI target is not linked into
+    /// this test bundle.
+    private func runGeneratedVMDevCommand(
+        _ command: String,
+        cwd: URL,
+        home: URL,
+        extraEnvironment: [String: String] = [:],
+        timeout: TimeInterval = 10
+    ) -> ProcessRunResult {
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = home.path
+        environment.merge(extraEnvironment) { _, new in new }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.currentDirectoryURL = cwd
+        process.environment = environment
+        let output = Pipe()
+        let error = Pipe()
+        process.standardOutput = output
+        process.standardError = error
+        do {
+            try process.run()
+        } catch {
+            return ProcessRunResult(status: -1, stdout: "", stderr: "(error)", timedOut: false)
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        let timedOut = process.isRunning
+        if timedOut {
+            process.terminate()
+            process.waitUntilExit()
+        }
+        let stdout = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: error.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return ProcessRunResult(status: process.terminationStatus, stdout: stdout, stderr: stderr, timedOut: timedOut)
+    }
+
     // MARK: - Detection (dry run, no socket)
 
     func testVMDevDryRunDetectsProjectsWithoutTouchingTheSocket() throws {
@@ -365,6 +424,85 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(recipe["setup"] as? [String], ["bun install"])
         XCTAssertEqual(recipe["checks"] as? [String], ["bun test"])
         XCTAssertNotNil(recipe["lock_hash"] as? String)
+    }
+
+    func testVMDevSetupReplayScopesByRemoteAndSkipsAfterSuccess() throws {
+        let fixture = try vmDevFixture("replay", files: [
+            ".cmux/cloud.json": #"{"setup":["echo run >> \"$COUNT\""],"checks":[]}"#,
+            "package.json": #"{"scripts":{"dev":"true"}}"#,
+            "package-lock.json": "lock-v1",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let count = fixture.root.appendingPathComponent("count")
+        let plan = try vmDevDryRunPlan("replay", project: fixture.project, home: fixture.home, extra: ["--command", ":", "--remote", "work/replay-a"])
+        let commandA = try XCTUnwrap(plan["command"] as? String)
+        let first = runGeneratedVMDevCommand(commandA, cwd: fixture.project, home: fixture.home, extraEnvironment: ["COUNT": count.path])
+        XCTAssertEqual(first.status, 0, "\(first.stdout)\n\(first.stderr)")
+        let second = runGeneratedVMDevCommand(commandA, cwd: fixture.project, home: fixture.home, extraEnvironment: ["COUNT": count.path])
+        XCTAssertEqual(second.status, 0, "\(second.stdout)\n\(second.stderr)")
+        XCTAssertEqual(try String(contentsOf: count).split(separator: "\n").count, 1)
+
+        let planB = try vmDevDryRunPlan("replay-b", project: fixture.project, home: fixture.home, extra: ["--command", ":", "--remote", "work/replay-b"])
+        let commandB = try XCTUnwrap(planB["command"] as? String)
+        let third = runGeneratedVMDevCommand(commandB, cwd: fixture.project, home: fixture.home, extraEnvironment: ["COUNT": count.path])
+        XCTAssertEqual(third.status, 0, "\(third.stdout)\n\(third.stderr)")
+        XCTAssertEqual(try String(contentsOf: count).split(separator: "\n").count, 2)
+    }
+
+    func testVMDevSetupFailureReleasesLockForRetryAndEmptySetupIsValid() throws {
+        let fixture = try vmDevFixture("retry", files: [
+            ".cmux/cloud.json": #"{"setup":["if [ ! -f \"$FAIL_FLAG\" ]; then : > \"$FAIL_FLAG\"; false; else echo retry >> \"$COUNT\"; fi"]}"#,
+            "package.json": #"{"scripts":{"dev":"true"}}"#,
+            "package-lock.json": "lock-v1",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let count = fixture.root.appendingPathComponent("count")
+        let failFlag = fixture.root.appendingPathComponent("failed-once")
+        let plan = try vmDevDryRunPlan("retry", project: fixture.project, home: fixture.home, extra: ["--command", ":"])
+        let command = try XCTUnwrap(plan["command"] as? String)
+        let failed = runGeneratedVMDevCommand(command, cwd: fixture.project, home: fixture.home, extraEnvironment: ["COUNT": count.path, "FAIL_FLAG": failFlag.path])
+        XCTAssertNotEqual(failed.status, 0)
+        let retried = runGeneratedVMDevCommand(command, cwd: fixture.project, home: fixture.home, extraEnvironment: ["COUNT": count.path, "FAIL_FLAG": failFlag.path])
+        XCTAssertEqual(retried.status, 0, "\(retried.stdout)\n\(retried.stderr)")
+        XCTAssertEqual(try String(contentsOf: count), "retry\n")
+
+        let empty = try vmDevFixture("empty-recipe", files: [
+            ".cmux/cloud.json": #"{"setup":[]}"#,
+            "package.json": #"{"scripts":{"dev":"true"}}"#,
+            "package-lock.json": "lock-v1",
+        ])
+        defer { try? FileManager.default.removeItem(at: empty.root) }
+        let emptyPlan = try vmDevDryRunPlan("empty-recipe", project: empty.project, home: empty.home, extra: ["--command", ":"])
+        let emptyCommand = try XCTUnwrap(emptyPlan["command"] as? String)
+        let emptyRun = runGeneratedVMDevCommand(emptyCommand, cwd: empty.project, home: empty.home)
+        XCTAssertEqual(emptyRun.status, 0, "\(emptyRun.stdout)\n\(emptyRun.stderr)")
+    }
+
+    func testVMDevSetupConcurrentInvocationsRunOnce() throws {
+        let fixture = try vmDevFixture("concurrent", files: [
+            ".cmux/cloud.json": #"{"setup":["sleep 0.2; echo run >> \"$COUNT\""],"checks":[]}"#,
+            "package.json": #"{"scripts":{"dev":"true"}}"#,
+            "package-lock.json": "lock-v1",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let count = fixture.root.appendingPathComponent("count")
+        let plan = try vmDevDryRunPlan("concurrent", project: fixture.project, home: fixture.home, extra: ["--command", ":"])
+        let command = try XCTUnwrap(plan["command"] as? String)
+        let group = DispatchGroup()
+        let results = VMDevProcessResults()
+        for _ in 0..<2 {
+            group.enter()
+            DispatchQueue.global().async {
+                let result = self.runGeneratedVMDevCommand(command, cwd: fixture.project, home: fixture.home, extraEnvironment: ["COUNT": count.path])
+                results.append(result)
+                group.leave()
+            }
+        }
+        group.wait()
+        let values = results.snapshot()
+        XCTAssertEqual(values.count, 2)
+        XCTAssertTrue(values.allSatisfy { $0.status == 0 }, values.map { "\($0.status): \($0.stderr)" }.joined(separator: "\n"))
+        XCTAssertEqual(try String(contentsOf: count).split(separator: "\n").count, 1)
     }
 
     // MARK: - The socket sequence
