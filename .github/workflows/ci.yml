@@ -1118,7 +1118,6 @@ jobs:
   # selected the equivalent full suite. The guard watcher reads this cheap
   # marker from the run's jobs rather than inferring coverage from its SHA.
   full-suite-coverage:
-    name: full-suite-coverage:${{ needs.changes.outputs.coverage_fingerprint }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.full_suite == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

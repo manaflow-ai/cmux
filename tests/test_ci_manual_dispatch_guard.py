@@ -81,8 +81,15 @@ class ManualDispatchGuard(unittest.TestCase):
 
     def test_failed_coverage_marker_is_not_published_as_coverage(self):
         api = module.GitHub("test", "manaflow-ai/cmux")
-        with patch.object(api, "_request", side_effect=[{"workflow_runs": [{"id": 7}]}, {"jobs": [{"name": f"full-suite-coverage:{FP}", "status": "completed", "conclusion": "failure"}]}]):
+        with patch.object(api, "_request", side_effect=[{"workflow_runs": [{"id": 7, "display_title": FP}]}, {"jobs": [{"name": "full-suite-coverage", "status": "completed", "conclusion": "failure"}]}]):
             self.assertEqual(api.normal_ci_runs("6611c69")[0]["full_suite"], False)
+
+    def test_marker_reads_fingerprint_from_run_title(self):
+        api = module.GitHub("test", "manaflow-ai/cmux")
+        with patch.object(api, "_request", side_effect=[{"workflow_runs": [{"id": 7, "display_title": FP}]}, {"jobs": [{"name": "full-suite-coverage", "status": "in_progress"}]}]):
+            run = api.normal_ci_runs("6611c69")[0]
+        self.assertTrue(run["full_suite"])
+        self.assertEqual(run["coverage_fingerprint"], FP)
 
     def test_other_sha_or_event_does_not_cover_head(self):
         self.assertFalse(module.has_covering_ci_run([{"event": "workflow_dispatch", "head_sha": "6611c69", "status": "in_progress"}], "6611c69", FP))

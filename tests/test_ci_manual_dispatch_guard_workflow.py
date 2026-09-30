@@ -33,7 +33,7 @@ def test_full_suite_coverage_marker_is_only_for_full_suite() -> None:
     marker = document["jobs"]["full-suite-coverage"]
     assert marker["needs"] == "changes"
     assert "needs.changes.outputs.full_suite == 'true'" in marker["if"]
-    assert marker["name"].startswith("full-suite-coverage:")
+    assert marker.get("name", "full-suite-coverage") == "full-suite-coverage"
     assert "coverage_fingerprint" in document["jobs"]["changes"]["outputs"]
 
 

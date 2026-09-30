@@ -88,7 +88,7 @@ class GitHub:
             f"/repos/{self.repository}/actions/workflows/ci.yml/runs?{query}"
         )
         runs = body.get("workflow_runs", []) if isinstance(body, Mapping) else []
-        marker = "full-suite-coverage:"
+        marker = "full-suite-coverage"
         for run in runs:
             try:
                 jobs = self._request(
@@ -97,15 +97,16 @@ class GitHub:
                 jobs_list = jobs.get("jobs", []) if isinstance(jobs, Mapping) else []
                 marker_jobs = [
                     job for job in jobs_list
-                    if str(job.get("name", "")).startswith(marker)
+                    if str(job.get("name", "")) == marker
                 ]
                 run["full_suite"] = any(
                     job.get("status") != "completed" or job.get("conclusion") == "success"
                     for job in marker_jobs
                 )
                 run["coverage_fingerprint"] = (
-                    str(marker_jobs[0].get("name"))[len(marker):]
-                    if marker_jobs else ""
+                    str(run.get("display_title", ""))
+                    if marker_jobs and str(run.get("display_title", "")).startswith("v1;")
+                    else ""
                 )
             except (KeyError, OSError, ValueError, TypeError):
                 run["full_suite"] = False
