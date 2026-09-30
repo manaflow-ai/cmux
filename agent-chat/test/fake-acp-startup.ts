@@ -37,5 +37,12 @@ await readLines(Bun.stdin.stream(), (line) => {
     result = { stopReason: "end_turn" };
   }
   console.log(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }));
+  if (request.method === "session/new") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: {
+      sessionId: `fixture-${process.pid}`, update: {
+        sessionUpdate: "available_commands_update", availableCommands: [{ name: "fixture", description: "Fixture command" }],
+      },
+    } }));
+  }
 });
 clearInterval(keepAlive);
