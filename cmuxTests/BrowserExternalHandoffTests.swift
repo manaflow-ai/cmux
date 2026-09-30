@@ -15,6 +15,8 @@ struct BrowserExternalHandoffTests {
     func closesOnlyAfterSuccessfulOpen(openSucceeds: Bool) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await DockShortcutRoutingTests.withHarness { harness in
+                ClosedItemHistoryStore.shared.removeAll()
+                defer { ClosedItemHistoryStore.shared.removeAll() }
                 let workspace = harness.mainWorkspace
                 let mainPane = try #require(workspace.bonsplitController.focusedPaneId)
                 let sibling = try #require(workspace.newBrowserSurface(inPane: mainPane, focus: true))
@@ -30,6 +32,7 @@ struct BrowserExternalHandoffTests {
                     try #require(harness.dock.browserPanel(for: globalID))
                 ]
                 for browser in browsers {
+                    ClosedItemHistoryStore.shared.removeAll()
                     let target = try #require(harness.appDelegate.browserActionTarget(for: browser))
                     var openedURLs: [URL] = []
                     let dispatcher = BrowserActionDispatcher(
@@ -44,7 +47,32 @@ struct BrowserExternalHandoffTests {
                     #expect(openedURLs == [url])
                     #expect((harness.appDelegate.browserPanel(resolving: target) == nil) == openSucceeds)
                     #expect(workspace.browserPanel(for: sibling.id) === sibling)
+                    #expect(ClosedItemHistoryStore.shared.canReopen == openSucceeds)
                 }
+            }
+        }
+    }
+
+    @Test("A pinned source remains open after external handoff")
+    @MainActor
+    func retainsPinnedSource() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await DockShortcutRoutingTests.withHarness { harness in
+                let workspace = harness.mainWorkspace
+                let pane = try #require(workspace.bonsplitController.focusedPaneId)
+                let url = try #require(URL(string: "http://127.0.0.1:1/pinned"))
+                let browser = try #require(workspace.newBrowserSurface(inPane: pane, url: url, focus: false))
+                workspace.setPanelPinned(panelId: browser.id, pinned: true)
+                let target = try #require(harness.appDelegate.browserActionTarget(for: browser))
+                var openedURLs: [URL] = []
+                let dispatcher = BrowserActionDispatcher(
+                    appDelegate: harness.appDelegate,
+                    openExternalURL: { openedURLs.append($0); return true }
+                )
+                #expect(!dispatcher.perform(.openInDefaultBrowserAndClose, on: target))
+                #expect(openedURLs == [url])
+                #expect(workspace.browserPanel(for: browser.id) === browser)
+                #expect(workspace.pinnedPanelIds.contains(browser.id))
             }
         }
     }
