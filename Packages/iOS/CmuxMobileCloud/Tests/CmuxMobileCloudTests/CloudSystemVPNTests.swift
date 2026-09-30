@@ -895,6 +895,34 @@ import Testing
         #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1").isEmpty)
     }
 
+    @Test func pendingRevocationsKeepSameFingerprintAcrossTeams() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        let fingerprint = "shared-fingerprint"
+        let teamOne = CloudSystemVPNPendingRevocation(
+            deviceFingerprint: fingerprint,
+            teamID: "team-1"
+        )
+        let teamTwo = CloudSystemVPNPendingRevocation(
+            deviceFingerprint: fingerprint,
+            teamID: "team-2"
+        )
+        await pendingStore.save(
+            [teamOne, teamTwo],
+            scope: "user-1/team-1"
+        )
+        let rig = Rig(pendingRevocationStore: pendingStore)
+
+        rig.controller.setScope("user-1/team-1", teamID: "team-1")
+        await rig.controller.waitForPendingOperation()
+        #expect(await pendingStore.load(scope: "user-1/team-1") == [teamTwo])
+        #expect(rig.service.calls.revoke.count == 1)
+
+        rig.controller.setScope("user-1/team-1", teamID: "team-2")
+        await rig.controller.waitForPendingOperation()
+        #expect(await pendingStore.load(scope: "user-1/team-1").isEmpty)
+        #expect(rig.service.calls.revoke.count == 2)
+    }
+
     @Test func allPersistedRevocationsAreProcessedBeyondTheWorkingSet() async {
         let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
         await pendingStore.save(

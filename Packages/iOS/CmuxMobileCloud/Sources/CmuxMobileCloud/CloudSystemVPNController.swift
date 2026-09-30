@@ -126,7 +126,7 @@ public final class CloudSystemVPNController {
     /// A VPN saved under another scope is removed before anything else, so
     /// one account's routes never survive into another's session.
     public func setScope(_ newScope: String?, teamID: String? = nil) {
-        let newScopeTeamID = newScope == nil ? nil : teamID
+        let newScopeTeamID = newScope == nil ? nil : normalizedTeamID(teamID)
         if hasLoadedScope,
            scope == newScope,
            scopeTeamID == newScopeTeamID,
@@ -662,22 +662,27 @@ public final class CloudSystemVPNController {
             credentials: CloudAPITokenSource.TokenContext?
         )
     ) {
+        let tunnelTeamID = normalizedTeamID(tunnel.teamID ?? tunnel.credentials?.teamID)
         if let index = pendingBrowserTunnelRevocations.firstIndex(where: {
             $0.scope == tunnel.scope
                 && $0.deviceFingerprint == tunnel.deviceFingerprint
+                && normalizedTeamID($0.teamID) == tunnelTeamID
         }) {
             let existing = pendingBrowserTunnelRevocations[index]
             pendingBrowserTunnelRevocations[index] = (
                 scope: existing.scope,
                 deviceFingerprint: existing.deviceFingerprint,
-                teamID: existing.teamID
-                    ?? tunnel.teamID
-                    ?? tunnel.credentials?.teamID,
+                teamID: normalizedTeamID(existing.teamID) ?? tunnelTeamID,
                 credentials: existing.credentials ?? tunnel.credentials
             )
             return
         }
-        pendingBrowserTunnelRevocations.append(tunnel)
+        pendingBrowserTunnelRevocations.append((
+            scope: tunnel.scope,
+            deviceFingerprint: tunnel.deviceFingerprint,
+            teamID: tunnelTeamID,
+            credentials: tunnel.credentials
+        ))
         let overflow = pendingBrowserTunnelRevocations.count - maxInMemoryPendingRevocations
         if overflow > 0 {
             pendingBrowserTunnelRevocations.removeFirst(overflow)
@@ -695,11 +700,13 @@ public final class CloudSystemVPNController {
         guard let index = pendingBrowserTunnelRevocations.firstIndex(where: {
             $0.scope == tunnel.scope
                 && $0.deviceFingerprint == tunnel.deviceFingerprint
+                && normalizedTeamID($0.teamID)
+                    == normalizedTeamID(tunnel.teamID ?? tunnel.credentials?.teamID)
         }) else { return }
         pendingBrowserTunnelRevocations[index] = (
             scope: tunnel.scope,
             deviceFingerprint: tunnel.deviceFingerprint,
-            teamID: tunnel.teamID,
+            teamID: normalizedTeamID(tunnel.teamID ?? tunnel.credentials?.teamID),
             credentials: nil
         )
     }
@@ -715,6 +722,8 @@ public final class CloudSystemVPNController {
         pendingBrowserTunnelRevocations.removeAll {
             $0.scope == tunnel.scope
                 && $0.deviceFingerprint == tunnel.deviceFingerprint
+                && normalizedTeamID($0.teamID)
+                    == normalizedTeamID(tunnel.teamID ?? tunnel.credentials?.teamID)
         }
     }
 
@@ -725,7 +734,7 @@ public final class CloudSystemVPNController {
                 rememberPendingBrowserTunnelRevocation((
                     scope: scope,
                     deviceFingerprint: revocation.deviceFingerprint,
-                    teamID: revocation.teamID,
+                    teamID: normalizedTeamID(revocation.teamID),
                     credentials: nil
                 ))
             }
@@ -743,16 +752,17 @@ public final class CloudSystemVPNController {
         var revocations = await pendingRevocationStore.load(scope: tunnel.scope)
         let pending = CloudSystemVPNPendingRevocation(
             deviceFingerprint: tunnel.deviceFingerprint,
-            teamID: tunnel.teamID ?? tunnel.credentials?.teamID
+            teamID: normalizedTeamID(tunnel.teamID ?? tunnel.credentials?.teamID)
         )
         if let existing = revocations.first(where: {
             $0.deviceFingerprint == pending.deviceFingerprint
+                && normalizedTeamID($0.teamID) == pending.teamID
         }) {
             revocations.remove(existing)
             revocations.insert(
                 CloudSystemVPNPendingRevocation(
                     deviceFingerprint: pending.deviceFingerprint,
-                    teamID: existing.teamID ?? pending.teamID
+                    teamID: pending.teamID
                 )
             )
         } else {
@@ -790,6 +800,8 @@ public final class CloudSystemVPNController {
         var revocations = await pendingRevocationStore.load(scope: tunnel.scope)
         revocations = revocations.filter {
             $0.deviceFingerprint != tunnel.deviceFingerprint
+                || normalizedTeamID($0.teamID)
+                    != normalizedTeamID(tunnel.teamID ?? tunnel.credentials?.teamID)
         }
         await pendingRevocationStore.save(revocations, scope: tunnel.scope)
     }
@@ -805,6 +817,8 @@ public final class CloudSystemVPNController {
            !tunnels.contains(where: {
                $0.scope == browserTunnel.scope
                    && $0.deviceFingerprint == browserTunnel.deviceFingerprint
+                   && normalizedTeamID($0.teamID)
+                       == normalizedTeamID(browserTunnel.teamID)
            }) {
             tunnels.append(browserTunnel)
         }
@@ -818,7 +832,10 @@ public final class CloudSystemVPNController {
             // owner scope and team are active; account-switch entries with
             // captured credentials remain safe to revoke immediately.
             guard tunnel.credentials != nil
-                || (scope == tunnel.scope && scopeTeamID == tunnel.teamID)
+                || (
+                    scope == tunnel.scope
+                        && scopeTeamID == normalizedTeamID(tunnel.teamID)
+                )
             else {
                 continue
             }
@@ -852,7 +869,10 @@ public final class CloudSystemVPNController {
     private var hasEligiblePendingBrowserTunnelRevocation: Bool {
         pendingBrowserTunnelRevocations.contains {
             $0.credentials != nil
-                || (scope == $0.scope && scopeTeamID == $0.teamID)
+                || (
+                    scope == $0.scope
+                        && scopeTeamID == normalizedTeamID($0.teamID)
+                )
         }
     }
 
@@ -879,7 +899,9 @@ public final class CloudSystemVPNController {
                 )
                 removePendingBrowserTunnelRevocation(tunnel)
                 if browserTunnel?.scope == tunnel.scope,
-                   browserTunnel?.deviceFingerprint == tunnel.deviceFingerprint {
+                   browserTunnel?.deviceFingerprint == tunnel.deviceFingerprint,
+                   normalizedTeamID(browserTunnel?.teamID)
+                       == normalizedTeamID(tunnel.teamID) {
                     browserTunnel = nil
                 }
                 await clearPersistedBrowserTunnelRevocation(tunnel)
@@ -890,7 +912,9 @@ public final class CloudSystemVPNController {
         }
         clearPendingBrowserTunnelRevocationCredentials(tunnel)
         if browserTunnel?.scope == tunnel.scope,
-           browserTunnel?.deviceFingerprint == tunnel.deviceFingerprint {
+           browserTunnel?.deviceFingerprint == tunnel.deviceFingerprint,
+           normalizedTeamID(browserTunnel?.teamID)
+               == normalizedTeamID(tunnel.teamID) {
             browserTunnel = (
                 scope: tunnel.scope,
                 deviceFingerprint: tunnel.deviceFingerprint,
@@ -1175,6 +1199,12 @@ public final class CloudSystemVPNController {
 
     private func isCurrent(_ generation: UInt64) -> Bool {
         self.generation == generation && !Task.isCancelled
+    }
+
+    private func normalizedTeamID(_ teamID: String?) -> String? {
+        guard let teamID else { return nil }
+        let normalized = teamID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
     }
 
     @MainActor

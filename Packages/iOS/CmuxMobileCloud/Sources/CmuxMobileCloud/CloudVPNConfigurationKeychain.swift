@@ -1,9 +1,10 @@
 #if swift(>=6.0)
 public import Foundation
+public import Security
 #else
 import Foundation
-#endif
 import Security
+#endif
 
 /// The system VPN's wg-quick configuration, shared by the app and the packet
 /// tunnel extension through their common Keychain group.
