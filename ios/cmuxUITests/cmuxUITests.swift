@@ -127,19 +127,18 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedRow-empty-assistant"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedRow-empty-stop"].exists)
 
-        let firstPage = app.descendants(matching: .any)["MobileAgentFeedQuestionPage-1"]
-        XCTAssertTrue(firstPage.waitForExistence(timeout: 5))
+        let questionPager = questionRow.descendants(matching: .scrollView).firstMatch
+        XCTAssertTrue(questionPager.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Question 1 of 2"].exists)
-        firstPage.swipeLeft()
+        questionPager.swipeLeft()
         XCTAssertTrue(app.staticTexts["Question 2 of 2"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Select all that apply"].exists)
         app.buttons["MobileAgentFeedQuestionOption-events-build"].tap()
 
-        let secondPage = app.descendants(matching: .any)["MobileAgentFeedQuestionPage-2"]
-        secondPage.swipeRight()
+        questionPager.swipeRight()
         XCTAssertTrue(app.staticTexts["Question 1 of 2"].waitForExistence(timeout: 5))
         app.buttons["MobileAgentFeedQuestionOption-deploy-production"].tap()
-        firstPage.swipeLeft()
+        questionPager.swipeLeft()
         XCTAssertTrue(app.buttons["MobileAgentFeedQuestionSubmit"].waitForExistence(timeout: 5))
         app.buttons["MobileAgentFeedQuestionSubmit"].tap()
         XCTAssertTrue(app.staticTexts["Question reply accepted"].waitForExistence(timeout: 3))

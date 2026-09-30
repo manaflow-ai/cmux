@@ -1107,7 +1107,6 @@ private struct AgentFeedQuestionControls: View {
         .padding(.horizontal, 1)
         .padding(.vertical, 2)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("MobileAgentFeedQuestionPage-\(index + 1)")
     }
 
     private func submitButton(title: String) -> some View {
