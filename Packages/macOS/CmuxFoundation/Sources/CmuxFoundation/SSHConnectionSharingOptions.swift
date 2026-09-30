@@ -10,6 +10,11 @@ internal import Foundation
 /// endpoints. Workspace relay ports deliberately do not participate in the
 /// path: reverse forwards are individual channels on the shared master.
 ///
+/// `%C` ignores how a connection reaches and authenticates to that endpoint.
+/// A route with security-relevant options (proxy, identity, agent, host-key
+/// policy and similar) therefore gets its own socket, named by a digest of
+/// its resolved route, or shares nothing when no resolved route is known.
+///
 /// The sockets live in `~/.cmux/ssh`. OpenSSH trusts whatever socket is at
 /// `ControlPath`, so when no directory only this user can write to is
 /// available, cmux adds no sharing defaults and the user's SSH configuration
@@ -21,7 +26,15 @@ public struct SSHConnectionSharingOptions: Sendable {
     /// no connections because no private directory is available.
     public let controlSocketDirectoryPath: String?
     private let authenticationLockDirectory: URL
-    private static let routeSensitiveMarker = "__cmux_route_sensitive=true"
+    /// Private option key carrying a resolved route's identity, or `true`
+    /// when the route is sensitive but no identity could be resolved.
+    private static let routeSensitiveMarkerKey = "__cmux_route_sensitive"
+    /// Resolved `ssh -G` keys naming the endpoint a route reaches. `proxyjump`
+    /// is here because older OpenSSH releases leave it out of `%C`.
+    private static let routeEndpointKeys: Set<String> = ["user", "hostname", "port", "proxyjump"]
+    /// Options that change how a connection reaches or authenticates to its
+    /// endpoint, or what a session on the master can do there. `%C` ignores
+    /// all of them, so routes that differ in one must not share a master.
     private static let routeSensitiveKeys: Set<String> = [
         "proxycommand", "proxyjump", "identityfile", "certificatefile",
         "hostkeyalias", "hostkeyalgorithms", "hostbasedacceptedalgorithms",
@@ -36,6 +49,11 @@ public struct SSHConnectionSharingOptions: Sendable {
         "addressfamily", "bindaddress", "bindinterface", "localaddress",
         "gssapiauthentication", "gssapikexalgorithms", "gssapiserveridentity",
         "gssapidelegatecredentials", "kerberosauthentication", "kerberosorlocalpasswd",
+        // The master's agent and key sources authenticate the connection every
+        // multiplexed session rides, and agent forwarding exposes that agent
+        // to the remote host.
+        "identityagent", "identitiesonly", "pkcs11provider", "securitykeyprovider",
+        "forwardagent", "forwardx11trusted", "proxyusefdpass",
     ]
 
     /// Creates an option merger for the current local user, creating
@@ -120,9 +138,11 @@ public struct SSHConnectionSharingOptions: Sendable {
     ///     ``userConfiguredControlOptions(fromSSHConfigOutput:explicitOptions:)``.
     ///   - routeSensitiveOptions: Values that make the route-specific socket
     ///     necessary when a route identifier is available.
-    ///   - routeIdentifier: Stable opaque identity for the complete route.
-    ///     Route-sensitive options use a private socket derived from this
-    ///     value; without it they remain unshared.
+    ///   - routeIdentifier: Stable opaque identity for the complete route, such
+    ///     as ``routeIdentifier(fromSSHConfigOutput:)``. Route-sensitive
+    ///     options use a private socket derived from this value, or else from
+    ///     the route resolved into `userConfiguredControlOptions`; without
+    ///     either they remain unshared.
     /// - Returns: Effective explicit options for native SSH commands.
     public func mergingDefaults(
         into options: [String],
@@ -131,15 +151,23 @@ public struct SSHConnectionSharingOptions: Sendable {
         routeIdentifier: String? = nil
     ) -> [String] {
         let resolver = SSHAgentSocketResolver()
+        let routeMarkerValue = resolver.optionValue(
+            named: Self.routeSensitiveMarkerKey,
+            in: userConfiguredControlOptions ?? []
+        )
         let routeSensitive = !routeSensitiveOptions.isEmpty
             || options.contains { option in
                 guard let key = resolver.optionKey(option) else { return false }
                 return Self.routeSensitiveKeys.contains(key)
             }
-            || userConfiguredControlOptions?.contains(where: { SSHAgentSocketResolver().optionKey($0) == Self.routeSensitiveMarker.split(separator: "=").first.map(String.init) }) == true
+            || routeMarkerValue != nil
+        // A caller's identity wins; otherwise use the route `ssh -G` resolved.
+        // The `true` placeholder means no identity is known.
+        let effectiveRouteIdentifier = routeIdentifier
+            ?? routeMarkerValue.flatMap { Self.isRouteDigest($0) ? $0 : nil }
         var merged = options.compactMap { option -> String? in
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, SSHAgentSocketResolver().optionKey(trimmed) != Self.routeSensitiveMarker.split(separator: "=").first.map(String.init) else { return nil }
+            guard !trimmed.isEmpty, resolver.optionKey(trimmed) != Self.routeSensitiveMarkerKey else { return nil }
             return trimmed
         }
         let controlKeys = ["ControlMaster", "ControlPath", "ControlPersist"]
@@ -189,8 +217,8 @@ public struct SSHConnectionSharingOptions: Sendable {
                 }
                 return merged
             }
-            if let routeIdentifier,
-               let routeControlPath = routeSpecificControlPath(for: routeIdentifier) {
+            if let effectiveRouteIdentifier,
+               let routeControlPath = routeSpecificControlPath(for: effectiveRouteIdentifier) {
                 if controlMaster == nil {
                     merged.append("ControlMaster=auto")
                 }
@@ -241,7 +269,56 @@ public struct SSHConnectionSharingOptions: Sendable {
         return merged
     }
 
+    /// Returns a stable identity for the complete route `ssh -G` resolved.
+    ///
+    /// The identity covers the endpoint (`user`, `hostname`, `port`,
+    /// `proxyjump`) and every security-relevant option in OpenSSH's resolved
+    /// form, so explicit `-o`/`-i` values and ssh_config values count alike.
+    /// Aliases that resolve to the same route share an identity. Pass it as
+    /// `routeIdentifier` to
+    /// ``mergingDefaults(into:userConfiguredControlOptions:routeSensitiveOptions:routeIdentifier:)``.
+    ///
+    /// - Parameter output: Standard output from `ssh -G <destination>` run
+    ///   with the caller's explicit options.
+    /// - Returns: A lowercase hex digest, or `nil` when the output names no host.
+    public func routeIdentifier(fromSSHConfigOutput output: String) -> String? {
+        var entries: [(key: String, value: String)] = []
+        for line in output.split(whereSeparator: \.isNewline) {
+            let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+            guard parts.count == 2 else { continue }
+            let key = parts[0].lowercased()
+            guard Self.routeEndpointKeys.contains(key) || Self.routeSensitiveKeys.contains(key) else {
+                continue
+            }
+            entries.append((key, parts[1].trimmingCharacters(in: .whitespacesAndNewlines)))
+        }
+        guard entries.contains(where: { $0.key == "hostname" && !$0.value.isEmpty }) else {
+            return nil
+        }
+        // Sort by key only: repeated keys such as `identityfile` keep the
+        // order OpenSSH tries them in.
+        let canonical = entries.enumerated()
+            .sorted { ($0.element.key, $0.offset) < ($1.element.key, $1.offset) }
+            .map { "\($0.element.key) \($0.element.value)" }
+            .joined(separator: "\n")
+        return SHA256.hash(data: Data(("cmux-ssh-route-v1\n" + canonical).utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    /// Whether `value` is an identity from ``routeIdentifier(fromSSHConfigOutput:)``.
+    private static func isRouteDigest(_ value: String) -> Bool {
+        value.utf8.count == 64 && value.utf8.allSatisfy { byte in
+            (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
+                || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains(byte)
+        }
+    }
+
     /// Returns a private, deterministic socket path for one route identity.
+    ///
+    /// The name has the length and alphabet of a `%C` expansion, so it fits
+    /// the same `sun_path` budget and every recognizer of cmux-owned sockets
+    /// (Swift checks, shell `case` patterns, lock and broker keys) accepts it.
     private func routeSpecificControlPath(for routeIdentifier: String) -> String? {
         guard let controlSocketDirectoryPath,
               !routeIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -335,7 +412,10 @@ public struct SSHConnectionSharingOptions: Sendable {
                 "ControlPersist=\(values["controlpersist"] ?? "no")",
             ]
         }
-        if routeSensitive { result.append(Self.routeSensitiveMarker) }
+        if routeSensitive {
+            let identity = routeIdentifier(fromSSHConfigOutput: output) ?? "true"
+            result.append("\(Self.routeSensitiveMarkerKey)=\(identity)")
+        }
         return result
     }
 

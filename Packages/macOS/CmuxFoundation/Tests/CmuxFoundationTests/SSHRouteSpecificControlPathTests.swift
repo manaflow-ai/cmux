@@ -65,6 +65,33 @@ struct SSHRouteSpecificControlPathTests {
         #expect(first != second)
     }
 
+    @Test("Explicit route options use the route resolved by ssh -G", arguments: [
+        ("ProxyCommand=/usr/local/bin/network-a %h %p", "ProxyCommand=/usr/local/bin/network-b %h %p"),
+        ("IdentityFile=/Users/alice/.ssh/restricted", "IdentityFile=/Users/alice/.ssh/admin"),
+    ])
+    func explicitRouteOptionsUseResolvedRoute(first: String, second: String) throws {
+        // `ssh -G` echoes explicit options in lowercase-key form.
+        func controlPath(_ option: String) -> String? {
+            let parts = option.split(separator: "=", maxSplits: 1)
+            let output = resolvedConfiguration(["\(parts[0].lowercased()) \(parts[1])"])
+            let merged = options.mergingDefaults(
+                into: [option],
+                userConfiguredControlOptions: nil,
+                routeIdentifier: options.routeIdentifier(fromSSHConfigOutput: output)
+            )
+            return options.cmuxOwnedControlPath(in: merged)
+        }
+        let firstPath = try #require(controlPath(first))
+        let secondPath = try #require(controlPath(second))
+        #expect(firstPath != secondPath)
+        #expect(controlPath(first) == firstPath)
+    }
+
+    @Test("A resolved route without a host name keeps sharing disabled")
+    func unresolvedRouteDisablesSharing() {
+        #expect(options.routeIdentifier(fromSSHConfigOutput: "proxycommand /usr/local/bin/broker") == nil)
+    }
+
     @Test("Route-specific socket names are recognized as cmux-owned")
     func routeSpecificNamesAreRecognized() throws {
         let path = try #require(sharedControlPath(["proxycommand /usr/local/bin/broker %h %p"]))

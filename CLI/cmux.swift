@@ -12059,7 +12059,12 @@ struct CMUXCLI {
                     explicitOptions: inputSSHOptions.sshOptions
                 )
             },
-            routeSensitiveOptions: inputSSHOptions.identityFile.map { ["IdentityFile=\($0)"] } ?? []
+            routeSensitiveOptions: inputSSHOptions.identityFile.map { ["IdentityFile=\($0)"] } ?? [],
+            // `%C` ignores proxy, identity and host-key options; a route that
+            // sets them gets a master keyed by its whole resolved route.
+            routeIdentifier: resolvedUserSSHConfiguration.flatMap {
+                sharingOptions.routeIdentifier(fromSSHConfigOutput: $0)
+            }
         )
         if resolvedUserSSHConfiguration != nil {
             sshOptions.sshOptions = resolvedCmuxControlPathOptions(for: sshOptions)
