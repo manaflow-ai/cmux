@@ -230,6 +230,14 @@ public struct MoshTerminalCommandBuilder: Sendable {
         if reportsTerminalLifecycle {
             script += terminalLifecycleRegistrationShellLines()
         }
+        // Past this point the SSH fallback can no longer run, so its
+        // self-deleting launchers never would; remove them before Mosh
+        // replaces this shell.
+        if !sshFallbackLauncherPaths.isEmpty {
+            script.append(
+                "rm -f -- " + sshFallbackLauncherPaths.map(\.remoteCommandShellQuoted).joined(separator: " ")
+            )
+        }
         // Mosh exposes no reliable post-UDP-handshake callback, so this
         // pre-exec launcher must not claim authoritative connected readiness.
         script.append("exec \"$cmux_mosh\" \"--experimental-remote-ip=$cmux_mosh_remote_ip_mode\" \(moshArguments)")
