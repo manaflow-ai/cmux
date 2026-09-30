@@ -128,7 +128,19 @@ public final class ControlRouter: Sendable {
             switch trimmed.split(separator: " ", maxSplits: 1).first.map({ $0.lowercased() }) {
             case "ping": return "PONG"
             default:
-                if let handler = state.withLock({ $0.v1Handler }), let reply = await handler(trimmed) { return reply }
+                if let handler = state.withLock({ $0.v1Handler }) {
+                    // Same bound as a v2 request (architecture.md 5a).
+                    let reply: String?
+                    do {
+                        reply = try await ControlDeadline.run(method: "v1 \(trimmed.split(separator: " ").first ?? "")",
+                                                              deadline: .now + configuration.requestDeadline) { await handler(trimmed) }
+                    } catch let error as ControlError {
+                        return "ERROR: \(error.message)"
+                    } catch {
+                        return "ERROR: \(error)"
+                    }
+                    if let reply { return reply }
+                }
                 return "ERROR: Unknown command '\(trimmed.split(separator: " ").first ?? "")'. cmux-next speaks v2 JSON requests only."
             }
         }
