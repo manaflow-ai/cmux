@@ -260,9 +260,14 @@ fn cmux_next_kept_unplaced_terminal_attaches_by_identity_and_takes_geometry() {
     let _scratch = mux.new_workspace(Some("scratch".into()), Some((80, 24))).unwrap();
     let detached = mux.new_workspace(Some("detached".into()), Some((80, 24))).unwrap();
     let public_id = detached.terminal_public_id().cloned().expect("hosted terminal").to_string();
+    // A remote-terminal reference names the terminal by its 32-hex host id;
+    // keeping it by that id reports the public id the attach needs.
+    let host_id = mux.resource_terminal_host_identity(&detached).unwrap().terminal_id;
     let kept =
-        run(&mux, json!({"cmd":"set-terminal-keep","terminal_id":public_id,"keep":true})).unwrap();
+        run(&mux, json!({"cmd":"set-terminal-keep","terminal_id":host_id,"keep":true})).unwrap();
     assert_eq!(kept["keep"], true);
+    assert_eq!(kept["terminal_id"], json!(host_id));
+    assert_eq!(kept["terminal_resource_id"], json!(public_id));
     let workspace = surface_placement(&mux, detached.id).0.unwrap();
     assert!(mux.close_workspace_at_revision(workspace, None).unwrap().is_some());
     assert!(mux.with_state(|state| state.pane_of(detached.id).is_none()), "no tab placement");
@@ -270,6 +275,13 @@ fn cmux_next_kept_unplaced_terminal_attaches_by_identity_and_takes_geometry() {
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    // As the app does: a frontend with attach leases.
+    run_as(
+        &mux,
+        client,
+        json!({"cmd":"set-client-info","kind":"frontend","capabilities":["view-attachment-lease-v1"]}),
+    )
+    .unwrap();
     let attached = handle_command(
         &mux,
         client,
@@ -289,7 +301,7 @@ fn cmux_next_kept_unplaced_terminal_attaches_by_identity_and_takes_geometry() {
     let surface = initial["surface"].as_u64().expect("vt-state names a numeric surface");
     assert_eq!(
         Some(surface),
-        mux.resource_surface_for_terminal(&TerminalPublicId::parse(public_id.clone()).unwrap())
+        mux.resource_surface_for_terminal(&TerminalPublicId::parse(public_id).unwrap())
     );
 
     run_as(
@@ -298,11 +310,13 @@ fn cmux_next_kept_unplaced_terminal_attaches_by_identity_and_takes_geometry() {
         json!({"cmd":"set-client-sizing","surface":surface,"enabled":true,"exclusive":true}),
     )
     .expect("the attached client claims geometry of the unplaced terminal");
-    let mut resize = json!({"cmd":"resize-attached-view","surface":surface,"cols":120,"rows":40});
-    if let Some(lease) = attached.get("lease") {
-        resize["lease"] = lease.clone();
-    }
-    run_as(&mux, client, resize).expect("the attached view resizes the unplaced terminal");
+    let lease = attached["lease"].as_str().expect("the attach returns a lease").to_string();
+    run_as(
+        &mux,
+        client,
+        json!({"cmd":"resize-attached-view","surface":surface,"lease":lease,"cols":120,"rows":40}),
+    )
+    .expect("the attached view resizes the unplaced terminal");
     let size = mux.surface(surface).unwrap().size();
     assert_eq!(size, (120, 40));
     disconnect_client(&mux, client, false);
