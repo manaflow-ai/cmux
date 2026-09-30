@@ -199,7 +199,7 @@ const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
 let fileTheme = resolveGhosttyTheme();
 let cmuxThemeOverride: GhosttyTheme | null = null;
 let currentTheme = fileTheme;
-const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
+const startRequests = new Map<string, { promise: Promise<Session>; settledAt?: number; stopped?: boolean; session?: Session }>();
 type AttributionMode = "new-turn" | "current-turn";
 type InternalDoneEvent = Extract<AgentEvent, { kind: "done" }> & { generation?: number };
 const optionCatalog = new Map<string, {
@@ -238,7 +238,7 @@ function pruneCwdCatalog(map: Map<string, { fetchedAt: number; refreshing?: Prom
 function pruneStartRequests() {
   const now = Date.now();
   for (const [key, entry] of startRequests) {
-    if (now - entry.createdAt > START_REQUEST_TTL_MS) startRequests.delete(key);
+    if (entry.settledAt !== undefined && now - entry.settledAt > START_REQUEST_TTL_MS) startRequests.delete(key);
   }
 }
 const keyConfig = await readKeyConfig();
@@ -2084,7 +2084,7 @@ function startServer() {
         return;
       }
       try {
-        handleMessage(ws, msg);
+        handleSessionMessage(ws, msg);
       } catch (err) {
         sendWsError(ws, String(msg.op ?? ""), err);
       }
@@ -2156,7 +2156,7 @@ function sendWsErrorDetails(
   ws.send(JSON.stringify({ kind: "error", op, message: safeErrorMessage(op, err, { provider }), ...publicDetails }));
 }
 
-function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
+export function handleSessionMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
   switch (msg.op) {
     case "start": {
       const prompt = String(msg.prompt ?? "").trim();
@@ -2171,25 +2171,30 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       const rawOptions = applyAutoApproveDefaults(provider, autoApprove, parseOptions(msg.options));
       pruneStartRequests();
       const existing = requestId ? startRequests.get(requestId) : undefined;
+      let request = existing;
       const startPromise = existing?.promise ?? Promise.resolve(assertCwd(cwd).then(() => sanitizeStartOptions(provider, cwd, rawOptions))).then((options) => {
+        if (request?.stopped) throw new Error("agent start cancelled");
         const sess = createSession(provider, cwd, autoApprove, title, options, {
           conversationId,
           parentSessionId,
           startRequestId: requestId,
         });
+        if (request) request.session = sess;
         refreshSession(sess);
         sendPrompt(sess, prompt, requestId ?? crypto.randomUUID());
         return sess;
       });
       if (requestId && !existing) {
-        startRequests.set(requestId, { createdAt: Date.now(), promise: startPromise });
+        request = { promise: startPromise };
+        startRequests.set(requestId, request);
         startPromise.finally(() => {
+          request!.settledAt = Date.now();
           setTimeout(() => {
             if (startRequests.get(requestId)?.promise === startPromise) startRequests.delete(requestId);
           }, START_REQUEST_TTL_MS);
         }).catch(() => {});
       }
-      startPromise.then((sess) => {
+      return startPromise.then((sess) => {
         subscribe(ws, sess);
         const routing = [...sess.events].reverse().find((evt) => evt.kind === "routing");
         ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess), requestId, routing }));
@@ -2202,9 +2207,9 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
           }));
         }
       }).catch((err) => {
-        sendWsErrorDetails(ws, "start", err, { provider, requestId });
+        if (request?.stopped) ws.send(JSON.stringify({ kind: "start-stopped", requestId }));
+        else sendWsErrorDetails(ws, "start", err, { provider, requestId });
       });
-      break;
     }
     case "check-cwd": {
       const cwd = String(msg.cwd || DEFAULT_CWD);
@@ -2256,6 +2261,17 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       break;
     }
     case "stop": {
+      if (typeof msg.requestId === "string" && !msg.sessionId) {
+        const request = startRequests.get(msg.requestId);
+        if (request && !request.stopped) {
+          // Creation and the first send run synchronously together. If they
+          // won the race, route Stop to the created session's adapter.
+          if (request.session) request.session.adapter.stop(request.session);
+          request.stopped = true;
+        }
+        ws.send(JSON.stringify({ kind: "start-stopped", requestId: msg.requestId }));
+        break;
+      }
       const sess = sessions.get(String(msg.sessionId));
       sess?.adapter.stop(sess);
       break;

@@ -84,6 +84,13 @@ try {
   await update(() => replacement.receive({ kind: "session-created", requestId: nextStart.requestId, session: current }));
   await update(() => state.stop());
   assert.deepEqual(replacement.sent.at(-1), { op: "stop", sessionId: current.id }, "known sessions retain the normal Stop path");
+  await update(() => replacement.close());
+  const [nextRetryId, nextRetry] = [...timers].find(([, timer]) => timer.delay === 800)!;
+  timers.delete(nextRetryId);
+  await update(nextRetry.run);
+  const recovered = sockets.at(-1)!;
+  await update(() => recovered.open());
+  assert.deepEqual(recovered.sent, [{ op: "subscribe", sessionId: current.id }], "acknowledged cancellations must leave no retry behind");
   console.log("Stop before startup acknowledgement, draft recovery, late replies, offline cancellation, and newer starts: OK");
 } finally {
   if (renderer) await act(async () => { renderer!.unmount(); });
