@@ -1,0 +1,33 @@
+{
+  "paths": [
+    "Sources/SidebarMetadataMarkdownRenderer.swift",
+    "Sources/Sidebar/*",
+    "Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/LinkRouting/*",
+    "Packages/macOS/CmuxTerminalCore/Tests/CmuxTerminalCoreTests/*"
+  ],
+  "launch": {"zoom": true},
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Markdown links",
+        "initial_input": "echo Sidebar metadata markdown\n",
+        "focus": true
+      },
+      "save": "workspace"
+    },
+    {"wait": 2.0},
+    {
+      "socketLine": "report_meta_block github-reference --priority=1 --tab=${workspace.workspace_id} -- Markdown reference: manaflow-ai/cmux#15850"
+    },
+    {"wait": 2.0},
+    {"tree": "sidebar-reference"},
+    {"shot": "sidebar-reference"},
+    {"hoverAt": {"x": 0.14, "y": 0.17}},
+    {"wait": 0.5},
+    {"shot": "sidebar-reference-hover"},
+    {"clickAt": {"x": 0.14, "y": 0.17}},
+    {"wait": 3.0},
+    {"shot": "sidebar-reference-clicked"}
+  ]
+}
