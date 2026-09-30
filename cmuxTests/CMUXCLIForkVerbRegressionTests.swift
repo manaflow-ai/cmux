@@ -27,8 +27,7 @@ struct CMUXCLIForkVerbRegressionTests {
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         let sourceTranscript = sourceProject.appendingPathComponent("\(sessionID).jsonl")
-        try Data(#"{"type":"user"}
-"#.utf8).write(to: sourceTranscript)
+        try Data("{\"type\":\"user\"}\n".utf8).write(to: sourceTranscript)
         try FileManager.default.createDirectory(at: sourceProject.appendingPathComponent(sessionID), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
