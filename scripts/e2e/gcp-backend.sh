@@ -249,7 +249,7 @@ cmd_start() {
   [[ "$url" == https://* ]] || die "remote response has no HTTPS backend URL"
   write_state "$tag" "$instance_id" "$remote_port" "$checkout" "$commit" "$source_sha" "$branch" "$url"
   printf 'tag=%s url=%s remote_port=%s state=%s healthy=%s\n' \
-    "$tag" "$url" "$remote_port" "$(jq -r '.state // unknown' <<<"$response")" \
+    "$tag" "$url" "$remote_port" "$(jq -r '.state // "unknown"' <<<"$response")" \
     "$(jq -r '(.healthy // false)|tostring' <<<"$response")"
 }
 
