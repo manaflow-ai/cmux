@@ -53,6 +53,8 @@ public enum DaemonCapabilities {
     /// Profiles (plans/cmux-next/data-model.md): the `*-profile` commands,
     /// `move-workspace-to-profile`, `profiles` in `list-workspaces`, and a
     /// `profile` field on workspaces, groups and saved tab groups.
+    /// Not in `optional` until the pinned cmux-tui serves it; the pin commit
+    /// that adds profiles-v1 adds it back.
     public static let profiles = "profiles-v1"
     /// Personal state kept only on the home (local) session
     /// (plans/cmux-next/data-model.md): a remote daemon never needs these.
@@ -62,7 +64,7 @@ public enum DaemonCapabilities {
     public static let personalOnHome: [String] = [workspaceGroups, savedTabGroups]
     public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose, profiles]
+                                            terminalReap, batchClose]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + [
