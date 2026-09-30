@@ -26,9 +26,8 @@ Sorted roughly by how little setup they need:
 [`docs/triage.md`](triage.md) explains what those labels mean and who assigns
 them. Difficulty is a maintainer assessment of scope and coordination, while
 `good first issue` means the starting point and verification path are explicit.
-Some searches are still thin. The
-exception is `needs-triage`, which is around 500 issues: the rules could not tell
-which part of cmux each one is about. Reading one, working out where it belongs,
+Some searches are still thin. The exception is `needs-triage`, which is around
+500 issues: the rules could not tell which part of cmux each one is about. Reading one, working out where it belongs,
 and saying so in a comment is useful and needs no Xcode.
 
 **Say on the issue that you are picking it up.** One comment. It stops two

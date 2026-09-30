@@ -54,11 +54,11 @@ examples show the intended mix for a course queue:
 
 | Issue | Level | Why it is teachable |
 |---|---:|---|
-| [#15408](https://github.com/manaflow-ai/cmux/issues/15408) — titlebar shortcut hint alignment | 1 | A failing UI assertion gives a precise acceptance condition and narrow layout owner. |
-| [#15286](https://github.com/manaflow-ai/cmux/issues/15286) — window geometry observer cleanup | 2 | A contained lifecycle bug with a clear owner and a regression seam. |
-| [#15300](https://github.com/manaflow-ai/cmux/issues/15300) — Ctrl+Tab with Caps Lock | 2 | Focused input behavior with a reproducible modifier-state boundary. |
-| [#15481](https://github.com/manaflow-ai/cmux/issues/15481) — SQL/Jinja preview highlighting | 2 | A deterministic file-preview/parser edge case with a suggested owner. |
-| [#15611](https://github.com/manaflow-ai/cmux/issues/15611) — progressive command discovery RFC | 3 | Good small-group design work; it needs information-architecture agreement before implementation. |
+| [#15408](https://github.com/manaflow-ai/cmux/issues/15408), titlebar shortcut hint alignment | 1 | A failing UI assertion gives a precise acceptance condition and narrow layout owner. |
+| [#15286](https://github.com/manaflow-ai/cmux/issues/15286), window geometry observer cleanup | 2 | A contained lifecycle bug with a clear owner and a regression seam. |
+| [#15300](https://github.com/manaflow-ai/cmux/issues/15300), Ctrl+Tab with Caps Lock | 2 | Focused input behavior with a reproducible modifier-state boundary. |
+| [#15784](https://github.com/manaflow-ai/cmux/issues/15784), Agent Chat Gemini provider uses an obsolete flag | 2 | One wrong CLI flag with an observable failure, so the acceptance condition is exact. |
+| [#15719](https://github.com/manaflow-ai/cmux/issues/15719), Safari cookie import | 3 | A self-contained binary format to parse, with a reference implementation to compare against. |
 
 Do not advertise auth, cloud infrastructure, remote transport, data migration,
 or release-signing work as independent student assignments until a maintainer
