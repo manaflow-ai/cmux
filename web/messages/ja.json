@@ -3244,7 +3244,12 @@
           "compactAgentStatus": "各ワークスペースを1行で表示します。タイトルの前の色付きアイコン1つがエージェント、未読、プルリクエストの状態を示し、エージェントの状態行（「実行中」や「入力待ち」など）、ブランチとディレクトリの行、プルリクエストの行を置き換えます。それらの詳細はアイコンのツールチップに移ります。その他のステータス項目は独自の行のまま表示されます。",
           "compactStatusIcons": "compactAgentStatus のグリフを状態ごとに置き換える SF Symbol 名です（例: {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}）。未設定の状態は組み込みのシンボルを使い、表示できない名前も組み込みのシンボルに戻ります。",
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
-          "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
+          "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。",
+          "beta": {
+            "conversations": {
+              "enabled": "サイドバーの選択メニューに、会話をまとめて表示するビューを追加します。"
+            }
+          }
         },
         "fileExplorer": {
           "description": "右サイドバーのファイルエクスプローラー（ファイルツリー）設定。",
@@ -3475,7 +3480,8 @@
         "wn-quit": "終了"
       },
       "metaTitle": "キーボードショートカット",
-      "paneResizeDescription": "Ctrl+Shift+H/J/K/L（左/下/上/右）でフォーカス中のペインをリサイズします。キーを押し続けると連続してリサイズできます。設定 → キーボードショートカットでキー割り当てとペインのリサイズ幅を変更できます。移動幅は cmux.json の app.paneResizeStepPixels でも設定でき、範囲は 1～200、既定値は 20 です。"
+      "paneResizeDescription": "Ctrl+Shift+H/J/K/L（左/下/上/右）でフォーカス中のペインをリサイズします。キーを押し続けると連続してリサイズできます。設定 → キーボードショートカットでキー割り当てとペインのリサイズ幅を変更できます。移動幅は cmux.json の app.paneResizeStepPixels でも設定でき、範囲は 1～200、既定値は 20 です。",
+      "fileEditorWordWrap": "ファイルエディタの行折り返しを切り替え (Option+Z)."
     },
     "api": {
       "title": "CLIリファレンス",
@@ -4126,7 +4132,8 @@
       "maxLinesSetting": "TextBox Max Lines は、内容がスクロールし始める前の TextBox の最大高さを制限します。",
       "configTitle": "cmux.json",
       "configDesc": "同じ既定値は ~/.config/cmux/cmux.json の terminal で設定できます：",
-      "focusNote": "復元されたセッションは保存済みの TextBox 表示状態とフォーカス状態を保ちます。これらの既定値は新しく作成されたターミナル面にのみ適用されます。"
+      "focusNote": "復元されたセッションは保存済みの TextBox 表示状態とフォーカス状態を保ちます。これらの既定値は新しく作成されたターミナル面にのみ適用されます。",
+      "betaCallout": "TextBox はベータ機能です。テスト中のため、既定値や動作が変わる場合があります。"
     },
     "ios": {
       "metaTitle": "iOSアプリ",
