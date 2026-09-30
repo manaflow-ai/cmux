@@ -57,6 +57,24 @@ public struct CmuxCLIArgumentParser: Sendable {
     /// Creates the parser with cmux's command-option vocabulary.
     public init() {}
 
+    /// Returns the auth subcommand when its fixed-arity arguments are valid.
+    public func parseAuthSubcommand(_ authArgs: [String]) -> String? {
+        let subcommand = authArgs.first?.lowercased() ?? "status"
+        switch subcommand {
+        case "status", "login", "logout":
+            return authArgs.dropFirst().isEmpty ? subcommand : nil
+        case "team":
+            let teamArgs = authArgs.dropFirst()
+            if (teamArgs.first?.lowercased() ?? "list") == "list",
+               !teamArgs.dropFirst().isEmpty {
+                return nil
+            }
+            return subcommand
+        default:
+            return subcommand
+        }
+    }
+
     /// Extracts presentation flags while preserving command arguments.
     ///
     /// Presentation flags remain valid after a command and its subcommand.

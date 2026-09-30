@@ -5570,7 +5570,13 @@ struct CMUXCLI {
 
         case "auth", "login", "logout":
             let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
-            let sub = authArgs.first?.lowercased() ?? "status"
+            let authUsage = String(
+                localized: "cli.auth.usage",
+                defaultValue: "Usage: cmux auth <status|login|logout|team>"
+            )
+            guard let sub = CmuxCLIArgumentParser().parseAuthSubcommand(authArgs) else {
+                throw CLIError(message: authUsage)
+            }
             switch sub {
             case "status":
                 let response = try client.sendV2(method: "auth.status")
@@ -5657,10 +5663,7 @@ struct CMUXCLI {
                     jsonOutput: jsonOutput
                 )
             default:
-                throw CLIError(message: String(
-                    localized: "cli.auth.usage",
-                    defaultValue: "Usage: cmux auth <status|login|logout|team>"
-                ))
+                throw CLIError(message: authUsage)
             }
 
         case "agent":
