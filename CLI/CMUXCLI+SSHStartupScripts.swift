@@ -9,7 +9,8 @@ extension CMUXCLI {
         isShellSnippet: Bool = false,
         passwordCredential: String? = nil,
         controlPathPreflightShellFunction: String? = nil,
-        reconnectLimitDefault: Int = 20
+        reconnectLimitDefault: Int = 20,
+        launchScripts: SSHStartupLaunchScripts
     ) throws -> String {
         let script = buildSSHStartupScriptBody(
             sshCommand: sshCommand,
@@ -21,7 +22,7 @@ extension CMUXCLI {
             oneTimeCommand: nil,
             reconnectLimitDefault: reconnectLimitDefault
         )
-        return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
+        return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort, launchScripts: launchScripts)
     }
 
     func buildReusableSSHStartupCommand(
@@ -423,9 +424,12 @@ extension CMUXCLI {
         ]
         return scriptLines.joined(separator: "\n")
     }
-    private func writeSSHStartupScript(_ scriptBody: String, remoteRelayPort: Int) throws -> String {
-        let scriptURL = try SSHStartupLaunchScripts(directory: FileManager.default.temporaryDirectory)
-            .write(scriptBody: scriptBody, remoteRelayPort: remoteRelayPort)
+    private func writeSSHStartupScript(
+        _ scriptBody: String,
+        remoteRelayPort: Int,
+        launchScripts: SSHStartupLaunchScripts
+    ) throws -> String {
+        let scriptURL = try launchScripts.write(scriptBody: scriptBody, remoteRelayPort: remoteRelayPort)
         return shellQuote(scriptURL.path)
     }
     private func reusableShellStartupCommand(
