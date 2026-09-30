@@ -675,17 +675,33 @@ function startTranscriptTail(sess: Session, source: TranscriptSource) {
     const payload = JSON.stringify({ kind: "session-title", sessionId: sess.id, title });
     for (const ws of sess.sockets) ws.send(payload);
   }, { onTick: () => refreshTranscriptAttention(sess, source) });
+  // Seed attention before the first history replay. Hook state is independent
+  // of the JSONL transcript, so a reload while a terminal is waiting can have
+  // no file tick to trigger the callback.
+  refreshTranscriptAttention(sess, source);
 }
 
 // Permission prompts, questions, and pickers live in the terminal and are not
 // in the transcript until answered; the hook store says when the agent waits.
 function refreshTranscriptAttention(sess: Session, source: TranscriptSource) {
-  if (!sess.transcript || !sess.sockets.size) return;
+  if (!sess.transcript) return;
   const attention = transcriptAttention(source.agent, source.sessionId);
   if ((sess.transcript.attention ?? null) === attention) return;
   sess.transcript.attention = attention;
+  if (!sess.sockets.size) return;
   const payload = JSON.stringify({ kind: "session-attention", sessionId: sess.id, attention });
   for (const ws of sess.sockets) ws.send(payload);
+}
+
+function refreshExistingTranscriptSession(sess: Session): Session {
+  if (!sess.transcript) return sess;
+  const target = sess.internal.transcriptTarget as { agentSessionId?: string } | undefined;
+  if (!target?.agentSessionId) return sess;
+  const source = resolveSessionTranscript(target.agentSessionId);
+  if (!source) return sess;
+  const refreshed = ensureTranscriptSession(source);
+  refreshTranscriptAttention(refreshed, source);
+  return refreshed;
 }
 
 function resolveTranscriptSessionById(id: string): Session | undefined {
@@ -2146,14 +2162,30 @@ function safeErrorMessage(op: string, err: unknown, context: { provider?: string
 }
 
 function sendWsErrorDetails(
-  ws: Bun.ServerWebSocket<WsData>,
+  ws: Pick<Bun.ServerWebSocket<WsData>, "send">,
   op: string,
   err: unknown,
-  details: { provider?: string; requestId?: string; sessionId?: string; path?: string } = {},
+  details: { provider?: string; requestId?: string; sessionId?: string; path?: string; cwd?: string } = {},
 ) {
   console.error(`[agent-chat] ${op || "request"} failed`, err);
   const { provider, ...publicDetails } = details;
   ws.send(JSON.stringify({ kind: "error", op, message: safeErrorMessage(op, err, { provider }), ...publicDetails }));
+}
+
+/** Replies on the same command-discovery path used by the WebSocket route. */
+export async function sendCommandCatalogResponse(
+  ws: Pick<Bun.ServerWebSocket<WsData>, "send">,
+  msg: { provider?: unknown; cwd?: unknown; requestId?: unknown },
+) {
+  const provider = String(msg.provider ?? "");
+  const cwd = String(msg.cwd || DEFAULT_CWD);
+  const requestId = typeof msg.requestId === "string" ? msg.requestId : undefined;
+  try {
+    const groups = await cachedCommands(provider, cwd);
+    ws.send(JSON.stringify({ kind: "commands-list", provider, cwd, requestId, groups }));
+  } catch (err) {
+    sendWsErrorDetails(ws, "list-commands", err, { provider, cwd, requestId });
+  }
 }
 
 function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
@@ -2232,7 +2264,10 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
     }
     case "subscribe": {
       const sessionId = String(msg.sessionId);
-      const sess = sessions.get(sessionId) ?? resolveTranscriptSessionById(sessionId);
+      const existing = sessions.get(sessionId);
+      const sess = existing
+        ? refreshExistingTranscriptSession(existing)
+        : resolveTranscriptSessionById(sessionId);
       if (!sess) {
         ws.send(JSON.stringify({ kind: "no-session", sessionId: msg.sessionId }));
         return;
@@ -2312,16 +2347,7 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       break;
     }
     case "list-commands": {
-      const provider = String(msg.provider ?? "");
-      const adapter = adapters.get(provider);
-      if (!adapter) {
-        sendWsError(ws, "list-commands", `unknown provider: ${provider}`);
-        return;
-      }
-      const cwd = String(msg.cwd || DEFAULT_CWD);
-      Promise.resolve(cachedCommands(provider, cwd))
-        .then((groups) => ws.send(JSON.stringify({ kind: "commands-list", provider, groups })))
-        .catch((err) => sendWsError(ws, "list-commands", err));
+      void sendCommandCatalogResponse(ws, msg);
       break;
     }
     case "list-files": {
