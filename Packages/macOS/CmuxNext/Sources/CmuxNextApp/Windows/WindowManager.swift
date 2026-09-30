@@ -74,6 +74,9 @@ final class WindowManager {
     /// The incognito session's off-the-record browser profile while any
     /// incognito window is open (`WindowManager+Incognito`).
     var incognitoSession: BrowserProfileID?
+    /// Workspaces of open incognito windows, closed at the next launch when
+    /// this run ends without closing them.
+    private(set) lazy var incognitoLedger = IncognitoWorkspaceLedger.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     /// Incognito window of each tab it lists (`rememberIncognitoTabs`).
     var incognitoTabHomes: [String: String] = [:]
     /// Clears what the incognito session kept in memory (omnibar history).
@@ -162,7 +165,13 @@ final class WindowManager {
         if let windowState = services.daemon.windowState {
             document = (try? await windowState.load()) ?? WindowStateDocument()
         }
-        if services.daemon.store.workspaces.isEmpty {
+        // Incognito workspaces a crashed run left: closed, never shown.
+        let leftover = await incognitoLedger.load()
+        if !leftover.isEmpty {
+            registry.apply { $0.markDiscarding(leftover); return WindowRegistry.Changes() }
+            discard(leftover)
+        }
+        if services.daemon.store.workspaces.contains(where: { !leftover.contains($0.id) }) == false {
             _ = await createWorkspace()
         }
         let restoredRegistry = WindowRegistry(records: document.windows)

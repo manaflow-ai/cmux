@@ -101,6 +101,15 @@ extension WindowManager {
 
     /// Ends the incognito session (every engine drops its data) once no
     /// incognito window is registered or about to open.
+    /// Writes the incognito ledger (workspace ids only).
+    func recordIncognitoWorkspaces() {
+        let value = registry.value
+        var ids = value.discarding
+        for window in value.windows where value.isIncognito(window.id) { ids.formUnion(window.workspaceIDs) }
+        for (workspace, window) in pendingClaims where value.isIncognito(window) { ids.insert(workspace) }
+        incognitoLedger.record(ids)
+    }
+
     func endIncognitoSessionIfUnused() {
         guard let profile = incognitoSession else { return }
         let value = registry.value

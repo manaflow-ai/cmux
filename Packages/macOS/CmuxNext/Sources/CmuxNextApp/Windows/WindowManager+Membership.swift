@@ -51,6 +51,7 @@ extension WindowManager {
         // The last incognito window left (closed, or its last workspace
         // closed): its browser data goes.
         endIncognitoSessionIfUnused()
+        recordIncognitoWorkspaces()
         scheduleSave()
     }
 

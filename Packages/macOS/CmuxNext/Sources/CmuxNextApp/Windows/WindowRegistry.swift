@@ -275,7 +275,9 @@ struct WindowRegistry: Equatable, Sendable {
 
     /// Workspaces of incognito windows from a run that ended without
     /// closing them (a crash): no window takes them while they close.
-    mutating func markDiscarding(_ ids: [String]) {}
+    mutating func markDiscarding(_ ids: [String]) {
+        discarding.formUnion(ids)
+    }
 
     /// Marks window `id` incognito: a registered window, or the id New
     /// Incognito Window claims its first workspace for.
