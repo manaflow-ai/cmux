@@ -39,7 +39,7 @@
 		E1B8A1E158233287D626A085 /* AcpmuxRowGroupPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68EAF7F7280B8B2F406B262 /* AcpmuxRowGroupPosition.swift */; };
 		D22DE2AC04AB36033E16662A /* AcpmuxRowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A79F7D92C58B1DB23CCDC77 /* AcpmuxRowLayout.swift */; };
 		A425FD3648F46BA614AD99D2 /* AcpmuxRowLayoutEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EF9E593D9454B548C4C053B /* AcpmuxRowLayoutEngine.swift */; };
-		D661E0B88DBD1E27DB1ADD99 /* AcpmuxTextMeasurer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44FAB315C1A7EFD98368BE89 /* AcpmuxTextMeasurer.swift */; };
+		D661E0B88DBD1E27DB1ADD99 /* AcpmuxTextLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44FAB315C1A7EFD98368BE89 /* AcpmuxTextLayout.swift */; };
 		D7937C15ADD9F459BDA178E7 /* AcpmuxTranscriptDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C8DEEDA9BBD684E9E8E3994 /* AcpmuxTranscriptDiff.swift */; };
 		19C7048C911F762357C2EC85 /* AcpmuxTranscriptRowCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8261E8AA5886EC0ACC1053BF /* AcpmuxTranscriptRowCellView.swift */; };
 		10D05AA0B2C6A2A783A0AEE9 /* AcpmuxTranscriptTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50A63BDE12570AC9BEE26B0 /* AcpmuxTranscriptTableView.swift */; };
@@ -4363,7 +4363,7 @@
 		A68EAF7F7280B8B2F406B262 /* AcpmuxRowGroupPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxRowGroupPosition.swift; sourceTree = "<group>"; };
 		2A79F7D92C58B1DB23CCDC77 /* AcpmuxRowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxRowLayout.swift; sourceTree = "<group>"; };
 		3EF9E593D9454B548C4C053B /* AcpmuxRowLayoutEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxRowLayoutEngine.swift; sourceTree = "<group>"; };
-		44FAB315C1A7EFD98368BE89 /* AcpmuxTextMeasurer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxTextMeasurer.swift; sourceTree = "<group>"; };
+		44FAB315C1A7EFD98368BE89 /* AcpmuxTextLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxTextLayout.swift; sourceTree = "<group>"; };
 		5C8DEEDA9BBD684E9E8E3994 /* AcpmuxTranscriptDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxTranscriptDiff.swift; sourceTree = "<group>"; };
 		8261E8AA5886EC0ACC1053BF /* AcpmuxTranscriptRowCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxTranscriptRowCellView.swift; sourceTree = "<group>"; };
 		E50A63BDE12570AC9BEE26B0 /* AcpmuxTranscriptTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxTranscriptTableView.swift; sourceTree = "<group>"; };
@@ -11255,7 +11255,7 @@
 				A68EAF7F7280B8B2F406B262 /* AcpmuxRowGroupPosition.swift */,
 				2A79F7D92C58B1DB23CCDC77 /* AcpmuxRowLayout.swift */,
 				3EF9E593D9454B548C4C053B /* AcpmuxRowLayoutEngine.swift */,
-				44FAB315C1A7EFD98368BE89 /* AcpmuxTextMeasurer.swift */,
+				44FAB315C1A7EFD98368BE89 /* AcpmuxTextLayout.swift */,
 				5C8DEEDA9BBD684E9E8E3994 /* AcpmuxTranscriptDiff.swift */,
 				8261E8AA5886EC0ACC1053BF /* AcpmuxTranscriptRowCellView.swift */,
 				E50A63BDE12570AC9BEE26B0 /* AcpmuxTranscriptTableView.swift */,
@@ -13512,7 +13512,7 @@
 				E1B8A1E158233287D626A085 /* AcpmuxRowGroupPosition.swift in Sources */,
 				D22DE2AC04AB36033E16662A /* AcpmuxRowLayout.swift in Sources */,
 				A425FD3648F46BA614AD99D2 /* AcpmuxRowLayoutEngine.swift in Sources */,
-				D661E0B88DBD1E27DB1ADD99 /* AcpmuxTextMeasurer.swift in Sources */,
+				D661E0B88DBD1E27DB1ADD99 /* AcpmuxTextLayout.swift in Sources */,
 				D7937C15ADD9F459BDA178E7 /* AcpmuxTranscriptDiff.swift in Sources */,
 				19C7048C911F762357C2EC85 /* AcpmuxTranscriptRowCellView.swift in Sources */,
 				10D05AA0B2C6A2A783A0AEE9 /* AcpmuxTranscriptTableView.swift in Sources */,

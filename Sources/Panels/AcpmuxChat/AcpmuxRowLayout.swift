@@ -1,7 +1,10 @@
 import AppKit
 
-/// Precomputed geometry and content for one transcript row at one width.
-struct AcpmuxRowLayout {
+/// Precomputed geometry and laid-out text for one transcript row at one width.
+///
+/// Built on a layout worker or the main thread and immutable after that; the main thread
+/// is the only user once it is cached.
+struct AcpmuxRowLayout: @unchecked Sendable {
     enum Surface: Equatable {
         case none
         case userBubble
@@ -13,7 +16,7 @@ struct AcpmuxRowLayout {
     let height: CGFloat
     let surfaceFrame: CGRect
     let textFrame: CGRect
-    let text: NSAttributedString
+    let textLayout: AcpmuxTextLayout
     let surface: Surface
     let showsTail: Bool
     let isToggleable: Bool

@@ -77,7 +77,7 @@ final class AcpmuxTranscriptRowCellView: NSTableCellView {
         // line of text land in the same frame, so text never shows below the bubble.
         surfaceLayer.frame = bounds
         CATransaction.commit()
-        textView.apply(layout.text, frame: layout.textFrame)
+        textView.apply(layout.textLayout, frame: layout.textFrame)
         alphaValue = hidden ? 0 : (layout.dimmed ? 0.72 : 1)
         timestampLabel.stringValue = layout.timestamp ?? ""
         timestampLabel.textColor = theme.tertiaryText

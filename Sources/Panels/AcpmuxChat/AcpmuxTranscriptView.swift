@@ -30,8 +30,24 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     private var lastLayoutHeight: CGFloat = 0
     /// Rows measured exactly during the current height pass; other rows return estimates.
     private var measureWindow: Range<Int> = 0..<0
-    /// Rows whose height is an estimate at the current width, refined a batch per frame.
+    /// Rows whose height is an estimate at the current width. Layout workers lay them out
+    /// off the main thread; each display frame applies the heights that became ready.
     private var estimatedRows = IndexSet()
+    /// Rows whose background layout finished since the last frame.
+    private var readyRowIDs = Set<String>()
+    /// Row index by id, for mapping finished layouts back to table rows; rebuilt on use
+    /// after the rows change.
+    private var indexByRowIDStorage: [String: Int] = [:]
+    private var indexByRowIDIsStale = true
+    private var indexByRowID: [String: Int] {
+        if indexByRowIDIsStale {
+            indexByRowIDStorage = Dictionary(rows.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+            indexByRowIDIsStale = false
+        }
+        return indexByRowIDStorage
+    }
+    /// The clip origin at the last scroll event, for the prefetch direction.
+    private var lastScrollOriginY: CGFloat = 0
     private(set) var isPinnedToBottom = true
     private(set) var unreadCount = 0
     /// The session whose rows are on screen; a change resets the scroll state.
@@ -59,6 +75,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         tableView.dataSource = self
         tableView.delegate = self
         addSubview(scrollView)
+        engine.onLayoutsReady = { [weak self] rowIDs in self?.layoutsBecameReady(rowIDs) }
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(clipViewBoundsChanged(_:)),
@@ -121,25 +138,79 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         } else if let anchor {
             restore(anchor)
         }
-        if !estimatedRows.isEmpty { setNeedsFlush() }
+        scheduleEstimatedRows()
     }
 
-    /// Measures estimated rows for at most `budget` seconds and corrects their heights,
-    /// keeping the viewport anchored. Rows nearest the viewport go first.
-    private func refineEstimatedRows(budget: CFTimeInterval) {
+    /// Queues every estimated row for background layout, nearest the viewport first.
+    private func scheduleEstimatedRows() {
         guard !estimatedRows.isEmpty else { return }
-        let deadline = CACurrentMediaTime() + budget
         let visible = tableView.rows(in: scrollView.contentView.bounds)
         let center = visible.location + visible.length / 2
         let ordered = estimatedRows.sorted { abs($0 - center) < abs($1 - center) }
-        var batch = IndexSet()
-        for index in ordered {
-            if index < rows.count { _ = layout(for: index) }
-            batch.insert(index)
-            if CACurrentMediaTime() >= deadline { break }
+        engine.layOutInBackground(ordered.compactMap(request(for:)))
+    }
+
+    private func request(for index: Int) -> AcpmuxRowLayoutRequest? {
+        guard index < rows.count else { return nil }
+        let width = tableView.bounds.width
+        let key = AcpmuxRowLayoutEngine.key(
+            for: rows[index],
+            position: index < positions.count ? positions[index] : .standalone,
+            width: width,
+            expanded: expandedRowIDs.contains(rows[index].id)
+        )
+        return AcpmuxRowLayoutRequest(key: key, row: rows[index], width: width)
+    }
+
+    /// Lays out the rows on screen and about two screens ahead in the scroll direction
+    /// before they come into view.
+    private func prefetchAhead() {
+        guard !rows.isEmpty else { return }
+        let clip = scrollView.contentView.bounds
+        let direction: CGFloat = clip.minY < lastScrollOriginY ? -1 : 1
+        lastScrollOriginY = clip.minY
+        let visible = tableView.rows(in: clip)
+        let span = max(8, visible.length)
+        let lower: Int
+        let upper: Int
+        if direction < 0 {
+            lower = max(0, visible.location - 2 * span)
+            upper = min(rows.count, visible.location + visible.length)
+        } else {
+            lower = max(0, visible.location)
+            upper = min(rows.count, visible.location + visible.length + 2 * span)
         }
+        guard lower < upper else { return }
+        // Nearest rows first: for an upward scroll, walk up from the viewport.
+        let indexes = direction < 0 ? Array((lower..<upper).reversed()) : Array(lower..<upper)
+        let requests = indexes.compactMap { index -> AcpmuxRowLayoutRequest? in
+            guard let request = request(for: index), !engine.hasLayout(for: request.key) else { return nil }
+            return request
+        }
+        guard !requests.isEmpty else { return }
+        engine.prefetch(requests)
+    }
+
+    private func layoutsBecameReady(_ rowIDs: [String]) {
+        readyRowIDs.formUnion(rowIDs)
+        displayLink?.isPaused = false
+    }
+
+    /// Replaces estimated heights with the heights of layouts that finished in the
+    /// background, keeping the viewport anchored. No text is laid out here.
+    private func applyReadyLayouts() {
+        let ready = readyRowIDs
+        readyRowIDs.removeAll(keepingCapacity: true)
+        guard !estimatedRows.isEmpty else { return }
+        var batch = IndexSet()
+        let indexes = indexByRowID
+        for rowID in ready {
+            guard let index = indexes[rowID], estimatedRows.contains(index), let request = request(for: index),
+                  engine.hasLayout(for: request.key) else { continue }
+            batch.insert(index)
+        }
+        guard !batch.isEmpty else { return }
         estimatedRows.subtract(batch)
-        batch = batch.filteredIndexSet { $0 < rows.count }
         measureWindow = 0..<rows.count
         let anchor = isPinnedToBottom ? nil : captureAnchor()
         isAdjustingScroll = true
@@ -187,12 +258,8 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
             needsFlush = false
             flush()
         }
-        if !estimatedRows.isEmpty {
-            // Refine offscreen estimates within a small time slice per frame, so the
-            // measuring never takes a 120 Hz frame (8.3 ms) from scrolling or resizing.
-            refineEstimatedRows(budget: 0.002)
-        }
-        if !needsFlush && estimatedRows.isEmpty { link.isPaused = true }
+        if !readyRowIDs.isEmpty { applyReadyLayouts() }
+        if !needsFlush && readyRowIDs.isEmpty { link.isPaused = true }
     }
 
     /// Applies the model's current rows now.
@@ -220,6 +287,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
             typingPathToMorph = layout(for: diff.removed.lowerBound).surfacePath
         }
         rows = newRows
+        indexByRowIDIsStale = true
         positions = newPositions
         // Row indexes shift with inserts and removals, so an unfinished refinement restarts
         // after this update with a fresh estimate pass.
@@ -236,6 +304,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
             tableView.reloadData()
             _ = tableView.rect(ofRow: max(0, newRows.count - 1))
             measureWindow = 0..<0
+            scheduleEstimatedRows()
         } else {
             tableView.beginUpdates()
             if !diff.removed.isEmpty {
@@ -263,6 +332,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
             measureWindow = max(0, visible.location - 20)..<min(rows.count, max(0, visible.location + visible.length + 20))
             tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
             measureWindow = 0..<0
+            scheduleEstimatedRows()
         }
         if isPinnedToBottom {
             scrollToBottom(animated: animateScroll && !isInitial && !reduceMotion && appendedAtEnd)
@@ -365,6 +435,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     }
 
     @objc private func clipViewBoundsChanged(_ notification: Notification) {
+        prefetchAhead()
         guard !isAdjustingScroll, programmaticScrollAnimations == 0 else { return }
         let clip = scrollView.contentView.bounds
         let distanceFromBottom = tableView.frame.height - clip.maxY
@@ -402,6 +473,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     private var flingFromY: CGFloat = 0
     private var flingTimestamps: [CFTimeInterval] = []
     private var flingNominalInterval: CFTimeInterval = 1.0 / 60
+    private var flingSyncLayoutsAtStart = 0
 
     /// Scrolls from the bottom to the top at constant speed over `seconds`, one step per
     /// display frame, recording each frame's timestamp for ``debugFlingStats()``.
@@ -412,6 +484,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         flingDuration = seconds
         flingTimestamps = []
         flingStart = 0
+        flingSyncLayoutsAtStart = engine.synchronousLayoutCount
         let link = displayLink(target: self, selector: #selector(flingTick(_:)))
         link.add(to: .main, forMode: .common)
         flingLink = link
@@ -445,6 +518,8 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         return [
             "running": flingLink != nil,
             "rows": rows.count,
+            "main_thread_layouts": engine.synchronousLayoutCount - flingSyncLayoutsAtStart,
+            "estimated_rows_left": estimatedRows.count,
             "frames": intervals.count + 1,
             "nominal_ms": (nominal * 100).rounded() / 100,
             "p50_ms": (percentile(0.5) * 100).rounded() / 100,
@@ -481,6 +556,12 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     func surfacePath(of rowID: String) -> CGPath? {
         guard let index = rows.firstIndex(where: { $0.id == rowID }) else { return nil }
         return layout(for: index).surfacePath
+    }
+
+    /// The layout of `rowID` at the current width.
+    func rowLayout(of rowID: String) -> AcpmuxRowLayout? {
+        guard let index = rows.firstIndex(where: { $0.id == rowID }) else { return nil }
+        return layout(for: index)
     }
 
     /// The bubble frame of `rowID` in this view's coordinates, if the row is laid out.
@@ -532,12 +613,19 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
 
     private func layout(for row: Int) -> AcpmuxRowLayout {
-        engine.layout(
+        let before = engine.synchronousLayoutCount
+        let layout = engine.layout(
             for: rows[row],
             position: row < positions.count ? positions[row] : .standalone,
             width: tableView.bounds.width,
             expanded: expandedRowIDs.contains(rows[row].id)
         )
+        // A row laid out here before its background layout finished still has an estimated
+        // table height; the next frame replaces it like any other finished layout.
+        if engine.synchronousLayoutCount != before, estimatedRows.contains(row) {
+            layoutsBecameReady([rows[row].id])
+        }
+        return layout
     }
 
     private func reconfigure(row: Int) {

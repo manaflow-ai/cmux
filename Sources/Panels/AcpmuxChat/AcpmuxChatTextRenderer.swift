@@ -4,8 +4,8 @@ import CmuxAcpmux
 /// Converts transcript rows into attributed strings for TextKit 1 layout.
 ///
 /// Rendering is deterministic for a given row version, theme, and expansion state, so the
-/// layout cache can key on those and skip re-rendering unchanged rows.
-@MainActor
+/// layout cache can key on those and skip re-rendering unchanged rows. It holds only
+/// immutable values, so layout workers call it off the main thread.
 struct AcpmuxChatTextRenderer {
     let theme: AcpmuxChatTheme
     private let parser = MarkdownBlockParser()

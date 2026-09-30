@@ -6,10 +6,6 @@ final class AcpmuxComposerTextView: NSTextView {
     var onSubmit: (() -> Void)?
     var onCancel: (() -> Void)?
     var onHeightChange: (() -> Void)?
-    var placeholder = "" {
-        didSet { needsDisplay = true }
-    }
-    var placeholderColor: NSColor = .placeholderTextColor
 
     override func doCommand(by selector: Selector) {
         switch selector {
@@ -28,18 +24,34 @@ final class AcpmuxComposerTextView: NSTextView {
 
     override func didChangeText() {
         super.didChangeText()
-        needsDisplay = true
         onHeightChange?()
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard string.isEmpty, !hasMarkedText() else { return }
-        let origin = NSPoint(x: textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0), y: textContainerInset.height)
-        (placeholder as NSString).draw(at: origin, withAttributes: [
-            .font: font ?? NSFont.systemFont(ofSize: 13.5),
-            .foregroundColor: placeholderColor,
-        ])
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        onHeightChange?()
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        onHeightChange?()
+    }
+
+    /// Whether the placeholder should show: no text and no marked (IME) text.
+    var showsPlaceholder: Bool { string.isEmpty && !hasMarkedText() }
+
+    /// Where the first glyph of the text starts, in this view's coordinates.
+    var textOrigin: CGPoint {
+        CGPoint(x: textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0), y: textContainerOrigin.y)
+    }
+
+    /// The bounds of the laid-out glyphs in this view's coordinates, the send morph's start.
+    var glyphBounds: CGRect {
+        guard let layoutManager, let textContainer else { return CGRect(origin: textOrigin, size: .zero) }
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphs = layoutManager.glyphRange(for: textContainer)
+        let bounds = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+        return bounds.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
     }
 
     /// Height of the current text, for auto-growth.

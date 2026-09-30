@@ -266,45 +266,47 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
     // MARK: - Sending
 
     private func submit(_ text: String) {
-        let startFrame = convert(composer.textFrame, from: composer)
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Put the overlay over the composer text before anything else changes, so every
-        // frame shows the message somewhere: in the composer, in flight, or in its bubble.
+        // The text's own glyph bounds in the composer: the flight starts exactly there.
+        let start = convert(composer.textGlyphFrame, from: composer)
         if activeMorph != nil { finishMorph(nil) }
-        var overlay: AcpmuxMorphBubbleView?
-        if !reduceMotion, window != nil {
-            morphOverlay.prepare(text: trimmed, theme: theme, from: startFrame, textWidth: max(1, startFrame.width - 8), in: bounds)
-            morphOverlay.displayIfNeeded()
-            overlay = morphOverlay
-        }
-        composer.clear()
-        guard let rowID = model.send(text), let overlay else {
-            overlay?.isHidden = true
-            transcript.jumpToLatest()
-            return
-        }
-        // One transaction: insert the hidden row, scroll it into its final slot, measure,
-        // and start the morph.
+        let animates = !reduceMotion && window != nil
+        // One transaction: clear the composer, insert the hidden row, scroll it into its
+        // final slot and start the flight, so every frame shows the message somewhere.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        // The placeholder waits until the flight has left the composer, then fades in.
+        composer.clear(revealPlaceholderAfter: animates ? 0.1 : nil)
+        guard let rowID = model.send(text), animates else {
+            transcript.jumpToLatest()
+            return
+        }
         transcript.setRowHidden(rowID, hidden: true)
         transcript.flush(animateScroll: false)
         transcript.jumpToLatest(animated: false)
         transcript.layoutSubtreeIfNeeded()
-        guard let target = transcript.bubbleFrame(of: rowID).map({ convert($0, from: transcript) }) else {
+        guard let target = transcript.bubbleFrame(of: rowID).map({ convert($0, from: transcript) }),
+              let rowLayout = transcript.rowLayout(of: rowID) else {
             transcript.setRowHidden(rowID, hidden: false)
-            overlay.isHidden = true
             return
         }
-        let horizontal = AcpmuxRowLayoutEngine.bubbleHorizontalPadding
-        let vertical = AcpmuxRowLayoutEngine.bubbleVerticalPadding
-        overlay.setTextWidth(max(1, target.width - 2 * horizontal))
+        // The same text in the composer's color, laid out at the bubble's text width.
+        let sourceText = NSMutableAttributedString(attributedString: rowLayout.textLayout.storage)
+        sourceText.addAttribute(.foregroundColor, value: theme.foreground, range: NSRange(location: 0, length: sourceText.length))
+        let sourceLayout = AcpmuxTextLayout(text: sourceText, width: rowLayout.textLayout.container.size.width)
         morphGeneration &+= 1
         let generation = morphGeneration
-        activeMorph = (rowID, overlay, target)
-        let groupedAbove = transcript.groupPosition(of: rowID).map { !$0.isFirst } ?? false
-        overlay.morph(to: target, textOrigin: CGPoint(x: horizontal, y: vertical), groupedAbove: groupedAbove) { [weak self] in
+        activeMorph = (rowID, morphOverlay, target)
+        morphOverlay.frame = bounds
+        morphOverlay.fly(
+            sourceLayout: sourceLayout,
+            finalLayout: rowLayout.textLayout,
+            fillColor: theme.userBubble,
+            from: CGRect(origin: start.origin, size: CGSize(width: max(start.width, 1), height: max(start.height, 1))),
+            to: target,
+            textInset: CGPoint(x: AcpmuxRowLayoutEngine.bubbleHorizontalPadding, y: AcpmuxRowLayoutEngine.bubbleVerticalPadding),
+            groupedAbove: transcript.groupPosition(of: rowID).map { !$0.isFirst } ?? false
+        ) { [weak self] in
             self?.finishMorph(generation: generation)
         }
     }
@@ -344,11 +346,7 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
         let generation = morphGeneration
         activeMorph = (morph.rowID, morph.overlay, current)
         let groupedAbove = transcript.groupPosition(of: morph.rowID).map { !$0.isFirst } ?? false
-        morph.overlay.retarget(
-            to: current,
-            textOrigin: CGPoint(x: AcpmuxRowLayoutEngine.bubbleHorizontalPadding, y: AcpmuxRowLayoutEngine.bubbleVerticalPadding),
-            groupedAbove: groupedAbove
-        ) { [weak self] in
+        morph.overlay.retarget(to: current, groupedAbove: groupedAbove) { [weak self] in
             self?.finishMorph(generation: generation)
         }
     }

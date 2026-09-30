@@ -30,12 +30,37 @@ final class AcpmuxTranscriptTextView: NSTextView {
         super.init(frame: frameRect, textContainer: container)
     }
 
-    func apply(_ text: NSAttributedString, frame: CGRect) {
+    /// The empty text group this view shows when it holds no row's layout.
+    private lazy var placeholderContainer: NSTextContainer = {
+        let layout = AcpmuxTextLayout.empty()
+        placeholderLayout = layout
+        return layout.container
+    }()
+    private var placeholderLayout: AcpmuxTextLayout?
+    /// The finished layout this view draws, kept alive while its container is adopted.
+    private var adoptedLayout: AcpmuxTextLayout?
+
+    /// Shows `layout` by adopting its already laid-out text container, so no text is laid
+    /// out here. A layout can back one view at a time; a view that showed it before falls
+    /// back to an empty group.
+    func apply(_ layout: AcpmuxTextLayout, frame: CGRect) {
         self.frame = frame
-        textContainer?.size = NSSize(width: frame.width, height: .greatestFiniteMagnitude)
-        if textStorage?.isEqual(to: text) != true {
-            textStorage?.setAttributedString(text)
+        guard layout !== adoptedLayout else { return }
+        if let previousOwner = layout.container.textView as? AcpmuxTranscriptTextView, previousOwner !== self {
+            previousOwner.releaseAdoptedLayout()
         }
+        let previous = textContainer
+        previous?.textView = nil
+        layout.container.textView = self
+        adoptedLayout = layout
+    }
+
+    private func releaseAdoptedLayout() {
+        guard adoptedLayout != nil else { return }
+        textContainer?.textView = nil
+        placeholderContainer.textView = self
+        adoptedLayout = nil
+        needsDisplay = true
     }
 
     /// Draws a rounded box behind each fenced code block, spanning the container width.
