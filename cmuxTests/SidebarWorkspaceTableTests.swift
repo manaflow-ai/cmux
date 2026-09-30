@@ -13,6 +13,33 @@ import Testing
 @Suite(.serialized)
 struct SidebarWorkspaceTableTests {
     @Test
+    func staleRenderKeepsOptimisticSelectionUntilTargetIsAuthoritative() {
+        let target = UUID()
+
+        #expect(
+            !SidebarOptimisticSelectionReconciliation.shouldClearPreview(
+                authoritativeSelectedWorkspaceId: UUID(),
+                optimisticTargetWorkspaceId: target,
+                targetStillRendered: true
+            )
+        )
+        #expect(
+            SidebarOptimisticSelectionReconciliation.shouldClearPreview(
+                authoritativeSelectedWorkspaceId: target,
+                optimisticTargetWorkspaceId: target,
+                targetStillRendered: true
+            )
+        )
+        #expect(
+            SidebarOptimisticSelectionReconciliation.shouldClearPreview(
+                authoritativeSelectedWorkspaceId: UUID(),
+                optimisticTargetWorkspaceId: target,
+                targetStillRendered: false
+            )
+        )
+    }
+
+    @Test
     @MainActor
     func reorderDropDestinationIsOverlayNotTable() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()

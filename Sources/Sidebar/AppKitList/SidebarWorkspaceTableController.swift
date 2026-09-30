@@ -5,6 +5,23 @@ import CmuxFoundation
 import CmuxNotifications
 import SwiftUI
 
+/// Decides whether an optimistic press preview can be reconciled by an
+/// incoming sidebar render. Cloud workspace activation can publish an
+/// unrelated row update before the selection mutation reaches the render
+/// snapshot; clearing the preview in that frame briefly leaves no row
+/// selected (or lets the old row flash back on).
+struct SidebarOptimisticSelectionReconciliation {
+    static func shouldClearPreview(
+        authoritativeSelectedWorkspaceId: UUID?,
+        optimisticTargetWorkspaceId: UUID?,
+        targetStillRendered: Bool
+    ) -> Bool {
+        guard let optimisticTargetWorkspaceId else { return true }
+        return authoritativeSelectedWorkspaceId == optimisticTargetWorkspaceId
+            || !targetStillRendered
+    }
+}
+
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
 @MainActor
 final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
@@ -34,6 +51,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     var onDeferredRowClickAwaitingApply: (() -> Void)?
     private var hoveredRowId: SidebarWorkspaceRenderItemID?
     private var contextMenuRowId: SidebarWorkspaceRenderItemID?
+    private var optimisticSelectionTargetWorkspaceId: UUID?
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
     private var isPresentationActive = true
@@ -693,9 +711,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 && !previousRows[index].hasEquivalentContent(to: nextRows[index])
         })
         // Optimistically painted rows reconcile even when their model did
-        // not change: the preview may not match the authoritative outcome,
-        // and this apply cancels the bailout that would otherwise catch it.
-        if !optimisticallyPaintedRowIds.isEmpty {
+        // not change, but only after this render confirms the clicked
+        // workspace. A stale Cloud content update must leave the preview in
+        // place until the selection mutation reaches the render snapshot.
+        if !optimisticallyPaintedRowIds.isEmpty,
+           SidebarOptimisticSelectionReconciliation.shouldClearPreview(
+               authoritativeSelectedWorkspaceId: selectedWorkspaceId,
+               optimisticTargetWorkspaceId: optimisticSelectionTargetWorkspaceId,
+               targetStillRendered: nextRows.contains {
+                   $0.workspaceId == optimisticSelectionTargetWorkspaceId
+               }
+           ) {
             for (index, row) in nextRows.enumerated()
             where optimisticallyPaintedRowIds.contains(row.id) {
                 contentChanges.insert(index)
@@ -706,6 +732,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // unrelated apply arriving first) otherwise kept its paint.
             dropOptimisticPaint(onRowsWithIds: optimisticallyPaintedRowIds)
             optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
+            optimisticSelectionTargetWorkspaceId = nil
         }
         // Release pump geometry only when this apply actually supersedes the
         // row's authoritative content. An unrelated workspace update must not
@@ -1069,6 +1096,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func cancelSelectionIntent() {
         deferredRowClick = nil
         selectionCoalescer.cancel()
+        optimisticSelectionTargetWorkspaceId = nil
     }
 
     @objc private func didDoubleClickTableRow() {
@@ -2021,6 +2049,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             headerCell?.showOptimisticAnchorActive()
         }
         optimisticallyPaintedRowIds.insert(rows[row].id)
+        optimisticSelectionTargetWorkspaceId = rows[row].workspaceId
         // Optimistic paint is only reconciled by an authoritative apply, and
         // some presses never produce one (drag that lands where it started,
         // press swallowed by the drag threshold, selection unchanged). Left
@@ -2087,6 +2116,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func restoreVisibleCellPaint() {
         guard let table = containerView?.tableView else { return }
         optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
+        optimisticSelectionTargetWorkspaceId = nil
         let visible = table.rows(in: table.visibleRect)
         for row in visible.lowerBound..<(visible.lowerBound + visible.length) {
             let cellView = table.view(atColumn: 0, row: row, makeIfNecessary: false)
