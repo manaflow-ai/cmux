@@ -11,7 +11,7 @@ import Testing
     }
 
     func warmup(_ clock: Clock, engine: CEFEngine = CEFEngine(layout: nil)) -> ChromiumWarmup {
-        ChromiumWarmup(engine: engine, sleep: { _ in }, now: { clock.now }, isTrackingMenu: { clock.tracking })
+        ChromiumWarmup(engine: engine, now: { clock.now }, isTrackingMenu: { clock.tracking })
     }
 
     @Test func idleNeedsQuietInputAndNoMenuTracking() {

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextWakeups
 
 /// Starts Chromium before the first Chromium tab needs it, so its two
 /// unavoidable main-thread steps (`CefInitialize` and the first Chromium
@@ -10,7 +11,9 @@ import CmuxNextBrowser
 ///   thread (`CEFEngine.preload`, no Chromium code runs).
 /// - When a Chromium tab is likely, `CefInitialize` runs at the next idle
 ///   moment: no key or mouse input to this app for `Policy.idleInput` and no
-///   menu tracking. Likely means a Chromium tab in any window (restored or
+///   menu tracking, waited for with one-shot deadlines (a deadline re-arms
+///   for the rest of the quiet period after input, and the end of menu
+///   tracking re-arms it; nothing polls). Likely means a Chromium tab in any window (restored or
 ///   not), the "+" menu, the palette's Chromium entries, and while Chromium
 ///   is the default engine (`browser.defaultEngine`) also any browser tab in
 ///   any window, the palette's default browser entries (New Browser Tab,
@@ -32,20 +35,19 @@ final class ChromiumWarmup {
     struct Policy: Sendable {
         var launchPreloadDelay: Duration = .seconds(3)
         var idleInput: Duration = .milliseconds(750)
-        var poll: Duration = .milliseconds(250)
         /// Give up (stay lazy) when the app never goes idle this long.
         var maxWait: Duration = .seconds(60)
     }
 
-    typealias Sleep = @Sendable (Duration) async throws -> Void
-
     private let engine: CEFEngine
     private let policy: Policy
-    private let sleep: Sleep
     private let now: @MainActor () -> TimeInterval
     private let isTrackingMenu: @MainActor () -> Bool
-    private var launchTask: Task<Void, Never>?
-    private var warmTask: Task<Void, Never>?
+    private let launchTimer: DemandTimer
+    private let idleTimer: DemandTimer
+    private let giveUpTimer: DemandTimer
+    private var waiting = false
+    private var menuObserver: (any NSObjectProtocol)?
     private var inputMonitor: Any?
     private var lastInput: TimeInterval = 0
     private(set) var reason: Reason?
@@ -53,13 +55,15 @@ final class ChromiumWarmup {
     init(
         engine: CEFEngine,
         policy: Policy = Policy(),
-        sleep: @escaping Sleep = { try await ContinuousClock().sleep(for: $0) },
+        clock: any Clock<Duration> = ContinuousClock(),
         now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         isTrackingMenu: @escaping @MainActor () -> Bool = { RunLoop.main.currentMode == .eventTracking }
     ) {
         self.engine = engine
         self.policy = policy
-        self.sleep = sleep
+        launchTimer = DemandTimer(owner: "ChromiumWarmup.preload", clock: clock)
+        idleTimer = DemandTimer(owner: "ChromiumWarmup.idle", clock: clock)
+        giveUpTimer = DemandTimer(owner: "ChromiumWarmup.maxWait", clock: clock)
         self.now = now
         self.isTrackingMenu = isTrackingMenu
     }
@@ -68,10 +72,8 @@ final class ChromiumWarmup {
 
     /// Maps the framework `launchPreloadDelay` after launch.
     func start() {
-        guard launchTask == nil, isAvailable else { return }
-        let delay = policy.launchPreloadDelay
-        launchTask = Task { [weak self, sleep] in
-            do { try await sleep(delay) } catch { return }
+        guard !launchTimer.isScheduled, isAvailable else { return }
+        launchTimer.schedule(after: policy.launchPreloadDelay) { @MainActor [weak self] in
             self?.engine.preload()
         }
     }
@@ -83,25 +85,44 @@ final class ChromiumWarmup {
         self.reason = reason
         engine.preload()
         lastInput = now()
+        waiting = true
         installInputMonitor()
-        let policy = policy
-        warmTask = Task { [weak self, sleep] in
-            var waited: Duration = .zero
-            while let self, !self.isIdle(policy) {
-                if waited >= policy.maxWait { self.finishWaiting(); return }
-                do { try await sleep(policy.poll) } catch { return }
-                waited += policy.poll
-            }
-            guard let self else { return }
-            self.finishWaiting()
-            await self.engine.warmStart(reason: reason.rawValue)
-        }
+        armIdle(after: policy.idleInput)
+        giveUpTimer.schedule(after: policy.maxWait) { @MainActor [weak self] in self?.finishWaiting() }
     }
 
     func stop() {
-        launchTask?.cancel()
-        warmTask?.cancel()
+        launchTimer.cancel()
         finishWaiting()
+    }
+
+    private func armIdle(after delay: Duration) {
+        idleTimer.schedule(after: delay) { @MainActor [weak self] in self?.idleDeadline() }
+    }
+
+    /// The quiet period may have ended: warm up, or wait for the rest of it
+    /// (input came meanwhile) or for menu tracking to end.
+    private func idleDeadline() {
+        guard waiting else { return }
+        if isTrackingMenu() {
+            guard menuObserver == nil else { return }
+            menuObserver = NotificationCenter.default.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil,
+                                                                  queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.removeMenuObserver()
+                    self.armIdle(after: self.policy.idleInput)
+                }
+            }
+            return
+        }
+        let quiet = now() - lastInput
+        let remaining = policy.idleInput.inSeconds - quiet
+        guard remaining <= 0 else { return armIdle(after: .seconds(remaining)) }
+        guard let reason else { return }
+        finishWaiting()
+        // task-owner: one warm start per process; CEFEngine owns its lifetime
+        Task { await engine.warmStart(reason: reason.rawValue) }
     }
 
     /// True when no input reached this app for `idleInput` and no menu is
@@ -109,8 +130,7 @@ final class ChromiumWarmup {
     func isIdle(_ policy: Policy) -> Bool {
         guard !isTrackingMenu() else { return false }
         let quiet = now() - lastInput
-        return quiet >= Double(policy.idleInput.components.seconds)
-            + Double(policy.idleInput.components.attoseconds) / 1e18
+        return quiet >= policy.idleInput.inSeconds
     }
 
     /// Records input while a warm start waits (no monitor otherwise).
@@ -127,7 +147,16 @@ final class ChromiumWarmup {
     }
 
     private func finishWaiting() {
+        waiting = false
+        idleTimer.cancel()
+        giveUpTimer.cancel()
+        removeMenuObserver()
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
+    }
+
+    private func removeMenuObserver() {
+        if let menuObserver { NotificationCenter.default.removeObserver(menuObserver) }
+        menuObserver = nil
     }
 }
