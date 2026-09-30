@@ -73,7 +73,7 @@ extension FeedCoordinator {
                 (workspaceId == nil || $0.tabId == workspaceId) &&
                 (surfaceId == nil || $0.surfaceId == surfaceId)
         }
-        guard let source, let sessionId, let workspaceId, let surfaceId,
+        guard let source, let sessionId, let surfaceId,
               candidates.count == 1, let candidate = candidates.first,
               candidate.agentKind == source,
               candidate.agentSessionId == Self.normalizedAgentSessionId(source: source, rawValue: sessionId),
