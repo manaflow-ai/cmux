@@ -33,6 +33,7 @@ User decisions 2026-09-28:
 - D3: CEF fork + prebuilt artifact go to a new repo (manaflow-ai/cef, private until user says otherwise).
 - D4: Cloud and iOS must keep working seamlessly. They may be rewritten so both ride cmux-tui (Cloud VMs already run the daemon; iOS should attach to the same daemon tree).
 - Deployment target macOS 26 for cmux-next (flagged: appcast needs minimumSystemVersion before any release).
+- CLI (user 2026-09-30, plans/cmux-next/cli.md): the `cmux` CLI is rewritten in Rust as one multicall binary (CLI, acpmux, cmux-tui) in `cmux-tui/crates/cmux-cli`; no compatibility with the old CLI verbs, refs or v1 protocol; `cmux acp` covers acpmux session verbs, an ACP stdio agent for editors, and opening a session in the app. acpmux reaches this line by merging PR 15512 into feat-cmux-next, not through main.
 
 Design docs: architecture.md (state ownership, AppKit, RAM/CPU budgets, Chrome tab group parity; binding for every agent), cmux-tui-contract.md, inventory.md, browser.md, shell.md, cloud-ios.md.
 
