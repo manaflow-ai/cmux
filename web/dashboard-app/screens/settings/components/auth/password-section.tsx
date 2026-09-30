@@ -22,13 +22,19 @@ import {
   type PasswordFieldErrors,
   type PasswordFormValues,
 } from "../../lib/password";
+import type { SettingsEmail } from "@/dashboard-app/queries/settings";
 
 const EMPTY: PasswordFormValues = { oldPassword: "", newPassword: "", newPasswordRepeat: "" };
 
 /** Set or update the password. Rendered only when credentials are enabled. */
-export function PasswordSection({ user }: { readonly user: CurrentUser }) {
+export function PasswordSection({
+  user,
+  channels,
+}: {
+  readonly user: CurrentUser;
+  readonly channels: readonly SettingsEmail[];
+}) {
   const t = useTranslations("dashboard.settings.auth.password");
-  const channels = user.useContactChannels();
   const [editing, setEditing] = useState(false);
   const [done, setDone] = useState(false);
 

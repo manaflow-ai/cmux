@@ -1,6 +1,7 @@
 import { accountRouter } from "./account";
 import { cloudRouter } from "./cloud";
 import { coderouterRouter } from "./coderouter";
+import { settingsRouter } from "./settings";
 import { teamsRouter } from "./teams";
 import { vaultRouter } from "./vault";
 
@@ -15,6 +16,7 @@ export const dashboardRouter = {
   coderouter: coderouterRouter,
   cloud: cloudRouter,
   vault: vaultRouter,
+  settings: settingsRouter,
 };
 
 export type DashboardRouter = typeof dashboardRouter;

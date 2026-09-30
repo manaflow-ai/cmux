@@ -14,11 +14,17 @@ import {
 import { hasVerifiedSignInEmail } from "../../lib/contact-channels";
 import { isOnlySignInMethod } from "../../lib/sign-in-methods";
 import { signInFacts } from "./sign-in-facts";
+import type { SettingsEmail } from "@/dashboard-app/queries/settings";
 
 /** Register or disable passkey sign-in. Rendered when passkeys are enabled. */
-export function PasskeySection({ user }: { readonly user: CurrentUser }) {
+export function PasskeySection({
+  user,
+  channels,
+}: {
+  readonly user: CurrentUser;
+  readonly channels: readonly SettingsEmail[];
+}) {
   const t = useTranslations("dashboard.settings.auth.passkey");
-  const channels = user.useContactChannels();
   const [confirming, setConfirming] = useState(false);
   const [run, state] = useAsyncAction(t("registerError"));
   const hasPasskey = user.passkeyAuthEnabled;

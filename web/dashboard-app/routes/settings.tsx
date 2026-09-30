@@ -1,9 +1,27 @@
 import { createRoute, lazyRouteComponent } from "@tanstack/react-router";
+import {
+  settingsApiKeysQuery,
+  settingsNotificationsQuery,
+  settingsOAuthProvidersQuery,
+  settingsOverviewQuery,
+  settingsSessionsQuery,
+} from "../queries/settings";
 import { shellRoute } from "./root";
 
 const pages = () => import("../screens/settings/settings-pages");
 
-/** Account settings. Sections read the Stack client SDK; the shell gates the session. */
+/**
+ * Wait for a page's reads before it renders. `prefetchQuery` never throws, so
+ * a failed read still surfaces in that section's own error boundary.
+ */
+async function settled(...prefetches: readonly Promise<void>[]): Promise<void> {
+  await Promise.all(prefetches);
+}
+
+/**
+ * Account settings. Sections read typed oRPC queries (prefetched here and by
+ * the page's server render); writes use the Hexclave client SDK.
+ */
 const settingsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/dashboard/settings",
@@ -19,30 +37,35 @@ const profileRoute = createRoute({
 const authRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/auth",
+  loader: ({ context: { queryClient } }) => settled(queryClient.prefetchQuery(settingsOverviewQuery), queryClient.prefetchQuery(settingsOAuthProvidersQuery)),
   component: lazyRouteComponent(pages, "SettingsAuthPage"),
 });
 
 const notificationsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/notifications",
+  loader: ({ context: { queryClient } }) => settled(queryClient.prefetchQuery(settingsNotificationsQuery)),
   component: lazyRouteComponent(pages, "SettingsNotificationsPage"),
 });
 
 const sessionsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/sessions",
+  loader: ({ context: { queryClient } }) => settled(queryClient.prefetchQuery(settingsSessionsQuery)),
   component: lazyRouteComponent(pages, "SettingsSessionsPage"),
 });
 
 const apiKeysRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/api-keys",
+  loader: ({ context: { queryClient } }) => settled(queryClient.prefetchQuery(settingsOverviewQuery), queryClient.prefetchQuery(settingsApiKeysQuery)),
   component: lazyRouteComponent(pages, "SettingsApiKeysPage"),
 });
 
 const accountRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/account",
+  loader: ({ context: { queryClient } }) => settled(queryClient.prefetchQuery(settingsOverviewQuery)),
   component: lazyRouteComponent(pages, "SettingsAccountPage"),
 });
 
