@@ -117,7 +117,7 @@ extension CmuxSettingsFileStore {
     /// Creates the process store wired to the host's shared reload coordinator.
     static var appLive: CmuxSettingsFileStore {
         CmuxSettingsFileStore(
-            languageSettingsStore: LanguageSettingsStore(defaults: .standard),
+            languageSettingsStore: LanguageSettingsStore(defaults: .standard, domainName: ProcessDefaultsDomain.name),
             onWatchedFileReload: { source in
                 AppDelegate.shared?.reconcileSocketListenerConfiguration(source: source)
             }
