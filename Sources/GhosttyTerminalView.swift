@@ -7106,7 +7106,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
             ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
-            super.keyDown(with: event)
+            // This view is itself the terminal responder. Passing an event to
+            // NSView while its runtime is unavailable makes AppKit interpret
+            // Escape and other control keys as unhandled commands, which
+            // leaks literal escape input and can trigger the macOS alert beep.
+            // Keep the event consumed until the runtime recovery path can
+            // replay it or the next explicit input arrives.
             return
         }
         recordDirectAgentHibernationTerminalInput()
@@ -7639,7 +7644,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         guard let surface = ensureSurfaceReadyForInput() else {
-            super.keyUp(with: event)
+            // Pair a missing-runtime key-up with the consumed key-down path;
+            // forwarding it to AppKit can produce an unhandled command after
+            // a pane or workspace transition.
             return
         }
         if event.keyCode != 53 {
@@ -7676,7 +7683,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func flagsChanged(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
         guard let surface = ensureSurfaceReadyForInput() else {
-            super.flagsChanged(with: event)
+            // Modifier changes are terminal input too. Do not hand them to
+            // AppKit while a pane is between runtime generations.
             return
         }
 
