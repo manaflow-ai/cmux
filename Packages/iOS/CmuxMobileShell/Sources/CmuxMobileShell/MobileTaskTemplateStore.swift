@@ -29,6 +29,7 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     ]
     private static let lastTemplateIDKey = "cmux.mobile.taskComposer.lastTemplateID"
     private static let lastMacDeviceIDKey = "cmux.mobile.taskComposer.lastMacDeviceID"
+    private static let pickerPreferencesPrefix = "cmux.mobile.taskComposer.pickers.v1."
     private static let lastDirectoryPrefix = "cmux.mobile.taskComposer.lastDirectory."
     private static let recentDirectoriesPrefix = "cmux.mobile.taskComposer.recentDirectories.v1."
     private static let legacyComposerDraftKey = "cmux.mobile.taskComposer.draft.v1"
@@ -129,6 +130,18 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     /// Stores the last selected Mac device id.
     public func setLastMacDeviceID(_ id: String?) {
         setOptional(id, forKey: Self.lastMacDeviceIDKey)
+    }
+
+    public func composerPickerPreferences(macPairingID: String) -> MobileTaskComposerPickerPreferences? {
+        guard let data = defaults.data(forKey: Self.pickerPreferencesPrefix + macPairingID) else { return nil }
+        return try? decoder.decode(MobileTaskComposerPickerPreferences.self, from: data)
+    }
+
+    public func setComposerPickerPreferences(
+        _ preferences: MobileTaskComposerPickerPreferences, macPairingID: String
+    ) {
+        guard !macPairingID.isEmpty, let data = try? encoder.encode(preferences) else { return }
+        defaults.set(data, forKey: Self.pickerPreferencesPrefix + macPairingID)
     }
 
     /// Returns the last successful directory for one Mac.
@@ -325,6 +338,9 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
             Self.composerDraftsKey,
         ] + Self.legacyKeys
         for key in keys {
+            defaults.removeObject(forKey: key)
+        }
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.pickerPreferencesPrefix) {
             defaults.removeObject(forKey: key)
         }
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.lastDirectoryPrefix) {

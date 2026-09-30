@@ -366,6 +366,59 @@ extension MobileShellComposite {
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
         instanceTag: String?,
+        maximumCacheAge: Double = 0,
+        didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
+    ) async -> MobileTaskModelRefreshOutcome {
+        guard !Task.isCancelled else { return .stopped(.cancelled) }
+        let key = MobileTaskModelCacheKey(
+            macDeviceID: macDeviceID, instanceTag: instanceTag, provider: provider
+        )
+        let connectionIdentity = taskModelConnectionIdentity(
+            macDeviceID: macDeviceID, instanceTag: instanceTag
+        )
+        if let connectionIdentity,
+           taskModelSuccessfulConnections[key] == connectionIdentity,
+           let cached = taskModelCache[key],
+           (runtime?.now() ?? Date()).timeIntervalSince(cached.fetchedAt) < maximumCacheAge,
+           cached.result.source == .discovered, cached.result.error == nil {
+            didUpdate?(cached.result)
+            return .succeeded
+        }
+        if let request = taskModelRefreshRequests[key],
+           !request.isFinished,
+           request.connectionIdentity == connectionIdentity {
+            if let cached = taskModelCache[key] { didUpdate?(cached.result) }
+            return await request.value(didUpdate: didUpdate)
+        }
+        taskModelRefreshRequests[key]?.cancel()
+        let request = MobileTaskModelRefreshRequest(connectionIdentity: connectionIdentity)
+        let sessionGeneration = currentSessionGeneration
+        taskModelRefreshRequests[key] = request
+        request.task = Task { [weak self] in
+            guard let self else {
+                request.finish(.stopped(.cancelled))
+                return
+            }
+            let outcome = await self.performTaskModelRefresh(
+                provider: provider, macDeviceID: macDeviceID, instanceTag: instanceTag,
+                didUpdate: { request.publish($0) }
+            )
+            if self.taskModelRefreshRequests[key] === request {
+                self.taskModelRefreshRequests[key] = nil
+                if !Task.isCancelled, self.currentSessionGeneration == sessionGeneration,
+                   outcome == .succeeded, let connectionIdentity {
+                    self.taskModelSuccessfulConnections[key] = connectionIdentity
+                }
+            }
+            request.finish(outcome)
+        }
+        return await request.value(didUpdate: didUpdate)
+    }
+
+    private func performTaskModelRefresh(
+        provider: MobileTaskAgentProvider,
+        macDeviceID: String,
+        instanceTag: String?,
         didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
     ) async -> MobileTaskModelRefreshOutcome {
         let startedAt = appDiagnosticNow()
@@ -468,6 +521,7 @@ extension MobileShellComposite {
             provider: provider
         )
         let catalogClient = taskModelCatalogClient
+        let sessionGeneration = currentSessionGeneration
         var hostFailure: MobileTaskModelListResult?
         var hostOutcome: MobileTaskModelHostRefreshResult?
         var backendResult: MobileTaskModelListResult?
@@ -481,7 +535,7 @@ extension MobileShellComposite {
             }
 
             for await event in group {
-                guard !Task.isCancelled else {
+                guard !Task.isCancelled, currentSessionGeneration == sessionGeneration else {
                     group.cancelAll()
                     return
                 }

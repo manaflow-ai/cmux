@@ -11,12 +11,16 @@ extension TaskComposerSheet {
             selectedModelID = validatedModelID
             explicitlySelectedModel = nil
             selectedEffortID = nil
+            displayedModels = []
+            displayedDefaultModel = nil
+            displayedModelError = nil
             if template.isPlainShell {
                 removeStagedAttachmentFiles()
                 attachments.removeAll()
             }
             syncSuggestedDirectory()
         }
+        persistPickerPreferences()
         store.recordAppEvent(
             .taskProviderSelected,
             correlationID: template.id.uuidString

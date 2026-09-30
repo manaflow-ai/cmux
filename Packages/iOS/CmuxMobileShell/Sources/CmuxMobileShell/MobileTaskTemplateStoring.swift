@@ -20,6 +20,10 @@ public protocol MobileTaskTemplateStoring: AnyObject {
     func lastMacDeviceID() -> String?
     /// Stores the last selected Mac device id.
     func setLastMacDeviceID(_ id: String?)
+    /// Returns the last picker choices for one exact Mac pairing.
+    func composerPickerPreferences(macPairingID: String) -> MobileTaskComposerPickerPreferences?
+    /// Saves picker choices independently of sending or saving a task draft.
+    func setComposerPickerPreferences(_ preferences: MobileTaskComposerPickerPreferences, macPairingID: String)
     /// Returns the last successful directory for one Mac.
     func lastDirectory(macDeviceID: String) -> String?
     /// Stores the last successful directory for one Mac.

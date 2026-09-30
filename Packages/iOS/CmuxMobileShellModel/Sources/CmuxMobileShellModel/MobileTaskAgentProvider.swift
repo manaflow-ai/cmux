@@ -300,7 +300,7 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
 }
 
 /// One selectable model for a coding-agent provider.
-public struct MobileTaskAgentModel: Equatable, Sendable, Identifiable {
+public struct MobileTaskAgentModel: Codable, Equatable, Sendable, Identifiable {
     /// CLI identifier passed to the provider's model flag.
     public let id: String
     /// Product name displayed verbatim in the composer.
@@ -330,7 +330,7 @@ public struct MobileTaskAgentModel: Equatable, Sendable, Identifiable {
 }
 
 /// One effort choice reported for one exact coding-agent model.
-public struct MobileTaskAgentEffort: Equatable, Sendable, Identifiable {
+public struct MobileTaskAgentEffort: Codable, Equatable, Sendable, Identifiable {
     /// CLI value passed to the provider's effort or variant flag.
     public let id: String
     /// Product name displayed verbatim in the composer.

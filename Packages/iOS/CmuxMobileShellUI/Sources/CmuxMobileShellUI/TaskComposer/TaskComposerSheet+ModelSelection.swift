@@ -102,6 +102,9 @@ extension TaskComposerSheet {
         // owns the request until they change it. A later catalog replacement
         // can change the available choices, but must not silently strip the
         // already-visible model from submission.
+        if let explicitlySelectedModel, explicitlySelectedModel.id == selectedModelID {
+            return explicitlySelectedModel
+        }
         return availableModels.first { $0.id == selectedModelID }
     }
 
@@ -155,6 +158,7 @@ extension TaskComposerSheet {
             selectedEffortID = (model ?? modelAvailability.defaultModel)?.defaultEffortID
         }
         hasUserPickedModelOrEffort = true
+        persistPickerPreferences()
         store.recordAppEvent(
             .taskModelSelected,
             correlationID: selectedID
@@ -170,6 +174,7 @@ extension TaskComposerSheet {
             selectedEffortID = selectedID
         }
         hasUserPickedModelOrEffort = true
+        persistPickerPreferences()
     }
 
     func reconcileSelectedEffort() {

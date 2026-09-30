@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxMobilePairedMac
 @testable import CmuxMobileShell
 import CmuxMobileShellModel
 
