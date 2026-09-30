@@ -57,6 +57,19 @@ struct TerminalSizingText {
         }
     }
 
+    /// The title menu item that opens the size sheet.
+    static func connectedDevices() -> String {
+        L10n.string("mobile.terminal.sizing.connectedDevices", defaultValue: "Connected Devices…")
+    }
+
+    /// The Connected Devices… subtitle: "2 others", or "Only this device".
+    static func otherDevices(_ count: Int) -> String {
+        guard count > 0 else {
+            return L10n.string("mobile.terminal.sizing.otherDevices.none", defaultValue: "Only this device")
+        }
+        return L10n.string("mobile.terminal.sizing.otherDevices", defaultValue: "\(count) others")
+    }
+
     /// "scaled", appended when the grid is drawn smaller to fit this phone.
     static func scaled() -> String {
         L10n.string("mobile.terminal.sizing.scaled", defaultValue: "scaled")
