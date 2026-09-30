@@ -26,7 +26,7 @@ struct TerminalAgentPanelInitialTitleTests {
             initialCommand: command,
             runtimeSpawnPolicy: .heldForStartupRestoreAdmission
         )
-        defer { panel.surface.teardownSurface() }
+        defer { panel.surface.teardownHostedSurfaceForTesting() }
 
         #expect(panel.displayTitle == "PathScout2")
     }

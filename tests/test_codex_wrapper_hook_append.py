@@ -29,6 +29,8 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+
 from claude_teams_test_utils import (
     FOCUSED_SURFACE_ID,
     FOCUSED_WORKSPACE_ID,

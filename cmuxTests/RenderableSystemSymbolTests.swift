@@ -177,6 +177,26 @@ struct RenderableSystemSymbolTests {
         #expect(abs(actual.alphaCoverage - expected.alphaCoverage) <= expected.alphaCoverage * 0.05)
     }
 
+    @MainActor
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func materializedTemplatePreservesFilledSymbolCutout(appearanceName: NSAppearance.Name) throws {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let appearance = try #require(NSAppearance(named: appearanceName))
+        var rendered: NSImage?
+        appearance.performAsCurrentDrawingAppearance {
+            rendered = RenderableSystemSymbol.configuredAppKitImage(
+                systemName: "xmark.circle.fill", pointSize: 24
+            )
+        }
+        let image = try #require(rendered)
+        for bitmap in image.representations.compactMap({ $0 as? NSBitmapImageRep }) {
+            let center = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2))
+            let circle = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 6))
+            #expect(center.alphaComponent < 0.1)
+            #expect(circle.alphaComponent > 0.9)
+        }
+    }
+
     @Test @MainActor func configuredAppKitImagePreservesConfiguredSizeForNonSquareSymbols() throws {
         RenderableSystemSymbol.resetRenderabilityCacheForTesting()
         let baseImage = try #require(NSImage(systemSymbolName: "arrow.left.and.right", accessibilityDescription: nil))

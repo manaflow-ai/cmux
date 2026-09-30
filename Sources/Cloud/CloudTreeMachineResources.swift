@@ -1,0 +1,57 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
+import Foundation
+
+extension CloudTreeNode.Kind {
+    /// Readings describe a machine without representing a selectable pane.
+    var isSelectable: Bool {
+        switch self {
+        case .resource, .devicesEmpty: return false
+        default: return true
+        }
+    }
+
+    /// Port, resource, and terminal inventories start closed so discovery and
+    /// remote scans happen only after the person explicitly opens that group.
+    var isExpandedByDefault: Bool {
+        switch self {
+        case .portsGroup, .terminalsPool, .resourcesPool:
+            return false
+        default:
+            return true
+        }
+    }
+}
+
+/// Builds the final Resources section for one Cloud machine.
+struct CloudTreeMachineResourceNodeBuilder {
+    var section: (MachineSnapshot, Date) -> CloudTreeMachineResourceSection = {
+        CloudTreeMachineResourceSection(machine: $0, now: $1)
+    }
+    func groupNode(
+        machine: SurfaceMachineID,
+        snapshot: MachineSnapshot,
+        now: Date
+    ) -> CloudTreeNode {
+        let section = section(snapshot, now)
+        return CloudTreeNode(
+            id: groupID(machine: machine),
+            kind: .resourcesPool(machine: machine, count: section.rows.count),
+            children: section.rows.map { row in
+                CloudTreeNode(
+                    id: rowID(machine: machine, metric: row.metric),
+                    kind: .resource(machine: machine, row: row)
+                )
+            }
+        )
+    }
+
+    func groupID(machine: SurfaceMachineID) -> String {
+        "machine:\(machine.rawValue)/resources"
+    }
+
+    func rowID(machine: SurfaceMachineID, metric: CloudTreeMachineResourceMetric) -> String {
+        "machine:\(machine.rawValue)/resources/\(metric.rawValue)"
+    }
+
+}

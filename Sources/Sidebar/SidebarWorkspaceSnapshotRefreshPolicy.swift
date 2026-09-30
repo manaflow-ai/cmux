@@ -7,6 +7,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let isPinned: Bool
         let isMuted: Bool
         let cloudWorkspaceLabel: String?
+        let deviceWorkspaceLabel: String?
         let customColorHex: String?
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
@@ -18,6 +19,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
         let activeCodingAgentCount: Int
+        let compactStatusGlyph: SidebarCompactStatusGlyph?
         let taskStatusInput: SidebarWorkspaceTaskStatusSnapshot
     }
 
@@ -28,6 +30,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             isPinned: isPinned,
             isMuted: isMuted,
             cloudWorkspaceLabel: cloudWorkspaceLabel,
+            deviceWorkspaceLabel: deviceWorkspaceLabel,
             customColorHex: customColorHex,
             finderDirectoryPath: finderDirectoryPath,
             mediaActivity: mediaActivity,
@@ -39,6 +42,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistTotalCount: checklistTotalCount,
             checklistFirstUncheckedText: checklistFirstUncheckedText,
             activeCodingAgentCount: activeCodingAgentCount,
+            compactStatusGlyph: compactStatusGlyph,
             taskStatusInput: taskStatusInput
         )
     }
@@ -87,7 +91,11 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistCompletedCount: snapshot.checklistCompletedCount,
             checklistTotalCount: snapshot.checklistTotalCount,
             checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText,
-            taskStatusInput: snapshot.taskStatusInput
+            taskStatusInput: snapshot.taskStatusInput,
+            deviceWorkspaceLabel: snapshot.deviceWorkspaceLabel,
+            // The status glyph is resolved against the spinner state, so it
+            // updates with the spinner while the menu is open.
+            compactStatusGlyph: snapshot.compactStatusGlyph
         )
     }
 }

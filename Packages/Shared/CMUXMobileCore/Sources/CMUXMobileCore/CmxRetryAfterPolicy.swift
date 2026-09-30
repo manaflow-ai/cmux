@@ -3,12 +3,14 @@ public import Foundation
 /// Shared interpretation of HTTP `Retry-After` for every automatic client
 /// retry owner. A server directive is a minimum wait, never a replacement for
 /// a longer local backoff.
-public enum CmxRetryAfterPolicy {
-    public static let defaultRateLimitSeconds = 60
+public struct CmxRetryAfterPolicy: Sendable {
+    public init() {}
+
+    public let defaultRateLimitSeconds = 60
 
     /// Parses either delta-seconds or an HTTP-date. Invalid, zero, and expired
     /// directives return nil so callers can apply their documented fallback.
-    public static func seconds(
+    public func seconds(
         from value: String?,
         now: Date = Date()
     ) -> Int? {
@@ -34,7 +36,7 @@ public enum CmxRetryAfterPolicy {
         return nil
     }
 
-    public static func seconds(
+    public func seconds(
         from response: HTTPURLResponse,
         now: Date = Date(),
         defaultSeconds: Int? = nil
@@ -45,7 +47,7 @@ public enum CmxRetryAfterPolicy {
         ) ?? defaultSeconds.flatMap { $0 > 0 ? $0 : nil }
     }
 
-    public static func delay(
+    public func delay(
         localSeconds: TimeInterval,
         retryAfterSeconds: Int?
     ) -> TimeInterval {
@@ -54,7 +56,7 @@ public enum CmxRetryAfterPolicy {
 
     /// Floating point rounds Int.max up to 2^63. Saturate that conversion
     /// without shortening ordinary server directives or trapping on restore.
-    public static func roundedUpSeconds(_ seconds: TimeInterval) -> Int {
+    public func roundedUpSeconds(_ seconds: TimeInterval) -> Int {
         guard seconds > 0 else { return 0 }
         let rounded = seconds.rounded(.up)
         return rounded >= Double(Int.max) ? Int.max : Int(rounded)
@@ -62,7 +64,7 @@ public enum CmxRetryAfterPolicy {
 
     /// Sleep in representable chunks while preserving the entire requested
     /// wait. Converting an arbitrary server delay to UInt64 nanoseconds traps.
-    public static func sleep(
+    public func sleep(
         seconds: TimeInterval,
         using sleeper: @Sendable (TimeInterval) async throws -> Void = {
             try await Task<Never, Never>.sleep(for: .seconds($0))
@@ -121,7 +123,7 @@ public actor CmxRetryAfterGate {
 
     public func remainingSeconds() -> Int? {
         guard let deadline else { return nil }
-        let remaining = CmxRetryAfterPolicy.roundedUpSeconds(deadline - now())
+        let remaining = CmxRetryAfterPolicy().roundedUpSeconds(deadline - now())
         if remaining <= 0 {
             self.deadline = nil
             return nil

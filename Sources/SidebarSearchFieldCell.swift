@@ -17,7 +17,7 @@ final class SidebarSearchFieldCell: NSSearchFieldCell {
             context.saveGState()
             context.setFillColor(NSColor.labelColor.withAlphaComponent(0.06).cgColor)
             context.addPath(RoundedRectangle(
-                cornerRadius: RightSidebarChromeMetrics.controlCornerRadius,
+                cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius,
                 style: .continuous
             ).path(in: frame).cgPath)
             context.fillPath()

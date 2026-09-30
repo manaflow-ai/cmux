@@ -4,7 +4,6 @@
 //! internal fields and receives no public compatibility guarantees.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
@@ -16,6 +15,7 @@ use super::{GlobalArgs, OutputMode};
 #[derive(Clone, Debug)]
 pub(super) struct RawCommandPlan {
     pub request: Value,
+    pub stream: bool,
 }
 
 pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
@@ -31,21 +31,25 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             return 2;
         }
     };
-    let socket = match resolve_socket(&global) {
-        Ok(socket) => socket,
+    let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
+        Ok(resolved) => resolved,
         Err(_) => {
             eprintln!("{}", crate::localization::catalog().startup.invalid_session_name);
             return 2;
         }
     };
-    let stream = match transport::connect(&socket) {
+    let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
             eprintln!("cannot connect to session socket {}: {error}", socket.display());
             return 3;
         }
     };
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+    let _ = stream.set_read_timeout(if plan.stream { None } else { Some(Duration::from_secs(10)) });
+    #[cfg(unix)]
+    if plan.stream && !super::wire::arm_signal_interrupt(stream.as_ref()) {
+        return 3;
+    }
     let mut reader = BufReader::new(stream);
     if let Err(error) = reader
         .get_mut()
@@ -57,8 +61,14 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
         return 3;
     }
     loop {
+        if plan.stream && crate::shutdown_requested() {
+            return 0;
+        }
         let line = match read_line_limited(&mut reader) {
             Ok(None) => {
+                if plan.stream && crate::shutdown_requested() {
+                    return 0;
+                }
                 return transport_failure(
                     "transport.closed",
                     "transport closed before response",
@@ -93,6 +103,16 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             continue;
         }
         if value.get("ok").and_then(Value::as_bool) == Some(true) {
+            if plan.stream {
+                if super::wire::print_local_success(
+                    value.get("data").unwrap_or(&Value::Null),
+                    global.output,
+                ) != 0
+                {
+                    return 3;
+                }
+                continue;
+            }
             return super::wire::print_local_success(
                 value.get("data").unwrap_or(&Value::Null),
                 global.output,
@@ -168,10 +188,6 @@ fn read_line_limited(
     })
 }
 
-fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
-    Ok(super::wire::resolve_socket_with_origin(global)?.0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,7 +195,7 @@ mod tests {
     #[test]
     fn raw_plan_keeps_the_exact_private_object() {
         let request = json!({"id": 7, "cmd": "private-operation", "opaque": {"x": true}});
-        let plan = RawCommandPlan { request: request.clone() };
+        let plan = RawCommandPlan { request: request.clone(), stream: false };
         assert_eq!(plan.request, request);
     }
 

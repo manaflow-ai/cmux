@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Foundation
 
 extension WorkstreamEvent {
     var feedIngressDeliveryKey: FeedIngressDeliveryKey {
@@ -21,5 +22,26 @@ extension WorkstreamEvent {
             // state, while compaction/subagent events preserve the parent state.
             return .ordinary
         }
+    }
+
+    /// Wall-clock milliseconds at which the hook CLI sent this frame, on the
+    /// agent host's clock. A blocking request is stamped only after its
+    /// ordering barrier drained every hook the agent published before it.
+    var feedHookSentAtMs: Int64? {
+        guard let value = feedExtraFields?["_hook_sent_at_ms"] as? NSNumber,
+              value.int64Value >= 0 else { return nil }
+        return value.int64Value
+    }
+
+    /// The agent's subagent identity; `nil` for the main agent thread.
+    var feedAgentID: String? {
+        guard let value = feedExtraFields?["agent_id"] as? String,
+              !value.isEmpty else { return nil }
+        return value
+    }
+
+    private var feedExtraFields: [String: Any]? {
+        guard let data = extraFieldsJSON?.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 }

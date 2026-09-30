@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 
 /// Errors surfaced by a Cloud machine provider. Preview credentials never enter error text.

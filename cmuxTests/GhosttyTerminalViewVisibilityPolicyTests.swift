@@ -85,7 +85,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         currentHost.removeFromSuperview()
         window.contentView = nil
         window.close()
-        panel.surface.teardownSurface()
+        panel.surface.teardownHostedSurfaceForTesting()
     }
 
     @Test func immediateStateUpdateAllowedWhenDesiredStateIsHidden() {
@@ -117,7 +117,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             )
         )
     }
-
+    @Test func warmRendererRevealDoesNotScheduleBlockingFallbackRefresh() { #expect(!GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(hasPresentedFrame: true)); #expect(GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(hasPresentedFrame: false)) }
     @Test func immediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
         #expect(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
@@ -226,8 +226,8 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         scheduler.stage(reasons: [.bindingRequired]) { _ in
             Issue.record("The superseded reconciliation must not run")
         }
-        scheduler.stage(reasons: [.flushPendingManualSizeReport]) { reasons in
-            observedReasons = reasons
+        scheduler.stage(reasons: [.flushPendingManualSizeReport]) { request in
+            observedReasons = request.reasons
             usedLatestReconciliation = true
         }
 
@@ -287,7 +287,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             coordinator.portalReconciliationScheduler.cancel()
             TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
             window.close()
-            panel.surface.teardownSurface()
+            panel.surface.teardownHostedSurfaceForTesting()
         }
 
         window.orderFront(nil)
@@ -361,8 +361,8 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             TerminalWindowPortalRegistry.detach(hostedView: firstPanel.hostedView)
             TerminalWindowPortalRegistry.detach(hostedView: secondPanel.hostedView)
             window.close()
-            firstPanel.surface.teardownSurface()
-            secondPanel.surface.teardownSurface()
+            firstPanel.surface.teardownHostedSurfaceForTesting()
+            secondPanel.surface.teardownHostedSurfaceForTesting()
         }
 
         window.orderFront(nil)
@@ -424,7 +424,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         defer {
             TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
             window.close()
-            panel.surface.teardownSurface()
+            panel.surface.teardownHostedSurfaceForTesting()
         }
 
         window.orderFront(nil)
@@ -456,11 +456,25 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
         panel.hostedView.setVisibleInUI(false)
         TerminalWindowPortalRegistry.hideHostedView(panel.hostedView)
-        container.nextLayout = { anchor.frame.size.width = 280 }
-        _ = portal.updateEntryVisibility(
-            forHostedId: ObjectIdentifier(panel.hostedView),
-            visibleInUI: true
+        // Hiding retires the hosted view from the window (#12607); only a
+        // bind reinstalls it. Reveal the way workspace reconciliation does
+        // (TerminalPortalReconciliation rebinds a hosted view with no
+        // superview) instead of flipping portal visibility on a detached view.
+        #expect(panel.hostedView.superview == nil, "Hiding must retire the hosted view from the window")
+        #expect(
+            portal.hostedViewNeedsPortalReattachForVisiblePresentation(
+                withId: ObjectIdentifier(panel.hostedView)
+            ),
+            "Revealing a retired hosted view must request a portal reattach"
         )
+        TerminalWindowPortalRegistry.bind(
+            hostedView: panel.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: panel.surface.id,
+            expectedGeneration: panel.surface.portalBindingGeneration()
+        )
+        container.nextLayout = { anchor.frame.size.width = 280 }
         panel.hostedView.setVisibleInUI(true)
         container.needsLayout = true
         container.resetLayoutCount()
@@ -486,17 +500,6 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         anchor.frame.size.width = 360
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
         await flushPortalReconciliationPasses()
-        // Native size publication also waits for AppKit's display/layout
-        // turn. Main-queue barriers alone do not drive that turn in an async test.
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
-        while (try terminalSize()).width >= initialTerminalSize.width,
-              clock.now < deadline {
-            window.displayIfNeeded()
-            panel.hostedView.layoutSubtreeIfNeeded()
-            _ = panel.hostedView.reconcileGeometryNow()
-            await flushPortalReconciliationPasses()
-        }
         #expect(panel.hostedView.frame.width == 360)
         #expect((try terminalSize()).width < initialTerminalSize.width)
         #expect(

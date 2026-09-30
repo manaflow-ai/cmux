@@ -28,7 +28,7 @@ high-level SDKs:
 | [`resource-operations-v2.md`](resource-operations-v2.md) | Human-readable operation inventory |
 | [`cli.md`](cli.md) | Noun-first public CLI |
 | [`bindings.md`](bindings.md) | Seven handwritten SDK facades and generated raw layers |
-| [`plugins.md`](plugins.md) | Sidebar view and local plugin contract |
+| [`plugins.md`](plugins.md) | Sidebar and userland agent plugin contracts |
 
 The operation catalog is authoritative for every operation's class, selector
 scopes, parameter presence, result type, structured errors, stream items, and

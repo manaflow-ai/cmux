@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_cdp::CDP_CONNECTION_UNAVAILABLE_MESSAGE;
 use cmux_tui_core::resource::FrontendProjectionPublicId;
+use cmux_tui_core::sizing_policy::{TerminalSizingMode, TerminalSizingPolicy};
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
     DEFAULT_VIEWPORT_PANE_WIDTH, Direction, FrontendFocusTarget, FrontendJournalEvent,
@@ -82,12 +83,12 @@ use crate::pty_input::{
 use crate::session::tree::{PaneView, ScreenView};
 use crate::session::{
     AgentInfo, AmbiguousCreation, CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, CreationReceipt,
-    Session, SidebarPluginSurface, SurfaceAttach, SurfaceHandle, TreeView,
+    Session, SidebarPluginSurface, SurfaceAttach, SurfaceHandle, SurfaceSizeState, TreeView,
     is_remote_surface_unavailable, is_remote_timeout, is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::sidebar_projection::{
-    ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
+    AgentOrderCache, ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
 };
 use crate::ui::graphics::{
     GraphicPlacement, GraphicSourceRect, kitty_graphic_image, kitty_graphic_placement,
@@ -1406,6 +1407,7 @@ pub struct SessionCompletion {
 }
 
 enum SessionCompletionAction {
+    SurfaceMoved { surface: SurfaceId },
     SurfaceCreated { surface: SurfaceId },
     BrowserTabCreated { surface: SurfaceId },
     LayoutUndoConfirmation { pane: PaneId, revision: u64, closes_panes: Vec<PaneId> },
@@ -2241,6 +2243,10 @@ impl OrderedSession {
         }
     }
 
+    fn supports_tab_workspace_moves(&self) -> bool {
+        self.inner.supports_tab_workspace_moves()
+    }
+
     fn supports_clear_history_key_fallback(&self, surface: SurfaceId) -> bool {
         self.inner.supports_clear_history_key_fallback(surface)
     }
@@ -2412,6 +2418,38 @@ impl OrderedSession {
             "use all client sizing",
             ("use all client sizing", surface, 0),
             move |session| session.use_all_client_sizing(surface),
+        );
+    }
+
+    fn size_state(&self, surface: SurfaceId) -> Option<SurfaceSizeState> {
+        self.inner.size_state(surface)
+    }
+
+    fn set_size_policy(&self, surface: SurfaceId, policy: TerminalSizingPolicy) {
+        self.enqueue_client_sizing_mutation(
+            "set size policy",
+            ("set size policy", surface, 0),
+            move |session| session.set_size_policy(surface, policy),
+        );
+    }
+
+    fn set_size_counts(&self, surface: SurfaceId, participant: String, counts: Option<bool>) {
+        self.enqueue_client_sizing_mutation(
+            "set size counts",
+            ("set size counts", surface, participant_key(&participant)),
+            move |session| session.set_size_counts(surface, &participant, counts),
+        );
+    }
+
+    fn disconnect_size_participant(&self, participant: String) {
+        self.enqueue_coalescing_pointer_mutation(
+            "disconnect participant",
+            ("disconnect participant", participant_key(&participant)),
+            move |session| match session.disconnect_size_participant(&participant) {
+                // The menu is a snapshot; a participant that already left is done.
+                Err(error) if error.to_string().contains("unknown participant") => Ok(()),
+                result => result,
+            },
         );
     }
 
@@ -3929,6 +3967,17 @@ impl OrderedSession {
         });
     }
 
+    pub fn move_tab_to_workspace(&self, surface: SurfaceId, workspace: Option<WorkspaceId>) {
+        self.enqueue_with_completion(
+            localization::catalog().menu.move_tab_workspace,
+            MutationImpact::Destination,
+            move |session| {
+                session.move_tab_to_workspace(surface, workspace)?;
+                Ok(Some(SessionCompletionAction::SurfaceMoved { surface }))
+            },
+        );
+    }
+
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
         self.enqueue_pointer_mutation("move workspace", move |session| {
             session.move_workspace(workspace, index)
@@ -4441,6 +4490,10 @@ pub enum MenuAction {
     BrowserActivate(PaneId),
     RenameTab(PaneId),
     RenameSurface(SurfaceId),
+    MoveTabToWorkspace {
+        surface: SurfaceId,
+        workspace: Option<WorkspaceId>,
+    },
     CopyTabId(PaneId),
     CopyPaneId(PaneId),
     CopyStatusMessage,
@@ -4479,6 +4532,25 @@ pub enum MenuAction {
     },
     RestoreAllClientSizing(SurfaceId),
     DisconnectClient(u64),
+    /// Shared sizing (docs/shared-terminal-sizing.md): the terminal's mode.
+    SetSizeMode {
+        surface: SurfaceId,
+        mode: TerminalSizingMode,
+    },
+    /// Toggle one participant's counts-toward-size choice. `participant`
+    /// indexes the size state of `generation`, the one the menu showed.
+    SetSizeCounts {
+        surface: SurfaceId,
+        generation: u64,
+        participant: usize,
+        counts: bool,
+    },
+    /// Disconnect one participant of the size state of `generation`.
+    DisconnectSizeParticipant {
+        surface: SurfaceId,
+        generation: u64,
+        participant: usize,
+    },
     SelectProviderScope(usize),
     InvokeProviderAction(usize),
     CreateMachineFrom(usize),
@@ -4543,6 +4615,8 @@ impl MenuAction {
             MenuAction::RenameTab(_) | MenuAction::RenameSurface(_) => {
                 localization::catalog().action_label(Action::RenameTab)
             }
+            MenuAction::MoveTabToWorkspace { workspace: None, .. } => menu.move_tab_new_workspace,
+            MenuAction::MoveTabToWorkspace { .. } => menu.move_tab_workspace,
             MenuAction::CopyTabId(_) => menu.copy_tab_id,
             MenuAction::CopyPaneId(_) => menu.copy_pane_id,
             MenuAction::CopyStatusMessage => menu.copy_message,
@@ -4575,6 +4649,9 @@ impl MenuAction {
             MenuAction::UseClientSize { .. } => menu.use_only_client_size,
             MenuAction::RestoreAllClientSizing(_) => menu.restore_all_client_sizing,
             MenuAction::DisconnectClient(_) => menu.disconnect_client,
+            MenuAction::SetSizeMode { mode, .. } => size_mode_label(*mode),
+            MenuAction::SetSizeCounts { .. } => menu.size_counts,
+            MenuAction::DisconnectSizeParticipant { .. } => menu.size_disconnect,
             MenuAction::SelectProviderScope(_) | MenuAction::InvokeProviderAction(_) => {
                 localization::catalog().sidebar.provider_actions
             }
@@ -5291,6 +5368,103 @@ fn pane_context_menu_groups(
         ],
         vec![MenuAction::CopyTabId(pane), MenuAction::CopyPaneId(pane)],
     ]
+}
+
+/// A coalescing key for one participant id (FNV-1a).
+fn participant_key(participant: &str) -> u64 {
+    participant.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// The mode names of the size menu, in menu order (Fit everyone first, the default).
+const SIZE_MENU_MODES: [TerminalSizingMode; 5] = [
+    TerminalSizingMode::Smallest,
+    TerminalSizingMode::Latest,
+    TerminalSizingMode::Largest,
+    TerminalSizingMode::Priority,
+    TerminalSizingMode::Fixed,
+];
+
+fn size_mode_label(mode: TerminalSizingMode) -> &'static str {
+    let menu = &localization::catalog().menu;
+    match mode {
+        TerminalSizingMode::Smallest => menu.size_mode_fit_everyone,
+        TerminalSizingMode::Latest => menu.size_mode_follow_latest,
+        TerminalSizingMode::Largest => menu.size_mode_largest,
+        TerminalSizingMode::Priority => menu.size_mode_priority,
+        TerminalSizingMode::Fixed => menu.size_mode_fixed,
+    }
+}
+
+/// The shared-sizing menu for a terminal (the Mac size panel's controls):
+/// the five modes with the current one checked, then one submenu per
+/// participant with Counts toward size and Disconnect.
+fn size_menu_item(size: &SurfaceSizeState, surface: SurfaceId) -> MenuItem {
+    let menu = &localization::catalog().menu;
+    let state = &size.state;
+    let self_id = size.self_participant.as_deref();
+    let check = |on: bool| if on { "✓ " } else { "  " };
+    let mut items = SIZE_MENU_MODES
+        .into_iter()
+        .map(|mode| MenuItem::LabeledAction {
+            label: format!("{}{}", check(state.policy.mode == mode), size_mode_label(mode)),
+            action: MenuAction::SetSizeMode { surface, mode },
+        })
+        .collect::<Vec<_>>();
+    items.push(MenuItem::Separator);
+    for (index, row) in state.participants.iter().enumerate() {
+        let participant = &row.participant;
+        let is_self = Some(participant.id.as_str()) == self_id;
+        let mut label = if is_self {
+            menu.this_client.to_string()
+        } else {
+            crate::ui::sizing::participant_label(participant, menu)
+        };
+        if let Some(viewport) = participant.viewport {
+            label.push_str(&format!(" · {}×{}", viewport.cols, viewport.rows));
+        }
+        if state.owners.contains(&participant.id) {
+            label.push_str(&format!(" · {}", menu.size_sets_size));
+        } else if !row.counts {
+            label.push_str(&format!(" · {}", menu.size_not_counted));
+        }
+        let generation = state.generation;
+        items.push(MenuItem::Submenu {
+            label,
+            items: vec![
+                MenuItem::LabeledAction {
+                    label: format!("{}{}", check(row.counts), menu.size_counts),
+                    action: MenuAction::SetSizeCounts {
+                        surface,
+                        generation,
+                        participant: index,
+                        counts: !row.counts,
+                    },
+                },
+                MenuItem::Separator,
+                MenuItem::Action(MenuAction::DisconnectSizeParticipant {
+                    surface,
+                    generation,
+                    participant: index,
+                }),
+            ],
+        });
+    }
+    MenuItem::Submenu { label: menu.terminal_size.to_string(), items }
+}
+
+/// The size menu when the host publishes shared sizing, else the legacy
+/// per-client menu for hosts without `shared-sizing-v1`.
+fn terminal_size_menu_item(
+    size: Option<&SurfaceSizeState>,
+    clients: &[ClientInfo],
+    surface: SurfaceId,
+) -> Option<MenuItem> {
+    match size {
+        Some(size) => Some(size_menu_item(size, surface)),
+        None => client_menu_item(clients, surface),
+    }
 }
 
 fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuItem> {
@@ -7286,6 +7460,7 @@ pub struct App {
     pub(crate) tabs_rail_scroll: usize,
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
+    projection_order_cache: AgentOrderCache,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -7318,6 +7493,9 @@ pub struct App {
     pub menu: Option<ContextMenu>,
     pub clients: Vec<ClientInfo>,
     pub client_border_labels: HashMap<SurfaceId, String>,
+    /// Shared-sizing border labels by terminal; `None` hides the label.
+    /// Takes precedence over `client_border_labels` for its terminals.
+    pub size_state_labels: HashMap<SurfaceId, Option<String>>,
     pub prompt: Option<Prompt>,
     pub(crate) connection_transaction: Option<ConnectionTransaction>,
     next_connection_attempt: u64,
@@ -9554,6 +9732,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         tabs_rail_scroll: 0,
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
+        projection_order_cache: AgentOrderCache::default(),
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -9578,6 +9757,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         menu: None,
         clients: Vec::new(),
         client_border_labels: HashMap::new(),
+        size_state_labels: HashMap::new(),
         prompt: None,
         connection_transaction: None,
         next_connection_attempt: 1,
@@ -10313,7 +10493,7 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&self, index: usize) -> Vec<ProjectionRow> {
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Vec<ProjectionRow> {
         let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
         let empty_collapsed = HashSet::new();
         let collapsed = self
@@ -10332,12 +10512,13 @@ impl App {
         } else {
             Vec::new()
         };
-        crate::sidebar_projection::rows(
+        crate::sidebar_projection::rows_cached(
             spec,
             &self.tree,
             &agents,
             self.sidebar_workspace_selection,
             collapsed,
+            &mut self.projection_order_cache,
         )
     }
 
@@ -12031,6 +12212,7 @@ impl App {
         self.menu = None;
         self.clients.clear();
         self.client_border_labels.clear();
+        self.size_state_labels.clear();
         self.prompt = None;
         self.pairing_dialog = None;
         self.pairing_queue.clear();
@@ -12394,7 +12576,9 @@ impl App {
 
     fn menu_action_resource(&self, action: MenuAction) -> Option<MenuActionResource> {
         match action {
-            MenuAction::RenameSurface(surface) => Some(MenuActionResource::Surface(surface)),
+            MenuAction::RenameSurface(surface) | MenuAction::MoveTabToWorkspace { surface, .. } => {
+                Some(MenuActionResource::Surface(surface))
+            }
             MenuAction::CopyStatusMessage => {
                 self.status_message.clone().map(MenuActionResource::StatusMessage)
             }
@@ -13020,13 +13204,14 @@ impl App {
         }
         let semantic_intent = completion.semantic_intent;
         match completion.action {
-            SessionCompletionAction::SurfaceCreated { surface } => {
+            SessionCompletionAction::SurfaceCreated { surface }
+            | SessionCompletionAction::SurfaceMoved { surface } => {
                 self.resolve_semantic_destination(semantic_intent, surface);
-                self.select_created_surface(surface);
+                self.select_completed_surface(surface);
             }
             SessionCompletionAction::BrowserTabCreated { surface } => {
                 self.resolve_semantic_destination(semantic_intent, surface);
-                self.select_created_surface(surface);
+                self.select_completed_surface(surface);
                 let pane = self
                     .tab_locations
                     .get(&surface)
@@ -13107,7 +13292,7 @@ impl App {
         localization::catalog().sidebar.confirm_layout_undo.replace("{items}", &identities)
     }
 
-    fn select_created_surface(&mut self, surface: SurfaceId) {
+    fn select_completed_surface(&mut self, surface: SurfaceId) {
         let Some([workspace_index, screen_index, pane_index, tab_index]) =
             self.tab_locations.get(&surface).copied()
         else {
@@ -15598,6 +15783,10 @@ impl App {
                 | MuxEvent::ClientListInvalidated,
             ) => {
                 self.session.refresh_clients_background();
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::SizeStateChanged { surface, .. }) => {
+                self.refresh_size_state_label(surface);
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
@@ -20456,6 +20645,9 @@ impl App {
             }
             MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
             MenuAction::RenameSurface(surface) => self.open_rename_surface_prompt(surface),
+            MenuAction::MoveTabToWorkspace { surface, workspace } => {
+                self.move_tab_to_workspace(surface, workspace);
+            }
             MenuAction::CopyTabId(id) => {
                 if let Some(short_id) = self
                     .tree
@@ -20498,6 +20690,42 @@ impl App {
             }
             MenuAction::RestoreAllClientSizing(surface) => {
                 self.session.use_all_client_sizing(surface);
+            }
+            MenuAction::SetSizeMode { surface, mode } => {
+                if let Some(size) = self.session.size_state(surface) {
+                    let state = &size.state;
+                    let priority = if mode == TerminalSizingMode::Priority {
+                        crate::ui::sizing::priority_with_self_first(
+                            state,
+                            size.self_participant.as_deref(),
+                        )
+                    } else {
+                        state.policy.priority.clone()
+                    };
+                    // Fixed keeps the current grid; the Mac and iPhone edit it.
+                    let fixed = state.policy.fixed.or(Some(state.size()));
+                    self.session
+                        .set_size_policy(surface, TerminalSizingPolicy::new(mode, priority, fixed));
+                }
+            }
+            MenuAction::SetSizeCounts { surface, generation, participant, counts } => {
+                if let Some((id, _)) = self.size_menu_participant(surface, generation, participant)
+                {
+                    self.session.set_size_counts(surface, id, Some(counts));
+                }
+            }
+            MenuAction::DisconnectSizeParticipant { surface, generation, participant } => {
+                if let Some((id, is_self)) =
+                    self.size_menu_participant(surface, generation, participant)
+                {
+                    if is_self {
+                        // Same as disconnecting this client from the legacy menu:
+                        // leave through the local detach lifecycle.
+                        self.run_action(Action::Detach)?;
+                    } else {
+                        self.session.disconnect_size_participant(id);
+                    }
+                }
             }
             MenuAction::DisconnectClient(client) => {
                 if self.clients.iter().any(|info| info.client == client && info.is_self) {
@@ -21014,6 +21242,80 @@ impl App {
             crate::ui::omnibar::hit(rect, area.omnibar_source_x(), x, y, editing)
                 .map(|hit| (area.pane, hit))
         })
+    }
+
+    fn move_tab_to_workspace(&mut self, surface: SurfaceId, workspace: Option<WorkspaceId>) {
+        if self.surface_only.is_some()
+            || !self.session.supports_tab_workspace_moves()
+            || self.tab_location(surface).is_none()
+        {
+            return;
+        }
+        if workspace.is_none()
+            && self.workspace_creation_policy() != Some(WorkspaceCreationPolicy::SessionOwned)
+        {
+            return;
+        }
+        if workspace.is_some_and(|id| !self.tree.workspaces().iter().any(|ws| ws.id == id)) {
+            return;
+        }
+        if self.prepare_pty_input_before_mutation() {
+            self.session.move_tab_to_workspace(surface, workspace);
+        }
+    }
+
+    fn tab_move_workspace_item(&self, surface: SurfaceId) -> Option<MenuItem> {
+        if self.surface_only.is_some() || !self.session.supports_tab_workspace_moves() {
+            return None;
+        }
+        let (source_pane, _) = self.tab_location(surface)?;
+        let mut items = self
+            .tree
+            .workspaces()
+            .iter()
+            .filter(|ws| {
+                !ws.screens
+                    .iter()
+                    .any(|screen| screen.panes.iter().any(|pane| pane.id == source_pane))
+            })
+            .map(|ws| MenuItem::LabeledAction {
+                label: ws.name.clone(),
+                action: MenuAction::MoveTabToWorkspace { surface, workspace: Some(ws.id) },
+            })
+            .collect::<Vec<_>>();
+        if self.workspace_creation_policy() == Some(WorkspaceCreationPolicy::SessionOwned) {
+            if !items.is_empty() {
+                items.push(MenuItem::Separator);
+            }
+            items.push(MenuItem::Action(MenuAction::MoveTabToWorkspace {
+                surface,
+                workspace: None,
+            }));
+        }
+        (!items.is_empty()).then(|| MenuItem::Submenu {
+            label: localization::catalog().menu.move_tab_workspace.to_string(),
+            items,
+        })
+    }
+
+    fn tab_workspace_drop_at(&self, x: u16, y: u16) -> Option<Option<WorkspaceId>> {
+        match self.hit_at(x, y)? {
+            Hit::CreateWorkspace { mode: None }
+            | Hit::SidebarAction { action: SidebarActionTarget::CreateWorkspace(None), .. }
+            | Hit::SidebarAction {
+                action: SidebarActionTarget::Run(Action::NewWorkspace), ..
+            } if self.workspace_creation_policy()
+                == Some(WorkspaceCreationPolicy::SessionOwned) =>
+            {
+                Some(None)
+            }
+            Hit::Workspace { id, .. }
+            | Hit::ProjectionRow { target: ProjectionTarget::Workspace { id, .. }, .. }
+            | Hit::ProjectionToggle { branch: ProjectionBranch::Workspace(id), .. } => {
+                Some(Some(id))
+            }
+            _ => None,
+        }
     }
 
     fn tab_drop_target_at(&self, x: u16, y: u16) -> Option<(PaneId, usize)> {
@@ -22819,6 +23121,7 @@ impl App {
             Some(Drag::TabArm { surface, at }) => {
                 let (surface, at) = (*surface, *at);
                 if (x, y) != at {
+                    self.hover = Some((x, y));
                     let target = self.tab_drop_target_at(x, y);
                     self.drag = Some(Drag::Tab { surface, target });
                 }
@@ -22826,6 +23129,7 @@ impl App {
             }
             Some(Drag::Tab { surface, .. }) => {
                 let surface = *surface;
+                self.hover = Some((x, y));
                 let target = self.tab_drop_target_at(x, y);
                 self.drag = Some(Drag::Tab { surface, target });
                 Ok(RenderAction::Draw)
@@ -23054,6 +23358,10 @@ impl App {
         }
         if let Some(Drag::Tab { surface, .. }) = self.drag {
             self.drag = None;
+            if let Some(workspace) = self.tab_workspace_drop_at(x, y) {
+                self.move_tab_to_workspace(surface, workspace);
+                return Ok(RenderAction::Draw);
+            }
             if let Some((pane, index)) = self.tab_drop_target_at(x, y)
                 && self.prepare_pty_input_before_mutation()
             {
@@ -23907,6 +24215,9 @@ impl App {
                 }
                 Some(Hit::SidebarTab { surface, .. }) => {
                     groups.push(self.menu_group([MenuAction::RenameSurface(surface)]));
+                    if let Some(item) = self.tab_move_workspace_item(surface) {
+                        groups.push(vec![item]);
+                    }
                 }
                 Some(Hit::ProjectionRow {
                     target: ProjectionTarget::Workspace { id, .. }, ..
@@ -23936,6 +24247,9 @@ impl App {
                     ..
                 }) => {
                     groups.push(self.menu_group([MenuAction::RenameSurface(surface)]));
+                    if let Some(item) = self.tab_move_workspace_item(surface) {
+                        groups.push(vec![item]);
+                    }
                 }
                 _ => {}
             }
@@ -23980,6 +24294,9 @@ impl App {
                     .into_iter()
                     .map(|group| self.menu_group(group))
                     .collect::<Vec<Vec<MenuItem>>>();
+                if let Some(item) = self.tab_move_workspace_item(surface) {
+                    groups.push(vec![item]);
+                }
                 if self.surface_only.is_none() {
                     let zoomed = self
                         .tree
@@ -23988,7 +24305,11 @@ impl App {
                     groups.push(self.menu_group([MenuAction::TogglePaneZoom { pane, zoomed }]));
                 }
                 if self.surface_only.is_none()
-                    && let Some(clients) = client_menu_item(&self.clients, surface)
+                    && let Some(clients) = terminal_size_menu_item(
+                        self.session.size_state(surface).as_ref(),
+                        &self.clients,
+                        surface,
+                    )
                 {
                     groups.push(vec![clients]);
                 }
@@ -24034,7 +24355,11 @@ impl App {
                 );
             }
             if self.surface_only.is_none()
-                && let Some(clients) = client_menu_item(&self.clients, area.surface)
+                && let Some(clients) = terminal_size_menu_item(
+                    self.session.size_state(area.surface).as_ref(),
+                    &self.clients,
+                    area.surface,
+                )
             {
                 groups.push(vec![clients]);
             }
@@ -24050,10 +24375,47 @@ impl App {
         self.clients = clients;
     }
 
+    /// Recomputes a terminal's shared-sizing border label from the session's
+    /// latest size state. A terminal with a size state uses it instead of the
+    /// legacy client label, including when it hides the label.
+    fn refresh_size_state_label(&mut self, surface: SurfaceId) {
+        match self.session.size_state(surface) {
+            Some(size) => {
+                let label = crate::ui::sizing::border_label(&size, &localization::catalog().menu);
+                self.size_state_labels.insert(surface, label);
+            }
+            None => {
+                self.size_state_labels.remove(&surface);
+            }
+        }
+    }
+
+    /// Resolves a size-menu participant index against the state the menu
+    /// showed; a newer state means the menu is stale.
+    fn size_menu_participant(
+        &mut self,
+        surface: SurfaceId,
+        generation: u64,
+        participant: usize,
+    ) -> Option<(String, bool)> {
+        let size = self.session.size_state(surface)?;
+        if size.state.generation != generation {
+            self.status_message =
+                Some(localization::catalog().menu.terminal_size_changed.to_string());
+            return None;
+        }
+        let row = size.state.participants.get(participant)?;
+        let is_self = size.self_participant.as_deref() == Some(row.participant.id.as_str());
+        Some((row.participant.id.clone(), is_self))
+    }
+
     fn open_clients_menu(&mut self, x: u16, y: u16, surface: SurfaceId) {
         self.session.refresh_clients_background();
         let mut groups = Vec::new();
-        if let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&self.clients, surface) {
+        let size = self.session.size_state(surface);
+        if let Some(MenuItem::Submenu { items, .. }) =
+            terminal_size_menu_item(size.as_ref(), &self.clients, surface)
+        {
             groups.push(items);
         }
         groups.push(self.global_menu_items());
@@ -24965,32 +25327,32 @@ mod tests {
     }
 
     use super::{
-        App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
-        DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
-        DeferredReplayDisposition, Drag, EventCancellation, FocusTarget, ForwardMuxOutcome,
-        FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
-        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, HostInputIngress,
-        HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
-        MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
-        OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
-        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
-        PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
-        Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
-        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SelectionMode,
-        SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
-        SidebarActionTarget, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop, StdoutLock,
-        SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
-        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
-        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
-        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
-        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
-        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
-        client_menu_item, clip_horizontal_rect, content_size_for_rect,
-        disable_host_keyboard_protocol, enable_host_keyboard_protocol, expand_status_tokens,
-        first_pane_by_id, forward_host_input, forward_mux_event, forward_mux_events,
-        host_mouse_capture_escape_if_changed, host_startup_input_modes,
+        AgentOrderCache, App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure,
+        ContextMenu, DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission,
+        DeferredInputQueue, DeferredReplayDisposition, Drag, EventCancellation, FocusTarget,
+        ForwardMuxOutcome, FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity,
+        GraphicPlacement, GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode,
+        HostInputIngress, HostInputMessage, HostInputRuntime, MachineActionWorker,
+        MachineConnectRoute, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit,
+        OmnibarState, OrderedSession, OuterCursorSpec, PaneArea, PaneAreaProjection,
+        PaneContentGeneration, PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip,
+        PendingSessionMutation, PendingSessionMutationState, PointerHitIdentity,
+        PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress,
+        PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel, RenderedPaneRoute,
+        RenderedPointerFrame, Selection, SelectionMode, SessionCompletion, SessionCompletionAction,
+        SessionEventSender, ShortcutHelp, SidebarActionTarget, SidebarLayout,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
+        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
+        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
+        TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
+        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
+        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
+        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
+        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
+        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
+        expand_status_tokens, first_pane_by_id, forward_host_input, forward_mux_event,
+        forward_mux_events, host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
         outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
@@ -26287,6 +26649,76 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn tab_workspace_menu_moves_the_clicked_inactive_tab_and_drag_creates_workspace() {
+        let (mux, first) = test_mux("tab-workspace-move-test", None);
+        let second = mux.new_tab(None, None, Some((80, 24))).unwrap();
+        let target = mux.new_workspace(Some("destination".into()), Some((80, 24))).unwrap();
+        let destination = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.select_workspace(Some(0), None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((120, 30));
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let first_pane = app.tab_location(first.id).unwrap().0;
+        let chip = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Tab { pane, index: 0 } if *pane == first_pane)
+                    .then_some(*rect)
+            })
+            .expect("inactive tab chip");
+        app.open_context_menu(chip.x, chip.y);
+        let move_existing =
+            MenuAction::MoveTabToWorkspace { surface: first.id, workspace: Some(destination) };
+        assert!(app.menu.as_ref().unwrap().actions().contains(&move_existing));
+        app.activate_menu(move_existing).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+        assert_eq!(
+            mux.with_state(|state| state.pane_of(first.id)),
+            mux.with_state(|state| state.pane_of(target.id))
+        );
+        assert_ne!(
+            mux.with_state(|state| state.pane_of(first.id)),
+            mux.with_state(|state| state.pane_of(second.id))
+        );
+        assert_eq!(app.tree.active_surface(), Some(first.id));
+        app.menu = None;
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let footer = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::CreateWorkspace { mode: None }
+                        | super::Hit::SidebarAction {
+                            action: SidebarActionTarget::CreateWorkspace(None),
+                            ..
+                        }
+                )
+                .then_some(*rect)
+            })
+            .expect("new workspace footer");
+        let before = app.tree.workspaces().len();
+        app.drag = Some(Drag::Tab { surface: first.id, target: None });
+        app.handle_left_up(footer.x, footer.y).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+        assert_eq!(app.tree.workspaces().len(), before + 1);
+        assert_eq!(app.tree.active_screen().unwrap().panes[0].tabs[0].surface, first.id);
+        assert!(Arc::ptr_eq(&first, &mux.surface(first.id).unwrap()));
+        for surface in [first.id, second.id, target.id] {
             mux.close_surface(surface).unwrap();
         }
     }
@@ -30888,6 +31320,142 @@ mod tests {
         assert!(app.status_message.is_none());
     }
 
+    use super::size_menu_item;
+    use crate::session::SurfaceSizeState;
+    use cmux_tui_core::sizing_policy::{TerminalSizingMode, TerminalSizingPolicy};
+
+    fn sizing_test_state(mode: TerminalSizingMode) -> SurfaceSizeState {
+        use cmux_tui_core::sizing_policy::{
+            TerminalDeviceKind, TerminalGridSize, TerminalSizingEngine, TerminalSizingParticipant,
+        };
+        let mut engine = TerminalSizingEngine::new(
+            TerminalGridSize::new(80, 24),
+            TerminalSizingPolicy::new(mode, Vec::new(), None),
+        );
+        engine.attach(TerminalSizingParticipant {
+            viewport: Some(TerminalGridSize::new(100, 40)),
+            ..TerminalSizingParticipant::new("c0", TerminalDeviceKind::Tui)
+        });
+        engine.attach(TerminalSizingParticipant {
+            display_name: Some("Maya Ortiz".into()),
+            device_name: Some("Mac Studio".into()),
+            viewport: Some(TerminalGridSize::new(118, 30)),
+            ..TerminalSizingParticipant::new("c7", TerminalDeviceKind::Mac)
+        });
+        SurfaceSizeState { state: engine.state().clone(), self_participant: Some("c0".into()) }
+    }
+
+    #[test]
+    fn shared_size_menu_offers_the_five_modes_and_per_participant_controls() {
+        let size = sizing_test_state(TerminalSizingMode::Smallest);
+        let MenuItem::Submenu { label, items } = size_menu_item(&size, 31) else {
+            panic!("expected the terminal size submenu");
+        };
+        assert_eq!(label, "Terminal size");
+        let modes = items[..5]
+            .iter()
+            .map(|item| match item {
+                MenuItem::LabeledAction {
+                    label,
+                    action: MenuAction::SetSizeMode { surface: 31, mode },
+                } => (label.as_str(), *mode),
+                other => panic!("expected a mode action, got {other:?}"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            modes,
+            [
+                ("✓ Fit everyone", TerminalSizingMode::Smallest),
+                ("  Follow latest", TerminalSizingMode::Latest),
+                ("  Largest window", TerminalSizingMode::Largest),
+                ("  Priority", TerminalSizingMode::Priority),
+                ("  Fixed", TerminalSizingMode::Fixed),
+            ]
+        );
+        assert_eq!(items[5], MenuItem::Separator);
+        let generation = size.state.generation;
+        let MenuItem::Submenu { label, items: row } = &items[7] else {
+            panic!("expected the Mac participant row");
+        };
+        assert_eq!(label, "Maya Ortiz · Mac Studio · 118×30 · sets size");
+        assert_eq!(
+            row,
+            &vec![
+                MenuItem::LabeledAction {
+                    label: "✓ Counts toward size".into(),
+                    action: MenuAction::SetSizeCounts {
+                        surface: 31,
+                        generation,
+                        participant: 1,
+                        counts: false,
+                    },
+                },
+                MenuItem::Separator,
+                MenuItem::Action(MenuAction::DisconnectSizeParticipant {
+                    surface: 31,
+                    generation,
+                    participant: 1,
+                }),
+            ]
+        );
+        let MenuItem::Submenu { label, .. } = &items[6] else {
+            panic!("expected this client's row");
+        };
+        assert_eq!(label, "this client · 100×40 · sets size");
+    }
+
+    #[test]
+    fn size_menu_commands_reach_the_shared_sizing_host() {
+        let mux = Mux::new("size-menu-commands-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.resize_surface_for_client(surface.id, 0, 100, 40).unwrap();
+        mux.resize_surface_for_client(surface.id, 7, 118, 30).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        let settle = |app: &mut App| {
+            loop {
+                let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+                let settled = matches!(event, AppEvent::SessionMutationSettled { .. });
+                assert!(app.handle(event).is_ok());
+                if settled {
+                    break;
+                }
+            }
+        };
+
+        app.activate_menu(MenuAction::SetSizeMode {
+            surface: surface.id,
+            mode: TerminalSizingMode::Latest,
+        })
+        .unwrap();
+        settle(&mut app);
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert_eq!(state.policy.mode, TerminalSizingMode::Latest);
+
+        let mac = state.participants.iter().position(|row| row.participant.id == "c7").unwrap();
+        app.activate_menu(MenuAction::SetSizeCounts {
+            surface: surface.id,
+            generation: state.generation,
+            participant: mac,
+            counts: false,
+        })
+        .unwrap();
+        settle(&mut app);
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert!(!state.participant("c7").unwrap().counts);
+        assert_eq!(state.size(), cmux_tui_core::sizing_policy::TerminalGridSize::new(100, 40));
+
+        // A menu opened on an older state is stale and changes nothing.
+        app.activate_menu(MenuAction::SetSizeCounts {
+            surface: surface.id,
+            generation: state.generation - 1,
+            participant: mac,
+            counts: true,
+        })
+        .unwrap();
+        assert!(app.status_message.is_some());
+        assert!(!mux.terminal_size_state(surface.id).unwrap().participant("c7").unwrap().counts);
+    }
+
     #[test]
     fn peer_disconnect_uses_the_pointer_mutation_barrier() {
         let mux = Mux::new("disconnect-pointer-barrier-test", SurfaceOptions::default());
@@ -34575,6 +35143,40 @@ mod tests {
     }
 
     #[test]
+    fn another_clients_creations_keep_this_clients_view() {
+        // A phone creating a screen, a tab, or a split moves only the shared
+        // tree's active fields. An attached frontend (the laptop) keeps the
+        // screen, pane, and tab it shows.
+        let mux = Mux::new("foreign-creation-keeps-view-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        let mut laptop = test_app(Session::Local(mux.clone()));
+        laptop.sidebar_visible = false;
+        laptop.replace_tree(laptop.session.tree());
+        let screen = laptop.tree.active_screen().unwrap().id;
+
+        mux.new_screen(Some(workspace), Some((80, 24))).unwrap();
+        laptop.replace_tree(laptop.session.tree());
+        assert_ne!(mux.with_state(|state| state.workspaces[0].active_screen), 0);
+        assert_eq!(laptop.tree.active_screen().unwrap().id, screen);
+
+        mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        laptop.replace_tree(laptop.session.tree());
+        assert_eq!(laptop.active_surface(), Some(first.id));
+
+        let split = mux.split(pane, SplitDir::Right, Some((40, 24))).unwrap();
+        laptop.replace_tree(laptop.session.tree());
+        assert_ne!(mux.active_surface(), Some(first.id));
+        assert_ne!(laptop.active_surface(), Some(split.id));
+        assert_eq!(laptop.tree.active_screen().unwrap().id, screen);
+        assert_eq!(laptop.active_pane(), Some(pane));
+        assert_eq!(laptop.active_surface(), Some(first.id));
+
+        mux.close_workspace(workspace);
+    }
+
+    #[test]
     fn attached_workspace_mouse_down_uses_both_rendered_rows_and_survives_routing_refresh() {
         let mux = Mux::new(
             "attached-workspace-mouse-test",
@@ -35289,6 +35891,7 @@ mod tests {
                     state: "working".into(),
                     source: "hook".into(),
                     session: None,
+                    agent: None,
                     updated_at_ms: 1,
                 },
                 &tx,
@@ -35311,6 +35914,7 @@ mod tests {
                     state: "working".into(),
                     source: "hook".into(),
                     session: None,
+                    agent: None,
                     updated_at_ms: 2,
                 },
                 &tx,
@@ -37837,6 +38441,20 @@ mod tests {
         assert!(app.pending_session_completions.is_empty());
         assert_eq!(app.tree.active_surface(), Some(created_surface));
         assert_eq!(app.omnibar.as_ref().map(|state| state.surface), Some(created_surface));
+    }
+
+    #[test]
+    fn tab_workspace_completion_selects_the_moved_tab_without_opening_browser_omnibar() {
+        let mux = Mux::new("tab-workspace-completion", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(browser_completion_tree(41, 42));
+        app.apply_session_completion(SessionCompletion {
+            mutation_generation: 1,
+            semantic_intent: None,
+            action: SessionCompletionAction::SurfaceMoved { surface: 41 },
+        });
+        assert_eq!(app.tree.active_surface(), Some(41));
+        assert!(app.omnibar.is_none());
     }
 
     #[test]
@@ -46234,6 +46852,7 @@ mod tests {
             tabs_rail_scroll: 0,
             tabs_footer_scroll: 0,
             projection_rails: HashMap::new(),
+            projection_order_cache: AgentOrderCache::default(),
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,
@@ -46258,6 +46877,7 @@ mod tests {
             menu: None,
             clients: Vec::new(),
             client_border_labels: HashMap::new(),
+            size_state_labels: HashMap::new(),
             prompt: None,
             connection_transaction: None,
             next_connection_attempt: 1,

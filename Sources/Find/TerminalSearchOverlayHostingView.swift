@@ -1,16 +1,16 @@
 import AppKit
 import SwiftUI
 
-final class TerminalSearchOverlayHostingView: NSHostingView<SurfaceSearchOverlay> {
+final class TerminalSearchOverlayHostingView: NSHostingView<SurfaceSearchOverlayRoot> {
     private weak var surfaceView: GhosttyNSView?
 
-    init(rootView: SurfaceSearchOverlay, surfaceView: GhosttyNSView) {
+    init(rootView: SurfaceSearchOverlayRoot, surfaceView: GhosttyNSView) {
         self.surfaceView = surfaceView
         super.init(rootView: rootView)
     }
 
     @available(*, unavailable)
-    required init(rootView: SurfaceSearchOverlay) {
+    required init(rootView: SurfaceSearchOverlayRoot) {
         fatalError("init(rootView:) has not been implemented")
     }
 

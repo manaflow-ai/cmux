@@ -1,3 +1,5 @@
+import CmuxCloudBannerCore
+import CmuxCloud
 import Foundation
 import Testing
 
@@ -114,6 +116,28 @@ struct CloudTunnelCoordinatorTests {
         let lastRemoval = try #require(calls.lastIndex(of: "remove"))
         #expect(lastRemoval < secondInstall)
         #expect(calls.filter { $0 == "remove" }.count == 2)
+        await harness.coordinator.requestDown()
+    }
+
+    @Test("an up queued at revocation's first suspension starts after the revoked install is cleaned")
+    func queuedUpDuringRevocationOwnsAReplacementStart() async throws {
+        let harness = Harness()
+        harness.controller.holdInstallForApproval = true
+        await harness.coordinator.beginUp(pin: true)
+        try #require(await harness.awaitState(.awaitingApproval) == .awaitingApproval)
+
+        harness.controller.holdInstallForApproval = false
+        try await harness.coordinator.revokeWithNextUpAlreadyQueued()
+        harness.controller.approve()
+        let becameUp = await harness.waitUntil {
+            await harness.coordinator.state == .up
+        }
+        #expect(becameUp)
+        #expect(harness.controller.installedConfigurations.count == 1)
+        let calls = harness.controller.calls
+        let replacementInstall = try #require(calls.lastIndex(of: "install"))
+        let finalRemoval = try #require(calls.lastIndex(of: "remove"))
+        #expect(finalRemoval < replacementInstall)
         await harness.coordinator.requestDown()
     }
 
@@ -371,6 +395,32 @@ struct CloudTunnelCoordinatorTests {
         #expect(harness.enroller.enrollCount == 1)
     }
 
+    @Test("a disconnect during a connected status snapshot is not adopted as up")
+    func staleConnectedSnapshotDoesNotAdoptAfterDisconnect() async {
+        let harness = Harness()
+        harness.controller.currentStatusValue = .connected
+        let controller = harness.controller
+        let (hookEntered, hookEnteredContinuation) = AsyncStream<Void>.makeStream()
+        let (hookRelease, hookReleaseContinuation) = AsyncStream<Void>.makeStream()
+        controller.onCurrentStatus = { _ in
+            controller.onCurrentStatus = nil
+            controller.emit(.disconnected)
+            hookEnteredContinuation.yield(())
+            var iterator = hookRelease.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        let use = Task { await harness.coordinator.prepareForPrivateNetworkUse(Self.use) }
+        #expect(await harness.awaitState(.starting) == .starting)
+        var enteredIterator = hookEntered.makeAsyncIterator()
+        _ = await enteredIterator.next()
+        hookReleaseContinuation.yield(())
+        await use.value
+        controller.onCurrentStatus = nil
+
+        #expect(await harness.coordinator.state == .up)
+        #expect(harness.controller.calls == ["install", "start"])
+    }
+
     @Test("a superseded start that fails late does not stop the newer start's tunnel")
     func supersededStartFailureLeavesNewerTunnelAlone() async {
         let harness = Harness()
@@ -421,10 +471,23 @@ struct CloudTunnelCoordinatorTests {
         let harness = Harness()
         harness.controller.currentStatusValue = .connecting
         harness.controller.connectsOnStart = false
+        let controller = harness.controller
+        let (hookEntered, hookEnteredContinuation) = AsyncStream<Void>.makeStream()
+        let (hookRelease, hookReleaseContinuation) = AsyncStream<Void>.makeStream()
+        controller.onCurrentStatus = { _ in
+            controller.onCurrentStatus = nil
+            controller.emit(.disconnected)
+            hookEnteredContinuation.yield(())
+            var iterator = hookRelease.makeAsyncIterator()
+            _ = await iterator.next()
+        }
         let use = Task { await harness.coordinator.prepareForPrivateNetworkUse(Self.use) }
         #expect(await harness.awaitState(.starting) == .starting)
-        harness.controller.emit(.disconnected)
+        var enteredIterator = hookEntered.makeAsyncIterator()
+        _ = await enteredIterator.next()
+        hookReleaseContinuation.yield(())
         await use.value
+        controller.onCurrentStatus = nil
         // No clock advance happened: the failure came from the drop, not the timeout.
         #expect(await harness.coordinator.state.failureMessage?.isEmpty == false)
         #expect(harness.controller.calls == ["install", "stop"])
@@ -525,6 +588,16 @@ struct CloudTunnelCoordinatorTests {
         await harness.clock.waitUntilSleeping(for: .seconds(600))
         harness.controller.emit(.connected)
         #expect(await waiter.value == .up)
+    }
+}
+
+private extension CloudTunnelCoordinator {
+    /// Queue the replacement on this actor before revoke can enqueue teardown.
+    /// It becomes eligible exactly when revoke first yields the actor.
+    func revokeWithNextUpAlreadyQueued() async throws {
+        let nextUp = Task { await self.beginUp(pin: true) }
+        try await revoke()
+        _ = await nextUp.value
     }
 }
 

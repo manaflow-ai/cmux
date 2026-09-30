@@ -94,6 +94,9 @@ struct TerminalPanelView: View {
         @Bindable var textBoxState = panel.textBoxState
 
         return VStack(spacing: 0) {
+            if let recovery = panel.restoreRecovery.state {
+                AgentRestoreRecoveryView(state: recovery)
+            }
             // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
             // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
             GhosttyTerminalView(
@@ -207,7 +210,9 @@ struct TerminalPanelView: View {
               let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
             return false
         }
-        return workspace.bonsplitController.selectedTab(inPane: currentPane)?.id == tabId
+        // See the resolver in WorkspaceContentView: selectedTab would
+        // subscribe this update to every tab title in the pane.
+        return workspace.bonsplitController.selectedTabId(inPane: currentPane) == tabId
     }
 
     private var effectiveTerminalAgentContext: String {
