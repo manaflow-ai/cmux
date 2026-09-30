@@ -41,7 +41,10 @@ concurrency:
 jobs:
   dispatch:
     name: Run requested UI tests
-    if: ${{ github.repository_owner == 'manaflow-ai' }}
+    # The route/controller lane is disabled while its infra cancellation bug is
+    # repaired. Re-enable with CI_UI_TESTS_ENABLED=1; await-request also keeps
+    # non-UI diffs out of the downstream test runner.
+    if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_UI_TESTS_ENABLED == '1' }}
     runs-on: ubuntu-24.04 # github-hosted-required: holds actions write and mostly waits; keeps CI's Linux pool free
     # A request can follow a long compile admission; the dispatch then waits up
     # to 50 minutes for the compile it adopts, then runs the tests.

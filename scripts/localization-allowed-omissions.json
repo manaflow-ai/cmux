@@ -456,6 +456,14 @@
     "source": "OK %@ [%@] %@",
     "class": "format"
   },
+  "cli.usage.record": {
+    "class": "syntax",
+    "source": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+  },
+  "cli.usage.shot": {
+    "class": "syntax",
+    "source": "shot [--format png|jpg] [--jpg] [--scale <n>] [--max-width <n>] [--quality <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--caption <text>] [--window <id|ref|index>]"
+  },
   "cli.usage.readScreen": {
     "class": "syntax",
     "source": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"

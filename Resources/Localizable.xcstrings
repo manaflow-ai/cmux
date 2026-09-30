@@ -549094,65 +549094,6 @@
         }
       }
     },
-    "settings.betaFeatures.predictedEcho": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Predictive local echo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "予測ローカルエコー"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "预测性本地回显"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vorausschauendes lokales Echo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Écho local prédictif"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الصدى المحلي التنبؤي"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eco local predictivo"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "預測性本機回顯"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "예측 로컬 에코"
-          }
-        }
-      }
-    },
     "fileExplorer.error.cloudPreviewTooLarge": {
       "extractionState": "manual",
       "localizations": {
@@ -557485,55 +557426,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pressing Command or Option with an arrow key or Delete moves or deletes by line or word. Full-screen terminal apps receive the rewritten keys too, so turn this off for apps that need the original keys."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mit der Befehls- oder Wahltaste und einer Pfeiltaste oder der Löschtaste bewegen Sie die Einfügemarke bzw. löschen Text zeilen- oder wortweise. Auch Terminal-Apps im Vollbildmodus erhalten die umgeschriebenen Tasten. Deaktivieren Sie diese Option für Apps, die die ursprünglichen Tasten benötigen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Commande ou Option associée à une touche fléchée ou à Supprimer déplace le point d’insertion ou supprime du texte par ligne ou par mot. Les apps de terminal en plein écran reçoivent aussi les touches réécrites : désactivez cette option pour les apps qui ont besoin des touches d’origine."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يؤدي الضغط على Command أو Option مع مفتاح سهم أو مفتاح الحذف إلى التنقل أو الحذف سطرًا سطرًا أو كلمةً كلمة. وتتلقى تطبيقات الطرفية بملء الشاشة أيضًا المفاتيح المعاد كتابتها، لذا أوقف هذا الخيار للتطبيقات التي تحتاج إلى المفاتيح الأصلية."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comando u Opción junto con una tecla de flecha o Eliminar mueve el punto de inserción o borra por líneas o palabras. Las apps de terminal a pantalla completa también reciben las teclas reescritas, así que desactiva esta opción para las apps que necesitan las teclas originales."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住 Command 或 Option 鍵再按方向鍵或 Delete 鍵，可按行或字詞移動或刪除。全螢幕終端機 App 也會收到改寫後的按鍵，因此若 App 需要原始按鍵，請關閉此選項。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住 Command 或 Option 键再按箭头键或 Delete 键，可按行或按词移动或删除。全屏终端 App 也会收到改写后的按键，因此如果 App 需要原始按键，请关闭此选项。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Command 또는 Option 키를 누른 채 화살표 키나 Delete 키를 누르면 줄 또는 단어 단위로 이동하거나 삭제합니다. 전체 화면 터미널 앱에도 변환된 키가 전달되므로, 원래 키가 필요한 앱에서는 이 옵션을 끄세요."
+            "value": "Command and Option arrow and delete keys move and delete by line and word at the shell prompt."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command キーまたは Option キーを押しながら矢印キーや Delete キーを押すと、行単位または単語単位で移動・削除します。フルスクリーンのターミナルアプリにも書き換えたキーが送られるため、元のキーが必要なアプリではこの設定をオフにしてください。"
+            "value": "シェルのプロンプトでは、Command と Option の矢印キー・削除キーで行単位・単語単位に移動・削除します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 shell 提示符下，Command 和 Option 加方向键和删除键按行和按词移动和删除。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehls- und Wahltaste mit Pfeil- und Löschtasten bewegen und löschen an der Shell-Eingabeaufforderung zeilen- und wortweise."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À l'invite du shell, les flèches et la touche Supprimer avec Commande et Option déplacent et suppriment par ligne et par mot."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في موجه الصدفة، تنقل مفاتيح الأسهم والحذف مع Command وOption وتحذف حسب السطر والكلمة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el prompt de la shell, las flechas y la tecla Eliminar con Comando y Opción mueven y borran por línea y por palabra."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 shell 提示字元下，Command 與 Option 加方向鍵與刪除鍵會依行與依字移動與刪除。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셸 프롬프트에서 Command 및 Option 화살표와 삭제 키가 줄 및 단어 단위로 이동하고 삭제합니다."
           }
         }
       }
@@ -557947,65 +557888,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "symbol은 문자열이어야 합니다"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.predictedEcho.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows typed characters right away on slow remote connections. They stay underlined until the remote host confirms them. Password prompts and full-screen apps are excluded."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Getippte Zeichen erscheinen bei langsamen Remoteverbindungen sofort. Sie bleiben unterstrichen, bis der Remote-Host sie bestätigt. Ausgenommen sind Passwortabfragen und Vollbild-Apps."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les caractères saisis s’affichent immédiatement sur les connexions distantes lentes. Ils restent soulignés jusqu’à ce que l’hôte distant les confirme. Cela ne s’applique ni aux invites de mot de passe ni aux apps en plein écran."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تظهر الأحرف المكتوبة فورًا في الاتصالات البعيدة البطيئة، وتبقى مسطّرة حتى يؤكدها المضيف البعيد. ولا ينطبق ذلك على مطالبات كلمة المرور والتطبيقات بملء الشاشة."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los caracteres escritos aparecen al instante en conexiones remotas lentas y permanecen subrayados hasta que el host remoto los confirma. No se aplica a solicitudes de contraseña ni a apps a pantalla completa."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "遠端連線較慢時，輸入的字元會立即顯示並加上底線，直到遠端主機確認為止。密碼提示和全螢幕 App 不適用此功能。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "远程连接较慢时，输入的字符会立即显示并带有下划线，直到远程主机确认为止。密码提示和全屏 App 不适用此功能。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "원격 연결이 느릴 때 입력한 문자를 바로 표시하고, 원격 호스트가 확인할 때까지 밑줄로 표시합니다. 비밀번호 프롬프트와 전체 화면 앱에는 적용되지 않습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リモート接続が遅いとき、入力した文字をすぐに表示し、リモートホストが確認するまで下線を付けます。パスワードの入力やフルスクリーンアプリには適用されません。"
           }
         }
       }
@@ -588994,6 +588876,4769 @@
           "stringUnit": {
             "state": "translated",
             "value": "在預設瀏覽器中開啟連結"
+          }
+        }
+      }
+    },
+    "actions.discovery.typeDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action type: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نوع الإجراء: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrsta radnje: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handlingstype: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktionstyp: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tipo de acción: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type d’action : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tipo di azione: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクションの種類：%@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រភេទសកម្មភាព៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 유형: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handlingstype: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typ działania: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tipo de ação: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тип действия: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ประเภทการดำเนินการ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eylem türü: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тип дії: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作类型：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動作類型：%@"
+          }
+        }
+      }
+    },
+    "actions.discovery.shortcutDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shortcut: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختصار لوحة المفاتيح: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prečica: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genvej: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenkürzel: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atajo: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raccourci : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scorciatoia: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショートカット：%@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លូវកាត់៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snarvei: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrót: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atalho: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сочетание клавиш: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แป้นพิมพ์ลัด: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klavye kısayolu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сполучення клавіш: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快捷键：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速鍵：%@"
+          }
+        }
+      }
+    },
+    "actions.discovery.menuTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions · cmux.json…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإجراءات · cmux.json…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktionen · cmux.json…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acciones · cmux.json…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions · cmux.json…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクション · cmux.json…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 · cmux.json…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作 · cmux.json…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動作 · cmux.json…"
+          }
+        }
+      }
+    },
+    "actions.discovery.dialogTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions · cmux.json"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإجراءات · cmux.json"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktionen · cmux.json"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acciones · cmux.json"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions · cmux.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクション · cmux.json"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 · cmux.json"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作 · cmux.json"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動作 · cmux.json"
+          }
+        }
+      }
+    },
+    "actions.discovery.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No configured actions."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد إجراءات مُعدّة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema konfigurisanih radnji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen konfigurerede handlinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine konfigurierten Aktionen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay acciones configuradas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune action configurée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna azione configurata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定済みのアクションはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមានសកម្មភាពដែលបានកំណត់រចនាសម្ព័ន្ធទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구성된 작업이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen konfigurerte handlinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak skonfigurowanych działań."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma ação configurada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет настроенных действий."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีการดำเนินการที่กำหนดค่าไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yapılandırılmış eylem yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає налаштованих дій."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有已配置的操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有已設定的動作。"
+          }
+        }
+      }
+    },
+    "agentWake.banner.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إغلاق"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "닫기"
+          }
+        }
+      }
+    },
+    "agentWake.banner.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사"
+          }
+        }
+      }
+    },
+    "agentWake.banner.hideCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドを隠す"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehl ausblenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer la commande"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء الأمر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar comando"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏指令"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏命令"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령 숨기기"
+          }
+        }
+      }
+    },
+    "agentWake.banner.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ didn't resume after waking."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はスリープ解除後に再開しませんでした。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wurde nach dem Aufwecken nicht fortgesetzt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas repris après le réveil."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُستأنف %@ بعد الإيقاظ."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no se reanudó después de despertar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 在喚醒後未能恢復。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 在唤醒后未能恢复。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 깨운 후 다시 시작되지 않았습니다."
+          }
+        }
+      }
+    },
+    "agentWake.banner.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut versuchen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réessayer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة المحاولة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reintentar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重試"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시도"
+          }
+        }
+      }
+    },
+    "agentWake.banner.showCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドを表示"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehl anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la commande"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الأمر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar comando"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示指令"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示命令"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령 보기"
+          }
+        }
+      }
+    },
+    "agentWake.notification.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ didn't resume"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が再開しませんでした"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wurde nicht fortgesetzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas repris"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُستأنف %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no se reanudó"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 未能恢復"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 未能恢复"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 다시 시작되지 않았습니다"
+          }
+        }
+      }
+    },
+    "agentWake.reason.didNotStart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It did not start within 90 seconds."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "90 秒以内に起動しませんでした。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es wurde nicht innerhalb von 90 Sekunden gestartet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il n’a pas démarré dans les 90 secondes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يبدأ خلال 90 ثانية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se inició en 90 segundos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未在 90 秒內啟動。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未在 90 秒内启动。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "90초 안에 시작되지 않았습니다."
+          }
+        }
+      }
+    },
+    "agentWake.reason.exitedBeforeStart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its resume command exited."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再開コマンドが終了しました。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sein Fortsetzungsbefehl wurde beendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sa commande de reprise s’est terminée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهى أمر الاستئناف الخاص به."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su comando de reanudación terminó."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其恢復指令已結束。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其恢复命令已退出。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재개 명령이 종료되었습니다."
+          }
+        }
+      }
+    },
+    "agentWake.status.multiple": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld agent didn't resume"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld agents didn't resume"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld 個のエージェントが再開しませんでした"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld Agent wurde nicht fortgesetzt"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld Agenten wurden nicht fortgesetzt"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld agent n’a pas repris"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld agents n’ont pas repris"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld agents n’ont pas repris"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "لم يُستأنف أي وكيل (%ld)"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "لم يُستأنف وكيل واحد (%ld)"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "لم يُستأنف وكيلان (%ld)"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "لم يُستأنف %ld وكلاء"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "لم يُستأنف %ld وكيلًا"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "لم يُستأنف %ld وكيل"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld agente no se reanudó"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld agentes no se reanudaron"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld agentes no se reanudaron"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld 個代理程式未能恢復"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld 个代理未能恢复"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "에이전트 %ld개가 다시 시작되지 않았습니다"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "agentWake.status.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent didn't resume"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが再開しませんでした"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent wurde nicht fortgesetzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agent n’a pas repris"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُستأنف الوكيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El agente no se reanudó"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式未能恢復"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理未能恢复"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 다시 시작되지 않았습니다"
+          }
+        }
+      }
+    },
+    "cli.restore.error.routedLauncherNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: this session was started with '%1$@ claude proxy', but '%1$@' is not on PATH in this shell. Add it to PATH, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: このセッションは「%1$@ claude proxy」で起動されましたが、このシェルの PATH に「%1$@」がありません。PATH に追加してから、再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此会话是通过“%1$@ claude proxy”启动的，但此 shell 的 PATH 中没有“%1$@”。请将其添加到 PATH，然后重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: Diese Sitzung wurde mit „%1$@ claude proxy“ gestartet, aber „%1$@“ ist in dieser Shell nicht im PATH. Fügen Sie es zum PATH hinzu und versuchen Sie es dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore : cette session a été démarrée avec « %1$@ claude proxy », mais « %1$@ » n'est pas dans le PATH de ce shell. Ajoutez-le au PATH, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: بدأت هذه الجلسة باستخدام '%1$@ claude proxy'، لكن '%1$@' غير موجود في PATH في هذه الصدفة. أضفه إلى PATH، ثم أعد المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: esta sesión se inició con '%1$@ claude proxy', pero '%1$@' no está en el PATH de este shell. Agréguelo al PATH y vuelva a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此工作階段是以「%1$@ claude proxy」啟動的，但此 shell 的 PATH 中沒有「%1$@」。請將其加入 PATH，然後重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 이 세션은 '%1$@ claude proxy'로 시작되었지만 이 셸의 PATH에 '%1$@'이(가) 없습니다. PATH에 추가한 후 다시 시도하십시오."
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingCommandMovesByWord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command Moves by Word"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command ينقل حسب الكلمة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehlstaste bewegt wortweise"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando mueve por palabra"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande déplace par mot"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command で単語単位に移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command로 단어 단위 이동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 按词移动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 依字移動"
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingCommandMovesByWord.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command arrow and delete keys move and delete by word, like Option. Control Left and Right Arrow move to the start and end of the line."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنقل مفاتيح الأسهم والحذف مع Command وتحذف حسب الكلمة، مثل Option. وينقل Control مع السهمين الأيسر والأيمن إلى بداية السطر ونهايته."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehlstaste mit Pfeil- und Löschtasten bewegt und löscht wortweise, wie die Wahltaste. Control mit Links- und Rechtspfeil springt an Anfang und Ende der Zeile."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las flechas y la tecla Eliminar con Comando mueven y borran por palabra, como Opción. Control con las flechas izquierda y derecha va al inicio y al final de la línea."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les flèches et la touche Supprimer avec Commande déplacent et suppriment par mot, comme Option. Contrôle avec les flèches gauche et droite va au début et à la fin de la ligne."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command と矢印キー・削除キーで、Option と同じく単語単位に移動・削除します。Control と左右矢印キーで行頭・行末に移動します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 화살표 및 삭제 키가 Option처럼 단어 단위로 이동하고 삭제합니다. Control 왼쪽 및 오른쪽 화살표는 줄의 시작과 끝으로 이동합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 加方向键和删除键按词移动和删除，与 Option 相同。Control 加左右方向键移到行首和行尾。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 加方向鍵與刪除鍵會依字移動與刪除，與 Option 相同。Control 加左右方向鍵會移到行首與行尾。"
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingCommandMovesByWord.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command arrow and delete keys move and delete by line, as in macOS text fields."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنقل مفاتيح الأسهم والحذف مع Command وتحذف حسب السطر، كما في حقول النص في macOS."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehlstaste mit Pfeil- und Löschtasten bewegt und löscht zeilenweise, wie in macOS-Textfeldern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las flechas y la tecla Eliminar con Comando mueven y borran por línea, como en los campos de texto de macOS."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les flèches et la touche Supprimer avec Commande déplacent et suppriment par ligne, comme dans les champs de texte de macOS."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command と矢印キー・削除キーで、macOS のテキストフィールドと同じく行単位に移動・削除します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 화살표 및 삭제 키가 macOS 텍스트 필드처럼 줄 단위로 이동하고 삭제합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 加方向键和删除键按行移动和删除，与 macOS 文本框相同。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 加方向鍵與刪除鍵會依行移動與刪除，與 macOS 文字欄位相同。"
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingGesturesInFullScreenApps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text Editing Gestures in Full-Screen Apps"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيماءات تحرير النص في التطبيقات بملء الشاشة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Textbearbeitungsgesten in Vollbild-Apps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestos de edición de texto en apps a pantalla completa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestes d’édition de texte dans les apps plein écran"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルスクリーンアプリでのテキスト編集ジェスチャー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 화면 앱에서 텍스트 편집 제스처"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全屏应用中的文本编辑手势"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全螢幕 App 中的文字編輯手勢"
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingGesturesInFullScreenApps.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestures also apply while a full-screen app such as vim, less, or tmux is running, so they keep working at a shell inside tmux, screen, or zellij."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنطبق الإيماءات أيضًا أثناء تشغيل تطبيق بملء الشاشة مثل vim أو less أو tmux، فتظل تعمل في الصدفة داخل tmux أو screen أو zellij."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesten gelten auch, während eine Vollbild-App wie vim, less oder tmux läuft, und funktionieren so weiter an einer Shell in tmux, screen oder zellij."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los gestos también se aplican mientras se ejecuta una app a pantalla completa como vim, less o tmux, así que siguen funcionando en una shell dentro de tmux, screen o zellij."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les gestes s’appliquent aussi lorsqu’une app plein écran comme vim, less ou tmux est en cours d’exécution, et continuent donc de fonctionner dans un shell sous tmux, screen ou zellij."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vim、less、tmux などのフルスクリーンアプリの実行中もジェスチャーが有効になるため、tmux、screen、zellij 内のシェルでも引き続き使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vim, less, tmux 같은 전체 화면 앱이 실행 중일 때도 제스처가 적용되므로 tmux, screen, zellij 안의 셸에서도 계속 작동합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 vim、less 或 tmux 等全屏应用运行时手势也会生效，因此在 tmux、screen 或 zellij 中的 shell 里仍可使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 vim、less 或 tmux 等全螢幕 App 執行時手勢也會生效，因此在 tmux、screen 或 zellij 中的 shell 裡仍可使用。"
+          }
+        }
+      }
+    },
+    "cli.help.record": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux record [start] [flags]\n       cmux record stop|status [--id <id>]\n       cmux record note [--id <id>] <text>\n       cmux record list\n\nRecord a cmux window to an mp4 or gif, for a pull request or a bug\nreport. Only cmux's own windows can be recorded, and no Screen\nRecording permission is involved.\n\nFlags for start:\n  --format mp4|gif       Output format (default: mp4)\n  --gif                  Shorthand for --format gif\n  --fps <1-30>           Frames per second (default: 12 for mp4, 8 for gif)\n  --max-seconds <n>      Stop by itself after n seconds, 0.5-120 (default: 15)\n  --scale <0.1-1>        Scale the output (default: 1 for mp4, 0.5 for gif)\n  --max-width <64-4096>  Cap the output width, keeping the aspect ratio\n  --region <x,y,w,h>     Record part of the window, in window points\n  --out <path>           Write here instead of a temporary directory\n  --label <text>         Name the file\n  --no-captions          Do not draw `record note` captions into the clip\n  --window <id|ref|index>  Window to record (default: the frontmost one)\n\nOutput: `<id> <state> <frames> <path>`, or the full response with --json.\n\nA recording stops itself at --max-seconds, so a clip is never left\nrunning by an agent that goes away. One recording at a time.\n\nExample:\n  cmux record start --gif --max-seconds 8 --label sidebar-drag\n  cmux record note \"dragging the workspace\"\n  cmux record stop"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux record [start] [flags]\n           cmux record stop|status [--id <id>]\n           cmux record note [--id <id>] <text>\n           cmux record list\n\nتسجيل نافذة cmux بصيغة mp4 أو gif، من أجل طلب سحب أو تقرير خطأ.\nلا يمكن تسجيل سوى نوافذ cmux نفسها،\nولا يتطلب ذلك إذن تسجيل الشاشة.\n\nخيارات start:\n  --format mp4|gif       صيغة الإخراج (الافتراضي: mp4)\n  --gif                  اختصار لـ --format gif\n  --fps <1-30>           الإطارات في الثانية (الافتراضي: 12 لـ mp4، 8 لـ gif)\n  --max-seconds <n>      يتوقف من تلقاء نفسه بعد n ثانية، 0.5-120 (الافتراضي: 15)\n  --scale <0.1-1>        تحجيم الإخراج (الافتراضي: 1 لـ mp4، 0.5 لـ gif)\n  --max-width <64-4096>  تحديد أقصى عرض للإخراج مع الحفاظ على نسبة الأبعاد\n  --region <x,y,w,h>     تسجيل جزء من النافذة، بوحدات نقاط النافذة\n  --out <path>           الكتابة هنا بدلاً من دليل مؤقت\n  --label <text>         تسمية الملف\n  --no-captions          عدم رسم تعليقات `record note` داخل المقطع\n  --window <id|ref|index>  النافذة المراد تسجيلها (الافتراضي: النافذة الأمامية)\n\nالإخراج: `<id> <state> <frames> <path>`، أو الاستجابة الكاملة مع --json.\n\nيتوقف التسجيل من تلقاء نفسه عند --max-seconds، حتى لا يترك وكيل غادر\nمقطعًا قيد التسجيل. تسجيل واحد في كل مرة.\n\nمثال:\n  cmux record start --gif --max-seconds 8 --label sidebar-drag\n  cmux record note \"dragging the workspace\"\n  cmux record stop"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux record [start] [Flags]\n            cmux record stop|status [--id <id>]\n            cmux record note [--id <id>] <Text>\n            cmux record list\n\nEin cmux-Fenster als mp4 oder gif aufzeichnen, für einen Pull Request\noder einen Fehlerbericht. Nur cmux-eigene Fenster können aufgezeichnet\nwerden, und es ist keine Bildschirmaufnahme-Berechtigung beteiligt.\n\nFlags für start:\n  --format mp4|gif       Ausgabeformat (Standard: mp4)\n  --gif                  Kurzform für --format gif\n  --fps <1-30>           Bilder pro Sekunde (Standard: 12 für mp4, 8 für gif)\n  --max-seconds <n>      Nach n Sekunden selbst beenden, 0.5-120 (Standard: 15)\n  --scale <0.1-1>        Ausgabe skalieren (Standard: 1 für mp4, 0.5 für gif)\n  --max-width <64-4096>  Ausgabebreite begrenzen, Seitenverhältnis bleibt\n  --region <x,y,w,h>     Teil des Fensters aufzeichnen, in Fensterpunkten\n  --out <path>           Hierhin schreiben statt in ein temporäres Verzeichnis\n  --label <text>         Datei benennen\n  --no-captions          Keine `record note`-Untertitel in den Clip zeichnen\n  --window <id|ref|index>  Fenster zum Aufzeichnen (Standard: das vorderste)\n\nAusgabe: `<id> <state> <frames> <path>`, oder mit --json die vollständige Antwort.\n\nEine Aufzeichnung beendet sich bei --max-seconds selbst, damit ein Agent, der\nverschwindet, keinen laufenden Clip hinterlässt. Eine Aufzeichnung zur Zeit.\n\nBeispiel:\n  cmux record start --gif --max-seconds 8 --label sidebar-drag\n  cmux record note \"dragging the workspace\"\n  cmux record stop"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux record [start] [flags]\n     cmux record stop|status [--id <id>]\n     cmux record note [--id <id>] <texto>\n     cmux record list\n\nGraba una ventana de cmux en mp4 o gif, para un pull request o un informe\nde error. Solo se pueden grabar las ventanas propias de cmux, y no\ninterviene ningún permiso de grabación de pantalla.\n\nFlags para start:\n  --format mp4|gif       Formato de salida (predeterminado: mp4)\n  --gif                  Atajo para --format gif\n  --fps <1-30>           Fotogramas por segundo (predeterminado: 12 para mp4, 8 para gif)\n  --max-seconds <n>      Se detiene solo tras n segundos, 0.5-120 (predeterminado: 15)\n  --scale <0.1-1>        Escala la salida (predeterminado: 1 para mp4, 0.5 para gif)\n  --max-width <64-4096>  Limita el ancho de salida manteniendo la proporción\n  --region <x,y,w,h>     Graba parte de la ventana, en puntos de ventana\n  --out <path>           Escribe aquí en lugar de en un directorio temporal\n  --label <text>         Da nombre al archivo\n  --no-captions          No dibujar los subtítulos de `record note` en el clip\n  --window <id|ref|index>  Ventana que se graba (predeterminado: la del frente)\n\nSalida: `<id> <state> <frames> <path>`, o la respuesta completa con --json.\n\nUna grabación se detiene sola en --max-seconds, para que un agente que\ndesaparece nunca deje un clip en marcha. Una grabación a la vez.\n\nEjemplo:\n  cmux record start --gif --max-seconds 8 --label sidebar-drag\n  cmux record note \"dragging the workspace\"\n  cmux record stop"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux record [start] [flags]\n              cmux record stop|status [--id <id>]\n              cmux record note [--id <id>] <texte>\n              cmux record list\n\nEnregistrer une fenêtre cmux en mp4 ou gif, pour une pull request ou un\nrapport de bug. Seules les fenêtres de cmux peuvent être enregistrées, et\naucune autorisation d'enregistrement de l'écran n'intervient.\n\nFlags pour start :\n  --format mp4|gif       Format de sortie (par défaut : mp4)\n  --gif                  Raccourci pour --format gif\n  --fps <1-30>           Images par seconde (par défaut : 12 pour mp4, 8 pour gif)\n  --max-seconds <n>      S'arrête seul après n secondes, 0.5-120 (par défaut : 15)\n  --scale <0.1-1>        Mettre la sortie à l'échelle (par défaut : 1 pour mp4, 0.5 pour gif)\n  --max-width <64-4096>  Limiter la largeur de sortie en gardant les proportions\n  --region <x,y,w,h>     N'enregistrer qu'une partie de la fenêtre, en points fenêtre\n  --out <path>           Écrire ici au lieu d'un répertoire temporaire\n  --label <text>         Nommer le fichier\n  --no-captions          Ne pas dessiner les légendes `record note` dans le clip\n  --window <id|ref|index>  Fenêtre à enregistrer (par défaut : celle au premier plan)\n\nSortie : `<id> <state> <frames> <path>`, ou la réponse complète avec --json.\n\nUn enregistrement s'arrête de lui-même à --max-seconds, afin qu'un agent qui\ndisparaît ne laisse jamais un clip en cours. Un seul enregistrement à la fois.\n\nExemple :\n  cmux record start --gif --max-seconds 8 --label sidebar-drag\n  cmux record note \"dragging the workspace\"\n  cmux record stop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux record [start] [flags]\n          cmux record stop|status [--id <id>]\n          cmux record note [--id <id>] <text>\n          cmux record list\n\nプルリクエストやバグ報告のために、cmux のウィンドウを mp4 または gif\nで録画します。録画できるのは cmux 自身のウィンドウだけで、画面収録の\n権限は必要ありません。\n\nstart のフラグ:\n  --format mp4|gif       出力形式（既定: mp4）\n  --gif                  --format gif の短縮形\n  --fps <1-30>           1 秒あたりのフレーム数（既定: mp4 は 12、gif は 8）\n  --max-seconds <n>      n 秒後に自動停止、0.5-120（既定: 15）\n  --scale <0.1-1>        出力を拡大縮小（既定: mp4 は 1、gif は 0.5）\n  --max-width <64-4096>  縦横比を保ったまま出力の幅を制限\n  --region <x,y,w,h>     ウィンドウの一部だけを録画（ウィンドウポイント単位）\n  --out <path>           一時ディレクトリではなくこのパスに書き出す\n  --label <text>         ファイルに名前を付ける\n  --no-captions          `record note` のキャプションをクリップに描画しない\n  --window <id|ref|index>  録画するウィンドウ（既定: 最前面のウィンドウ）\n\n出力: `<id> <state> <frames> <path>`、または --json で完全なレスポンス。\n\n録画は --max-seconds で自動停止するので、いなくなったエージェントが\n録画を実行したままにすることはありません。録画は同時に 1 つだけです。\n\n例:\n  cmux record start --gif --max-seconds 8 --label sidebar-drag\n  cmux record note \"dragging the workspace\"\n  cmux record stop"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux record [start] [flags]\n        cmux record stop|status [--id <id>]\n        cmux record note [--id <id>] <text>\n        cmux record list\n\n풀 리퀘스트나 버그 리포트에 쓰려고 cmux 창을 mp4 또는 gif로\n녹화합니다. cmux 자신의 창만 녹화할 수 있고, 화면 기록 권한은\n필요하지 않습니다.\n\nstart 플래그:\n  --format mp4|gif       출력 형식 (기본값: mp4)\n  --gif                  --format gif의 단축형\n  --fps <1-30>           초당 프레임 수 (기본값: mp4는 12, gif는 8)\n  --max-seconds <n>      n초 후 스스로 정지, 0.5-120 (기본값: 15)\n  --scale <0.1-1>        출력 크기 조정 (기본값: mp4는 1, gif는 0.5)\n  --max-width <64-4096>  가로 세로 비율을 유지하며 출력 너비 제한\n  --region <x,y,w,h>     창의 일부만 녹화, 창 포인트 단위\n  --out <path>           임시 디렉터리 대신 이 경로에 기록\n  --label <text>         파일 이름 지정\n  --no-captions          `record note` 캡션을 클립에 그리지 않음\n  --window <id|ref|index>  녹화할 창 (기본값: 맨 앞 창)\n\n출력: `<id> <state> <frames> <path>`, 또는 --json으로 전체 응답.\n\n녹화는 --max-seconds에서 스스로 멈추므로 사라진 에이전트가 녹화를 계속\n남겨 두는 일은 없습니다. 한 번에 하나의 녹화만 가능합니다.\n\n예:\n  cmux record start --gif --max-seconds 8 --label sidebar-drag\n  cmux record note \"dragging the workspace\"\n  cmux record stop"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux record [start] [flags]\n          cmux record stop|status [--id <id>]\n          cmux record note [--id <id>] <text>\n          cmux record list\n\n将 cmux 窗口录制为 mp4 或 gif，用于 pull request 或错误报告。\n只能录制 cmux 自己的窗口，\n而且不需要任何屏幕录制权限。\n\nstart 的标志:\n  --format mp4|gif       输出格式（默认: mp4）\n  --gif                  --format gif 的简写\n  --fps <1-30>           每秒帧数（默认: mp4 为 12，gif 为 8）\n  --max-seconds <n>      n 秒后自行停止，0.5-120（默认: 15）\n  --scale <0.1-1>        缩放输出（默认: mp4 为 1，gif 为 0.5）\n  --max-width <64-4096>  限制输出宽度并保持宽高比\n  --region <x,y,w,h>     只录制窗口的一部分，以窗口点为单位\n  --out <path>           写入此处而非临时目录\n  --label <text>         为文件命名\n  --no-captions          不要把 `record note` 字幕画进视频\n  --window <id|ref|index>  要录制的窗口（默认: 最前面的窗口）\n\n输出: `<id> <state> <frames> <path>`，或用 --json 获取完整响应。\n\n录制会在 --max-seconds 时自行停止，因此离开的代理不会留下仍在录制的\n视频。同一时间只能有一份录制。\n\n示例:\n  cmux record start --gif --max-seconds 8 --label sidebar-drag\n  cmux record note \"dragging the workspace\"\n  cmux record stop"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux record [start] [flags]\n          cmux record stop|status [--id <id>]\n          cmux record note [--id <id>] <text>\n          cmux record list\n\n將 cmux 視窗錄製成 mp4 或 gif，用於 pull request 或錯誤報告。\n只能錄製 cmux 自己的視窗，\n而且不需要任何螢幕錄製權限。\n\nstart 的旗標:\n  --format mp4|gif       輸出格式（預設: mp4）\n  --gif                  --format gif 的簡寫\n  --fps <1-30>           每秒影格數（預設: mp4 為 12，gif 為 8）\n  --max-seconds <n>      n 秒後自行停止，0.5-120（預設: 15）\n  --scale <0.1-1>        縮放輸出（預設: mp4 為 1，gif 為 0.5）\n  --max-width <64-4096>  限制輸出寬度並維持長寬比\n  --region <x,y,w,h>     只錄製視窗的一部分，以視窗點為單位\n  --out <path>           寫入此處而非暫存目錄\n  --label <text>         為檔案命名\n  --no-captions          不要將 `record note` 字幕畫進影片\n  --window <id|ref|index>  要錄製的視窗（預設: 最前面的視窗）\n\n輸出: `<id> <state> <frames> <path>`，或以 --json 取得完整回應。\n\n錄製會在 --max-seconds 時自行停止，因此離開的代理程式不會留下仍在\n錄製的影片。同一時間只能有一份錄製。\n\n範例:\n  cmux record start --gif --max-seconds 8 --label sidebar-drag\n  cmux record note \"dragging the workspace\"\n  cmux record stop"
+          }
+        }
+      }
+    },
+    "cli.record.error.formatConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record start: --gif conflicts with --format"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record start: لا يمكن دمج --gif مع --format"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record start: --gif kann nicht mit --format kombiniert werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record start: --gif no se puede combinar con --format"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record start: --gif ne peut pas être combiné avec --format"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record start: --gif は --format と併用できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record start: --gif은 --format과 함께 사용할 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record start: --gif 不能与 --format 同用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record start: --gif 無法與 --format 同時使用"
+          }
+        }
+      }
+    },
+    "cli.record.error.noteText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record note: text is required"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record note: النص مطلوب"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record note: Text ist erforderlich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record note: se requiere el texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record note : le texte est requis"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record note: テキストが必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record note: 텍스트가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record note: 必须提供文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record note: 必須提供文字"
+          }
+        }
+      }
+    },
+    "cli.record.error.unexpectedArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record %@: unexpected arguments: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record %@: وسائط غير متوقعة: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record %@: unerwartete Argumente: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record %@: argumentos inesperados: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record %@ : arguments inattendus : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record %@: 予期しない引数: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record %@: 예기치 않은 인수: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record %@: 多余的参数: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record %@: 未預期的引數: %@"
+          }
+        }
+      }
+    },
+    "cli.record.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record: unknown subcommand '%@' (start, stop, status, note, list)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record: أمر فرعي غير معروف '%@' (start، stop، status، note، list)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record: unbekannter Unterbefehl „%@“ (start, stop, status, note, list)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record: subcomando desconocido '%@' (start, stop, status, note, list)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record : sous-commande inconnue '%@' (start, stop, status, note, list)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record: 不明なサブコマンド '%@' です（start、stop、status、note、list）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record: 알 수 없는 하위 명령 '%@' (start, stop, status, note, list)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record: 未知的子命令 '%@'（start、stop、status、note、list）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record: 未知的子命令 '%@'（start、stop、status、note、list）"
+          }
+        }
+      }
+    },
+    "cli.usage.record": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        }
+      }
+    },
+    "cli.help.shot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux shot [flags]\n\nScreenshot a cmux window, or a region of one, to a png or a jpeg. Only\ncmux's own windows can be captured, and no Screen Recording permission\nis involved, so this works on a release build and inside CI.\n\nFlags:\n  --format png|jpg       Output format (default: png)\n  --jpg                  Shorthand for --format jpg\n  --scale <0.1-1>        Scale the output (default: 1)\n  --max-width <64-8192>  Cap the output width, keeping the aspect ratio\n  --quality <0.1-1>      JPEG quality (default: 0.8, ignored for png)\n  --region <x,y,w,h>     Capture part of the window, in window points\n  --out <path>           Write here instead of a temporary directory\n  --label <text>         Name the file\n  --caption <text>       Draw a caption into the image\n  --window <id|ref|index>  Window to capture (default: the frontmost one)\n\nOutput: `<width>x<height> <bytes> <path>`, or the full response with --json.\n\nA region is the same rectangle `cmux record --region` films, so a\ndetail spotted in a clip can be shot with the same four numbers.\n\nExample:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux shot [flags]\n\nتصوير نافذة cmux أو جزء منها بصيغة png أو jpeg.\nلا يمكن تصوير سوى نوافذ cmux نفسها، ولا يتطلب ذلك إذن تسجيل الشاشة،\nلذلك يعمل هذا في بناء الإصدار وداخل CI.\n\nالخيارات:\n  --format png|jpg       صيغة الإخراج (الافتراضي: png)\n  --jpg                  اختصار لـ --format jpg\n  --scale <0.1-1>        تحجيم الإخراج (الافتراضي: 1)\n  --max-width <64-8192>  تحديد أقصى عرض للإخراج مع الحفاظ على نسبة الأبعاد\n  --quality <0.1-1>      جودة JPEG (الافتراضي: 0.8، وتُهمل مع png)\n  --region <x,y,w,h>     تصوير جزء من النافذة، بوحدات نقاط النافذة\n  --out <path>           الكتابة هنا بدلاً من دليل مؤقت\n  --label <text>         تسمية الملف\n  --caption <text>       رسم تعليق داخل الصورة\n  --window <id|ref|index>  النافذة المراد تصويرها (الافتراضي: النافذة الأمامية)\n\nالإخراج: `<width>x<height> <bytes> <path>`، أو الاستجابة الكاملة مع --json.\n\nالمنطقة هي نفس المستطيل الذي يصوّره `cmux record --region`، لذا يمكن تصوير\nتفصيل لوحظ في مقطع بالأرقام الأربعة نفسها.\n\nمثال:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux shot [Flags]\n\nEin cmux-Fenster oder einen Teil davon als png oder jpeg aufnehmen. Nur\ncmux-eigene Fenster sind aufnehmbar, und es ist keine Berechtigung für\nBildschirmaufnahmen nötig, das geht also im Release-Build und in der CI.\n\nFlags:\n  --format png|jpg       Ausgabeformat (Standard: png)\n  --jpg                  Kurzform für --format jpg\n  --scale <0.1-1>        Ausgabe skalieren (Standard: 1)\n  --max-width <64-8192>  Ausgabebreite begrenzen, Seitenverhältnis bleibt\n  --quality <0.1-1>      JPEG-Qualität (Standard: 0.8, für png ignoriert)\n  --region <x,y,w,h>     Teil des Fensters aufnehmen, in Fensterpunkten\n  --out <path>           Hierhin schreiben statt in ein temporäres Verzeichnis\n  --label <text>         Datei benennen\n  --caption <text>       Eine Bildunterschrift ins Bild zeichnen\n  --window <id|ref|index>  Fenster zum Aufnehmen (Standard: das vorderste)\n\nAusgabe: `<width>x<height> <bytes> <path>`, oder mit --json die vollständige Antwort.\n\nEine Region ist dasselbe Rechteck, das `cmux record --region` filmt: ein im\nClip entdecktes Detail lässt sich mit denselben vier Zahlen aufnehmen.\n\nBeispiel:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux shot [flags]\n\nCaptura una ventana de cmux, o una región de ella, en png o jpeg. Solo se\npueden capturar las ventanas propias de cmux, y no interviene ningún permiso\nde grabación de pantalla, así que funciona en una release y dentro de CI.\n\nFlags:\n  --format png|jpg       Formato de salida (predeterminado: png)\n  --jpg                  Atajo para --format jpg\n  --scale <0.1-1>        Escala la salida (predeterminado: 1)\n  --max-width <64-8192>  Limita el ancho de salida manteniendo la proporción\n  --quality <0.1-1>      Calidad JPEG (predeterminado: 0.8, se ignora en png)\n  --region <x,y,w,h>     Captura parte de la ventana, en puntos de ventana\n  --out <path>           Escribe aquí en lugar de en un directorio temporal\n  --label <text>         Da nombre al archivo\n  --caption <text>       Dibuja un rótulo dentro de la imagen\n  --window <id|ref|index>  Ventana que se captura (predeterminado: la del frente)\n\nSalida: `<width>x<height> <bytes> <path>`, o la respuesta completa con --json.\n\nUna región es el mismo rectángulo que filma `cmux record --region`, así que un\ndetalle visto en un clip se captura con los mismos cuatro números.\n\nEjemplo:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux shot [flags]\n\nCapture une fenêtre cmux, ou une partie de celle-ci, en png ou en jpeg.\nSeules les fenêtres de cmux peuvent être capturées, et aucune autorisation\nd'enregistrement d'écran n'intervient : cela marche en release et dans la CI.\n\nFlags :\n  --format png|jpg       Format de sortie (par défaut : png)\n  --jpg                  Raccourci pour --format jpg\n  --scale <0.1-1>        Met la sortie à l'échelle (par défaut : 1)\n  --max-width <64-8192>  Limite la largeur de sortie en gardant les proportions\n  --quality <0.1-1>      Qualité JPEG (par défaut : 0.8, ignorée pour png)\n  --region <x,y,w,h>     Capture une partie de la fenêtre, en points de fenêtre\n  --out <path>           Écrit ici au lieu d'un répertoire temporaire\n  --label <text>         Nomme le fichier\n  --caption <text>       Dessine une légende dans l'image\n  --window <id|ref|index>  Fenêtre à capturer (par défaut : celle au premier plan)\n\nSortie : `<width>x<height> <bytes> <path>`, ou la réponse complète avec --json.\n\nUne région est le même rectangle que filme `cmux record --region` : un détail\nrepéré dans un clip se capture avec les mêmes quatre nombres.\n\nExemple :\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux shot [flags]\n\ncmux のウィンドウ、またはその一部の領域を png または jpeg で撮ります。\n撮れるのは cmux 自身のウィンドウだけで、画面収録の権限は必要ないので、\nリリースビルドでも CI の中でも動きます。\n\nフラグ:\n  --format png|jpg       出力形式（既定: png）\n  --jpg                  --format jpg の短縮形\n  --scale <0.1-1>        出力を拡大縮小（既定: 1）\n  --max-width <64-8192>  縦横比を保ったまま出力の幅を制限\n  --quality <0.1-1>      JPEG の品質（既定: 0.8、png では無視）\n  --region <x,y,w,h>     ウィンドウの一部だけを撮る（ウィンドウポイント単位）\n  --out <path>           一時ディレクトリではなくこのパスに書き出す\n  --label <text>         ファイルに名前を付ける\n  --caption <text>       画像にキャプションを描画する\n  --window <id|ref|index>  撮るウィンドウ（既定: 最前面のウィンドウ）\n\n出力: `<width>x<height> <bytes> <path>`、または --json で完全なレスポンス。\n\n領域は `cmux record --region` が撮るのと同じ矩形なので、クリップで見つけた\n細部を同じ 4 つの数字で撮れます。\n\n例:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux shot [flags]\n\ncmux 창이나 창의 일부 영역을 png 또는 jpeg로 캡처합니다. cmux 자신의\n창만 캡처할 수 있고, 화면 기록 권한이 필요하지 않으므로 릴리스 빌드와\nCI 안에서도 동작합니다.\n\n플래그:\n  --format png|jpg       출력 형식 (기본값: png)\n  --jpg                  --format jpg의 단축형\n  --scale <0.1-1>        출력 크기 조정 (기본값: 1)\n  --max-width <64-8192>  가로 세로 비율을 유지하며 출력 너비 제한\n  --quality <0.1-1>      JPEG 품질 (기본값: 0.8, png에서는 무시)\n  --region <x,y,w,h>     창의 일부만 캡처, 창 포인트 단위\n  --out <path>           임시 디렉터리 대신 이 경로에 기록\n  --label <text>         파일 이름 지정\n  --caption <text>       이미지에 캡션 그리기\n  --window <id|ref|index>  캡처할 창 (기본값: 맨 앞 창)\n\n출력: `<width>x<height> <bytes> <path>`, 또는 --json으로 전체 응답.\n\n영역은 `cmux record --region`이 촬영하는 사각형과 같으므로, 클립에서 본\n세부를 같은 네 숫자로 캡처할 수 있습니다.\n\n예:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux shot [flags]\n\n将 cmux 窗口或其中一块区域截取为 png 或 jpeg。\n只能截取 cmux 自己的窗口，而且不需要任何屏幕录制权限，\n因此在 release 构建和 CI 中都能用。\n\n标志:\n  --format png|jpg       输出格式（默认: png）\n  --jpg                  --format jpg 的简写\n  --scale <0.1-1>        缩放输出（默认: 1）\n  --max-width <64-8192>  限制输出宽度并保持宽高比\n  --quality <0.1-1>      JPEG 质量（默认: 0.8，png 会忽略）\n  --region <x,y,w,h>     只截取窗口的一部分，以窗口点为单位\n  --out <path>           写入此处而非临时目录\n  --label <text>         为文件命名\n  --caption <text>       在图片上绘制字幕\n  --window <id|ref|index>  要截取的窗口（默认: 最前面的窗口）\n\n输出: `<width>x<height> <bytes> <path>`，或用 --json 获取完整响应。\n\n区域和 `cmux record --region` 拍摄的矩形相同，因此在视频里看到的细节\n可以用同样的四个数字截取。\n\n示例:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux shot [flags]\n\n將 cmux 視窗或其中一塊區域擷取成 png 或 jpeg。\n只能擷取 cmux 自己的視窗，而且不需要任何螢幕錄製權限，\n因此在 release 版本與 CI 內都能用。\n\n旗標:\n  --format png|jpg       輸出格式（預設: png）\n  --jpg                  --format jpg 的簡寫\n  --scale <0.1-1>        縮放輸出（預設: 1）\n  --max-width <64-8192>  限制輸出寬度並保持長寬比\n  --quality <0.1-1>      JPEG 品質（預設: 0.8，png 會忽略）\n  --region <x,y,w,h>     只擷取視窗的一部分，以視窗點為單位\n  --out <path>           寫入此處而非暫存目錄\n  --label <text>         為檔案命名\n  --caption <text>       在圖片上畫出字幕\n  --window <id|ref|index>  要擷取的視窗（預設: 最前面的視窗）\n\n輸出: `<width>x<height> <bytes> <path>`，或用 --json 取得完整回應。\n\n區域和 `cmux record --region` 拍攝的矩形相同，所以在影片裡看到的細節\n可以用同樣的四個數字擷取。\n\n範例:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        }
+      }
+    },
+    "cli.shot.error.formatConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg conflicts with --format"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: لا يمكن دمج --jpg مع --format"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg kann nicht mit --format kombiniert werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg no se puede combinar con --format"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot : --jpg ne peut pas être combiné avec --format"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg は --format と併用できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg은 --format과 함께 사용할 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg 不能与 --format 同用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg 無法與 --format 同時使用"
+          }
+        }
+      }
+    },
+    "cli.shot.error.unexpectedArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: unexpected arguments: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: وسائط غير متوقعة: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: unerwartete Argumente: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: argumentos inesperados: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot : arguments inattendus : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: 予期しない引数: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: 예기치 않은 인수: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: 多余的参数: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: 未預期的引數: %@"
+          }
+        }
+      }
+    },
+    "cli.usage.shot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot [--format png|jpg] [--jpg] [--scale <n>] [--max-width <n>] [--quality <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--caption <text>] [--window <id|ref|index>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot [--format png|jpg] [--jpg] [--scale <n>] [--max-width <n>] [--quality <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--caption <text>] [--window <id|ref|index>]"
+          }
+        }
+      }
+    },
+    "socket.sidebar.closeSurface.confirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface has a running process; retry with --force"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي السطح على عملية قيد التشغيل؛ أعد المحاولة باستخدام --force"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Oberfläche hat einen laufenden Prozess; erneut mit --force versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La superficie tiene un proceso en ejecución; vuelve a intentarlo con --force"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La surface a un processus en cours d’exécution ; réessayez avec --force"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスでプロセスが実行中です。--force を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표면에서 실행 중인 프로세스가 있습니다. --force로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此表面有正在运行的进程；请使用 --force 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此表面有正在執行的程序；請使用 --force 重試"
+          }
+        }
+      }
+    },
+    "socket.sidebar.closeSurface.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to close surface"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر إغلاق السطح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Oberfläche konnte nicht geschlossen werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cerrar la superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la fermeture de la surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを閉じられませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표면을 닫지 못했습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法关闭此表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法關閉表面"
+          }
+        }
+      }
+    },
+    "socket.surface.close.confirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface has a running process; retry with force=true"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي السطح على عملية قيد التشغيل؛ أعد المحاولة باستخدام force=true"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Oberfläche hat einen laufenden Prozess; erneut mit force=true versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La superficie tiene un proceso en ejecución; vuelve a intentarlo con force=true"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La surface a un processus en cours d’exécution ; réessayez avec force=true"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスでプロセスが実行中です。force=true を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표면에서 실행 중인 프로세스가 있습니다. force=true로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此表面有正在运行的进程；请使用 force=true 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此表面有正在執行的程序；請使用 force=true 重試"
+          }
+        }
+      }
+    },
+    "socket.surface.close.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to close surface"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر إغلاق السطح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Oberfläche konnte nicht geschlossen werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cerrar la superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la fermeture de la surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを閉じられませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표면을 닫지 못했습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法关闭此表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法關閉表面"
+          }
+        }
+      }
+    },
+    "socket.tabAction.close.confirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One or more surfaces have a running process; retry with force=true"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سطح واحد أو أكثر يحتوي على عملية قيد التشغيل؛ أعد المحاولة باستخدام force=true"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mindestens eine Oberfläche hat einen laufenden Prozess; erneut mit force=true versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una o más superficies tienen un proceso en ejecución; vuelve a intentarlo con force=true"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une ou plusieurs surfaces ont un processus en cours d’exécution ; réessayez avec force=true"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つ以上のサーフェスでプロセスが実行中です。force=true を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나 이상의 표면에서 프로세스가 실행 중입니다. force=true로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个或多个表面有正在运行的进程；请使用 force=true 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個或多個表面有正在執行的程序；請使用 force=true 重試"
+          }
+        }
+      }
+    },
+    "cli.socket.error.workspaceCloseConfirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace has a running process; retry with --force"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي مساحة العمل على عملية قيد التشغيل؛ أعد المحاولة باستخدام --force"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereich mit laufendem Prozess; erneut mit --force versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El espacio de trabajo tiene un proceso en ejecución; vuelve a intentarlo con --force"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’espace de travail a un processus en cours d’exécution ; réessayez avec --force"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースでプロセスが実行中です。--force を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스에서 프로세스가 실행 중입니다. --force로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作区有正在运行的进程；请使用 --force 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作區有正在執行的程序；請使用 --force 重試"
+          }
+        }
+      }
+    },
+    "cli.socket.error.windowCloseConfirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One or more workspaces or Dock surfaces have a running process; retry with --force"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي مساحة عمل واحدة أو أكثر أو أسطح Dock على عملية قيد التشغيل؛ أعد المحاولة باستخدام --force"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mindestens ein Workspace oder eine Dock-Oberfläche hat einen laufenden Prozess; erneut mit --force versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uno o más espacios de trabajo o superficies del Dock tienen un proceso en ejecución; vuelve a intentarlo con --force"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un ou plusieurs espaces de travail ou surfaces du Dock ont un processus en cours d’exécution ; réessayez avec --force"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つ以上のワークスペースまたは Dock サーフェスでプロセスが実行中です。--force を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나 이상의 워크스페이스 또는 Dock 표면에서 실행 중인 프로세스가 있습니다. --force로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个或多个工作区或 Dock 表面有正在运行的进程；请使用 --force 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個或多個工作區或 Dock 表面有正在執行的程序；請使用 --force 重試"
+          }
+        }
+      }
+    },
+    "command.copyWorkingDirectory.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ دليل العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj radni direktorij"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér arbejdsmappe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsverzeichnis kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Working Directory"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar directorio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier le répertoire de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia directory di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業ディレクトリをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 디렉터리 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier arbeidsmappe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj katalog roboczy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar Diretório de Trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копировать рабочий каталог"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกไดเรกทอรีทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma Dizinini Kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копіювати робочий каталог"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制工作目录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製工作目錄"
+          }
+        }
+      }
+    },
+    "command.copyProjectRoot.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ جذر المشروع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj korijen projekta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér projektrod"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projektstamm kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Project Root"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar raíz del proyecto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier la racine du projet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia radice del progetto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトのルートをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트 루트 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier prosjektrot"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj katalog główny projektu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar Raiz do Projeto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копировать корень проекта"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกรากโปรเจกต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proje Kökünü Kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копіювати корінь проєкту"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制项目根目录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製專案根目錄"
+          }
+        }
+      }
+    },
+    "command.copyScreen.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ الشاشة المرئية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj vidljivi ekran"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér synlig skærm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sichtbaren Bildschirm kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Visible Screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar pantalla visible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier l'écran visible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia schermo visibile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示中の画面をコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보이는 화면 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier synlig skjerm"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj widoczny ekran"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar Tela Visível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копировать видимый экран"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกหน้าจอที่มองเห็น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görünür Ekranı Kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копіювати видимий екран"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制可见屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製可見畫面"
+          }
+        }
+      }
+    },
+    "shortcut.diffViewerToggleViewed.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff Viewer: Toggle Viewed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューア: 確認済みを切り替え"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差异查看器：切换已查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差異檢視器：切換已檢視"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff-Viewer: Angesehen umschalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visionneuse de diff : Basculer « vu »"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عارض الفروق: تبديل حالة المشاهدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visor de diff: Alternar visto"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "차이 뷰어: 확인함 전환"
+          }
+        }
+      }
+    },
+    "diffViewer.viewed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viewed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認済み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已檢視"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angesehen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vu"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت المشاهدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visto"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인함"
+          }
+        }
+      }
+    },
+    "diffViewer.markViewed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as viewed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認済みにする"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标记为已查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標記為已檢視"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als angesehen markieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marquer comme vu"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع علامة تمت المشاهدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcar como visto"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인함으로 표시"
+          }
+        }
+      }
+    },
+    "diffViewer.markNotViewed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as not viewed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未確認にする"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标记为未查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標記為未檢視"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als nicht angesehen markieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marquer comme non vu"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إزالة علامة تمت المشاهدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcar como no visto"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 안 함으로 표시"
+          }
+        }
+      }
+    },
+    "diffViewer.changedSinceViewed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changed since viewed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認後に変更あり"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看后已更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢視後已變更"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seit dem Ansehen geändert"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifié depuis la consultation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيّر منذ المشاهدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiado desde que se vio"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 후 변경됨"
+          }
+        }
+      }
+    },
+    "diffViewer.filesViewedProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{viewed} of {total} files viewed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{total} 件中 {viewed} 件のファイルを確認済み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已查看 {viewed}/{total} 个文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已檢視 {viewed}/{total} 個檔案"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{viewed} von {total} Dateien angesehen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{viewed} fichiers sur {total} vus"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت مشاهدة {viewed} من {total} ملفات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{viewed} de {total} archivos vistos"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{total}개 중 {viewed}개 파일 확인함"
+          }
+        }
+      }
+    },
+    "diffViewer.filterFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを絞り込む"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "筛选文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "篩選檔案"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateien filtern"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filtrer les fichiers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصفية الملفات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filtrar archivos"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 필터"
+          }
+        }
+      }
+    },
+    "diffViewer.filterAddedFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinzugefügt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مضافة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadidos"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가됨"
+          }
+        }
+      }
+    },
+    "diffViewer.filterModifiedFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modified"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已修改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已修改"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geändert"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifiés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معدّلة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modificados"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수정됨"
+          }
+        }
+      }
+    },
+    "diffViewer.filterDeletedFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已删除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已刪除"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gelöscht"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محذوفة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminados"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제됨"
+          }
+        }
+      }
+    },
+    "diffViewer.filterRenamedFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renamed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前変更"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已重命名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已重新命名"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umbenannt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renommés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معاد تسميتها"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renombrados"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 변경됨"
+          }
+        }
+      }
+    },
+    "diffViewer.hideViewedFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide viewed files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認済みのファイルを隠す"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏已查看的文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏已檢視的檔案"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angesehene Dateien ausblenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer les fichiers vus"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء الملفات التي تمت مشاهدتها"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar archivos vistos"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인한 파일 숨기기"
+          }
+        }
+      }
+    },
+    "diffViewer.showViewedFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show viewed files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認済みのファイルを表示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示已查看的文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示已檢視的檔案"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angesehene Dateien anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les fichiers vus"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الملفات التي تمت مشاهدتها"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar archivos vistos"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인한 파일 표시"
+          }
+        }
+      }
+    },
+    "diffViewer.noFilesMatchFilter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No files match the filter."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "絞り込み条件に一致するファイルはありません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有符合筛选条件的文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合篩選條件的檔案。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Dateien entsprechen dem Filter."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun fichier ne correspond au filtre."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد ملفات مطابقة للتصفية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ningún archivo coincide con el filtro."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필터와 일치하는 파일이 없습니다."
+          }
+        }
+      }
+    },
+    "diffViewer.generatedFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generated file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動生成ファイル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生成的文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "產生的檔案"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generierte Datei"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fichier généré"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملف مُولَّد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivo generado"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "생성된 파일"
+          }
+        }
+      }
+    },
+    "diffViewer.largeDiff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Large diff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大きな差分"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大型差异"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大型差異"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Großer Diff"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff volumineux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فرق كبير"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff grande"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "큰 변경 사항"
+          }
+        }
+      }
+    },
+    "diffViewer.loadDiff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load diff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分を読み込む"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加载差异"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "載入差異"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff laden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charger le diff"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحميل الفرق"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargar diff"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경 사항 불러오기"
+          }
+        }
+      }
+    },
+    "diffViewer.clearFileFilter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear filter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "絞り込みを解除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除筛选"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除篩選"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter zurücksetzen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer le filtre"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح التصفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar filtro"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필터 지우기"
+          }
+        }
+      }
+    },
+    "agent.generic.status.runningSubagents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running subagents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغيل الوكلاء الفرعيين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten werden ausgeführt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejecutando subagentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-agents en cours d’exécution"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェントを実行中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트 실행 중"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在运行子代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行子代理程式中"
+          }
+        }
+      }
+    },
+    "agent.generic.status.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في الانتظار"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대기 중"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待中"
+          }
+        }
+      }
+    },
+    "cloud.overlay.accessLost.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You no longer have access to this machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعد لديك حق الوصول إلى هذا الجهاز."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sie haben keinen Zugriff mehr auf diese Maschine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya no tienes acceso a esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous n’avez plus accès à cette machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンへのアクセス権がなくなりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 이상 이 머신에 접근할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已无法再访问这台机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已無法再存取這台機器。"
+          }
+        }
+      }
+    },
+    "cloud.overlay.accessLost.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machine unavailable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز Cloud غير متاح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschine nicht verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquina de Cloud no disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine Cloud indisponible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンを利用できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신을 사용할 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 机器不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 機器無法使用"
+          }
+        }
+      }
+    },
+    "cloud.overlay.signedOut.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux to reconnect this terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى cmux لإعادة توصيل هذه الطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melden Sie sich bei cmux an, um dieses Terminal erneut zu verbinden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en cmux para volver a conectar este terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous à cmux pour reconnecter ce terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルに再接続するには cmux にサインインしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널을 다시 연결하려면 cmux에 로그인하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 cmux 以重新连接此终端。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 cmux 以重新連線此終端機。"
+          }
+        }
+      }
+    },
+    "cloud.overlay.signedOut.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud session ended"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت جلسة Cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Sitzung beendet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión de Cloud finalizada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Cloud terminée"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud セッションが終了しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 세션이 종료되었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 会话已结束"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作階段已結束"
+          }
+        }
+      }
+    },
+    "settingAction.confirm.apply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ändern"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifier"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيير"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "變更"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更改"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更"
+          }
+        }
+      }
+    },
+    "settingAction.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This action edits your cmux.json:\n\n%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aktion bearbeitet deine cmux.json:\n\n%@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette action modifie votre cmux.json :\n\n%@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعدّل هذا الإجراء ملف cmux.json:\n\n%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta acción edita tu cmux.json:\n\n%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此動作會編輯你的 cmux.json：\n\n%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此操作会编辑你的 cmux.json：\n\n%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 작업은 cmux.json을 편집합니다:\n\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアクションは cmux.json を編集します:\n\n%@"
+          }
+        }
+      }
+    },
+    "settingAction.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change Setting?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellung ändern?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifier le réglage ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد تغيير الإعداد؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Cambiar el ajuste?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要變更設定嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要更改设置吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정을 변경할까요?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を変更しますか？"
+          }
+        }
+      }
+    },
+    "settingAction.failed.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't read or save ~/.config/cmux/cmux.json. Check it for a syntax error, then try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte ~/.config/cmux/cmux.json nicht lesen oder speichern. Prüfe die Datei auf einen Syntaxfehler und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu lire ou enregistrer ~/.config/cmux/cmux.json. Vérifiez qu'il ne contient pas d'erreur de syntaxe, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux قراءة ~/.config/cmux/cmux.json أو حفظه. تحقّق من عدم وجود خطأ في الصياغة، ثم حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo leer ni guardar ~/.config/cmux/cmux.json. Revisa si tiene un error de sintaxis y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法讀取或儲存 ~/.config/cmux/cmux.json。請檢查是否有語法錯誤，然後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法读取或保存 ~/.config/cmux/cmux.json。请检查是否有语法错误，然后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 ~/.config/cmux/cmux.json을 읽거나 저장하지 못했습니다. 구문 오류가 있는지 확인한 뒤 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は ~/.config/cmux/cmux.json を読み込むか保存できませんでした。構文エラーがないか確認してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "settingAction.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Change Setting"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تغيير الإعداد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellung konnte nicht geändert werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cambiar el ajuste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de modifier le réglage"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を変更できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정을 변경할 수 없음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法更改设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法更改設定"
+          }
+        }
+      }
+    },
+    "settings.terminal.predictiveLocalEcho": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predictive Local Echo"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorausschauendes lokales Echo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écho local prédictif"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصدى المحلي التنبؤي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eco local predictivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預測性本機回顯"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预测性本地回显"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예측 로컬 에코"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予測ローカルエコー"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.predictive-local-echo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho predictive local echo typing latency lag ssh remote speculative mosh round trip underline"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho vorausschauendes lokales echo tippen latenz verzögerung ssh remote spekulativ mosh round trip unterstrichen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho écho local prédictif saisie latence décalage ssh distant spéculatif mosh aller-retour souligné"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho الصدى المحلي التنبؤي الكتابة زمن الاستجابة التأخير ssh بعيد تخميني mosh ذهاب وإياب تسطير"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho eco local predictivo escritura latencia retraso ssh remoto especulativo mosh ida y vuelta subrayado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho 預測性本機回顯 輸入 延遲 卡頓 ssh 遠端 推測 mosh 往返 底線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho 预测性本地回显 输入 延迟 卡顿 ssh 远程 推测 mosh 往返 下划线"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho 예측 로컬 에코 입력 지연 랙 ssh 원격 추측 mosh 왕복 밑줄"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho 予測ローカルエコー 入力 遅延 ラグ ssh リモート 投機的 mosh 往復 下線"
           }
         }
       }
