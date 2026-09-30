@@ -43,6 +43,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public typealias AgentCommandShimSet = TerminalSurfaceAgentCommandShimSet
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     private var runtimeSurface: ghostty_surface_t?
+    /// Whether shell integration says the terminal is at an editable prompt.
+    /// Text gestures stay dormant while a foreground command or full-screen
+    /// terminal app owns the PTY.
+    public private(set) var shellPromptIsIdle = false
+    private var textEditingInputContext = TerminalTextEditingInputContext()
     var runtimeControllingTTYName: String?
     var runtimeControllingTTYDeviceIdentifier: Int64?
     /// The live runtime surface pointer, or nil before creation/after teardown.
@@ -114,6 +119,40 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// call `liveSurfaceForGhosttyAccess(reason:)` so stale freed pointers are
     /// rejected and quarantined.
     public var hasLiveSurface: Bool { surface != nil && portalLifecycleState == .live }
+
+    @MainActor
+    public func setShellPromptIsIdle(_ isIdle: Bool) {
+        shellPromptIsIdle = isIdle
+        textEditingInputContext.reportPrompt(
+            isSupportedShellPrompt: isIdle,
+            foregroundProcessID: isIdle ? foregroundProcessID().map(UInt64.init) : nil,
+            runtimeGeneration: runtimeSurfaceGeneration
+        )
+    }
+
+    @MainActor
+    public func textEditingGesturesAllowed(
+        enabled: Bool,
+        anotherInputModeOwnsKeys: Bool = false
+    ) -> Bool {
+        guard let foregroundProcessID = foregroundProcessID().map(UInt64.init) else {
+            return false
+        }
+        return textEditingInputContext.allowsGestures(
+            enabled: enabled,
+            foregroundProcessID: foregroundProcessID,
+            runtimeGeneration: runtimeSurfaceGeneration,
+            anotherInputModeOwnsKeys: anotherInputModeOwnsKeys
+        )
+    }
+
+    /// Withdraws shell-editing ownership as soon as Return is sent. The shell
+    /// integration report will grant it again at the next prompt.
+    @MainActor
+    public func shellDidReceiveCommandSubmit() {
+        shellPromptIsIdle = false
+        textEditingInputContext.commandWasSubmitted()
+    }
 
     /// Whether the terminal surface view is currently attached to a window.
     ///
