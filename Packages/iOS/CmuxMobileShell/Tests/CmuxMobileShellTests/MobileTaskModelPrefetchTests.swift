@@ -3,6 +3,20 @@ import Testing
 @testable import CmuxMobileShell
 import CmuxMobileShellModel
 
+private actor MobileTaskModelPrefetchCatalogProbe {
+    let data: Data
+    private(set) var requestCount = 0
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    func load() -> Data {
+        requestCount += 1
+        return data
+    }
+}
+
 @MainActor
 struct MobileTaskModelPrefetchTests {
     @Test func sharesInFlightDiscoveryAndReusesTheWarmHostCatalog() async throws {
@@ -76,11 +90,12 @@ struct MobileTaskModelPrefetchTests {
     }
 
     @Test func warmsAnOfflineMacFromTheBackendCatalog() async throws {
+        let probe = MobileTaskModelPrefetchCatalogProbe(data: Data(
+            #"{"schemaVersion":1,"providers":{"claude":{"models":[{"id":"backend-claude","label":"Backend Claude"}]},"codex":{"models":[{"id":"backend-codex","label":"Backend Codex"}]},"opencode":{"models":[{"id":"backend-opencode","label":"Backend OpenCode"}]}}}"#.utf8
+        ))
         let catalog = MobileTaskModelCatalogClient(
             endpoint: URL(string: "https://catalog.example.test/models")!,
-            loader: { _ in
-                Data(#"{"schemaVersion":1,"providers":{"claude":{"models":[{"id":"backend-claude","label":"Backend Claude"}]},"codex":{"models":[{"id":"backend-codex","label":"Backend Codex"}]},"opencode":{"models":[{"id":"backend-opencode","label":"Backend OpenCode"}]}}}"#.utf8)
-            }
+            loader: { _ in await probe.load() }
         )
         let store = try await makeRoutingConnectedStore(
             router: RoutingHostRouter(), hostCapabilities: [], taskModelCatalogClient: catalog
@@ -94,6 +109,14 @@ struct MobileTaskModelPrefetchTests {
                 provider: .claude, macDeviceID: "offline-mac", instanceTag: nil
             )?.first?.id == "backend-claude"
         )
+        #expect(await probe.requestCount == MobileTaskAgentProvider.allCases.count)
+        #expect(await store.refreshTaskModels(
+            provider: .claude,
+            macDeviceID: "offline-mac",
+            instanceTag: nil,
+            maximumCacheAge: 300
+        ) == .succeeded)
+        #expect(await probe.requestCount == MobileTaskAgentProvider.allCases.count)
     }
 
     @Test func obsoleteConnectionDoesNotPrefetchIntoReplacement() async throws {

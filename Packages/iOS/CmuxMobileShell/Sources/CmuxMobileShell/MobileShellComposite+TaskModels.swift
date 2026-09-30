@@ -423,17 +423,24 @@ extension MobileShellComposite {
         let connectionIdentity = taskModelConnectionIdentity(
             macDeviceID: macDeviceID, instanceTag: instanceTag
         )
-        if let connectionIdentity,
-           taskModelSuccessfulConnections[key] == connectionIdentity,
-           let cached = cachedTaskModelEntry(
+        if let cached = cachedTaskModelEntry(
                provider: provider,
                macDeviceID: macDeviceID,
                instanceTag: instanceTag
            ),
            (runtime?.now() ?? Date()).timeIntervalSince(cached.fetchedAt) < maximumCacheAge,
-           cached.result.source == .discovered, cached.result.error == nil {
-            didUpdate?(cached.result)
-            return .succeeded
+           cached.result.error == nil {
+            let canReuseCachedResult: Bool
+            if connectionIdentity == nil {
+                canReuseCachedResult = cached.result.source == .backend
+            } else {
+                canReuseCachedResult = cached.result.source == .discovered
+                    && taskModelSuccessfulConnections[key] == connectionIdentity
+            }
+            if canReuseCachedResult {
+                didUpdate?(cached.result)
+                return .succeeded
+            }
         }
         if let request = taskModelRefreshRequests[key],
            !request.isFinished,
