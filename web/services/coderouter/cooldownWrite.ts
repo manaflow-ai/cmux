@@ -18,6 +18,11 @@ export function nonTransientFailureCodePredicate(column: SQLWrapper): SQL {
  * Keeps the longest cooldown and gives non-transient reasons precedence over
  * transient reasons, so the stored reason always describes why an account
  * cannot be used.
+ *
+ * Both rules are expressed as SQL so the write stays a single statement. A late
+ * provider error must never shorten a longer cooldown already recorded by
+ * another request, and the database value stays authoritative so every web
+ * instance avoids a capacity-hit account consistently.
  */
 export function buildCooldownWriteExpressions(
   cooldownUntilColumn: SQLWrapper,
