@@ -719,7 +719,6 @@ final class SurfaceCatalog {
             throw CancellationError()
         }
         record(projection)
-        cloudPlacementCoordinator.projectionDidMove(projection, catalog: self)
         return (projection, false)
     }
 
