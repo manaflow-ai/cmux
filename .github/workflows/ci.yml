@@ -1593,7 +1593,10 @@ jobs:
       - changes
       - static-preflight
       - macos-admission-gate
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-admission-gate.result == 'success' || needs.macos-admission-gate.result == 'skipped' && needs.changes.outputs.compile_admitted == 'true') && needs.changes.outputs.ui_selectors != '' }}
+    # The route/controller lane is disabled while its infra cancellation bug is
+    # repaired. Re-enable with the repository variable CI_UI_TESTS_ENABLED=1;
+    # selectors still keep dispatches limited to UI-touching diffs.
+    if: ${{ vars.CI_UI_TESTS_ENABLED == '1' && !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-admission-gate.result == 'success' || needs.macos-admission-gate.result == 'skipped' && needs.changes.outputs.compile_admitted == 'true') && needs.changes.outputs.ui_selectors != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A compile wait of up to 50 minutes, then the tests.
     timeout-minutes: 150

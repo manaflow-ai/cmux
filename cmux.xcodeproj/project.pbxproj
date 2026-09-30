@@ -1138,6 +1138,7 @@
 		D1FF51000000000000000001 /* CMUXCLI+DiffSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF51000000000000000002 /* CMUXCLI+DiffSidecar.swift */; };
 		C0DE75890000000000000001 /* CMUXCLI+DiffViewerBundledAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE75890000000000000002 /* CMUXCLI+DiffViewerBundledAssets.swift */; };
 		12BFD5CF87D8B35D610B3880 /* CMUXCLI+DiffViewerPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */; };
+		F23CA9C07C27789E104ED5AA /* CMUXCLI+DiffViewerReviewLabels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57AE38B536A608CB2CDEE6AD /* CMUXCLI+DiffViewerReviewLabels.swift */; };
 		C0DE79210000000000000001 /* CMUXCLI+DiffViewerShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE79210000000000000002 /* CMUXCLI+DiffViewerShortcuts.swift */; };
 		B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */; };
 		B9000064A1B2C3D4E5F60719 /* CMUXCLI+Events.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000065A1B2C3D4E5F60719 /* CMUXCLI+Events.swift */; };
@@ -1362,6 +1363,7 @@
 		468140000000000000000007 /* CmuxNotificationHookParsedConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000008 /* CmuxNotificationHookParsedConfig.swift */; };
 		E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000D2 /* CmuxNotifications */; };
 		6649EB4A910C177DDF5B5FA7 /* CMUXOpenCommandDiffViewerRound1Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9726312BCE6BBC2C13D0B289 /* CMUXOpenCommandDiffViewerRound1Tests.swift */; };
+		F12BBA381108571CFC322292 /* CMUXOpenCommandDiffViewerViewedStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE0A5F01E2D73E6BCA3F1709 /* CMUXOpenCommandDiffViewerViewedStateTests.swift */; };
 		C85390050000000000000001 /* CMUXOpenCommandLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85390050000000000000002 /* CMUXOpenCommandLocationTests.swift */; };
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
 		C11757000000000000000038 /* CMUXOpenHTMLFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1175700000000000000001F /* CMUXOpenHTMLFocusTests.swift */; };
@@ -1769,6 +1771,8 @@
 		AECBF551A0B4FEAB870FE598 /* DiffViewerPreferencesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60FA3A8B7182AEE47EC38033 /* DiffViewerPreferencesStore.swift */; };
 		A28B087F0000000000000009 /* DiffViewerSessionTrustRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F000000000000000A /* DiffViewerSessionTrustRegistry.swift */; };
 		9648DEAD0000000000000002 /* DiffViewerURLSchemeHandlerLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9648DEAD0000000000000001 /* DiffViewerURLSchemeHandlerLifecycleTests.swift */; };
+		6556E074DB1446169065BA56 /* DiffViewerViewedFilesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FAB146561B01C944321F6A /* DiffViewerViewedFilesStore.swift */; };
+		1AB92F80BD2D1FAB498887A5 /* DiffViewerViewedFilesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ABC7DAFD38509284B880BC2 /* DiffViewerViewedFilesStoreTests.swift */; };
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
 		DCDC1000000000000000B003 /* DockConfigFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B004 /* DockConfigFile.swift */; };
 		DCDC1000000000000000B005 /* DockConfigIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B006 /* DockConfigIdentity.swift */; };
@@ -5446,6 +5450,7 @@
 		D1FF51000000000000000002 /* CMUXCLI+DiffSidecar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffSidecar.swift"; sourceTree = "<group>"; };
 		C0DE75890000000000000002 /* CMUXCLI+DiffViewerBundledAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffViewerBundledAssets.swift"; sourceTree = "<group>"; };
 		054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffViewerPreferences.swift"; sourceTree = "<group>"; };
+		57AE38B536A608CB2CDEE6AD /* CMUXCLI+DiffViewerReviewLabels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffViewerReviewLabels.swift"; sourceTree = "<group>"; };
 		C0DE79210000000000000002 /* CMUXCLI+DiffViewerShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffViewerShortcuts.swift"; sourceTree = "<group>"; };
 		B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DocsSettings.swift"; sourceTree = "<group>"; };
 		B9000065A1B2C3D4E5F60719 /* CMUXCLI+Events.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Events.swift"; sourceTree = "<group>"; };
@@ -5622,6 +5627,7 @@
 		468150000000000000000002 /* CmuxNotificationHookFileSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookFileSnapshot.swift; sourceTree = "<group>"; };
 		468140000000000000000008 /* CmuxNotificationHookParsedConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookParsedConfig.swift; sourceTree = "<group>"; };
 		9726312BCE6BBC2C13D0B289 /* CMUXOpenCommandDiffViewerRound1Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXOpenCommandDiffViewerRound1Tests.swift"; sourceTree = "<group>"; };
+		DE0A5F01E2D73E6BCA3F1709 /* CMUXOpenCommandDiffViewerViewedStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXOpenCommandDiffViewerViewedStateTests.swift"; sourceTree = "<group>"; };
 		C85390050000000000000002 /* CMUXOpenCommandLocationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenCommandLocationTests.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenCommandTests.swift; sourceTree = "<group>"; };
 		C1175700000000000000001F /* CMUXOpenHTMLFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenHTMLFocusTests.swift; sourceTree = "<group>"; };
@@ -5968,6 +5974,8 @@
 		60FA3A8B7182AEE47EC38033 /* DiffViewerPreferencesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffViewerPreferencesStore.swift; sourceTree = "<group>"; };
 		A28B087F000000000000000A /* DiffViewerSessionTrustRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffViewerSessionTrustRegistry.swift; sourceTree = "<group>"; };
 		9648DEAD0000000000000001 /* DiffViewerURLSchemeHandlerLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffViewerURLSchemeHandlerLifecycleTests.swift; sourceTree = "<group>"; };
+		A5FAB146561B01C944321F6A /* DiffViewerViewedFilesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffViewerViewedFilesStore.swift; sourceTree = "<group>"; };
+		6ABC7DAFD38509284B880BC2 /* DiffViewerViewedFilesStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DiffViewerViewedFilesStoreTests.swift"; sourceTree = "<group>"; };
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000B004 /* DockConfigFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockConfigFile.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000B006 /* DockConfigIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockConfigIdentity.swift; sourceTree = "<group>"; };
@@ -11333,6 +11341,7 @@
 				F2A8C8F36CBB9D59049A238F /* SidebarResizerAccessibilityModifier.swift */,
 				60FA3A8B7182AEE47EC38033 /* DiffViewerPreferencesStore.swift */,
 				EF429A8ABD1F6FBA507AEBC8 /* KeyboardShortcutSettings+DiffViewerNavigation.swift */,
+				A5FAB146561B01C944321F6A /* DiffViewerViewedFilesStore.swift */,
 				E9E08FF3907FC5F144872BDF /* DeviceDiscoverabilityConfirmation.swift */,
 				4845BF2DCEA4B76EC0EBC410 /* BrowserWindowSlotView+PaneDropOverlay.swift */,
 				E7E4D51BF3365A4CB3A658E4 /* GhosttySurfaceScrollView+PaneDropOverlay.swift */,
@@ -11598,6 +11607,7 @@
 				C532996D674A93214E4AB1FC /* CMUXCLI+RestoreLaunchConflict.swift */,
 				0221E931A45B517F9BCC1EF5 /* CMUXCLI+ClaudeHookStopFailure.swift */,
 				054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */,
+				57AE38B536A608CB2CDEE6AD /* CMUXCLI+DiffViewerReviewLabels.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -12769,6 +12779,8 @@
 				A43345B5B3C60929B9F661CB /* ExitingProcessCensusReader.swift */,
 				0ECDB7FADBB365A2212F1BB0 /* CloudMenuContentTests.swift */,
 				9726312BCE6BBC2C13D0B289 /* CMUXOpenCommandDiffViewerRound1Tests.swift */,
+				DE0A5F01E2D73E6BCA3F1709 /* CMUXOpenCommandDiffViewerViewedStateTests.swift */,
+				6ABC7DAFD38509284B880BC2 /* DiffViewerViewedFilesStoreTests.swift */,
 				09DC7DE176A93C580A263ADD /* PaneDropTargetIdentityTests.swift */,
 				08202CA6A24B08873B5CC6FD /* GhosttyDialogThemeTests.swift */,
 				05D60F9593550244973C09F2 /* AgentInboxProjectionTests.swift */,
@@ -14381,6 +14393,7 @@
 				A28B087F0000000000000019 /* DiffViewerLiveHTTPSession.swift in Sources */,
 				AECBF551A0B4FEAB870FE598 /* DiffViewerPreferencesStore.swift in Sources */,
 				A28B087F0000000000000009 /* DiffViewerSessionTrustRegistry.swift in Sources */,
+				6556E074DB1446169065BA56 /* DiffViewerViewedFilesStore.swift in Sources */,
 				DCDC1000000000000000B003 /* DockConfigFile.swift in Sources */,
 				DCDC1000000000000000B005 /* DockConfigIdentity.swift in Sources */,
 				DCDC1000000000000000B007 /* DockConfigResolution.swift in Sources */,
@@ -16166,6 +16179,7 @@
 				D1FF51000000000000000001 /* CMUXCLI+DiffSidecar.swift in Sources */,
 				C0DE75890000000000000001 /* CMUXCLI+DiffViewerBundledAssets.swift in Sources */,
 				12BFD5CF87D8B35D610B3880 /* CMUXCLI+DiffViewerPreferences.swift in Sources */,
+				F23CA9C07C27789E104ED5AA /* CMUXCLI+DiffViewerReviewLabels.swift in Sources */,
 				C0DE79210000000000000001 /* CMUXCLI+DiffViewerShortcuts.swift in Sources */,
 				B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */,
 				B9000064A1B2C3D4E5F60719 /* CMUXCLI+Events.swift in Sources */,
@@ -16860,6 +16874,7 @@
 					C54860030000000000000001 /* CmuxNavigationTargetResolverTests.swift in Sources */,
 				468100000000000000000001 /* CmuxNotificationHookCacheTests.swift in Sources */,
 				6649EB4A910C177DDF5B5FA7 /* CMUXOpenCommandDiffViewerRound1Tests.swift in Sources */,
+				F12BBA381108571CFC322292 /* CMUXOpenCommandDiffViewerViewedStateTests.swift in Sources */,
 				C85390050000000000000001 /* CMUXOpenCommandLocationTests.swift in Sources */,
 				C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */,
 				CF6237863B42421E82388C27 /* CmuxPopoverGroupTests.swift in Sources */,
@@ -16959,6 +16974,7 @@
 				D1FFC0DE000000000000C002 /* DiffCommentStoreTests.swift in Sources */,
 				9648DEAE0000000000000002 /* DiffViewerPickerCommandRunnerTests.swift in Sources */,
 				9648DEAD0000000000000002 /* DiffViewerURLSchemeHandlerLifecycleTests.swift in Sources */,
+				1AB92F80BD2D1FAB498887A5 /* DiffViewerViewedFilesStoreTests.swift in Sources */,
 				DCDC0000000000000000B001 /* DockControlDefinitionDecodingTests.swift in Sources */,
 				D7529001A1B2C3D4E5F60718 /* DockPaneDropUnfocusedRoutingTests.swift in Sources */,
 				D77800010000000000000001 /* DockPortalReconcileTests.swift in Sources */,

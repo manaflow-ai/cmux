@@ -227,6 +227,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case diffViewerNextHunk
     /// Jumps to the previous hunk inside the focused diff viewer.
     case diffViewerPreviousHunk
+    /// Toggles the "Viewed" mark on the current file inside the focused diff viewer.
+    case diffViewerToggleViewed
 
     // MARK: Simulator
     /// Presses the Home button in the focused Simulator pane.
@@ -281,6 +283,7 @@ extension ShortcutAction {
              .diffViewerPreviousFile,
              .diffViewerNextHunk,
              .diffViewerPreviousHunk,
+             .diffViewerToggleViewed,
              .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return true
@@ -323,7 +326,8 @@ extension ShortcutAction {
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
              .toggleBrowserDesignMode, .diffViewerOpenFileSearch, .diffViewerNextFile,
-             .diffViewerPreviousFile, .diffViewerNextHunk, .diffViewerPreviousHunk:
+             .diffViewerPreviousFile, .diffViewerNextHunk, .diffViewerPreviousHunk,
+             .diffViewerToggleViewed:
             return .atom(.browserFocus)
         case .diffViewerScrollDown, .diffViewerScrollUp,
              .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,

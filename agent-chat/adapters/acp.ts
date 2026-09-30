@@ -66,24 +66,39 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
       // session/prompt calls, so serialize sends: a prompt sent while a turn
       // is in flight runs after that turn resolves.
       sess.setStatus("running");
+      const sequence = Number(sess.internal.acpTurnSequence ?? 0) + 1;
+      sess.internal.acpTurnSequence = sequence;
       const prev = (sess.internal.acpTurn as Promise<void> | undefined) ?? Promise.resolve();
       const turn = prev.then(async () => {
         if (sess.internal.acpDisposed) return;
-        try {
-          const st = await ensureAcp(sess, def);
-          if (!st || sess.internal.acpDisposed) return;
-          await applyInitialOptions(sess, st, def);
-          if (sess.internal.acpDisposed) return;
-          const res = await st.request("session/prompt", {
-            sessionId: st.acpSessionId,
-            prompt: [{ type: "text", text: prompt }],
-          });
-          if (sess.internal.acpDisposed) return;
-          sess.emit({ kind: "done", stats: res?.stopReason ? `stop: ${res.stopReason}` : undefined, generation } as any);
-        } catch (err) {
-          if (sess.internal.acpDisposed) return;
-          sess.emit({ kind: "error", message: truncate(String(err), 400) });
-          sess.emit({ kind: "done", generation } as any);
+        const cancelled = () => sequence <= Number(sess.internal.acpCancelledSequence ?? 0);
+        if (cancelled()) {
+          sess.emit({ kind: "done", stats: "stop: cancelled", generation } as any);
+        } else {
+          try {
+            const st = await ensureAcp(sess, def);
+            if (!st || sess.internal.acpDisposed) return;
+            if (cancelled()) {
+              sess.emit({ kind: "done", stats: "stop: cancelled", generation } as any);
+            } else {
+              await applyInitialOptions(sess, st, def);
+              if (sess.internal.acpDisposed) return;
+              if (cancelled()) {
+                sess.emit({ kind: "done", stats: "stop: cancelled", generation } as any);
+              } else {
+                const res = await st.request("session/prompt", {
+                  sessionId: st.acpSessionId,
+                  prompt: [{ type: "text", text: prompt }],
+                });
+                if (sess.internal.acpDisposed) return;
+                sess.emit({ kind: "done", stats: res?.stopReason ? `stop: ${res.stopReason}` : undefined, generation } as any);
+              }
+            }
+          } catch (err) {
+            if (sess.internal.acpDisposed) return;
+            sess.emit({ kind: "error", message: truncate(String(err), 400) });
+            sess.emit({ kind: "done", generation } as any);
+          }
         }
         if (sess.internal.acpTurn === turn) sess.setStatus("idle");
       });
@@ -91,8 +106,14 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
       await turn;
     },
     stop(sess) {
+      sess.internal.acpCancelledSequence = Number(sess.internal.acpTurnSequence ?? 0);
       const st = sess.internal.acp as AcpState | undefined;
+      // A cancel during startup has no session to notify, and the queued turn
+      // only reaches its own idle/done handling after ensureAcp settles, so
+      // settle the status here instead of leaving it running until startup
+      // times out.
       if (st?.acpSessionId) st.notify("session/cancel", { sessionId: st.acpSessionId });
+      else sess.setStatus("idle");
     },
     dispose(sess) {
       sess.internal.acpDisposed = true;
@@ -605,12 +626,16 @@ function diffText(content: any): string {
 
 export function contentText(content: unknown): string {
   if (!Array.isArray(content)) return "";
-  return content
-    .map((c: any) => {
-      if (c?.type === "diff") return diffText(c);
-      if (c?.type === "terminal") return `terminal ${String(c.terminalId ?? "")}`.trim();
-      return c?.content?.text ?? c?.text ?? "";
-    })
+  const parts = content.map((c: any) => ({
+    text: c?.type === "diff"
+      ? diffText(c)
+      : c?.type === "terminal"
+        ? `terminal ${String(c.terminalId ?? "")}`.trim()
+        : c?.content?.text ?? c?.text ?? "",
+    separate: c?.type === "diff" || c?.type === "terminal",
+  }));
+  return parts
+    .map((part, index) => `${index > 0 && (part.separate || parts[index - 1]!.separate) ? " " : ""}${part.text}`)
     .join("");
 }
 

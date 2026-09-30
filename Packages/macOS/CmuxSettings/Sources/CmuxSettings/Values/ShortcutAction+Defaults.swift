@@ -238,6 +238,7 @@ extension ShortcutAction {
         case .diffViewerPreviousFile: return nil
         case .diffViewerNextHunk: return ShortcutStroke(key: "n")
         case .diffViewerPreviousHunk: return ShortcutStroke(key: "p")
+        case .diffViewerToggleViewed: return ShortcutStroke(key: "v")
         }
     }
 }
