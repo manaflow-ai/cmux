@@ -411,7 +411,7 @@ struct CLISendDraftGuardTests {
     @Test func sendSubmitBareShellGlyphWithoutHooksUsesReturn() throws {
         let run = try runCLI(
             arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "echo hi"],
-            screenText: "❯\u{00A0}"
+            screenText: "❯ "
         )
 
         #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))

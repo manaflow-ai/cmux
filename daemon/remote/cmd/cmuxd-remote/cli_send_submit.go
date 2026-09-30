@@ -85,6 +85,7 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 	}
 	agent := sendStateAgent(state)
 	knownAgent := agent && (stateString(state, "agent_kind") == "claude" || stateString(state, "agent_kind") == "codex")
+	ownSlashCommand := strings.HasPrefix(strings.TrimSpace(text), "/")
 	if knownAgent {
 		visible := false
 		for probe := 0; probe < sendSubmitAttempts; probe++ {
@@ -140,6 +141,9 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 				screen, _ = readSendScreen(socketPath, target, refreshAddr)
 			}
 			if !sendScreenShowsSlashPopup(screen) {
+				if ownSlashCommand {
+					return printSendSubmitResult("submitted", jsonOutput)
+				}
 				return sendSubmitUnconfirmed("target opened a dialog while submitting", jsonOutput)
 			}
 		}
@@ -343,10 +347,18 @@ func sendStateFromScreen(screen string) map[string]any {
 	promptIndex := -1
 	body := ""
 	for i := len(lines) - 1; i >= 0; i-- {
+		rawLine := strings.Trim(lines[i], " \t│")
 		line := trimSendBox(lines[i])
-		if strings.HasPrefix(line, "❯") || strings.HasPrefix(line, "›") || (kind == "codex" && strings.HasPrefix(line, "> ")) {
+		if strings.HasPrefix(rawLine, "❯\u00a0") || strings.HasPrefix(rawLine, "›") || (kind == "claude" && strings.HasPrefix(line, "❯")) || (kind == "codex" && strings.HasPrefix(line, "> ")) {
 			promptIndex = i
 			body = promptBody(line)
+			if kind == "" {
+				if strings.HasPrefix(rawLine, "❯\u00a0") {
+					kind = "claude"
+				} else {
+					kind = "codex"
+				}
+			}
 			break
 		}
 	}

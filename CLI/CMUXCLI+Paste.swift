@@ -228,6 +228,10 @@ extension CMUXCLI {
                 target: target,
                 client: client
             )
+        } else {
+            // --force skips refusal, but still needs live agent metadata to
+            // choose the correct submit key.
+            state = try? client.sendV2(method: "surface.input_state", params: target)
         }
         var screen: String?
         if let payload = try? client.sendV2(method: "surface.read_text", params: target) {
@@ -260,14 +264,13 @@ extension CMUXCLI {
                     let observedState = observed["state"] as? String
                     let slashPopup = (observed["slash_command_popup"] as? Bool) == true
                     if observedState == "dialog" && !slashPopup {
-                        throw CLIError(message: String(
-                            format: String(
-                                localized: "cli.send.error.dialogOpen",
-                                defaultValue: "%1$@: %2$@ is waiting on a question or dialog, so nothing was sent. Retry once it is answered, or pass --force to send anyway."
-                            ),
-                            command,
-                            (target["surface_id"] as? String) ?? "?"
-                        ))
+                        return try sendSubmitUnconfirmed(
+                            command: command,
+                            target: target,
+                            reason: "text was pasted but the target opened a dialog before submission",
+                            jsonOutput: jsonOutput,
+                            idFormat: idFormat
+                        )
                     }
                     if observedState == "draft" || observedState == "queued"
                         || (observed["queued"] as? Bool) == true || slashPopup {
@@ -299,6 +302,7 @@ extension CMUXCLI {
         }
 
         let maxAttempts = 3
+        let ownSlashCommand = text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
         var lastState = state
         var lastKey = "return"
         for attempt in 0..<maxAttempts {
@@ -331,8 +335,12 @@ extension CMUXCLI {
                         idFormat: idFormat
                     )
                 }
-                let popupVisible = (currentPopupState(lastState) || Self.screenShowsSlashPopup(screen))
-                guard !agent || popupVisible || Self.sendComposerMatches(screen, text: text, agentKind: state?["agent_kind"] as? String) else {
+                guard !agent || Self.sendComposerMatches(
+                    lastState,
+                    screen,
+                    text: text,
+                    agentKind: state?["agent_kind"] as? String
+                ) else {
                     return try sendSubmitUnconfirmed(
                         command: command,
                         target: target,
@@ -373,14 +381,21 @@ extension CMUXCLI {
             if let lastState,
                (lastState["state"] as? String) == "dialog",
                !((lastState["slash_command_popup"] as? Bool) == true || Self.screenShowsSlashPopup(screen)) {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.send.error.dialogOpen",
-                        defaultValue: "%1$@: %2$@ is waiting on a question or dialog, so nothing was sent. Retry once it is answered, or pass --force to send anyway."
-                    ),
-                    command,
-                    (target["surface_id"] as? String) ?? (lastState["surface_id"] as? String) ?? "?"
-                ))
+                if ownSlashCommand {
+                    return printSubmitResult(
+                        status: "submitted",
+                        payload: lastState,
+                        jsonOutput: jsonOutput,
+                        idFormat: idFormat
+                    )
+                }
+                return try sendSubmitUnconfirmed(
+                    command: command,
+                    target: target,
+                    reason: "text was pasted and the target opened a dialog while submitting",
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
             }
             let popupStillVisible = (lastState?["slash_command_popup"] as? Bool) == true
                 || Self.screenShowsSlashPopup(screen)
@@ -523,13 +538,7 @@ extension CMUXCLI {
 
     private static func screenLooksLikeCodex(_ screen: String?) -> Bool {
         guard let screen else { return false }
-        let branded = screen.lowercased().contains("openai codex")
-            || screen.lowercased().contains("codex cli")
-        guard branded else { return false }
-        return screen.split(separator: "\n").contains { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            return trimmed.hasPrefix("›") || trimmed.hasPrefix("> ")
-        }
+        return AgentPromptSubmissionSnapshot(screenText: screen).agentKind == .codex
     }
 
     private static func stateOrScreenLooksLikeCodex(
@@ -550,18 +559,9 @@ extension CMUXCLI {
 
     private static func submitInputStateFromScreen(_ screen: String) -> [String: Any]? {
         let snapshot = AgentPromptSubmissionSnapshot(screenText: screen)
-        let brandedAgent = screen.lowercased()
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .contains { row in
-                row == "claude code"
-                    || row.hasPrefix("openai codex")
-                    || row == "codex cli"
-                    || row == "codex"
-            }
         var state: [String: Any] = [
             "state": "unknown",
-            "agent": snapshot.agentKind != nil && brandedAgent,
+            "agent": snapshot.agentKind != nil,
             "busy": snapshot.busy,
             "queued": snapshot.queued,
             "slash_command_popup": snapshot.slashCommandPopup,
@@ -586,22 +586,79 @@ extension CMUXCLI {
     }
 
     private static func sendComposerMatches(
+        _ state: [String: Any]?,
         _ screen: String?,
         text: String,
         agentKind: String?
     ) -> Bool {
-        guard let screen,
-              let observed = submitInputStateFromScreen(screen),
-              let draft = observed["draft_text"] as? String else {
-            return false
+        if let screen,
+           let observed = submitInputStateFromScreen(screen),
+           let draft = observed["draft_text"] as? String {
+            if let agentKind,
+               let observedKind = observed["agent_kind"] as? String,
+               !agentKind.isEmpty,
+               observedKind != agentKind {
+                return false
+            }
+            return normalizeComposerText(draft) == normalizeComposerText(text)
         }
-        if let agentKind,
-           let observedKind = observed["agent_kind"] as? String,
-           !agentKind.isEmpty,
-           observedKind != agentKind {
-            return false
+        if let screen, let composer = composerTextFromScreen(screen) {
+            return normalizeComposerText(composer) == normalizeComposerText(text)
         }
-        return normalizeComposerText(draft) == normalizeComposerText(text)
+        if let draft = state?["draft_text"] as? String {
+            return normalizeComposerText(draft) == normalizeComposerText(text)
+        }
+        return (state?["draft_length"] as? Int) == normalizeComposerText(text).count
+    }
+
+    private static func composerTextFromScreen(_ screen: String) -> String? {
+        let lines = stripANSIForComposer(screen)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard !lines.isEmpty else { return nil }
+        for index in stride(from: lines.count - 1, through: 0, by: -1) {
+            let line = trimComposerLine(lines[index])
+            guard line.hasPrefix("❯") || line.hasPrefix("›") || line.hasPrefix("> ") else { continue }
+            var body = composerBody(line)
+            if index + 1 < lines.count {
+                for continuation in lines[(index + 1)...] {
+                    let raw = continuation.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard raw.hasPrefix("│") else { break }
+                    body += "\n" + trimComposerLine(raw)
+                }
+            }
+            return body
+        }
+        return nil
+    }
+
+    private static func trimComposerLine(_ line: String) -> String {
+        line.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "│"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func composerBody(_ line: String) -> String {
+        for glyph in ["❯", "›", ">"] where line.hasPrefix(glyph) {
+            return String(line.dropFirst(glyph.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return line
+    }
+
+    private static func stripANSIForComposer(_ text: String) -> [String] {
+        var clean = ""
+        var iterator = text.makeIterator()
+        while let character = iterator.next() {
+            guard character == "\u{001B}" else {
+                clean.append(character)
+                continue
+            }
+            guard iterator.next() == "[" else { continue }
+            while let control = iterator.next() {
+                if ("@"..."~").contains(control) { break }
+            }
+        }
+        return clean.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     }
 
     private static func normalizeComposerText(_ text: String) -> String {

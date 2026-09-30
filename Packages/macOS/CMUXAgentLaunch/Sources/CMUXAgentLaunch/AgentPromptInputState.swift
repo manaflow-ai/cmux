@@ -284,7 +284,7 @@ private extension AgentPromptSubmissionSnapshot {
         if ["esc to interrupt", "press esc to interrupt", "ctrl+c to interrupt"].contains(lowered) {
             return true
         }
-        if lowered.first.map({ "✻✽✶⏺".contains($0) }) == true {
+        if lowered.first.map({ "✻✽✶⏺•".contains($0) }) == true {
             return ["thinking", "working", "generating", "processing"].contains {
                 lowered.contains($0)
             }

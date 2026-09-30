@@ -322,7 +322,7 @@ func TestSendSubmitRejectsStaleEmptyAfterPaste(t *testing.T) {
 }
 
 func TestSendSubmitHooklessDraftRefusal(t *testing.T) {
-	mock, socket := startSendSubmitMock(t, []map[string]any{{"agent": false, "state": "unknown"}}, []string{"Claude Code\n❯ human draft\n"})
+	mock, socket := startSendSubmitMock(t, []map[string]any{{"agent": false, "state": "unknown"}}, []string{"✻ Welcome to Claude Code!\n❯\u00a0human draft\n"})
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
 		t.Fatal("hookless draft was not refused")
 	}
@@ -336,10 +336,10 @@ func TestSendSubmitScreenClassifier(t *testing.T) {
 		name, screen, kind, state string
 		busy                      bool
 	}{
-		{"claude boxed placeholder", "Claude Code\n│\x1b[2m❯ Try asking for a change\x1b[0m│\n", "claude", "empty", false},
-		{"claude multiline draft", "Claude Code\n│❯ │\n│ human draft │\n╰────╯\n", "claude", "draft", false},
-		{"codex busy", "OpenAI Codex\nWorking (esc to interrupt)\n› hello\n", "codex", "draft", true},
-		{"codex queued", "OpenAI Codex\nQueued messages: 1\n›\n", "codex", "queued", false},
+		{"claude boxed placeholder", "✻ Welcome to Claude Code!\n╭────────────────────╮\n│\x1b[2m❯\u00a0Try asking for a change\x1b[0m│\n╰────────────────────╯\n", "claude", "empty", false},
+		{"claude multiline draft", "▐▛███▜▌ Claude Code v2.1\n│ ❯\u00a0│\n│ human draft │\n╰────╯\n", "claude", "draft", false},
+		{"codex busy", "│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› hello\n", "codex", "draft", true},
+		{"codex queued", "│ >_ OpenAI Codex (v0.154.0) │\nQueued messages: 1\n›\n", "codex", "queued", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := sendStateFromScreen(tc.screen)
@@ -430,7 +430,7 @@ func TestSendSubmitHooklessBusyCodexQueues(t *testing.T) {
 		{"agent": false, "state": "unknown"},
 		{"agent": false, "state": "unknown"},
 		{"agent": false, "state": "unknown"},
-	}, []string{"OpenAI Codex\nWorking (esc to interrupt)\n›\n", "OpenAI Codex\nWorking (esc to interrupt)\n› hello\n", "OpenAI Codex\nQueued messages: 1\n›\n"})
+	}, []string{"│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n›\n", "│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› hello\n", "│ >_ OpenAI Codex (v0.154.0) │\nQueued messages: 1\n›\n"})
 	output := captureStdout(t, func() {
 		if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
 			t.Fatalf("exit %d", code)
