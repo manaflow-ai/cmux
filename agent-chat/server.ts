@@ -205,6 +205,7 @@ let fileTheme = resolveGhosttyTheme();
 let cmuxThemeOverride: GhosttyTheme | null = null;
 let currentTheme = fileTheme;
 const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
+const sessionActionRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
 type AttributionMode = "new-turn" | "current-turn";
 type InternalDoneEvent = Extract<AgentEvent, { kind: "done" }> & { generation?: number };
 const optionCatalog = new Map<string, {
@@ -244,6 +245,12 @@ function pruneStartRequests() {
   const now = Date.now();
   for (const [key, entry] of startRequests) {
     if (now - entry.createdAt > START_REQUEST_TTL_MS) startRequests.delete(key);
+  }
+}
+function pruneSessionActionRequests() {
+  const now = Date.now();
+  for (const [key, entry] of sessionActionRequests) {
+    if (now - entry.createdAt > START_REQUEST_TTL_MS) sessionActionRequests.delete(key);
   }
 }
 const keyConfig = await readKeyConfig();
@@ -2377,8 +2384,21 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         sendWsErrorDetails(ws, "fork", new Error("no session"), { sessionId: String(msg.sessionId ?? "") });
         return;
       }
-      Promise.resolve(forkSession(sess))
-        .then((fork) => ws.send(JSON.stringify({ kind: "session-forked", session: sessionSummary(fork) })))
+      const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
+      pruneSessionActionRequests();
+      const key = requestId ? `fork:${sess.id}:${requestId}` : undefined;
+      const existing = key ? sessionActionRequests.get(key) : undefined;
+      const action = existing?.promise ?? Promise.resolve(forkSession(sess));
+      if (key && !existing) {
+        sessionActionRequests.set(key, { createdAt: Date.now(), promise: action });
+        action.finally(() => {
+          setTimeout(() => {
+            if (sessionActionRequests.get(key)?.promise === action) sessionActionRequests.delete(key);
+          }, START_REQUEST_TTL_MS);
+        }).catch(() => {});
+      }
+      action
+        .then((fork) => ws.send(JSON.stringify({ kind: "session-forked", session: sessionSummary(fork), ...(requestId ? { requestId } : {}) })))
         .catch((err) => {
           sess.emit({ kind: "error", message: safeErrorMessage("fork", err) });
           sendWsErrorDetails(ws, "fork", err, { sessionId: sess.id });
@@ -2391,8 +2411,21 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         sendWsErrorDetails(ws, "handoff", new Error("no session"), { sessionId: String(msg.sessionId ?? "") });
         return;
       }
-      Promise.resolve(handoffSession(sess))
-        .then((child) => ws.send(JSON.stringify({ kind: "session-handoff", session: sessionSummary(child), sourceSessionId: sess.id })))
+      const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
+      pruneSessionActionRequests();
+      const key = requestId ? `handoff:${sess.id}:${requestId}` : undefined;
+      const existing = key ? sessionActionRequests.get(key) : undefined;
+      const action = existing?.promise ?? Promise.resolve(handoffSession(sess));
+      if (key && !existing) {
+        sessionActionRequests.set(key, { createdAt: Date.now(), promise: action });
+        action.finally(() => {
+          setTimeout(() => {
+            if (sessionActionRequests.get(key)?.promise === action) sessionActionRequests.delete(key);
+          }, START_REQUEST_TTL_MS);
+        }).catch(() => {});
+      }
+      action
+        .then((child) => ws.send(JSON.stringify({ kind: "session-handoff", session: sessionSummary(child), sourceSessionId: sess.id, ...(requestId ? { requestId } : {}) })))
         .catch((err) => {
           sess.emit({ kind: "error", message: safeErrorMessage("handoff", err) });
           sendWsErrorDetails(ws, "handoff", err, { sessionId: sess.id });
