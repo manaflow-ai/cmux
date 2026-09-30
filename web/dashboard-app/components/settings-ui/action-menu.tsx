@@ -20,6 +20,26 @@ export type ActionMenuItem = {
 const itemClass =
   "flex w-full cursor-default select-none flex-col items-start gap-0.5 px-2.5 py-2 text-left text-sm outline-none data-[highlighted]:bg-code-bg data-[disabled]:cursor-not-allowed";
 
+/**
+ * Where each disabled reason renders: under its item when only that item has
+ * it, once at the end of the menu when several items share it (for example
+ * "A team needs at least one admin" on both demote and leave).
+ */
+export function disabledReasonLayout(items: readonly ActionMenuItem[]): {
+  readonly inline: Readonly<Record<string, string>>;
+  readonly footer: readonly string[];
+} {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    if (item.disabled && item.disabledReason) counts.set(item.disabledReason, (counts.get(item.disabledReason) ?? 0) + 1);
+  }
+  const inline: Record<string, string> = {};
+  for (const item of items) {
+    if (item.disabled && item.disabledReason && counts.get(item.disabledReason) === 1) inline[item.id] = item.disabledReason;
+  }
+  return { inline, footer: [...counts].filter(([, count]) => count > 1).map(([reason]) => reason) };
+}
+
 /** Row-level "more actions" menu, the equivalent of Hexclave's ActionCell. */
 export function ActionMenu({
   label,
@@ -32,6 +52,7 @@ export function ActionMenu({
   readonly disabled?: boolean;
 }) {
   if (items.length === 0) return null;
+  const reasons = disabledReasonLayout(items);
   return (
     <Menu.Root>
       <Menu.Trigger
@@ -62,10 +83,15 @@ export function ActionMenu({
                 >
                   {item.label}
                 </span>
-                {item.disabled && item.disabledReason ? (
-                  <span className="text-[11px] text-muted">{item.disabledReason}</span>
+                {reasons.inline[item.id] ? (
+                  <span className="text-[11px] text-muted">{reasons.inline[item.id]}</span>
                 ) : null}
               </Menu.Item>
+            ))}
+            {reasons.footer.map((reason) => (
+              <p key={reason} className="border-t border-border px-2.5 pb-1.5 pt-2 text-[11px] text-muted">
+                {reason}
+              </p>
             ))}
           </Menu.Popup>
         </Menu.Positioner>
