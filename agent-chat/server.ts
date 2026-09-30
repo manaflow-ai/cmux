@@ -148,6 +148,7 @@ export const PROVIDERS: ProviderDef[] = [
   { id: "claude", label: "Claude Code", adapter: "claude", cmd: ["claude"], installCommand: "npm i -g @anthropic-ai/claude-code" },
   { id: "codex", label: "Codex", adapter: "codex", cmd: ["codex"], installCommand: "npm i -g @openai/codex" },
   { id: "opencode", label: "OpenCode", adapter: "acp", cmd: ["opencode", "acp"], installCommand: "npm i -g opencode-ai" },
+  { id: "cursor-agent", label: "Cursor Agent", adapter: "acp", cmd: ["cursor-agent", "acp"], installCommand: "curl https://cursor.com/install -fsS | bash" },
   { id: "goose", label: "Goose", adapter: "acp", cmd: ["goose", "acp"], installCommand: "curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash" },
   { id: "pi", label: "pi", adapter: "pi", cmd: ["pi"], installCommand: "npm i -g @mariozechner/pi" },
   {
