@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""Exercise the portable contracts of the per-run iOS E2E helpers."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ENV = ROOT / "scripts/e2e/backend-env.sh"
+BACKEND_UP = ROOT / "scripts/e2e/backend-up.sh"
+
+
+class BackendScriptContractTests(unittest.TestCase):
+    def run_script(self, script: Path, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+        child_env = os.environ.copy()
+        for name in (
+            "CMUX_E2E_BACKEND_NAME",
+            "CMUX_E2E_BACKEND_TAILNET_HOSTNAME",
+            "CMUX_E2E_BACKEND_STATE_DIR",
+            "CMUX_E2E_BACKEND_DONE_FILE",
+            "CMUX_E2E_WAIT_TIMEOUT_SECONDS",
+            "CMUX_E2E_STACK_PROJECT_ID",
+            "CMUX_E2E_STACK_PUBLISHABLE_KEY",
+            "CMUX_E2E_STACK_SERVER_KEY",
+            "CMUX_E2E_IROH_RELAY_BIN",
+            "CMUX_E2E_TLS_CERT",
+            "CMUX_E2E_TLS_KEY",
+        ):
+            child_env.pop(name, None)
+        child_env.update(env or {})
+        return subprocess.run(
+            ["bash", str(script), *args],
+            cwd=ROOT,
+            env=child_env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def test_backend_env_emits_the_four_origins_and_simulator_copies(self) -> None:
+        result = self.run_script(BACKEND_ENV, "env", "--simctl", env={
+            "CMUX_E2E_BACKEND_NAME": "cmux-e2e-backend.example.ts.net",
+        })
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(
+            lines,
+            [
+                "CMUX_IROH_V2_BASE_URL=https://cmux-e2e-backend.example.ts.net:8443",
+                "SIMCTL_CHILD_CMUX_IROH_V2_BASE_URL=https://cmux-e2e-backend.example.ts.net:8443",
+                "CMUX_IROH_V2_ENVIRONMENT=development",
+                "SIMCTL_CHILD_CMUX_IROH_V2_ENVIRONMENT=development",
+                "CMUX_IROH_V2_FORCE_RELAY=1",
+                "SIMCTL_CHILD_CMUX_IROH_V2_FORCE_RELAY=1",
+                "CMUX_PRESENCE_BASE_URL=https://cmux-e2e-backend.example.ts.net:8444",
+                "SIMCTL_CHILD_CMUX_PRESENCE_BASE_URL=https://cmux-e2e-backend.example.ts.net:8444",
+            ],
+        )
+
+    def test_backend_env_wait_uses_bounded_health_probes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fake_curl = Path(directory) / "curl"
+            fake_curl.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake_curl.chmod(0o755)
+            result = self.run_script(
+                BACKEND_ENV,
+                "wait",
+                "1",
+                env={
+                    "CMUX_E2E_BACKEND_NAME": "cmux-e2e-backend.example.ts.net",
+                    "PATH": f"{directory}:{os.environ['PATH']}",
+                },
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("https://cmux-e2e-backend.example.ts.net:8443/v2/health", result.stdout)
+        self.assertIn("https://cmux-e2e-backend.example.ts.net:8444/healthz", result.stdout)
+
+    def test_backend_env_requires_the_fixed_certificate_name(self) -> None:
+        result = self.run_script(BACKEND_ENV, "env")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CMUX_E2E_BACKEND_NAME is required", result.stderr)
+
+    def test_backend_up_reports_missing_config_without_echoing_secret_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            secret = "server-key-must-not-appear-in-errors"
+            result = self.run_script(
+                BACKEND_UP,
+                "up",
+                env={
+                    "CMUX_E2E_BACKEND_NAME": "cmux-e2e-backend.example.ts.net",
+                    "CMUX_E2E_BACKEND_STATE_DIR": directory,
+                    "CMUX_E2E_STACK_PROJECT_ID": "project",
+                    "CMUX_E2E_STACK_PUBLISHABLE_KEY": "publishable",
+                    "CMUX_E2E_STACK_SERVER_KEY": secret,
+                    "CMUX_E2E_IROH_RELAY_BIN": "/bin/sh",
+                    "CMUX_E2E_TLS_CERT": "certificate",
+                },
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CMUX_E2E_TLS_KEY", result.stderr)
+        self.assertNotIn(secret, result.stdout + result.stderr)
+
+    def test_backend_up_hold_times_out_cleanly_and_accepts_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            done_file = Path(directory) / "done"
+            base_env = {
+                "CMUX_E2E_BACKEND_NAME": "cmux-e2e-backend.example.ts.net",
+                "CMUX_E2E_BACKEND_STATE_DIR": directory,
+                "CMUX_E2E_BACKEND_DONE_FILE": str(done_file),
+                "CMUX_E2E_WAIT_TIMEOUT_SECONDS": "0",
+            }
+            timed_out = self.run_script(BACKEND_UP, "hold", env=base_env)
+            done_file.touch()
+            completed = self.run_script(BACKEND_UP, "hold", env=base_env)
+
+        self.assertEqual(timed_out.returncode, 0, timed_out.stderr)
+        self.assertIn("wait-timeout", timed_out.stdout)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("completion signal received", completed.stdout)
+
+    def test_backend_up_rejects_unknown_commands(self) -> None:
+        result = self.run_script(BACKEND_UP, "unknown", env={
+            "CMUX_E2E_BACKEND_NAME": "cmux-e2e-backend.example.ts.net",
+        })
+        self.assertEqual(result.returncode, 2)
+        self.assertRegex(result.stderr, r"usage: .*backend-up\.sh up\|hold\|down")
+
+
+if __name__ == "__main__":
+    unittest.main()
