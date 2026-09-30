@@ -311,14 +311,21 @@ fn cmux_next_kept_unplaced_terminal_attaches_by_identity_and_takes_geometry() {
     )
     .expect("the attached client claims geometry of the unplaced terminal");
     let lease = attached["lease"].as_str().expect("the attach returns a lease").to_string();
-    run_as(
+    let resized = run_as(
         &mux,
         client,
         json!({"cmd":"resize-attached-view","surface":surface,"lease":lease,"cols":120,"rows":40}),
     )
     .expect("the attached view resizes the unplaced terminal");
-    let size = mux.surface(surface).unwrap().size();
-    assert_eq!(size, (120, 40));
+    // A kept terminal's only view may live in another session's layout, so
+    // having no tab here must not make its geometry owner "superseded".
+    assert_eq!(resized["outcome"], "applied", "{resized}");
+    assert_eq!(resized["accepted"], true, "{resized}");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while mux.surface(surface).unwrap().size() != (120, 40) {
+        assert!(Instant::now() < deadline, "the unplaced terminal kept its attach size");
+        std::thread::sleep(Duration::from_millis(10));
+    }
     disconnect_client(&mux, client, false);
     mux.shutdown();
 }
