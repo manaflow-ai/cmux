@@ -11,7 +11,9 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
         freeAccessBanner: FreeAccessBanner = .none
     ) {
         self.activeCount = activeCount
-        self.maxActiveVms = maxActiveVms
+        // The server sends zero for accounts whose Cloud access is granted
+        // outside the plan row; it is not a machine ceiling.
+        self.maxActiveVms = maxActiveVms.flatMap { $0 > 0 ? $0 : nil }
         self.planId = planId
         self.freeAccessWindowDays = freeAccessWindowDays
         self.freeAccessExpiresAt = freeAccessExpiresAt
@@ -21,6 +23,8 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     public let activeCount: Int
     /// Active-machine ceiling; nil when the plan has no cap (every paid plan).
     public let maxActiveVms: Int?
+    /// Whether the plan has a machine ceiling to display and enforce.
+    public var hasPlanMeter: Bool { maxActiveVms != nil }
     public let planId: String
     /// Days the plan keeps a machine reachable after creation; 0 = no window.
     public var freeAccessWindowDays: Int = 0

@@ -196,7 +196,11 @@ public enum MachineSnapshotBuilder: Sendable {
     ) -> MachinePlanSnapshot? {
         guard let limits else { return nil }
         let isPaidPlan = MachinePlanSnapshot.isPaidPlanID(limits.planId)
-        let expiresAt = isPaidPlan ? nil : earliestFreeAccessExpiry(limits: limits, machines: machines)
+        let hasPlanMeter = (limits.maxActiveVms ?? 0) > 0
+        // A non-metered account with machines already has Cloud access, so
+        // free-plan metadata is stale and must not create an expiry warning.
+        let staleFreePlan = !hasPlanMeter && (activeCount > 0 || !machines.isEmpty)
+        let expiresAt = (isPaidPlan || staleFreePlan) ? nil : earliestFreeAccessExpiry(limits: limits, machines: machines)
         return MachinePlanSnapshot(
             activeCount: activeCount,
             maxActiveVms: limits.maxActiveVms,
