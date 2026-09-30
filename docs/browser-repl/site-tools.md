@@ -110,7 +110,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, Save, Send invitations only when the draft has guests | write [9], [14] |
 | `googleSearch.search(q, options)` | the basic results page from the session's fetch (`/url?q=` links carry the destination), parsed in a blank tab; else the full page in a background tab (`div[data-rpos]` blocks, whose opaque `/goto` links are kept with `displayUrl`) | read |
 | `youtube.search`, `.metadata`, `.captions`, `.comments` | desktop watch/results HTML (`ytInitialPlayerResponse`, `ytInitialData`, also as an escaped string), InnerTube `/youtubei/v1/next` | read |
-| `youtube.transcript(v, { lang, timestamps, format })` | caption track URL as json3; when it needs the player's token (YouTube in 2026: the direct URL is empty), a muted background watch tab turns captions on and the tool reads the caption response the player itself receives (json3, srv3 or XML), in short page calls | read |
+| `youtube.transcript(v, { lang, timestamps, format })` | in order: InnerTube `/youtubei/v1/player` as the IOS, then ANDROID_VR client through the session's fetch (native clients' caption URLs need no player token; YouTube requires one for WEB subtitles, as yt-dlp's PO Token Guide documents), the track read as json3; the same calls from a youtube.com page; the watch page's track URL; last, the player in a muted background tab. A video with no track fails as `no_captions` | read |
 | `slack.workspaces()`, `.channels`, `.history`, `.replies`, `.search`, `.user`, `.call(team, readMethod, params)` | Slack Web API from an app.slack.com tab, token from that page's `localStorage` | read |
 | `slack.post({ team, channel, text, threadTs })` | draft; confirmed: `chat.postMessage` | write [9] |
 | `notion.accounts()`, `.search(q, { spaceId })`, `.read(url)` | `/api/v3` (`getSpaces`, `search`, `loadPageChunk`, `syncRecordValues`) same-origin | read |
@@ -232,12 +232,13 @@ now in the mocks and fixed: the REPL's fetch gets YouTube's mobile site and
 Google's basic results page, a tab gets Google's opaque `/goto` links, and
 YouTube's player token makes the direct caption URL empty.
 
-A second run on the rebuilt tag (commit 75dad504a2d) returned real data for
-every item except `youtube.transcript`: in the app, YouTube's player loads
-its caption track in some runs and not in others, and a refetch of the
-player's caption URL is empty. The tool reads the player's response through
-the XHR body getters (the player keeps its own reference to `open`); treat
-in-app transcripts as intermittent until a later run shows otherwise.
+Transcript reliability, 3 public videos (manual English captions
+`dQw4w9WgXcQ`, auto-generated Korean only `9bZkp7q19f0`, Spanish with
+`{ lang: "es" }` `kJQP7kiw5Fk`): Aside `youtube.getTranscript` 15/15 (5 runs
+each, about 200 ms); cmux with the native-client path 30/30 (10 runs each,
+about 300 ms), same text lengths as Aside. ChatGPT's
+`exportYouTubeTranscript` was not measured: its reference client may open
+only the approved loopback origin.
 
 Tools against private accounts (Gmail, Calendar, Slack, Notion, LinkedIn, X
 timelines, Linear, Jira) are verified only against the mocks: running them

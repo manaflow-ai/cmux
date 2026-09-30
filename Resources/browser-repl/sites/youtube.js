@@ -153,6 +153,50 @@
     return out.filter((x) => x.text);
   }
 
+  // InnerTube player clients whose caption URLs need no player-issued token
+  // (YouTube requires one for WEB and MWEB subtitles; see yt-dlp's PO Token
+  // Guide). Tried in order.
+  const NATIVE_CLIENTS = [
+    { clientName: "IOS", clientVersion: "20.10.4", deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iPhone", osVersion: "18.3.2.22D82", id: 5 },
+    { clientName: "ANDROID_VR", clientVersion: "1.60.19", deviceMake: "Oculus", deviceModel: "Quest 3", osName: "Android", osVersion: "12L", androidSdkVersion: 32, id: 28 },
+  ];
+  const pickTrack = (tracks, lang) => (lang ? tracks.find((c) => c.lang === lang) : tracks.find((c) => !c.auto) || tracks[0]);
+
+  // Runs in a www.youtube.com page: asks the player endpoint as each client
+  // and reads the chosen track as json3, same-origin with the session's
+  // cookies. Returns { client, body } or the reasons each client failed.
+  async function nativeInPage(arg) {
+    const reasons = [];
+    for (const c of arg.clients) {
+      try {
+        const { id, ...client } = c;
+        const r = await fetch("/youtubei/v1/player?prettyPrint=false", { method: "POST", credentials: "include", headers: { "content-type": "application/json", "x-youtube-client-name": String(id), "x-youtube-client-version": client.clientVersion }, body: JSON.stringify({ context: { client: { ...client, hl: "en", gl: "US" } }, videoId: arg.videoId }) });
+        const j = r.ok ? await r.json() : null;
+        const status = j && j.playabilityStatus && j.playabilityStatus.status;
+        const list = (j && j.captions && j.captions.playerCaptionsTracklistRenderer && j.captions.playerCaptionsTracklistRenderer.captionTracks) || [];
+        const tracks = list.map((t) => ({ lang: t.languageCode, auto: t.kind === "asr", baseUrl: t.baseUrl }));
+        if (status !== "OK") {
+          reasons.push({ client: c.clientName, status: status || "HTTP " + r.status, tracks: [] });
+          continue;
+        }
+        const track = arg.lang ? tracks.find((t) => t.lang === arg.lang) : tracks.find((t) => !t.auto) || tracks[0];
+        if (!track) {
+          reasons.push({ client: c.clientName, status, tracks: tracks.map(({ lang, auto }) => ({ lang, auto })) });
+          continue;
+        }
+        const u = new URL(track.baseUrl, location.href);
+        u.searchParams.set("fmt", "json3");
+        const t = await fetch(u.href, { credentials: "include" });
+        const body = t.ok ? await t.text() : "";
+        if (body.trim()) return { client: c.clientName, body, lang: track.lang, auto: track.auto };
+        reasons.push({ client: c.clientName, status: "empty caption body", tracks: tracks.map(({ lang, auto }) => ({ lang, auto })) });
+      } catch (e) {
+        reasons.push({ client: c.clientName, status: String(e && e.message), tracks: [] });
+      }
+    }
+    return { reasons };
+  }
+
   S.register(
     "youtube",
     (t) => {
@@ -196,14 +240,6 @@
       function tracksOf(player) {
         const list = player.captions && player.captions.playerCaptionsTracklistRenderer && player.captions.playerCaptionsTracklistRenderer.captionTracks;
         return (list || []).map((c) => ({ lang: c.languageCode, name: text(c.name), auto: c.kind === "asr", baseUrl: c.baseUrl }));
-      }
-      function segmentsOf(json3) {
-        const out = [];
-        for (const ev of (json3 && json3.events) || []) {
-          const s = (ev.segs || []).map((x) => x.utf8 || "").join("").replace(/\s+/g, " ").trim();
-          if (s) out.push({ start: (ev.tStartMs || 0) / 1000, duration: (ev.dDurationMs || 0) / 1000, text: s });
-        }
-        return out;
       }
       function innertube(html) {
         const key = /"INNERTUBE_API_KEY":"([^"]+)"/.exec(html);
@@ -261,17 +297,52 @@
         // [{ start, duration, text }] (seconds).
         async transcript(video, options = {}) {
           const id = videoId(video, "youtube.transcript");
+          const done = (segments) => {
+            if (options.format === "segments") return segments;
+            if (options.timestamps) return segments.map((x) => `[${clock(x.start)}] ${x.text}`).join("\n");
+            return segments.map((x) => x.text).join(" ").replace(/\s+/g, " ").trim();
+          };
+          // 1. InnerTube native clients through the session's fetch (no tab).
+          const seen = [];
+          for (const client of NATIVE_CLIENTS) {
+            try {
+              const { id: clientId, ...ctx } = client;
+              const r = await t.fetch(`${ORIGIN}/youtubei/v1/player?prettyPrint=false`, { method: "POST", headers: { "content-type": "application/json", "x-youtube-client-name": String(clientId), "x-youtube-client-version": ctx.clientVersion }, body: JSON.stringify({ context: { client: { ...ctx, hl: "en", gl: "US" } }, videoId: id }) });
+              const j = r.ok ? await r.json() : null;
+              if (!j || !j.playabilityStatus || j.playabilityStatus.status !== "OK") continue;
+              const tracks = tracksOf(j);
+              seen.push(tracks);
+              const track = pickTrack(tracks, options.lang);
+              if (!track) continue;
+              const c = await t.fetch(new URL(track.baseUrl, ORIGIN).href.replace(/([?&])fmt=[^&]*/, "$1") + "&fmt=json3");
+              const segments = c.ok ? parseCaptions(await c.text()) : [];
+              if (segments.length) return done(segments);
+            } catch (e) {}
+          }
+          // 2. The same calls from a youtube.com page (same-origin, the page's cookies).
+          if (!seen.length || seen.some((tr) => pickTrack(tr, options.lang))) {
+            const got = await t.inOrigin(ORIGIN, nativeInPage, { videoId: id, lang: options.lang || null, clients: NATIVE_CLIENTS }).catch(() => null);
+            if (got && got.body) {
+              const segments = parseCaptions(got.body);
+              if (segments.length) return done(segments);
+            }
+            if (got && got.reasons) for (const r of got.reasons) if (r.status === "OK") seen.push(r.tracks);
+          }
+          // 3. The watch page's tracks, then the player itself (a background tab).
           const { player } = await watch(id, "youtube.transcript");
           const tracks = tracksOf(player);
-          if (!tracks.length) throw new S.SiteError("no_captions", `youtube.transcript: video ${id} has no captions`);
-          const track = options.lang ? tracks.find((c) => c.lang === options.lang) : tracks.find((c) => !c.auto) || tracks[0];
-          if (!track) throw new S.SiteError("no_captions", `youtube.transcript: video ${id} has no ${options.lang} captions; available: ${tracks.map((c) => c.lang + (c.auto ? " (auto)" : "")).join(", ")}`);
+          const known = tracks.length ? tracks : seen.find((tr) => tr.length) || [];
+          if (!known.length) throw new S.SiteError("no_captions", `youtube.transcript: video ${id} has no captions`);
+          const track = pickTrack(known, options.lang);
+          if (!track) throw new S.SiteError("no_captions", `youtube.transcript: video ${id} has no ${options.lang} captions; available: ${known.map((c) => c.lang + (c.auto ? " (auto)" : "")).join(", ")}`);
           let segments = [];
-          try {
-            const r = await t.fetch(new URL(track.baseUrl, ORIGIN).href + "&fmt=json3");
-            const body = r.ok ? await r.text() : "";
-            if (body.trim()) segments = segmentsOf(JSON.parse(body));
-          } catch (e) {}
+          if (track.baseUrl) {
+            try {
+              const r = await t.fetch(new URL(track.baseUrl, ORIGIN).href + "&fmt=json3");
+              const body = r.ok ? await r.text() : "";
+              if (body.trim()) segments = parseCaptions(body);
+            } catch (e) {}
+          }
           if (!segments.length) {
             const timeout = options.timeout || 12000;
             segments = await t.withTab(`${ORIGIN}/watch?v=${id}`, async (p) => {
@@ -303,9 +374,7 @@
               throw new S.SiteError("no_captions", `youtube.transcript: the caption response for ${id} was empty`);
             });
           }
-          if (options.format === "segments") return segments;
-          if (options.timestamps) return segments.map((s) => `[${clock(s.start)}] ${s.text}`).join("\n");
-          return segments.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim();
+          return done(segments);
         },
         // { videoId, comments: [{ id, url, author, authorUrl, text, published, likes, replies }], continuation }
         async comments(video, options = {}) {
