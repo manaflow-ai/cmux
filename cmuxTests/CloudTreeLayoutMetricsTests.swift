@@ -42,7 +42,7 @@ struct CloudTreeLayoutMetricsTests {
         // The clamp, stated on its own. Before this the narrow case happened to
         // come out at exactly zero with the old 12pt inset, so it read like a
         // clamp test and was really more arithmetic: moving the inset to the
-        // sidebar's 6pt turned it into 6 and the assertion failed without any
+        // chrome bar's 8pt turned it into 4 and the assertion failed without any
         // clamping behaviour having changed.
         #expect(metrics.titleWidth(rowWidth: 140, leadingContentWidth: 92, trailingContentWidth: 76) == 0)
     }
@@ -55,12 +55,11 @@ struct CloudTreeLayoutMetricsTests {
     func cloudChromeMatchesSidebarChrome() {
         #expect(CloudSidebarChromeMetrics.sidebar.barHorizontalPadding == RightSidebarChromeMetrics.barHorizontalPadding)
         #expect(CloudSidebarChromeMetrics.sidebar.barVerticalPadding == RightSidebarChromeMetrics.barVerticalPadding)
-        #expect(CloudSidebarChromeMetrics.sidebar.headerTrailingPadding == RightSidebarChromeMetrics.headerTrailingPadding)
     }
 
     @Test("the tree's trailing column is the sidebar's trailing column")
     func trailingColumnFollowsSidebarChrome() {
-        #expect(CloudTreeStyle.compact.rowGrid.trailingPadding == RightSidebarChromeMetrics.headerTrailingPadding)
+        #expect(CloudTreeStyle.compact.rowGrid.trailingPadding == RightSidebarChromeMetrics.barHorizontalPadding)
         // `CloudTreeLayoutMetrics` states the same column a second time and has
         // no production reader today, so nothing would catch it sitting at the
         // old 12 until someone wires `titleWidth` up and gets titles that

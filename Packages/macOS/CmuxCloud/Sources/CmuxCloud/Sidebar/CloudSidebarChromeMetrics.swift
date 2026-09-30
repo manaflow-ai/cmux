@@ -5,9 +5,11 @@ import CoreGraphics
 /// The app target owns `RightSidebarChromeMetrics`, and CmuxCloud cannot
 /// import the app target, so every Cloud surface that sits inside the sidebar
 /// has been carrying its own copy of these numbers. That is how the Cloud
-/// banners ended up on a 12pt outer inset while the mode bar, the Vault
-/// grouping pills and the Vault search row all sit on 8, and how the Cloud
-/// tree ended up reserving a 12pt trailing column against the sidebar's 6.
+/// banners ended up on a 12pt outer inset, and the Cloud tree on a 12pt
+/// trailing column, while the chrome bar they sit under takes 8 on both edges.
+/// The sidebar's own header bars (the mode bar, the Vault grouping pills and
+/// the Vault search row) ask for a narrower 4/6 instead, but the Cloud header
+/// does not: it uses a plain `rightSidebarChromeBar()` and so keeps the 8.
 ///
 /// These are the same numbers the app target uses. `CloudTreeLayoutMetricsTests`
 /// runs in the app target, where both types are visible, and fails if the two
@@ -29,24 +31,14 @@ public struct CloudSidebarChromeMetrics: Equatable, Sendable {
     /// Outer horizontal inset of a sidebar chrome bar.
     public var barHorizontalPadding: CGFloat
 
-    /// The trailing column the sidebar's *header* bars keep clear — narrower
-    /// than the leading inset because the controls sitting in it are already
-    /// inset by their own hit area. Tree row accessories pad to the same column
-    /// so they line up with the header's controls above them rather than
-    /// stopping short. A chrome bar without header controls stays on
-    /// ``barHorizontalPadding``, which is why the Cloud banners do.
-    public var headerTrailingPadding: CGFloat
-
     /// Outer vertical inset of a sidebar chrome bar.
     public var barVerticalPadding: CGFloat
 
     public init(
         barHorizontalPadding: CGFloat = 8,
-        headerTrailingPadding: CGFloat = 6,
         barVerticalPadding: CGFloat = 4
     ) {
         self.barHorizontalPadding = barHorizontalPadding
-        self.headerTrailingPadding = headerTrailingPadding
         self.barVerticalPadding = barVerticalPadding
     }
 }
