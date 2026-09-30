@@ -167,13 +167,16 @@ struct CloudProviderRefreshCoordinatorTests {
         allowOperationToReturn.resolve(true)
         #expect(await first.value)
         #expect(await second.value)
-        #expect(calls == 2)
+        // The second request arrived while the original entry was in flight,
+        // so it correctly receives one trailing forced pass of its own after
+        // the owner repairs the invalidated pass.
+        #expect(calls == 3)
 
         // The invalidation forced a new operation. Invalidate once more so
         // this read cannot reuse the current completion either.
         coordinator.invalidate()
         #expect(await coordinator.refresh(force: true, operation: operation))
-        #expect(calls == 3)
+        #expect(calls == 4)
     }
 
     @Test("A metadata change restarts an invalidated pass before releasing its readers")
