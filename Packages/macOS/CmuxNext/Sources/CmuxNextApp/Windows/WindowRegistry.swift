@@ -199,6 +199,13 @@ struct WindowRegistry: Equatable, Sendable {
         return changes
     }
 
+    /// Orders each window's workspaces like `live` (the daemons' order);
+    /// workspaces not in it keep their place after the ordered ones.
+    mutating func order(like live: [String]) {
+        let rank = Dictionary(live.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        for index in windows.indices { windows[index].workspaceIDs = windows[index].workspaceIDs.merged(adding: [], rank: rank) }
+    }
+
     // MARK: Internals
 
     /// Removes `ids` from every window; returns them in the given order,

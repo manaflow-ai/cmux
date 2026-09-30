@@ -16,7 +16,12 @@ extension WindowManager {
                     _ body: (inout WindowRegistry) -> WindowRegistry.Changes) -> WindowRegistry.Changes {
         let before = registry.value
         let previous = Dictionary(before.windows.map { ($0.id, $0.workspaceIDs) }, uniquingKeysWith: { first, _ in first })
-        let changes = registry.apply(body)
+        let live = services.machines.daemons.flatMap(Self.orderedIDs(of:))
+        let changes = registry.apply { registry in
+            let changes = body(&registry)
+            registry.order(like: live)
+            return changes
+        }
         if registry.value != before || !preferred.isEmpty { sync(previous: previous, preferred: preferred) }
         return changes
     }

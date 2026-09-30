@@ -93,7 +93,8 @@ struct WindowStateIsolationTests {
             arguments: ["window": .target(ActionTargetRef(kind: .window, id: b.state.id))]))
         let registry = services.windows.registry
         #expect(registry.members(of: a.state.id) == [Self.id(1)])
-        #expect(registry.members(of: b.state.id) == [Self.id(3), Self.id(2)])
+        // Membership mirrors the daemon's workspace order.
+        #expect(registry.members(of: b.state.id) == [Self.id(2), Self.id(3)])
         #expect(registry.members(of: c.state.id) == [Self.id(4)])
         #expect(b.state.workspaceID == Self.id(2))
         #expect(a.state.workspaceID == Self.id(1))
