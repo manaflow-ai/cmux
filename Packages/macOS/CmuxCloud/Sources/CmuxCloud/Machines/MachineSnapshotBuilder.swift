@@ -177,9 +177,8 @@ public enum MachineSnapshotBuilder: Sendable {
         }
     }
 
-    /// Applies the plan's single Cloud-access decision to every machine row.
-    /// Granted accounts do not have a free-access lock even when stale window
-    /// metadata is present in the response.
+    /// Clears row locks for a granted account and leaves every other account's
+    /// rows exactly as built, including any server-authoritative expiry.
     public static func applyingFreeAccess(
         to snapshots: [MachineSnapshot],
         plan: MachinePlanSnapshot,
@@ -192,7 +191,7 @@ public enum MachineSnapshotBuilder: Sendable {
                 return next
             }
         }
-        return applyingFreeAccess(to: snapshots, windowDays: plan.freeAccessWindowDays, now: now)
+        return snapshots
     }
 
     public static func activity(fromStatus status: String) -> MachineSnapshot.Activity {
