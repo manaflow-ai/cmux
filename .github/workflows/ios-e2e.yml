@@ -1,10 +1,10 @@
 name: iOS E2E
 
-# End-to-end Mac-to-iPhone gate: one macOS runner builds and runs the tagged
-# Mac app and iOS simulator app, while the dev web backend runs on the durable
-# GCP VM. The apps use the backend for sign-in and pairing, then the terminal
-# data path is forced through Iroh relays. Topology, ACLs, secrets, and the
-# promotion plan live in docs/ci/ios-e2e.md.
+# End-to-end Mac-to-iPhone gate: a Linux runner owns a fresh backend for this
+# run, while one macOS runner builds both the tagged Mac app and iOS simulator
+# app. The apps use the backend for sign-in and pairing, then terminal traffic
+# is forced through Iroh relays. Topology, ACLs, secrets, and promotion live in
+# docs/ci/ios-e2e.md.
 #
 # No workflow-level path filter on purpose: the route job decides skips so the
 # ios-e2e-status aggregate always reports a deterministic conclusion.
@@ -22,7 +22,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  CMUX_E2E_BACKEND_HOST: cmux-dev-backend-1.tail137216.ts.net
+  CMUX_E2E_DONE_FILE: /tmp/e2e-done-${{ github.run_id }}-${{ github.run_attempt }}
+  CMUX_E2E_BACKEND_DONE_FILE: /tmp/e2e-backend-done-${{ github.run_id }}-${{ github.run_attempt }}
+  CMUX_E2E_MAC_TAILNET_HOSTNAME: cmux-e2e-mac-${{ github.run_id }}-${{ github.run_attempt }}
+  CMUX_E2E_BACKEND_TAILNET_HOSTNAME: cmux-e2e-backend-${{ github.run_id }}-${{ github.run_attempt }}
+  CMUX_E2E_BACKEND_FQDN: cmux-e2e-backend-${{ github.run_id }}-${{ github.run_attempt }}.tail137216.ts.net
+  CMUX_E2E_RUNNER_SSH_USER: runner
 
 jobs:
   route:
@@ -32,6 +37,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       run_e2e: ${{ steps.decide.outputs.run_e2e }}
+      run_clients: ${{ steps.decide.outputs.run_clients }}
       backend_tag: ${{ steps.decide.outputs.backend_tag }}
       web_changed: ${{ steps.decide.outputs.web_changed }}
     steps:
@@ -54,6 +60,7 @@ jobs:
           # docs-only and unrelated diffs skip the expensive Mac job. Until
           # then the lane runs in shadow mode when dispatched.
           run_e2e=true
+          run_clients=true
           web_changed=false
           if [ "$EVENT_NAME" = "pull_request" ]; then
             if git rev-parse -q --verify HEAD^2 >/dev/null; then
@@ -71,12 +78,187 @@ jobs:
           else
             backend_tag="ci-main"
           fi
+          # Forks cannot safely receive the tailnet and Stack secrets used by
+          # this lane. Keep dispatches on forks as a deterministic skip too.
+          if [ "${GITHUB_REPOSITORY_OWNER:-}" != "manaflow-ai" ]; then
+            run_e2e=false
+            run_clients=false
+          fi
           {
             echo "run_e2e=$run_e2e"
+            echo "run_clients=$run_clients"
             echo "web_changed=$web_changed"
             echo "backend_tag=$backend_tag"
           } >> "$GITHUB_OUTPUT"
           echo "route: run_e2e=$run_e2e web_changed=$web_changed backend_tag=$backend_tag"
+
+  backend:
+    # A fresh backend for this run on its own Linux runner: Postgres, web/
+    # (Next.js), and the iroh-v2 + presence Workers with their Durable Objects
+    # in local workerd, published on the tailnet by Tailscale Serve
+    # (scripts/e2e/backend-up.sh). It holds until the iOS job touches its
+    # done-file, so the macOS jobs start in PARALLEL and wait on its health
+    # endpoints (scripts/e2e/backend-env.sh wait) instead of `needs:`-ing a
+    # job that must stay alive for them.
+    needs: route
+    # Every job that mounts secrets is fenced off from fork heads: a fork PR
+    # controls this workflow file's content, so it must never reach the
+    # tailnet OAuth client, the CI Stack account, or the relay signing key.
+    # success() must be spelled out — a custom `if:` replaces the implicit
+    # needs-succeeded condition. The aggregate reports forks as a neutral skip.
+    if: >-
+      success()
+      && needs.route.outputs.run_e2e == 'true'
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    # 8 vCPU: a cold `next build` dominates bring-up; warm runs restore it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      # Sticky disks keep node_modules on Blacksmith's co-located storage
+      # across runs, so `bun install` below is a lockfile check plus the
+      # delta instead of a full extract. Each job gets its own clone of the
+      # disk and commits it at job end; concurrent runs never share a mount.
+      - name: Mount web node_modules
+        if: github.repository_owner == 'manaflow-ai'
+        uses: useblacksmith/stickydisk@94697d49e77d0dd78b77deb85ad3de63a28b4b8a # v1.7.1
+        with:
+          key: ${{ github.repository }}-ios-e2e-web-node-modules
+          path: web/node_modules
+
+      - name: Mount iroh-v2 node_modules
+        if: github.repository_owner == 'manaflow-ai'
+        uses: useblacksmith/stickydisk@94697d49e77d0dd78b77deb85ad3de63a28b4b8a # v1.7.1
+        with:
+          key: ${{ github.repository }}-ios-e2e-iroh-v2-node-modules
+          path: workers/iroh-v2/node_modules
+
+      - name: Mount presence node_modules
+        if: github.repository_owner == 'manaflow-ai'
+        uses: useblacksmith/stickydisk@94697d49e77d0dd78b77deb85ad3de63a28b4b8a # v1.7.1
+        with:
+          key: ${{ github.repository }}-ios-e2e-presence-node-modules
+          path: workers/presence/node_modules
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          for dir in web workers/iroh-v2 workers/presence; do
+            (cd "$dir" && bun install --frozen-lockfile)
+          done
+
+      # The web build is keyed by the git tree of web/ plus the files the
+      # build reads from outside it. An exact hit restores a finished .next
+      # and skips `next build` entirely; any other hit (restore-keys) still
+      # restores .next/cache, so the rebuild is incremental. Bump v1 when the
+      # CI Stack project changes: NEXT_PUBLIC_* values are baked in.
+      - name: Compute web build key
+        id: web-key
+        run: |
+          set -euo pipefail
+          tree="$(git rev-parse HEAD:web)"
+          extra="$(git rev-parse HEAD:config/iroh/managed-relay-catalog.json)"
+          echo "key=ios-e2e-web-next-v1-${tree}-${extra}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore web build
+        id: web-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web/.next
+          key: ${{ steps.web-key.outputs.key }}
+          restore-keys: ios-e2e-web-next-v1-
+
+      - name: Join tailnet
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          # The live ACL already grants tag:ci ownership of this per-run role.
+          tags: tag:e2e-backend
+          hostname: ${{ env.CMUX_E2E_BACKEND_TAILNET_HOSTNAME }}
+
+      - name: Materialize backend dev secret bundle
+        env:
+          CMUXTERM_DEV_ENV_B64: ${{ secrets.CMUXTERM_DEV_ENV_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CMUXTERM_DEV_ENV_B64:-}" ]; then
+            echo "::error::[infra-preflight] CMUXTERM_DEV_ENV_B64 is missing"
+            exit 1
+          fi
+          secret_file="$RUNNER_TEMP/cmux-e2e-dev.env"
+          printf '%s' "$CMUXTERM_DEV_ENV_B64" | base64 --decode > "$secret_file"
+          chmod 600 "$secret_file"
+          echo "CMUX_E2E_SECRET_FILE=$secret_file" >> "$GITHUB_ENV"
+
+      - name: Start per-run backend
+        env:
+          CMUX_E2E_SKIP_WEB_BUILD: ${{ steps.web-cache.outputs.cache-hit == 'true' && '1' || '0' }}
+        run: |
+          set -euo pipefail
+          set -a
+          # The existing bundle is already used by ios-streamed-validate.yml.
+          # Keep secret values in this step's environment and never put them
+          # into GitHub outputs or command arguments.
+          # shellcheck source=/dev/null
+          source "$CMUX_E2E_SECRET_FILE"
+          set +a
+          export CMUX_E2E_STACK_PROJECT_ID="${STACK_PROJECT_ID:-${NEXT_PUBLIC_STACK_PROJECT_ID:-}}"
+          export CMUX_E2E_STACK_PUBLISHABLE_KEY="${STACK_PUBLISHABLE_KEY:-${NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY:-}}"
+          export CMUX_E2E_STACK_SERVER_KEY="${STACK_SERVER_KEY:-${STACK_SECRET_SERVER_KEY:-}}"
+          export CMUX_E2E_RELAY_SIGNING_KEY="${RELAY_SIGNING_KEY:-}"
+          export CMUX_E2E_RELAY_KEY_ID="${RELAY_KEY_ID:-}"
+          for key in CMUX_E2E_STACK_PROJECT_ID CMUX_E2E_STACK_PUBLISHABLE_KEY \
+              CMUX_E2E_STACK_SERVER_KEY CMUX_E2E_RELAY_SIGNING_KEY CMUX_E2E_RELAY_KEY_ID; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::[infra-preflight] backend secret $key is missing from CMUXTERM_DEV_ENV_B64"
+              exit 1
+            fi
+          done
+          ./scripts/e2e/backend-up.sh up
+
+      # Saved before the hold, so a run that is still serving already warms
+      # the next one. Exact-key hits skip the save.
+      - name: Save web build
+        if: steps.web-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web/.next
+          key: ${{ steps.web-key.outputs.key }}
+
+      - name: Serve until the iOS job finishes
+        if: needs.route.outputs.run_clients == 'true'
+        # Above the iOS job's own ceiling, so the backend can never be the
+        # first thing to disappear under a live client.
+        timeout-minutes: 50
+        env:
+          CMUX_E2E_WAIT_TIMEOUT_SECONDS: "2700"
+        run: ./scripts/e2e/backend-up.sh hold
+
+      - name: Upload backend logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-e2e-backend-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/e2e-backend/logs
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Remove backend secret material
+        if: always()
+        run: |
+          rm -f "${CMUX_E2E_SECRET_FILE:-}" workers/iroh-v2/.dev.vars workers/presence/.dev.vars
+
 
   mac-ios-e2e:
     # The Mac and simulator share one runner. That removes the runner-to-runner
@@ -87,7 +269,7 @@ jobs:
       success()
       && needs.route.outputs.run_e2e == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-14' || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 120
     env:
       CMUX_E2E_TAG: ${{ needs.route.outputs.backend_tag }}
@@ -150,49 +332,12 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
-      - name: Verify backend host reachability
-        run: |
-          set -euo pipefail
-          tailscale ping --timeout 5s -c 5 "$CMUX_E2E_BACKEND_HOST" || {
-            echo "::error::[infra-preflight] cannot reach $CMUX_E2E_BACKEND_HOST over the tailnet"
-            exit 1
-          }
+      - name: Point apps at the per-run backend
+        run: ./scripts/e2e/backend-env.sh env --simctl >> "$GITHUB_ENV"
 
-      - name: Ensure GCP backend stack
-        id: backend
-        run: |
-          set -euo pipefail
-          helper="$GITHUB_WORKSPACE/scripts/e2e/gcp-backend.sh"
-          "$helper" start \
-            --tag "$CMUX_E2E_TAG" \
-            --checkout "$GITHUB_WORKSPACE"
-          backend_url="$("$helper" url --tag "$CMUX_E2E_TAG")"
-          case "$backend_url" in
-            https://cmux-dev-backend-1.tail137216.ts.net:*) ;;
-            *)
-              echo "::error::[infra-preflight] backend helper returned an unexpected URL shape"
-              exit 1
-              ;;
-          esac
-          backend_ready=false
-          for _ in $(seq 1 30); do
-            if curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
-              "${backend_url%/}/handler/sign-in" >/dev/null; then
-              backend_ready=true
-              break
-            fi
-            sleep 2
-          done
-          if [ "$backend_ready" != "true" ]; then
-            echo "::error::[infra-preflight] ensured backend did not serve /handler/sign-in"
-            exit 1
-          fi
-          {
-            echo "CMUX_DEV_BACKEND_URL=$backend_url"
-            echo "CMUX_DEV_API_BASE_URL=$backend_url"
-            echo "CMUX_IROH_BROKER_BASE_URL=$backend_url"
-          } >> "$GITHUB_ENV"
-          echo "backend: ensured tag=$CMUX_E2E_TAG on $CMUX_E2E_BACKEND_HOST" >> "$GITHUB_STEP_SUMMARY"
+      - name: Wait for the per-run backend
+        timeout-minutes: 21
+        run: ./scripts/e2e/backend-env.sh wait 1200
 
       - name: Configure Mac relay-only policy
         run: |
@@ -278,6 +423,15 @@ jobs:
             --sim-udid "$CMUX_E2E_SIM_UDID" \
             --evidence-dir "$CMUX_E2E_EVIDENCE_DIR"
 
+      - name: Release per-run backend
+        if: always()
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+            "$CMUX_E2E_RUNNER_SSH_USER@$CMUX_E2E_BACKEND_TAILNET_HOSTNAME" \
+            "touch '$CMUX_E2E_BACKEND_DONE_FILE'" \
+            || echo "::warning::[infra-preflight] could not signal backend holder; its bounded wait will expire"
+
       - name: Upload E2E evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -301,17 +455,6 @@ jobs:
           xcrun simctl shutdown "$CMUX_E2E_SIM_UDID" 2>/dev/null || true
           xcrun simctl delete "$CMUX_E2E_SIM_UDID" || true
 
-      - name: Remove backend stack
-        if: always()
-        run: |
-          set -euo pipefail
-          helper="$GITHUB_WORKSPACE/scripts/e2e/gcp-backend.sh"
-          if [ -f "$HOME/.local/state/cmux/dev-backends/${CMUX_E2E_TAG}.json" ]; then
-            "$helper" remove --tag "$CMUX_E2E_TAG" || echo "::warning::[infra-preflight] backend cleanup failed"
-          elif [ -f "${CMUX_E2E_BACKEND_STATE_DIR:-${RUNNER_TEMP:-/tmp}/cmux-gcp-backend}/${CMUX_E2E_TAG}.json" ]; then
-            "$helper" remove --tag "$CMUX_E2E_TAG" || echo "::warning::[infra-preflight] backend cleanup failed"
-          fi
-
       - name: Remove CI auth profile
         if: always()
         run: |
@@ -323,7 +466,7 @@ jobs:
     # the route skipped the lane or the Mac job passed, red when the route ran
     # and the Mac job failed. Fork PRs are a neutral skip because secret-fenced
     # jobs cannot run there.
-    needs: [route, mac-ios-e2e]
+    needs: [route, backend, mac-ios-e2e]
     if: always()
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -333,6 +476,7 @@ jobs:
           ROUTE_RESULT: ${{ needs.route.result }}
           RUN_E2E: ${{ needs.route.outputs.run_e2e }}
           BACKEND_TAG: ${{ needs.route.outputs.backend_tag }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
           MAC_IOS_RESULT: ${{ needs.mac-ios-e2e.result }}
           IS_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
@@ -340,7 +484,7 @@ jobs:
           {
             echo "### iOS E2E"
             echo "- route: $ROUTE_RESULT (run_e2e=${RUN_E2E:-<unset>}, backend tag=${BACKEND_TAG:-<unset>})"
-            echo "- mac-ios-e2e: $MAC_IOS_RESULT"
+            echo "- backend: $BACKEND_RESULT · mac-ios-e2e: $MAC_IOS_RESULT"
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$IS_FORK" = "true" ]; then
             echo "- conclusion: neutral skip (fork PR; secret-fenced job cannot run)" >> "$GITHUB_STEP_SUMMARY"
@@ -354,8 +498,16 @@ jobs:
             echo "- conclusion: pass (route skipped the lane)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          fail=0
+          if [ "$BACKEND_RESULT" != "success" ]; then
+            echo "::error::backend: $BACKEND_RESULT (needed because route said run)"
+            fail=1
+          fi
           if [ "$MAC_IOS_RESULT" != "success" ]; then
             echo "::error::mac-ios-e2e: $MAC_IOS_RESULT (needed because route said run)"
+            fail=1
+          fi
+          if [ "$fail" -ne 0 ]; then
             echo "- conclusion: FAIL" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi

@@ -1,7 +1,7 @@
 # scripts/e2e - iOS E2E drivers
 
 Driver contract for [.github/workflows/ios-e2e.yml](../../.github/workflows/ios-e2e.yml).
-The workflow owns runner selection, tailnet join, GCP backend provisioning,
+The workflow owns runner selection, per-run backend startup, tailnet join,
 both app builds, relay-only configuration, simulator lifecycle, evidence
 upload, and cleanup. `ios-e2e-run.sh` owns the six terminal steps after the
 apps are signed in, paired, and connected.
@@ -23,8 +23,8 @@ simulator explicitly through flags.
 
 | Env | Meaning |
 | --- | --- |
-| `CMUX_DEV_BACKEND_URL` | Web API origin used for sign-in and pairing. The workflow obtains it from `scripts/e2e/gcp-backend.sh url --tag`. |
-| `CMUX_IROH_BROKER_BASE_URL` | Same backend origin baked into both app builds for broker discovery. |
+| `CMUX_DEV_BACKEND_URL` | Web API origin used for sign-in and pairing. `scripts/e2e/backend-env.sh` points it at this run's Tailscale Serve endpoint. |
+| `CMUX_IROH_BROKER_BASE_URL` | Same per-run backend origin used for broker discovery. |
 | `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | Same account used by the Mac and simulator. The workflow stores it as `CMUX_UITEST_*` in a mode `0600` file for the `agent` profile. |
 
 The workflow sets `CMUX_IROH_V2_FORCE_RELAY=1` for the Mac build and writes the
@@ -65,6 +65,6 @@ its coverage.
    Regression: a pre-bootstrap recovery cooldown stalled a fresh session
    ([#14124](https://github.com/manaflow-ai/cmux/pull/14124)).
 
-The workflow stops the tagged Mac app, deletes the isolated simulator, removes
-the tagged backend stack, and deletes the temporary credentials file after the
-driver exits, including on failure.
+The workflow stops the tagged Mac app, deletes the isolated simulator, signals
+the backend holder to release its per-run services, and deletes the temporary
+credentials file after the driver exits, including on failure.
