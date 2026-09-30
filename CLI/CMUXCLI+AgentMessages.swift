@@ -281,8 +281,9 @@ extension CMUXCLI {
     /// Claude SessionStart/Stop `asyncRewake` hook. Checks for messages to
     /// this surface every ``agentInboxPollInterval``; when one is waiting it
     /// renders the queued messages to stderr and exits 2, which wakes Claude
-    /// with the text as a system reminder. The messages stay queued until the
-    /// prompt hook acknowledges them. The prompt box, and any draft in it, is
+    /// with the text as a system reminder. The hook acknowledges its lease
+    /// after writing the reminder; an interrupted hook lets the lease expire
+    /// so the messages can be retried. The prompt box, and any draft in it, is
     /// never touched.
     ///
     /// Each check uses a new connection that is closed right after, so an
@@ -322,16 +323,23 @@ extension CMUXCLI {
                     exit(0)
                 }
                 if (payload["queued"] as? Int ?? 0) > 0, payload["held"] as? Bool != true {
-                    let text = Self.agentInboxClaim(
+                    let deferred = Self.agentInboxDeferredClaim(
                         surfaceId: surfaceId,
                         via: "claude.wake",
-                        markDeliveredRead: false,
-                        deferDelivery: true,
                         pollerKey: pollerKey,
                         client: client
                     )
-                    if !text.isEmpty {
-                        FileHandle.standardError.write(Data((text + "\n").utf8))
+                    if !deferred.text.isEmpty {
+                        FileHandle.standardError.write(Data((deferred.text + "\n").utf8))
+                        if let leaseID = deferred.leaseID {
+                            _ = Self.agentInboxAcknowledge(
+                                surfaceId: surfaceId,
+                                pollerKey: pollerKey,
+                                leaseID: leaseID,
+                                via: "claude.wake",
+                                client: client
+                            )
+                        }
                         exit(2)
                     }
                 }
@@ -348,6 +356,49 @@ extension CMUXCLI {
 
     static let agentInboxPollInterval: TimeInterval = 2
     static let agentInboxMaximumPollFailures = 300
+
+    private static func agentInboxDeferredClaim(
+        surfaceId: String,
+        via: String,
+        pollerKey: String,
+        client: SocketClient
+    ) -> (text: String, leaseID: String?) {
+        let payload = try? client.sendV2(
+            method: "agent.message.claim",
+            params: [
+                "surface_id": surfaceId,
+                "via": via,
+                "mark_delivered_read": false,
+                "defer_delivery": true,
+                "poller_key": pollerKey,
+            ],
+            responseTimeout: 3
+        )
+        return (
+            payload?["text"] as? String ?? "",
+            payload?["lease_id"] as? String
+        )
+    }
+
+    @discardableResult
+    private static func agentInboxAcknowledge(
+        surfaceId: String,
+        pollerKey: String,
+        leaseID: String,
+        via: String,
+        client: SocketClient
+    ) -> Bool {
+        (try? client.sendV2(
+            method: "agent.message.ack",
+            params: [
+                "surface_id": surfaceId,
+                "poller_key": pollerKey,
+                "lease_id": leaseID,
+                "via": via,
+            ],
+            responseTimeout: 3
+        )) != nil
+    }
 
     private static func agentInboxClaim(
         surfaceId: String,

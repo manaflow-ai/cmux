@@ -109,6 +109,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "agent.message.send",
         "agent.message.list",
         "agent.message.claim",
+        "agent.message.ack",
         "agent.message.mark_read",
         "agent.message.poll",
         "browser.download.list", "browser.download.wait",

@@ -45,7 +45,7 @@ struct ControlCommandExecutionPolicyTests {
             "auth.team.list", "auth.team.use", "auth.team.create",
             "feed.jump", "feed.push", "agent.hook.enqueue", "agent.hook.barrier",
             "agent.restore.admit", "agent.restore.release",
-            "agent.message.send", "agent.message.list", "agent.message.claim",
+            "agent.message.send", "agent.message.list", "agent.message.claim", "agent.message.ack",
             "agent.message.mark_read", "agent.message.poll",
             "browser.download.list", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
@@ -81,7 +81,7 @@ struct ControlCommandExecutionPolicyTests {
         }
         for method in [
             "agent.restore.admit", "agent.restore.release",
-            "agent.message.send", "agent.message.list", "agent.message.claim",
+            "agent.message.send", "agent.message.list", "agent.message.claim", "agent.message.ack",
             "agent.message.mark_read", "agent.message.poll",
         ] {
             #expect(

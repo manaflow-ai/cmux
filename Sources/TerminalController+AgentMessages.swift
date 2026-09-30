@@ -103,6 +103,8 @@ extension TerminalController {
             result = await agentMessageList(params: params)
         case "agent.message.claim":
             result = agentMessageClaim(params: params)
+        case "agent.message.ack":
+            result = agentMessageAck(params: params)
         case "agent.message.mark_read":
             result = agentMessageMarkRead(params: params)
         case "agent.message.poll":
@@ -276,6 +278,7 @@ extension TerminalController {
         }
         let via = Self.agentMessageTrimmed(params["via"]) ?? "hook"
         let messages: [AgentMessage]
+        var leaseID: String?
         if params["defer_delivery"] as? Bool == true {
             guard let pollerKey = Self.agentMessageTrimmed(params["poller_key"]),
                   let deferred = store.deferredMessages(
@@ -285,11 +288,36 @@ extension TerminalController {
                   ) else {
                 return .ok(["status": "superseded", "messages": [], "text": ""])
             }
-            messages = deferred
+            messages = deferred.messages
+            leaseID = deferred.id.isEmpty ? nil : deferred.id
         } else {
             messages = store.claimQueued(recipientSurfaceId: surfaceId, via: via)
         }
+        var payload: [String: Any] = [
+            "messages": messages.map(AgentMessageCenter.payload),
+            "text": messages.agentPromptText,
+        ]
+        if let leaseID {
+            payload["lease_id"] = leaseID
+        }
+        return .ok(payload)
+    }
+
+    private nonisolated func agentMessageAck(params: [String: Any]) -> V2CallResult {
+        guard let surfaceId = Self.agentMessageSurfaceUUID(params["surface_id"]),
+              let leaseID = Self.agentMessageTrimmed(params["lease_id"]),
+              let pollerKey = Self.agentMessageTrimmed(params["poller_key"]) else {
+            return Self.agentMessageMissingSurface()
+        }
+        let via = Self.agentMessageTrimmed(params["via"]) ?? "claude.wake"
+        let messages = AgentMessageCenter.store.acknowledgeDeferredLease(
+            id: leaseID,
+            recipientSurfaceId: surfaceId,
+            pollerKey: pollerKey,
+            via: via
+        )
         return .ok([
+            "status": "acknowledged",
             "messages": messages.map(AgentMessageCenter.payload),
             "text": messages.agentPromptText,
         ])

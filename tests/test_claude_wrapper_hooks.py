@@ -123,7 +123,7 @@ def generated_claude_hook_settings() -> str:
             direct(f"{direct_cli} hooks claude auto-name", 120, asynchronous=True),
             inbox_wait,
         ],
-        "StopFailure": [queued("stop")],
+        "StopFailure": [queued("stop"), inbox_wait],
         "SubagentStop": [queued("feed")],
         "SessionEnd": [queued("session-end")],
         "Notification": [queued("notification")],

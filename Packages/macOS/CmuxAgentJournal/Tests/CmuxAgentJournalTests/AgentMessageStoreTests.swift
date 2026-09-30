@@ -237,9 +237,31 @@ struct AgentMessageStoreTests {
         _ = try store.append(draft(to: "surface-b"))
         _ = store.poll(recipientSurfaceId: "surface-b", pollerKey: "poller-1", register: true)
 
-        #expect(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-1")?.count == 1)
+        #expect(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-1")?.messages.count == 1)
         #expect(store.claimQueued(recipientSurfaceId: "surface-b", via: "claude.prompt-submit").isEmpty)
         #expect(store.hasQueued(recipientSurfaceId: "surface-b"))
+    }
+
+    @Test("A deferred lease acknowledges delivery exactly once")
+    func deferredLeaseAcknowledgesDelivery() throws {
+        let store = AgentMessageStore(fileURL: nil)
+        let message = try store.append(draft(to: "surface-b"))
+        _ = store.poll(recipientSurfaceId: "surface-b", pollerKey: "poller-1", register: true)
+        let lease = try #require(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-1"))
+        #expect(store.poll(recipientSurfaceId: "surface-b", pollerKey: "poller-2", register: true) == .current(queued: 0))
+        #expect(store.acknowledgeDeferredLease(
+            id: lease.id,
+            recipientSurfaceId: "surface-b",
+            pollerKey: "poller-1",
+            via: "claude.wake"
+        ).map(\.id) == [message.id])
+        #expect(store.message(id: message.id)?.state == .delivered)
+        #expect(store.acknowledgeDeferredLease(
+            id: lease.id,
+            recipientSurfaceId: "surface-b",
+            pollerKey: "poller-1",
+            via: "claude.wake"
+        ).isEmpty)
     }
 
     @Test("Deferred messages are recipient-only and bound to the active poller")
@@ -249,7 +271,7 @@ struct AgentMessageStoreTests {
         _ = try store.append(draft(to: "surface-c", senderSurfaceId: "surface-b", body: "not for surface-b"))
         _ = store.poll(recipientSurfaceId: "surface-b", pollerKey: "poller-1", register: true)
 
-        #expect(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-1")?.map(\.id) == [intended.id])
+        #expect(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-1")?.messages.map(\.id) == [intended.id])
         #expect(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-2") == nil)
     }
 

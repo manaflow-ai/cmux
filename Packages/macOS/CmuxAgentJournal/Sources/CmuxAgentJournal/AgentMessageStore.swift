@@ -27,6 +27,19 @@ public enum AgentMessagePollOutcome: Sendable, Equatable {
     case superseded
 }
 
+/// A short-lived reservation of queued messages for a Claude wake hook.
+public struct AgentMessageDeferredLease: Sendable, Equatable {
+    /// Opaque token required to acknowledge the wake delivery.
+    public let id: String
+    /// Messages reserved by the wake hook, oldest first.
+    public let messages: [AgentMessage]
+
+    public init(id: String, messages: [AgentMessage]) {
+        self.id = id
+        self.messages = messages
+    }
+}
+
 /// Durable inbox of agent messages, keyed by recipient surface.
 ///
 /// Storage is an append-only JSON Lines file: one record per new message and
@@ -50,6 +63,7 @@ public enum AgentMessagePollOutcome: Sendable, Equatable {
 public final class AgentMessageStore: @unchecked Sendable {
     public static let retainedMessageCount = 2_000
     public static let compactionThreshold = 2_500
+    public static let deferredLeaseLifetime: TimeInterval = 30
 
     private struct Record: Codable {
         enum Kind: String, Codable {
@@ -63,6 +77,13 @@ public final class AgentMessageStore: @unchecked Sendable {
         var state: AgentMessageDeliveryState?
         var at: Date?
         var via: String?
+    }
+
+    private struct DeferredLease {
+        let surfaceId: String
+        let pollerKey: String
+        let messageIDs: [String]
+        let expiresAt: Date
     }
 
     private let fileURL: URL?
@@ -80,6 +101,9 @@ public final class AgentMessageStore: @unchecked Sendable {
     /// The poller that owns each recipient surface's inbox. In memory only:
     /// after a restart the first poller to check in adopts the surface.
     private var pollerBySurface: [String: String] = [:]
+    /// Queued messages handed to a wake hook stay reserved until the hook
+    /// acknowledges its short-lived lease or the lease expires.
+    private var deferredLeases: [String: DeferredLease] = [:]
 
     /// Opens the store at `fileURL`, or an in-memory store when `nil`.
     public init(
@@ -147,11 +171,47 @@ public final class AgentMessageStore: @unchecked Sendable {
     @discardableResult
     public func claimQueued(recipientSurfaceId: String, via: String) -> [AgentMessage] {
         let claimed = advance(
-            where: { $0.recipientSurfaceId == recipientSurfaceId && $0.state == .queued },
+            where: {
+                $0.recipientSurfaceId == recipientSurfaceId
+                    && $0.state == .queued
+                    && !isDeferredMessageReserved($0.id)
+            },
             to: .delivered,
             via: via
         )
         return claimed
+    }
+
+    /// Acknowledges a wake hook after it has written its rendered messages to
+    /// stderr. The lease owner may acknowledge after a newer poller replaces
+    /// it; an expired or unknown lease is ignored.
+    @discardableResult
+    public func acknowledgeDeferredLease(
+        id leaseID: String,
+        recipientSurfaceId: String,
+        pollerKey: String,
+        via: String
+    ) -> [AgentMessage] {
+        lock.lock()
+        pruneExpiredDeferredLeases()
+        guard let lease = deferredLeases[leaseID],
+              lease.surfaceId == recipientSurfaceId,
+              lease.pollerKey == pollerKey else {
+            lock.unlock()
+            return []
+        }
+        let messageIDs = Set(lease.messageIDs)
+        lock.unlock()
+        let delivered = advance(
+            where: { messageIDs.contains($0.id) && $0.recipientSurfaceId == recipientSurfaceId },
+            to: .delivered,
+            via: via,
+            allowDeferredLease: true
+        )
+        lock.lock()
+        deferredLeases.removeValue(forKey: leaseID)
+        lock.unlock()
+        return delivered
     }
 
     /// Marks the given messages read. Unknown ids and messages already read
@@ -227,26 +287,41 @@ public final class AgentMessageStore: @unchecked Sendable {
         return result
     }
 
-    /// Returns queued messages for the recipient when the poller still owns it.
-    /// A superseded poller gets `nil` so it cannot wake the same surface after
-    /// a newer hook has taken over.
+    /// Returns and reserves queued messages for the recipient when the poller
+    /// still owns it. A superseded poller gets `nil` so it cannot wake the same
+    /// surface after a newer hook has taken over. Reservations keep a
+    /// concurrent prompt hook from claiming the same messages after this wake
+    /// has rendered them.
     public func deferredMessages(
         recipientSurfaceId: String,
         pollerKey: String,
         limit: Int = 100
-    ) -> [AgentMessage]? {
+    ) -> AgentMessageDeferredLease? {
         lock.lock()
         defer { lock.unlock() }
+        pruneExpiredDeferredLeases()
         guard pollerBySurface[recipientSurfaceId] == pollerKey else { return nil }
+        let reserved = Set(deferredLeases.values.filter { $0.surfaceId == recipientSurfaceId }.flatMap(\.messageIDs))
         var result: [AgentMessage] = []
         for id in order {
             guard result.count < max(limit, 0) else { break }
             guard let message = messagesById[id],
                   message.recipientSurfaceId == recipientSurfaceId,
-                  message.state == .queued else { continue }
+                  message.state == .queued,
+                  !reserved.contains(id) else { continue }
             result.append(message)
         }
-        return result
+        guard !result.isEmpty else {
+            return AgentMessageDeferredLease(id: "", messages: [])
+        }
+        let leaseID = makeId()
+        deferredLeases[leaseID] = DeferredLease(
+            surfaceId: recipientSurfaceId,
+            pollerKey: pollerKey,
+            messageIDs: result.map(\.id),
+            expiresAt: now().addingTimeInterval(Self.deferredLeaseLifetime)
+        )
+        return AgentMessageDeferredLease(id: leaseID, messages: result)
     }
 
     // MARK: - Polling
@@ -259,6 +334,7 @@ public final class AgentMessageStore: @unchecked Sendable {
     public func poll(recipientSurfaceId: String, pollerKey: String, register: Bool) -> AgentMessagePollOutcome {
         lock.lock()
         defer { lock.unlock() }
+        pruneExpiredDeferredLeases()
         if register {
             pollerBySurface[recipientSurfaceId] = pollerKey
         } else if let owner = pollerBySurface[recipientSurfaceId], owner != pollerKey {
@@ -267,7 +343,9 @@ public final class AgentMessageStore: @unchecked Sendable {
             pollerBySurface[recipientSurfaceId] = pollerKey
         }
         let queued = messagesById.values.filter {
-            $0.recipientSurfaceId == recipientSurfaceId && $0.state == .queued
+            $0.recipientSurfaceId == recipientSurfaceId
+                && $0.state == .queued
+                && !isDeferredMessageReserved($0.id)
         }.count
         return .current(queued: queued)
     }
@@ -277,14 +355,17 @@ public final class AgentMessageStore: @unchecked Sendable {
     private func advance(
         where matches: (AgentMessage) -> Bool,
         to state: AgentMessageDeliveryState,
-        via: String?
+        via: String?,
+        allowDeferredLease: Bool = false
     ) -> [AgentMessage] {
         var changed: [AgentMessage] = []
         lock.lock()
+        pruneExpiredDeferredLeases()
         let at = now()
         for id in order {
             guard var message = messagesById[id],
                   matches(message),
+                  (allowDeferredLease || !isDeferredMessageReserved(id)),
                   message.state.canAdvance(to: state) else { continue }
             Self.apply(state: state, at: at, via: via, to: &message)
             messagesById[id] = message
@@ -429,6 +510,18 @@ public final class AgentMessageStore: @unchecked Sendable {
             messagesById.removeValue(forKey: id)
         }
         order = kept
+        deferredLeases = deferredLeases.filter { _, lease in
+            lease.messageIDs.allSatisfy { keptIDs.contains($0) && messagesById[$0] != nil }
+        }
         recordsSinceCompaction = 0
+    }
+
+    private func pruneExpiredDeferredLeases() {
+        let current = now()
+        deferredLeases = deferredLeases.filter { $0.value.expiresAt > current }
+    }
+
+    private func isDeferredMessageReserved(_ messageID: String) -> Bool {
+        deferredLeases.values.contains { $0.messageIDs.contains(messageID) }
     }
 }

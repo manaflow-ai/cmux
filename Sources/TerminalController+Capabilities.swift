@@ -271,6 +271,7 @@ extension TerminalController {
             "agent.message.send",
             "agent.message.list",
             "agent.message.claim",
+            "agent.message.ack",
             "agent.message.mark_read",
             "agent.message.poll",
             "debug.terminals",
