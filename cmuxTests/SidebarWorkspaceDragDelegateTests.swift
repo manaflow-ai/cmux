@@ -122,7 +122,7 @@ struct SidebarWorkspaceDragDelegateTests {
             surfaceResourceGroup: group,
             transferRegistry: registry
         )
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("workspace-surface-(UUID())"))
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("workspace-surface-\(UUID())"))
         defer {
             writer.releaseSourceGraph()
             pasteboard.clearContents()
