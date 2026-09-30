@@ -861,13 +861,11 @@ struct TaskComposerSheet: View {
             provider: provider,
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
-        ) ?? MobileTaskModelListResult(
-            models: [], source: .fallback, defaultModel: displayedDefaultModel
-        )
+        ) ?? MobileTaskModelListResult(models: [], source: .fallback)
         // Keep a usable cached catalog visible while the host and backend are
         // refreshed. An authoritative host result replaces it in place.
         displayedModels = cachedResult.models
-        displayedDefaultModel = cachedResult.defaultModel ?? displayedDefaultModel
+        displayedDefaultModel = cachedResult.defaultModel
         displayedModelError = cachedResult.error
         reconcileSelectedEffort()
         modelRefreshTask = Task {
@@ -889,7 +887,9 @@ struct TaskComposerSheet: View {
                               modelRefreshOperationID == operationID,
                               modelRefreshID == refreshID else { return }
                         displayedModels = result.models
-                        displayedDefaultModel = result.defaultModel ?? displayedDefaultModel
+                        displayedDefaultModel = result.defaultModel ?? (
+                            result.error != nil ? displayedDefaultModel : nil
+                        )
                         displayedModelError = result.error
                         reconcileSelectedEffort()
                     }
@@ -931,7 +931,9 @@ struct TaskComposerSheet: View {
                 instanceTag: instanceTag
             ) {
                 displayedModels = refreshedResult.models
-                displayedDefaultModel = refreshedResult.defaultModel ?? displayedDefaultModel
+                displayedDefaultModel = refreshedResult.defaultModel ?? (
+                    refreshedResult.error != nil ? displayedDefaultModel : nil
+                )
                 displayedModelError = refreshedResult.error
                 reconcileSelectedEffort()
             }
