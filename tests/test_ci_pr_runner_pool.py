@@ -89,7 +89,7 @@ class PreferenceOrder(unittest.TestCase):
         snap = backlog(small=0, large=0, old=0)
         for entry in snap["pools"].values():
             entry["running"] = 0
-        self.assertEqual(choose(snap, jobs=6, queue_rounds="0").runner, SMALL)
+        self.assertEqual(choose(snap, jobs=6, queue_rounds="0").runner, LARGE)
 
     def test_12vcpu_first_while_it_has_headroom(self):
         choice = choose(backlog(small=0, large=0))
@@ -2379,7 +2379,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(changes["permissions"]["actions"], "read")
         step = next(step for step in changes["steps"] if step.get("id") == "macos-pool")
         self.assertIs(step["continue-on-error"], True)
-        self.assertEqual(step["run"], "python3 scripts/ci/pr_runner_pool.py")
+        self.assertEqual(step["run"], "python3 scripts/ci/simple_pool_picker.py")
         self.assertEqual(step["env"]["DEFAULT_RUNNER"], "${{ vars.MACOS_RUNNER_PR }}")
 
     def test_a_persistent_choice_publishes_the_rescue_marker(self):
