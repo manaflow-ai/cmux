@@ -94,6 +94,7 @@ export class AcpmuxDirectClient {
   private opening = false;
   private hasConnected = false;
   private closed = false;
+  private selectionGeneration = 0;
 
   private constructor(host: AcpmuxHostConfig, listener: Listener) {
     this.host = host;
@@ -189,9 +190,11 @@ export class AcpmuxDirectClient {
 
   private async attach(sessionId: string, beforeSeq?: number): Promise<void> {
     this.selectedSessionId = sessionId;
+    const generation = this.selectionGeneration;
     const params: Record<string, unknown> = { sessionId, limit: 400, kinds: ["transcript"], eventStream: true };
     if (beforeSeq !== undefined) params.beforeSeq = beforeSeq;
     const result = await this.request("_acpmux/attach", params);
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
     const detail = result?.session ?? {};
     this.summary = detail;
     this.queue = (detail.queue ?? []).map((entry: any) => ({ id: String(entry.promptId), prompt: String(entry.prompt ?? "") }));
@@ -321,6 +324,7 @@ export class AcpmuxDirectClient {
   async permission(permissionId: string, optionId: string): Promise<void> { if (this.selectedSessionId) await this.request("_acpmux/permission_respond", { sessionId: this.selectedSessionId, permissionId, optionId }); }
   async select(sessionId: string): Promise<string> {
     const previousSessionId = this.selectedSessionId;
+    this.selectionGeneration += 1;
     this.selectedSessionId = sessionId;
     this.events = [];
     this.rows.clear();
