@@ -42,14 +42,26 @@ import Testing
         defer { harness.tearDown() }
 
         let panelsBefore = harness.workspace.panels.count
-
-        let panel = harness.workspace.newTerminalSplit(
+        let before = splitDiagnostics(
+            "local-split before", appDelegate: harness.appDelegate, windowId: harness.windowId,
+            workspace: harness.workspace, panelId: harness.sourcePanelId
+        )
+        let outcome = harness.workspace.newTerminalSplitOutcome(
             from: harness.sourcePanelId,
             orientation: .horizontal,
             focus: false
         )
+        let after = splitDiagnostics(
+            "local-split after outcome=\(outcome)", appDelegate: harness.appDelegate, windowId: harness.windowId,
+            workspace: harness.workspace, panelId: harness.sourcePanelId
+        )
+        print(before)
+        print(after)
+        NSLog("%@", before + "\n" + after)
+        let panel: TerminalPanel?
+        if case .created(let created) = outcome { panel = created } else { panel = nil }
 
-        #expect(panel != nil)
+        #expect(panel != nil, Comment(rawValue: before + "\n" + after))
         #expect(harness.workspace.panels.count == panelsBefore + 1)
     }
 
@@ -251,4 +263,35 @@ import Testing
             }
         }
     }
+}
+
+/// Diagnostics-only helper (issue 15488 investigation branch; never merged).
+@MainActor
+func splitDiagnostics(
+    _ label: String,
+    appDelegate: AppDelegate,
+    windowId: UUID,
+    workspace: Workspace,
+    panelId: UUID
+) -> String {
+    var lines: [String] = ["[split-diag] \(label)"]
+    let screen = NSScreen.main
+    lines.append("[split-diag] screen.frame=\(String(describing: screen?.frame)) visible=\(String(describing: screen?.visibleFrame)) screens=\(NSScreen.screens.map { "\($0.frame)" })")
+    let identifier = "cmux.main.\(windowId.uuidString)"
+    let window = NSApp.windows.first { $0.identifier?.rawValue == identifier }
+    lines.append("[split-diag] window.frame=\(String(describing: window?.frame)) content=\(String(describing: window?.contentView?.bounds)) key=\(window?.isKeyWindow ?? false) visible=\(window?.isVisible ?? false) minSize=\(String(describing: window?.minSize))")
+    let defaults = UserDefaults.standard
+    lines.append("[split-diag] defaults fileExplorer.isVisible=\(String(describing: defaults.object(forKey: "fileExplorer.isVisible"))) fileExplorer.width=\(String(describing: defaults.object(forKey: "fileExplorer.width"))) rightSidebar.mode=\(String(describing: defaults.object(forKey: "rightSidebar.mode")))")
+    if let context = appDelegate.mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+        let files = context.fileExplorerState
+        lines.append("[split-diag] leftSidebar visible=\(context.sidebarState.isVisible) width=\(context.sidebarState.persistedWidth) rightSidebar visible=\(String(describing: files?.isVisible)) autoCollapsed=\(String(describing: files?.isAutoCollapsed)) mode=\(String(describing: files?.mode)) width=\(String(describing: files?.width)) windowDock=\(context.windowDock != nil)")
+    } else {
+        lines.append("[split-diag] no main window context for \(windowId)")
+    }
+    let layout = workspace.bonsplitController.layoutSnapshot()
+    lines.append("[split-diag] bonsplit container=\(layout.containerFrame) panes=\(layout.panes.map { "\($0.paneId.prefix(5)):\($0.frame)" })")
+    lines.append("[split-diag] minimum=\(workspace.splitMinimumPaneSize) divider=\(workspace.bonsplitController.configuration.appearance.dividerThickness) minPaneW=\(workspace.bonsplitController.configuration.appearance.minimumPaneWidth) tabBarH=\(workspace.bonsplitController.configuration.appearance.tabBarHeight) verdictH=\(workspace.splitSpaceVerdict(splittingPanel: panelId, orientation: .horizontal)) verdictV=\(workspace.splitSpaceVerdict(splittingPanel: panelId, orientation: .vertical)) layoutMode=\(workspace.layoutMode) retired=\(workspace.isRetiredFromOwningTabManager) mirror=\(workspace.isRemoteTmuxMirror)")
+    let mains = NSApp.windows.filter { ($0.identifier?.rawValue ?? "").hasPrefix("cmux.main.") }
+    lines.append("[split-diag] mainWindows=\(mains.count) \(mains.map { "\(Int($0.frame.width))x\(Int($0.frame.height))\($0.isKeyWindow ? "*key" : "")\($0.isVisible ? "" : "(hidden)")" }) allWindows=\(NSApp.windows.count) key=\(String(describing: NSApp.keyWindow?.identifier?.rawValue)) contexts=\(appDelegate.mainWindowContexts.count)")
+    return lines.joined(separator: "\n")
 }

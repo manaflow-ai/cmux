@@ -490,10 +490,21 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         guard let window = window(withId: windowId),
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
-              let leftPanelId = workspace.focusedPanelId,
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
-              workspace.newTerminalSplit(from: rightPanel.id, orientation: .horizontal) != nil else {
-            XCTFail("Expected asymmetric horizontal split setup")
+              let leftPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected window/workspace")
+            return
+        }
+        let diagBefore = splitDiagnostics(
+            "equalize before", appDelegate: appDelegate, windowId: windowId,
+            workspace: workspace, panelId: leftPanelId
+        )
+        print(diagBefore)
+        guard let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected asymmetric horizontal split setup (first split)\n\(diagBefore)\n\(splitDiagnostics("equalize after-first", appDelegate: appDelegate, windowId: windowId, workspace: workspace, panelId: leftPanelId))")
+            return
+        }
+        guard workspace.newTerminalSplit(from: rightPanel.id, orientation: .horizontal) != nil else {
+            XCTFail("Expected asymmetric horizontal split setup (second split)\n\(diagBefore)\n\(splitDiagnostics("equalize after-second", appDelegate: appDelegate, windowId: windowId, workspace: workspace, panelId: rightPanel.id))")
             return
         }
 
