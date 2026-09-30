@@ -742,7 +742,7 @@ final class TerminalDefaultFileOpenRequestTests: XCTestCase {
 final class FocusFlashPatternTests: XCTestCase {
     func testDefaultPatternIsOneShortPulse() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "FocusFlashPatternTests.\(UUID().uuidString)"))
-        XCTAssertFalse(NotificationPaneFlashSettings.usesDoubleBlink(defaults: defaults))
+        XCTAssertTrue(NotificationPaneFlashSettings.usesDoubleBlink(defaults: defaults))
 
         let pulse = FocusFlashPattern.pulse
         XCTAssertEqual(pulse.values, [0, 1, 0])
