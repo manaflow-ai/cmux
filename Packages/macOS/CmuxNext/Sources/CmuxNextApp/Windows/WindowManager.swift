@@ -33,9 +33,11 @@ final class WindowManager {
     var pendingClaims: [String: String] = [:]
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
-    /// Windows created for workspaces the daemon has not reported yet: kept
-    /// off screen until their content is installed, so no window ever shows
-    /// without a workspace. The value asks for bring-to-front on present.
+    /// Windows none of whose workspaces a machine reports yet (just created,
+    /// or saved with workspaces that are gone or on a Cloud machine still
+    /// connecting): kept off screen until their content is installed, so no
+    /// window ever shows without a workspace. The value asks for
+    /// bring-to-front on present.
     var awaitingContent: [String: Bool] = [:]
     /// Transitions that broke a window invariant (`WindowInvariants`).
     private(set) var invariantViolations = 0
@@ -157,6 +159,13 @@ final class WindowManager {
         // it has none (the daemon failed to create one), it keeps showing
         // the startup state and is registered when workspaces arrive.
         if let launch = launchWindowID, registry.value.window(launch) != nil { launchWindowID = nil }
+        // Other windows took every workspace: the unregistered launch window
+        // has nothing to show and closes.
+        if let launch = launchWindowID, !registry.value.windows.isEmpty, let controller = controller(for: launch) {
+            launchWindowID = nil
+            states[launch] = nil
+            closeProgrammatically(controller)
+        }
         // The adopted window is the frontmost saved one; keep it in front.
         if let adopted, controllers.count > 1 { present(adopted) }
         observeMembership()
@@ -166,7 +175,11 @@ final class WindowManager {
     /// state, so relaunch shows it without opening a second window. With
     /// nothing saved it stays the only window and receives every workspace.
     private func adoptLaunchWindow(_ restored: WindowRegistry, records: [WindowRecord]) -> WindowController? {
-        guard let launchID = launchWindowID, let launch = controller(for: launchID), let front = restored.recency.first,
+        // The frontmost saved window that can show a workspace now; one whose
+        // workspaces are gone or still connecting would leave the launch
+        // window on screen with nothing to show.
+        guard let launchID = launchWindowID, let launch = controller(for: launchID),
+              let front = restored.recency.first(where: { id in restored.window(id).map(hasMirroredWorkspace) == true }),
               let record = records.first(where: { $0.id == front }) else { return nil }
         launch.state.adopt(record)
         launchWindowID = front
@@ -195,14 +208,21 @@ final class WindowManager {
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         services.dragSession.installWorkspaceHandoff(on: controller)
         controllers.append(controller)
-        // A window created for workspaces the daemon has not reported yet
-        // stays off screen until `contentDidAppear` (never an empty frame).
-        let waiting = !window.workspaceIDs.isEmpty && window.workspaceIDs.allSatisfy {
-            pendingClaims[$0] != nil && services.machines.workspace(id: $0) == nil
+        // A window none of whose workspaces is mirrored yet stays off screen
+        // until `contentDidAppear` (never an empty frame). The launch window
+        // (no workspaces) shows the connecting state at once.
+        if hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
+            present(controller)
+        } else {
+            awaitingContent[window.id] = false
         }
-        if waiting { awaitingContent[window.id] = false } else { present(controller) }
         if controllers.count == 1 { onFirstWindow?(controller) }
         return controller
+    }
+
+    /// True when a machine reports at least one of `window`'s workspaces.
+    func hasMirroredWorkspace(_ window: WindowRegistry.Window) -> Bool {
+        window.workspaceIDs.contains { services.machines.workspace(id: $0) != nil }
     }
 
     /// The window installed its first workspace content: a window kept off

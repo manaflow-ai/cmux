@@ -20,6 +20,9 @@ enum WindowInvariants {
             }
             if !window.isOpen { problems.append("window \(id) is on screen but closed") }
             if window.workspaceIDs.isEmpty { problems.append("window \(id) has 0 workspaces") }
+            if manager.awaitingContent[id] == nil, !window.workspaceIDs.isEmpty, !manager.hasMirroredWorkspace(window) {
+                problems.append("window \(id) is presented but none of its workspaces is mirrored")
+            }
         }
         for window in value.openWindows where manager.controller(for: window.id) == nil {
             problems.append("open window \(window.id) has no controller")
