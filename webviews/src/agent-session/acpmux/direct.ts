@@ -381,16 +381,27 @@ export class AcpmuxDirectClient {
     const update = sessionUpdate(event);
     if (event.dir === "mux") {
       if (event.kind === "user_message") {
-        this.turnToolCount = 0;
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
         const text = typeof msg.text === "string" ? msg.text : undefined;
         const fallbackPromptId = promptId ?? (text ? [...this.optimisticPromptTexts.entries()].find(([, value]) => value === text)?.[0] : undefined);
         settleOptimisticPrompt(this.rows, this.optimisticPromptRows, { ...msg, promptId: fallbackPromptId });
         if (fallbackPromptId) this.optimisticPromptTexts.delete(fallbackPromptId);
         this.queue = removeQueuedPrompt(this.queue, fallbackPromptId ?? promptId, text);
-        this.rows.set(`user-${event.seq}`, { id: `user-${event.seq}`, version: 1, at: event.at, kind: "user", text: String(msg.text ?? "") }); this.turnOpen = true; this.turnStartedAt ??= event.at; this.sawUserMessage = true; this.streamingUserMessage = undefined;
+        const steersRunningTurn = msg.steer === true && this.turnOpen;
+        if (!steersRunningTurn) {
+          if (this.turnOpen && (this.streamingAssistant || this.streamingActivity || this.turnToolCount > 0)) {
+            const summaryId = `summary-${event.seq}-prior`;
+            this.rows.set(summaryId, { id: summaryId, version: 1, at: event.at, kind: "turnSummary", durationMs: this.turnStartedAt === undefined ? undefined : Math.max(0, event.at - this.turnStartedAt), toolCount: this.turnToolCount || undefined, status: "completed" });
+          }
+          this.turnToolCount = 0;
+          this.turnStartedAt = event.at;
+          this.streamingAssistant = undefined;
+          this.streamingAssistantMessageId = undefined;
+          this.streamingActivity = undefined;
+        }
+        this.rows.set(`user-${event.seq}`, { id: `user-${event.seq}`, version: 1, at: event.at, kind: "user", text: String(msg.text ?? "") }); this.turnOpen = true; this.sawUserMessage = true; this.streamingUserMessage = undefined;
       }
-      else if (event.kind === "turn_started") { this.turnOpen = true; this.turnToolCount = 0; this.turnStartedAt = event.at; this.turnSummaryIds.delete("__current"); this.sawUserMessage = false; this.streamingUserMessage = undefined; this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" }); }
+      else if (event.kind === "turn_started") { if (this.turnOpen && (this.streamingAssistant || this.streamingActivity || this.turnToolCount > 0)) { const summaryId = `summary-${event.seq}-prior`; this.rows.set(summaryId, { id: summaryId, version: 1, at: event.at, kind: "turnSummary", durationMs: this.turnStartedAt === undefined ? undefined : Math.max(0, event.at - this.turnStartedAt), toolCount: this.turnToolCount || undefined, status: "completed" }); } this.turnOpen = true; this.turnToolCount = 0; this.turnStartedAt = event.at; this.turnSummaryIds.delete("__current"); this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; this.sawUserMessage = false; this.streamingUserMessage = undefined; this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" }); }
       else if (event.kind === "message_superseded") {
         const oldMessageId = typeof msg.oldMessageId === "string" ? msg.oldMessageId : undefined;
         if (oldMessageId) {
@@ -399,7 +410,7 @@ export class AcpmuxDirectClient {
         }
       }
       else if (event.kind === "turn_end" || event.kind === "turn_result") {
-        if (!this.turnOpen && this.turnStartedAt === undefined) return;
+        if (!this.turnOpen && this.turnStartedAt === undefined && !this.turnSummaryIds.has("__current")) return;
         this.turnOpen = false;
         if (this.streamingAssistant) { const row = this.rows.get(this.streamingAssistant); if (row) this.rows.set(row.id, { ...row, streaming: false, version: row.version + 1 }); }
         this.rows.delete("typing");
@@ -453,7 +464,7 @@ export class AcpmuxDirectClient {
       }
       const id = sameMessage ? this.streamingAssistant! : `assistant-${event.seq}`;
       const existing = this.rows.get(id);
-      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "assistant", text: `${existing?.text ?? ""}${text}`, streaming: true }); this.streamingAssistant = id; this.streamingAssistantMessageId = messageId; if (messageId) this.messageRows.set(messageId, id); this.chunkSeqsByRow.set(id, [...(this.chunkSeqsByRow.get(id) ?? []), event.seq]); this.rows.delete("typing");
+      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "assistant", text: `${existing?.text ?? ""}${text}`, streaming: true }); this.streamingAssistant = id; this.streamingActivity = undefined; this.streamingAssistantMessageId = messageId; if (messageId) this.messageRows.set(messageId, id); this.chunkSeqsByRow.set(id, [...(this.chunkSeqsByRow.get(id) ?? []), event.seq]); this.rows.delete("typing");
     } else if (event.kind === "agent_thought_chunk" && text) {
       const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id);
       const items = [...(existing?.items ?? [])]; const previous = items.at(-1);
