@@ -4109,6 +4109,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configuration: config,
             tabDragTransferRegistry: tabDragTransferRegistry
         )
+        self.bonsplitController.tabMiddleClickCapture = { onMiddleClick in
+            AnyView(MiddleClickCapture(onMiddleClick: onMiddleClick))
+        }
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
@@ -14977,12 +14980,16 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             copyIdentifiersToPasteboard(surfaceId: panelId)
         case .close:
+            guard controller.configuration.allowCloseTabs, !tab.isPinned else { return }
             closeTabsFromContextMenu([tab.id])
         case .closeToLeft:
+            guard controller.configuration.allowCloseTabs else { return }
             closeTabs(tabIdsToLeft(of: tab.id, inPane: pane))
         case .closeToRight:
+            guard controller.configuration.allowCloseTabs else { return }
             closeTabs(tabIdsToRight(of: tab.id, inPane: pane))
         case .closeOthers:
+            guard controller.configuration.allowCloseTabs else { return }
             closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
         case .move:
             if let destination = bonsplitTabMoveDestinations(for: tab.id).first {

@@ -93,6 +93,25 @@ struct WorkspaceCloseTabsContextMenuTests {
     }
 
     @Test
+    func closeTabContextActionRespectsDisabledTabClosing() throws {
+        try withCleanClosedHistory {
+            let fixture = try makeWorkspaceWithFourConfirmingTabs()
+            fixture.workspace.bonsplitController.configuration.allowCloseTabs = false
+            let tabId = fixture.tabIds[2]
+            let tab = try #require(fixture.workspace.bonsplitController.tab(tabId))
+
+            fixture.workspace.splitTabBar(
+                fixture.workspace.bonsplitController,
+                didRequestTabContextAction: .close,
+                for: tab,
+                inPane: fixture.paneId
+            )
+
+            #expect(fixture.workspace.panelIdFromSurfaceId(tabId) != nil)
+        }
+    }
+
+    @Test
     func activeProcessStillWarnsWhenShortcutWarningIsDisabled() async throws {
         try await withCleanClosedHistory {
             let fixture = try makeWorkspaceWithFourConfirmingTabs()

@@ -355,6 +355,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             configuration: Self.makeConfiguration(),
             tabDragTransferRegistry: tabDragTransferRegistry
         )
+        self.bonsplitController.tabMiddleClickCapture = { onMiddleClick in
+            AnyView(MiddleClickCapture(onMiddleClick: onMiddleClick))
+        }
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
         self.bonsplitController.contextMenuShortcuts = Workspace.buildContextMenuShortcuts()
