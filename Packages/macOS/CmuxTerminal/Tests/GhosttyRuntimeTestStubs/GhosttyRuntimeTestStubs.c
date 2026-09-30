@@ -547,7 +547,7 @@ bool ghostty_surface_grid_metrics(void *surface, void *metrics) {
     return false;
 }
 void ghostty_surface_has_selection(void) {}
-bool ghostty_surface_key(void *surface, ghostty_input_key_s key_event) {
+bool ghostty_surface_key(void *surface, cmux_test_ghostty_input_key_s key_event) {
     (void)surface;
     cmux_test_surface_key_called = true;
     cmux_test_surface_key_mods_value = key_event.mods;

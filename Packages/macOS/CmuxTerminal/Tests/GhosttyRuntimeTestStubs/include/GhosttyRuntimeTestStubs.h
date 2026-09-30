@@ -79,8 +79,8 @@ typedef struct {
   const char* text;
   uint32_t unshifted_codepoint;
   bool composing;
-} ghostty_input_key_s;
-bool ghostty_surface_key(void *surface, ghostty_input_key_s key_event);
+} cmux_test_ghostty_input_key_s;
+bool ghostty_surface_key(void *surface, cmux_test_ghostty_input_key_s key_event);
 void ghostty_surface_mouse_button(void);
 void ghostty_surface_mouse_pos(void);
 void ghostty_surface_mouse_scroll(void);
