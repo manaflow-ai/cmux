@@ -11488,6 +11488,7 @@ struct VerticalTabsSidebar: View, Equatable {
     let chromeBackgroundColor: NSColor
     var observedWindow: NSWindow? { observedWindowReference.window }
     @EnvironmentObject var tabManager: TabManager
+    @EnvironmentObject var sidebarState: SidebarState
     // Plain reference by design. Native row and titlebar subscribers own the
     // unread invalidation boundary, so this O(workspaces) root stays inert.
     var notificationStore: TerminalNotificationStore { .shared }
