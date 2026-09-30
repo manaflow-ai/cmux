@@ -235,7 +235,7 @@ extension ControlSidebarContext {
         .noTabSelected
     }
 
-    func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution { .noTabSelected }
+    func controlSidebarCloseSurface(surfaceArg: String?, force: Bool) -> ControlSidebarCloseSurfaceResolution { .noTabSelected }
 
     func controlSidebarReloadConfig(
         completion: @escaping @MainActor () -> Void

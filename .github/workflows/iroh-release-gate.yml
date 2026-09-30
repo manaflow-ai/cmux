@@ -341,6 +341,10 @@ jobs:
           chmod 600 "$production_env"
 
       - name: Run Iroh gate
+        # Every non-soak phase is capped at 25 minutes. Stress soaks retain
+        # their one-hour workload window while the gate script bounds each
+        # setup, build, and launch phase separately.
+        timeout-minutes: ${{ inputs.soak_profile == 'stress' && 75 || 25 }}
         env:
           # The hosted runner does not have cmuxterm-hq's tagged-backend
           # helper. The explicit Worker origin remains the app's API and v2
