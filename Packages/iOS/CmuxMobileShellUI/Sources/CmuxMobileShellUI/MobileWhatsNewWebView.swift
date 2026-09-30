@@ -3,50 +3,46 @@ import CmuxMobileSupport
 import SwiftUI
 import WebKit
 
-/// Whether a What's New webpage may load `url`: https on an allowlisted
-/// cmux-owned host, or plain http only for a loopback development host that
-/// is itself allowlisted (how local dev servers are addressed). One policy
-/// covers the initial page and every subsequent navigation, so an https page
-/// cannot downgrade to plaintext through a link or redirect.
-func whatsNewWebURLAllowed(_ url: URL, allowedHosts: Set<String>) -> Bool {
-    guard let host = url.host?.lowercased(), allowedHosts.contains(host) else { return false }
-    switch url.scheme?.lowercased() {
-    case "https":
-        return true
-    case "http":
-        return host == "localhost" || host == "127.0.0.1"
-    default:
-        return false
-    }
-}
-
-/// Minimal in-app webview for What's New web pages: cmux-owned hosts only,
-/// system-background appearance so remote pages match the app, a quiet
-/// offline placeholder with a retry control instead of an error shell, and a
-/// bounded load deadline so a stalled page cannot stay blank forever.
-/// Navigation away from the allowlisted hosts is cancelled.
+/// Minimal in-app webview for What's New web pages, rendering a
+/// ``MobileWhatsNewWebPageLoad``: cmux-owned hosts only, system-background
+/// appearance so remote pages match the app, a quiet offline placeholder
+/// with a retry control instead of an error shell, and a bounded load
+/// deadline so a stalled page cannot stay blank forever.
+///
+/// The one-time launch sheet passes a load it already finished BEFORE
+/// presenting (`preloadedLoad`), so the page renders the instant the sheet
+/// appears. Without one (the Settings archive push, a retry), the view
+/// creates its own load in place: the page renders as the signed-in app
+/// user via the environment's `mobileWebAppSession` session exchange, or as
+/// an anonymous visitor when no session is available. Try Again always
+/// starts a fresh load with a fresh session exchange, which also recovers
+/// an expired session. The webview follows the app's resolved light/dark
+/// appearance and flips live when it changes.
 struct MobileWhatsNewWebView: View {
-    /// One webview load lifecycle: loading until the page finishes, then
-    /// loaded; failed on error or when the load deadline passes first.
-    private enum LoadPhase: Equatable {
-        case loading
-        case loaded
-        case failed
-    }
-
     let url: URL
     let allowedHosts: Set<String>
-    /// Deadline for the initial page load; after it the quiet failure state
-    /// with the retry control replaces the (possibly blank) webview.
+    /// A load finished before this view was surfaced. The sheet path never
+    /// shows loading UI because presentation already gated on this load's
+    /// outcome.
+    var preloadedLoad: MobileWhatsNewWebPageLoad?
+    /// Deadline for an in-place load, including the session exchange; after
+    /// it the quiet failure state with the retry control replaces the
+    /// (possibly blank) webview.
     var loadDeadline: Duration = .seconds(20)
-    @State private var phase: LoadPhase = .loading
+    @Environment(\.mobileWebAppSession) private var webAppSession
+    @Environment(\.colorScheme) private var colorScheme
     @State private var attempt = 0
+    @State private var localLoad: (attempt: Int, load: MobileWhatsNewWebPageLoad)?
+
+    private var load: MobileWhatsNewWebPageLoad? {
+        localLoad?.load ?? preloadedLoad
+    }
 
     var body: some View {
         ZStack {
             PlatformPalette.systemBackground
                 .ignoresSafeArea()
-            if phase == .failed {
+            if load?.phase == .failed {
                 VStack(spacing: 12) {
                     Image(systemName: "wifi.slash")
                         .font(.title2)
@@ -60,7 +56,6 @@ struct MobileWhatsNewWebView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     Button {
-                        phase = .loading
                         attempt += 1
                     } label: {
                         Text(L10n.string(
@@ -73,97 +68,59 @@ struct MobileWhatsNewWebView: View {
                 }
                 .padding(32)
                 .accessibilityIdentifier("MobileWhatsNewWebUnavailable")
-            } else {
-                WhatsNewWebViewRepresentable(
-                    url: url,
-                    allowedHosts: allowedHosts,
-                    onFinish: { phase = .loaded },
-                    onFailure: { phase = .failed }
-                )
-                .id(attempt)
-                .task(id: attempt) {
-                    // Bounded deadline for the initial load; cancelled with
-                    // the view (and superseded by a retry) via task identity.
-                    guard (try? await ContinuousClock().sleep(for: loadDeadline)) != nil else { return }
-                    if phase == .loading { phase = .failed }
-                }
+            } else if let load {
+                WhatsNewWebViewInstaller(webView: load.webView)
+                    .id(ObjectIdentifier(load))
             }
+        }
+        .task(id: attempt) {
+            startLoadIfNeeded()
         }
         .accessibilityIdentifier("MobileWhatsNewWebView")
     }
+
+    /// Creates this attempt's in-place load. Attempt 0 defers to a preloaded
+    /// page when one exists; re-appearances (sheet page swipes, navigation
+    /// returns) keep the existing load and its webview instead of reloading
+    /// the page.
+    private func startLoadIfNeeded() {
+        if attempt == 0, preloadedLoad != nil { return }
+        guard localLoad?.attempt != attempt else { return }
+        localLoad = (
+            attempt: attempt,
+            load: MobileWhatsNewWebPageLoad(
+                url: url,
+                allowedHosts: allowedHosts,
+                webAppSession: webAppSession,
+                deadline: loadDeadline,
+                initialInterfaceStyle: colorScheme == .dark ? .dark : .light
+            )
+        )
+    }
 }
 
-private struct WhatsNewWebViewRepresentable: UIViewRepresentable {
-    let url: URL
-    let allowedHosts: Set<String>
-    let onFinish: @MainActor () -> Void
-    let onFailure: @MainActor () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(allowedHosts: allowedHosts, onFinish: onFinish, onFailure: onFailure)
-    }
+/// Installs an externally owned webview and keeps it pinned to the APP's
+/// resolved appearance (the SwiftUI environment's color scheme, which
+/// reflects the system setting plus any in-app override up the hierarchy)
+/// instead of the raw device trait, so the page's `prefers-color-scheme`
+/// and its dynamic system colors always match the surrounding chrome.
+/// `updateUIView` reads the environment again on every SwiftUI update, so
+/// an appearance change flips the live page immediately.
+private struct WhatsNewWebViewInstaller: UIViewRepresentable {
+    let webView: WKWebView
 
     func makeUIView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.navigationDelegate = context.coordinator
-        webView.isOpaque = false
-        webView.backgroundColor = .systemBackground
-        webView.scrollView.backgroundColor = .systemBackground
-        webView.allowsBackForwardNavigationGestures = false
-        webView.load(URLRequest(url: url))
+        applyResolvedAppearance(to: webView, context: context)
         return webView
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {}
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        applyResolvedAppearance(to: webView, context: context)
+    }
 
-    @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate {
-        private let allowedHosts: Set<String>
-        private let onFinish: @MainActor () -> Void
-        private let onFailure: @MainActor () -> Void
-
-        init(
-            allowedHosts: Set<String>,
-            onFinish: @escaping @MainActor () -> Void,
-            onFailure: @escaping @MainActor () -> Void
-        ) {
-            self.allowedHosts = allowedHosts
-            self.onFinish = onFinish
-            self.onFailure = onFailure
-        }
-
-        func webView(
-            _ webView: WKWebView,
-            decidePolicyFor navigationAction: WKNavigationAction
-        ) async -> WKNavigationActionPolicy {
-            guard let url = navigationAction.request.url,
-                  whatsNewWebURLAllowed(url, allowedHosts: allowedHosts) else {
-                return .cancel
-            }
-            return .allow
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            onFinish()
-        }
-
-        func webView(
-            _ webView: WKWebView,
-            didFailProvisionalNavigation navigation: WKNavigation!,
-            withError error: Error
-        ) {
-            onFailure()
-        }
-
-        func webView(
-            _ webView: WKWebView,
-            didFail navigation: WKNavigation!,
-            withError error: Error
-        ) {
-            onFailure()
-        }
+    private func applyResolvedAppearance(to webView: WKWebView, context: Context) {
+        webView.overrideUserInterfaceStyle =
+            context.environment.colorScheme == .dark ? .dark : .light
     }
 }
 #endif

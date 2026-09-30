@@ -1,13 +1,12 @@
+import CMUXMobileCore
 internal import CmuxMobileDiagnostics
 import CmuxMobilePairedMac
+import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 
 @MainActor
 extension MobileShellComposite {
-    /// Limits one automatic launch pass so stale live registrations cannot make
-    /// the restoring state scale with an account's full development fleet.
-    static let maximumAutomaticIrohCandidateCount = 4
-
     /// Loads first-pair candidates from the current authenticated broker view.
     ///
     /// These transient rows are never written here. ``connectStoredMac`` still
@@ -18,11 +17,7 @@ extension MobileShellComposite {
         generation: Int,
         excluding pairingIDs: Set<String>
     ) async -> [MobilePairedMac] {
-        // Discovery only yields Iroh-route candidates. Skip the broker
-        // round-trip only when the app default AND every stored Computer's
-        // per-pairing method is Tailscale — one Iroh Computer keeps it alive.
-        guard !zeroTouchIrohDiscoveryDisabled,
-              let personalIrohDiscovery else { return [] }
+        guard let personalIrohDiscovery else { return [] }
         let discovered = await personalIrohDiscovery.discoverLiveMacs()
         guard generation == storedMacReconnectGeneration,
               await isScopeCurrent(scope) else { return [] }
@@ -34,20 +29,94 @@ extension MobileShellComposite {
         )
     }
 
+    /// Dials one discovered Mac with the exact client the foreground connect
+    /// would build for its first route, and waits for its first response.
+    ///
+    /// The returned client is handed to ``connectStoredMacOutcome`` which
+    /// authenticates on it, so racing every candidate still opens only one
+    /// transport per Mac. No shell state changes here; a dial failure only
+    /// records the automatic-reconnect backoff its error requests.
+    func dialZeroTouchCandidate(
+        _ mac: MobilePairedMac,
+        automaticReconnectAccountID: String,
+        track: @MainActor (MobileCoreRPCClient) -> Bool
+    ) async -> ZeroTouchDialAttempt {
+        guard let runtime else { return .skipped }
+        let plan = storedMacDialPlan(
+            routes: orderedReconnectRoutes(
+                for: mac,
+                supportedKinds: runtime.supportedRouteKinds
+            ),
+            pairedMacDeviceID: mac.macDeviceID,
+            expectedInstanceTag: macInstanceTagAuthority.expectation(
+                storedInstanceTag: mac.instanceTag
+            ).expectedTag,
+            legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
+            knownPairing: mac
+        )
+        guard plan.methodPinnedCandidates?.isEmpty != true,
+              let route = plan.routes.first,
+              route.kind == .iroh,
+              let ticket = try? Self.storedMacTicket(
+                  name: mac.displayName ?? mac.macDeviceID,
+                  routes: plan.routes,
+                  pairedMacDeviceID: mac.macDeviceID
+              ) else {
+            return .skipped
+        }
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+            irohDirectOnlyDialCandidates: plan.methodPinnedCandidates,
+            connectAttemptRegistry: connectAttemptRegistry,
+            stackTokenGate: stackTokenGate,
+            stackTokenForceRefreshGate: stackTokenForceRefreshGate,
+            transportConnectObserver: transportConnectDiagnosticObserver(
+                peerID: ticket.macDeviceID
+            )
+        )
+        // The race owns the client from here so a newer reconnect or sign-out
+        // can tear the dial down and free its endpoint lease.
+        guard track(client) else {
+            client.retire()
+            return .skipped
+        }
+        do {
+            _ = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    params: [:]
+                ),
+                timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+            )
+            try Task.checkCancellation()
+            return .reachable(client)
+        } catch {
+            await client.disconnect()
+            // A dial torn down by a newer pass must not write Retry-After
+            // pacing over the backoff that pass just cleared.
+            if !Task.isCancelled {
+                recordAutomaticReconnectBackoff(
+                    error: error,
+                    accountID: automaticReconnectAccountID
+                )
+            }
+            return .failed(error)
+        }
+    }
+
     /// Loads fresh compatible peers after the foreground session is usable.
     ///
     /// Unlike launch restoration, this path never competes for focus. The
-    /// caller authenticates each transient candidate as a bounded control peer
+    /// caller authenticates each transient candidate as a control peer
     /// before the row is persisted.
     func discoverSecondaryZeroTouchIrohCandidates(
         scope: MobileShellScopeSnapshot,
         excluding pairingIDs: Set<String>
     ) async -> [MobilePairedMac] {
-        // Discovery only yields Iroh-route candidates. Skip the broker
-        // round-trip only when the app default AND every stored Computer's
-        // per-pairing method is Tailscale — one Iroh Computer keeps it alive.
-        guard !zeroTouchIrohDiscoveryDisabled,
-              let personalIrohDiscovery else { return [] }
+        guard let personalIrohDiscovery else { return [] }
         let discovered = await personalIrohDiscovery.discoverLiveMacs()
         guard await isScopeCurrent(scope) else { return [] }
 
@@ -90,9 +159,6 @@ extension MobileShellComposite {
                 teamID: scope.teamID,
                 instanceTag: mac.instanceTag
             ))
-            if candidates.count == Self.maximumAutomaticIrohCandidateCount {
-                break
-            }
         }
         return candidates
     }
@@ -105,9 +171,7 @@ extension MobileShellComposite {
         excluding storedMacs: [MobilePairedMac]
     ) async {
         guard connectionState == .connected,
-              remoteClient != nil,
-              liveMacConnections.count < Self.maximumLiveMacConnectionCount
-        else { return }
+              remoteClient != nil else { return }
 
         var excludedPairingIDs = Set(storedMacs.map(\.id))
         excludedPairingIDs.formUnion(
@@ -127,28 +191,19 @@ extension MobileShellComposite {
               connectionState == .connected,
               remoteClient != nil else { return }
 
-        // Admit discovered peers concurrently: each candidate is an
-        // independent Mac, so one slow or unreachable peer must not delay the
-        // others. The initial group width is the live-capacity headroom at
-        // admission time; each dial re-checks capacity, scope, and foreground
-        // health before it starts, and establishment re-checks the cap at
-        // commit, so concurrent winners stay inside
-        // `maximumLiveMacConnectionCount`.
-        let admissionWidth = Self.maximumLiveMacConnectionCount
-            - liveMacConnections.count
+        // Admit every discovered candidate concurrently. Each candidate is
+        // independent, and hidden computers are filtered before admission.
         MobileDebugLog.anchormux(
-            "CMUX_CONNECT zero_touch_admission_start candidates=\(candidates.count) width=\(max(0, admissionWidth))"
+            "CMUX_CONNECT zero_touch_admission_start candidates=\(candidates.count)"
         )
         let admissionResults = await withTaskGroup(
             of: SecondaryMacReconciliationResult.self,
             returning: [SecondaryMacReconciliationResult].self
         ) { group in
-            var pending = candidates.makeIterator()
             var results: [SecondaryMacReconciliationResult] = []
             results.reserveCapacity(candidates.count)
 
-            for _ in 0 ..< max(0, admissionWidth) {
-                guard let candidate = pending.next() else { break }
+            for candidate in candidates {
                 group.addTask { [weak self] in
                     guard let self else {
                         return SecondaryMacReconciliationResult(
@@ -164,19 +219,6 @@ extension MobileShellComposite {
             }
             while let result = await group.next() {
                 results.append(result)
-                guard let candidate = pending.next() else { continue }
-                group.addTask { [weak self] in
-                    guard let self else {
-                        return SecondaryMacReconciliationResult(
-                            macDeviceID: candidate.macDeviceID,
-                            establishmentOutcome: nil
-                        )
-                    }
-                    return await self.admitDiscoveredSecondaryIrohMac(
-                        candidate,
-                        scope: scope
-                    )
-                }
             }
             return results
         }
@@ -193,9 +235,9 @@ extension MobileShellComposite {
         )
         guard attemptedCandidate, await isScopeCurrent(scope) else { return }
         // Some authenticated rows can persist even if their first workspace
-        // snapshot fails. Reload once after the bounded pass so every proven
+        // snapshot fails. Reload once after the admission pass so every proven
         // peer appears immediately with its accurate availability state.
-        await loadPairedMacs()
+        await loadPairedMacs(forceRefresh: true)
         if !transientFailureMacIDs.isEmpty {
             // These candidates are not persisted until authentication succeeds,
             // so the normal stored-row retry cannot find them. Preserve the
@@ -208,17 +250,12 @@ extension MobileShellComposite {
         }
     }
 
-    /// One bounded zero-touch admission dial. Re-checks live capacity, scope,
-    /// and foreground health immediately before dialing so a concurrent winner
-    /// (foreground attach, warm-pool dial, or another admission) stops a
-    /// queued candidate instead of oversubscribing the pool. A `nil` outcome
-    /// means the dial never started.
+    /// Admit one zero-touch candidate after checking scope and foreground health.
     private func admitDiscoveredSecondaryIrohMac(
         _ candidate: MobilePairedMac,
         scope: MobileShellScopeSnapshot
     ) async -> SecondaryMacReconciliationResult {
-        guard liveMacConnections.count < Self.maximumLiveMacConnectionCount,
-              await isScopeCurrent(scope),
+        guard await isScopeCurrent(scope),
               connectionState == .connected,
               remoteClient != nil else {
             MobileDebugLog.anchormux(

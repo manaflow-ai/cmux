@@ -52,6 +52,10 @@ enum ManagedAgentSessionIdentity {
 }
 
 extension SurfaceResumeBindingSnapshot {
+    /// Maximum time a CLI restore may hold an in-memory binding claim while
+    /// handing control to the restored process.
+    static let restoreClaimTTL: TimeInterval = 60
+
     var hasCompleteManagedSessionIdentity: Bool {
         managedSessionIdentity != nil
     }
@@ -67,6 +71,42 @@ extension SurfaceResumeBindingSnapshot {
                 lhs: identity.checkpointId,
                 rhs: otherIdentity.checkpointId
             )
+    }
+
+    /// Whether an incoming hook refresh belongs to a claimed restore session.
+    ///
+    /// A same-session refresh consumes the claim; a different checkpoint or
+    /// kind remains blocked until the claim expires or is explicitly cleared.
+    func acceptsRestoreBindingClaim(
+        from incoming: SurfaceResumeBindingSnapshot
+    ) -> Bool {
+        isAgentHookBinding
+            && incoming.isAgentHookBinding
+            && isSameManagedSession(as: incoming)
+    }
+
+    /// Whether storing this agent-hook write would demote an already-trusted
+    /// binding for the same managed session to manual approval.
+    ///
+    /// Hook publishers always carry `auto_resume`. A same-session `agent-hook`
+    /// write without it comes from the public `surface resume set` CLI (the Pi
+    /// extension shipped before #12084 re-published its binding that way, and
+    /// a Pi process that already loaded that extension keeps doing so after
+    /// cmux updates). Accepting it silently turns the pane manual, and the
+    /// next relaunch restores a bare shell instead of the agent. Callers run
+    /// this inside the store mutation so no get/set interleaving can
+    /// observe-then-downgrade the trusted binding.
+    func downgradesTrustedAgentHookBinding(
+        _ existing: SurfaceResumeBindingSnapshot?
+    ) -> Bool {
+        guard let existing,
+              isAgentHookBinding,
+              autoResume != true,
+              existing.isAgentHookBinding,
+              existing.autoResume == true else {
+            return false
+        }
+        return existing.isSameManagedSession(as: self)
     }
 
     /// Projects an authoritative agent-hook binding into the structured

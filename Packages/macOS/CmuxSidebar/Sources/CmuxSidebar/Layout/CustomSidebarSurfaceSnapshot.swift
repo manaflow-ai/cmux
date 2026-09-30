@@ -10,6 +10,10 @@ public import Foundation
 public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     /// The panel identifier, projected to the interpreter `tabs[i].id` string.
     public let panelId: UUID
+    /// The surface (tab) identifier, projected as `tabs[i].surfaceId`. This is
+    /// the id `surface.focus` and the other `surface.*` verbs accept; panelId
+    /// is the panel behind the tab and is NOT interchangeable with it.
+    public let surfaceId: UUID?
     /// The surface title (`tabs[i].title`).
     public let title: String
     /// Whether this surface is the workspace's focused panel (`tabs[i].focused`).
@@ -30,6 +34,7 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     /// Creates a surface snapshot from already-resolved leaf values.
     public init(
         panelId: UUID,
+        surfaceId: UUID? = nil,
         title: String,
         isFocused: Bool,
         isPinned: Bool,
@@ -39,6 +44,7 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         listeningPorts: [Int]
     ) {
         self.panelId = panelId
+        self.surfaceId = surfaceId
         self.title = title
         self.isFocused = isFocused
         self.isPinned = isPinned

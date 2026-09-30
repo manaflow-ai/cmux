@@ -164,7 +164,7 @@ extension CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            subsequentRegistrationErrors: [.connectivity, .connectivity]
+            subsequentRegistrationErrors: [.connectivity(nil), .connectivity(nil)]
         )
         let clock = HostRegistrationRenewalClock(now: now)
         let runtime = CmxIrohHostRuntime(
@@ -205,7 +205,7 @@ extension CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            subsequentRegistrationErrors: [.connectivity]
+            subsequentRegistrationErrors: [.connectivity(nil)]
         )
         let clock = HostRegistrationRenewalClock(now: now)
         let runtime = CmxIrohHostRuntime(
@@ -232,7 +232,7 @@ extension CmxIrohHostRuntimeTests {
         await broker.waitForRegistrationCount(3)
         await clock.waitUntilSleepCount(3)
 
-        await broker.enqueueSubsequentRegistrationError(.connectivity)
+        await broker.enqueueSubsequentRegistrationError(.connectivity(nil))
         await runtime.requestRegistrationRefresh()
         await broker.waitForRegistrationCount(4)
         await clock.waitUntilSleepCount(4)
@@ -514,7 +514,7 @@ extension CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            registrationError: .connectivity
+            registrationError: .connectivity(nil)
         )
         let bindings = HostRuntimeBindingRecorder()
         let runtime = CmxIrohHostRuntime(

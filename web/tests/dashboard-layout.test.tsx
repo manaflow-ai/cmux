@@ -1,54 +1,73 @@
-import { expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type React from "react";
 
-const pendingProvider = new Promise<never>(() => {});
+let stackConfigured = true;
+let redirectedTo: string | null = null;
 
-mock.module("@stackframe/stack", () => ({
-  StackProvider: ({ children }: React.PropsWithChildren) => {
-    void children;
-    throw pendingProvider;
+const realStack = await import("@hexclave/next");
+mock.module("@hexclave/next", () => ({
+  ...realStack,
+  StackTheme: ({ children }: React.PropsWithChildren) => <div data-testid="stack-theme">{children}</div>,
+}));
+
+mock.module("next/navigation", () => ({
+  redirect: (target: string) => {
+    redirectedTo = target;
+    throw new Error(`redirect:${target}`);
   },
-  StackTheme: ({ children }: React.PropsWithChildren) => children,
 }));
 
 mock.module("@/app/lib/stack", () => ({
+  isStackConfigured: () => stackConfigured,
   getStackServerApp: () => ({}),
-  isStackConfigured: () => true,
+  // Billing procedures import purchase code that names this export.
+  promoteStackUserFromAnonymousViaApi: async () => undefined,
 }));
 
-mock.module(
-  "../app/[locale]/dashboard/components/dashboard-skeleton",
-  () => ({
-    DashboardSkeleton: () => (
-      <p data-testid="dashboard-suspense-fallback">Loading dashboard</p>
-    ),
-  }),
-);
-
-mock.module(
-  "../app/[locale]/dashboard/components/query-provider",
-  () => ({
-    DashboardQueryProvider: ({ children }: React.PropsWithChildren) => children,
-  }),
-);
-
-mock.module("../app/[locale]/dashboard/dashboard-shell", () => ({
-  DashboardShell: ({ children }: React.PropsWithChildren) => children,
+mock.module("next-intl", () => ({
+  useLocale: () => "en",
+  useTranslations: () => (key: string) => key,
 }));
 
-const { default: DashboardLayout } = await import(
-  "../app/[locale]/dashboard/layout"
-);
+const layoutModule = await import("../app/[locale]/dashboard/layout");
+const pageModule = await import("../app/[locale]/dashboard/[[...path]]/page");
+const DashboardLayout = layoutModule.default;
+const DashboardPage = pageModule.default;
 
-test("keeps Stack provider suspension inside the dashboard fallback", async () => {
-  const html = renderToStaticMarkup(
-    await DashboardLayout({
-      children: <main>Dashboard content</main>,
-      params: Promise.resolve({ locale: "en" }),
-    }),
-  );
+beforeEach(() => {
+  stackConfigured = true;
+  redirectedTo = null;
+});
 
-  expect(html).toContain('data-testid="dashboard-suspense-fallback"');
-  expect(html).not.toContain("Dashboard content");
+describe("dashboard Next shell", () => {
+  test("the layout only adds the Stack theme around the SPA", () => {
+    const html = renderToStaticMarkup(
+      <DashboardLayout>
+        <p>SPA</p>
+      </DashboardLayout>,
+    );
+    expect(html).toBe('<div data-testid="stack-theme"><p>SPA</p></div>');
+    expect(redirectedTo).toBeNull();
+  });
+
+  test("the layout sends visitors home when Stack is not configured", () => {
+    stackConfigured = false;
+    expect(() => DashboardLayout({ children: <p>SPA</p> })).toThrow("redirect:/");
+    expect(redirectedTo).toBe("/");
+  });
+
+  test("every dashboard URL shares one static shell", () => {
+    // No instant validation: the SPA owns navigation inside /dashboard.
+    expect("instant" in layoutModule).toBe(false);
+    expect("instant" in pageModule).toBe(false);
+  });
+
+  test("the static shell is the skeleton; the request-time prefetch streams in behind Suspense", () => {
+    const pending = new Promise<never>(() => undefined);
+    const html = renderToStaticMarkup(<DashboardPage params={pending} searchParams={pending} />);
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain('data-testid="dashboard-section-skeleton"');
+    expect(html).not.toContain("dashboard-shell");
+  });
 });

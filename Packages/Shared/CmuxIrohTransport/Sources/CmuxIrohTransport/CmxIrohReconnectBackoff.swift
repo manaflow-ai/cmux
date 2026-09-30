@@ -66,8 +66,7 @@ public final class CmxIrohReconnectBackoff: Sendable {
     /// Returns the next retry delay after a failure.
     ///
     /// - Parameter retryAfterSeconds: A server-provided floor, when one exists.
-    ///   It always wins over the local schedule, bounded only by
-    ///   ``CmxIrohBrokerCooldown/maximumRetryAfterSeconds``.
+    ///   It always wins over the local schedule.
     /// - Returns: A delay within `[floor, cap]`, or the larger server floor.
     public func nextDelay(retryAfterSeconds: Int? = nil) -> TimeInterval {
         let drawn = state.withLock { state in
@@ -83,10 +82,7 @@ public final class CmxIrohReconnectBackoff: Sendable {
             return delay
         }
         guard let retryAfterSeconds else { return drawn }
-        let serverFloor = TimeInterval(min(
-            max(1, retryAfterSeconds),
-            CmxIrohBrokerCooldown.maximumRetryAfterSeconds
-        ))
+        let serverFloor = TimeInterval(max(1, retryAfterSeconds))
         return max(drawn, serverFloor)
     }
 

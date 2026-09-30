@@ -162,10 +162,28 @@ extension GhosttySurfaceRepresentable.Coordinator {
         /// so the transient zeros produced by streaming output and reconnect
         /// resets do not flicker the chip. Disabling the chip and dismantling
         /// the surface still unmount immediately.
+        /// Switches the chip to the SSH Files chip (always mounted, opens the
+        /// server's file browser) or back to the visible-artifact chip.
+        @MainActor
+        func setPersistentFilesChip(_ enabled: Bool) {
+            guard persistentFilesChip != enabled else { return }
+            persistentFilesChip = enabled
+            persistentFilesChipMounted = false
+            cancelArtifactChipHide()
+            artifactChipVisibility.reset()
+            surfaceView?.mountArtifactChipView(nil, animated: false)
+        }
+
         @MainActor
         func updateArtifactChip(count: Int) {
             visibleArtifactCount = count
             guard let surfaceView else { return }
+            if persistentFilesChip {
+                guard !persistentFilesChipMounted else { return }
+                persistentFilesChipMounted = true
+                mountArtifactChip(count: nil, on: surfaceView)
+                return
+            }
             switch artifactChipVisibility.update(
                 count: count,
                 enabled: artifactChipGate.isEnabled
@@ -184,7 +202,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
         }
 
         @MainActor
-        private func mountArtifactChip(count: Int, on surfaceView: GhosttySurfaceView) {
+        private func mountArtifactChip(count: Int?, on surfaceView: GhosttySurfaceView) {
             let chip = TerminalArtifactChipView(count: count) { [weak self] in
                 self?.requestArtifactFilesFromChip()
             }
@@ -236,11 +254,16 @@ extension GhosttySurfaceRepresentable.Coordinator {
 
         @MainActor
         private func requestArtifactFilesFromChip() {
-            guard artifactChipGate.isEnabled else { return }
+            guard artifactChipGate.isEnabled || persistentFilesChip else { return }
             guard let surfaceView, let chipView = artifactChipController?.view else { return }
-            let frame = chipView.convert(chipView.bounds, to: surfaceView)
-            let width = max(surfaceView.bounds.width, 1)
-            let height = max(surfaceView.bounds.height, 1)
+            // Normalize against the view backing the SwiftUI representable
+            // (the adopting host). The surface itself slides under the
+            // keyboard, so anchors normalized against it would drift by the
+            // slide.
+            let reference = surfaceView.artifactChipAnchorReferenceView
+            let frame = chipView.convert(chipView.bounds, to: reference)
+            let width = max(reference.bounds.width, 1)
+            let height = max(reference.bounds.height, 1)
             onArtifactFilesRequested(UnitPoint(
                 x: min(max(frame.midX / width, 0), 1),
                 y: min(max(frame.midY / height, 0), 1)
@@ -251,6 +274,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
         func tearDownArtifactChip() {
             cancelArtifactChipHide()
             artifactChipVisibility.reset()
+            persistentFilesChipMounted = false
             surfaceView?.mountArtifactChipView(nil, animated: false)
             artifactChipController = nil
         }
@@ -284,8 +308,9 @@ extension GhosttySurfaceRepresentable.Coordinator {
             // An image the user pasted on the phone. Upload it to the Mac, which
             // writes a temp file and injects its path into the terminal so the
             // running TUI (e.g. Claude Code) attaches it.
+            let surfaceID = surfaceID
             Task { @MainActor [weak store] in
-                await store?.submitTerminalPasteImage(data, format: format)
+                await store?.submitTerminalPasteImage(data, format: format, surfaceID: surfaceID)
             }
         }
 
@@ -342,6 +367,11 @@ extension GhosttySurfaceRepresentable.Coordinator {
                   surfaceView.window != nil,
                   let store,
                   let viewportReportScheduler else { return }
+            // From this point the coordinator owns a viewport lease,
+            // even if teardown races the scheduler before its async send starts.
+            // Final detach/presentation release must clear the prepared local
+            // report; transient window loss keeps the lease sticky.
+            viewportLeaseHeld = true
             if let minimumReportID = outputStartMinimumViewportReportID,
                reportID < minimumReportID {
                 MobileDebugLog.anchormux(

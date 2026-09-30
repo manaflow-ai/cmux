@@ -28,6 +28,10 @@ extension CMUXCLI {
         nativeEvent: String?,
         declaredPhase: AgentLifecyclePhase? = nil,
         detail: String? = nil,
+        attention: AgentAttentionContext? = nil,
+        occurredAtMs: Int64? = nil,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil,
         store: ClaudeHookSessionStore? = nil,
         telemetry: CLISocketSentryTelemetry? = nil
     ) {
@@ -47,7 +51,7 @@ extension CMUXCLI {
         }
         let draft = AgentJournalEventDraft(
             kind: kind,
-            occurredAtMs: Int64(Date().timeIntervalSince1970 * 1000),
+            occurredAtMs: occurredAtMs ?? Int64(Date().timeIntervalSince1970 * 1000),
             source: source,
             agentKey: agentKey,
             sessionId: sessionId,
@@ -58,14 +62,17 @@ extension CMUXCLI {
             pendingWork: pendingWork,
             nativeEvent: nativeEvent,
             declaredPhase: declaredPhase,
-            detail: detail
+            detail: detail,
+            attention: attention
         )
         if let problem = draft.validationProblem() {
             recordAgentJournalDeliveryFailure(
                 draft: draft,
                 message: "invalid draft: \(problem)",
+                failureKind: "invalid-draft",
                 store: store,
-                telemetry: telemetry
+                telemetry: telemetry,
+                deadline: deadline
             )
             return
         }
@@ -76,19 +83,33 @@ extension CMUXCLI {
             recordAgentJournalDeliveryFailure(
                 draft: draft,
                 message: "encode failed",
+                failureKind: "encode-failed",
                 store: store,
-                telemetry: telemetry
+                telemetry: telemetry,
+                deadline: deadline
             )
             return
         }
         do {
-            let response = try sendV1Command("agent_journal_append \(json)", client: client)
+            let response: String
+            if responseTimeout != nil || deadline != nil {
+                response = try client.send(
+                    command: "agent_journal_append \(json)",
+                    responseTimeout: responseTimeout,
+                    deadline: deadline
+                )
+            } else {
+                response = try sendV1Command("agent_journal_append \(json)", client: client)
+            }
             guard response.hasPrefix("OK") else {
                 recordAgentJournalDeliveryFailure(
                     draft: draft,
                     message: response,
+                    failureKind: Self.agentJournalReplyFailureKind(response),
+                    error: CLIError(message: response),
                     store: store,
-                    telemetry: telemetry
+                    telemetry: telemetry,
+                    deadline: deadline
                 )
                 return
             }
@@ -96,8 +117,10 @@ extension CMUXCLI {
             recordAgentJournalDeliveryFailure(
                 draft: draft,
                 message: String(describing: error),
+                error: error,
                 store: store,
-                telemetry: telemetry
+                telemetry: telemetry,
+                deadline: deadline
             )
         }
     }
@@ -132,14 +155,33 @@ extension CMUXCLI {
         }
     }
 
+    /// Maps the app's fixed `agent_journal_append` rejection replies onto a
+    /// stable telemetry kind. The raw reply stays out of telemetry.
+    static func agentJournalReplyFailureKind(_ response: String) -> String {
+        let reply = response.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if reply.hasPrefix("error: agent journal unavailable") { return "reply-journal-unavailable" }
+        if reply.hasPrefix("error: agent journal append failed") { return "reply-append-failed" }
+        if reply.hasPrefix("error: invalid agent journal event") { return "reply-invalid-event" }
+        if reply.hasPrefix("error: usage: agent_journal_append") { return "reply-usage" }
+        if reply.hasPrefix("error: unknown command") { return "reply-unknown-command" }
+        return "reply-other"
+    }
+
     /// Records a failed journal emission: appended to the bounded dead-letter
     /// file, warned on stderr, and (when possible) reported through the
     /// throttled hook-failure channel. Never silent.
+    ///
+    /// `error` is the underlying failure, used to classify expected app
+    /// lifecycle and socket states; `failureKind` names a failure that has no
+    /// thrown error (a local draft problem or an app rejection reply).
     func recordAgentJournalDeliveryFailure(
         draft: AgentJournalEventDraft,
         message: String,
+        failureKind: String? = nil,
+        error: Error? = nil,
         store: ClaudeHookSessionStore?,
-        telemetry: CLISocketSentryTelemetry?
+        telemetry: CLISocketSentryTelemetry?,
+        deadline: Date? = nil
     ) {
         appendAgentJournalDeadLetter(draft: draft, message: message)
         cliWriteStderr("Warning: agent journal append failed (\(draft.kind.rawValue)): \(message)\n")
@@ -149,9 +191,11 @@ extension CMUXCLI {
                 agentName: draft.source,
                 sessionId: draft.sessionId ?? "",
                 event: draft.nativeEvent ?? draft.kind.rawValue,
-                error: nil,
+                error: error,
+                failureKind: failureKind,
                 store: store,
-                telemetry: telemetry
+                telemetry: telemetry,
+                deadline: deadline
             )
         }
     }

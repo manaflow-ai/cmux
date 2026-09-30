@@ -1,5 +1,12 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import {
+  CHECKOUT_SOURCE_PARAM,
+  forwardCheckoutAttribution,
+  withCheckoutAttribution,
+  type CheckoutAttributionParam,
+} from "../../services/analytics/checkoutAttribution";
+
 export const EXTERNAL_BROWSER_PARAM = "cmux_external_browser";
 export const CHECKOUT_EXTERNAL_BROWSER_PARAM = EXTERNAL_BROWSER_PARAM;
 export const CHECKOUT_NATIVE_SCHEME_PARAM = "cmux_scheme";
@@ -17,16 +24,23 @@ export const APP_PRICING_NATIVE_RETURN_QUERY_PARAMS = [
   CHECKOUT_NATIVE_RETURN_SIGNATURE_PARAM,
 ] as const;
 export const CHECKOUT_PATH = "/api/billing/checkout";
-export type CheckoutPlan = "pro" | "team";
+export type CheckoutPlan = "go" | "pro" | "max" | "team";
 export type CheckoutInterval = "month" | "year";
 export type AppPricingCheckoutRelayParameters = {
   plan: CheckoutPlan | null;
   interval: CheckoutInterval | null;
   cmuxScheme: string;
 };
+export type CheckoutAttributionParams = Partial<
+  Record<CheckoutAttributionParam, string | null | undefined>
+>;
 export const PRO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "pro");
+export const GO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "go");
+export const MAX_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "max");
 export const TEAM_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "team");
 export const PRO_CHECKOUT_URL = withExternalBrowserIntent(PRO_CHECKOUT_PATH);
+export const GO_CHECKOUT_URL = withExternalBrowserIntent(GO_CHECKOUT_PATH);
+export const MAX_CHECKOUT_URL = withExternalBrowserIntent(MAX_CHECKOUT_PATH);
 export const TEAM_CHECKOUT_URL = withExternalBrowserIntent(TEAM_CHECKOUT_PATH);
 
 const DEFAULT_APP_PRICING_CHECKOUT_URL = "https://cmux.com/api/billing/checkout";
@@ -52,11 +66,17 @@ export function withCheckoutInterval(
   return withSearchParam(href, CHECKOUT_INTERVAL_PARAM, interval);
 }
 
+/** Tag a checkout link with the surface that shows it (`cmux_source`). */
+export function withCheckoutSource(href: string, source: string): string {
+  return withCheckoutAttribution(href, { [CHECKOUT_SOURCE_PARAM]: source });
+}
+
 export function appPricingCheckoutURL(
   plan: CheckoutPlan,
   requestOrigin: string | null,
   cmuxScheme?: string | null,
   interval?: CheckoutInterval,
+  attribution?: CheckoutAttributionParams,
 ): string {
   let href = withExternalBrowserIntent(
     withCheckoutPlan(appPricingCheckoutEntryURL(requestOrigin), plan),
@@ -66,6 +86,7 @@ export function appPricingCheckoutURL(
   }
   if (cmuxScheme) href = withSearchParam(href, CHECKOUT_NATIVE_SCHEME_PARAM, cmuxScheme);
   if (interval) href = withCheckoutInterval(href, interval);
+  if (attribution) href = withCheckoutAttribution(href, attribution);
   return href;
 }
 
@@ -96,6 +117,8 @@ export function appPricingCheckoutRelayURL(
     target.searchParams.set(CHECKOUT_RELAY_EXPIRES_PARAM, assertion.expires);
     target.searchParams.set(CHECKOUT_RELAY_SIGNATURE_PARAM, assertion.signature);
   }
+  // Attribution is analytics only, so it rides along unsigned.
+  forwardCheckoutAttribution(requestURL.searchParams, target);
   return target;
 }
 
@@ -111,7 +134,7 @@ export function verifiedAppPricingRelayScheme(requestURL: URL): string | null {
   const signature = requestURL.searchParams.get(CHECKOUT_RELAY_SIGNATURE_PARAM);
   const secret = appPricingRelaySecret();
   if (
-    (plan !== "pro" && plan !== "team") ||
+    (plan !== "go" && plan !== "pro" && plan !== "max" && plan !== "team") ||
     (interval !== "month" && interval !== "year") ||
     !expires ||
     !signature ||

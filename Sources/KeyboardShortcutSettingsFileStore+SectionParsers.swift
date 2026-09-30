@@ -8,10 +8,62 @@ extension CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let fileEditorSettings = FilePreviewEditorSettings(defaults: .standard)
         if let value = jsonBool(section["wordWrap"]) {
             snapshot.managedUserDefaults[FilePreviewWordWrapSettings.key] = .bool(value)
         } else if section.keys.contains("wordWrap") {
             logInvalid("fileEditor.wordWrap", sourcePath: sourcePath)
+        }
+        parseFileEditorBool(
+            section,
+            jsonKey: "syntaxHighlighting",
+            defaultsKey: fileEditorSettings.catalog.syntaxHighlighting.userDefaultsKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseFileEditorBool(
+            section,
+            jsonKey: "lineNumbers",
+            defaultsKey: fileEditorSettings.catalog.lineNumbers.userDefaultsKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseFileEditorBool(
+            section,
+            jsonKey: "indentGuides",
+            defaultsKey: fileEditorSettings.catalog.indentGuides.userDefaultsKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseFileEditorBool(
+            section,
+            jsonKey: "currentLineHighlight",
+            defaultsKey: fileEditorSettings.catalog.currentLineHighlight.userDefaultsKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        if let value = jsonInt(section["tabWidth"]) {
+            if fileEditorSettings.catalog.tabWidthRange.contains(value) {
+                snapshot.managedUserDefaults[fileEditorSettings.catalog.tabWidth.userDefaultsKey] = .int(value)
+            } else {
+                logInvalid("fileEditor.tabWidth", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("tabWidth") {
+            logInvalid("fileEditor.tabWidth", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseFileEditorBool(
+        _ section: [String: Any],
+        jsonKey: String,
+        defaultsKey: String,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section[jsonKey]) {
+            snapshot.managedUserDefaults[defaultsKey] = .bool(value)
+        } else if section.keys.contains(jsonKey) {
+            logInvalid("fileEditor.\(jsonKey)", sourcePath: sourcePath)
         }
     }
 
@@ -106,13 +158,26 @@ extension CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        guard section.keys.contains("artifactFolderAccess") else { return }
-        guard let raw = jsonString(section["artifactFolderAccess"]),
-              let value = MobileArtifactFolderAccess(rawValue: raw) else {
-            logInvalid("mobile.artifactFolderAccess", sourcePath: sourcePath)
-            return
+        if section.keys.contains("artifactFolderAccess") {
+            if let raw = jsonString(section["artifactFolderAccess"]),
+               let value = MobileArtifactFolderAccess(rawValue: raw) {
+                let key = SettingCatalog().mobile.artifactFolderAccess
+                snapshot.managedUserDefaults[key.userDefaultsKey] = .string(value.rawValue)
+            } else {
+                logInvalid("mobile.artifactFolderAccess", sourcePath: sourcePath)
+            }
         }
-        let key = SettingCatalog().mobile.artifactFolderAccess
-        snapshot.managedUserDefaults[key.userDefaultsKey] = .string(value.rawValue)
+        if section.keys.contains("browserTunnel") {
+            guard let tunnel = section["browserTunnel"] as? [String: Any] else {
+                logInvalid("mobile.browserTunnel", sourcePath: sourcePath)
+                return
+            }
+            if let value = jsonBool(tunnel["allowOtherHosts"]) {
+                let key = SettingCatalog().mobile.browserTunnelAllowOtherHosts
+                snapshot.managedUserDefaults[key.userDefaultsKey] = .bool(value)
+            } else if tunnel.keys.contains("allowOtherHosts") {
+                logInvalid("mobile.browserTunnel.allowOtherHosts", sourcePath: sourcePath)
+            }
+        }
     }
 }

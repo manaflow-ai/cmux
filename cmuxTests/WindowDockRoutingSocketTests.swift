@@ -39,34 +39,12 @@ struct WindowDockRoutingSocketTests {
     }
 
     @MainActor
-    private func withDockEnabled(_ body: () throws -> Void) rethrows {
-        let defaults = UserDefaults.standard
-        let key = RightSidebarBetaFeatureSettings.dockEnabledKey
-        let previous = defaults.object(forKey: key)
-        defaults.set(true, forKey: key)
-        defer {
-            if let previous {
-                defaults.set(previous, forKey: key)
-            } else {
-                defaults.removeObject(forKey: key)
-            }
-        }
+    private func withDockAvailable(_ body: () throws -> Void) rethrows {
         try body()
     }
 
     @MainActor
-    private func withDockEnabled(_ body: () async throws -> Void) async rethrows {
-        let defaults = UserDefaults.standard
-        let key = RightSidebarBetaFeatureSettings.dockEnabledKey
-        let previous = defaults.object(forKey: key)
-        defaults.set(true, forKey: key)
-        defer {
-            if let previous {
-                defaults.set(previous, forKey: key)
-            } else {
-                defaults.removeObject(forKey: key)
-            }
-        }
+    private func withDockAvailable(_ body: () async throws -> Void) async rethrows {
         try await body()
     }
 
@@ -91,8 +69,8 @@ struct WindowDockRoutingSocketTests {
         )
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
-            // Unregistering the window context also tears down that window's Dock.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousAppDelegate
         }
@@ -104,7 +82,7 @@ struct WindowDockRoutingSocketTests {
     @Test("Dock focus commands fail when the owning Dock cannot be revealed")
     @MainActor
     func dockFocusCommandsFailWhenRevealIsUnavailable() throws {
-        try withDockEnabled {
+        try withDockAvailable {
             try withSocketAppContext(fileExplorerState: nil) { _, _, windowId in
                 let appDelegate = try #require(AppDelegate.shared)
                 let dock = appDelegate.windowDock(forWindowId: windowId)
@@ -154,11 +132,12 @@ struct WindowDockRoutingSocketTests {
     @Test("Hidden workspace Dock surfaces cannot focus through the visible window Dock")
     @MainActor
     func hiddenWorkspaceDockSurfaceFocusFailsClosed() throws {
-        try withDockEnabled {
+        try withDockAvailable {
             let fileExplorerState = FileExplorerState()
+            fileExplorerState.setVisible(false)
             try withSocketAppContext(fileExplorerState: fileExplorerState) { _, workspace, _ in
                 let mainPanelID = try #require(workspace.focusedPanelId)
-                let workspaceDock = workspace.dockSplit
+                let workspaceDock = try #require(workspace.dockSplit)
                 let pane = try #require(workspaceDock.bonsplitController.allPaneIds.first)
                 let originalDockSurfaceID = try #require(workspaceDock.newSurface(
                     kind: .terminal,
@@ -190,7 +169,7 @@ struct WindowDockRoutingSocketTests {
     @Test("Window Dock focus never falls back to a different live window")
     @MainActor
     func dockFocusDoesNotFallBackWhenOwnerWindowIsUnavailable() async throws {
-        try await withDockEnabled {
+        try await withDockAvailable {
             try await AppContextSerialGate.withExclusiveAppContext {
                 let previousAppDelegate = AppDelegate.shared
                 let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
@@ -198,6 +177,7 @@ struct WindowDockRoutingSocketTests {
                 let fallbackManager = TabManager(autoWelcomeIfNeeded: false)
                 let ownerManager = TabManager(autoWelcomeIfNeeded: false)
                 let fallbackSidebarState = FileExplorerState()
+                fallbackSidebarState.setVisible(false)
 
                 AppDelegate.shared = appDelegate
                 appDelegate.tabManager = fallbackManager
@@ -283,7 +263,7 @@ struct WindowDockRoutingSocketTests {
     @Test("Legacy global Dock alias workspace_id routes to the caller window's Dock")
     @MainActor
     func legacyDockAliasRoutesToCallerWindowDock() throws {
-        try withDockEnabled {
+        try withDockAvailable {
             try withSocketAppContext { _, _, windowId in
                 let createResult = try v2Result(
                     method: "surface.create",
@@ -329,7 +309,7 @@ struct WindowDockRoutingSocketTests {
     @MainActor
     func dockPaneRoutingAndFocusedCloseStayInDock() async throws {
 #if DEBUG
-        try await withDockEnabled {
+        try await withDockAvailable {
             // Async app-context gate: keep the swapped-in globals ours across
             // the body even when other serialized suites use async helpers.
             try await AppContextSerialGate.withExclusiveAppContext {
@@ -356,9 +336,10 @@ struct WindowDockRoutingSocketTests {
             dockWindow.orderFront(nil)
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
-                // Unregistering each window context also tears down its Dock.
                 appDelegate.unregisterMainWindowContextForTesting(windowId: activeWindowId)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: dockWindowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: activeWindowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: dockWindowId)
                 activeManager.tabs.forEach { $0.teardownAllPanels() }
                 dockManager.tabs.forEach { $0.teardownAllPanels() }
                 activeWindow.orderOut(nil)

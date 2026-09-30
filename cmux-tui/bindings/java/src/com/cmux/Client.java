@@ -268,19 +268,41 @@ public final class Client implements AutoCloseable {
             transport = builder.transport;
         } else {
             Path socket = SocketDiscovery.resolve(builder.socket, builder.session);
+            Transport openedTransport;
             try {
-                transport = new UnixTransport(
+                openedTransport = new UnixTransport(
                     socket,
                     builder.maxRequestBytes,
-                    builder.maxResponseBytes
+                    builder.maxResponseBytes,
+                    timeout
                 );
             } catch (IOException | UnsupportedOperationException error) {
-                throw new TransportError(
-                    "cannot connect to Unix session socket " + socket +
-                        "; inject a Transport on platforms without Unix-domain sockets",
-                    error
-                );
+                Path fallback = SocketDiscovery.legacyRawFallback(socket, builder.session);
+                if (fallback != null) {
+                    try {
+                        openedTransport = new UnixTransport(
+                            fallback,
+                            builder.maxRequestBytes,
+                            builder.maxResponseBytes,
+                            timeout
+                        );
+                    } catch (IOException | UnsupportedOperationException fallbackError) {
+                        fallbackError.addSuppressed(error);
+                        throw new TransportError(
+                            "cannot connect to Unix session socket " + socket +
+                                " or legacy fallback " + fallback,
+                            fallbackError
+                        );
+                    }
+                } else {
+                    throw new TransportError(
+                        "cannot connect to Unix session socket " + socket +
+                            "; inject a Transport on platforms without Unix-domain sockets",
+                        error
+                    );
+                }
             }
+            transport = openedTransport;
         }
         reader = new Thread(this::readLoop, "cmux-resource-api-reader");
         reader.setDaemon(true);
@@ -3070,6 +3092,8 @@ public final class Client implements AutoCloseable {
             fields,
             "terminal screen result",
             Wire.TEXT,
+            Wire.REVISION,
+            "osc_progress",
             Wire.COLS,
             Wire.ROWS,
             "cursor_row",
@@ -3079,6 +3103,12 @@ public final class Client implements AutoCloseable {
         );
         return new Results.TerminalScreenResult(
             Wire.string(fields.get(Wire.TEXT), "terminal screen text"),
+            fields.get(Wire.REVISION) == null
+                ? Optional.empty()
+                : Optional.of(Wire.decimal(fields.get(Wire.REVISION), "terminal screen revision")),
+            fields.get("osc_progress") == null
+                ? Optional.empty()
+                : Optional.of(Wire.string(fields.get("osc_progress"), "terminal screen osc_progress")),
             positiveUint16(fields, Wire.COLS),
             positiveUint16(fields, Wire.ROWS),
             uint16(fields, "cursor_row"),
@@ -3297,6 +3327,8 @@ public final class Client implements AutoCloseable {
             "executable",
             Wire.ARGV,
             Wire.CWD,
+            "foreground_cwd",
+            "foreground_executable",
             "children"
         );
         return new Results.ProcessInfoResult(
@@ -3306,9 +3338,15 @@ public final class Client implements AutoCloseable {
                 .map(item -> Wire.string(item, "process argv item"))
                 .toList(),
             optionalString(fields, Wire.CWD),
+            fields.containsKey("foreground_cwd")
+                ? requiredNullableString(fields, "foreground_cwd")
+                : Optional.empty(),
             Wire.array(fields.get("children"), "process children").stream()
                 .map(item -> uint32(item, "process child"))
-                .toList()
+                .toList(),
+            fields.containsKey("foreground_executable")
+                ? requiredNullableString(fields, "foreground_executable")
+                : Optional.empty()
         );
     }
 

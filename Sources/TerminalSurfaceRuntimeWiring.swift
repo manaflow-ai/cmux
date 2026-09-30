@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import CmuxFoundation
 import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
@@ -49,6 +50,9 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 /// `SidebarWorkspaceDetailDefaults`, and `TerminalController`'s socket path).
 @MainActor
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
+    private let computerUseConfigStore = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+    private let computerUseEnabledKey = SettingCatalog().computerUse.enabled
+
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
         return TerminalSurfaceSpawnPolicy(
@@ -65,7 +69,12 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             ampHooksEnabled: integrations.ampHooksEnabled,
             shellIntegrationEnabled: UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
             watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
-            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard)
+            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard),
+            // `DisableComputerUse` (MDM) wins over the user setting on every
+            // spawn, so a new agent launch never receives the tools.
+            computerUseEnabled: computerUseConfigStore.snapshotValue(for: computerUseEnabledKey)
+                && !ManagedDevicePolicy().isEnforced(.disableComputerUse),
+            piHooksEnabled: integrations.piHooksEnabled
         )
     }
 
@@ -73,6 +82,34 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
         TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
+    }
+
+    /// Hands the workspace's SSH foreground-auth token to an attach command
+    /// built for that token. The command reads it from the environment, so it
+    /// stays out of the process arguments. A command built for an earlier
+    /// token does not get the current one, and its readiness report fails as
+    /// it did when the token was part of the command.
+    func applyStartupCommandSecrets(
+        to environment: inout [String: String],
+        workspaceId: UUID,
+        startupCommand: String?
+    ) {
+        // The `cmux ssh` first terminal starts before `workspace.remote.configure`
+        // and runs a script file, so it relies on the token the CLI passed in
+        // its initial environment. Leave that environment as it is.
+        guard let startupCommand,
+              startupCommand.contains(SSHForegroundAuthenticationLaunch.environmentKey),
+              let token = AppDelegate.shared?.workspaceFor(tabId: workspaceId)?
+                .remoteConfiguration?.foregroundAuthToken,
+              !token.isEmpty else {
+            return
+        }
+        let launch = SSHForegroundAuthenticationLaunch(token: token)
+        if launch.isExpected(by: startupCommand) {
+            // The workspace's current token replaces one replayed from an
+            // earlier launch's initial environment.
+            environment.merge(launch.environment) { _, workspaceToken in workspaceToken }
+        }
     }
 }
 
@@ -121,6 +158,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     @MainActor
     func dropSurface(surfaceID: UUID) {
         MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
+        TerminalPredictionCenter.shared.unregister(surfaceID: surfaceID)
     }
 }
 
@@ -145,19 +183,27 @@ final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
 // MARK: Filesystem
 
 extension TerminalSurfaceRuntimeFilesystem {
-    static func live() -> TerminalSurfaceRuntimeFilesystem {
+    static func live(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> TerminalSurfaceRuntimeFilesystem {
         let hermesProfileAliasCatalog = HermesProfileAliasCatalog(
-            wrapperDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
+            wrapperDirectoryURL: homeDirectory
                 .appendingPathComponent(".local/bin", isDirectory: true)
         )
+        // Per-surface command shims are part of the lifetime of their pane.
+        // Keep them beside cmux's durable state so macOS's periodic `$TMPDIR`
+        // cleanup cannot remove a live pane's Claude entry from `PATH`.
+        let agentCommandShimRootDirectory = homeDirectory
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
         return TerminalSurfaceRuntimeFilesystem(
-            agentCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
+            agentCommandShimRootDirectory: agentCommandShimRootDirectory,
             installAgentCommandShims: {
                 let fileManager = FileManager.default
                 return await TerminalSurface.installAgentCommandShimsIfPossible(
                     wrapperDirectoryURL: $0,
                     surfaceId: $1,
-                    temporaryDirectory: $2,
+                    rootDirectory: $2,
+                    enabledCommands: $3,
                     hermesProfileAliasCatalog: hermesProfileAliasCatalog,
                     fileManager: fileManager
                 )
@@ -189,6 +235,8 @@ extension TerminalSurface {
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         ioMode: TerminalSurfaceIOMode = .exec,
+        isRemoteTerminal: Bool = false,
+        allowsRemoteClipboardWrites: Bool = false,
         manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
         manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
@@ -208,6 +256,8 @@ extension TerminalSurface {
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement,
             ioMode: ioMode,
+            isRemoteTerminal: isRemoteTerminal,
+            allowsRemoteClipboardWrites: allowsRemoteClipboardWrites,
             manualInputHandler: manualInputHandler,
             manualInputKeyNameResolver: manualInputKeyNameResolver,
             runtimeSpawnPolicy: runtimeSpawnPolicy,

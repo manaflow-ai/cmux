@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import CmuxFoundation
 import Foundation
 import SwiftUI
 
@@ -19,6 +20,9 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let isAnchorActive: Bool
     let isMultiSelected: Bool
     let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
+    /// Hairline painted while this header is anchor-active; nil when subtle
+    /// selection is off.
+    var anchorActiveEdgeColor: NSColor? = nil
     let memberCount: Int
     var anchorUnreadCount: Int
     var canMarkRead: Bool
@@ -26,6 +30,13 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     var hasLatestNotifications: Bool
     var canMarkAllRead: Bool
     var canMarkAllUnread: Bool
+    /// Compact status mode: the loudest state among the workspaces the header
+    /// stands in for; see ``SidebarCompactStatusGlyph/groupHeader(isCollapsed:anchorId:memberIds:members:unread:)``.
+    var statusGlyph: SidebarCompactStatusGlyph?
+    /// Whether `sidebar.compactAgentStatus` is on. Compact mode shows unread
+    /// as the glyph, so the numeric badge never returns, not even when no
+    /// member state is loud enough to roll up.
+    var compactsAgentStatus = false
     /// Resolved modifier-hold hint (for example "⌘3"); nil hides the pill.
     let shortcutHintText: String?
     let shortcutHintXOffset: Double
@@ -40,6 +51,10 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let bottomDropIndicatorVisible: Bool
     /// Resolved cmux scheme used by native group-header chrome.
     let colorSchemeIsDark: Bool
+    /// Notification Badge color setting; nil falls back to the cmux accent.
+    let notificationBadgeColorHex: String?
+    /// Resolved cmux accent for the badge fallback and drop indicators.
+    var accentColor = CmuxAccentColor()
 }
 
 /// Behavior bundle for one group header row; recreated per apply and excluded
@@ -61,4 +76,6 @@ struct SidebarGroupHeaderRowActions {
     let onDelete: () -> Void
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
+    /// Resolves current notification availability for retained rows.
+    var notificationState: () -> NotificationState = { .unavailable }
 }

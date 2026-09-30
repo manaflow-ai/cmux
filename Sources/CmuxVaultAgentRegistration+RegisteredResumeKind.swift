@@ -6,6 +6,7 @@ extension CmuxVaultAgentRegistration {
         if self == Self.builtInPi { return .pi }
         if self == Self.builtInOmp { return .omp }
         if self == Self.builtInCampfire { return .campfire }
+        if self == Self.builtInAmp { return .amp }
         if self == Self.builtInAntigravity { return .antigravity }
         if self == Self.builtInGrok { return .grok }
         if self == Self.builtInKimi { return .kimi }

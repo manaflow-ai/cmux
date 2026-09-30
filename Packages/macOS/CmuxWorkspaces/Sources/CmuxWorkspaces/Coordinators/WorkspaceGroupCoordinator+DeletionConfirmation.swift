@@ -12,11 +12,17 @@ extension WorkspaceGroupCoordinator {
         guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else {
             return nil
         }
-        let includesAnchorWorkspace = model.tabs.contains { $0.id == group.anchorWorkspaceId }
-        var memberWorkspaceIds = includesAnchorWorkspace ? [group.anchorWorkspaceId] : []
+        let liveAnchorId = group.liveAnchorWorkspaceId
+        let includesAnchorWorkspace = liveAnchorId.map { anchorId in
+            model.tabs.contains { $0.id == anchorId }
+        } ?? false
+        var memberWorkspaceIds: [UUID] = {
+            guard includesAnchorWorkspace, let liveAnchorId else { return [] }
+            return [liveAnchorId]
+        }()
         memberWorkspaceIds.append(
             contentsOf: model.tabs.compactMap { tab in
-                tab.groupId == groupId && tab.id != group.anchorWorkspaceId ? tab.id : nil
+                tab.groupId == groupId && tab.id != group.liveAnchorWorkspaceId ? tab.id : nil
             }
         )
         return WorkspaceGroupDeletionConfirmation(

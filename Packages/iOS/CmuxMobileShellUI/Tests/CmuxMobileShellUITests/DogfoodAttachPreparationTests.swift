@@ -36,6 +36,35 @@ struct DogfoodAttachPreparationTests {
         #expect(coordinator.claimStoredReconnect() != nil)
     }
 
+    /// A saved-Mac dial started while auth restores must not retry after the
+    /// restore changes the account scope or signs out: the newer scope owns
+    /// startup and its own dial.
+    @Test
+    @MainActor
+    func storedReconnectSupersededByScopeChangeOrResetDoesNotOwnRetry() throws {
+        let coordinator = MobileStartupConnectionCoordinator()
+        #expect(coordinator.prepareAccountScope(
+            userID: "user-1",
+            teamID: "team-1",
+            apply: {}
+        ) == true)
+        let restoreAttempt = try #require(coordinator.claimStoredReconnect())
+
+        #expect(coordinator.prepareAccountScope(
+            userID: "user-1",
+            teamID: "team-2",
+            apply: {}
+        ) == true)
+        #expect(!coordinator.finishStoredReconnect(restoreAttempt))
+
+        let signedOutAttempt = try #require(coordinator.claimStoredReconnect())
+        coordinator.reset()
+        #expect(!coordinator.finishStoredReconnect(signedOutAttempt))
+
+        let currentAttempt = try #require(coordinator.claimStoredReconnect())
+        #expect(coordinator.finishStoredReconnect(currentAttempt))
+    }
+
     @Test
     @MainActor
     func connectedInjectedAttachKeepsExclusiveStartupOwnership() throws {

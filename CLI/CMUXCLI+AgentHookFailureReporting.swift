@@ -19,24 +19,25 @@ extension CMUXCLI {
     }
 
     /// Reports a persistently throttled hook failure without serializing raw transport details.
+    ///
+    /// `failureKind` overrides the reported `underlying_error_type` with a
+    /// stable, privacy-safe kind; otherwise it is the error's type, or
+    /// `unresolved-target` when neither is given.
     func reportAgentHookFailure(
         stage: AgentHookFailureStage,
         agentName: String,
         sessionId: String,
         event: String,
         error: Error? = nil,
+        failureKind: String? = nil,
         store: ClaudeHookSessionStore,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        deadline: Date? = nil
     ) {
-        guard (try? store.claimAgentHookFailureReport(
-            agentName: agentName,
-            stage: stage.rawValue,
-            sessionId: sessionId
-        )) == true else {
-            return
-        }
         let shortSessionId = String(sessionId.prefix(12))
-        let errorType = error.map { String(reflecting: type(of: $0)) } ?? "unresolved-target"
+        let errorType = failureKind
+            ?? error.map { String(reflecting: type(of: $0)) }
+            ?? "unresolved-target"
         let failureDescription: String
         switch stage {
         case .targetResolution:
@@ -77,19 +78,40 @@ extension CMUXCLI {
             code: 1,
             userInfo: userInfo
         )
+        let telemetryStage = "agent-hook-\(stage.rawValue)"
+        let telemetryData: [String: Any] = [
+            "agent": agentName,
+            "hook_event": event,
+            "has_session_id": !sessionId.isEmpty,
+            "underlying_error_type": errorType,
+            "failure_description": failureDescription,
+        ]
+        // Classify before claiming the durable slot. Expected lifecycle noise
+        // must not suppress a later actionable failure for the same session.
+        guard !telemetry.isExpectedFailure(
+            stage: telemetryStage,
+            error: reportableError,
+            data: telemetryData,
+            classificationError: error
+        ) else {
+            return
+        }
+        guard (try? store.claimAgentHookFailureReport(
+            agentName: agentName,
+            stage: stage.rawValue,
+            sessionId: sessionId,
+            deadline: deadline
+        )) == true else {
+            return
+        }
         agentHookDeliveryLogger.error(
             "Agent hook failed stage=\(stage.rawValue, privacy: .public) event=\(event, privacy: .public) agent=\(agentName, privacy: .public) session=\(shortSessionId, privacy: .private(mask: .hash)) errorType=\(errorType, privacy: .private(mask: .hash)) description=\(failureDescription, privacy: .public)"
         )
         telemetry.captureError(
-            stage: "agent-hook-\(stage.rawValue)",
+            stage: telemetryStage,
             error: reportableError,
-            data: [
-                "agent": agentName,
-                "hook_event": event,
-                "has_session_id": !sessionId.isEmpty,
-                "underlying_error_type": errorType,
-                "failure_description": failureDescription,
-            ]
+            data: telemetryData,
+            classificationError: error
         )
     }
 }

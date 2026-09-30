@@ -15,13 +15,14 @@ import WebKit
 /// opener.
 struct MarkdownWebContentView: UIViewRepresentable {
     let markdown: String
+    let assets: MarkdownWebViewerAssets
     let theme: MarkdownWebTheme
     /// Body zoom factor derived from the reader's Dynamic Type size.
     let pageZoom: CGFloat
     let openURL: OpenURLAction
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(assets: assets)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -31,8 +32,8 @@ struct MarkdownWebContentView: UIViewRepresentable {
             MarkdownWebWeakScriptMessageHandler(context.coordinator),
             name: "cmuxLib"
         )
-        config.setURLSchemeHandler(context.coordinator, forURLScheme: MarkdownWebViewerScheme.localImage)
-        config.setURLSchemeHandler(context.coordinator, forURLScheme: MarkdownWebViewerScheme.remoteImage)
+        config.setURLSchemeHandler(context.coordinator, forURLScheme: MarkdownWebViewerScheme.localImage.rawValue)
+        config.setURLSchemeHandler(context.coordinator, forURLScheme: MarkdownWebViewerScheme.remoteImage.rawValue)
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.isOpaque = false
@@ -68,6 +69,13 @@ struct MarkdownWebContentView: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate,
         @preconcurrency WKScriptMessageHandler, @preconcurrency WKURLSchemeHandler {
+        private let assets: MarkdownWebViewerAssets
+
+        init(assets: MarkdownWebViewerAssets) {
+            self.assets = assets
+            super.init()
+        }
+
         weak var webView: WKWebView?
         var openURL: OpenURLAction?
 
@@ -114,7 +122,7 @@ struct MarkdownWebContentView: UIViewRepresentable {
             lastTheme = theme
             requestedLibs.removeAll()
             isLoaded = false
-            guard let html = MarkdownWebViewerAssets.shared.shellHTML() else {
+            guard let html = assets.shellHTML() else {
                 isShellLoading = false
                 return
             }
@@ -279,8 +287,8 @@ struct MarkdownWebContentView: UIViewRepresentable {
 
             // The diagram bundles are megabytes; read and inflate them off the
             // main actor, then inject on main.
-            Task { [weak self] in
-                guard let sources = await MarkdownWebViewerAssets.shared.assets(specs),
+            Task { [weak self, assets] in
+                guard let sources = await assets.assets(specs),
                       sources.contains(where: { !$0.isEmpty }) else {
                     self?.requestedLibs.remove(lib)
                     return
@@ -318,10 +326,10 @@ struct MarkdownWebContentView: UIViewRepresentable {
             imageLoads[taskId] = load
 
             let reader: Task<MarkdownRemoteImageFetchResult?, Never>
-            if requestURL.scheme?.lowercased() == MarkdownWebViewerScheme.remoteImage,
-               let remoteURL = MarkdownRemoteImageSecurity.remoteImageURL(from: requestURL) {
+            if requestURL.scheme?.lowercased() == MarkdownWebViewerScheme.remoteImage.rawValue,
+               let remoteURL = MarkdownRemoteImageSecurity().remoteImageURL(from: requestURL) {
                 reader = Task.detached(priority: .userInitiated) {
-                    await MarkdownRemoteImageFetcher.fetch(remoteURL)
+                    await MarkdownRemoteImageFetcher().fetch(remoteURL)
                 }
             } else {
                 // Local images cannot resolve on the phone — the document's
@@ -421,11 +429,11 @@ struct MarkdownWebContentView: UIViewRepresentable {
         ) {
             if navigationAction.navigationType == .linkActivated,
                let url = navigationAction.request.url {
-                if MarkdownWebLinkPolicy.isInPageFragment(url) {
+                if MarkdownWebLinkPolicy().isInPageFragment(url) {
                     decisionHandler(.allow)
                     return
                 }
-                if let external = MarkdownWebLinkPolicy.externalURL(for: url) {
+                if let external = MarkdownWebLinkPolicy().externalURL(for: url) {
                     openURL?(external)
                 }
                 decisionHandler(.cancel)
@@ -441,7 +449,7 @@ struct MarkdownWebContentView: UIViewRepresentable {
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
             if let url = navigationAction.request.url,
-               let external = MarkdownWebLinkPolicy.externalURL(for: url) {
+               let external = MarkdownWebLinkPolicy().externalURL(for: url) {
                 openURL?(external)
             }
             return nil
