@@ -136,7 +136,7 @@ struct MacAuthComposition {
         let anchor = AuthPresentationContextProvider()
         let browserAppSessionSignInRelay = BrowserAppSessionSignInRelay()
         let coordinator = AuthCoordinator(
-            client: client,
+            client: Self.uiTestAuthClient(wrapping: client, environment: resolvedEnvironment),
             sessionCache: sessionCache,
             userCache: userCache,
             teamSelection: CMUXAuthTeamSelectionStore(
@@ -250,6 +250,18 @@ struct MacAuthComposition {
         true
         #else
         false
+        #endif
+    }
+
+    /// DEBUG UI tests can serve fixture team membership around the live client.
+    private static func uiTestAuthClient(
+        wrapping client: any AuthClient,
+        environment: [String: String]
+    ) -> any AuthClient {
+        #if DEBUG
+        UITestFixtureTeamsAuthClient.wrapping(client, environment: environment)
+        #else
+        client
         #endif
     }
 

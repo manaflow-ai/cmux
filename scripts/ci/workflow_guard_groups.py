@@ -104,11 +104,15 @@ PATH_OWNERS = {
     # test_ci_catch_up_pr.py runs the catch-up script, which runs these three
     # resolvers, and reads the workflow that calls it. The workflow also
     # answers to the preflight runner guard (test_ci_self_hosted_guard.sh).
-    "scripts/ci/catch_up_pr.py": frozenset(("ci",)),
+    # test_merge_pbxproj.py also runs catch_up_pr.py, for union_pbxproj.
+    "scripts/ci/catch_up_pr.py": frozenset(("preflight", "ci")),
     ".github/workflows/pr-catch-up.yml": frozenset(("preflight", "ci")),
     "scripts/merge-xcstrings.py": frozenset(("ci",)),
     "scripts/normalize-pbxproj.py": frozenset(("ci",)),
     "scripts/generate-cmux-config-schema.py": frozenset(("ci",)),
+    # test_merge_pbxproj.py runs the merge driver, which runs the normalizer
+    # above and borrows union_pbxproj from the catch-up script.
+    "scripts/merge-pbxproj.py": frozenset(("preflight",)),
     # test_ci_auto_catch_up_select.py imports the selector and replays its fixture.
     "scripts/ci/auto_catch_up_select.py": frozenset(("ci",)),
     "tests/fixtures/auto_catch_up/replay.json": frozenset(("ci",)),
@@ -162,6 +166,8 @@ PATH_OWNERS = {
     "scripts/ci/select_package_tests.py": frozenset(("ci",)),
     # test_ci_delta_since_green.py imports it; ci.yml runs the base copy.
     "scripts/ci/delta_since_green.py": frozenset(("ci",)),
+    # test_ci_package_interface_fingerprint.py imports it; the package lane runs it.
+    "scripts/ci/package_interface_fingerprint.py": frozenset(("ci",)),
     "scripts/ci/swift_incremental_diagnostics.py": frozenset(("preflight",)),
     "scripts/ci/test_execution_registry.py": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/SKILL.md": frozenset(("preflight",)),

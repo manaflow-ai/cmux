@@ -17,7 +17,7 @@ import { reportMissingRateLimitRule } from "../../../../services/rateLimitObserv
 import { checkEmailDeliverable } from "../../waitlist/email-check";
 
 
-const supportRecipient = "founders@manaflow.com";
+const supportRecipient = "founders@cmux.com";
 
 const supportRequestSchema = z.object({
   name: z.string().trim().max(160).optional().default(""),
