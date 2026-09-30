@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 extension AgentJournalEventDraft {
     /// Native event name for a turn the user interrupted from cmux.
