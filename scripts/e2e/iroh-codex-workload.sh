@@ -79,7 +79,7 @@ while (( $(date +%s) < deadline )); do
         marker_seen=1
       fi
       iteration_count="$(grep -oE "CMUX_CODEX_${session_number}_ITER_[0-9]+" <<<"$screen" \
-        | sed -E 's/.*_ITER_//' | sort -nu | wc -l | tr -d ' ' || true)"
+        | sed -E 's/.*_ITER_//' | sort -n | tail -1 || true)"
       if [[ "$iteration_count" =~ ^[0-9]+$ ]] \
          && (( iteration_count > ITERATION_COUNTS[index] )); then
         ITERATION_COUNTS[$index]="$iteration_count"

@@ -204,7 +204,24 @@ terminal_surface_visible() {
 }
 
 ensure_terminal_surface() {
-  terminal_surface_visible && return 0
+  if [[ -z "$WORKSPACE_ID" ]]; then
+    terminal_surface_visible && return 0
+  elif terminal_surface_visible; then
+    # The real-use phase supplies a specific Codex workspace/surface. Always
+    # return to the list before selecting its row so a prior workload's
+    # visible terminal cannot satisfy this check or receive input instead.
+    "$AXE" tap --id MobileWorkspaceBackButton --udid "$SIM_UDID" \
+      --wait-timeout 15 --poll-interval 0.25 >/dev/null 2>&1 \
+      || fail "targeted workspace is already open but cannot return to the workspace list"
+    local list_deadline=$(( $(date +%s) + STEP_TIMEOUT ))
+    while (( $(date +%s) < list_deadline )); do
+      terminal_surface_visible || break
+      sleep 1
+    done
+    if terminal_surface_visible; then
+      fail "workspace list did not appear before selecting target workspace"
+    fi
+  fi
 
   local row_id
   if [[ -n "$WORKSPACE_ID" ]]; then
@@ -424,6 +441,7 @@ xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
 wait_phone "$MARKC"   # session replay re-renders the pre-background history
 # Relaunch resets first responder exactly like a cold boot; re-establish
 # input with the same tap + typed self-check used in preflight.
+ensure_terminal_surface
 "$AXE" tap --id MobileTerminalSurface --udid "$SIM_UDID" >/dev/null 2>&1 || true
 sleep 1
 ensure_terminal_keyboard
