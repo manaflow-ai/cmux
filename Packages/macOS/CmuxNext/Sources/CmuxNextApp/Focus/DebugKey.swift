@@ -89,7 +89,7 @@ enum DebugKey {
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
               let workspace = controller.state.workspaceID else { return .object(["error": .string("no window")]) }
-        controller.sidebar.container.sidebarView.beginRename(workspace: SidebarWorkspaceID(workspace))
+        controller.sidebar.container.beginRename(workspace: SidebarWorkspaceID(workspace))
         return .object(["workspace": .string(workspace)])
     }
 }

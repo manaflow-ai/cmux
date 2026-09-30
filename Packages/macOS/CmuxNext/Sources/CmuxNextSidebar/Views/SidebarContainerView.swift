@@ -6,53 +6,75 @@ import Observation
 /// theme's background), with no panel, border or seam. It owns its width.
 ///
 /// Pin leading, top, and bottom; the view animates its own width constraint
-/// for `SidebarModel.presentation` (expanded, icons only, hidden) and for
-/// live resizing through the trailing handle. Neighbors should attach to its
-/// trailing anchor so they follow.
+/// between the user's width (`SidebarModel.presentation == .shown`) and 0
+/// (`.hidden`), and follows live resizing through the trailing handle.
+/// Neighbors should attach to its trailing anchor so they follow and reach
+/// the window edge when the sidebar hides.
+///
+/// While the width animates, the sidebar content keeps its full width and
+/// slides out past the leading edge (a clip view hides the overflow), so
+/// rows never reflow mid-animation. Once hidden, the content is
+/// `isHidden`: it cannot hold focus, take drops or appear to VoiceOver.
 public final class SidebarContainerView: NSView {
     public let sidebarView: SidebarView
     public let model: SidebarModel
     /// The width constraint this view drives. Do not add another.
     public private(set) var widthConstraint: NSLayoutConstraint!
 
-    /// Plain holder; alpha fades the sidebar out when hidden.
+    /// Clips the sliding panel to the container's (animating) width.
+    private let clip = NSView()
+    /// Holds the sidebar at `model.width`, pinned to the clip's trailing edge.
     private let panel = NSView()
+    private var panelWidth: NSLayoutConstraint!
     private let handle: SidebarResizeHandle
     private var observation: Task<Void, Never>?
+    /// Width the constraint is at or animating to. The animator reports
+    /// intermediate constants, so compare against this instead.
+    private var targetWidth: CGFloat
+    /// Bumped per width animation; a stale completion does nothing.
+    private var animationGeneration = 0
 
-    /// Dragging narrower than this switches to icons-only; dragging an
-    /// icons-only sidebar wider than this expands it.
-    public static var collapseThreshold: CGFloat { (Metrics.sidebarMinWidth + Metrics.sidebarCollapsedWidth) / 2 }
+    /// Dragging the resize edge narrower than this hides the sidebar
+    /// (there is no intermediate width below `Metrics.sidebarMinWidth`).
+    public static var hideThreshold: CGFloat { Metrics.sidebarMinWidth / 2 }
 
     public init(model: SidebarModel) {
         self.model = model
         sidebarView = SidebarView(model: model)
         handle = SidebarResizeHandle()
+        targetWidth = model.displayWidth
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        panel.translatesAutoresizingMaskIntoConstraints = false
-        sidebarView.translatesAutoresizingMaskIntoConstraints = false
+        clip.wantsLayer = true
+        clip.layer?.masksToBounds = true
+        for view in [clip, panel, sidebarView, handle] { view.translatesAutoresizingMaskIntoConstraints = false }
         panel.addSubview(sidebarView)
-        addSubview(panel)
+        clip.addSubview(panel)
+        addSubview(clip)
         addSubview(handle)
-        handle.translatesAutoresizingMaskIntoConstraints = false
         widthConstraint = widthAnchor.constraint(equalToConstant: model.displayWidth)
+        panelWidth = panel.widthAnchor.constraint(equalToConstant: model.width)
         NSLayoutConstraint.activate([
             widthConstraint,
+            panelWidth,
             sidebarView.leadingAnchor.constraint(equalTo: panel.leadingAnchor),
             sidebarView.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
             sidebarView.topAnchor.constraint(equalTo: panel.topAnchor),
             sidebarView.bottomAnchor.constraint(equalTo: panel.bottomAnchor),
-            panel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            panel.topAnchor.constraint(equalTo: topAnchor),
-            panel.bottomAnchor.constraint(equalTo: bottomAnchor),
-            panel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            clip.leadingAnchor.constraint(equalTo: leadingAnchor),
+            clip.trailingAnchor.constraint(equalTo: trailingAnchor),
+            clip.topAnchor.constraint(equalTo: topAnchor),
+            clip.bottomAnchor.constraint(equalTo: bottomAnchor),
+            panel.trailingAnchor.constraint(equalTo: clip.trailingAnchor),
+            panel.topAnchor.constraint(equalTo: clip.topAnchor),
+            panel.bottomAnchor.constraint(equalTo: clip.bottomAnchor),
             handle.trailingAnchor.constraint(equalTo: trailingAnchor, constant: Metrics.dividerHitWidth / 2),
             handle.topAnchor.constraint(equalTo: topAnchor),
             handle.bottomAnchor.constraint(equalTo: bottomAnchor),
             handle.widthAnchor.constraint(equalToConstant: Metrics.dividerHitWidth),
         ])
-        panel.alphaValue = model.presentation == .hidden ? 0 : 1
+        panel.isHidden = model.isHidden
+        handle.isHidden = model.isHidden
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
         observe()
     }
@@ -64,47 +86,78 @@ public final class SidebarContainerView: NSView {
         observation?.cancel()
     }
 
+    // MARK: Public API
+
+    /// Restores saved state without animating (window creation, relaunch).
+    public func restore(width: CGFloat?, presentation: SidebarPresentation) {
+        if let width { model.width = width }
+        model.presentation = presentation
+        animationGeneration += 1
+        snap()
+    }
+
+    /// Starts inline rename of a workspace, showing the sidebar first when
+    /// it is hidden (the rename field lives in the list).
+    public func beginRename(workspace id: WorkspaceID) {
+        revealForEditing()
+        sidebarView.beginRename(workspace: id)
+    }
+
+    /// Starts inline rename of a group, showing the sidebar first when it
+    /// is hidden.
+    public func beginRename(group id: GroupID) {
+        revealForEditing()
+        sidebarView.beginRename(group: id)
+    }
+
+    /// Shows a hidden sidebar and lays its rows out now, so a rename field
+    /// can attach to a row in the same turn. The width still animates.
+    private func revealForEditing() {
+        guard model.isHidden else { return }
+        model.presentation = .shown
+        apply()
+        panel.layoutSubtreeIfNeeded()
+    }
+
+    // MARK: Resize
+
     private var liveStartWidth: CGFloat = 0
 
     private func handleDrag(_ phase: SidebarResizeHandle.Phase) {
         switch phase {
         case .began:
-            liveStartWidth = model.displayWidth
+            liveStartWidth = model.width
         case let .changed(dx):
+            guard !model.isHidden else { return }
             let proposed = liveStartWidth + dx
-            switch model.presentation {
-            case .expanded:
-                if proposed < Self.collapseThreshold {
-                    model.presentation = .iconsOnly
-                } else {
-                    model.width = proposed
-                    widthConstraint.constant = model.width
-                }
-            case .iconsOnly:
-                if proposed > Self.collapseThreshold {
-                    model.width = max(proposed, SidebarModel.widthRange.lowerBound)
-                    model.presentation = .expanded
-                }
-            case .hidden:
-                break
+            if proposed < Self.hideThreshold {
+                // Hide outright and come back at the width the drag began at.
+                handle.endDrag()
+                model.width = liveStartWidth
+                model.presentation = .hidden
+            } else {
+                model.width = proposed
+                panelWidth.constant = model.width
+                targetWidth = model.width
+                widthConstraint.constant = model.width
             }
         case .ended:
             break
-        case .doubleClick:
-            model.togglePresentation()
         }
     }
+
+    // MARK: Observation
 
     private func observe() {
         let model = model
         observation = Task { [weak self] in
-            for await (presentation, width, _, defaultWidth) in Observations({
-                // displayWidth reads Metrics.sidebarCollapsedWidth; the default
-                // width token is tracked so a settings change resizes live.
-                (model.presentation, model.width, model.displayWidth, Metrics.sidebarWidth)
+            for await (_, _, defaultWidth) in Observations({
+                // The default width token is tracked so a settings change
+                // resizes live.
+                (model.presentation, model.width, Metrics.sidebarWidth)
             }) {
                 self?.followDefaultWidth(defaultWidth)
-                self?.apply(presentation: presentation, width: width)
+                self?.apply()
             }
         }
     }
@@ -118,23 +171,43 @@ public final class SidebarContainerView: NSView {
         model.width = value
     }
 
-    private func apply(presentation: SidebarPresentation, width: CGFloat) {
+    /// Sets every constraint and visibility for the model without animating.
+    private func snap() {
+        targetWidth = model.displayWidth
+        widthConstraint.constant = targetWidth
+        panelWidth.constant = model.width
+        panel.isHidden = model.isHidden
+        handle.isHidden = model.isHidden
+    }
+
+    /// Animates to the model's presentation with a spring (instant with
+    /// Reduce Motion). Idempotent: a repeat call for the same target does
+    /// nothing, so the observation and a synchronous caller can both run it.
+    private func apply() {
+        let hidden = model.isHidden
         let target = model.displayWidth
-        handle.isHidden = presentation == .hidden
-        guard widthConstraint.constant != target else { return }
-        if handle.isDragging, presentation == .expanded, widthConstraint.constant > Self.collapseThreshold {
+        panelWidth.constant = model.width
+        handle.isHidden = hidden
+        if handle.isDragging, !hidden {
+            targetWidth = target
             widthConstraint.constant = target
             return
         }
-        let alpha: CGFloat = presentation == .hidden ? 0 : 1
+        guard targetWidth != target else { return }
+        targetWidth = target
+        if !hidden { panel.isHidden = false }
+        animationGeneration += 1
+        let generation = animationGeneration
         // Animate only the constraint: descendants re-lay out each frame at
         // their real size. Forcing layout inside the animation block would
         // make every subview frame an implicit animation whose completion
         // overwrites later layout.
-        Motion.animate(Motion.width) {
+        Motion.animate(Motion.width, {
             widthConstraint.animator().constant = target
-            panel.animator().alphaValue = alpha
-        }
+        }, completion: { [weak self] in
+            guard let self, generation == self.animationGeneration, self.model.isHidden else { return }
+            self.panel.isHidden = true
+        })
     }
 }
 
@@ -146,7 +219,6 @@ final class SidebarResizeHandle: NSView {
         case began
         case changed(CGFloat)
         case ended
-        case doubleClick
     }
 
     var onDrag: ((Phase) -> Void)?
@@ -218,10 +290,6 @@ final class SidebarResizeHandle: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2 {
-            onDrag?(.doubleClick)
-            return
-        }
         isDragging = true
         startX = event.locationInWindow.x
         onDrag?(.began)
@@ -230,6 +298,12 @@ final class SidebarResizeHandle: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard isDragging else { return }
         onDrag?(.changed(event.locationInWindow.x - startX))
+    }
+
+    /// Ends the drag early (it hid the sidebar); later drag events for
+    /// this press are ignored.
+    func endDrag() {
+        isDragging = false
     }
 
     override func mouseUp(with event: NSEvent) {

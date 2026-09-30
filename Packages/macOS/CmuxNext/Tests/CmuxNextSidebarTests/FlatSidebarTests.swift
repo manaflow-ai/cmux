@@ -21,10 +21,10 @@ import Testing
         #expect(allHidden)
     }
 
-    @Test func iconsOnlyRowsFallBackToAMonogram() {
-        #expect(SidebarIconView.showsIcon(nil, compact: true))
-        #expect(!SidebarIconView.showsIcon(nil, compact: false))
-        #expect(SidebarIconView.showsIcon(.swatch(.red), compact: false))
+    @Test func onlyAChosenIconTakesRoom() {
+        #expect(!SidebarIconView.showsIcon(nil))
+        #expect(SidebarIconView.showsIcon(.swatch(.red)))
+        #expect(SidebarIconView.showsIcon(.symbol("hammer")))
     }
 
     @Test func containerIsAFlatSurfaceWithNoGlassOrVisibleEdge() throws {

@@ -3,19 +3,15 @@ import CmuxNextDesign
 import QuartzCore
 
 /// Workspace icon, shown only when the user chose one: an SF Symbol, or a
-/// color (a small dot in full rows, a swatch with a monogram in icons-only
-/// rows). Icons-only rows without a chosen icon show the title's first
-/// letter as plain text.
+/// color shown as a small dot.
 final class SidebarIconView: NSView {
     private let imageView = NSImageView()
     private let swatch = CALayer()
-    private let monogram = NSTextField(labelWithString: "")
     private var icon: WorkspaceIcon?
-    private var compact = false
 
-    /// Full rows reserve room only for a chosen icon.
-    static func showsIcon(_ icon: WorkspaceIcon?, compact: Bool) -> Bool {
-        compact || icon != nil
+    /// Rows reserve room only for a chosen icon.
+    static func showsIcon(_ icon: WorkspaceIcon?) -> Bool {
+        icon != nil
     }
 
     override init(frame: NSRect) {
@@ -24,9 +20,7 @@ final class SidebarIconView: NSView {
         swatch.cornerCurve = .continuous
         layer?.addSublayer(swatch)
         imageView.imageScaling = .scaleProportionallyDown
-        monogram.alignment = .center
         addSubview(imageView)
-        addSubview(monogram)
     }
 
     @available(*, unavailable)
@@ -34,11 +28,9 @@ final class SidebarIconView: NSView {
 
     override var wantsUpdateLayer: Bool { true }
 
-    func configure(icon: WorkspaceIcon?, title: String, compact: Bool) {
+    func configure(icon: WorkspaceIcon?) {
         self.icon = icon
-        self.compact = compact
-        isHidden = !Self.showsIcon(icon, compact: compact)
-        monogram.stringValue = title.first.map { String($0).uppercased() } ?? ""
+        isHidden = !Self.showsIcon(icon)
         switch icon {
         case let .symbol(name, tint)?:
             let config = SidebarStyle.glyphConfig
@@ -46,17 +38,8 @@ final class SidebarIconView: NSView {
                 ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)?.withSymbolConfiguration(config)
             imageView.contentTintColor = tint.map(SidebarStyle.color) ?? Palette.textSecondary
             imageView.isHidden = false
-            monogram.isHidden = true
-        case .swatch?:
+        case .swatch?, nil:
             imageView.isHidden = true
-            monogram.isHidden = !compact
-            monogram.font = NSFont.systemFont(ofSize: Typography.caption.pointSize - Metrics.space1, weight: .bold)
-            monogram.textColor = Palette.textOnPrimary
-        case nil:
-            imageView.isHidden = true
-            monogram.isHidden = !compact
-            monogram.font = SidebarStyle.titleUnreadFont
-            monogram.textColor = Palette.textSecondary
         }
         needsDisplay = true
         needsLayout = true
@@ -77,16 +60,13 @@ final class SidebarIconView: NSView {
     override func layout() {
         super.layout()
         imageView.frame = bounds
-        // Full rows: a dot. Icons-only rows: a swatch that carries a letter.
-        let side = compact ? SidebarStyle.swatchSize : SidebarStyle.dotSize
+        let side = SidebarStyle.dotSize
         let rect = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         swatch.frame = rect
-        swatch.cornerRadius = compact ? side * 0.28 : side / 2
+        swatch.cornerRadius = side / 2
         CATransaction.commit()
-        let size = monogram.intrinsicContentSize
-        monogram.frame = NSRect(x: 0, y: (bounds.height - size.height) / 2, width: bounds.width, height: size.height)
         needsDisplay = true
     }
 }

@@ -26,7 +26,6 @@ public final class SidebarView: NSView {
     let list: SidebarListView
     private let scrollView = NSScrollView()
     let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
-    private let presentationButton = SidebarIconButton(symbol: "sidebar.left", weight: .regular, label: Strings.showIconsOnly)
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     private(set) var isChromeRevealed = false
     private var accessories: [SidebarAccessorySlot: NSView] = [:]
@@ -106,11 +105,8 @@ public final class SidebarView: NSView {
 
     private func buildHierarchy() {
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
-        presentationButton.onPress = { [weak self] in self?.model.togglePresentation() }
-        for button in [newButton, presentationButton] {
-            button.alphaValue = 0
-            addSubview(button)
-        }
+        newButton.alphaValue = 0
+        addSubview(newButton)
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
@@ -154,30 +150,22 @@ public final class SidebarView: NSView {
     override public func layout() {
         super.layout()
         let b = bounds
-        let compact = model.presentation == .iconsOnly
         // Tokens are read here, never cached, so density changes apply live.
         // The list starts right under the titlebar row: no search field.
         let y = titlebarHeight
 
         // Titlebar row: buttons trail the traffic lights, shown on hover.
-        newButton.isHidden = compact
-        presentationButton.isHidden = compact
-        presentationButton.toolTip = compact ? Strings.showFull : Strings.showIconsOnly
         let button = SidebarStyle.toolbarButtonSize
         let rowY = max(Metrics.space2, (titlebarHeight - button) / 2)
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: rowY, width: button, height: button)
-        presentationButton.frame = NSRect(x: newButton.frame.minX - Metrics.space1 - button, y: rowY, width: button, height: button)
 
         // Footer slots.
-        // Icons-only shows the icon slots; the status text needs width.
-        for (slot, view) in accessories { view.isHidden = compact && slot == .status }
         let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in
             accessories[slot].flatMap { view in view.isHidden ? nil : (slot, view) }
         }
-        let slot = Metrics.sidebarRowHeight
-        let footerHeight: CGFloat = visibleSlots.isEmpty ? 0 : (compact ? CGFloat(visibleSlots.count) * (slot + Metrics.space2) + Metrics.space4 : SidebarStyle.footerHeight)
+        let footerHeight: CGFloat = visibleSlots.isEmpty ? 0 : SidebarStyle.footerHeight
         footer.frame = NSRect(x: 0, y: b.height - footerHeight, width: b.width, height: footerHeight)
-        layoutFooter(visibleSlots, compact: compact)
+        layoutFooter(visibleSlots)
 
         scrollView.frame = NSRect(x: 0, y: y, width: b.width, height: max(0, b.height - y - footerHeight))
         scrollView.tile()
@@ -203,19 +191,11 @@ public final class SidebarView: NSView {
         let alpha: CGFloat = revealed ? 1 : 0
         Motion.animate(Motion.fade) {
             newButton.animator().alphaValue = alpha
-            presentationButton.animator().alphaValue = alpha
         }
     }
 
-    private func layoutFooter(_ slots: [(SidebarAccessorySlot, NSView)], compact: Bool) {
+    private func layoutFooter(_ slots: [(SidebarAccessorySlot, NSView)]) {
         let f = footer.bounds
-        if compact {
-            for (i, (_, view)) in slots.enumerated() {
-                let slot = Metrics.sidebarRowHeight
-                view.frame = NSRect(x: (f.width - slot) / 2, y: Metrics.space2 + CGFloat(i) * (slot + Metrics.space2), width: slot, height: slot)
-            }
-            return
-        }
         // account leading, cloud next to it, status fills the trailing space.
         let side = Metrics.sidebarRowHeight
         var x = Metrics.space4
@@ -239,7 +219,6 @@ public final class SidebarView: NSView {
         var selection: Set<WorkspaceID>
         var active: WorkspaceID?
         var filter: String
-        var presentation: SidebarPresentation
         /// Design tokens (density, overrides, chrome font size). Reading them
         /// inside the tracked closure makes a settings change re-render.
         var metrics: SidebarLayoutMetrics
@@ -256,8 +235,7 @@ public final class SidebarView: NSView {
                     selection: model.selection,
                     active: model.activeWorkspaceID,
                     filter: model.filterText,
-                    presentation: model.presentation,
-                    metrics: model.presentation == .iconsOnly ? .iconsOnly : .standard,
+                    metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight
                 )
@@ -269,8 +247,7 @@ public final class SidebarView: NSView {
 
     private func render(_ state: RenderState) {
         guard state != lastState else { return }
-        let chromeChanged = lastState?.presentation != state.presentation
-            || lastState?.metrics != state.metrics
+        let chromeChanged = lastState?.metrics != state.metrics
             || lastState?.fontSize != state.fontSize
             || lastState?.titlebarHeight != state.titlebarHeight
         lastState = state

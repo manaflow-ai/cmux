@@ -32,6 +32,7 @@ nonisolated enum FocusReducer {
                 forceResponder = true
             }
         case .focusTarget(let target, let source):
+            if next.sidebarHidden, target.isSidebar { break }
             if source.isUserIntent { bump(&next) }
             if target == .addressBar || target == .findBar {
                 guard let pane = next.pane, next.topology.pane(pane)?.selectedTab?.kind == .browser else { break }
@@ -88,6 +89,12 @@ nonisolated enum FocusReducer {
             guard let tab = tab ?? browserTab(of: next) else { break }
             if next.browserFocusMode.remove(tab) == nil { next.browserFocusMode.insert(tab) }
             effects.append(.browserFocusMode(tab: tab, active: next.browserFocusMode.contains(tab)))
+        case .sidebarVisibility(let hidden):
+            next.sidebarHidden = hidden
+            if hidden, next.target.isSidebar {
+                next.target = .content
+                forceResponder = true
+            }
         }
 
         finish(from: state, to: &next, effects: &effects, forceResponder: forceResponder, forceContext: forceContext)
@@ -103,7 +110,7 @@ nonisolated enum FocusReducer {
             if let workspace = old.workspace, let pane = state.pane { state.remembered[workspace] = pane }
             state.pane = topology.workspace.flatMap { state.remembered[$0] }.flatMap { topology.contains(pane: $0) ? $0 : nil }
                 ?? topology.panes.first?.id
-            if state.target != .sidebar(keyboard: true) { state.target = .content }
+            if state.target != .sidebar(keyboard: true) || state.sidebarHidden { state.target = .content }
             state.drag = nil
         } else if let pane = state.pane, !topology.contains(pane: pane) {
             state.pane = successor(of: pane, history: state.history, in: old.panes.map(\.id), surviving: topology)
@@ -184,10 +191,10 @@ nonisolated enum FocusReducer {
             guard state.topology.contains(pane: reported) else { return true }
             pane = reported
             target = .findBar
-        case .sidebar:
-            target = .sidebar(keyboard: source == .keyboard)
-        case .sidebarField:
-            target = .sidebarField
+        case .sidebar, .sidebarField:
+            // A hidden sidebar cannot hold the keyboard: re-apply the target.
+            guard !state.sidebarHidden else { return true }
+            target = responder == .sidebar ? .sidebar(keyboard: source == .keyboard) : .sidebarField
         case .textField:
             target = .textField
         }

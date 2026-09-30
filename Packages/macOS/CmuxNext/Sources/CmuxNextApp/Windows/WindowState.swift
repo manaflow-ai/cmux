@@ -43,9 +43,11 @@ final class WindowState {
     let focus = FocusCoordinator()
     /// Session-only browser tabs per pane (`PaneModel.id`).
     var localBrowserTabs: [String: [LocalBrowserTab]] = [:]
-    /// Sidebar width in points (nil = default) and icons-only collapse.
+    /// Sidebar width in points (nil = default); kept while hidden, so the
+    /// sidebar comes back at this width.
     var sidebarWidth: Double?
-    var sidebarCollapsed = false
+    /// The sidebar is fully hidden (Toggle Sidebar). Per window, persisted.
+    var sidebarHidden = false
     /// The screen switcher is shown (kept across workspace switches).
     var showsScreenSwitcher = false
 
@@ -71,7 +73,7 @@ extension WindowState {
         machineID = record.machine ?? MachineRegistry.localID
         for (pane, tab) in record.selectedTabs { selection.select(tab, in: pane) }
         sidebarWidth = record.sidebarWidth
-        sidebarCollapsed = record.sidebarCollapsed
+        sidebarHidden = record.sidebarHidden
         showsScreenSwitcher = record.showsScreenSwitcher
     }
 }

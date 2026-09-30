@@ -52,6 +52,24 @@ struct FocusCoordinatorTests {
         #expect(!coordinator.recent.contains { $0.contains("sidebarField") })
     }
 
+    @Test func hidingTheFocusedSidebarMovesTheResponderToTheContent() {
+        let (coordinator, applier) = Self.make()
+        coordinator.send(.topology(FocusReducerTests.topology()))
+        coordinator.responderDidChange(.sidebar, source: .keyboard)
+        #expect(coordinator.state.resolved == .sidebar)
+        applier.batches = []
+        // Hiding the view makes AppKit drop the responder to the window;
+        // that echo arrives while the applier moves focus and is ignored.
+        applier.echoResponder = .windowOrNone
+        coordinator.send(.sidebarVisibility(hidden: true))
+        #expect(coordinator.state.resolved == .terminal(pane: "a", tab: "t1"))
+        #expect(applier.batches.flatMap { $0 }.contains(.moveResponder(.terminal(pane: "a", tab: "t1"))))
+        // A late responder report from the hidden sidebar is refused.
+        applier.echoResponder = nil
+        coordinator.responderDidChange(.sidebar, source: .mouse)
+        #expect(coordinator.state.resolved == .terminal(pane: "a", tab: "t1"))
+    }
+
     @Test func beginIntentThenLateExpectationLosesToAClick() {
         let (coordinator, _) = Self.make()
         coordinator.send(.topology(FocusReducerTests.topology()))

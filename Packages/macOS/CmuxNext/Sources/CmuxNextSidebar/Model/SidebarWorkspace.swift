@@ -38,7 +38,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// that earns the row a second line.
     public var status: String?
     /// Set only when the user chose an icon or color. Rows are text-first:
-    /// nil shows no icon (icons-only mode shows the title's first letter).
+    /// nil shows no icon.
     public var icon: WorkspaceIcon?
     public var unread: UnreadState
     public var activity: AgentActivity

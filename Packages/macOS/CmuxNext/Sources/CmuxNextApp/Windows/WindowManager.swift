@@ -130,7 +130,7 @@ final class WindowManager {
         launch.state.adopt(record)
         states[launchID] = nil
         states[front] = launch.state
-        launch.sidebar.restore(width: record.sidebarWidth, collapsed: record.sidebarCollapsed)
+        launch.sidebar.restore(width: record.sidebarWidth, hidden: record.sidebarHidden)
         if services.environment.testWindow == nil, let frame = restored.window(front)?.frame {
             launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: restored.window(front)?.display), display: true)
         }
@@ -150,7 +150,7 @@ final class WindowManager {
             placedWindows += 1
         }
         let controller = WindowController(state: state, services: services, frame: frame)
-        controller.sidebar.restore(width: state.sidebarWidth, collapsed: state.sidebarCollapsed)
+        controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         services.dragSession.installWorkspaceHandoff(on: controller)
         controllers.append(controller)
         present(controller)

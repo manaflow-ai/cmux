@@ -126,6 +126,7 @@ struct WindowRegistryTests {
         registry.setGeometry("a", frame: CGRect(x: 10, y: 20, width: 800, height: 600), display: "D1")
         let stateA = WindowState(id: "a", workspaceID: "w2")
         stateA.sidebarWidth = 250
+        stateA.sidebarHidden = true
         stateA.showsScreenSwitcher = true
         let records = [
             try #require(registry.record("a", state: stateA, order: 1, selectedTabs: ["p1": "t1"])),
@@ -143,6 +144,7 @@ struct WindowRegistryTests {
         let state = WindowState(record: try #require(decoded.windows.first { $0.id == "a" }))
         #expect(state.workspaceID == "w2")
         #expect(state.sidebarWidth == 250)
+        #expect(state.sidebarHidden)
         #expect(state.showsScreenSwitcher)
         #expect(state.selection.selection(in: "p1") == "t1")
         #expect(restored.violations().isEmpty)

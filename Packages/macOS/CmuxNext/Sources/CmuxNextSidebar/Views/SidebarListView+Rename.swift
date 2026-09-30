@@ -15,7 +15,7 @@ extension SidebarListView {
     }
 
     func beginRename(_ key: SidebarRowKey) {
-        guard !compact, drag == nil else { return }
+        guard model.presentation == .shown, drag == nil else { return }
         if rename != nil { endRename(commit: true) }
         let original: String
         switch key {
@@ -44,7 +44,7 @@ extension SidebarListView {
         field.frame = NSRect(
             x: titleFrame.minX - Metrics.space1,
             y: titleFrame.midY - height / 2,
-            width: max(Metrics.sidebarCollapsedWidth, view.frame.width - titleFrame.minX - Metrics.space3),
+            width: max(0, view.frame.width - titleFrame.minX - Metrics.space3),
             height: height
         )
         addSubview(field)

@@ -89,7 +89,7 @@ extension SidebarListView {
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {
                 model.send(.openGroup(group))
-            } else if compact || isOnDisclosure(point, group: group) {
+            } else if isOnDisclosure(point, group: group) {
                 // The chevron has no double-click meaning: toggle at once.
                 model.send(.toggleCollapse(.group(group)))
             } else {

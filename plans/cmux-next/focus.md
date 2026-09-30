@@ -169,7 +169,10 @@ palette), `selectTab(pane, tab, source)`, `focusTarget(target)` (Cmd-L, find),
 `responder(report, source)` (the first responder AppKit actually chose, including a CEF
 child window becoming key), `windowKey`, `appActive`, `overlayOpened/Closed`,
 `expect(expectation, generation)`, `dragBegan(tabs, pane)`, `dragEnded(cancelled |
-dropped(tabs) | movedAway)`, `contentPresented(pane)`, `toggleBrowserFocusMode`.
+dropped(tabs) | movedAway)`, `contentPresented(pane)`, `toggleBrowserFocusMode`,
+`sidebarVisibility(hidden)` (sent synchronously when Toggle Sidebar or an edge drag hides the
+sidebar: a sidebar or sidebar-field target returns to `content`, and while hidden sidebar
+responders and targets are refused).
 
 Reducer `(FocusState, FocusEvent) -> (FocusState, [FocusEffect])`, pure, rules:
 - Initial placement and workspace switch: remembered pane if it exists, else the first

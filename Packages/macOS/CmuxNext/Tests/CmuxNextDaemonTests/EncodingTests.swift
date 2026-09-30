@@ -200,6 +200,26 @@ import Testing
         #expect(document.windows.isEmpty)
     }
 
+    @Test func sidebarHiddenRoundTripsAndLegacyCollapsedMigratesToHidden() throws {
+        let record = WindowRecord(id: "w1", sidebarWidth: 230, sidebarHidden: true)
+        let data = try JSONEncoder().encode(record)
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["sidebar_hidden"] as? Bool == true)
+        #expect(object["sidebar_collapsed"] == nil)
+        #expect(try JSONDecoder().decode(WindowRecord.self, from: data) == record)
+        // Older builds saved icons-only (or hidden) as `sidebar_collapsed`.
+        let iconsOnly = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"old","sidebar_collapsed":true,"sidebar_width":250}"#.utf8))
+        #expect(iconsOnly.sidebarHidden)
+        #expect(iconsOnly.sidebarWidth == 250)
+        let expanded = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"old","sidebar_collapsed":false}"#.utf8))
+        #expect(!expanded.sidebarHidden)
+        let none = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"old"}"#.utf8))
+        #expect(!none.sidebarHidden)
+        // The new key wins over a stale legacy one.
+        let both = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"x","sidebar_collapsed":true,"sidebar_hidden":false}"#.utf8))
+        #expect(!both.sidebarHidden)
+    }
+
     @Test func groupAndMetadataCommandsUseNullToClear() throws {
         let metadata = try object(SetWorkspaceMetadataRequest(workspace: .key("k1"), color: .clear, icon: .set("folder"),
                                                               mutation: MutationIdentity(origin: "o", mutationID: "m")))

@@ -19,6 +19,14 @@ nonisolated struct FocusState: Hashable, Sendable {
         case textField
         case none
 
+        /// The sidebar list or one of its fields.
+        var isSidebar: Bool {
+            switch self {
+            case .sidebar, .sidebarField: true
+            default: false
+            }
+        }
+
         var isPaneScoped: Bool {
             switch self {
             case .content, .addressBar, .findBar: true
@@ -145,6 +153,8 @@ nonisolated struct FocusState: Hashable, Sendable {
     var browserFocusMode: Set<String> = []
     /// Bumped by every user intent.
     var generation: UInt64 = 0
+    /// The sidebar is hidden: it cannot be a focus target.
+    var sidebarHidden = false
 
     var resolved: Resolved {
         if let top = overlays.last { return .overlay(top) }

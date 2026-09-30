@@ -59,6 +59,9 @@ nonisolated enum FocusEvent: Hashable, Sendable {
     case contentPresented(pane: String)
     /// Nil toggles the focused page.
     case toggleBrowserFocusMode(tab: String?)
+    /// The window's sidebar was shown or hidden. Hiding it while it (or
+    /// its rename field) has the keyboard returns focus to the content.
+    case sidebarVisibility(hidden: Bool)
 }
 
 /// Outputs of the reducer, applied by `FocusEffectApplier` after the

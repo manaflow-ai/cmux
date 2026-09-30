@@ -24,7 +24,6 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     let decorations = SidebarDecorationView()
     /// Recycled row views by class; only rows near the viewport have views.
     var reusePool: [ObjectIdentifier: [SidebarRowView]] = [:]
-    var compact = false
     var hoveredKey: SidebarRowKey?
     var press: Press?
     var drag: Drag?
@@ -105,14 +104,13 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
-    var metrics: SidebarLayoutMetrics { compact ? .iconsOnly : .standard }
-    var inset: CGFloat { compact ? SidebarStyle.compactInset : SidebarStyle.horizontalInset }
+    var metrics: SidebarLayoutMetrics { .standard }
+    var inset: CGFloat { SidebarStyle.horizontalInset }
 
     // MARK: - Reload
 
     /// Recomputes layout from the model and animates rows to their frames.
     func reload(animated: Bool) {
-        compact = model.presentation == .iconsOnly
         workspaces = [:]
         groups = [:]
         sections = [:]
@@ -255,18 +253,18 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
         switch (row.key, view) {
         case let (.workspace(id), view as WorkspaceRowView):
             guard let ws = workspaces[id] else { return }
-            view.configure(ws, row: row, compact: compact)
+            view.configure(ws, row: row)
             view.isSecondarySelected = model.selection.contains(id) && model.activeWorkspaceID != id
             view.isDropTarget = external?.proposal == .intoWorkspace(id)
         case let (.group(id), view as GroupHeaderRowView):
             guard let group = groups[id] else { return }
-            view.configure(group, row: row, compact: compact, animated: animated)
+            view.configure(group, row: row, animated: animated)
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
-            view.configure(section, row: row, compact: compact)
+            view.configure(section, row: row)
         case let (.emptySection(id), view as EmptySectionRowView):
-            view.configure(pinned: id == .pinned, compact: compact)
+            view.configure(pinned: id == .pinned)
         default:
             break
         }

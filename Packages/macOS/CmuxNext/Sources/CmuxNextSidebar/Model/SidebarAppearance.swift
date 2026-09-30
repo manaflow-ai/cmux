@@ -7,9 +7,10 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
     case swatch(GroupColor)
 }
 
-/// How the sidebar occupies the window.
+/// How the sidebar occupies the window: fully shown at the user's width,
+/// or fully hidden (zero width, content reaches the window edge). There is
+/// no intermediate state.
 public nonisolated enum SidebarPresentation: Hashable, Sendable {
-    case expanded
-    case iconsOnly
+    case shown
     case hidden
 }

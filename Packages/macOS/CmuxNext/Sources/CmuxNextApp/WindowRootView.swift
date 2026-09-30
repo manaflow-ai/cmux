@@ -5,7 +5,8 @@ import Observation
 
 /// Window content: the sidebar flush on the leading edge (traffic lights sit
 /// on its top), a compact titlebar across the content column, and the
-/// workspace layout below it. Every surface is the terminal background
+/// workspace layout below it. With the sidebar hidden the layout reaches the
+/// leading window edge and the titlebar starts after the traffic lights. Every surface is the terminal background
 /// (`Palette.windowBackground`), so sidebar, titlebar, tab strip and
 /// terminal read as one sheet with no panel edges or seams.
 final class WindowRootView: NSView {
@@ -27,15 +28,19 @@ final class WindowRootView: NSView {
         addSubview(sidebar)
         sidebar.sidebarView.titlebarHeightOverride = Metrics.titlebarHeight
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: Metrics.titlebarHeight)
+        // Below required, so it yields to the traffic-light inset.
+        let titleFollowsSidebar = titlebar.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor)
+        titleFollowsSidebar.priority = .required - 1
         NSLayoutConstraint.activate([
             sidebar.topAnchor.constraint(equalTo: topAnchor),
             sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
             sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
             titlebar.topAnchor.constraint(equalTo: topAnchor),
-            titlebar.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
             titlebar.trailingAnchor.constraint(equalTo: trailingAnchor),
             titleHeight,
-            // Keep the title clear of the traffic lights when the sidebar hides.
+            titleFollowsSidebar,
+            // When the sidebar hides, the title stops clear of the traffic
+            // lights while the content below reaches the window edge.
             titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset),
             contentHost.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
             contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),

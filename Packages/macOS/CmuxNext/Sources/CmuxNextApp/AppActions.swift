@@ -58,6 +58,6 @@ enum AppActions {
             services.windows.active?.window?.performClose(nil)
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
-        registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggleHidden() }
+        registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle() }
     }
 }

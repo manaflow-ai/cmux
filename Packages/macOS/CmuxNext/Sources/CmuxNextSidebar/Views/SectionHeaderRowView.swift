@@ -7,7 +7,6 @@ final class SectionHeaderRowView: SidebarRowView {
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont, color: Palette.textTertiary)
     private let status = CALayer()
     private let chevron = NSImageView()
-    private let separator = CALayer()
     let addButton = SidebarIconButton(symbol: "plus", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .semibold, label: Strings.newWorkspace)
     private var statusColor: NSColor?
     private var collapsed = false
@@ -18,7 +17,6 @@ final class SectionHeaderRowView: SidebarRowView {
         glyph.contentTintColor = Palette.textSecondary
         chevron.contentTintColor = Palette.textTertiary
         layer?.addSublayer(status)
-        layer?.addSublayer(separator)
         [glyph, name, chevron, addButton].forEach(addSubview)
         addButton.onPress = { [weak self] in self?.onAdd?() }
     }
@@ -30,18 +28,16 @@ final class SectionHeaderRowView: SidebarRowView {
         // reload would defeat the point.
         var kind: SidebarSection.Kind
         var collapsed: Bool
-        var compact: Bool
         var fontSize: CGFloat
         var iconSize: CGFloat
     }
 
-    func configure(_ section: SidebarSection, row: SidebarRow, compact: Bool) {
+    func configure(_ section: SidebarSection, row: SidebarRow) {
         let content = Content(
-            kind: section.kind, collapsed: row.isCollapsed, compact: compact,
+            kind: section.kind, collapsed: row.isCollapsed,
             fontSize: SidebarStyle.headerFont.pointSize, iconSize: Metrics.smallIconSize
         )
         guard needsConfigure(content) else { return }
-        self.compact = compact
         collapsed = row.isCollapsed
         let symbol: String
         let title: String
@@ -78,7 +74,6 @@ final class SectionHeaderRowView: SidebarRowView {
         name.font = SidebarStyle.headerFont
         chevron.image = NSImage(systemSymbolName: collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
             .withSymbolConfiguration(SidebarStyle.chevronConfig)
-        toolTip = compact ? title : nil
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
         setAccessibilityExpanded(!collapsed)
@@ -93,9 +88,7 @@ final class SectionHeaderRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         status.backgroundColor = statusColor.map(resolvedCGColor)
-        status.isHidden = statusColor == nil || compact
-        separator.backgroundColor = resolvedCGColor(Palette.separator)
-        separator.isHidden = !compact
+        status.isHidden = statusColor == nil
         CATransaction.commit()
         layer?.backgroundColor = nil
     }
@@ -106,12 +99,6 @@ final class SectionHeaderRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        if compact {
-            [glyph, name, chevron, addButton].forEach { $0.isHidden = true }
-            separator.frame = CGRect(x: Metrics.space4, y: (b.height - Metrics.dividerThickness) / 2, width: b.width - Metrics.space6, height: Metrics.dividerThickness)
-            needsDisplay = true
-            return
-        }
         // Quiet text header: no glyph, the name aligns with row titles.
         glyph.isHidden = true
         name.isHidden = false

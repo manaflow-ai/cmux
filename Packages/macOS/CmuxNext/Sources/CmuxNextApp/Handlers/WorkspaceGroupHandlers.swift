@@ -59,7 +59,7 @@ enum WorkspaceGroupHandlers {
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
                 sidebar.handle(.renameGroup(sidebarID(group), name))
             } else {
-                sidebar.container.sidebarView.beginRename(group: sidebarID(group))
+                sidebar.container.beginRename(group: sidebarID(group))
             }
         })
         registry.bind("workspaceGroup.moveUp", requires: DaemonCapabilities.workspaceGroups, daemon: context.services.activeDaemon, run: { invocation in try move(invocation, by: -1, context) })

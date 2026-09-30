@@ -7,7 +7,6 @@ import QuartzCore
 /// their own buttons.
 class SidebarRowView: NSView {
     var key: SidebarRowKey
-    var compact = false { didSet { if compact != oldValue { needsLayout = true } } }
     var isHovered = false { didSet { if isHovered != oldValue { hoverChanged() } } }
 
     required init(key: SidebarRowKey) {
@@ -107,11 +106,9 @@ final class EmptySectionRowView: SidebarRowView {
         addSubview(label)
     }
 
-    func configure(pinned: Bool, compact: Bool) {
-        self.compact = compact
+    func configure(pinned: Bool) {
         label.stringValue = pinned ? Strings.pinnedEmpty : Strings.sectionEmpty
         label.font = SidebarStyle.subtitleFont
-        label.isHidden = compact
         needsLayout = true
     }
 

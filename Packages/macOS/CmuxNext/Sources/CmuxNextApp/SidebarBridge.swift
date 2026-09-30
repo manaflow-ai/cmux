@@ -22,6 +22,11 @@ final class SidebarBridge {
         self.state = state
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
+        // Synchronous, before the hide animation starts: focus leaves the
+        // sidebar in the same turn (plans/cmux-next/focus.md).
+        model.onPresentationChange = { [weak state] presentation in
+            state?.focus.send(.sidebarVisibility(hidden: presentation == .hidden))
+        }
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         // Return or Escape in the inline rename field gives the keyboard
         // back to the focused content (plans/cmux-next/focus.md R8).
@@ -56,7 +61,7 @@ final class SidebarBridge {
             for await (width, presentation) in Observations({ (model.width, model.presentation) }) {
                 guard let self else { return }
                 state.sidebarWidth = Double(width)
-                state.sidebarCollapsed = presentation != .expanded
+                state.sidebarHidden = presentation == .hidden
                 self.services.windows.stateDidChange(state)
             }
         }
@@ -118,8 +123,8 @@ final class SidebarBridge {
 
     // MARK: Persistence mirror
 
-    func restore(width: Double?, collapsed: Bool) {
-        if let width { model.width = CGFloat(width) }
-        model.presentation = collapsed ? .iconsOnly : .expanded
+    /// Applies saved state without animating.
+    func restore(width: Double?, hidden: Bool) {
+        container.restore(width: width.map { CGFloat($0) }, presentation: hidden ? .hidden : .shown)
     }
 }

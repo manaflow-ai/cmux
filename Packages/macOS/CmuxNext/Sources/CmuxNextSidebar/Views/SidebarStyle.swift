@@ -6,20 +6,16 @@ import SwiftUI
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { Metrics.space3 }
-    static var compactInset: CGFloat { Metrics.space2 }
     static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
     /// Leading indent of grouped rows (room for the group color rail).
     static var groupIndent: CGFloat { Metrics.space5 }
     /// Icon frame; the glyph inside uses `Metrics.smallIconSize`.
     static var iconBox: CGFloat { Metrics.smallIconSize + Metrics.space2 }
-    /// Color swatch and monogram square inside the icon frame.
-    static var swatchSize: CGFloat { Metrics.smallIconSize }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
     static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
     static var indicatorSize: CGFloat { Metrics.smallIconSize - Metrics.space1 }
     static var dotSize: CGFloat { Metrics.space3 }
     static var badgeHeight: CGFloat { Metrics.iconSize }
-    static var railWidth: CGFloat { Metrics.space1 }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }

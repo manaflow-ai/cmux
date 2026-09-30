@@ -44,7 +44,10 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     public var display: String?
     public var isFullScreen: Bool
     public var sidebarWidth: Double?
-    public var sidebarCollapsed: Bool
+    /// The sidebar is hidden (zero width). Records from older builds store
+    /// `sidebar_collapsed` (icons-only or hidden), which decodes as hidden:
+    /// there is no icons-only sidebar anymore.
+    public var sidebarHidden: Bool
     /// The window's screen switcher is shown.
     public var showsScreenSwitcher: Bool
     /// Selected tab per pane (pane resource id -> tab resource id).
@@ -54,7 +57,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
 
     public init(id: String, workspaceKey: WorkspaceKey? = nil, workspaceKeys: [WorkspaceKey] = [], machine: String? = nil,
                 screenID: ResourceID? = nil, frame: WindowFrame? = nil, display: String? = nil, isFullScreen: Bool = false,
-                sidebarWidth: Double? = nil, sidebarCollapsed: Bool = false, showsScreenSwitcher: Bool = false,
+                sidebarWidth: Double? = nil, sidebarHidden: Bool = false, showsScreenSwitcher: Bool = false,
                 selectedTabs: [String: String] = [:], order: Int = 0) {
         self.id = id
         self.workspaceKey = workspaceKey
@@ -65,7 +68,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         self.display = display
         self.isFullScreen = isFullScreen
         self.sidebarWidth = sidebarWidth
-        self.sidebarCollapsed = sidebarCollapsed
+        self.sidebarHidden = sidebarHidden
         self.showsScreenSwitcher = showsScreenSwitcher
         self.selectedTabs = selectedTabs
         self.order = order
@@ -79,8 +82,13 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         case screenID = "screen_id"
         case isFullScreen = "full_screen"
         case sidebarWidth = "sidebar_width"
-        case sidebarCollapsed = "sidebar_collapsed"
+        case sidebarHidden = "sidebar_hidden"
         case selectedTabs = "selected_tabs"
+    }
+
+    /// Keys only older builds wrote; read for migration, never written.
+    enum LegacyCodingKeys: String, CodingKey {
+        case sidebarCollapsed = "sidebar_collapsed"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -95,7 +103,12 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         frame = try c.decodeIfPresent(WindowFrame.self, forKey: .frame)
         isFullScreen = try c.decodeIfPresent(Bool.self, forKey: .isFullScreen) ?? false
         sidebarWidth = try c.decodeIfPresent(Double.self, forKey: .sidebarWidth)
-        sidebarCollapsed = try c.decodeIfPresent(Bool.self, forKey: .sidebarCollapsed) ?? false
+        if let hidden = try c.decodeIfPresent(Bool.self, forKey: .sidebarHidden) {
+            sidebarHidden = hidden
+        } else {
+            let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+            sidebarHidden = try legacy.decodeIfPresent(Bool.self, forKey: .sidebarCollapsed) ?? false
+        }
         selectedTabs = try c.decodeIfPresent([String: String].self, forKey: .selectedTabs) ?? [:]
         order = try c.decodeIfPresent(Int.self, forKey: .order) ?? 0
     }

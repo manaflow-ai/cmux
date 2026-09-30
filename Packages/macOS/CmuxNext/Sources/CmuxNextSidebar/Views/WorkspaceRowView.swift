@@ -8,12 +8,10 @@ final class WorkspaceRowView: SidebarRowView {
     private let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont, color: Palette.textSecondary)
     private let activity = ActivityIndicatorView()
     private let badge = UnreadBadgeView()
-    private let rail = CALayer()
     let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .bold, label: Strings.closeButton)
 
     private var hasSubtitle = false
     private var grouped = false
-    private var groupColor: GroupColor?
     private var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row sits on the shared pill).
     var isSecondarySelected = false { didSet { if isSecondarySelected != oldValue { needsDisplay = true } } }
@@ -23,8 +21,6 @@ final class WorkspaceRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        rail.cornerRadius = 1
-        layer?.addSublayer(rail)
         [icon, title, subtitle, activity, badge, closeButton].forEach(addSubview)
         closeButton.isHidden = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
@@ -42,22 +38,18 @@ final class WorkspaceRowView: SidebarRowView {
     private struct Content: Hashable {
         var ws: SidebarWorkspace
         var group: GroupID?
-        var groupColor: GroupColor?
-        var compact: Bool
         var fontSize: CGFloat
         var iconSize: CGFloat
     }
 
-    func configure(_ ws: SidebarWorkspace, row: SidebarRow, compact: Bool) {
+    func configure(_ ws: SidebarWorkspace, row: SidebarRow) {
         let content = Content(
-            ws: ws, group: row.group, groupColor: row.groupColor, compact: compact,
+            ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize
         )
         guard needsConfigure(content) else { return }
-        self.compact = compact
         grouped = row.group != nil
-        groupColor = row.groupColor
-        icon.configure(icon: ws.icon, title: ws.title, compact: compact)
+        icon.configure(icon: ws.icon)
         iconKind = ws.icon
         title.stringValue = ws.title
         title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
@@ -66,9 +58,8 @@ final class WorkspaceRowView: SidebarRowView {
         subtitle.stringValue = ws.liveDetail ?? ""
         hasSubtitle = ws.liveDetail != nil
         activity.configure(ws.activity)
-        // Icons-only rows mark unread with a dot; a count would cover the icon.
-        badge.configure(compact && ws.unread.isUnread ? .dot : ws.unread)
-        toolTip = compact ? ws.title : ws.subtitle.flatMap { $0.isEmpty ? nil : $0 }
+        badge.configure(ws.unread)
+        toolTip = ws.subtitle.flatMap { $0.isEmpty ? nil : $0 }
         setAccessibilityElement(true)
         setAccessibilityRole(.row)
         setAccessibilityLabel(accessibilityText(ws))
@@ -119,13 +110,6 @@ final class WorkspaceRowView: SidebarRowView {
         } else {
             layer.backgroundColor = nil
         }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        rail.backgroundColor = groupColor.map { SidebarStyle.color($0).withAlphaComponent(0.85).cgColor }
-        // Grouped rows show membership by indent; the rail only helps in
-        // icons-only mode, where there is no indent.
-        rail.isHidden = !(grouped && compact)
-        CATransaction.commit()
     }
 
     override func layout() {
@@ -135,24 +119,7 @@ final class WorkspaceRowView: SidebarRowView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        if compact {
-            let side = SidebarStyle.iconBox
-            icon.frame = NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
-            [title, subtitle, closeButton].forEach { $0.isHidden = true }
-            let dot = SidebarStyle.dotSize
-            let isDot = badge.state == .dot || badge.state == .none
-            let bw = isDot ? dot : min(badge.preferredWidth, side)
-            let bh = isDot ? dot : SidebarStyle.badgeHeight
-            badge.frame = NSRect(x: icon.frame.maxX - bw + Metrics.space2, y: icon.frame.minY - Metrics.space2, width: bw, height: bh)
-            let ind = SidebarStyle.indicatorSize
-            activity.frame = NSRect(x: icon.frame.maxX - ind / 2, y: icon.frame.maxY - ind / 2, width: ind, height: ind)
-            rail.frame = CGRect(x: Metrics.space1, y: Metrics.space4, width: SidebarStyle.railWidth, height: b.height - Metrics.space6)
-            needsDisplay = true
-            return
-        }
-
         let indent: CGFloat = grouped ? SidebarStyle.groupIndent : 0
-        rail.frame = CGRect(x: Metrics.space2, y: Metrics.space3, width: SidebarStyle.railWidth, height: b.height - Metrics.space5)
         // Text-first: the title starts at the inset unless the user chose
         // an icon (a color is a small dot, a symbol a glyph).
         let leading = SidebarStyle.horizontalInset + indent

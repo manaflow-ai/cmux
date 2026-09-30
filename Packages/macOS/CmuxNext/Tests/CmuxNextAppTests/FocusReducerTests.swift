@@ -63,6 +63,42 @@ struct FocusReducerTests {
         #expect(state.resolved == .sidebar)
     }
 
+    @Test func hidingTheFocusedSidebarReturnsFocusToTheContent() {
+        let start = Self.run([.focusPane("c", source: .mouse), .responder(.sidebar, source: .keyboard)], from: Self.loaded()).0
+        #expect(start.resolved == .sidebar)
+        let (state, effects) = Self.run([.sidebarVisibility(hidden: true)], from: start)
+        #expect(state.sidebarHidden)
+        #expect(state.resolved == .terminal(pane: "c", tab: "t3"))
+        #expect(effects.contains(.moveResponder(.terminal(pane: "c", tab: "t3"))))
+        #expect(effects.contains(.publishContext(FocusState.Context(terminal: true))))
+    }
+
+    @Test func hidingTheSidebarDuringRenameReturnsFocusToTheContent() {
+        let start = Self.run([.responder(.sidebarField, source: .mouse)], from: Self.loaded()).0
+        let state = Self.run([.sidebarVisibility(hidden: true)], from: start).0
+        #expect(state.resolved == .terminal(pane: "a", tab: "t1"))
+    }
+
+    @Test func hidingTheSidebarLeavesOtherFocusAlone() {
+        let start = Self.run([.focusTarget(.addressBar, source: .keyboard)],
+                             from: Self.run([.focusPane("b", source: .mouse)], from: Self.loaded()).0).0
+        let (state, effects) = Self.run([.sidebarVisibility(hidden: true)], from: start)
+        #expect(state.resolved == start.resolved)
+        #expect(!effects.contains { if case .moveResponder = $0 { true } else { false } })
+    }
+
+    @Test func aHiddenSidebarCannotTakeFocus() {
+        let hidden = Self.run([.sidebarVisibility(hidden: true)], from: Self.loaded()).0
+        let (clicked, effects) = Self.run([.responder(.sidebar, source: .mouse)], from: hidden)
+        #expect(clicked.resolved == .terminal(pane: "a", tab: "t1"))
+        // The stray responder is corrected back to the content.
+        #expect(effects.contains(.moveResponder(.terminal(pane: "a", tab: "t1"))))
+        let targeted = Self.run([.focusTarget(.sidebar(keyboard: true), source: .keyboard)], from: hidden).0
+        #expect(targeted.resolved == .terminal(pane: "a", tab: "t1"))
+        let shown = Self.run([.sidebarVisibility(hidden: false), .responder(.sidebar, source: .mouse)], from: hidden).0
+        #expect(shown.resolved == .sidebar)
+    }
+
     @Test func sidebarClickThenWorkspaceSwitchFocusesContent() {
         var state = Self.run([.responder(.sidebar, source: .mouse)], from: Self.loaded()).0
         let (next, effects) = Self.run([.topology(Self.topology(workspace: "next"))], from: state)

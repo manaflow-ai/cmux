@@ -2,7 +2,7 @@ public import CoreGraphics
 import Foundation
 
 /// Row metrics. Values come from CmuxNextDesign `Metrics` tokens; see
-/// `standard` and `iconsOnly`. Kept as a plain value so layout stays pure.
+/// `standard`. Kept as a plain value so layout stays pure.
 public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var topPadding: CGFloat
     public var bottomPadding: CGFloat

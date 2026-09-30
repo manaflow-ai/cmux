@@ -28,8 +28,6 @@ public enum Metrics {
     public static var sidebarWidth: CGFloat { pick(208, 240, .sidebarWidth) }
     public static var sidebarMinWidth: CGFloat { 160 }
     public static var sidebarMaxWidth: CGFloat { 360 }
-    /// Width of the icons-only collapsed sidebar.
-    public static var sidebarCollapsedWidth: CGFloat { pick(44, 52) }
 
     /// Height of the unified titlebar area. The tab strip sits beside the
     /// traffic lights inside it.

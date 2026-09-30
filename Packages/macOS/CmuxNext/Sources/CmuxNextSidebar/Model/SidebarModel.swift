@@ -20,8 +20,14 @@ public final class SidebarModel {
     public var activeWorkspaceID: WorkspaceID?
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
-    public var presentation: SidebarPresentation = .expanded
-    /// Expanded width, clamped to `widthRange`.
+    /// Shown or hidden. Setting it notifies `onPresentationChange`
+    /// synchronously, before any animation, so focus can leave a hiding
+    /// sidebar in the same turn.
+    public var presentation: SidebarPresentation = .shown {
+        didSet { if presentation != oldValue { onPresentationChange?(presentation) } }
+    }
+    /// Width when shown, clamped to `widthRange`. Hiding keeps it, so the
+    /// sidebar comes back at the user's width.
     public var width: CGFloat = Metrics.sidebarWidth {
         didSet {
             let clamped = min(max(width, Self.widthRange.lowerBound), Self.widthRange.upperBound)
@@ -30,10 +36,12 @@ public final class SidebarModel {
     }
 
     public static var widthRange: ClosedRange<CGFloat> { Metrics.sidebarMinWidth...Metrics.sidebarMaxWidth }
-    public static var iconsOnlyWidth: CGFloat { Metrics.sidebarCollapsedWidth }
 
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
+    /// Called on every presentation change (the App moves focus out of a
+    /// hiding sidebar and persists the window state).
+    @ObservationIgnored public var onPresentationChange: ((SidebarPresentation) -> Void)?
 
     public init(sections: [SidebarSection] = [], activeWorkspaceID: WorkspaceID? = nil) {
         self.sections = sections
@@ -41,11 +49,12 @@ public final class SidebarModel {
         if let activeWorkspaceID { selection = [activeWorkspaceID] }
     }
 
+    public var isHidden: Bool { presentation == .hidden }
+
     /// Width the sidebar should occupy for the current presentation.
     public var displayWidth: CGFloat {
         switch presentation {
-        case .expanded: width
-        case .iconsOnly: Self.iconsOnlyWidth
+        case .shown: width
         case .hidden: 0
         }
     }
@@ -165,11 +174,8 @@ public final class SidebarModel {
 
     // MARK: Presentation
 
-    public func togglePresentation() {
-        presentation = presentation == .expanded ? .iconsOnly : .expanded
-    }
-
-    public func toggleHidden() {
-        presentation = presentation == .hidden ? .expanded : .hidden
+    /// Toggle Sidebar: fully shown at `width`, or fully hidden.
+    public func toggle() {
+        presentation = presentation == .hidden ? .shown : .hidden
     }
 }

@@ -48,6 +48,7 @@ enum DebugFocus {
                 "dragging": .bool(state.drag != nil),
                 "browser_focus_mode": .array(state.browserFocusMode.sorted().map(JSONValue.string)),
                 "window_key": .bool(state.windowKey),
+                "sidebar_hidden": .bool(state.sidebarHidden),
                 "generation": .number(Double(state.generation)),
             ]),
             "topology": .array(state.topology.panes.map { pane in

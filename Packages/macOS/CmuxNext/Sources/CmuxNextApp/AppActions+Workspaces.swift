@@ -21,7 +21,7 @@ extension AppActions {
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
                 services.activeDaemon.send("rename-workspace") { _ = try await $0.renameWorkspace(key, to: name) }
             } else {
-                services.windows.active?.sidebar.container.sidebarView.beginRename(workspace: SidebarWorkspaceID(workspace.id))
+                services.windows.active?.sidebar.container.beginRename(workspace: SidebarWorkspaceID(workspace.id))
             }
         })
         registry.bind("nextSidebarTab") { selectWorkspace(services, offset: 1) }

@@ -49,7 +49,7 @@ extension WindowRegistry {
             display: window.display,
             isFullScreen: isFullScreen,
             sidebarWidth: state?.sidebarWidth,
-            sidebarCollapsed: state?.sidebarCollapsed ?? false,
+            sidebarHidden: state?.sidebarHidden ?? false,
             showsScreenSwitcher: state?.showsScreenSwitcher ?? false,
             selectedTabs: selectedTabs,
             order: order

@@ -40,18 +40,16 @@ final class GroupHeaderRowView: SidebarRowView {
         var group: SidebarGroup
         var childCount: Int
         var collapsed: Bool
-        var compact: Bool
         var fontSize: CGFloat
         var dotSize: CGFloat
     }
 
-    func configure(_ group: SidebarGroup, row: SidebarRow, compact: Bool, animated: Bool) {
+    func configure(_ group: SidebarGroup, row: SidebarRow, animated: Bool) {
         let content = Content(
-            group: group, childCount: row.childCount, collapsed: row.isCollapsed, compact: compact,
+            group: group, childCount: row.childCount, collapsed: row.isCollapsed,
             fontSize: SidebarStyle.headerFont.pointSize, dotSize: SidebarStyle.dotSize
         )
         guard needsConfigure(content) else { return }
-        self.compact = compact
         color = group.color
         name.stringValue = group.name
         name.font = SidebarStyle.headerFont
@@ -66,7 +64,6 @@ final class GroupHeaderRowView: SidebarRowView {
         activity.configure(collapsed ? group.aggregateActivity : .idle)
         let unread = group.unreadTotal
         badge.configure(collapsed && unread > 0 ? .count(unread) : .none)
-        toolTip = compact ? group.name : nil
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
         setAccessibilityLabel("\(group.name), \(Strings.groupCount(row.childCount))")
@@ -95,7 +92,7 @@ final class GroupHeaderRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // A chosen color shows as a small dot: filled expanded, a ring collapsed.
-        dot.isHidden = color == .grey && !compact
+        dot.isHidden = color == .grey
         dot.fillColor = collapsed ? nil : resolvedCGColor(tint)
         dot.strokeColor = resolvedCGColor(tint)
         dot.lineWidth = collapsed ? Metrics.dividerThickness * 1.5 : 0
@@ -114,16 +111,6 @@ final class GroupHeaderRowView: SidebarRowView {
         let inset = Metrics.dividerThickness
         let chevronSide = Metrics.smallIconSize
 
-        if compact {
-            // Icons-only: the group is a colored (or neutral) dot.
-            [name, pin, count, badge, activity, chevron].forEach { $0.isHidden = true }
-            let side = SidebarStyle.dotSize + Metrics.space1
-            let frame = CGRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
-            dot.frame = frame
-            dot.path = CGPath(ellipseIn: CGRect(origin: .zero, size: frame.size).insetBy(dx: inset, dy: inset), transform: nil)
-            chevronFrame = frame
-            return
-        }
         name.isHidden = renaming
 
         var trailing = b.width - Metrics.space3
