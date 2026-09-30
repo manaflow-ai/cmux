@@ -1775,7 +1775,7 @@
   },
   "pricing.native.compare.concurrent.paid": {
     "class": "format",
-    "source": "50"
+    "source": "5"
   },
   "pricing.native.compare.support.community": {
     "source": "Community",
