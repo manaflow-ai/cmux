@@ -282,7 +282,7 @@ cmux_app_host_primary_executable() {
 # least one of them, and none is the receipt file on any descriptor.
 cmux_app_host_pid_lists_without_receipt() {
   local pid="$1" receipt_file="$2" output line listed=0 files=0
-  output="$(cmux_run_app_host_lsof -a -p "$pid" -Ffn 2>/dev/null)" || return 1
+  output="$(cmux_run_app_host_lsof -a -p "$pid" -Ffn)" || return 1
   while IFS= read -r line; do
     case "$line" in
       "p$pid") listed=1 ;;
