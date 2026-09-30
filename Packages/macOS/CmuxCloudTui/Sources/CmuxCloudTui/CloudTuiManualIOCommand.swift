@@ -198,6 +198,7 @@ public struct CloudTuiManualIOCommand: Sendable {
             "display_name": identity.displayName as Any? ?? NSNull(),
             "device_kind": identity.deviceKind.rawValue,
             "device_name": identity.deviceName as Any? ?? NSNull(),
+            "device_id": identity.deviceID as Any? ?? NSNull(),
         ]
     }
 

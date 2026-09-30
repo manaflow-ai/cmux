@@ -6923,6 +6923,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard event.type == .keyDown else { return false }
         guard let fr = window?.firstResponder as? NSView,
               fr === self || fr.isDescendant(of: self) else { return false }
+        // A disconnected shared-terminal view keeps app menu shortcuts but
+        // never runs terminal bindings such as paste.
+        if terminalSurface?.sharingViewDetached == true { return false }
         guard let surface = ensureSurfaceReadyForInput() else { return false }
 
         // Let non-Cmd keys flow to keyDown while IME is composing; Cmd shortcuts still work.
@@ -7109,6 +7112,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // A fresh press invalidates the gesture's alternate-screen answer before
         // any early return, so a later repeat never reuses one from another key.
         if !event.isARepeat { textEditingGestureAlternateScreenAtPress = nil }
+        // A disconnected shared-terminal view sends nothing until Reattach.
+        if terminalSurface?.sharingViewDetached == true { return }
         if routeInputDuringClipboardRead(event) { return }
         let cancelledDeferredAdmission = terminalSurface?.didReceiveExplicitInput() == true
 #if DEBUG
@@ -14441,6 +14446,7 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func insertText(_ string: Any, replacementRange: NSRange) {
+        if terminalSurface?.sharingViewDetached == true { return }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         defer {

@@ -395,6 +395,20 @@ private func sizeState(
         #expect(params.isEmpty)
     }
 
+    @Test func reportsAndReplaysCarryTheStableDeviceID() {
+        let identity = MobileTerminalDeviceIdentity(kind: .iphone, name: "Phone", model: "iPhone", deviceID: "ABC-1")
+        let builder = MobileTerminalViewportParameters(clientID: "c", identity: identity)
+        let report = builder.report(
+            workspaceID: "w", surfaceID: "s",
+            viewport: MobileTerminalViewportSize(columns: 50, rows: 30), generation: 1
+        )
+        let replay = builder.replay(viewport: MobileTerminalViewportSize(columns: 50, rows: 30), generation: 1)
+        #expect(report["device_id"] as? String == "abc-1")
+        #expect(replay["device_id"] as? String == "abc-1")
+        let anonymous = MobileTerminalViewportParameters(clientID: "c", identity: self.identity)
+        #expect(anonymous.replay(viewport: MobileTerminalViewportSize(columns: 50, rows: 30), generation: 1)["device_id"] == nil)
+    }
+
     @Test func countsOverrideSetAndClear() throws {
         #expect(report(.set(false))["counts_override"] as? Bool == false)
         #expect(report(.set(true))["counts_override"] as? Bool == true)
