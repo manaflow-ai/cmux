@@ -2040,16 +2040,27 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func shortcutHintPillClipsItsFillToACapsule() throws {
+    func shortcutHintPillKeepsAnOpaqueCapsuleUnderItsText() throws {
         let pill = SidebarShortcutHintPillView()
         pill.frame = NSRect(x: 0, y: 0, width: 36, height: 18)
         pill.configure(text: "⌘1", fontSize: 10, emphasis: 1, colorScheme: .dark)
         pill.layoutSubtreeIfNeeded()
 
-        let capsule = try #require(pill.subviews.first)
-        #expect(capsule.layer?.masksToBounds == true)
-        #expect(capsule.layer?.cornerRadius == pill.bounds.height / 2)
-        #expect(capsule.layer?.backgroundColor == ShortcutHintPalette.background(for: .dark).cgColor)
+        let glass = pill.subviews.first { $0.className == "NSGlassEffectView" }
+        let fill = try #require(pill.subviews.first {
+            $0.className != "NSGlassEffectView" && !($0 is NSTextField)
+        })
+        let rim = glass == nil ? 0 : ShortcutHintPalette.glassRimWidth
+        // Glass takes its color from the backdrop, so the text's contrast
+        // comes from this opaque palette fill on every OS.
+        #expect(fill.layer?.backgroundColor == ShortcutHintPalette.background(for: .dark).cgColor)
+        #expect(fill.layer?.masksToBounds == true)
+        #expect(fill.frame == pill.bounds.insetBy(dx: rim, dy: rim))
+        #expect(fill.layer?.cornerRadius == pill.bounds.height / 2 - rim)
+        if let glass {
+            #expect(glass.frame == pill.bounds)
+            #expect(pill.subviews.firstIndex(of: glass)! < pill.subviews.firstIndex(of: fill)!)
+        }
     }
 
     @Test
