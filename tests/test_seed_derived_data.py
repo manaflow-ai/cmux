@@ -1316,8 +1316,8 @@ class Wiring(unittest.TestCase):
         for overflow in ("", "1"):
             main_dispatch = github_context("workflow_dispatch", CI_PAID_MACOS_OVERFLOW=overflow)
             self.assertTrue(evaluate(adopt["if"], main_dispatch))
-        # A dispatch on another branch and a merge group still build clean.
-        self.assertFalse(evaluate(adopt["if"], github_context("workflow_dispatch", ref="refs/heads/topic")))
+        # A trusted dispatch on another branch and a merge group still build clean.
+        self.assertTrue(evaluate(adopt["if"], github_context("workflow_dispatch", ref="refs/heads/topic")))
         self.assertFalse(evaluate(adopt["if"], github_context("merge_group", ref="refs/heads/gh-readonly-queue/main/x")))
         self.assertTrue(evaluate(adopt["if"], github_context("pull_request", ref="refs/pull/1/merge")))
         self.assertFalse(evaluate(adopt["if"], github_context("workflow_dispatch", CI_ADMISSION_SEED_DERIVED_DATA="0")))
@@ -1359,7 +1359,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(evaluate(admission["runs-on"], merge_group), "pool-15-paid")
         self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], merge_group), "/Applications/Xcode-15.app")
         branch_dispatch = github_context("workflow_dispatch", ref="refs/heads/topic")
-        self.assertEqual(evaluate(admission["runs-on"], branch_dispatch), "blacksmith-6vcpu-macos-15")
+        self.assertEqual(evaluate(admission["runs-on"], branch_dispatch), "pool-pr")
 
     def test_fork_pull_request_admission_stays_on_blacksmith(self):
         # MACOS_RUNNER_PR (pool-pr here) may name an owned Mac. A fork pull
