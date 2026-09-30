@@ -11273,56 +11273,106 @@ class TerminalController {
         }
 
         return v2BrowserWithPanelContext(params: params) { ctx in
-            let cookieContext = v2MainSync {
+            let targetURL = (raw["url"] as? String)
+                .flatMap { $0.isEmpty ? nil : URL(string: $0) }
+            let context = v2MainSync {
                 if let frameSelector = raw["frame_selector"] as? String, !frameSelector.isEmpty {
                     v2BrowserFrameSelectorBySurface[ctx.surfaceId] = frameSelector
                 } else {
                     v2BrowserFrameSelectorBySurface.removeValue(forKey: ctx.surfaceId)
                 }
-
-                if let urlStr = raw["url"] as? String,
-                   !urlStr.isEmpty,
-                   let parsed = URL(string: urlStr) {
-                    ctx.browserPanel.navigate(to: parsed)
-                }
-
                 return (
                     store: ctx.webView.configuration.websiteDataStore.httpCookieStore,
-                    fallbackURL: ctx.browserPanel.currentURL
+                    fallbackURL: targetURL ?? ctx.browserPanel.currentURL,
+                    browserPanel: ctx.browserPanel,
+                    webView: ctx.webView
                 )
             }
-            if let cookieRows = raw["cookies"] as? [[String: Any]] {
-                for row in cookieRows {
-                    if let cookie = v2BrowserCookieFromObject(row, fallbackURL: cookieContext.fallbackURL) {
-                        _ = v2BrowserCookieStoreSet(cookieContext.store, cookie: cookie)
+
+            let result = BrowserStateLoadTransaction.run(
+                hasNavigation: targetURL != nil,
+                installCookies: {
+                    guard let cookieRows = raw["cookies"] as? [[String: Any]] else {
+                        return true
+                    }
+                    for row in cookieRows {
+                        guard let cookie = v2BrowserCookieFromObject(
+                            row,
+                            fallbackURL: context.fallbackURL
+                        ), v2BrowserCookieStoreSet(context.store, cookie: cookie) else {
+                            return false
+                        }
+                    }
+                    return true
+                },
+                navigateAndWait: {
+                    guard let targetURL else { return nil }
+                    let ticket = v2MainSync {
+                        context.browserPanel.beginAutomationNavigation(
+                            to: targetURL,
+                            recordTypedNavigation: false
+                        )
+                    }
+                    return v2AwaitBrowserAutomationNavigation(
+                        ticket,
+                        browserPanel: context.browserPanel
+                    )
+                },
+                applyStorage: {
+                    guard let storage = raw["storage"] as? [String: Any] else {
+                        return true
+                    }
+                    let storageLiteral = v2JSONLiteral(storage)
+                    let script = """
+                    (() => {
+                      const payload = \(storageLiteral);
+                      const apply = (st, data) => {
+                        if (!st || !data || typeof data !== 'object') return;
+                        st.clear();
+                        for (const [k, v] of Object.entries(data)) {
+                          st.setItem(String(k), v == null ? '' : String(v));
+                        }
+                      };
+                      apply(window.localStorage, payload.local);
+                      apply(window.sessionStorage, payload.session);
+                      return true;
+                    })()
+                    """
+                    switch v2RunBrowserJavaScript(
+                        context.webView,
+                        browserPanel: context.browserPanel,
+                        surfaceId: ctx.surfaceId,
+                        script: script,
+                        timeout: 10.0
+                    ) {
+                    case .success:
+                        return true
+                    case .failure:
+                        return false
                     }
                 }
-            }
+            )
 
-            if let storage = raw["storage"] as? [String: Any] {
-                let storageLiteral = v2JSONLiteral(storage)
-                let script = """
-                (() => {
-                  const payload = \(storageLiteral);
-                  const apply = (st, data) => {
-                    if (!st || !data || typeof data !== 'object') return;
-                    st.clear();
-                    for (const [k, v] of Object.entries(data)) {
-                      st.setItem(String(k), v == null ? '' : String(v));
-                    }
-                  };
-                  apply(window.localStorage, payload.local);
-                  apply(window.sessionStorage, payload.session);
-                  return true;
-                })()
-                """
-                _ = v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script, timeout: 10.0)
+            switch result {
+            case .loaded:
+                return .ok(v2BrowserPanelFields(ctx, adding: [
+                    "path": path,
+                    "loaded": true
+                ]))
+            case .cookieWriteFailed:
+                return .err(code: "timeout", message: "Timed out setting browser state cookie", data: ["path": path])
+            case .navigationFailed(let outcome):
+                return v2BrowserNavigationFailureResult(
+                    outcome,
+                    targetURL: targetURL ?? context.fallbackURL ?? URL(string: "about:blank")!
+                ) ?? .err(
+                    code: "navigation_failed",
+                    message: "Failed to restore browser state URL",
+                    data: ["path": path]
+                )
+            case .storageWriteFailed:
+                return .err(code: "js_error", message: "Failed to restore browser storage", data: ["path": path])
             }
-
-            return .ok(v2BrowserPanelFields(ctx, adding: [
-                "path": path,
-                "loaded": true
-            ]))
         }
     }
 
