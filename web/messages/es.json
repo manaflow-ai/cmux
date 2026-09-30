@@ -1374,8 +1374,8 @@
           "sessionContentAlignment": "Posición horizontal del contenido del terminal y del chat de agente integrado cuando sessionContentMaxWidth está activado.",
           "copyOnSelect": "Cuando es true, copia el texto seleccionado del terminal al portapapeles del sistema cuando se confirma la selección. Cuando es false, cmux no emite una anulación de copy-on-select de Ghostty; la configuración y los valores predeterminados de Ghostty controlan el comportamiento del portapapeles de selección.",
           "scrollSpeed": "Ajusta cuánto se mueve el terminal con cada evento de desplazamiento de la rueda del ratón o del trackpad. Los valores mayores que 1 aceleran el desplazamiento y los menores que 1 lo ralentizan.",
-          "showTextBoxOnNewTerminals": "Muestra la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados.",
-          "focusTextBoxOnNewTerminals": "Enfoca la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados. Enfocar también muestra TextBox."
+          "showTextBoxOnNewTerminals": "Muestra la entrada TextBox de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados.",
+          "focusTextBoxOnNewTerminals": "Enfoca la entrada TextBox de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados. Enfocar también muestra TextBox."
         },
         "notifications": {
           "soundWhenFocused": "Reproduce el sonido de notificación incluso cuando el panel que notificó ya tiene el foco. Desactivado de forma predeterminada, así que un panel con foco solo muestra su anillo y destello.",
@@ -1868,7 +1868,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)",
+      "textBox": "TextBox",
       "ios": "App para iOS",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Descripción general",
@@ -2032,11 +2032,10 @@
       "daemonPath": "El binario del demonio se almacena en ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote en el host remoto y se verifica con un manifiesto SHA-256 integrado en la aplicación."
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Configura la entrada TextBox beta de cmux para nuevas pestañas, divisiones y espacios de trabajo de terminal.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Configura la entrada TextBox de cmux para nuevas pestañas, divisiones y espacios de trabajo de terminal.",
       "intro": "TextBox es la superficie de entrada enriquecida de cmux para componer prompts antes de enviarlos a una terminal.",
-      "betaCallout": "TextBox es una función beta. Sus valores predeterminados y su comportamiento pueden cambiar durante las pruebas.",
       "defaultsTitle": "Valores predeterminados",
       "defaultsDesc": "La configuración de TextBox está en Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals abre nuevos espacios de trabajo, pestañas y divisiones de terminal con TextBox visible, manteniendo el foco en la terminal.",

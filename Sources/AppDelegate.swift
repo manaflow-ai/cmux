@@ -10910,6 +10910,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             onQuitApp: {
                 AppDelegate.requestApplicationTermination()
+            },
+            cloudMenuEntries: { [weak self] in
+                guard let self else { return [] }
+                return CloudMenuContent.entries(
+                    self.cloudMenuContext(),
+                    actions: self.cloudMenuActions(fromStatusItem: true),
+                    layout: .statusItem
+                )
+            },
+            onCloudMenuWillOpen: {
+                CloudMenuModel.shared.menuWillOpen()
             }
         )
     }
@@ -15615,6 +15626,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             // Only consume when a focused terminal actually received the chord.
             return handled
+        }
+
+        if matchConfiguredShortcut(event: event, action: .sizeTerminalToMyWindow) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if routedManager?.sizeFocusedTerminalToMyWindow() != true {
+                NSSound.beep()
+            }
+            return true
         }
 
         if matchConfiguredShortcut(event: event, action: .pasteLastScreenshot) {

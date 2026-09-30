@@ -611,9 +611,13 @@ jobs:
       - name: Build npm package directories
         if: inputs.package_npm
         run: |
+          # The build jobs stamp this same checkout's HEAD as
+          # CMUX_TUI_BUILD_COMMIT; the SSH bootstrap accepts the pinned
+          # remote-binary digests only for that build identity.
           python3 cmux-tui/dist/scripts/package_npm.py \
             --binaries-dir dist/binaries \
             --version "$NPM_VERSION" \
+            --build-commit "$(git rev-parse HEAD)" \
             ${{ inputs.include_windows && '--include-windows' || '' }} \
             --out dist/npm-packages
 

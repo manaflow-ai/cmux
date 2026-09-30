@@ -5,6 +5,7 @@ import CmuxFoundation
 import CmuxTerminalCore
 import SwiftUI
 import Foundation
+import CmuxTerminalSharing
 import Bonsplit
 import CmuxBrowser
 import CmuxGit
@@ -1048,6 +1049,30 @@ class TabManager: ObservableObject {
     ///
     /// - Returns: `false` when no terminal panel is focused. A missing
     ///   screenshot is reported later by a beep, after the folder is read.
+    /// Makes the focused shared terminal follow this Mac's window (the shared
+    /// "Size to My Window" action; see ``TerminalSharingStore/sizeToMe(surfaceID:)``).
+    ///
+    /// - Returns: `false` when no terminal is focused or it is not attached.
+    @discardableResult
+    func sizeFocusedTerminalToMyWindow() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return TerminalController.shared.terminalSharing.sizeToMe(surfaceID: panel.id)
+    }
+
+    /// Opens the size panel for the focused terminal.
+    ///
+    /// - Parameter confirmDisconnectOthers: open with the "Disconnect other
+    ///   clients" confirmation already showing.
+    /// - Returns: `false` when no terminal is focused.
+    @discardableResult
+    func showFocusedTerminalSizePanel(confirmDisconnectOthers: Bool) -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return TerminalController.shared.presentTerminalSizePanel(
+            surfaceID: panel.id,
+            confirmDisconnectOthers: confirmDisconnectOthers
+        )
+    }
+
     @discardableResult
     func pasteLastScreenshotIntoFocusedTerminal() -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
