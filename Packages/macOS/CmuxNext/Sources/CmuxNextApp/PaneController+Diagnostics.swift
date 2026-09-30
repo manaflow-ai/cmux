@@ -14,11 +14,18 @@ struct PaneSurfaceStatus {
     var contentSize: CGSize
     var terminal: TerminalSurfaceDiagnostics?
 
-    /// A visible pane with a selected tab that shows nothing usable.
+    /// The layout gave the pane no room below its tab strip (a split tree
+    /// deeper than the window allows). A layout sizing problem, not a
+    /// surface lifecycle one, so it is reported apart from `isBlank`.
+    var isCollapsed: Bool {
+        isVisible && contentInstalled && contentInWindow && (contentSize.width < 1 || contentSize.height < 1)
+    }
+
+    /// A visible pane with a selected tab whose content is missing, detached,
+    /// paused or has no grid.
     var isBlank: Bool {
-        guard isVisible, selectedTab != nil else { return false }
-        guard selectedTab == shownTab, contentInstalled, contentInWindow,
-              contentSize.width >= 1, contentSize.height >= 1 else { return true }
+        guard isVisible, selectedTab != nil, !isCollapsed else { return false }
+        guard selectedTab == shownTab, contentInstalled, contentInWindow else { return true }
         if let terminal { return !terminal.isPresentable }
         return false
     }
@@ -34,6 +41,7 @@ struct PaneSurfaceStatus {
             "content_in_window": .bool(contentInWindow),
             "content_size": .string("\(Int(contentSize.width))x\(Int(contentSize.height))"),
             "blank": .bool(isBlank),
+            "collapsed": .bool(isCollapsed),
         ]
         if let terminal {
             object["surface"] = [

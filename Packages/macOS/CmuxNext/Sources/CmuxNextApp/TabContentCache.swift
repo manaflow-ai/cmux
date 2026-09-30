@@ -6,7 +6,9 @@ import CmuxNextTerminal
 import Observation
 
 /// Owns every terminal surface and browser page in the process
-/// (architecture.md 4): surfaces exist for visible tabs plus an LRU of 8
+/// (architecture.md 4). Surfaces are keyed by tab, not by pane: a tab moved
+/// to another pane keeps its surface and the destination pane reparents the
+/// view (`SurfaceLedger`). Surfaces exist for presented tabs plus an LRU of 8
 /// recently hidden ones; older hidden surfaces are destroyed and re-attach
 /// from the daemon replay when shown. Previews of destroyed surfaces stay in
 /// a 32 MB image LRU.
@@ -14,7 +16,8 @@ final class TabContentCache {
     private let daemon: DaemonService
     private var terminals: [String: TerminalEntry] = [:]
     private var browsers: [String: BrowserEntry] = [:]
-    private var retention = SurfaceRetention<String>(capacity: 8)
+    private var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: 8)
+    private var presenters: [ObjectIdentifier: WeakPresenter] = [:]
     let previews = PreviewImageCache()
     let webKit = WebKitEngine()
     let cef = CEFEngine()
@@ -45,7 +48,12 @@ final class TabContentCache {
     func terminal(for tab: TabModel, daemon: DaemonService) -> TerminalEntry {
         let validity = "\(daemon.machineID)#\(tab.id)#\(daemon.store.generation?.rawValue ?? "")#\(tab.surface.rawValue)"
         if let entry = terminals[tab.id], entry.validity == validity { return entry }
-        terminals.removeValue(forKey: tab.id)?.close()
+        if let stale = terminals.removeValue(forKey: tab.id) {
+            // Daemon restarted or the tab's surface changed: the pane
+            // presenting the old view lets it go before it closes.
+            if let owner = ledger.remove(tab.id) { presenters[owner]?.value?.surfaceWasDisplaced(tab.id) }
+            stale.close()
+        }
         let target = DaemonTerminalIO.Target(
             attachment: TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                   generation: daemon.store.generation),
@@ -56,6 +64,10 @@ final class TabContentCache {
         session.delegate = sessionDelegate
         let entry = TerminalEntry(validity: validity, session: session, io: io)
         terminals[tab.id] = entry
+        // Paused until a visible pane presents it.
+        let render = ledger.isRendering(tab.id)
+        session.isRenderingSuspended = !render
+        io.setVisible(render)
         return entry
     }
 
@@ -100,15 +112,57 @@ final class TabContentCache {
         return nil
     }
 
-    // MARK: Visibility and lifetime
+    // MARK: Presentation and lifetime
 
-    /// A tab's content was shown or hidden. Hiding may destroy the oldest
-    /// hidden surfaces beyond the LRU.
-    func setVisible(_ key: String, _ visible: Bool) {
+    /// `presenter` shows `key` (its view is, or is about to be, in the
+    /// presenter's hierarchy). Takes the surface from any previous presenter.
+    func present(_ key: String, by presenter: any SurfacePresenter, visible: Bool) {
+        let owner = ObjectIdentifier(presenter)
+        presenters[owner] = WeakPresenter(value: presenter)
+        apply(ledger.present(key, by: owner, ownerVisible: visible))
+    }
+
+    /// `presenter` stopped showing `key`. Ignored when another presenter
+    /// took it meanwhile (the tab moved there).
+    func withdraw(_ key: String, by presenter: any SurfacePresenter) {
+        apply(ledger.withdraw(key, by: ObjectIdentifier(presenter)))
+    }
+
+    /// `presenter` scrolled on or off screen.
+    func setVisible(_ visible: Bool, presenter: any SurfacePresenter) {
+        apply(ledger.setVisible(visible, owner: ObjectIdentifier(presenter)))
+    }
+
+    /// `presenter` is going away.
+    func removePresenter(_ presenter: any SurfacePresenter) {
+        let owner = ObjectIdentifier(presenter)
+        apply(ledger.removeOwner(owner))
+        presenters[owner] = nil
+    }
+
+    /// The pane presenting `key`, if any.
+    func presenter(of key: String) -> (any SurfacePresenter)? {
+        ledger.owner(of: key).flatMap { presenters[$0]?.value }
+    }
+
+    func isRendering(_ key: String) -> Bool { ledger.isRendering(key) }
+
+    private func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects) {
+        guard !effects.isEmpty else { return }
+        for displaced in effects.displaced {
+            presenters[displaced.owner]?.value?.surfaceWasDisplaced(displaced.key)
+        }
+        for (key, render) in effects.rendering { applyRendering(key, render) }
+        for key in effects.evicted { terminals.removeValue(forKey: key)?.close() }
+        presenters = presenters.filter { $0.value.value != nil }
+        onPresentationChange?()
+    }
+
+    private func applyRendering(_ key: String, _ render: Bool) {
         if let entry = terminals[key] {
-            entry.session.isRenderingSuspended = !visible
-            entry.io.setVisible(visible)
-            if !visible {
+            entry.session.isRenderingSuspended = !render
+            entry.io.setVisible(render)
+            if !render {
                 // Rendered off the main thread: the GPU readback used to block it.
                 Task { [weak self] in
                     guard let image = await entry.session.snapshotInBackground(maxPixelSize: 480) else { return }
@@ -119,21 +173,18 @@ final class TabContentCache {
             }
         }
         if let entry = browsers[key] {
-            Task { await entry.tab.setOccluded(!visible) }
+            Task { await entry.tab.setOccluded(!render) }
         }
-        for evicted in retention.setVisible(key, visible) {
-            terminals.removeValue(forKey: evicted)?.close()
-        }
-        onPresentationChange?()
     }
 
     /// The tab closed: free everything it held.
     func release(_ key: String) {
-        retention.remove(key)
+        if let owner = ledger.remove(key) { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         terminals.removeValue(forKey: key)?.close()
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
         previews.remove(key)
+        onPresentationChange?()
     }
 
     /// Drops terminal surfaces whose tabs no longer exist.
@@ -156,3 +207,16 @@ final class TabContentCache {
     }
 }
 
+
+/// A pane that shows cached content.
+@MainActor
+protocol SurfacePresenter: AnyObject {
+    /// `key`'s view now belongs to another presenter, or its surface was
+    /// destroyed. Drop the view if it is still installed here; do not
+    /// withdraw or pause it.
+    func surfaceWasDisplaced(_ key: String)
+}
+
+private struct WeakPresenter {
+    weak var value: (any SurfacePresenter)?
+}

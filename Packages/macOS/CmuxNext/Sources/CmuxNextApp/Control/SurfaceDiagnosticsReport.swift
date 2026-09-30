@@ -35,8 +35,10 @@ enum SurfaceDiagnosticsReport {
         return [
             "windows": .array(order.map { key in ["window": .string(key), "panes": .array(windows[key] ?? [])] }),
             "blank_panes": JSONValue(blank),
+            "collapsed_panes": JSONValue(rows.filter(\.status.isCollapsed).count),
             "live_terminals": JSONValue(services.cache.liveTerminalCount),
             "invariant_violations": JSONValue(services.surfaceInvariant.violations),
+            "invariant_checks": JSONValue(services.surfaceInvariant.checks),
         ]
     }
 }
