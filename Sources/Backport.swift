@@ -8,12 +8,22 @@ struct Backport<Content> {
 extension View {
     var backport: Backport<Self> { Backport(content: self) }
 
-    @ViewBuilder
     func safeHelp(_ text: String) -> some View {
+        modifier(SafeHelpModifier(text: text))
+    }
+}
+
+// Keep the conditional tooltip inside a named modifier. Exposing its builder
+// through an opaque helper can produce inconsistent Swift module signatures.
+private struct SafeHelpModifier: ViewModifier {
+    let text: String
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
         if text.isEmpty {
-            self
+            content
         } else {
-            self.help(text)
+            content.help(text)
         }
     }
 }
