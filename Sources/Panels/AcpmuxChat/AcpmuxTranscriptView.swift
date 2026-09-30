@@ -342,9 +342,11 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
             context.duration = 0.35
             clip.animator().setBoundsOrigin(target)
         } completionHandler: { [weak self] in
-            guard let self else { return }
-            self.scrollView.reflectScrolledClipView(clip)
-            self.clipViewBoundsChanged(Notification(name: NSView.boundsDidChangeNotification))
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.scrollView.reflectScrolledClipView(clip)
+                self.clipViewBoundsChanged(Notification(name: NSView.boundsDidChangeNotification))
+            }
         }
     }
 
