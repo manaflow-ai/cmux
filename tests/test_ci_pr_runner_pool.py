@@ -2356,6 +2356,10 @@ class Wiring(unittest.TestCase):
                     f"{owned} || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}}}")
         self.assertEqual(job["runs-on"], expected)
         self.assertEqual(job["env"]["CMUX_PRODUCT_RUNNER"], expected)
+        # Its Xcode follows the same condition: the lane pin on the owned label.
+        self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"],
+                         f"${{{{ {owned} && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) "
+                         "|| vars.CMUX_CI_XCODE_APP_MACOS_26 }}")
         self.assertEqual(pool.RELEASE_BUILD_JOB, "release-build")
 
     def test_release_build_is_a_side_lane_of_a_full_suite_with_release_build(self):
@@ -2525,6 +2529,15 @@ class MainFullSuite(unittest.TestCase):
                    "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), "RUN_MACOS": "true",
                    "RUN_FULL_SUITE": "true", "RUN_CLI": "true", "RUN_CLAUDE_WRAPPER": "true",
                    "RUN_REMOTE_DAEMON": "true"}
+            # Main's real routing also builds the Release app: a fourth owned job beside the root jobs.
+            with unittest.mock.patch("sys.stdout", io.StringIO()):
+                self.assertEqual(pool.main(["--snapshot", str(snapshot)],
+                                           {**env, "RUN_RELEASE_BUILD": "true", "RUN_SWIFT_PACKAGES": "true"}), 0)
+            values = dict(line.split("=", 1) for line in out.read_text().splitlines())
+            self.assertEqual((values["jobs"], values["root_runner"]), ("12", ROOT_MINI))
+            self.assertIn(" release-build ", values["owned_jobs"])
+            self.assertNotIn(" swift-package ", values["owned_jobs"])
+            out.write_text("")
             with unittest.mock.patch("sys.stdout", io.StringIO()):
                 self.assertEqual(pool.main(["--snapshot", str(snapshot)], env), 0)
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())

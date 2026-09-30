@@ -3943,7 +3943,8 @@ jobs:
       attestations: read
       contents: read
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      # The owned label's Xcode (the lane pin) exactly when runs-on took it.
+      CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && contains(inputs.pr_owned_jobs, ' release-build ') && (github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && contains(inputs.pr_owned_jobs, ' release-build ') && (github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
