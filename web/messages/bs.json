@@ -369,7 +369,7 @@
       "iosLink": "Otvori iOS aplikaciju"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Upravljajte zajedničkim AI računima i usmjeravajte zahtjeve pomoću coderoutera.",
       "title": "Coderouter",
       "description": "Coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
@@ -1112,8 +1112,8 @@
       "apiKeySecretBody": "Ova tajna vrijednost se više neće prikazati.",
       "apiKeyCopy": "Kopiraj API ključ",
       "apiKeyCopied": "Kopirano",
-      "apiKeyCreatedAt": "kreiran {at}",
-      "apiKeyLastUsed": "posljednji put korišten {at}",
+      "apiKeyCreatedAt": "Kreiran {at}",
+      "apiKeyLastUsed": "Posljednji put korišten {at}",
       "apiKeyRevoked": "Opozvan",
       "apiKeyLabelPlaceholder": "Na primjer, CI ili produkcija",
       "createApiKeyAction": "Kreiraj API ključ",
@@ -1123,7 +1123,7 @@
       "revokingApiKeyAction": "Opozivanje",
       "apiKeyRevokeError": "API ključ se ne može opozvati.",
       "revokeApiKeyConfirmTitle": "Opozvati ovaj API ključ?",
-      "apiKeyUsageDetail": "posljednjih 30 dana: {completions} završetaka · {tokens} tokena ({input} ulaz / {output} izlaz) · API ekvivalent {value}",
+      "apiKeyUsageDetail": "Posljednjih 30 dana: {completions} završetaka · {tokens} tokena ({input} ulaz / {output} izlaz) · API ekvivalent {value}",
       "apiKeyUsageUnavailable": "Upotreba nije dostupna",
       "revokeApiKeyConfirmBody": "Klijenti koji koriste ovaj ključ odmah će izgubiti autentifikaciju.",
       "apiKeysEmptyTitle": "Još nema API ključeva",

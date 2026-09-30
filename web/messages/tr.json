@@ -369,7 +369,7 @@
       "iosLink": "iOS uygulamasını aç"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Paylaşılan AI hesaplarını yönetin ve istekleri coderouter ile yönlendirin.",
       "title": "Coderouter",
       "description": "Coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir.",
@@ -1112,8 +1112,8 @@
       "apiKeySecretBody": "Bu gizli değer tekrar gösterilmeyecek.",
       "apiKeyCopy": "API anahtarını kopyala",
       "apiKeyCopied": "Kopyalandı",
-      "apiKeyCreatedAt": "oluşturulma {at}",
-      "apiKeyLastUsed": "son kullanım {at}",
+      "apiKeyCreatedAt": "Oluşturulma {at}",
+      "apiKeyLastUsed": "Son kullanım {at}",
       "apiKeyRevoked": "İptal edildi",
       "apiKeyLabelPlaceholder": "Örneğin CI veya üretim",
       "createApiKeyAction": "API anahtarı oluştur",
@@ -1123,7 +1123,7 @@
       "revokingApiKeyAction": "İptal ediliyor",
       "apiKeyRevokeError": "API anahtarı iptal edilemedi.",
       "revokeApiKeyConfirmTitle": "Bu API anahtarı iptal edilsin mi?",
-      "apiKeyUsageDetail": "son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
+      "apiKeyUsageDetail": "Son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
       "apiKeyUsageUnavailable": "Kullanım verisi yok",
       "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz.",
       "apiKeysEmptyTitle": "Henüz API anahtarı yok",

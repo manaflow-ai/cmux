@@ -407,7 +407,7 @@
       "emptyBody": "Mac 上の cmux が初めて Cloud VM に接続すると、その Mac がここに表示されます。"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "共有AIアカウントを管理し、coderouterでリクエストをルーティングします。",
       "title": "Coderouter",
       "description": "Coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",

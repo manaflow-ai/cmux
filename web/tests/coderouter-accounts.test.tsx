@@ -226,8 +226,8 @@ describe("coderouter accounts section", () => {
     expect(html).toContain("sk-ant-oat01-…a1b2");
     expect(html).toContain("Codex");
     expect(html).toContain("shared codex");
-    expect(html).toContain("last used 2 hours ago");
-    expect(html).toContain("added 2026-08-20");
+    expect(html).toContain("Last used 2 hours ago");
+    expect(html).toContain("Added 2026-08-20");
     // Provider rows are text only.
     expect(html).not.toContain("<svg");
   });

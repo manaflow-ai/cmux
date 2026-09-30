@@ -369,7 +369,7 @@
       "iosLink": "Åbn iOS-app"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Administrer delte AI-konti, og send anmodninger med coderouter.",
       "title": "Coderouter",
       "description": "Coderouter sender LLM-anmodninger på tværs af udbyderkonti med failover og forbrugsbevidst planlægning.",
@@ -1112,8 +1112,8 @@
       "apiKeySecretBody": "Hemmeligheden vises ikke igen.",
       "apiKeyCopy": "Kopiér API-nøgle",
       "apiKeyCopied": "Kopieret",
-      "apiKeyCreatedAt": "oprettet {at}",
-      "apiKeyLastUsed": "sidst brugt {at}",
+      "apiKeyCreatedAt": "Oprettet {at}",
+      "apiKeyLastUsed": "Sidst brugt {at}",
       "apiKeyRevoked": "Tilbagekaldt",
       "apiKeyLabelPlaceholder": "For eksempel CI eller produktion",
       "createApiKeyAction": "Opret API-nøgle",
@@ -1123,7 +1123,7 @@
       "revokingApiKeyAction": "Tilbagekalder",
       "apiKeyRevokeError": "API-nøglen kunne ikke tilbagekaldes.",
       "revokeApiKeyConfirmTitle": "Tilbagekald denne API-nøgle?",
-      "apiKeyUsageDetail": "sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
+      "apiKeyUsageDetail": "Sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
       "apiKeyUsageUnavailable": "Brug er ikke tilgængelig",
       "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen.",
       "apiKeysEmptyTitle": "Ingen API-nøgler endnu",

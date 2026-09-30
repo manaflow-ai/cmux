@@ -369,7 +369,7 @@
       "iosLink": "Otwórz aplikację iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Zarządzaj współdzielonymi kontami AI i kieruj żądania za pomocą coderouter.",
       "title": "Coderouter",
       "description": "Coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia.",
@@ -1112,8 +1112,8 @@
       "apiKeySecretBody": "Ten sekret nie zostanie wyświetlony ponownie.",
       "apiKeyCopy": "Kopiuj klucz API",
       "apiKeyCopied": "Skopiowano",
-      "apiKeyCreatedAt": "utworzono {at}",
-      "apiKeyLastUsed": "ostatnie użycie {at}",
+      "apiKeyCreatedAt": "Utworzono {at}",
+      "apiKeyLastUsed": "Ostatnie użycie {at}",
       "apiKeyRevoked": "Unieważniony",
       "apiKeyLabelPlaceholder": "Na przykład CI lub produkcja",
       "createApiKeyAction": "Utwórz klucz API",
@@ -1123,7 +1123,7 @@
       "revokingApiKeyAction": "Unieważnianie",
       "apiKeyRevokeError": "Nie udało się unieważnić klucza API.",
       "revokeApiKeyConfirmTitle": "Unieważnić ten klucz API?",
-      "apiKeyUsageDetail": "ostatnie 30 dni: {completions} ukończeń · {tokens} tokenów ({input} wejście / {output} wyjście) · równowartość API {value}",
+      "apiKeyUsageDetail": "Ostatnie 30 dni: {completions} ukończeń · {tokens} tokenów ({input} wejście / {output} wyjście) · równowartość API {value}",
       "apiKeyUsageUnavailable": "Użycie niedostępne",
       "revokeApiKeyConfirmBody": "Klienci używający tego klucza natychmiast stracą uwierzytelnianie.",
       "apiKeysEmptyTitle": "Brak kluczy API",

@@ -95,7 +95,7 @@ async function renderCoderouter(data: Overview, url = "/dashboard/coderouter?tea
 describe("coderouter screen", () => {
   test("renders the header, team metrics, accounts, and owned machines", async () => {
     const html = await renderCoderouter(overview());
-    expect(html).toContain("Coderouter routes llm requests");
+    expect(html).toContain("Coderouter routes LLM requests");
     expect(html).toContain("30-day usage");
     expect(html).toContain("Team aggregate for Team One");
     expect(html).toContain("Last 30 days");
@@ -187,8 +187,8 @@ describe("cloud screen", () => {
     expect(html).toContain("nightly 0.70.0 (123)");
     expect(html).toContain("browser VPN, terminal");
     expect(html).toContain("…34567890");
-    expect(html).toContain(">rename<");
-    expect(html).toContain(">revoke<");
+    expect(html).toContain(">Rename<");
+    expect(html).toContain(">Revoke<");
   });
 
   test("explains an empty list", async () => {

@@ -369,7 +369,7 @@
       "iosLink": "Відкрити застосунок iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Керуйте спільними ШІ-обліковими записами та розподіляйте запити за допомогою coderouter.",
       "title": "Coderouter",
       "description": "Coderouter розподіляє LLM-запити між обліковими записами провайдерів із відмовостійкістю та плануванням за навантаженням.",
@@ -1112,8 +1112,8 @@
       "apiKeySecretBody": "Цей секрет більше не буде показано.",
       "apiKeyCopy": "Копіювати ключ API",
       "apiKeyCopied": "Скопійовано",
-      "apiKeyCreatedAt": "створено {at}",
-      "apiKeyLastUsed": "останнє використання {at}",
+      "apiKeyCreatedAt": "Створено {at}",
+      "apiKeyLastUsed": "Останнє використання {at}",
       "apiKeyRevoked": "Відкликано",
       "apiKeyLabelPlaceholder": "Наприклад, CI або продакшен",
       "createApiKeyAction": "Створити ключ API",
@@ -1123,7 +1123,7 @@
       "revokingApiKeyAction": "Відкликання",
       "apiKeyRevokeError": "Не вдалося відкликати ключ API.",
       "revokeApiKeyConfirmTitle": "Відкликати цей ключ API?",
-      "apiKeyUsageDetail": "останні 30 днів: {completions} завершень · {tokens} токенів ({input} вхід / {output} вихід) · API-еквівалент {value}",
+      "apiKeyUsageDetail": "Останні 30 днів: {completions} завершень · {tokens} токенів ({input} вхід / {output} вихід) · API-еквівалент {value}",
       "apiKeyUsageUnavailable": "Дані використання недоступні",
       "revokeApiKeyConfirmBody": "Клієнти, які використовують цей ключ, одразу втратять автентифікацію.",
       "apiKeysEmptyTitle": "API-ключів поки немає",

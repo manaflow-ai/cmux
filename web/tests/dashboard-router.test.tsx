@@ -152,8 +152,8 @@ describe("dashboard router", () => {
   });
 
   test.each([
-    ["/dashboard/coderouter?team=t1", "en", "coderouter — cmux"],
-    ["/ja/dashboard/coderouter", "ja", "coderouter — cmux"],
+    ["/dashboard/coderouter?team=t1", "en", "Coderouter — cmux"],
+    ["/ja/dashboard/coderouter", "ja", "Coderouter — cmux"],
   ])("%s renders its route title", async (url, locale, title) => {
     const { html } = await render(url, locale);
     // The overview fetch fails in this stub; the title comes from the route, not the data.

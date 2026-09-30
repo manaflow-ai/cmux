@@ -369,7 +369,7 @@
       "iosLink": "開啟 iOS 應用程式"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "管理共用 AI 帳戶，並使用 coderouter 路由請求。",
       "title": "Coderouter",
       "description": "Coderouter 在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。",

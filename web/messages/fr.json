@@ -369,7 +369,7 @@
       "iosLink": "Ouvrir l'application iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Gérez les comptes d’IA partagés et acheminez les requêtes avec coderouter.",
       "title": "Coderouter",
       "description": "Coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
@@ -1112,8 +1112,8 @@
       "apiKeySecretBody": "Ce secret ne sera plus affiché.",
       "apiKeyCopy": "Copier la clé API",
       "apiKeyCopied": "Copié",
-      "apiKeyCreatedAt": "créée {at}",
-      "apiKeyLastUsed": "dernier usage {at}",
+      "apiKeyCreatedAt": "Créée {at}",
+      "apiKeyLastUsed": "Dernier usage {at}",
       "apiKeyRevoked": "Révoquée",
       "apiKeyLabelPlaceholder": "Par exemple, CI ou production",
       "createApiKeyAction": "Créer une clé API",

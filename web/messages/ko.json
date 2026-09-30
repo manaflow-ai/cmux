@@ -369,7 +369,7 @@
       "iosLink": "iOS 앱 열기"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "공유 AI 계정을 관리하고 coderouter로 요청을 라우팅합니다.",
       "title": "Coderouter",
       "description": "Coderouter는 장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다.",

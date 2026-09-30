@@ -369,7 +369,7 @@
       "iosLink": "iOS-App öffnen"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Gemeinsam genutzte KI-Konten verwalten und Anfragen mit coderouter verteilen.",
       "title": "Coderouter",
       "description": "Coderouter verteilt LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten.",
@@ -1112,8 +1112,8 @@
       "apiKeySecretBody": "Dieses Geheimnis wird nicht erneut angezeigt.",
       "apiKeyCopy": "API-Schlüssel kopieren",
       "apiKeyCopied": "Kopiert",
-      "apiKeyCreatedAt": "erstellt {at}",
-      "apiKeyLastUsed": "zuletzt verwendet {at}",
+      "apiKeyCreatedAt": "Erstellt {at}",
+      "apiKeyLastUsed": "Zuletzt verwendet {at}",
       "apiKeyRevoked": "Widerrufen",
       "apiKeyLabelPlaceholder": "Zum Beispiel CI oder Produktion",
       "createApiKeyAction": "API-Schlüssel erstellen",
@@ -1123,7 +1123,7 @@
       "revokingApiKeyAction": "Wird widerrufen",
       "apiKeyRevokeError": "API-Schlüssel konnte nicht widerrufen werden.",
       "revokeApiKeyConfirmTitle": "Diesen API-Schlüssel widerrufen?",
-      "apiKeyUsageDetail": "letzte 30 Tage: {completions} Abschlüsse · {tokens} Tokens ({input} Eingabe / {output} Ausgabe) · {value} API-Äquivalent",
+      "apiKeyUsageDetail": "Letzte 30 Tage: {completions} Abschlüsse · {tokens} Tokens ({input} Eingabe / {output} Ausgabe) · {value} API-Äquivalent",
       "apiKeyUsageUnavailable": "Nutzung nicht verfügbar",
       "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren.",
       "apiKeysEmptyTitle": "Noch keine API-Schlüssel",
