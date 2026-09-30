@@ -238,8 +238,9 @@ extension CMUXCLI {
         if let surfaceID = state?["surface_id"] as? String {
             target["surface_id"] = surfaceID
         }
+        let hostInputStateAvailable = state != nil
         var screen: String?
-        if let payload = try? client.sendV2(method: "surface.read_text", params: target) {
+        if hostInputStateAvailable, let payload = try? client.sendV2(method: "surface.read_text", params: target) {
             screen = payload["text"] as? String
         }
         let prePasteState = state
@@ -251,7 +252,7 @@ extension CMUXCLI {
             screen: screen,
             appendedText: text
         )
-        if (state == nil || force), let screen,
+        if force, let screen,
            let fallback = Self.submitInputStateFromScreen(screen) {
             if !force {
                 try throwIfAgentPromptBlocks(fallback, kind: .text, command: command, target: target)
@@ -424,7 +425,7 @@ extension CMUXCLI {
             // accepted by the socket, which is the complete shell contract.
             if !agent {
                 return printSubmitResult(
-                    status: "submitted",
+                    status: hostInputStateAvailable ? "submitted" : "sent",
                     payload: target,
                     jsonOutput: jsonOutput,
                     idFormat: idFormat

@@ -297,8 +297,9 @@ Enter, refuse only for an open dialog: `cmux send "text"` followed by
 `cmux send-key enter` leaves the sent text in the prompt, and the key has to
 go through. Surfaces without an agent are never blocked. A refusal writes nothing, prints the reason on stderr
 and exits non-zero. `--force`, before the text or key, skips the check. When
-the app can't answer `surface.input_state` (an older build, or a `cmux ssh`
-relay, which doesn't forward it) the commands write as before.
+an older app can't answer `surface.input_state`, the commands write as before
+and `send --submit` reports `sent` after its separate key event; current
+`cmux ssh` relays forward the host answer.
 
 `surface.input_state` is a v2 worker-lane socket method. It takes
 `surface_id`, or the usual workspace selectors for that workspace's focused
@@ -308,6 +309,7 @@ surface, and returns:
 | --- | --- |
 | `state` | `empty`, `draft`, `dialog`, or `unknown` when no agent prompt is on screen. Read from the active screen (not the scrolled viewport): Claude Code's and Codex's input rows, ignoring faint placeholder text, and key hints such as "Esc to cancel" below the input row. |
 | `draft_length` | Characters in the draft, when `state` is `draft`. The text itself is not returned. |
+| `composer_fingerprint` | SHA-256 of normalized composer text, when available. It protects a pasted message from retries over a changed draft. |
 | `agent` | Whether an agent reports lifecycle state for the surface. |
 | `lifecycle` | The agent's lifecycle: `unknown`, `running`, `idle` or `needsInput`. |
 | `waiting_on_human` | `lifecycle` is `needsInput`. Informational: it can stay set after an interrupt or an API error, so it does not block on its own. |

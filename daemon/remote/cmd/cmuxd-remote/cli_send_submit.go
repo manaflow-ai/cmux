@@ -48,12 +48,9 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 	if submit || !force {
 		state, err = readSendInputState(socketPath, target, refreshAddr)
 		if err != nil {
-			if !submit {
-				fmt.Fprintf(os.Stderr, "cmux send: refusing to send: %v\n", err)
-				return 1
-			}
-			// An older relay may not expose input_state. Submit with Return
-			// and report sent; no screen heuristic can safely claim delivery.
+			// Keep the legacy behavior when the host predates
+			// surface.input_state: write without a draft claim. Submit uses
+			// Return and reports sent; no screen heuristic claims delivery.
 			state = nil
 		}
 		if err == nil && !force && sendStateBlocksText(state) {

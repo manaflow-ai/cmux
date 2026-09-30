@@ -299,19 +299,6 @@ private extension AgentPromptSubmissionSnapshot {
         return prefix == claudePromptPrefix ? .claude : .codex
     }
 
-    private static func inferredAgentKind(from rows: [String]) -> AgentPromptAgentKind? {
-        let brandedRows = rows.map {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-                .trimmingCharacters(in: .punctuationCharacters)
-        }
-        if brandedRows.contains(where: { $0 == "openai codex" || $0 == "codex cli" || $0 == "codex" }) {
-            return .codex
-        }
-        if brandedRows.contains("claude code") { return .claude }
-        return nil
-    }
-
     private static func isBusy(_ rows: [String]) -> Bool {
         guard let promptIndex = rows.lastIndex(where: { promptPrefix(in: $0) != nil }) else {
             return false
