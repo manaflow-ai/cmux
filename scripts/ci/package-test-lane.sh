@@ -227,6 +227,20 @@ ensure_ghosttykit() {
   ./scripts/download-prebuilt-ghosttykit.sh
 }
 
+# Compile-avoidance shadow (RFC #15391): classify whether the pull request's
+# package edits keep every importer-visible interface. Observation only; the
+# script never fails and macOS status reads its receipt line.
+interface_fingerprint() {
+  case "$event" in
+    pull_request|merge_group) ;;
+    *) return 0 ;;
+  esac
+  [ -s "$changed" ] || return 0
+  echo "::group::Package interface fingerprint"
+  python3 scripts/ci/package_interface_fingerprint.py --changed-files "$changed" || true
+  echo "::endgroup::"
+}
+
 install_rust() {
   ./scripts/install-rust-ci.sh
   # install-rust-ci.sh hands PATH to later workflow steps; this shell needs it now.
@@ -495,6 +509,7 @@ case "$phase" in
     # needs the files.
     GITHUB_OUTPUT="" select_packages
     select_xcode
+    interface_fingerprint
     if [ "$needs_ghosttykit" = true ]; then
       ensure_ghosttykit
     fi

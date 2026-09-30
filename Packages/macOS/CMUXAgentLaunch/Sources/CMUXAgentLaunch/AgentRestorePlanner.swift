@@ -209,6 +209,18 @@ public struct AgentRestorePlanner: Sendable {
             }
         }
         guard !routedArguments.isEmpty else { return nil }
+        // Last, so launcher and wrapper routing never see the prompt. An argv that does not
+        // resume the session in the kind's own form keeps its plain resume.
+        if request.mode == .resumeAgent,
+           let prompt = normalized(request.continuationPrompt),
+           let checkpointID = normalized(request.checkpointID),
+           let prompted = AgentResumeContinuationPrompt(prompt: prompt).applying(
+               to: routedArguments,
+               kind: kind,
+               sessionID: checkpointID
+           ) {
+            routedArguments = prompted
+        }
 
         return AgentRestoreInvocation(
             arguments: routedArguments,
@@ -437,6 +449,7 @@ public struct AgentRestorePlanner: Sendable {
             }
             selected.removeValue(forKey: SubrouterClaudeResumeRouting.environmentKey)
             selected.removeValue(forKey: SubrouterClaudeResumeRouting.launchBoundEnvironmentKey)
+            selected.removeValue(forKey: SubrouterClaudeResumeRouting.accountEnvironmentKey)
             let keys = selected.keys.sorted().filter {
                 Self.claudeAuthSelectionEnvironmentKeys.contains($0)
             }

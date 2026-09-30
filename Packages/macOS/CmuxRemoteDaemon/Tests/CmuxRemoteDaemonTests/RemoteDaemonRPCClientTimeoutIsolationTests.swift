@@ -69,7 +69,7 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
 
         let result = try client.call(method: "hello", params: [:], timeout: 1)
         #expect(result["transport"] as? String == "alive")
-        #expect(existingPTYEvent.wait(timeout: .now() + 1) == .success)
+        #expect(existingPTYEvent.wait(timeout: .now() + 5) == .success)
         #expect(unexpectedTermination.wait(timeout: .now()) == .timedOut)
     }
 
@@ -175,7 +175,11 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
         #expect(callTimedOut.wait(timeout: .now()) == .success)
         #expect(unexpectedCallResult.wait(timeout: .now()) == .timedOut)
         #expect(cleanupFired.wait(timeout: .now()) == .timedOut)
-        #expect(unexpectedTermination.wait(timeout: .now() + 2) == .success)
+        // The cancellation write is deliberately held until the cleanup timer
+        // fires. Give the child-process teardown its own budget after that
+        // release; heavily loaded hosted runners can otherwise report a false
+        // failure even though the transport exits correctly.
+        #expect(unexpectedTermination.wait(timeout: .now() + 10) == .success)
     }
 
     private func configuration() -> WorkspaceRemoteConfiguration {

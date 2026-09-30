@@ -593,7 +593,7 @@ function PricingContent({
                 </a>
               ),
               email: (chunks) => (
-                <a href="mailto:founders@manaflow.ai" className={linkClass}>
+                <a href="mailto:founders@cmux.com" className={linkClass}>
                   {chunks}
                 </a>
               ),

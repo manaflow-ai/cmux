@@ -11,11 +11,11 @@ extension CloudTreeNode.Kind {
         }
     }
 
-    /// New resources and terminal sections start closed; all other groups
-    /// remain open unless the person explicitly collapses them.
+    /// Port, resource, and terminal inventories start closed so discovery and
+    /// remote scans happen only after the person explicitly opens that group.
     var isExpandedByDefault: Bool {
         switch self {
-        case .terminalsPool, .resourcesPool:
+        case .portsGroup, .terminalsPool, .resourcesPool:
             return false
         default:
             return true

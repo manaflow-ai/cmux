@@ -41,10 +41,10 @@ extension SidebarCompactStatusGlyph {
         let kind: Kind
         if input.agentEntries.contains(where: Self.reportsError) {
             kind = .error
+        } else if input.hasActiveAgent || input.lifecycleStates.contains(.running) || input.lifecycleStates.contains(.backgroundWorkPending) {
+            kind = .running
         } else if input.lifecycleStates.contains(.needsInput) {
             kind = .needsInput
-        } else if input.hasActiveAgent || input.lifecycleStates.contains(.running) {
-            kind = .running
         } else if input.lifecycleStates.contains(.unknown) {
             kind = .pending
         // A stale pull request is data repeated refresh failures could not
@@ -95,11 +95,14 @@ extension SidebarCompactStatusGlyph {
     }
 
     private static func lifecycleText(_ states: [AgentHibernationLifecycleState]) -> String? {
-        if states.contains(.needsInput) {
-            return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
-        }
         if states.contains(.running) {
             return String(localized: "agent.generic.status.running", defaultValue: "Running")
+        }
+        if states.contains(.backgroundWorkPending) {
+            return String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting")
+        }
+        if states.contains(.needsInput) {
+            return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
         }
         if states.contains(.idle) {
             return String(localized: "agentSession.web.status.idle", defaultValue: "Idle")

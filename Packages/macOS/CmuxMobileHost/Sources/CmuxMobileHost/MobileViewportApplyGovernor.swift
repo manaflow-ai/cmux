@@ -24,6 +24,12 @@ import Foundation
 ///   elapses (`flush()`), newest staged target winning. The window is anchored
 ///   at the first staged change and is not extended by replacements, so a
 ///   continuous flap still converges to at most one resize per window.
+/// - An `immediate` request (a phone explicitly left: surface closed, back
+///   navigation, viewport clear, disconnect) applies at once and cancels any
+///   staged change. Only an implicit departure, the TTL of an input-carried
+///   report, waits for the window. The phone sends a clear only when its
+///   presentation lease ends, not on UIKit remount churn, so an explicit
+///   leave is not the remount flap the window absorbs.
 ///
 /// Pure state machine: the owner schedules the flush timer when a decision
 /// asks for one, and calls `flush()` when it fires.
@@ -54,7 +60,13 @@ public struct MobileViewportApplyGovernor {
 
     public init() {}
 
-    public mutating func request(_ target: Target) -> Decision {
+    /// Decides what to do with a requested target.
+    /// - Parameters:
+    ///   - target: The target the mobile reports now resolve to.
+    ///   - immediate: `true` for an explicit leave, which must not wait for
+    ///     the stability window.
+    /// - Returns: The decision the owner carries out.
+    public mutating func request(_ target: Target, immediate: Bool = false) -> Decision {
         if target == applied {
             // The flap cancelled out (the remount clear+re-apply shape lands
             // here). Any staged change is now moot; a pending timer fires as
@@ -73,6 +85,13 @@ public struct MobileViewportApplyGovernor {
             // Nothing was ever capped; there is nothing to restore.
             staged = nil
             return .drop
+        }
+        if immediate {
+            // An explicit leave: restore now. A pending timer fires as a
+            // no-op because nothing stays staged.
+            staged = nil
+            applied = target
+            return .apply(target)
         }
         if target == staged {
             return .drop

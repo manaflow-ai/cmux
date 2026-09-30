@@ -14,6 +14,10 @@ public enum SplitSpaceVerdict: Sendable, Equatable {
     case noSpace
 }
 
+private func splitSpaceClampedDividerPosition(_ position: Double) -> Double {
+    min(max(position, 0.1), 0.9)
+}
+
 extension ExternalTreeNode {
     /// Decides whether splitting `paneId` along `orientation` fits.
     ///
@@ -37,17 +41,23 @@ extension ExternalTreeNode {
     ///   - minimumExtent: The smallest width (horizontal) or height (vertical)
     ///     a pane may have, in points.
     ///   - dividerThickness: The space one divider takes along the axis.
+    ///   - dividerPosition: The requested first-child ratio. Bonsplit clamps
+    ///     it to 0.1...0.9; `nil` uses its 0.5 default.
     public func splitSpaceVerdict(
         splittingPaneId paneId: String,
         orientation: String,
         minimumExtent: Double,
-        dividerThickness: Double
+        dividerThickness: Double,
+        dividerPosition: Double? = nil
     ) -> SplitSpaceVerdict {
         guard let path = splitSpacePath(toPaneId: paneId) else { return .fits }
         let isHorizontal = orientation == "horizontal"
         let paneExtent = path.pane.axisExtent(isHorizontal: isHorizontal)
         guard paneExtent > 0 else { return .fits }
-        if (paneExtent - dividerThickness) / 2 >= minimumExtent {
+        let position = splitSpaceClampedDividerPosition(dividerPosition ?? 0.5)
+        let availablePaneExtent = paneExtent - dividerThickness
+        if availablePaneExtent * position >= minimumExtent,
+           availablePaneExtent * (1 - position) >= minimumExtent {
             return .fits
         }
 
@@ -61,15 +71,13 @@ extension ExternalTreeNode {
         }
         let run = ExternalTreeNode.split(runRoot)
         let runExtent = run.axisExtent(isHorizontal: isHorizontal)
-        let slots = run.runSlots(orientation: orientation) + [path.pane]
-        let share = (runExtent - Double(slots.count - 1) * dividerThickness) / Double(slots.count)
-        let fits = slots.allSatisfy {
-            $0.requiredExtent(
-                orientation: orientation,
-                minimumExtent: minimumExtent,
-                dividerThickness: dividerThickness
-            ) <= share
-        }
+        let fits = run.fitsAfterEqualizingRun(
+            extent: runExtent,
+            orientation: orientation,
+            splittingPaneId: paneId,
+            minimumExtent: minimumExtent,
+            dividerThickness: dividerThickness
+        )
         return fits ? .fitsAfterEqualizingRun : .noSpace
     }
 
@@ -90,14 +98,74 @@ extension ExternalTreeNode {
         }
     }
 
-    /// The slots an equalize pass over this run divides space between: the
-    /// run's panes and its cross-orientation subtrees.
-    private func runSlots(orientation: String) -> [ExternalTreeNode] {
-        guard case .split(let splitNode) = self, splitNode.orientation == orientation else {
-            return [self]
+    /// Simulates the exact divider positions that Bonsplit applies when the
+    /// run is equalized. Ratios outside its configured 0.1...0.9 range are
+    /// clamped, so averaging all slots would overestimate the smaller side of
+    /// an 11-or-more-slot run.
+    private func fitsAfterEqualizingRun(
+        extent: Double,
+        orientation: String,
+        splittingPaneId: String,
+        minimumExtent: Double,
+        dividerThickness: Double
+    ) -> Bool {
+        switch self {
+        case .pane(let pane):
+            if pane.id == splittingPaneId {
+                return (extent - dividerThickness) / 2 >= minimumExtent
+            }
+            return extent >= minimumExtent
+        case .split(let splitNode):
+            guard splitNode.orientation == orientation else {
+                return requiredExtent(
+                    orientation: orientation,
+                    minimumExtent: minimumExtent,
+                    dividerThickness: dividerThickness
+                ) <= extent
+            }
+            let firstSpanCount = splitNode.first.prospectiveSpanCount(
+                orientation: orientation,
+                splittingPaneId: splittingPaneId
+            )
+            let secondSpanCount = splitNode.second.prospectiveSpanCount(
+                orientation: orientation,
+                splittingPaneId: splittingPaneId
+            )
+            let availableExtent = extent - dividerThickness
+            guard availableExtent >= 0 else { return false }
+            let position = splitSpaceClampedDividerPosition(
+                Double(firstSpanCount) / Double(firstSpanCount + secondSpanCount)
+            )
+            return splitNode.first.fitsAfterEqualizingRun(
+                extent: availableExtent * position,
+                orientation: orientation,
+                splittingPaneId: splittingPaneId,
+                minimumExtent: minimumExtent,
+                dividerThickness: dividerThickness
+            ) && splitNode.second.fitsAfterEqualizingRun(
+                extent: availableExtent * (1 - position),
+                orientation: orientation,
+                splittingPaneId: splittingPaneId,
+                minimumExtent: minimumExtent,
+                dividerThickness: dividerThickness
+            )
         }
-        return splitNode.first.runSlots(orientation: orientation)
-            + splitNode.second.runSlots(orientation: orientation)
+    }
+
+    private func prospectiveSpanCount(orientation: String, splittingPaneId: String) -> Int {
+        switch self {
+        case .pane(let pane):
+            return pane.id == splittingPaneId ? 2 : 1
+        case .split(let splitNode):
+            guard splitNode.orientation == orientation else { return 1 }
+            return splitNode.first.prospectiveSpanCount(
+                orientation: orientation,
+                splittingPaneId: splittingPaneId
+            ) + splitNode.second.prospectiveSpanCount(
+                orientation: orientation,
+                splittingPaneId: splittingPaneId
+            )
+        }
     }
 
     /// The smallest extent along the axis of `orientation` that keeps every
@@ -122,7 +190,7 @@ extension ExternalTreeNode {
                 dividerThickness: dividerThickness
             )
             guard splitNode.orientation == orientation else { return max(first, second) }
-            let position = min(max(splitNode.dividerPosition, 0.01), 0.99)
+            let position = splitSpaceClampedDividerPosition(splitNode.dividerPosition)
             return max(first / position, second / (1 - position)) + dividerThickness
         }
     }
