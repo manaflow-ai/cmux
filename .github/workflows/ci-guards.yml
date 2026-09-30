@@ -490,6 +490,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_workflow_run_sources.py
 
+      - name: Validate the merge-group watcher's GITHUB_TOKEN budget
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_merge_group_fail_fast_budget.py
+
       - name: Validate shallow complexity comparison fetching
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_fetch_complexity_base.py
