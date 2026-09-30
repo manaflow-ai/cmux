@@ -219,6 +219,46 @@ class LaunchFailureTest(unittest.TestCase):
         self.assertIn("launch_failed", summary)
 
 
+class RegressionsCommandTest(unittest.TestCase):
+    def run_regressions(self, steps: list, planned: int | None = None) -> tuple[int, str]:
+        import argparse
+        import contextlib
+        import io
+        import tempfile
+        from unittest import mock
+        from cmuxfuzz import cli
+
+        result = runner.SessionResult()
+        result.steps = [runner.StepRecord(index, {"do": "split"}, outcome, "why")
+                        for index, outcome in enumerate(steps, start=1)]
+        with tempfile.TemporaryDirectory() as directory:
+            repros = Path(directory) / "regressions"
+            repros.mkdir()
+            count = len(steps) if planned is None else planned
+            (repros / "a.json").write_text(json.dumps({"steps": [{"do": "split"}] * count}))
+            args = argparse.Namespace(app="/x.app", out=str(Path(directory) / "out"), no_pointer=True)
+            output = io.StringIO()
+            with mock.patch.object(cli, "REGRESSIONS", repros), \
+                    mock.patch.object(runner, "replay", return_value=result), contextlib.redirect_stdout(output):
+                status = cli.cmd_regressions(args)
+        return status, output.getvalue()
+
+    def test_a_repro_whose_steps_ran_passes(self) -> None:
+        self.assertEqual(self.run_regressions(["ok", "skip", "ok"]), (0, "ok a.json\n"))
+
+    def test_a_step_the_app_refused_fails_instead_of_passing_silently(self) -> None:
+        for outcome in ("error", "timeout", "pointer-error", "io-error", "internal-error"):
+            with self.subTest(outcome=outcome):
+                status, output = self.run_regressions(["ok", outcome])
+                self.assertEqual(status, 1)
+                self.assertIn(f"FAIL a.json: step 2 ended {outcome}", output)
+
+    def test_a_repro_that_stopped_early_fails(self) -> None:
+        status, output = self.run_regressions(["ok"], planned=3)
+        self.assertEqual(status, 1)
+        self.assertIn("FAIL a.json: stopped after step 1 of 3", output)
+
+
 class IssueTextTest(unittest.TestCase):
     def finding(self) -> dict:
         return {"signature": Signature("invariant", "container-degenerate",

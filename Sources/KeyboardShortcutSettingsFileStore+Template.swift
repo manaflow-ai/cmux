@@ -188,7 +188,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "sidebarAppearance": [
-                    "matchTerminalBackground": false,
+                    "matchTerminalBackground": SettingCatalog().sidebarAppearance.matchTerminalBackground.defaultValue,
                     "tintColor": SidebarTintDefaults().hex,
                     "lightModeTintColor": NSNull(),
                     "darkModeTintColor": NSNull(),
@@ -238,6 +238,9 @@ extension CmuxSettingsFileStore {
             [
                 "mobile": [
                     "artifactFolderAccess": SettingCatalog().mobile.artifactFolderAccess.defaultValue.rawValue,
+                    "browserTunnel": [
+                        "allowOtherHosts": SettingCatalog().mobile.browserTunnelAllowOtherHosts.defaultValue,
+                    ],
                 ],
             ],
             [

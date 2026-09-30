@@ -167,7 +167,18 @@ export type ClaudeSelection =
   /** The team has no accounts at all. */
   | { readonly kind: "none" }
   /** Every remaining account is disabled, cooling down, or already tried. */
-  | { readonly kind: "exhausted"; readonly total: number; readonly retryAfterSeconds: number };
+  | {
+    readonly kind: "exhausted";
+    readonly total: number;
+    readonly retryAfterSeconds: number;
+    /**
+     * Seconds until the soonest account cooling down for a transient reason
+     * (capacity, rate limit, outage) is usable again; `null` when no account
+     * will recover on its own, for example every one holds a revoked
+     * credential. The proxy holds the request only for the former.
+     */
+    readonly capacityRetryAfterSeconds: number | null;
+  };
 
 const ANTHROPIC_API_KEY = /^sk-ant-(?!oat)[A-Za-z0-9_-]{20,500}$/;
 const ANTHROPIC_OAUTH_TOKEN = /^sk-ant-oat01-[A-Za-z0-9_-]{20,1000}$/;
@@ -399,7 +410,12 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     const eligible = rows.filter((row) => row.state === "active" && !excluded.has(row.id));
     const healthy = eligible.filter((row) => !row.cooldownUntil || row.cooldownUntil.getTime() <= at.getTime());
     if (healthy.length === 0) {
-      return { kind: "exhausted", total: rows.length, retryAfterSeconds: retryAfter(eligible, at) };
+      return {
+        kind: "exhausted",
+        total: rows.length,
+        retryAfterSeconds: retryAfter(eligible, at),
+        capacityRetryAfterSeconds: capacityRetryAfter(eligible, at),
+      };
     }
     const chosen = input.stickyKey
       ? rendezvousPick(input.stickyKey, healthy)
@@ -434,6 +450,20 @@ function retryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number {
     if (soonest === null || seconds < soonest) soonest = seconds;
   }
   return Math.max(1, soonest ?? DEFAULT_EXHAUSTED_RETRY_SECONDS);
+}
+
+/** A revoked or unauthorized credential needs a human, not a wait. */
+const NON_TRANSIENT_FAILURE_CODES = new Set(["invalid_credential"]);
+
+function capacityRetryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number | null {
+  let soonest: number | null = null;
+  for (const row of eligible) {
+    if (!row.cooldownUntil || row.cooldownUntil.getTime() <= at.getTime()) continue;
+    if (row.lastFailureCode && NON_TRANSIENT_FAILURE_CODES.has(row.lastFailureCode)) continue;
+    const seconds = Math.ceil((row.cooldownUntil.getTime() - at.getTime()) / 1000);
+    if (soonest === null || seconds < soonest) soonest = seconds;
+  }
+  return soonest === null ? null : Math.max(1, soonest);
 }
 
 /** Highest-random-weight choice: stable per key, minimal reshuffle on change. */
