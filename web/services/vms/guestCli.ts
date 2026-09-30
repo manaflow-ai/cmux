@@ -1210,6 +1210,45 @@ guest_env_rm() {
   printf 'OK removed %s from %s\\n' "\$*" "\$cmux_env_path"
 }
 
+# Check that a shared environment has all of the named keys without ever
+# printing their values. This is useful before starting an agent fan-out:
+# configure a machine once, then make every child fail fast with the same
+# actionable list instead of discovering a missing credential mid-task.
+guest_env_require() {
+  cmux_env_json=0
+  cmux_env_required=""
+  for cmux_arg in "\$@"; do
+    case "\$cmux_arg" in
+      --json) cmux_env_json=1 ;;
+      --help|-h) env_usage; return 0 ;;
+      -*) die "env require: unknown option \$cmux_arg" 2 ;;
+      *)
+        env_key_ok "\$cmux_arg" || die "env require: invalid key '\$cmux_arg'" 2
+        cmux_env_required="\$cmux_env_required\${cmux_env_required:+ }\$cmux_arg"
+        ;;
+    esac
+  done
+  [ -n "\$cmux_env_required" ] || die "usage: cmux env require KEY [KEY2 ...] [--json]" 2
+  cmux_env_missing=""
+  for cmux_key in \$cmux_env_required; do
+    if ! env_decoded_lines "\$(env_file)" | sed 's/=.*//' | grep -Fqx "\$cmux_key"; then
+      cmux_env_missing="\$cmux_env_missing\${cmux_env_missing:+ }\$cmux_key"
+    fi
+  done
+  if [ "\$cmux_env_json" -eq 1 ]; then
+    # Build arrays through jq so names are encoded safely; values never enter
+    # this response.
+    cmux_env_required_json=\$(printf '%s\n' \$cmux_env_required | jq -Rsc 'split("\\n") | map(select(length > 0))')
+    cmux_env_missing_json=\$(printf '%s\n' \$cmux_env_missing | jq -Rsc 'split("\\n") | map(select(length > 0))')
+    jq -cn --argjson required "\$cmux_env_required_json" --argjson missing "\$cmux_env_missing_json" --arg path "\$(env_file)" --argjson ready "\$([ -z "\$cmux_env_missing" ] && printf true || printf false)" '{ready: \$ready, required: \$required, missing: \$missing, path: \$path}'
+  elif [ -n "\$cmux_env_missing" ]; then
+    printf 'environment is missing: %s (set with cmux env set or cmux vm env set)\n' "\$cmux_env_missing"
+  else
+    printf 'OK environment ready: %s required variable%s set\n' "\$(printf '%s\n' \$cmux_env_required | wc -w)" "\$( [ \"\$(printf '%s\n' \$cmux_env_required | wc -w)\" = 1 ] || printf s)"
+  fi
+  [ -z "\$cmux_env_missing" ]
+}
+
 guest_env_command() {
   cmux_env_sub="\${1:-help}"
   [ "\$#" -gt 0 ] && shift
@@ -1217,6 +1256,7 @@ guest_env_command() {
     set) guest_env_set "\$@" ;;
     ls|list) guest_env_ls "\$@" ;;
     rm|unset|remove) guest_env_rm "\$@" ;;
+    require|check) guest_env_require "\$@" ;;
     receive) guest_env_receive "\$@" ;;
     path) printf '%s\\n' "\$(env_file)" ;;
     help|--help|-h) env_usage ;;
@@ -2700,8 +2740,8 @@ case "\${1:-}" in
         cmux_env_sub="\${1:-}"
         peer="\${2:-}"
         case "\$cmux_env_sub" in
-          set|ls|list|rm|unset|remove|path) ;;
-          *) die "usage: cmux vm env set|ls|rm|path <machine> …  (see cmux env help)" 2 ;;
+          set|ls|list|rm|unset|remove|path|require|check) ;;
+          *) die "usage: cmux vm env set|ls|rm|require|path <machine> …  (see cmux env help)" 2 ;;
         esac
         [ -n "\$peer" ] || die "usage: cmux vm env \$cmux_env_sub <machine> …" 2
         shift 2
