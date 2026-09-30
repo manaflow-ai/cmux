@@ -14,7 +14,11 @@ public struct AccountInvitationsCard: View {
     }
 
     public var body: some View {
-        Group {
+        // The load must start even while there is nothing to draw, so the
+        // anchor is a zero-size view rather than an empty group, whose
+        // onAppear never fires.
+        VStack(alignment: .leading, spacing: 0) {
+            Color.clear.frame(width: 0, height: 0).onAppear { model.reload() }
             if !model.invitations.isEmpty || model.errorMessage != nil {
                 SettingsCard {
                     VStack(alignment: .leading, spacing: 0) {
@@ -41,7 +45,6 @@ public struct AccountInvitationsCard: View {
                 .settingsSearchAnchors([Self.searchAnchorID])
             }
         }
-        .onAppear { model.reload() }
         .accessibilityIdentifier("SettingsInvitationsCard")
     }
 
