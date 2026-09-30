@@ -1,4 +1,4 @@
-import { codexInterruptParamsForTest } from "../adapters/codex";
+import { codexInterruptParamsForTest, codexStopGenerationMatchesForTest } from "../adapters/codex";
 
 const request = codexInterruptParamsForTest("thread-1", "turn-1");
 if (JSON.stringify(request) !== JSON.stringify({ threadId: "thread-1", turnId: "turn-1" })) {
@@ -15,3 +15,11 @@ if (codexInterruptParamsForTest(undefined, "turn-1") !== null) {
 console.log("codex stop assertions passed");
 
 export {};
+
+if (!codexStopGenerationMatchesForTest({ turnActive: true, activeGeneration: 7 }, 7)) {
+  throw new Error("Stop should interrupt the generation it observed");
+}
+if (codexStopGenerationMatchesForTest({ turnActive: false, activeGeneration: 7 }, 7)
+    || codexStopGenerationMatchesForTest({ turnActive: true, activeGeneration: 8 }, 7)) {
+  throw new Error("A late startup turn ID must not interrupt a completed or later generation");
+}
