@@ -10,7 +10,7 @@ import SwiftUI
 @MainActor
 final class CloudTeamInviteSheetPresenter {
     static let shared = CloudTeamInviteSheetPresenter()
-    static let sheetSize = NSSize(width: 480, height: 400)
+    static let sheetSize = NSSize(width: 480, height: 330)
 
     private var sheetWindow: NSWindow?
     private var hostWindow: NSWindow?
@@ -285,6 +285,7 @@ struct CloudTeamInviteSheet: View {
                     model.openMembers()
                 }
                 .buttonStyle(.link)
+                .fixedSize()
                 Spacer()
                 Button(String(localized: "cloudInvite.cancel", defaultValue: "Cancel")) {
                     model.finish()
