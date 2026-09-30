@@ -14,6 +14,7 @@ enum DebugThemes {
             object["window_number"] = .number(Double(controller.window?.windowNumber ?? 0))
             object["room"] = .string(controller.state.profileID.rawValue)
             object["appearance"] = .string(controller.window?.appearance?.name.rawValue ?? "")
+            object["edge_fades"] = .array(controller.window?.contentView.map(Self.edgeFades) ?? [])
             object["workspaces"] = .array(controller.mountedContents.map { content in
                 var workspace = scope(content.themeScope)
                 workspace["workspace"] = .string(content.workspace.id)
@@ -30,6 +31,22 @@ enum DebugThemes {
             return .object(object)
         }
         return .object(["windows": .array(windows), "terminals": .array(terminals)])
+    }
+
+    /// Every scroll view's edge-fade mask (`ScrollEdgeFade`): its gradient
+    /// locations and frame, to check the fade state from outside.
+    private static func edgeFades(in view: NSView) -> [JSONValue] {
+        var found: [JSONValue] = []
+        if let scroll = view as? NSScrollView, let mask = scroll.layer?.mask as? CAGradientLayer {
+            found.append(.object([
+                "class": .string(String(describing: type(of: scroll))),
+                "locations": .array((mask.locations ?? []).map { .number($0.doubleValue) }),
+                "height": .number(Double(mask.frame.height)),
+                "flipped": .bool(scroll.layer?.isGeometryFlipped ?? false),
+            ]))
+        }
+        for subview in view.subviews { found += edgeFades(in: subview) }
+        return found
     }
 
     private static func scope(_ scope: ThemeScope) -> [String: JSONValue] {
