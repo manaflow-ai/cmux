@@ -17,6 +17,7 @@ import SwiftUI
 @MainActor
 public struct AppSection: View {
     private let catalog: SettingCatalog
+    private let defaultsStore: UserDefaultsSettingsStore
     private let hostActions: SettingsHostActions
 
     // Every bound value-model lives here as view state, constructed once
@@ -98,6 +99,7 @@ public struct AppSection: View {
         soundAgentCache: NotificationSoundAgentCache = NotificationSoundAgentCache()
     ) {
         self.catalog = catalog
+        self.defaultsStore = defaultsStore
         self.hostActions = hostActions
         self.soundAgentCache = soundAgentCache
         _accentColorWriter = State(initialValue: AccentColorSettingsFileWriter(
@@ -184,6 +186,7 @@ public struct AppSection: View {
             SettingsSectionHeader(String(localized: "settings.section.app", defaultValue: "App"), section: .app)
                 .accessibilityIdentifier("SettingsAppSection")
             mainCard
+            AppUpdatesCard(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             AppChannelSwitchCard(hostActions: hostActions)
         }
         .task {

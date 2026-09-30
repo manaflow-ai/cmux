@@ -12,7 +12,8 @@ Read the matching skill before changing an area, then only the references needed
   including `verify-local.py --help`, `--list` and `--repo`. Push does not run checks for you.
 - Use [CONTRIBUTING.md](CONTRIBUTING.md#getting-started) for setup. Outside cmuxterm-hq-created
   checkouts, set `CMUX_DEV_BACKEND_MODE=local` for dev builds. Follow [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md)
-  for commands and cache reuse; team fleet rules live in cmuxterm-hq.
+  for commands and cache reuse; team fleet tasks start at
+  [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md).
   Never use bare `xcodebuild` or an untagged `cmux DEV.app`. Clean up only your own tags.
 - A same-repo app PR gets a fleet dogfood build and link comment only while it has the
   `dev-build` label. Add it when someone will dogfood the PR, not by default; under load
