@@ -108,6 +108,10 @@ final class KeyRouter: BrowserKeyRouting {
         if let resolved = registry.resolveShortcut(for: event) {
             return Candidate(id: resolved.id, tier: resolved.tier, source: .registry(argument: resolved.argument))
         }
+        // Ghostty fallback: never for a chord Chrome defines while a page,
+        // the address bar or the find bar has the keyboard (Cmd-[ is Back
+        // there, not Ghostty's `goto_split:previous`); see BrowserChordTable.
+        if BrowserChordTable.isBrowserContext(focus.resolved), BrowserChordTable.isChromeChord(event) { return nil }
         guard let action = ghosttyHostAction(event), let route = TerminalHostActionRoute.route(action) else { return nil }
         return Candidate(id: route.id, tier: registry.keyTier(for: route.id), source: .ghostty(arguments: route.arguments))
     }

@@ -269,6 +269,25 @@ focus mode or to a text field cannot fire the menu item afterwards. A panel or s
 over the window (palette, rename sheet) counts as a text field. Clicks in an open menu
 are not gated.
 
+Browser context (a page, the address bar or the find bar has the keyboard). A chord
+resolves in this order: a cmux registry action (catalog default or `cmux.json`; the
+most specific performable one, so Cmd-[ is `browserBack` with a browser focused),
+then the tier decides; only when the registry has no action for the chord may the
+Ghostty keybind fallback run, and in a browser context never for a chord Chrome
+defines (`BrowserChordTable.chromeReserved`). Chrome for Mac reference chords
+(support.google.com/chrome/answer/157179): Cmd-[ / Cmd-] and Cmd-Left / Cmd-Right
+(Back, Forward), Cmd-R, Cmd-Shift-R, Cmd-. (reload, hard reload, stop), Cmd-L, Cmd-T,
+Cmd-Shift-T, Cmd-W, Cmd-Shift-W, Cmd-N, Cmd-Shift-N, Cmd-F, Cmd-G, Cmd-Shift-G, Cmd-E,
+Cmd-D, Cmd-Shift-D, Cmd-Shift-B, Cmd-Opt-B, Cmd-Y, Cmd-Shift-J, Cmd-P, Cmd-S, Cmd-O,
+Cmd-Opt-U, Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C, Cmd-= / Cmd-+ / Cmd-- / Cmd-0, Cmd-1..9,
+Cmd-Opt-Left / Right, Cmd-Shift-[ / ], Ctrl-Tab, Ctrl-Shift-Tab, and the edit chords
+Cmd-A/C/V/X/Z, Cmd-Shift-Z, Cmd-Shift-V, Cmd-Opt-Shift-V. Where cmux binds one of
+these itself (Cmd-D split, Cmd-T new tab, Cmd-W close, Cmd-1..9 tab, Cmd-Opt-arrows
+pane focus, Cmd-L address bar), cmux's action wins, as before. A chord in the list
+without a cmux action goes to the page (or the field). The Ghostty fallback applies
+only to chords neither cmux nor Chrome defines (for example `cmd+ctrl+h`). In a
+terminal the terminal runs its own Ghostty keybinds, still after cmux's registry.
+
 Sidebar inline rename: Return, Escape or Tab ends it and gives the keyboard back to the
 focused content through the coordinator; a click elsewhere keeps the clicked target.
 Closing the find bar or ending address bar editing also goes through the coordinator

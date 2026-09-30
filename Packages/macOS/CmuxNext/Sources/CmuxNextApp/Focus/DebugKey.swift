@@ -63,12 +63,25 @@ enum DebugKey {
             handledBy = window === shell ? "window" : "page"
         } else if isChord, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
             handledBy = "menu"
+            action = NSApp.mainMenu.flatMap { menuItem(matching: event, in: $0) }.map { .string($0.title) } ?? .null
         } else {
             window.sendEvent(event)
             if window !== shell { handledBy = "page" }
         }
         return .object(["handled_by": .string(handledBy), "action": action,
                         "window_kind": .string(window === shell ? "shell" : "chromium_page")])
+    }
+
+    /// The first enabled main-menu item with `event`'s key equivalent (what
+    /// `performKeyEquivalent` just ran), for the report.
+    private static func menuItem(matching event: NSEvent, in menu: NSMenu) -> NSMenuItem? {
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        for item in menu.items {
+            if let submenu = item.submenu, let found = menuItem(matching: event, in: submenu) { return found }
+            if item.isEnabled, !item.keyEquivalent.isEmpty, item.keyEquivalent == event.charactersIgnoringModifiers,
+               item.keyEquivalentModifierMask.intersection([.command, .shift, .option, .control]) == flags { return item }
+        }
+        return nil
     }
 
     /// The Chromium page window over `pane`'s selected Chromium tab.
