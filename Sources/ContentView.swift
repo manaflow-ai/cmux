@@ -3555,8 +3555,11 @@ struct ContentView: View {
         ) {
             ShortcutKeymapChooserView(
                 onApply: { preset in
-                    await Self.applyKeymapChooserChoice(preset)
-                    isKeymapChooserPresented = false
+                    let didApply = await Self.applyKeymapChooserChoice(preset)
+                    if didApply {
+                        isKeymapChooserPresented = false
+                    }
+                    return didApply
                 },
                 onKeepCurrent: {
                     isKeymapChooserPresented = false
@@ -3574,6 +3577,9 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onDisappear {
+            if !isKeymapChooserPresented {
+                Self.releaseKeymapChooserPresentation()
+            }
             sidebarState.removeVisibilityWillChangeHandler(ownerId: windowId)
             workspaceSwitchPortalSignalRouter.clearSources()
             if isResizerDragging {

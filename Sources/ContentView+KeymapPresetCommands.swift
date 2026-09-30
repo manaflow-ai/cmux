@@ -43,6 +43,13 @@ extension ContentView {
         return true
     }
 
+    /// Gives another window a chance when this window disappeared before its
+    /// claimed sheet could be presented.
+    @MainActor
+    static func releaseKeymapChooserPresentation() {
+        hasPresentedKeymapChooserThisLaunch = false
+    }
+
     /// Whether this process is allowed to open the chooser by itself.
     ///
     /// A modal sheet over the main window swallows the keystrokes a UI test
@@ -106,6 +113,25 @@ extension ContentView {
         defaults.set(true, forKey: keymapChooserAnsweredDefaultsKey)
     }
 
+    /// Applies a chooser plan and reports whether the chooser can dismiss.
+    /// Empty plans are successful no-ops, while a failed write keeps the
+    /// chooser open so the user can retry or choose Not Now.
+    @MainActor
+    static func applyKeymapChooserPlan(
+        _ plan: ShortcutKeymapPlan,
+        write: () async throws -> Void,
+        onFailure: (Error) -> Void = { _ in }
+    ) async -> Bool {
+        guard !plan.isEmpty else { return true }
+        do {
+            try await write()
+            return true
+        } catch {
+            onFailure(error)
+            return false
+        }
+    }
+
     /// Writes the preset chosen in the first-run chooser.
     ///
     /// This plans against empty file bindings rather than reading the file,
@@ -117,24 +143,30 @@ extension ContentView {
     /// and a managed profile can force them onto a machine with no config yet.
     /// Settings plans against the live file instead.
     @MainActor
-    static func applyKeymapChooserChoice(_ preset: ShortcutKeymapPreset) async {
+    static func applyKeymapChooserChoice(_ preset: ShortcutKeymapPreset) async -> Bool {
         recordKeymapChooserAnswered()
-        guard let runtime = AppDelegate.shared?.settingsRuntime else { return }
+        guard let runtime = AppDelegate.shared?.settingsRuntime else { return false }
         let plan = preset.plan(
             from: ShortcutBindingsSnapshot(bindings: [:], managedActionIDs: []),
             legacyBindings: runtime.userDefaultsStore.initialLegacyShortcutBindings(),
             defaultShortcutResolver: runtime.shortcutDefaultResolver
         )
-        guard !plan.isEmpty else { return }
-        do {
-            try await runtime.jsonStore.applyShortcutKeymap(
-                plan,
-                bindingsID: runtime.catalog.shortcuts.bindings.id
-            )
+        let didApply = await applyKeymapChooserPlan(
+            plan,
+            write: {
+                try await runtime.jsonStore.applyShortcutKeymap(
+                    plan,
+                    bindingsID: runtime.catalog.shortcuts.bindings.id
+                )
+            },
+            onFailure: { error in
+                runtime.errorLog.record(error, keyID: runtime.catalog.shortcuts.bindings.id)
+            }
+        )
+        if didApply {
             runtime.hostActions.notifyShortcutSettingsDidChange()
-        } catch {
-            runtime.errorLog.record(error, keyID: runtime.catalog.shortcuts.bindings.id)
         }
+        return didApply
     }
 
     static func keymapPresetCommandID(_ preset: ShortcutKeymapPreset) -> String {

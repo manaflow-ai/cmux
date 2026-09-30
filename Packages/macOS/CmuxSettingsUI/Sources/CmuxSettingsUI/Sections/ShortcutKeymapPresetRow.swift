@@ -180,15 +180,15 @@ struct ShortcutKeymapPresetRow: View {
     ///
     /// The chooser writes directly rather than handing back a preview, because
     /// it already showed what each style does before the choice was made.
-    private func applyFromChooser(_ preset: ShortcutKeymapPreset) async {
+    private func applyFromChooser(_ preset: ShortcutKeymapPreset) async -> Bool {
         guard model.hasLoadedBindings else {
             isChooserPresented = false
-            return
+            return true
         }
         let freshPlan = plan(for: preset)
         guard !freshPlan.isEmpty else {
             isChooserPresented = false
-            return
+            return true
         }
         do {
             try await model.jsonStore.applyShortcutKeymap(
@@ -196,11 +196,13 @@ struct ShortcutKeymapPresetRow: View {
                 bindingsID: model.catalog.shortcuts.bindings.id
             )
             model.onShortcutsChanged()
+            proposedPreset = nil
+            isChooserPresented = false
+            return true
         } catch {
             model.errorLog.record(error, keyID: model.catalog.shortcuts.bindings.id)
+            return false
         }
-        proposedPreset = nil
-        isChooserPresented = false
     }
 
     /// Plans again from the bindings as they are now, so edits made while the

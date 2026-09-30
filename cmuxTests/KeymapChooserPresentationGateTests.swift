@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -6,6 +7,10 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+private enum KeymapChooserWriteError: Error {
+    case failed
+}
 
 @Suite("First-run keymap chooser presentation gate")
 struct KeymapChooserPresentationGateTests {
@@ -57,5 +62,53 @@ struct KeymapChooserPresentationGateTests {
         // so the opt-in has to be checked before it, not after.
         #expect(optIn.hasPrefix("CMUX_UI_TEST_"))
         #expect(MacSentryStartupPolicy.isRunningUnderXCTest(environment: [optIn: "1"]))
+    }
+
+    @Test("A failed chooser write leaves the sheet presented")
+    @MainActor
+    func failedWriteKeepsChooserOpen() async {
+        let plan = ShortcutKeymapPreset.iTerm2.plan(
+            from: ShortcutBindingsSnapshot(bindings: [:], managedActionIDs: [])
+        )
+        var isChooserPresented = true
+        var failureReported = false
+
+        let didApply = await ContentView.applyKeymapChooserPlan(
+            plan,
+            write: { throw KeymapChooserWriteError.failed },
+            onFailure: { _ in failureReported = true }
+        )
+        if didApply {
+            isChooserPresented = false
+        }
+
+        #expect(!didApply)
+        #expect(failureReported)
+        #expect(isChooserPresented)
+    }
+
+    @Test("An empty chooser plan is a successful no-op")
+    @MainActor
+    func emptyPlanDismissesChooser() async {
+        let plan = ShortcutKeymapPreset.cmux.plan(
+            from: ShortcutBindingsSnapshot(bindings: [:], managedActionIDs: [])
+        )
+        var writeAttempted = false
+        var isChooserPresented = true
+
+        let didApply = await ContentView.applyKeymapChooserPlan(
+            plan,
+            write: {
+                writeAttempted = true
+                throw KeymapChooserWriteError.failed
+            }
+        )
+        if didApply {
+            isChooserPresented = false
+        }
+
+        #expect(didApply)
+        #expect(!writeAttempted)
+        #expect(!isChooserPresented)
     }
 }

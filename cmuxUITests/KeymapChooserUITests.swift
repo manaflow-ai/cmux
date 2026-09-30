@@ -47,6 +47,9 @@ final class KeymapChooserUITests: SettingsUITestCase {
             app.launchEnvironment["CFFIXED_USER_HOME"] = home.path
             app.launchEnvironment["XDG_CONFIG_HOME"] =
                 home.appendingPathComponent(".config", isDirectory: true).path
+            app.launchArguments += [
+                "-cmux.shortcuts.keymapChooser.answered.v1", "NO",
+            ]
         }
         if optIntoChooser {
             app.launchEnvironment["CMUX_UI_TEST_KEYMAP_CHOOSER"] = "1"
@@ -105,7 +108,7 @@ final class KeymapChooserUITests: SettingsUITestCase {
         app.terminate()
     }
 
-    /// "Not Now" is the answer that must not write anything.
+    /// "Not Now" dismisses the chooser without changing the shortcuts.
     func testKeepCurrentDismissesTheSheet() {
         let app = launchApp(freshInstall: true, optIntoChooser: true)
         let chooser = sheet(app)

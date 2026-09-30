@@ -53,8 +53,8 @@ public struct ShortcutKeymapChooserView: View {
     /// The preset the config file is on now, marked in the list. `nil` when the
     /// file mixes presets or has not loaded.
     private let currentPreset: ShortcutKeymapPreset?
-    /// Writes the chosen preset. The chooser stays up until this returns.
-    private let onApply: (ShortcutKeymapPreset) async -> Void
+    /// Writes the chosen preset. The chooser stays up until this succeeds.
+    private let onApply: (ShortcutKeymapPreset) async -> Bool
     /// Closes the chooser without writing anything.
     private let onKeepCurrent: () -> Void
     /// The host's factory defaults, so the preview shows the keys this build
@@ -63,6 +63,7 @@ public struct ShortcutKeymapChooserView: View {
 
     @State private var selection: ShortcutKeymapPreset
     @State private var isApplying = false
+    @State private var applyError: String?
 
     /// Creates the chooser.
     ///
@@ -71,13 +72,13 @@ public struct ShortcutKeymapChooserView: View {
     ///     current preset from Settings, or ``ShortcutKeymapPreset/cmux`` on a
     ///     first run so the default is what someone gets by pressing Return.
     ///   - currentPreset: The preset in the file now, marked in the list.
-    ///   - onApply: Writes the chosen preset.
+    ///   - onApply: Writes the chosen preset and returns whether it succeeded.
     ///   - onKeepCurrent: Closes the chooser without writing.
     ///   - defaultShortcutResolver: The host's factory defaults for the preview.
     public init(
         initialPreset: ShortcutKeymapPreset = .cmux,
         currentPreset: ShortcutKeymapPreset? = nil,
-        onApply: @escaping (ShortcutKeymapPreset) async -> Void,
+        onApply: @escaping (ShortcutKeymapPreset) async -> Bool,
         onKeepCurrent: @escaping () -> Void,
         defaultShortcutResolver: ShortcutDefaultResolver = .builtIn
     ) {
@@ -224,36 +225,53 @@ public struct ShortcutKeymapChooserView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 9) {
-            Spacer()
-            Button(String(
-                localized: "shortcut.keymap.chooser.keepCurrent",
-                defaultValue: "Not Now"
-            )) {
-                onKeepCurrent()
+        VStack(alignment: .trailing, spacing: 9) {
+            if let applyError {
+                Label(applyError, systemImage: "exclamationmark.triangle")
+                    .cmuxFont(.caption)
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("KeymapChooserApplyError")
             }
-            .keyboardShortcut(.cancelAction)
-            .disabled(isApplying)
-            .accessibilityIdentifier("KeymapChooserKeepCurrent")
-            Button(String(
-                localized: "shortcut.keymap.chooser.apply",
-                defaultValue: "Use These Shortcuts"
-            )) {
-                apply()
+            HStack(spacing: 9) {
+                Spacer()
+                Button(String(
+                    localized: "shortcut.keymap.chooser.keepCurrent",
+                    defaultValue: "Not Now"
+                )) {
+                    onKeepCurrent()
+                }
+                .keyboardShortcut(.cancelAction)
+                .disabled(isApplying)
+                .accessibilityIdentifier("KeymapChooserKeepCurrent")
+                Button(String(
+                    localized: "shortcut.keymap.chooser.apply",
+                    defaultValue: "Use These Shortcuts"
+                )) {
+                    apply()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(isApplying)
+                .accessibilityIdentifier("KeymapChooserApply")
             }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
-            .disabled(isApplying)
-            .accessibilityIdentifier("KeymapChooserApply")
         }
     }
 
     private func apply() {
         guard !isApplying else { return }
         isApplying = true
+        applyError = nil
         let preset = selection
         Task {
-            await onApply(preset)
+            let didApply = await onApply(preset)
+            if !didApply {
+                applyError = String(
+                    localized: "shortcut.keymap.chooser.applyFailed",
+                    defaultValue: "Couldn't save this keymap. Please try again."
+                )
+            }
             isApplying = false
         }
     }
