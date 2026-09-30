@@ -127,7 +127,7 @@ struct CloudTreeMachineRowContent: View {
             usage.periodDays
         )
         return String(
-            format: String(localized: "machines.usage.line", defaultValue: "%1$@ · %2$@ tokens · %3$@"),
+            format: String(localized: "machines.usage.line", defaultValue: "%1$@ \u{00B7} %2$@ tokens \u{00B7} %3$@"),
             cost, tokens, period
         )
     }
