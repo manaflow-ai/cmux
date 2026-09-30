@@ -1,17 +1,17 @@
 {
-  "version": "cef-154.0.28-cmux.9",
+  "version": "cef-154.0.28-cmux.10",
   "cef": "154.0.28",
   "chromium": "154.0.8037.58",
   "arch": "arm64",
   "repo": "manaflow-ai/cef",
-  "tag": "cef-154.0.28-cmux.9",
-  "asset": "cef-154.0.28-cmux.9-macos-arm64.tar.xz",
-  "url": "https://github.com/manaflow-ai/cef/releases/download/cef-154.0.28-cmux.9/cef-154.0.28-cmux.9-macos-arm64.tar.xz",
-  "sha256": "6e811db52eacac260a7c44e66c30249828c37f9f27efcebe0648e328765a62e2",
+  "tag": "cef-154.0.28-cmux.10",
+  "asset": "cef-154.0.28-cmux.10-macos-arm64.tar.xz",
+  "url": "https://github.com/manaflow-ai/cef/releases/download/cef-154.0.28-cmux.10/cef-154.0.28-cmux.10-macos-arm64.tar.xz",
+  "sha256": "965c14ebe1596053a1d652b2def03b35f0b11343df29bf00cc17451f61bf3b1b",
   "r2_bucket": "cmux-cef",
-  "debug_asset": "cef-154.0.28-cmux.9-macos-arm64-debug.tar.xz",
-  "debug_sha256": "d6ccbe0a8418cb70aed1f0796e8a1d5ec9e562e9628e39c3105850f8856a0087",
+  "debug_asset": "cef-154.0.28-cmux.10-macos-arm64-debug.tar.xz",
+  "debug_sha256": "2ebc3497fa4c0fdee0159341fcc3c939609e4f62977eedbe81cd04a830031d5a",
   "fork_branch": "cmux/8037-ext",
-  "fork_ref": "451bf56a94fa6eef90236dc6bf27a801af8afa9b",
-  "cmux_cef_api_version": 10
+  "fork_ref": "1589e83b77f393ca5c5b2bb364b130ea6d752197",
+  "cmux_cef_api_version": 12
 }

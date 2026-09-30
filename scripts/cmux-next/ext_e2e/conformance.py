@@ -353,8 +353,7 @@ class Run:
         app.call("debug.extensions.popup", {"hide": True})
         self.context_menu_check()
         self.devtools_check()
-        self.note_if_missing("mv3", "omnibox", "onInputEntered", "unsupported",
-                            "the cmux omnibar has no extension keyword mode")
+        self.omnibox_check()
 
     def popup_gesture_checks(self):
         session = self.profile_target("page", f"chrome-extension://{MV3_ID}/popup.html", 5)
@@ -368,13 +367,42 @@ class Run:
             if not self.wait("mv3", "sidePanel", "page_loaded", 5):
                 self.note("mv3", "sidePanel", "page_loaded", "fail", "sidepanel.html never loaded")
             session.click_selector("#perm")
-            if not self.wait("mv3", "permissions", "request_prompt", 4):
-                self.note("mv3", "permissions", "request_prompt", "pending",
-                          "chrome.permissions.request did not settle in 4 s (a prompt may be open; UNVERIFIED)")
+            if not self.answer_prompt("permissions"):
+                self.note("mv3", "permissions", "request_prompt", "fail",
+                          "no cmux permission prompt appeared (debug.extensions.prompt)")
+            elif not self.wait("mv3", "permissions", "request_prompt", 8):
+                self.note("mv3", "permissions", "request_prompt", "fail",
+                          "chrome.permissions.request did not settle after the prompt was accepted")
         except (RuntimeError, OSError, ConnectionError) as error:
             self.note("mv3", "permissions", "request_prompt", "fail", error)
         finally:
             session.close()
+
+    def answer_prompt(self, kind, timeout=6):
+        """Accepts the cmux extension prompt of `kind` through its sheet's
+        debug verb (fork API 12). False when none appeared."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            prompts = (self.app.call("debug.extensions.prompt").get("result") or {}).get("prompts") or []
+            for prompt in prompts:
+                if prompt.get("kind") == kind:
+                    self.app.call("debug.extensions.prompt", {"id": prompt["id"], "answer": "accept"})
+                    return True
+            time.sleep(0.2)
+        return False
+
+    def omnibox_check(self):
+        """Types the extension's keyword, a space and text into a new tab's
+        omnibar (debug.key, this app only), then Enter: onInputEntered."""
+        app = self.app
+        app.action("openBrowser", {"engine": "cef"})
+        time.sleep(2)
+        for key in list("cxt hello"):
+            app.call("debug.key", {"key": key})
+        app.call("debug.key", {"key": "return"})
+        if not self.wait("mv3", "omnibox", "onInputEntered", 8):
+            self.note("mv3", "omnibox", "onInputEntered", "fail",
+                      "no onInputEntered after typing the keyword session in the omnibar")
 
     def context_menu_check(self):
         """Right-click the focused test page (trusted input through
@@ -405,6 +433,7 @@ class Run:
         return None
 
     def devtools_check(self):
+        self.focus_page_tab()
         result = self.app.action("browser toggle-developer-tools")
         self.log(f"devtools: {result.get('ok')} {result.get('error') or ''}")
         if not self.wait("mv3", "devtools", "devtools_page_loaded", 10):

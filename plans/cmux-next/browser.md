@@ -456,7 +456,7 @@ Design (no fork change):
 - Shortcuts (Chrome): Cmd-Opt-I toggles (`toggleBrowserDeveloperTools`), Cmd-Opt-J opens the Console (`showBrowserJavaScriptConsole`, was Cmd-Opt-C), Cmd-Opt-C picks an element (`inspectBrowserElement`, new; Chrome's `IDC_DEV_TOOLS_INSPECT`). Inside DevTools its pre-key hook runs only these three; content chords go to the DevTools frontend.
 - Focus: `FocusState.Target.devTools` / `Resolved.devTools(pane, tab)`. Opening docked DevTools focuses it; a click in it (its child window becomes key) is `Responder.devTools`; closing it returns to the page; another pane and back returns to the page. Context is `browserFocused`, tier 2 content actions do not run in it, tiers 0 and 1 do (Ctrl-Tab switches tabs from DevTools too).
 
-Not done (decision for Lawrence): the dock-side items in DevTools' own three-dot menu. The frontend shows them only when Chrome can dock (`can_dock`), which CEF's patch turns off. Real Chrome docking (DevTools inside the page's Chromium window, Chrome's own split and menu) needs a fork patch that allows docking for cmux tabbed Browsers, plus a CEF build and release. The cmux divider menu covers the same moves today.
+The dock-side items in DevTools' own three-dot menu route to the cmux dock layout (fork API 12, 2026-09-30): see "Extension UI and page background, fork API 11 and 12".
 
 ## Chrome extensions UI (2026-09-30)
 
@@ -473,8 +473,7 @@ Fork line: `manaflow-ai/cef` `cmux/8037-ext` is the only integration branch (ban
 Verified on tagged build `extui` (dist cmux.5): widths 200/320/480/800/1400 pt (`debug.extensions.toolbar` fits, screenshots), popup anchored to its button and to the Extensions button, menu and per-extension menu, options page as a tab, `chrome.commands` via CLI, `chrome.contextMenus` item in the page menu, service worker, content script, badge, crash repro (popup then Chromium window close; quit with a popup open).
 
 Open:
-- Chrome Web Store install: the store answers "Switch to Chrome to install extensions and themes" (client-hint brands are Chromium only). Needs a decision: claim the Google Chrome brand, or fetch CRX files from the update server and hand them to Chromium's `CrxInstaller` from a cmux install action.
-- Permission prompts (`chrome.permissions.request`), side panels (`chrome.sidePanel`): no host yet.
+- Chrome Web Store install, permission prompts and side panels: done in fork API 12, see "Extension UI and page background, fork API 11 and 12".
 - Popup latency: 16-45 ms from click to popup navigation in cmux; the rest is the extension renderer starting (1.0-1.2 s at load 200-400, up to 26 s at load 667 while Chromium builds ran). Not measured on an idle machine.
 
 ### External message pump (2026-09-30)
@@ -510,33 +509,24 @@ Fixes from this work:
 
 | API or feature | Behavior in cmux | Reason |
 | --- | --- | --- |
-| `chrome.identity.getAuthToken` | Rejects: "The user is not signed in." | Needs a Google account signed in to Chromium; cmux has no Chrome sign-in. `launchWebAuthFlow` and `getRedirectURL` work. |
-| `chrome.omnibox` keyword input | API calls work; `onInputEntered` never fires | The cmux omnibar has no extension keyword mode. |
+| `chrome.identity.getAuthToken` | Rejects: "The user is not signed in." | Needs a Google account signed in to Chromium, which needs Google's restricted sign-in keys (options below). `launchWebAuthFlow` and `getRedirectURL` work. |
 | `storage.sync` | Works, local only | No Google sync. |
 | `storage.managed` | Returns `{}` | No enterprise policy. |
-| Native messaging (`sendNativeMessage`, `connectNative`) | Refused cleanly when no host exists | Chromium reads hosts from cmux's own user data dir, not Google Chrome's, so desktop apps that register for Chrome (1Password, Bitwarden biometrics) are not found. Decision below. |
 | `chrome.action.openPopup()` | Needs an active cmux window (Chrome rule) | Not verified: the test launches never activate. |
-| `chrome.sidePanel` | API works; `open()` resolves, the panel never shows | No side panel host yet (gap, not a decision). |
-| `chrome.permissions.request` prompt | Stays pending | No prompt host yet (gap). |
-| Chrome Web Store install button | Store refuses Chromium | Decision pending (see "Chrome extensions UI"). |
 | Extension calls at startup before any Chromium tab | `tabs.create` and similar fail with "No current window" | Chromium has no window until cmux shows a Chromium tab (Chrome with zero windows behaves the same). |
 
 ### Gaps that remain
 
-- Side panel host and permission prompt host (UI owner).
 - `action.openPopup` and anything that needs the Chromium window to be active: unverified.
 - Session Buddy opens its page with `chrome.windows.create`; the page does not become a cmux tab (the "no Chrome windows" work converts such windows to tabs, fork API 6).
 - OneTab: a toolbar click opens nothing (its `action.onClicked` path returns early; `action.onClicked` itself passes in the API suite). Not diagnosed.
-- New tab overrides: Momentum's shows on `chrome://newtab`, Infinity New Tab's does not. cmux's own New Tab does not open `chrome://newtab`, so overrides never show there (decision below).
+- New tab overrides: Momentum's shows on a new cmux tab; Infinity New Tab's still fails the suite's check (its New Tab target reports `chrome://newtab/`; not diagnosed).
 - DuckDuckGo Privacy Essentials: blank popup. SelectorsHub: no DevTools panel. uBlock Origin (MV2, GitHub CRX): loads with no errors but did not block the test ad within 5 reloads (filter lists may still download on first run). Not diagnosed.
 - The 14 "not checked" extensions need a run on a machine that is not overloaded.
 
 ### Decisions for Lawrence (extensions)
 
-1. Native messaging: also read Google Chrome's `NativeMessagingHosts` directories, so desktop apps that register only for Chrome (1Password, Bitwarden biometrics) connect. Each host still lists the extension ids it allows.
-2. New Browser Tab in Chromium: open `chrome://newtab` so new-tab override extensions (Momentum, Infinity) show, or keep cmux's own start page and treat overrides as unsupported.
-3. Omnibox keywords: add an extension keyword mode to the cmux omnibar, or keep `chrome.omnibox` input unsupported.
-4. `identity.getAuthToken`: keep unsupported (no Chrome sign-in), or add Google sign-in to Chromium.
+Decided 2026-09-30 and done (next section): Google Chrome's native messaging folders, `chrome://newtab` for new Chromium tabs, the omnibox keyword mode. Open: `identity.getAuthToken` (options in the next section).
 
 ## CEF artifacts in R2 (2026-09-30)
 
@@ -595,3 +585,22 @@ Bug: the attached WebKit inspector flickered in and out on every frame. Cause: `
 Fix: `WebKitTab.contentView` is a tab-owned `WebKitPageContainer`. The chrome pins the container; the web view inside uses autoresizing only, and nothing sets its frame after it is added. WebKit's attach path is the one owner while attached: its own dock buttons (bottom, right, separate window) and its own resize edge. A container resize reaches the web view once through autoresizing; WebKit then re-places both views. `debug.webkit_inspector` (DEBUG) counts frame changes of the web view and its siblings since `{"action":"start"}`.
 
 Decision for Lawrence: the WebKit inspector does not use the cmux DevTools dock model (divider, divider menu) that Chromium tabs use. WebKit re-places the web view on every web view frame change, so a second owner cannot be stable without private WebKit hooks. The WebKit inspector keeps Safari's own dock controls.
+
+## Extension UI and page background, fork API 11 and 12 (2026-09-30)
+
+Release `cef-154.0.28-cmux.10` (fork `cmux/8037-ext` at `1589e83b7`, `CMUX_CEF_API_VERSION 12`), pinned in `scripts/cmux-next/cef-manifest.json`. Every item was checked live on tagged build `brw2` in a no-activate launch; `debug.focus` stayed inactive with no key window after each step.
+
+- **Page background.** Chromium 154's `ContentsWebView::UpdateBackgroundColor` makes the page widget transparent when CEF hides the view's background (CEF does, so that its own color wins). Documents without a background and the page before its first paint then showed the Chrome window's #292929, and neither `CefSettings.background_color` nor DevTools' `Emulation.setDefaultBackgroundColorOverride` changed it. The fork now paints the embedder color on the view layer and the widget. User decision: the theme background also stays under documents without a background (cmux no longer switches them to white after the first page). `cmux_browser_set_background_color` updates live tabs on a theme change (`CEFRuntime.themeDidChange`). Risk: a plain page with black default text is dark on dark.
+- **New Tab page.** A new Chromium tab opens `chrome://newtab/` (`BrowserNewTabPage`, `BrowserEngineChoice.newTabURL`); WebKit tabs keep `about:blank`. Chrome's order holds: an extension override (Momentum) wins; without one the fork loads `cmux_set_new_tab_page_url` (`about:blank`, painted in the theme color), never Google's page. The shim reports `chrome://newtab/` as the address and an empty title, so the omnibar stays empty and focused and the tab reads "New Tab". Chrome's footer on extension New Tab pages (extension name, customize button) is Chromium's and still shows.
+- **Web Store install.** The store's own "Add to Chrome" button works: `chrome.webstorePrivate` is compiled in and exposed to the store origin, and our UA and client hints are Chrome's (brand "Chromium"). What the store checks: the "Switch to Chrome" banner comes from a server flag (`IJ_values[24]`) that is true only when the page request carries Google Chrome's private `x-browser-copyright` and `x-browser-year` headers; the client code also wants `chrome.management` and `webstorePrivate.beginInstallWithManifest3`. The flag controls only the banner; the button runs `beginInstallWithManifest3` without it. cmux sends no Google headers and no "Google Chrome" brand. The install confirmation is a cmux sheet (next item); after install the tab shows a notice instead of Chrome's toolbar bubble. The CRX installer of the store suite stays as a fallback.
+- **Install and permission prompts.** Every `ExtensionInstallPrompt` (store install, `chrome.permissions.request`, re-enable, repair) goes to `cmux_set_install_prompt_handler`; `ExtensionPromptSheet` shows a native sheet on the asking tab's window (icon, title, what the extension can do, two buttons) and replies once. `debug.extensions.prompt` lists and answers prompts for tests.
+- **Omnibox keyword mode.** `OmnibarState.keyword`: the keyword and a space (or Tab after the exact keyword) start a session; the field holds the text after the keyword, the chip shows the extension name, every change goes to `onInputChanged` and the extension's rows (after a default row) show in the card. Enter or a row click sends `onInputEntered` (current tab, or new tab with Cmd/Option), Backspace at the start restores the keyword text, Escape and blur send `onInputCancelled`. Tests: `OmnibarKeywordTests`.
+- **Native messaging.** Host manifests are searched in this order: cmux's Chromium user data folder `NativeMessagingHosts`, `/Library/Application Support/Chromium/NativeMessagingHosts`, then `~/Library/Application Support/Google/Chrome/NativeMessagingHosts` and `/Library/Google/Chrome/NativeMessagingHosts` (`CEFNativeMessaging`, fork `cmux_add_native_messaging_dir`). User-level folders are skipped when policy forbids user-level hosts. Each host still lists the extension ids it allows. Not checked with the real 1Password or Bitwarden desktop apps (not installed here).
+- **Side panel.** `chrome.sidePanel` shows Chromium's own side panel inside the page's Chromium window, so it docks in the pane beside the page (action click with `openPanelOnActionClick`, `sidePanel.open` with a tab or window). Its header (name, pin, close) is Chromium's. It took the app active in a no-activate launch; the fork now never lets an embedded page window activate the app by itself (`CefNSWindow -activationIndependence`), clicks still activate it. The conformance check `sidePanel.page_loaded` still fails in the suite although the page loads by hand; not diagnosed.
+- **DevTools dock menu.** The three-dot menu's dock items report through `CMUX_DEVTOOLS_DOCK_SIDE`; the frontend gets `cmux_dock=true` and always lays out undocked, so it never draws an empty page area. The separate-window choice uses a cmux panel (`CEFDevToolsWindow`) that takes the same `CEFHostView`: bottom, right, left and window all keep the same DevTools (checked: a value set in the frontend survived bottom, window and back to right). DevTools opens in the pane first and moves to the window after it exists (Chromium creates it synchronously only there).
+- **Popup windows (API 11, requested by the popup panel work).** `chrome.windows.create({type: "popup"})` can stay hidden with its window id and size until cmux attaches it (`cmux_set_popup_windows_enabled`, `CMUX_POPUP_WINDOW_CREATED`, `cmux_popup_window_bounds`, `cmux_popup_window_attach`). The shim exposes the calls; cmux does not enable it yet, so the window guard still moves such tabs into the pane window. The attach path is not verified.
+
+`chrome.identity.getAuthToken` (research, no credentials registered): Chromium mints the token through the private Gaia `issuetoken` endpoint for the primary signed-in account (`identity_get_auth_token_function.cc`), which needs Google's OAuth client ID and secret; since 2021-03-15 Google blocks sign-in for third-party Chromium builds, and there is no public way to get keys that work. Edge, Vivaldi, Opera and Arc fail too. Options: (a) keep it unsupported (no cost); (b) Brave's fallback, an implicit OAuth web flow with the extension's `oauth2.client_id` (small fork change, MPL code as a model) that fails for extension OAuth clients made after 2023-10-02 ("Custom URI scheme is not supported on Chrome apps") and that Google can break at any time; (c) Google sign-in: not available without a Google contact.
+
+Suite results on the final build (`brw2`, release `cmux.10`): API 141 checks, 135 pass, 3 fail (`windows.create_mapped` and `windows.create_popup_mapped`: the harness did not see the moved tab in the cmux snapshot within 3 s; `sidePanel.page_loaded`, above), 2 unverified (`action.openPopup` needs an active window), 1 unsupported (`identity.getAuthToken`). Store subset (7 extensions): the store's own install flow was checked by hand (Dark Reader); in the suite the first popup of each app launch did not open (Dark Reader, Infinity, uBlock Origin) while later popups did, and the same Dark Reader popup opens by hand; not diagnosed. `check-no-chrome-windows.py`: pass.
+
