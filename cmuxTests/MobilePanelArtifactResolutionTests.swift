@@ -13,6 +13,7 @@ import Testing
 /// input target. When it does, the Mac answers `not_found` and the phone shows
 /// "Panel closed" for a panel that is plainly open.
 @MainActor
+@Suite(.isolatedMainWindowDefaults)
 struct MobilePanelArtifactResolutionTests {
     @Test
     func statResolvesMarkdownPanelSurface() async throws {
