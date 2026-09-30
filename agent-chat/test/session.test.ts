@@ -36,17 +36,17 @@ try {
 }
 
 const draftValues: Record<string, string> = {};
-const draftStorage = {
+const draftFixture = {
   getItem: (key: string) => draftValues[key] ?? null,
   setItem: (key: string, value: string) => { draftValues[key] = value; },
   removeItem: (key: string) => { delete draftValues[key]; },
 };
-writeComposerDraft(draftStorage, "typed while Cloud was reconnecting");
-if (readComposerDraft(draftStorage) !== "typed while Cloud was reconnecting") {
+writeComposerDraft(draftFixture, "typed while Cloud was reconnecting");
+if (readComposerDraft(draftFixture) !== "typed while Cloud was reconnecting") {
   throw new Error("a live composer draft was not recoverable from session storage");
 }
-writeComposerDraft(draftStorage, "");
-if (readComposerDraft(draftStorage) !== "") throw new Error("clearing a submitted draft did not remove it");
+writeComposerDraft(draftFixture, "");
+if (readComposerDraft(draftFixture) !== "") throw new Error("clearing a submitted draft did not remove it");
 const unavailableStorage = {
   getItem() { throw new Error("storage unavailable"); },
   setItem() { throw new Error("storage unavailable"); },
