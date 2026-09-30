@@ -32,8 +32,21 @@ extension TerminalController {
         }
         // `AgentSessionListPayload.list` applies the attention ordering, so
         // every client of this verb shares one triage order.
+        let records = service.sessionRecords(workspaceID: nil).map { record -> AgentChatSessionRecord in
+            guard record.lastOutput == nil,
+                  let rawSurfaceID = record.surfaceID,
+                  let surfaceID = UUID(uuidString: rawSurfaceID),
+                  let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
+                  let visibleText = surface.visibleText(),
+                  let preview = AgentSessionOutputPreview.cleaned(visibleText) else {
+                return record
+            }
+            var copy = record
+            copy.lastOutput = preview
+            return copy
+        }
         return .ok(AgentSessionListPayload().list(
-            records: service.sessionRecords(workspaceID: nil),
+            records: records,
             now: Date()
         ))
     }

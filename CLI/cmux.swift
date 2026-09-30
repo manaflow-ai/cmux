@@ -5169,6 +5169,10 @@ struct CMUXCLI {
             return
         }
 
+        if command == "sessions", commandArgs.first?.lowercased() == "tail" {
+            try runSessionsTailCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput)
+            return
+        }
         if command == "sessions", Self.sessionsCommandTargetsLiveRegistry(commandArgs: commandArgs) {
             try runSessionsLiveCommand(
                 commandArgs: Array(commandArgs.dropFirst()),

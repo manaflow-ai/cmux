@@ -328,6 +328,7 @@ extension CMUXCLI {
         Usage: cmux sessions list [options]
                cmux sessions [options]
                cmux sessions live [options]
+               cmux sessions tail <session|surface> [-n <lines>]
 
         Print saved agent session records from ~/.cmuxterm/*-hook-sessions.json.
         This command does not require a running cmux socket.
@@ -368,6 +369,13 @@ extension CMUXCLI {
           --agent <name>        Only one agent, for example codex or claude
           --limit <n>           Limit rows shown (default: 100)
           --all                 Print all matches
+          --tail [n]            Print newest cleaned output lines under each row (default: 3)
+          --settled             Only sessions that finished, are idle for 2h, and have no open PR
+          --idle-for <duration> Only sessions idle at least this long (for example 2h)
+
+        cmux sessions tail <session|surface> [-n <lines>]
+          Read one session's terminal tail through the same scoped read-only
+          surface path as read-screen.
           --json                Print structured JSON, with total_matches and limit
                                 alongside the rows
         """)

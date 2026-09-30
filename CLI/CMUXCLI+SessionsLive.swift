@@ -1,4 +1,5 @@
 import Foundation
+import CmuxAgentChat
 
 extension CMUXCLI {
     /// True when `cmux sessions ...` addresses the live registry in the running
@@ -9,9 +10,67 @@ extension CMUXCLI {
     /// the socket, so the dispatcher has to tell the two apart before it
     /// commits to the socket-free path.
     static func sessionsCommandTargetsLiveRegistry(commandArgs: [String]) -> Bool {
-        commandArgs.first?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() == "live"
+        guard let first = commandArgs.first else { return false }
+        return ["live", "tail"].contains(
+            first.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        )
+    }
+
+    /// Prints a bounded tail for one live session or surface through the same
+    /// `surface.read_text` path used by `read-screen`.
+    func runSessionsTailCommand(commandArgs: [String], socketPath: String, explicitPassword: String?, jsonOutput: Bool) throws {
+        guard let target = commandArgs.dropFirst().first, !target.hasPrefix("-") else {
+            throw CLIError(message: "sessions tail: expected a session or surface")
+        }
+        var lines = 3
+        var index = 1
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            if arg == "-n" || arg == "--lines" {
+                index += 1
+                guard index < commandArgs.count, let value = Int(commandArgs[index]), value > 0 else {
+                    throw CLIError(message: "sessions tail: -n requires a positive integer")
+                }
+                lines = value
+            } else if arg != target {
+                throw CLIError(message: "sessions tail: unexpected argument '\(arg)'")
+            }
+            index += 1
+        }
+        let client = try connectClient(socketPath: socketPath, explicitPassword: explicitPassword, launchIfNeeded: false)
+        defer { client.close() }
+        let session: [String: Any]
+        let surfaceID: String
+        if target.hasPrefix("surface:") {
+            let normalized = try normalizeSurfaceHandle(target, client: client, workspaceHandle: nil, windowHandle: nil) ?? target
+            session = ["session_id": target, "surface_id": normalized]
+            surfaceID = normalized
+        } else {
+            let listing = try client.sendV2(method: "agent.sessions.list")
+            let sessions = listing["sessions"] as? [[String: Any]] ?? []
+            if let matched = sessions.first(where: { $0["session_id"] as? String == target }),
+               let matchedSurfaceID = matched["surface_id"] as? String {
+                session = matched
+                surfaceID = matchedSurfaceID
+            } else if UUID(uuidString: target) != nil {
+                session = ["session_id": target, "surface_id": target]
+                surfaceID = target
+            } else {
+                throw CLIError(message: "sessions tail: session or surface not found")
+            }
+        }
+        let payload = try client.sendV2(method: "surface.read_text", params: [
+            "surface_id": surfaceID,
+            "scrollback": true,
+            "lines": max(lines * 4, 40),
+        ])
+        let text = (payload["text"] as? String) ?? (payload["viewport"] as? String) ?? ""
+        let output = AgentSessionOutputPreview.tail(text, lines: lines) ?? ""
+        if jsonOutput {
+            print(jsonString(["session_id": session["session_id"] ?? target, "surface_id": surfaceID, "lines": lines, "last_output": output]))
+        } else {
+            print(output)
+        }
     }
 
     /// Everything `cmux sessions live` accepts on the command line.
@@ -22,6 +81,9 @@ extension CMUXCLI {
         var needsMe = false
         var includeAll = false
         var json = false
+        var tailLines: Int?
+        var settled = false
+        var idleForSeconds: TimeInterval?
     }
 
     /// Parses `sessions live` flags in a single pass.
@@ -49,6 +111,20 @@ extension CMUXCLI {
                 parsed.includeAll = true
             case "--json":
                 parsed.json = true
+            case "--tail":
+                parsed.tailLines = 3
+                if index < args.count, let value = Int(args[index]), value > 0 {
+                    parsed.tailLines = value
+                    index += 1
+                }
+            case "--settled":
+                parsed.settled = true
+            case "--idle-for":
+                let value = try sessionsLiveTakeValue(flag: arg, args: args, index: &index)
+                guard let seconds = Self.sessionsLiveDuration(value) else {
+                    throw CLIError(message: "sessions live: --idle-for expects a duration such as 2h")
+                }
+                parsed.idleForSeconds = seconds
             case "--state", "--agent", "--limit":
                 let value = try sessionsLiveTakeValue(flag: arg, args: args, index: &index)
                 sessionsLiveAssign(flag: arg, value: value, into: &parsed)
@@ -138,6 +214,19 @@ extension CMUXCLI {
         }
     }
 
+    private static func sessionsLiveDuration(_ raw: String) -> TimeInterval? {
+        let lower = raw.lowercased()
+        let suffix = lower.last.map(String.init) ?? ""
+        guard let value = Double(lower.dropLast()), value >= 0 else { return nil }
+        switch suffix {
+        case "s": return value
+        case "m": return value * 60
+        case "h": return value * 60 * 60
+        case "d": return value * 24 * 60 * 60
+        default: return nil
+        }
+    }
+
     /// `cmux sessions live` — the running app's view of every agent session, in
     /// attention order.
     ///
@@ -214,6 +303,9 @@ extension CMUXCLI {
             if let agentFilter, (session["agent"] as? String)?.lowercased() != agentFilter {
                 return false
             }
+            if parsed.settled, (session["settled"] as? Bool) != true { return false }
+            if let idleForSeconds = parsed.idleForSeconds,
+               (session["idle_for_seconds"] as? Double ?? 0) < idleForSeconds { return false }
             return true
         }
         let shown = limit == Int.max ? matched : Array(matched.prefix(limit))
@@ -227,14 +319,22 @@ extension CMUXCLI {
             // without saying so would let a script lose sessions silently, so
             // the reply always carries both sizes and the limit that produced
             // them, the same way `sessions list --json` does.
+            let outputSessions = shown.map { session -> [String: Any] in
+                guard let tailLines = parsed.tailLines,
+                      let output = session["last_output"] as? String else { return session }
+                var copy = session
+                copy["last_output"] = AgentSessionOutputPreview.tail(output, lines: tailLines)
+                return copy
+            }
             var out: [String: Any] = [
-                "sessions": shown,
+                "sessions": outputSessions,
                 "count": shown.count,
                 "total_matches": matched.count,
                 "total_live": all.count,
                 "limit": limit == Int.max ? NSNull() : limit,
-                "state_counts": counts,
+            "state_counts": counts,
             ]
+            if let tailLines = parsed.tailLines { out["tail_lines"] = tailLines }
             if let generatedAt = payload["generated_at"] {
                 out["generated_at"] = generatedAt
             }
@@ -242,7 +342,7 @@ extension CMUXCLI {
             return
         }
 
-        printSessionsLivePayload(shown, counts: counts, totalCount: all.count)
+        printSessionsLivePayload(shown, counts: counts, totalCount: all.count, tailLines: parsed.tailLines)
     }
 
     /// Accepts both the wire spelling and the hyphenated one a human will type.
@@ -302,7 +402,8 @@ extension CMUXCLI {
     private func printSessionsLivePayload(
         _ sessions: [[String: Any]],
         counts: [String: Int],
-        totalCount: Int
+        totalCount: Int,
+        tailLines: Int? = nil
     ) {
         guard !sessions.isEmpty else {
             print(totalCount == 0
@@ -329,6 +430,10 @@ extension CMUXCLI {
                 line += "  \(title)"
             }
             print(line)
+            if let tailLines,
+               let output = AgentSessionOutputPreview.tail(session["last_output"] as? String, lines: tailLines) {
+                print(output.split(separator: "\n", omittingEmptySubsequences: false).map { "    " + $0 }.joined(separator: "\n"))
+            }
 
             var details: [String] = []
             if let cwd = session["cwd"] as? String, !cwd.isEmpty { details.append("cwd=\(cwd)") }
@@ -338,6 +443,9 @@ extension CMUXCLI {
             if let workspaceID = session["workspace_id"] as? String, !workspaceID.isEmpty {
                 details.append("workspace=\(workspaceID)")
             }
+            if let branch = session["branch"] as? String, !branch.isEmpty { details.append("branch=\(branch)") }
+            if let worktree = session["worktree"] as? String, !worktree.isEmpty { details.append("worktree=\(worktree)") }
+            if let settled = session["settled"] as? Bool { details.append("settled=\(settled)") }
             if let children = intFromAny(session["children_running"]), children > 0 {
                 details.append("subagents=\(children)")
             }

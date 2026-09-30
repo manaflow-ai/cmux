@@ -11,6 +11,8 @@ public import Foundation
 /// of the v2 socket surface. Optional record fields are omitted rather than
 /// emitted as null, so a client can test for presence.
 public struct AgentSessionListPayload {
+    /// Default inactivity window used by the settled projection.
+    public static let defaultSettledIdleThreshold: TimeInterval = 2 * 60 * 60
     private let formatter: ISO8601DateFormatter
 
     /// Creates a mapper. Pass a formatter to share one across several replies
@@ -25,7 +27,7 @@ public struct AgentSessionListPayload {
     ///   - record: The registry record to map.
     ///   - now: Clock reading used for `state_age_seconds`, injected so a reply
     ///     stamps every session from one instant and tests are deterministic.
-    public func json(_ record: AgentChatSessionRecord, now: Date) -> [String: Any] {
+    public func json(_ record: AgentChatSessionRecord, now: Date, settledIdleThreshold: TimeInterval = AgentSessionListPayload.defaultSettledIdleThreshold) -> [String: Any] {
         let rank = record.state.attentionRank
         var json: [String: Any] = [
             "session_id": record.sessionID,
@@ -45,11 +47,29 @@ public struct AgentSessionListPayload {
             },
             "version": record.version,
         ]
+        let inputAt = record.lastUserInputAt
+        let outputAt = record.lastAgentOutputAt
+        let idleSince = max(inputAt ?? record.lastActivityAt, outputAt ?? record.lastActivityAt)
+        let idleFor = max(0, now.timeIntervalSince(idleSince))
+        json["idle_for_seconds"] = idleFor
+        json["turn_state"] = Self.turnState(for: record)
+        if let inputAt { json["last_user_input_at"] = formatter.string(from: inputAt) }
+        if let outputAt { json["last_agent_output_at"] = formatter.string(from: outputAt) }
+        if let branch = record.branch { json["branch"] = branch }
+        if let worktree = record.worktree { json["worktree"] = worktree }
+        json["linked_prs"] = record.linkedPullRequests.map { pr in
+            ["number": pr.number, "state": pr.state, "title": pr.title ?? NSNull()]
+        }
+        json["linked_prs_resolved"] = record.pullRequestsResolved || record.workingDirectory == nil
+        let settled = Self.isSettled(record: record, idleFor: idleFor, threshold: settledIdleThreshold)
+        json["settled"] = settled
+        json["settled_reason"] = Self.settledReason(record: record, idleFor: idleFor, threshold: settledIdleThreshold)
         if let since = record.state.attentionStateSince {
             json["state_since"] = formatter.string(from: since)
             json["state_age_seconds"] = record.state.attentionStateAgeSeconds(now: now)
         }
         if let title = record.title, !title.isEmpty { json["title"] = title }
+        json["last_output"] = record.lastOutput.flatMap(AgentSessionOutputPreview.cleaned) ?? NSNull()
         if let cwd = record.workingDirectory, !cwd.isEmpty { json["cwd"] = cwd }
         if let workspaceID = record.workspaceID, !workspaceID.isEmpty {
             json["workspace_id"] = workspaceID
@@ -88,5 +108,32 @@ public struct AgentSessionListPayload {
             "state_counts": stateCounts,
             "generated_at": formatter.string(from: now),
         ]
+    }
+
+    private static func turnState(for record: AgentChatSessionRecord) -> String {
+        switch record.state {
+        case .working: return "working"
+        case .needsInput: return "waiting_on_user"
+        case .idle, .ended: return record.hasFinishedTurn ? "turn_finished" : "working"
+        }
+    }
+
+    private static func isSettled(record: AgentChatSessionRecord, idleFor: TimeInterval, threshold: TimeInterval) -> Bool {
+        guard turnState(for: record) == "turn_finished", idleFor >= threshold else { return false }
+        guard record.pullRequestsResolved || record.workingDirectory == nil else { return false }
+        return record.linkedPullRequests.allSatisfy { ["MERGED", "CLOSED"].contains($0.state.uppercased()) }
+    }
+
+    private static func settledReason(record: AgentChatSessionRecord, idleFor: TimeInterval, threshold: TimeInterval) -> String {
+        guard turnState(for: record) == "turn_finished" else { return "turn_not_finished" }
+        guard idleFor >= threshold else { return "idle_below_threshold" }
+        guard record.pullRequestsResolved || record.workingDirectory == nil else { return "pr_lookup_pending" }
+        if let open = record.linkedPullRequests.first(where: { $0.state.uppercased() == "OPEN" }) {
+            return "open_pr_\(open.number)"
+        }
+        if record.linkedPullRequests.contains(where: { !["MERGED", "CLOSED"].contains($0.state.uppercased()) }) {
+            return "pr_state_unknown"
+        }
+        return "turn_finished_and_idle"
     }
 }

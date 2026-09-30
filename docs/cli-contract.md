@@ -1086,3 +1086,14 @@ changes them:
    GitHub Actions.
 6. When all command families are migrated, remove the manual global parser and
    legacy helper code that no longer owns behavior.
+
+`cmux sessions live --tail [n]` prints the newest cleaned agent output lines
+under each live session, defaulting to three when no number is supplied. JSON
+replies include `last_output`; `sessions tail <session|surface> [-n <lines>]`
+reads one scoped terminal through the existing read-only `surface.read_text`
+path.
+
+Live-session JSON also documents `last_user_input_at`, `last_agent_output_at`,
+`idle_for_seconds`, `turn_state`, `branch`, `worktree`, `linked_prs`,
+`settled`, and `settled_reason`. `--settled` selects settled rows and
+`--idle-for <duration>` accepts suffixes `s`, `m`, `h`, or `d`.

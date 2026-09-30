@@ -423,6 +423,11 @@ final class AgentChatTranscriptService {
         return page
     }
 
+    /// Records a keystroke or paste delivered to a session's terminal.
+    func noteTerminalInput(surfaceID: UUID, at timestamp: Date = Date()) {
+        registry.noteUserInput(surfaceID: surfaceID.uuidString, at: timestamp)
+    }
+
     /// Debug-socket dump of every registry record plus tailer liveness.
     func debugSessionDump() -> [[String: Any]] {
         registry.sessions(workspaceID: nil).map { record in
@@ -518,6 +523,11 @@ final class AgentChatTranscriptService {
         }
         if !batch.updated.isEmpty {
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .updated(batch.updated)))
+        }
+        for message in batch.appended + batch.updated {
+            guard message.role == .agent,
+                  case .prose(let prose) = message.kind else { continue }
+            registry.noteAgentOutput(sessionID: sessionID, text: prose.text, at: message.timestamp)
         }
         updateLatestTranscriptSeq(sessionID: sessionID, messages: batch.appended + batch.updated)
         if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {

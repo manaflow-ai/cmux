@@ -17,8 +17,11 @@ struct AgentSessionAttentionTests {
         lastActivity: TimeInterval,
         kind: ChatAgentKind = .claude,
         title: String? = nil,
+        lastOutput: String? = nil,
         children: [AgentChatChildRun] = [],
-        hasHookLifecycleState: Bool = true
+        hasHookLifecycleState: Bool = true,
+        linkedPullRequests: [AgentSessionPullRequest] = [],
+        hasFinishedTurn: Bool = true
     ) -> AgentChatSessionRecord {
         AgentChatSessionRecord(
             sessionID: sessionID,
@@ -27,7 +30,10 @@ struct AgentSessionAttentionTests {
             hasHookLifecycleState: hasHookLifecycleState,
             lastActivityAt: at(lastActivity),
             children: children,
-            title: title
+            title: title,
+            lastOutput: lastOutput,
+            linkedPullRequests: linkedPullRequests,
+            hasFinishedTurn: hasFinishedTurn
         )
     }
 
@@ -253,6 +259,39 @@ struct AgentSessionAttentionTests {
         #expect(json["title"] as? String == "Fix the parser")
         #expect(json["agent"] as? String == "claude")
         #expect(json["agent_name"] as? String == "Claude")
+    }
+
+    @Test("Payload includes cleaned last assistant output")
+    func payloadLastOutput() {
+        let json = AgentSessionListPayload().json(
+            record("s", state: .idle, lastActivity: 10, lastOutput: "╭─ Claude ─╮\nHere is the result.\n❯"),
+            now: at(20)
+        )
+        #expect(json["last_output"] as? String == "Here is the result.")
+    }
+
+    @Test("Settled requires a finished turn, idle threshold, and no open PR")
+    func settledRules() {
+        let old = at(0)
+        let closed = AgentSessionPullRequest(number: 1, state: "CLOSED")
+        let merged = AgentSessionPullRequest(number: 2, state: "MERGED")
+        let open = AgentSessionPullRequest(number: 3, state: "OPEN")
+        let settled = AgentSessionListPayload().json(
+            record("settled", state: .idle, lastActivity: 0, lastOutput: "done", linkedPullRequests: [closed, merged]),
+            now: old.addingTimeInterval(7_201)
+        )
+        #expect(settled["settled"] as? Bool == true)
+        let openPR = AgentSessionListPayload().json(
+            record("open", state: .idle, lastActivity: 0, linkedPullRequests: [open]),
+            now: old.addingTimeInterval(7_201)
+        )
+        #expect(openPR["settled"] as? Bool == false)
+        #expect(openPR["settled_reason"] as? String == "open_pr_3")
+        let working = AgentSessionListPayload().json(
+            record("working", state: .working(since: at(0)), lastActivity: 0),
+            now: old.addingTimeInterval(7_201)
+        )
+        #expect(working["settled"] as? Bool == false)
     }
 
     @Test("Payload omits state age for a settled state")
