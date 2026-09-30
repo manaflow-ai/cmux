@@ -24,18 +24,26 @@ import Foundation
 /// 1. Error (an agent reported a failure): red warning triangle. Only for
 ///    something that broke.
 /// 2. Needs input: amber dot.
-/// 3. Running: pulsing gray dot. It replaces the row's loading spinner.
-/// 4. Starting (agent present, state not reported yet): hollow ring.
-/// 5. Unseen (unread notifications): blue dot. Applied by the row, which owns
+/// 3. Running through subagents: pulsing gray connected-points symbol. The
+///    agent is working, but through background agents it spawned.
+/// 4. Waiting on a deterministic wakeup (a background command, a scheduled
+///    wakeup, a CI run): gray hourglass. Not your turn, and not finished. A
+///    waiting pane still reports a *running* lifecycle (it must not look
+///    hibernatable), so waiting is read off the reported work state and wins
+///    over the running branch below, but only when every running agent in the
+///    workspace is covered by a waiting report.
+/// 5. Running: pulsing gray dot. It replaces the row's loading spinner.
+/// 6. Starting (agent present, state not reported yet): hollow ring.
+/// 7. Unseen (unread notifications): blue dot. Applied by the row, which owns
 ///    the unread count; see ``applyingUnread(_:latestNotificationText:)``. It
 ///    outranks "starting", which asks for nothing.
-/// 6. Pull request: merged purple, open gray, closed gray with a minus badge.
+/// 8. Pull request: merged purple, open gray, closed gray with a minus badge.
 ///    cmux does not fetch CI or mergeability for a pull request, so there is
 ///    no passing/failing/conflict glyph: adding one would advertise a color
 ///    no user could see. See #12807.
-/// 7. Agent idle (done and seen): gray checkmark.
-/// 8. Branch, no pull request: gray branch.
-/// 9. Otherwise, a plain terminal: nothing, so the title starts at the
+/// 9. Agent idle (done and seen): gray checkmark.
+/// 10. Branch, no pull request: gray branch.
+/// 11. Otherwise, a plain terminal: nothing, so the title starts at the
 ///    row's edge (a `terminal` entry in `sidebar.compactStatusIcons` adds one).
 /// Only the three agent states Claude marks with dots (needs input, unseen,
 /// running) are dots; everything settled gets a symbol that says what it is.
@@ -43,7 +51,9 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
     enum Kind: Equatable, Hashable {
         case error
         case needsInput
+        case subagents
         case running
+        case waiting
         case pending
         case unseen
         case pullRequest(PullRequestState)
@@ -69,7 +79,9 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
     enum IconSlot: String, CaseIterable {
         case error
         case needsInput
+        case subagents
         case running
+        case waiting
         case starting
         case unseen
         case pullRequestOpen
@@ -84,7 +96,9 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
         switch kind {
         case .error: return .error
         case .needsInput: return .needsInput
+        case .subagents: return .subagents
         case .running: return .running
+        case .waiting: return .waiting
         case .pending: return .starting
         case .unseen: return .unseen
         case .pullRequest(.open): return .pullRequestOpen
@@ -135,6 +149,8 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
         case .pullRequest(.merged): return SidebarCompactStatusDrawnGlyph.merge.rawValue
         case .pullRequest: return SidebarCompactStatusDrawnGlyph.pullRequest.rawValue
         case .pending: return "circle.dashed"
+        case .subagents: return "point.3.filled.connected.trianglepath.dotted"
+        case .waiting: return "hourglass"
         case .needsInput, .running, .unseen: return "circle.fill"
         case .idle: return "checkmark.circle"
         case .branch: return "arrow.triangle.branch"
@@ -178,8 +194,9 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
         kind != .terminal || customSymbolName != nil
     }
 
-    /// Whether the glyph pulses (the running indicator).
-    var pulses: Bool { kind == .running }
+    /// Whether the glyph pulses (the running indicators). Waiting does not:
+    /// the agent is parked, and a pulsing hourglass would claim otherwise.
+    var pulses: Bool { kind == .running || kind == .subagents }
 
     /// Unread notifications turn a settled row blue; agent activity and
     /// errors stay louder. The latest notification leads the tooltip, since
@@ -196,7 +213,7 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
         // states that ask for attention.
         case .pullRequest, .idle, .branch, .terminal, .pending:
             return SidebarCompactStatusGlyph(kind: .unseen, tooltip: unreadTooltip, iconOverrides: iconOverrides)
-        case .error, .needsInput, .running, .unseen:
+        case .error, .needsInput, .subagents, .running, .waiting, .unseen:
             return SidebarCompactStatusGlyph(kind: kind, tooltip: unreadTooltip, iconOverrides: iconOverrides)
         }
     }
@@ -214,8 +231,10 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
         switch kind {
         case .error: return 0
         case .needsInput: return 1
-        case .running: return 2
-        case .unseen: return 3
+        case .subagents: return 2
+        case .running: return 3
+        case .waiting: return 4
+        case .unseen: return 5
         case .pending, .pullRequest, .idle, .branch, .terminal: return nil
         }
     }
@@ -280,7 +299,8 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
         case .needsInput: return Self.needsInputColor
         case .unseen: return .systemBlue
         case .pullRequest(.merged): return .systemPurple
-        case .running, .pending, .idle, .branch, .terminal, .pullRequest(.open), .pullRequest(.closed):
+        case .subagents, .running, .waiting, .pending, .idle, .branch, .terminal,
+             .pullRequest(.open), .pullRequest(.closed):
             return secondary
         }
     }

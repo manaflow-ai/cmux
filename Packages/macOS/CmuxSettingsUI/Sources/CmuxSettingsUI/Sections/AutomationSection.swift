@@ -18,7 +18,11 @@ public struct AutomationSection: View {
     @State private var autoNamingStatusModel: DefaultsValueModel<String>
     @State private var ripgrepPathModel: DefaultsValueModel<String>
     @State private var suppressSubagentModel: DefaultsValueModel<Bool>
+<<<<<<< HEAD
     @State private var agentAutoResumeModel: DefaultsValueModel<Bool>
+=======
+    @State private var canonicalAgentScratchModel: DefaultsValueModel<Bool>
+>>>>>>> origin/main
     @State private var ampModel: DefaultsValueModel<Bool>
     @State private var cursorModel: DefaultsValueModel<Bool>
     @State private var geminiModel: DefaultsValueModel<Bool>
@@ -75,7 +79,11 @@ public struct AutomationSection: View {
         ))
         _ripgrepPathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ripgrepCustomBinaryPath))
         _suppressSubagentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications))
+<<<<<<< HEAD
         _agentAutoResumeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.agentAutoResume))
+=======
+        _canonicalAgentScratchModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.canonicalAgentScratch))
+>>>>>>> origin/main
         _ampModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ampHooksEnabled))
         _cursorModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.cursorHooksEnabled))
         _geminiModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.geminiHooksEnabled))
@@ -97,7 +105,11 @@ public struct AutomationSection: View {
             autoNamingCard
             ripgrepPathCard
             suppressSubagentCard
+<<<<<<< HEAD
             agentAutoResumeCard
+=======
+            canonicalAgentScratchCard
+>>>>>>> origin/main
             ampCard
             cursorCard
             geminiCard
@@ -135,7 +147,11 @@ public struct AutomationSection: View {
             ))
         }
         .task {
+<<<<<<< HEAD
             startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+=======
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, canonicalAgentScratchModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+>>>>>>> origin/main
         }
         .task(id: automationRulesRefreshID) {
             await refreshAutomationRulesStatus()
@@ -486,6 +502,27 @@ public struct AutomationSection: View {
             }
             SettingsCardDivider()
             SettingsCardNote(String(localized: "settings.automation.suppressSubagentNotifications.note", defaultValue: "Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."))
+        }
+    }
+
+    @ViewBuilder
+    private var canonicalAgentScratchCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("automation.canonicalAgentScratch"),
+                String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"),
+                subtitle: canonicalAgentScratchModel.current
+                    ? String(localized: "settings.automation.canonicalAgentScratch.subtitleOn", defaultValue: "Native agent panels use a cmux-owned scratch directory per session.")
+                    : String(localized: "settings.automation.canonicalAgentScratch.subtitleOff", defaultValue: "Native agent panels use the system temporary directory."),
+                controlWidth: Self.columnWidth
+            ) {
+                Toggle("", isOn: Binding(get: { canonicalAgentScratchModel.current }, set: { canonicalAgentScratchModel.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsCanonicalAgentScratchToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardNote(String(localized: "settings.automation.canonicalAgentScratch.note", defaultValue: "Opt in to organize new Claude, Codex, and OpenCode panel scratch files under ~/.local/state/cmux/agent-artifacts. Provider transcripts and existing files are not moved."))
         }
     }
     @ViewBuilder
