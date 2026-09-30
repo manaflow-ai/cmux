@@ -1,18 +1,30 @@
-import type { Conversation, ID } from "@mux/protocol";
+import type {
+  ClientFrame,
+  Conversation,
+  ConversationSummary,
+  CreateConversationRequest,
+  ID,
+  ServerFrame,
+  Viewer,
+} from "@mux/protocol";
 
 /**
  * Where the UI reads chats from. The UI depends only on this interface, so the
- * fixture below, the mux worker's WebSocket and a native bridge are swappable.
+ * mux worker, a test double and a native bridge are swappable.
  */
 export interface ChatSource {
-  viewerId: ID;
+  viewer(): Promise<Viewer>;
   listConversations(): Promise<ConversationSummary[]>;
-  getConversation(id: ID): Promise<Conversation>;
+  createConversation(request: CreateConversationRequest): Promise<Conversation>;
+  /** Opens a live channel; frames arrive on `onFrame` until `close`. */
+  connect(
+    conversationId: ID,
+    onFrame: (frame: ServerFrame) => void,
+    onClose: () => void,
+  ): ChatChannel;
 }
 
-export interface ConversationSummary {
-  id: ID;
-  title: string;
-  preview: string;
-  lastAt: string;
+export interface ChatChannel {
+  send(frame: ClientFrame): void;
+  close(): void;
 }
