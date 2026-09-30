@@ -468,10 +468,72 @@
     if (visible && !skipText) out.push(pseudoText(el, "::after"));
   }
 
+  // Clipping by overflow. An element that lies entirely outside the box of
+  // an ancestor with `overflow: hidden|clip` (per axis) or `contain: paint`
+  // cannot be seen (Amazon's overflowing nav belt, GitHub's ellipsized
+  // commit links). Clips follow CSS containing blocks: an absolutely
+  // positioned element escapes clippers below its nearest positioned
+  // ancestor, a fixed one escapes all but those at or above a transformed
+  // ancestor. The root and body clip the viewport, not a box, so they do not
+  // count; scroll containers do not either (their content is reachable).
+  const INTERACTIVE_SELECTOR = "a[href], area[href], button, input:not([type=hidden]), select, textarea, summary, " +
+    "[tabindex]:not([tabindex='-1']), [contenteditable=''], [contenteditable=true], [role=button], [role=link], " +
+    "[role=checkbox], [role=radio], [role=tab], [role=menuitem], [role=option], [role=switch], [role=combobox], [role=textbox]";
+  const CLIPPING = new Set(["hidden", "clip"]);
+  const EMPTY_CLIPS = [];
+  function clipRectOf(el, style) {
+    const x = CLIPPING.has(style.overflowX);
+    const y = CLIPPING.has(style.overflowY);
+    const paint = /\b(paint|strict|content)\b/.test(style.contain || "");
+    if (!x && !y && !paint) return null;
+    const r = el.getBoundingClientRect();
+    const left = r.left + el.clientLeft;
+    const top = r.top + el.clientTop;
+    return {
+      left: x || paint ? left : -Infinity,
+      right: x || paint ? left + (el.clientWidth || r.width) : Infinity,
+      top: y || paint ? top : -Infinity,
+      bottom: y || paint ? top + (el.clientHeight || r.height) : Infinity,
+    };
+  }
+  const overlaps = (r, c) => r.right > c.left + 0.5 && r.left < c.right - 0.5 && r.bottom > c.top + 0.5 && r.top < c.bottom - 0.5;
+
   function visitElement(el, out, ctx, parentAriaHidden, skipText) {
     const tag = tagOf(el);
     if (SKIP_TAGS.has(tag)) return;
     const style = styleOf(el);
+    if (!style || ctx.showHidden || style.display === "none") return visitElementBox(el, tag, style, out, ctx, parentAriaHidden, skipText);
+    const saved = [ctx.clips, ctx.positioned, ctx.transformed];
+    ctx.depth++;
+    try {
+      const position = style.position;
+      if (position === "fixed") ctx.clips = ctx.clips.filter((c) => c.depth <= ctx.transformed);
+      else if (position === "absolute") ctx.clips = ctx.clips.filter((c) => c.depth <= ctx.positioned);
+      if ((ctx.clips.length || ctx.viewport) && style.display !== "contents") {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          for (const c of ctx.clips) if (!overlaps(r, c.rect)) return;
+          if (ctx.viewport && !overlaps(r, ctx.viewport)) {
+            ctx.offscreen += el.querySelectorAll(INTERACTIVE_SELECTOR).length + (el.matches(INTERACTIVE_SELECTOR) ? 1 : 0);
+            return;
+          }
+        }
+      }
+      const transform = style.transform !== "none" || style.filter !== "none" || /\b(paint|strict|content|layout)\b/.test(style.contain || "");
+      if (position !== "static" || transform) ctx.positioned = ctx.depth;
+      if (transform) ctx.transformed = ctx.depth;
+      if (tag !== "html" && tag !== "body") {
+        const rect = clipRectOf(el, style);
+        if (rect) ctx.clips = ctx.clips.concat({ rect, depth: ctx.depth });
+      }
+      visitElementBox(el, tag, style, out, ctx, parentAriaHidden, skipText);
+    } finally {
+      ctx.depth--;
+      [ctx.clips, ctx.positioned, ctx.transformed] = saved;
+    }
+  }
+
+  function visitElementBox(el, tag, style, out, ctx, parentAriaHidden, skipText) {
     const ariaHidden = parentAriaHidden || el.getAttribute("aria-hidden") === "true";
     const rendered = !ariaHidden && isRendered(el, style);
     if (!rendered && !ctx.showHidden) return;
@@ -569,10 +631,20 @@
     pruneRefs();
     const root = opts.root ? element(opts.root) : document.body || document.documentElement;
     if (!root || !root.isConnected) throw agentError("stale", "The snapshot root was removed from the page");
-    const ctx = { showHidden: !!opts.showHidden, focus: deepActiveElement(document), visited: new Set() };
+    const ctx = {
+      showHidden: !!opts.showHidden,
+      focus: deepActiveElement(document),
+      visited: new Set(),
+      depth: 0,
+      clips: EMPTY_CLIPS,
+      positioned: -1,
+      transformed: -1,
+      viewport: opts.viewport ? { left: 0, top: 0, right: global.innerWidth, bottom: global.innerHeight } : null,
+      offscreen: 0,
+    };
     const out = [];
     visitElement(root, out, ctx, false, false);
-    return { nodes: normalizeChildren(out), max: refCounter };
+    return { nodes: normalizeChildren(out), max: refCounter, offscreen: ctx.offscreen };
   }
 
   function refState(ref, base) {

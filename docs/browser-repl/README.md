@@ -68,10 +68,10 @@ url: http://localhost:8765/
   - heading "Sign up" [level=1]
   - textbox "Email" [ref=e3] [placeholder="you@x.com"]: "me@x.com"
   - checkbox "Accept terms" [ref=e4] [checked]
-  - combobox "Plan" [ref=e5]: "Pro"
+  - combobox "Plan" [ref=e5] [options: Free, Pro, Team]: "Pro"
   - button "Create account" [ref=e6] [focused]
   - table "Scores":
-    - row: "Name | Score"
+    - row [header]: "Name | Score"
     - row: "Ada | 9"
     - row:
       - cell: "Linus"
@@ -110,7 +110,13 @@ Rules, and how they improve on the references:
   (a closed `<details>`, `hidden="until-found"` such as Wikipedia's collapsed
   navbox rows), `inert`, `aria-hidden="true"`, or clipped away inside a
   zero-width or zero-height box with `overflow` other than `visible` (a
-  collapsed accordion). A `visibility:hidden` element is left out, but its
+  collapsed accordion), or lying entirely outside the box of an ancestor
+  with `overflow: hidden|clip` (per axis) or `contain: paint` (Amazon's
+  overflowing nav belt, GitHub's ellipsized `#1234` links). Clipping follows
+  CSS containing blocks: an absolutely positioned element escapes clippers
+  below its positioned ancestor, a fixed one all but those at or above a
+  transformed ancestor; the root, `body` and scroll containers do not clip.
+  A `visibility:hidden` element is left out, but its
   `visibility:visible` children print. This is Playwright's
   `isElementVisible` (`checkVisibility`, which Playwright skips on WebKit)
   without its non-empty-box test, so an empty progress bar still counts.
@@ -133,16 +139,26 @@ Rules, and how they improve on the references:
   plain region has a ref) and, with `showHidden`, `[hidden]`. Aside drops
   expanded and pressed. `[focused]` inside an iframe prints only when that
   iframe holds the page's focus.
-- **Values** print after a colon; combobox shows its selected value and lists
-  options only with `{ options: true }` or when expanded. With
-  `{ urls: true }` links show `[url=…]`, relative when same-origin; by
-  default they do not, because URLs are about a quarter of a page's snapshot
-  and an agent acts on the ref.
+- **Values** print after a colon. A closed drop-down shows its selected
+  value and its options on the same line, `[options: Free, Pro, Team]`, the
+  first 10 then `+N more` (a 60-option select stays one line); with
+  `{ options: true }` or when expanded each option prints on its own line
+  with `[selected]`.
+- **Link URLs**: `[url=…]` prints for a link with no name or named only by
+  an image's alt text, so such links can be told apart; with
+  `{ urls: true }` every link shows it. URLs are relative when same-origin.
+  Other links omit them by default because URLs are about a quarter of a
+  page's snapshot and an agent acts on the ref.
 - **Text** collapses whitespace to single spaces (Aside doubles spaces around
-  inline elements). Paragraphs print as their text lines.
+  inline elements). Paragraphs print as their text lines. Text of one to
+  three punctuation characters (`|`, `(`, `·`) joins the texts on both sides
+  (`"10 points by | ada"`) or, next to an element, is dropped, as are such
+  tokens at the edge of a text next to an element (Hacker News' separators
+  were 17% of its snapshot).
 - **Tables**: a row whose cells all hold plain text prints as one line with
-  cells joined by `|` (`- row: "Ada | 9"`); any other row prints its cells as
-  children, unnamed. A table used for layout flattens into its content: one
+  cells joined by `|` (`- row: "Ada | 9"`), and as `- row [header]: "Name |
+  Score"` when every cell is a column header; any other row prints its cells
+  as children, unnamed, where header cells keep the role `columnheader`. A table used for layout flattens into its content: one
   that declares no header cell, caption, `thead`, `tfoot`, `colgroup`,
   `summary`, `border` or table role, and that holds or sits in another table,
   has one row or one column, or has rows of different lengths (Hacker News).
@@ -156,19 +172,27 @@ Rules, and how they improve on the references:
   ref. A JavaScript dialog line has none, because no element owns the dialog
   and a ref must work as a selector; it names `page.dialog()` instead, and the
   tree is replaced by a note while the dialog blocks the page.
-- **Options**: `interactive` (interactive nodes and their named ancestors),
+- **Options**: `interactive` (interactive nodes, their named ancestors, and
+  the page outline: headings and landmarks, which carry no new refs),
+  `viewport` (only elements that intersect the viewport, with their
+  ancestors, and a closing note `# N interactive elements outside the
+  viewport are not shown`; refs are the same as in a full snapshot),
   `showHidden`, `maxChars` (truncates with a note), `options`, `urls`.
 - **Size**: on the real-site corpus (tests/browser-parity) the snapshot holds
-  every interactive element of Chrome's Playwright AI snapshot and no text
-  Chrome does not render, and is smaller than Aside's on seven of nine pages
-  and within 2% on the other two, where Aside drops visible text.
+  every interactive element of Chrome's Playwright AI snapshot that no
+  overflow ancestor clips out, and no text Chrome does not render. It keeps
+  visible text Aside drops (card descriptions, heading anchors, table cells),
+  so on pages with much of that it can be slightly larger than Aside's; the
+  corpus README lists the per-page sizes.
 - **Printing** a snapshot prints its diff against the previous snapshot of the
-  same tab when the diff is at least 30% smaller than the tree, else the tree.
-  `.tree` and `.diff` are always available.
-- **Diff** lines are `+ ` added and `- ` removed, each change preceded by its
-  unchanged ancestor lines (two-space prefix) as context so the change is
-  locatable. A changed line's old version prints right before its new one
-  (matched by ref, else role and name). ChatGPT omits ancestors; Aside prints
+  same tab when the diff is shorter than the tree; for a tree over 2,048
+  characters the diff must be at least 30% shorter, because a diff that is
+  most of a large page reads worse than the page. `.tree` and `.diff` are
+  always available.
+- **Diff** lines are `+ ` added, `- ` removed and `~ ` changed, each change
+  preceded by its unchanged ancestor lines (two-space prefix) as context so
+  it is locatable. A changed line (matched by ref, else role and name)
+  prints once, as its new version. ChatGPT omits ancestors; Aside prints
   bare `@@` hunks.
 
 ## Sessions and tabs

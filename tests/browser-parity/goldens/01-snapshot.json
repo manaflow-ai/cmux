@@ -1,18 +1,18 @@
 {
   "oracle": {},
   "cmux": {
-    "full": "title: Parity Fixture\nurl: PRIMARY/\n- navigation \"Main\" [ref=e1]:\n  - link \"Home\" [ref=e2]\n  - link \"Docs\" [ref=e3]\n- main:\n  - heading \"Sign up\" [level=1]\n  - textbox \"Email\" [ref=e4] [placeholder=\"you@x.com\"]\n  - checkbox \"Accept terms\" [ref=e5]\n  - combobox \"Plan\" [ref=e6]: \"Pro\"\n  - textbox \"Bio\" [ref=e7]: \"hi\"\n  - button \"Create account\" [ref=e8]\n  - button \"Disabled\" [ref=e9] [disabled]\n  - list:\n    - listitem: \"One\"\n    - listitem: \"Two\"\n  - text: \"Plain bold text.\"\n  - img \"Logo\"\n  - button \"Far away\" [ref=e10]",
+    "full": "title: Parity Fixture\nurl: PRIMARY/\n- navigation \"Main\" [ref=e1]:\n  - link \"Home\" [ref=e2]\n  - link \"Docs\" [ref=e3]\n- main:\n  - heading \"Sign up\" [level=1]\n  - textbox \"Email\" [ref=e4] [placeholder=\"you@x.com\"]\n  - checkbox \"Accept terms\" [ref=e5]\n  - combobox \"Plan\" [ref=e6] [options: Free, Pro, Team]: \"Pro\"\n  - textbox \"Bio\" [ref=e7]: \"hi\"\n  - button \"Create account\" [ref=e8]\n  - button \"Disabled\" [ref=e9] [disabled]\n  - list:\n    - listitem: \"One\"\n    - listitem: \"Two\"\n  - text: \"Plain bold text.\"\n  - img \"Logo\"\n  - button \"Far away\" [ref=e10]",
     "prints-tree-first": true,
-    "interactive": "title: Parity Fixture\nurl: PRIMARY/\n- navigation \"Main\" [ref=e1]:\n  - link \"Home\" [ref=e2]\n  - link \"Docs\" [ref=e3]\n- textbox \"Email\" [ref=e4] [placeholder=\"you@x.com\"]\n- checkbox \"Accept terms\" [ref=e5]\n- combobox \"Plan\" [ref=e6]: \"Pro\"\n- textbox \"Bio\" [ref=e7]: \"hi\"\n- button \"Create account\" [ref=e8]\n- button \"Disabled\" [ref=e9] [disabled]\n- button \"Far away\" [ref=e10]",
+    "interactive": "title: Parity Fixture\nurl: PRIMARY/\n- navigation \"Main\" [ref=e1]:\n  - link \"Home\" [ref=e2]\n  - link \"Docs\" [ref=e3]\n- main:\n  - heading \"Sign up\" [level=1]\n  - textbox \"Email\" [ref=e4] [placeholder=\"you@x.com\"]\n  - checkbox \"Accept terms\" [ref=e5]\n  - combobox \"Plan\" [ref=e6] [options: Free, Pro, Team]: \"Pro\"\n  - textbox \"Bio\" [ref=e7]: \"hi\"\n  - button \"Create account\" [ref=e8]\n  - button \"Disabled\" [ref=e9] [disabled]\n  - button \"Far away\" [ref=e10]",
     "scoped-ref": "title: Parity Fixture\nurl: PRIMARY/\n- navigation \"Main\" [ref=e1]:\n  - link \"Home\" [ref=e2]\n  - link \"Docs\" [ref=e3]",
-    "scoped-locator": "title: Parity Fixture\nurl: PRIMARY/\n- textbox \"Email\" [ref=e4] [placeholder=\"you@x.com\"]\n- checkbox \"Accept terms\" [ref=e5]\n- combobox \"Plan\" [ref=e6]: \"Pro\"\n- textbox \"Bio\" [ref=e7]: \"hi\"\n- button \"Create account\" [ref=e8]\n- button \"Disabled\" [ref=e9] [disabled]",
+    "scoped-locator": "title: Parity Fixture\nurl: PRIMARY/\n- textbox \"Email\" [ref=e4] [placeholder=\"you@x.com\"]\n- checkbox \"Accept terms\" [ref=e5]\n- combobox \"Plan\" [ref=e6] [options: Free, Pro, Team]: \"Pro\"\n- textbox \"Bio\" [ref=e7]: \"hi\"\n- button \"Create account\" [ref=e8]\n- button \"Disabled\" [ref=e9] [disabled]",
     "options": [
       "  - combobox \"Plan\" [ref=e6]: \"Pro\"",
       "    - option \"Free\"",
       "    - option \"Pro\" [selected]",
       "    - option \"Team\""
     ],
-    "max-chars": "title: Parity Fixture\nurl: PRIMARY/\n- navigation \"Main\" [ref=e1]:\n  - link \"Home\" [ref=e2]\n  - link \"Docs\" [ref=e3]\n- main:\n  - heading \"Sign up\" [level=1]\n# truncated: 119 of 489 characters shown; scope with snapshot(ref) or { interactive: true }",
+    "max-chars": "title: Parity Fixture\nurl: PRIMARY/\n- navigation \"Main\" [ref=e1]:\n  - link \"Home\" [ref=e2]\n  - link \"Docs\" [ref=e3]\n- main:\n  - heading \"Sign up\" [level=1]\n# truncated: 119 of 516 characters shown; scope with snapshot(ref) or { interactive: true }",
     "page-arg": true
   }
 }

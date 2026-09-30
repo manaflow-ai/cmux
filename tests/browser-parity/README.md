@@ -72,18 +72,20 @@ Snapshot bytes on the corpus (cmux-dev, Aside CLI 1.26.916.1741):
 
 | Page | cmux | Aside | Chrome AI snapshot |
 | --- | ---: | ---: | ---: |
-| wikipedia | 62,634 | 68,640 | 210,081 |
-| hackernews | 10,574 | 11,878 | 62,999 |
-| github | 62,821 | 61,635 | 227,801 |
-| mdn | 19,929 | 28,433 | 73,141 |
-| mdn-iframe | 43,485 | 56,365 | 146,590 |
+| wikipedia | 62,179 | 68,640 | 210,081 |
+| hackernews | 9,038 | 11,878 | 62,999 |
+| github | 60,797 | 61,635 | 227,801 |
+| mdn | 19,959 | 28,433 | 73,141 |
+| mdn-iframe | 43,276 | 56,365 | 146,590 |
 | npr | 2,486 | 4,835 | 5,561 |
-| bbc | 16,257 | 16,139 | 50,935 |
-| books | 7,814 | 14,974 | 35,677 |
-| vercel | 6,372 | 10,398 | 26,338 |
+| bbc | 16,487 | 16,139 | 50,935 |
+| books | 9,685 | 14,974 | 35,677 |
+| vercel | 6,402 | 10,398 | 26,338 |
 
-Aside's GitHub and BBC snapshots leave out visible text that cmux keeps
-(card descriptions and times, heading anchors, README table cells).
+cmux keeps visible text Aside leaves out (card descriptions and times,
+heading anchors, README table cells); on BBC, where that text is a large
+share, cmux is 2% larger. The oracle leaves out interactive elements that an
+overflow:hidden ancestor clips out (70 on GitHub), which cmux does not print.
 
 Playwright loads from `PARITY_PLAYWRIGHT_DIR`, the ChatGPT app's bundled copy,
 or `node_modules`; WebKit comes from `~/.cache/cmux-parity-browsers`.

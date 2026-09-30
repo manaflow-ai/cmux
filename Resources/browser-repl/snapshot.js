@@ -17,8 +17,19 @@
   const NAME_LIMIT = 100;
   // Unnamed wrappers that print as their only element child.
   const TRANSPARENT_WRAPPERS = new Set(["listitem", "cell", "gridcell"]);
-  // Printing prefers the diff when it is at least this much smaller.
+  // Printing prefers the diff whenever it is shorter than the tree; above
+  // this tree size it must also be at least DIFF_SAVING smaller, because a
+  // long diff that is nearly the whole page reads worse than the page.
+  const DIFF_FLOOR = 2048;
   const DIFF_SAVING = 0.3;
+  // Collapsed <select> options printed inline before "+N more".
+  const INLINE_OPTIONS = 10;
+  // Text of one to three punctuation characters ("|", "(", "·") says nothing
+  // on its own line.
+  const PUNCTUATION = /^[\p{P}|]{1,3}$/u;
+  // Context kept in interactive mode: the page outline.
+  const LANDMARK_ROLES = new Set(["banner", "main", "navigation", "contentinfo", "complementary", "search", "form", "region",
+    "dialog", "alertdialog"]);
 
   const q = (s) => JSON.stringify(String(s));
   const normalize = (s) => String(s || "").replace(/\s+/g, " ").trim();
@@ -38,19 +49,55 @@
   // ---------------------------------------------------------------------------
   // Tree shaping (host side, engine-neutral)
 
+  // Punctuation-only text between two texts joins them ("a | b"); next to an
+  // element it is dropped, and so are punctuation tokens at the edge of a
+  // text that borders an element.
+  function foldPunctuation(input) {
+    // Punctuation tokens at the edge of a text that borders an element
+    // (") 10 points by" after a link) go too.
+    const list = input.map((item, i) => {
+      if (typeof item !== "string") return item;
+      const words = item.split(" ");
+      if (i > 0 && typeof input[i - 1] !== "string") while (words.length > 1 && PUNCTUATION.test(words[0])) words.shift();
+      if (i < input.length - 1 && typeof input[i + 1] !== "string") while (words.length > 1 && PUNCTUATION.test(words[words.length - 1])) words.pop();
+      return words.join(" ");
+    });
+    const out = [];
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      if (typeof item !== "string" || !PUNCTUATION.test(item)) {
+        out.push(item);
+        continue;
+      }
+      const prev = out[out.length - 1];
+      const next = list[i + 1];
+      if (typeof prev === "string" && typeof next === "string" && !PUNCTUATION.test(next)) {
+        out[out.length - 1] = `${prev} ${item} ${next}`;
+        i++;
+      }
+    }
+    return out;
+  }
+
   function shape(nodes, options) {
     const out = [];
-    for (const raw of nodes) {
+    for (const raw of foldPunctuation(nodes)) {
       if (typeof raw === "string") {
         out.push(raw);
         continue;
       }
       const n = Object.assign({}, raw);
       if (n.children) n.children = shape(n.children, options);
+      // A link named only by an image's alt text, or not at all, is known by
+      // where it goes.
+      const kids = n.children || [];
+      const imageOnly = kids.length > 0 && kids.every((c) => typeof c !== "string" && (c.role === "img" || c.role === "image"));
+      if (n.role === "link" && n.url && (!n.name || imageOnly)) n.showUrl = true;
       // A caption, legend or label that names its container is not repeated.
       if (n.name && n.children && n.children.length > 1 && n.children[0] === n.name) n.children = n.children.slice(1);
       if (n.role === "row" && n.children && !hasRef(n.children) && n.children.every((c) => typeof c !== "string" && CELL_ROLES.has(c.role))) {
         const cells = n.children.map((c) => c.name || textOf(c.children));
+        if (n.children.every((c) => c.role === "columnheader")) n.header = true;
         if (!n.name || squash(cells.join("")) === squash(n.name)) delete n.name;
         n.value = cells.join(" | ");
         delete n.children;
@@ -69,7 +116,12 @@
       if (n.name && n.children && n.children.length === 1 && typeof n.children[0] === "string" &&
           squash(n.name).includes(squash(n.children[0]))) delete n.children;
       if (n.children && !n.children.length) delete n.children;
-      if (n.options && !(options.options || n.expanded === true)) delete n.options;
+      if (n.options && !(options.options || n.expanded === true)) {
+        // A closed drop-down lists its options on its own line, capped.
+        n.inlineOptions = n.options.map((o) => o.name);
+        delete n.options;
+      }
+
       // Structure with nothing in it says nothing.
       if (!n.act && !n.ref && !n.name && n.value === undefined && !n.children && !MEANINGFUL_EMPTY_ROLES.has(n.role)) continue;
       // An unnamed landmark or group directly around one of its own kind
@@ -91,11 +143,18 @@
     return out;
   }
 
-  // Interactive nodes and the named ancestors that locate them.
+  // Interactive nodes, the named ancestors that locate them, and the page
+  // outline: headings and landmarks.
   function interactiveOnly(nodes) {
     const out = [];
     for (const n of nodes) {
       if (typeof n === "string") continue;
+      if (n.role === "heading" && n.name && !n.act) {
+        const heading = Object.assign({}, n);
+        delete heading.children;
+        out.push(heading);
+        continue;
+      }
       let kids = n.children ? interactiveOnly(n.children) : [];
       // An unnamed control is known by its text.
       if (n.act && !n.name) kids = [...(n.children || []).filter((c) => typeof c === "string"), ...kids];
@@ -103,7 +162,7 @@
       if (kids.length) copy.children = kids;
       else delete copy.children;
       if (n.act) out.push(copy);
-      else if (kids.length && (n.name || n.role === "iframe")) {
+      else if (kids.length && (n.name || n.role === "iframe" || LANDMARK_ROLES.has(n.role))) {
         delete copy.value;
         out.push(copy);
       } else out.push(...kids);
@@ -113,6 +172,7 @@
 
   function nodeHead(n, options) {
     let head = n.role;
+    if (n.header) head += " [header]";
     if (n.name) head += " " + q(n.name.length > NAME_LIMIT && !n.contentName ? n.name.slice(0, NAME_LIMIT - 1) + "…" : n.name);
     if (n.ref) head += ` [ref=${n.ref}]`;
     if (n.level !== undefined) head += ` [level=${n.level}]`;
@@ -130,8 +190,13 @@
     if (n.focused) head += " [focused]";
     if (n.hidden) head += " [hidden]";
     if (n.scrollable) head += " [scrollable]";
-    if (n.url && options.urls) head += ` [url=${n.url}]`;
+    if (n.url && (options.urls || n.showUrl)) head += ` [url=${n.url}]`;
     if (n.placeholder) head += ` [placeholder=${q(n.placeholder)}]`;
+    if (n.inlineOptions && n.inlineOptions.length) {
+      const shown = n.inlineOptions.slice(0, INLINE_OPTIONS).join(", ");
+      const more = n.inlineOptions.length - INLINE_OPTIONS;
+      head += ` [options: ${shown}${more > 0 ? `, +${more} more` : ""}]`;
+    }
     return head;
   }
 
@@ -213,7 +278,8 @@
 
   const indentOf = (line) => /^ */.exec(line)[0].length;
 
-  // Returns diff lines prefixed "  " (context), "- " (removed) or "+ " (added).
+  // Returns diff lines prefixed "  " (context), "- " (removed), "+ " (added)
+  // or "~ " (changed, new version).
   // Empty when equal.
   function diffLines(previous, current) {
     const ops = myers(previous, current);
@@ -246,9 +312,9 @@
       context(previous, op.a, true);
       out.push("- " + previous[op.a]);
     };
-    const emitInsert = (op) => {
+    const emitInsert = (op, mark = "+ ") => {
       context(current, op.b, false);
-      out.push("+ " + current[op.b]);
+      out.push(mark + current[op.b]);
     };
     // Within a run of changes, a changed line's old version prints right
     // before its new version; other removals print first.
@@ -271,10 +337,9 @@
         }
       }
       for (const d of deletes) if (free.has(d)) emitDelete(d);
-      for (const ins of inserts) {
-        if (partner.has(ins)) emitDelete(partner.get(ins));
-        emitInsert(ins);
-      }
+      // A changed line (same ref, else same role and name) prints once, as
+      // its new version.
+      for (const ins of inserts) emitInsert(ins, partner.has(ins) ? "~ " : "+ ");
     }
     return out;
   }
@@ -291,7 +356,7 @@
   // ---------------------------------------------------------------------------
   // Snapshot value
 
-  const DIFF_HEADER = "# changes since the previous snapshot (+ added, - removed):";
+  const DIFF_HEADER = "# changes since the previous snapshot (+ added, - removed, ~ changed):";
   const NO_CHANGES = "# no changes since the previous snapshot";
   const FIRST = "# no previous snapshot of this tab; every line is new:";
 
@@ -320,10 +385,13 @@
     get diff() {
       return this._join(this._diffBody);
     }
-    // Printing shows the diff when it saves at least 30% over the tree.
+    // Printing shows the diff when it is shorter than the tree, and for a
+    // tree over DIFF_FLOOR characters when it saves at least 30%.
     get usesDiff() {
       if (!this._hasPrevious) return false;
-      return this._diffBody.join("\n").length <= (1 - DIFF_SAVING) * this._body.join("\n").length;
+      const diff = this._diffBody.join("\n").length;
+      const tree = this._body.join("\n").length;
+      return tree <= DIFF_FLOOR ? diff < tree : diff <= (1 - DIFF_SAVING) * tree;
     }
     toString() {
       return this.usesDiff ? this.diff : this.tree;
@@ -337,8 +405,9 @@
   // Capture
 
   async function frameNodes(page, frame, rootHandle, options, focusChain) {
-    const r = await frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, base: page._refMaxFor(frame) });
+    const r = await frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, base: page._refMaxFor(frame) });
     page._noteRefMax(frame, r.max);
+    if (options.viewport) options._offscreen = (options._offscreen || 0) + (r.offscreen || 0);
     const prefix = page._prefixFor(frame);
     const fix = async (list) => {
       for (const node of list) {
@@ -400,14 +469,17 @@
     const raw = await frameNodes(page, frame, handle, options, true);
     let nodes = shape(raw, options);
     if (options.interactive) nodes = interactiveOnly(nodes);
-    return { header, body: render(nodes, options), nodes };
+    const body = render(nodes, options);
+    if (options.viewport) body.push(`# ${options._offscreen || 0} interactive elements outside the viewport are not shown; snapshot() shows the whole page`);
+    return { header, body, nodes };
   }
 
   async function takeSnapshot(page, target, options = {}) {
     const run = async () => {
+      options = Object.assign({}, options);
       const { header, body } = await capture(page, target, options);
       const scope = typeof target === "string" ? target : target instanceof core.Locator ? String(target) : "page";
-      const key = [scope, !!options.interactive, !!options.showHidden, !!options.options, !!options.urls].join("|");
+      const key = [scope, !!options.interactive, !!options.showHidden, !!options.options, !!options.urls, !!options.viewport].join("|");
       const baselines = page._snapshotBaselines || (page._snapshotBaselines = new Map());
       const previous = baselines.get(key);
       baselines.set(key, body);
@@ -448,5 +520,5 @@
     };
   }
 
-  ns.snapshot = { takeSnapshot, annotate, shape, interactiveOnly, render, diffLines, myers, Snapshot, DIFF_SAVING };
+  ns.snapshot = { takeSnapshot, annotate, shape, interactiveOnly, render, diffLines, myers, Snapshot, DIFF_SAVING, DIFF_FLOOR };
 })(typeof globalThis !== "undefined" ? globalThis : this);

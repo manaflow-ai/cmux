@@ -30,8 +30,10 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   `get(id)`. `list()` returns `{ id, title, url, active, current }` for every
   tab in the workspace without attaching; `use(id)` and `get(id)` return a `Page`.
 - `snapshot(target?, options?)`: accessibility snapshot of `page`, a locator or
-  a ref. Options: `interactive`, `showHidden`, `maxChars`, `options`, and
-  `urls` (print each link's `[url=…]`).
+  a ref. Options: `interactive` (controls plus headings and landmarks),
+  `viewport` (only what is on screen), `showHidden`, `maxChars`, `options`
+  (one line per option), and `urls` (every link's `[url=…]`; links with no
+  name show it anyway).
 - `screenshot(target?, options?)`: an image of the viewport, `{ fullPage }`, a
   locator or a ref. `{ annotate: true }` draws each ref's box and label.
   Printing an image saves it to a file and prints the path.
@@ -53,9 +55,9 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
       - heading "Sign up" [level=1]
       - textbox "Email" [ref=e3] [placeholder="you@x.com"]: "me@x.com"
       - checkbox "Accept terms" [ref=e4] [checked]
-      - combobox "Plan" [ref=e5]: "Pro"
+      - combobox "Plan" [ref=e5] [options: Free, Pro, Team]: "Pro"
       - table "Scores":
-        - row: "Name | Score"
+        - row [header]: "Name | Score"
         - row:
           - cell: "Ada"
           - link "Profile" [ref=e6]
@@ -80,9 +82,13 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   are inlined; refs and locators work inside them.
 - An open dialog or file chooser prints first, under the header.
 - Printing a snapshot shows its diff against the previous snapshot of the
-  same tab when that is at least 30% shorter, else the full tree. `.tree` and
-  `.diff` are always there. Diff lines start with `+` (added) or `-`
-  (removed); unchanged ancestors are shown for context.
+  same tab when that is shorter (for a large page, 30% shorter), else the
+  full tree. `.tree` and `.diff` are always there. Diff lines start with `+`
+  (added), `-` (removed) or `~` (changed, new version); unchanged ancestors
+  are shown for context.
+- Refs stay valid until their element is removed, also when its name or
+  state changes, so there is no need to take a new snapshot after every
+  action; a stale ref fails at once and says so.
 
 ## Dialogs and file choosers
 
