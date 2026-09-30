@@ -139,7 +139,9 @@
     "backToBlog": "Tilbake til bloggen",
     "readTheDocs": "Les dokumentasjonen",
     "viewChangelog": "Se endringslogg",
-    "otherPlatforms": "Andre plattformer"
+    "otherPlatforms": "Andre plattformer",
+    "copyCode": "Kopier kode",
+    "copied": "Kopiert"
   },
   "nav": {
     "docs": "Dokumentasjon",
@@ -1539,7 +1541,6 @@
       "restartNew": "Opprett et nytt workspace (standard)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Slå linjebryting i filredigereren av eller på (Option+Z).",
       "title": "Tastatursnarveier",
       "description": "Alle tastatursnarveier tilgjengelige i cmux, gruppert etter kategori.",
       "metaDescription": "Alle cmux-tastatursnarveier for arbeidsområder, overflater, delte paneler, nettleser, varsler, søk og vindusbehandling på macOS.",
@@ -2322,6 +2323,28 @@
       "fixTransferDisabled": "En administrert policy slår av filoverføring. Kontakt administratoren din.",
       "supportTitle": "Få hjelp",
       "supportDesc": "Hvis en opprettelse mislykkes, bruker du Copy Error i varselet og tar med feilen, sammen med sporings-ID-en hvis det finnes en, når du kontakter support."
+    },
+    "ui": {
+      "onThisPage": "På denne siden",
+      "copyPage": "Kopier side",
+      "copyPageDesc": "Kopier siden som Markdown for LLM-er",
+      "copied": "Kopiert",
+      "pageActions": "Flere sidehandlinger",
+      "openInChatGPT": "Åpne i ChatGPT",
+      "openInClaude": "Åpne i Claude",
+      "openInDesc": "Still spørsmål om denne siden",
+      "askPrompt": "Les {url} slik at jeg kan stille spørsmål om den.",
+      "previous": "Forrige",
+      "next": "Neste",
+      "helpful": "Var denne siden nyttig?",
+      "yes": "Ja",
+      "no": "Nei",
+      "thanks": "Takk for tilbakemeldingen.",
+      "raiseIssue": "Opprett issue",
+      "openNavigation": "Åpne navigasjon",
+      "closeNavigation": "Lukk navigasjon",
+      "searchShortcut": "Søk i dokumentasjonen (⌘K)",
+      "navigation": "Dokumentasjon"
     }
   },
   "legal": {
