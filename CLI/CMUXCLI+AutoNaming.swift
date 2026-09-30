@@ -284,12 +284,21 @@ struct CodexAutoNamingArguments: Sendable {
     }
 
     private static func isCredentialBearingKey(section: String, key: String) -> Bool {
-        let normalizedSection = section.lowercased().replacingOccurrences(of: "-", with: "_")
-        if normalizedSection.split(separator: ".").contains(where: { $0 == "headers" || $0 == "http_headers" }) {
+        func normalizeComponent(_ raw: String) -> String {
+            raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                .lowercased()
+                .replacingOccurrences(of: "-", with: "_")
+        }
+        let sectionComponents = section.split(separator: ".").map { normalizeComponent(String($0)) }
+        if sectionComponents.contains(where: { $0 == "headers" || $0 == "http_headers" || $0 == "env_http_headers" }) {
             return true
         }
-        let normalized = key.lowercased().replacingOccurrences(of: "-", with: "_")
-        if normalized == "headers" || normalized == "http_headers" || normalized == "env_http_headers" {
+        let normalized = normalizeComponent(key)
+        if normalized == "headers" || normalized == "http_headers" || normalized == "env_http_headers"
+            || normalized.hasPrefix("headers.")
+            || normalized.hasPrefix("http_headers.")
+            || normalized.hasPrefix("env_http_headers.") {
             return true
         }
         return normalized.contains("token")

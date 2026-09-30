@@ -62,6 +62,9 @@ struct CodexAutoNamingArgumentsTests {
         http_headers = { Authorization = "Bearer secret", X-API-Key = "api-secret" }
         [model_providers.subrouter.http_headers]
         X-Subrouter-Agent = "sr"
+        [model_providers.subrouter."http_headers"]
+        X-Org-ID = "sensitive-value"
+        http_headers.X-Org-ID = "sensitive-value"
         [model_providers.subrouter-extra]
         base_url = "http://127.0.0.1:9999/v1"
         """)
@@ -70,6 +73,7 @@ struct CodexAutoNamingArgumentsTests {
         #expect(overrides.contains("model=\"gpt-5-codex\""))
         #expect(!overrides.contains(where: { $0.contains("http_headers") }))
         #expect(!overrides.contains(where: { $0.contains("subrouter-extra") }))
+        #expect(!overrides.contains(where: { $0.contains("sensitive-value") }))
         #expect(!args.joined(separator: " ").contains("secret"))
         #expect(!args.joined(separator: " ").contains("api-secret"))
     }
