@@ -110,9 +110,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         if pendingFocus, shown { runtime.shim?.setFocus(browser, 1) }
         if let state = pendingRestore {
             pendingRestore = nil
-            let restored = state.withCString { runtime.shim?.tabRestoreNavigation(browser, $0) } == 1
-            BrowserLifecycleTrace.record(id, "restore-navigation \(restored ? "ok" : "failed")")
-            if !restored, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
+            // 1 = restored; fork API 10 reports why not (-1 committed entries,
+            // -2 navigation not dropped, -3 state does not decode).
+            let code = state.withCString { runtime.shim?.tabRestoreNavigation(browser, $0) } ?? 0
+            BrowserLifecycleTrace.record(id, "restore-navigation \(code == 1 ? "ok" : "failed(\(code))")")
+            if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
         if let state = pendingRestore {
             pendingRestore = nil

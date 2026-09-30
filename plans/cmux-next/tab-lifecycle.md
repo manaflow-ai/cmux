@@ -102,10 +102,10 @@ cmux.json:
   state (scroll, form data) and a snapshot for the hover preview; its icon
   and title are dimmed in the strip. Selecting it restores the page; a
   navigation from the placeholder restores first.
-- WebKit: `WKWebView.interactionState`. Chromium: fork API 9
+- WebKit: `WKWebView.interactionState`. Chromium: fork API 10
   (`cmux_tab_navigation_state`, `cmux_tab_restore_navigation`, session
   restore format); the page is recreated with an empty URL and its entries
-  restored. On a fork before API 9 (API 7-8 refused every restore: a new browser holds its initial entry), Chromium pages are exempt
+  restored. On a fork before API 10 (API 7-9 refused every restore: a new browser holds its initial entry and a pending chrome://ignore/ navigation), Chromium pages are exempt
   (`unsupported`) rather than reloaded into a blank history.
 - Actions: `browser.hibernation.off|moderate|aggressive` (palette, CLI
   `settings turn-off-tab-hibernation` etc.), `hibernateTab`, `wakeTab`
