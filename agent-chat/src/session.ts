@@ -224,14 +224,7 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
       const existingIndex = closed.findIndex((block, index) => index >= currentTurnStart && block.kind === "plan");
       const plan = { kind: "plan" as const, entries: evt.entries };
       if (existingIndex < 0) return [...closed, plan];
-      return closed.reduce<Block[]>((next, block, index) => {
-        if (block.kind === "plan") {
-          if (index === existingIndex) next.push(plan);
-        } else {
-          next.push(block);
-        }
-        return next;
-      }, []);
+      return closed.map((block, index) => (index === existingIndex ? plan : block));
     }
     default:
       return blocks;
