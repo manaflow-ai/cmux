@@ -40,6 +40,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showAgentActivityKey = sidebar.showAgentActivity.userDefaultsKey
     static let showCustomMetadataKey = sidebar.showCustomMetadata.userDefaultsKey
     static let compactAgentStatusKey = sidebar.compactAgentStatus.userDefaultsKey
+    static let showUnreadStylingKey = sidebar.showUnreadStyling.userDefaultsKey
 
     static let showBranchDirectory = sidebar.showBranchDirectory.defaultValue
     static let showPullRequests = sidebar.showPullRequests.defaultValue
@@ -51,6 +52,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showAgentActivity = sidebar.showAgentActivity.defaultValue
     static let showCustomMetadata = sidebar.showCustomMetadata.defaultValue
     static let compactAgentStatus = sidebar.compactAgentStatus.defaultValue
+    static let showUnreadStyling = sidebar.showUnreadStyling.defaultValue
 }
 
 enum SidebarWorkspaceTitleWrapSettings {
@@ -394,6 +396,10 @@ enum SidebarSettingsFileMapping {
         .init(
             jsonKey: "compactAgentStatus",
             defaultsKey: SidebarWorkspaceDetailDefaults.compactAgentStatusKey
+        ),
+        .init(
+            jsonKey: "showUnreadStyling",
+            defaultsKey: SidebarWorkspaceDetailDefaults.showUnreadStylingKey
         ),
     ]
 

@@ -12877,6 +12877,8 @@ struct VerticalTabsSidebar: View, Equatable {
             accessibilityWorkspaceCount: input.workspaceCount,
             unreadCount: input.unreadCount,
             latestNotificationText: input.latestNotificationText,
+            hasLatestNotification: input.hasLatestNotification,
+            hasUnreadNotification: input.hasUnreadNotification,
             showsAgentActivity: input.showsAgentActivity,
             rowSpacing: input.rowSpacing,
             isBeingDragged: input.isBeingDragged,
@@ -13044,6 +13046,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 let summary = snapshot.summary(forWorkspaceId: workspaceId)
                 var fresh = model
                 fresh.unreadCount = summary.unreadCount
+                fresh.hasLatestNotification = summary.hasLatestNotification
+                fresh.hasUnreadNotification = summary.hasUnreadNotification
                 fresh.latestNotificationText = showsNotificationMessage
                     ? summary.latestNotificationText
                     : nil
@@ -15254,6 +15258,8 @@ struct VerticalTabsSidebar: View, Equatable {
             canCloseWorkspace: renderContext.canCloseWorkspace,
             unreadCount: unreadSummary.unreadCount,
             latestNotificationText: liveLatestNotificationText,
+            hasLatestNotification: unreadSummary.hasLatestNotification,
+            hasUnreadNotification: unreadSummary.hasUnreadNotification,
             showsAgentActivity: renderContext.showsAgentActivity,
             rowSpacing: tabRowSpacing,
             showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
@@ -16060,6 +16066,8 @@ struct TabItemView: View, Equatable {
     var accessibilityWorkspaceCount: Int { snapshot.workspaceCount }
     var unreadCount: Int { snapshot.unreadCount }
     var latestNotificationText: String? { snapshot.latestNotificationText }
+    var hasLatestNotification: Bool { snapshot.hasLatestNotification }
+    var hasUnreadNotification: Bool { snapshot.hasUnreadNotification }
     var showsAgentActivity: Bool { snapshot.showsAgentActivity }
     var rowSpacing: CGFloat { snapshot.rowSpacing }
     var showsModifierShortcutHints: Bool { snapshot.showsModifierShortcutHints }
@@ -16148,7 +16156,7 @@ struct TabItemView: View, Equatable {
     }
 
     private var titleFontWeight: Font.Weight {
-        .semibold
+        settings.showsUnreadStyling && snapshot.unreadCount > 0 ? .bold : .semibold
     }
 
     private var fontScale: CGFloat {
@@ -16380,7 +16388,10 @@ struct TabItemView: View, Equatable {
         )
 
         // Compact status draws running and unread as its one glyph instead.
-        let compactStatusGlyph = workspaceSnapshot.compactStatusGlyph?.applyingUnread(unreadCount, latestNotificationText: latestNotificationText)
+        let compactStatusGlyph = workspaceSnapshot.compactStatusGlyph?.applyingUnread(
+            settings.showsUnreadStyling || hasUnreadNotification ? unreadCount : 0,
+            latestNotificationText: latestNotificationText
+        )
         let showsLoadingSpinner = compactStatusGlyph == nil
             && showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
         let showsUnreadBadge = compactStatusGlyph == nil && unreadCount > 0

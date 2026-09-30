@@ -224,6 +224,16 @@ extension AgentJournalLifecycleCenter {
         }
         if let activity, case .workspace(let workspace) = owner {
             WorkspaceActivityReorderController.shared.agentActivity(activity, workspaceId: workspace.id)
+            switch activity {
+            case .turnFinished:
+                workspace.markAgentSessionUnread(panelId: panelId, event: .turnFinished)
+            case .needsInput:
+                workspace.markAgentSessionUnread(panelId: panelId, event: .needsInput)
+            case .error:
+                workspace.markAgentSessionUnread(panelId: panelId, event: .error)
+            case .promptSubmitted:
+                break
+            }
         }
 #if DEBUG
         cmuxDebugLog(

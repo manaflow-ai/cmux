@@ -19,6 +19,8 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
     /// The live state's wire name: "idle" | "working" | "needs_input" |
     /// "ended" (`agents[j].status`).
     public let status: String
+    /// Whether this session has unread attention (`agents[j].unread`).
+    public let isUnread: Bool
     /// When the current working/needs-input state began; `nil` for idle and
     /// ended (`agents[j].sinceEpoch`).
     public let stateSince: Date?
@@ -49,6 +51,7 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
         kind: String,
         name: String,
         status: String,
+        isUnread: Bool = false,
         stateSince: Date?,
         lastActivityAt: Date,
         title: String?,
@@ -63,6 +66,7 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
         self.kind = kind
         self.name = name
         self.status = status
+        self.isUnread = isUnread
         self.stateSince = stateSince
         self.lastActivityAt = lastActivityAt
         self.title = title

@@ -20,6 +20,8 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     public let isFocused: Bool
     /// Whether the surface's panel is pinned (`tabs[i].pinned`).
     public let isPinned: Bool
+    /// Whether this surface has unread attention (`tabs[i].unread`).
+    public let isUnread: Bool
     /// The surface's working directory, or `nil`/empty when unknown
     /// (`tabs[i].directory`).
     public let directory: String?
@@ -38,6 +40,7 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         title: String,
         isFocused: Bool,
         isPinned: Bool,
+        isUnread: Bool = false,
         directory: String?,
         gitBranch: String?,
         gitIsDirty: Bool,
@@ -48,6 +51,7 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         self.title = title
         self.isFocused = isFocused
         self.isPinned = isPinned
+        self.isUnread = isUnread
         self.directory = directory
         self.gitBranch = gitBranch
         self.gitIsDirty = gitIsDirty

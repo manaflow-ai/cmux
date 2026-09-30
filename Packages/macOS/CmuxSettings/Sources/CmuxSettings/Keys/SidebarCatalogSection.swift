@@ -164,6 +164,15 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarNotificationBadgePosition"
     )
 
+    /// Whether workspace rows use the additional title emphasis for session
+    /// unread state. Notification counts and read state remain available when
+    /// this is disabled (`sidebar.showUnreadStyling`).
+    public let showUnreadStyling = DefaultsKey<Bool>(
+        id: "sidebar.showUnreadStyling",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowUnreadStyling"
+    )
+
     /// Whether coding-agent status entries reported by agent hooks (for
     /// example Claude Code's "Running") render as a tinted glyph on the
     /// workspace title line instead of their own metadata row

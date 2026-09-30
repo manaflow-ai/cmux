@@ -33,6 +33,7 @@ public struct SidebarSection: View {
     @State var showAgentActivity: DefaultsValueModel<Bool>
     @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
+    @State private var showUnreadStyling: DefaultsValueModel<Bool>
     @State private var showMetadata: DefaultsValueModel<Bool>
     @State private var compactAgentStatus: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
@@ -65,6 +66,7 @@ public struct SidebarSection: View {
         _showAgentActivity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showAgentActivity))
         _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
         _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
+        _showUnreadStyling = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showUnreadStyling))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
         _compactAgentStatus = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.compactAgentStatus))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
@@ -107,6 +109,7 @@ public struct SidebarSection: View {
             showAgentActivity,
             loadingSpinnerPosition,
             notificationBadgePosition,
+            showUnreadStyling,
             showMetadata,
             compactAgentStatus,
             rightMaxWidth,
@@ -521,6 +524,17 @@ public struct SidebarSection: View {
                 subtitle: String(localized: "settings.app.compactAgentStatus.subtitle", defaultValue: "Show a workspace's agent, unread and pull request state as one colored icon before the title instead of separate rows. Hover the icon for details.")
             ) {
                 Toggle("", isOn: Binding(get: { compactAgentStatus.current }, set: { compactAgentStatus.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showUnreadStyling"),
+                String(localized: "settings.app.showUnreadStyling", defaultValue: "Show Unread Session Styling"),
+                subtitle: String(localized: "settings.app.showUnreadStyling.subtitle", defaultValue: "Use a bolder workspace title when an agent session has unread attention.")
+            ) {
+                Toggle("", isOn: Binding(get: { showUnreadStyling.current }, set: { showUnreadStyling.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }

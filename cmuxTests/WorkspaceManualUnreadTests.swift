@@ -15,6 +15,49 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         super.tearDown()
     }
 
+    func testAgentSessionUnreadMarksBackgroundPanelAndClearsWhenSeen() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.markAgentSessionUnread(panelId: panelId, event: .turnFinished)
+
+        XCTAssertTrue(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+        workspace.markAgentSessionRead(panelId: panelId)
+        XCTAssertFalse(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+    }
+
+    func testAgentSessionUnreadDoesNotDoubleCountAnUnreadNotification() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+        let originalStore = appDelegate.notificationStore
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalStore
+        }
+
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspace.id,
+                surfaceId: panelId,
+                title: "Finished",
+                subtitle: "",
+                body: "",
+                createdAt: Date(),
+                isRead: false
+            ),
+        ])
+
+        workspace.markAgentSessionUnread(panelId: panelId, event: .turnFinished)
+
+        XCTAssertFalse(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+        XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 1)
+    }
+
     func testMarkWorkspaceUnreadCreatesUnreadStateForReadWorkspaceWithoutRetainedNotification() {
         let store = TerminalNotificationStore.shared
         let workspaceId = UUID()

@@ -338,6 +338,14 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["sidebar.compactAgentStatus"],
                 synonyms: "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"
             ),
+            .init(
+                section: .sidebarAppearance,
+                id: "show-unread-styling",
+                title: String(localized: "settings.app.showUnreadStyling", defaultValue: "Show Unread Session Styling"),
+                detailText: String(localized: "settings.app.showUnreadStyling.subtitle", defaultValue: "Use a bolder workspace title when an agent session has unread attention."),
+                paths: ["sidebar.showUnreadStyling"],
+                synonyms: "sidebar.showUnreadStyling unread session title emphasis attention agent notification"
+            ),
             .init(section: .sidebarAppearance, id: "right-max-width", title: String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"), synonyms: "Dock Max Width sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 
             // Mobile

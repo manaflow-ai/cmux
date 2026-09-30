@@ -55,6 +55,7 @@ private struct WorkspacePanelContentHostView: View {
     let windowAppearance: WindowAppearanceSnapshot
     let customSidebarTabManager: TabManager?
     let hasUnreadNotification: Bool
+    let notificationToken: Int
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
@@ -100,6 +101,26 @@ private struct WorkspacePanelContentHostView: View {
                 workspace.requestDeferredBrowserMaterialization(panelId: panel.id, isVisibleInUI: isVisibleInUI)
             }
         )
+        .onAppear {
+            if isVisibleInUI {
+                workspace.markVisibleAgentSessionRead(panelId: panel.id)
+            }
+        }
+        .onChange(of: isVisibleInUI) { _, visible in
+            if visible {
+                workspace.markVisibleAgentSessionRead(panelId: panel.id)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if isVisibleInUI {
+                workspace.markVisibleAgentSessionRead(panelId: panel.id)
+            }
+        }
+        .onChange(of: notificationToken) { _, _ in
+            if isVisibleInUI {
+                workspace.markVisibleAgentSessionRead(panelId: panel.id)
+            }
+        }
     }
 }
 
@@ -258,6 +279,7 @@ struct WorkspaceContentView: View {
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
                         onOuterFocus: { workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId) },
+                        notificationToken: notificationStore.notifications.hashValue,
                         unreadSurfaceIDs: Set(
                             windowMirror.surfaceIDsInLayoutOrder.lazy
                                 .filter {
@@ -266,8 +288,13 @@ struct WorkspaceContentView: View {
                                         surfaceId: $0
                                     )
                                 }
+                        ),
+                        onVisible: {
+                            for surfaceId in windowMirror.surfaceIDsInLayoutOrder {
+                                workspace.markVisibleNotificationRead(surfaceId: surfaceId)
+                            }
+                        }
                         )
-                    )
                     .onTapGesture {
                         workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId)
                     }
@@ -288,6 +315,7 @@ struct WorkspaceContentView: View {
                         windowAppearance: windowAppearance,
                         customSidebarTabManager: workspace.owningTabManager,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                        notificationToken: notificationStore.notifications.hashValue,
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
                             // active workspace. This prevents divergence between the blue focused-tab
@@ -377,6 +405,9 @@ struct WorkspaceContentView: View {
         }
         .onChange(of: workspaceManualUnreadPanelId) { _, _ in
             syncBonsplitNotificationBadges()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            workspace.markVisibleSessionUnreadRead()
         }
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             workspace.applyGhosttyChrome(from: config, reason: "paneChromeSettingsDidChange")

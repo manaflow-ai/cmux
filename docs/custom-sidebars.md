@@ -316,7 +316,7 @@ with:
   current working/needs-input state began), `title` (first user prompt),
   `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
   tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
-  `transcriptPath`, `pid`, and `children` (nested subagent runs under the
+  `transcriptPath`, `pid`, and `unread` (Bool when the session needs a look), and `children` (nested subagent runs under the
   session, oldest first; omitted when none). Each `children[k]` has `id`
   (stable for the child's lifetime), `running` (Bool), and `startedEpoch`;
   when available it adds `label` and `endedEpoch` (set when the child
@@ -328,7 +328,8 @@ with:
   record, stop closes the oldest running child (FIFO). The `agent_id` field is
   not read; only `_opencode_request_id` can correlate a stop event to a child.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
-  `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
+  `focused` (Bool), `pinned` (Bool). When a surface needs a look, `unread`
+  (Bool) is present. When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
