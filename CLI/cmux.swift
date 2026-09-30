@@ -20956,7 +20956,7 @@ struct CMUXCLI {
               list              Print every palette command with its shortcut and availability
 
             Flags:
-              --window <id|ref|index>   Read a specific window instead of the key window
+              --window <id|ref|index>   Read a specific window instead of the active window
               --json                    Print the socket payload
 
             Examples:
@@ -21533,14 +21533,58 @@ struct CMUXCLI {
             )
         }
 
-        let remaining = Array(args.dropFirst())
-        var params: [String: Any] = [:]
-        if let windowId = try normalizeWindowHandle(
-            windowFromArgsOrOverride(remaining, windowOverride: windowOverride),
-            client: client
-        ) {
-            params["window_id"] = windowId
+        var windowRaw: String?
+        var positional: [String] = []
+        var index = 1
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--window" {
+                guard index + 1 < args.count else {
+                    throw CLIError(message: String(
+                        localized: "cli.palette.error.windowRequiresValue",
+                        defaultValue: "palette list: --window requires an id"
+                    ))
+                }
+                windowRaw = args[index + 1]
+                index += 2
+                continue
+            }
+            if arg.hasPrefix("--window=") {
+                windowRaw = String(arg.dropFirst("--window=".count))
+                index += 1
+                continue
+            }
+            positional.append(arg)
+            index += 1
         }
+        if let unknown = positional.first(where: { $0.hasPrefix("-") }) {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.palette.error.unknownFlag",
+                    defaultValue: "palette list: unknown flag '%@'"
+                ),
+                unknown
+            ))
+        }
+        if let extra = positional.first {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.palette.error.unexpectedArgument",
+                    defaultValue: "palette list: unexpected argument '%@'"
+                ),
+                extra
+            ))
+        }
+
+        // Without `--window`, the caller's own workspace or surface names the
+        // window, and only a caller with neither falls through to the app's
+        // active window.
+        var params: [String: Any] = [:]
+        try applyWindowOrCallerContext(
+            to: &params,
+            client: client,
+            windowRaw: windowRaw ?? windowOverride
+        )
 
         let payload = try client.sendV2(method: "palette.list", params: params)
         if jsonOutput {

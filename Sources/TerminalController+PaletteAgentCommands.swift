@@ -7,7 +7,7 @@ extension TerminalController {
     /// on the other side is one synchronous pass over the contributions, so a
     /// few seconds only ever elapse when the main actor is busy or the target
     /// window is not mounted.
-    static let paletteAgentCommandsTimeoutSeconds: TimeInterval = 5
+    nonisolated static let paletteAgentCommandsTimeoutSeconds: TimeInterval = 5
 
     /// `palette.list`: the command palette rows the target window would show.
     ///
@@ -19,8 +19,13 @@ extension TerminalController {
     /// method in the socket-worker lane of `ControlCommandExecutionPolicy` is
     /// what makes the wait safe.
     ///
-    /// Params: `window_id` (optional window UUID). Naming no window reads the
-    /// key window, the same default the other command palette requests use.
+    /// Params: `window_id`, `workspace_id`, `surface_id`, `pane_id` (all
+    /// optional). The window is resolved through `v2ResolveTabManager`, the same
+    /// precedence every other window-scoped method uses, so naming nothing reads
+    /// the active scriptable window. That matters more here than elsewhere:
+    /// `NSApp.keyWindow` is nil whenever cmux is not the frontmost app, which is
+    /// most of the time for an agent, so the request names its target window
+    /// rather than leaving the answer to the key-window default.
     nonisolated func v2PaletteAgentCommandsList(params: [String: Any]) -> V2CallResult {
         let rawWindowId = (params["window_id"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -39,24 +44,39 @@ extension TerminalController {
             requestedWindowId = parsed
         }
 
-        // Resolve first so a window id that names nothing reports `not_found`
-        // instead of spending the timeout waiting for an answer that no window
-        // can give. A window that closes after this check simply never answers,
-        // and the wait below reports a timeout.
-        if let requestedWindowId {
-            let windowExists = v2MainSync {
-                AppDelegate.shared?.mainWindow(for: requestedWindowId) != nil
+        // Resolve the target window up front so a request no window can answer
+        // reports `not_found` instead of spending the timeout waiting. Only the
+        // id crosses back to this thread; the window itself is looked up again
+        // on the main actor below.
+        let targetWindowId: UUID? = {
+            let tabManager = v2ResolveTabManager(params: params)
+            return v2MainSync {
+                guard let tabManager,
+                      let app = AppDelegate.shared,
+                      let windowId = app.windowId(for: tabManager),
+                      app.mainWindow(for: windowId) != nil else { return nil }
+                return windowId
             }
-            guard windowExists else {
+        }()
+        guard let targetWindowId else {
+            guard let requestedWindowId else {
                 return .err(
                     code: "not_found",
                     message: String(
-                        localized: "socket.palette.list.windowNotFound",
-                        defaultValue: "No window with that id."
+                        localized: "socket.palette.list.noWindow",
+                        defaultValue: "No cmux window is open."
                     ),
-                    data: ["window_id": requestedWindowId.uuidString]
+                    data: nil
                 )
             }
+            return .err(
+                code: "not_found",
+                message: String(
+                    localized: "socket.palette.list.windowNotFound",
+                    defaultValue: "No window with that id."
+                ),
+                data: ["window_id": requestedWindowId.uuidString]
+            )
         }
 
         let requestId = UUID()
@@ -64,8 +84,11 @@ extension TerminalController {
             timeout: Self.paletteAgentCommandsTimeoutSeconds
         ) { completion in
             Task { @MainActor in
-                let window = requestedWindowId.flatMap {
-                    AppDelegate.shared?.mainWindow(for: $0)
+                // A window that closes between being resolved and being asked
+                // leaves nothing to answer, so no waiter is registered and the
+                // wait below reports a timeout.
+                guard let window = AppDelegate.shared?.mainWindow(for: targetWindowId) else {
+                    return
                 }
                 PaletteAgentCommandsBroker.shared.request(
                     id: requestId,
@@ -77,7 +100,8 @@ extension TerminalController {
 
         guard let reply else {
             // Drop the waiter so a late answer does not fire into a caller that
-            // has already given up.
+            // has already given up. Cancelling an id that was never registered,
+            // which is the closed-window case above, is a no-op.
             Task { @MainActor in
                 PaletteAgentCommandsBroker.shared.cancel(id: requestId)
             }

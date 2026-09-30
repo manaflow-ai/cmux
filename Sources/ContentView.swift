@@ -7173,9 +7173,15 @@ struct ContentView: View {
     /// `isEnabled == false` instead of being dropped, so an agent can tell a
     /// command that does not apply right now from one that does not exist.
     /// `CommandPaletteAgentSurface` applies the rest of the listing rules.
+    ///
+    /// The handler registry is built here for the same reason the palette builds
+    /// one: a contribution with no handler is a row that cannot run, and the
+    /// listing drops it rather than naming it.
     private func commandPaletteAgentCommands() -> [CommandPaletteAgentCommand] {
         let commandsContext = commandPaletteCachedCommandsContext()
         let context = commandsContext.snapshot
+        var handlerRegistry = CommandPaletteHandlerRegistry()
+        registerCommandPaletteHandlers(&handlerRegistry)
         let candidates = commandPaletteCommandContributions().map { contribution in
             let configuredPaletteAction = commandPaletteConfigActionID(for: contribution.commandId)
                 .flatMap { cmuxConfigStore.resolvedAction(id: $0) }
@@ -7186,10 +7192,11 @@ struct ContentView: View {
                 shortcutHint: commandPaletteShortcutHint(for: contribution, context: context),
                 isVisible: contribution.when(context),
                 isEnabled: contribution.enablement(context),
-                isHiddenFromPalette: configuredPaletteAction.map { !$0.palette } ?? false
+                isHiddenFromPalette: configuredPaletteAction.map { !$0.palette } ?? false,
+                hasRegisteredHandler: handlerRegistry.handler(for: contribution.commandId) != nil
             )
         }
-        return CommandPaletteAgentSurface.commands(from: candidates)
+        return CommandPaletteAgentSurface.app.commands(from: candidates)
     }
 
     /// Answers a `palette.list` request that targets this window.
@@ -7590,7 +7597,7 @@ struct ContentView: View {
         contributions.append(contentsOf: Self.commandPaletteNewAgentChatContributions())
         contributions.append(
             contentsOf: Self.commandPaletteAgentLauncherContributions(
-                availableProviders: commandPaletteAgentLauncherAvailability ?? []
+                availableProviders: commandPaletteAgentLauncherAvailability
             )
         )
         contributions.append(

@@ -46,8 +46,12 @@ final class PaletteAgentCommandsBroker {
 
     init() {}
 
-    /// Registers `completion` under `id`, then asks `window` (or the key window
-    /// when `window` is `nil`) to answer.
+    /// Registers `completion` under `id`, then asks `window` to answer.
+    ///
+    /// `window` is nil only for a caller that means "whichever window has the
+    /// keyboard". `palette.list` never does: it resolves its target first, so an
+    /// agent's request is answered by a named window even when cmux is in the
+    /// background and there is no key window at all.
     func request(
         id: UUID,
         window: NSWindow?,
@@ -71,11 +75,5 @@ final class PaletteAgentCommandsBroker {
     /// fires nor keeps the continuation alive.
     func cancel(id: UUID) {
         waiters.removeValue(forKey: id)
-    }
-
-    /// Whether `id` is still waiting. Used by tests and by the socket method to
-    /// avoid posting a cancel for a request that already answered.
-    func isPending(id: UUID) -> Bool {
-        waiters[id] != nil
     }
 }

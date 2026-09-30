@@ -21,6 +21,9 @@ public struct CommandPaletteAgentCommandCandidate: Sendable, Equatable {
     public let isEnabled: Bool
     /// Whether the user's config takes this command out of the palette.
     public let isHiddenFromPalette: Bool
+    /// Whether a handler is registered for this command id. The palette skips a
+    /// contribution with no handler, so the listing has to skip it too.
+    public let hasRegisteredHandler: Bool
 
     public init(
         commandId: String,
@@ -29,7 +32,8 @@ public struct CommandPaletteAgentCommandCandidate: Sendable, Equatable {
         shortcutHint: String?,
         isVisible: Bool,
         isEnabled: Bool,
-        isHiddenFromPalette: Bool
+        isHiddenFromPalette: Bool,
+        hasRegisteredHandler: Bool
     ) {
         self.commandId = commandId
         self.title = title
@@ -38,5 +42,6 @@ public struct CommandPaletteAgentCommandCandidate: Sendable, Equatable {
         self.isVisible = isVisible
         self.isEnabled = isEnabled
         self.isHiddenFromPalette = isHiddenFromPalette
+        self.hasRegisteredHandler = hasRegisteredHandler
     }
 }
