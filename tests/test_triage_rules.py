@@ -296,6 +296,36 @@ class ManifestTests(unittest.TestCase):
         sync = load("sync_labels", "scripts/ci/sync_labels.py")
         self.assertEqual(len(sync.load_manifest(MANIFEST)), len(self.manifest["labels"]))
 
+    def test_case_only_duplicate_names_are_refused(self):
+        sync = load("sync_labels", "scripts/ci/sync_labels.py")
+        manifest = {
+            "labels": [
+                {"name": "area: cloud", "color": "0e8a16", "description": "Cloud things"},
+                {"name": "Area: Cloud", "color": "0e8a16", "description": "Same label"},
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "labels.json"
+            path.write_text(json.dumps(manifest))
+            with self.assertRaises(SystemExit):
+                sync.load_manifest(path)
+
+    def test_dry_run_refuses_case_only_duplicates_before_any_api_call(self):
+        # load_manifest runs before the token check in main(), so a case-only
+        # duplicate fails a --dry-run with no credentials and no network.
+        sync = load("sync_labels", "scripts/ci/sync_labels.py")
+        manifest = {
+            "labels": [
+                {"name": "bug", "color": "0e8a16"},
+                {"name": "BUG", "color": "0e8a16"},
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "labels.json"
+            path.write_text(json.dumps(manifest))
+            with self.assertRaises(SystemExit):
+                sync.main(["--manifest", str(path), "--dry-run"])
+
 
 class CommentTests(unittest.TestCase):
     def test_comment_carries_the_marker_and_the_reason(self):

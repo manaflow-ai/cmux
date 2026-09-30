@@ -58,9 +58,14 @@ def load_manifest(path: Path) -> list[dict[str, str]]:
         description = entry.get("description", "")
         if not name:
             raise SystemExit(f"{path}: every label needs a name")
-        if name in seen:
-            raise SystemExit(f"{path}: duplicate label {name!r}")
-        seen.add(name)
+        if name.casefold() in seen:
+            # GitHub treats label names case-insensitively, so `area: cloud`
+            # and `Area: Cloud` are the same label: a sync would POST the
+            # first and then hit a conflict on the second (or, if the label
+            # already exists, apply whichever entry comes last). Keep the
+            # manifest spelling for requests; only duplicate detection folds.
+            raise SystemExit(f"{path}: duplicate label {name!r} (names are case-insensitive)")
+        seen.add(name.casefold())
         if len(color) != 6 or any(character not in "0123456789abcdefABCDEF" for character in color):
             raise SystemExit(f"{path}: {name!r} needs a six-digit hex color, got {color!r}")
         if len(description) > 100:
