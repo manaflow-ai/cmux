@@ -34,6 +34,8 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     private var estimatedRows = IndexSet()
     private(set) var isPinnedToBottom = true
     private(set) var unreadCount = 0
+    /// The session whose rows are on screen; a change resets the scroll state.
+    private var shownSessionID: String?
 
     /// Called after a flush with the new unread count and pin state.
     var onScrollStateChanged: ((_ pinned: Bool, _ unread: Int) -> Void)?
@@ -201,6 +203,13 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         let isInitial = rows.isEmpty
         let diff = AcpmuxTranscriptDiff(old: rows, new: newRows, oldPositions: positions, newPositions: newPositions)
         guard !diff.isEmpty else { return }
+        if isInitial || newRows.isEmpty || model.sessionId != shownSessionID {
+            // A new transcript (another session, or a first load) starts at its latest row;
+            // the scroll state of the one it replaced does not carry over.
+            shownSessionID = model.sessionId
+            isPinnedToBottom = true
+            unreadCount = 0
+        }
         let anchor = isPinnedToBottom ? nil : captureAnchor()
         let appendedAtEnd = !diff.inserted.isEmpty && diff.inserted.upperBound == newRows.count && diff.removed.count <= 1
         // The typing indicator turning into the first streamed bubble morphs in place.

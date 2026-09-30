@@ -114,6 +114,34 @@ final class AcpmuxMorphBubbleView: NSView {
         CATransaction.commit()
     }
 
+    /// Redirects a flight in progress to a moved `target` (rows that arrive mid-flight push
+    /// the slot up). Each spring restarts from the value on screen, so the bubble bends
+    /// toward the new slot instead of jumping; `completion` replaces the earlier one.
+    func retarget(
+        to target: CGRect,
+        textOrigin: CGPoint,
+        groupedAbove: Bool,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        let endPath = AcpmuxBubblePath()
+            .path(for: target, side: .trailing, tail: true, groupedAbove: groupedAbove, groupedBelow: false)
+        let currentPath = shape.presentation()?.path ?? endPath
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
+        add(spring("path", from: currentPath, to: endPath), to: shape)
+        let endOrigin = CGPoint(x: target.minX + textOrigin.x, y: target.minY + textOrigin.y)
+        for label in [sourceLabel, finalLabel] {
+            guard let labelLayer = label.layer else { continue }
+            let current = labelLayer.presentation()?.position ?? labelLayer.position
+            // The model position never moves (animations hold their values), so the end
+            // is the model position offset by the text's travel from the composer.
+            let end = CGPoint(x: labelLayer.position.x + endOrigin.x - startRect.minX,
+                              y: labelLayer.position.y + endOrigin.y - startRect.minY)
+            add(spring("position", from: NSValue(point: current), to: NSValue(point: end)), to: labelLayer)
+        }
+        CATransaction.commit()
+    }
+
     private func spring(_ keyPath: String, from: Any, to: Any) -> CASpringAnimation {
         let animation = CASpringAnimation(keyPath: keyPath)
         animation.fromValue = from

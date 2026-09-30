@@ -300,14 +300,24 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
         let horizontal = AcpmuxRowLayoutEngine.bubbleHorizontalPadding
         let vertical = AcpmuxRowLayoutEngine.bubbleVerticalPadding
         overlay.setTextWidth(max(1, target.width - 2 * horizontal))
+        morphGeneration &+= 1
+        let generation = morphGeneration
         activeMorph = (rowID, overlay, target)
         let groupedAbove = transcript.groupPosition(of: rowID).map { !$0.isFirst } ?? false
-        overlay.morph(to: target, textOrigin: CGPoint(x: horizontal, y: vertical), groupedAbove: groupedAbove) { [weak self, weak overlay] in
-            self?.finishMorph(overlay)
+        overlay.morph(to: target, textOrigin: CGPoint(x: horizontal, y: vertical), groupedAbove: groupedAbove) { [weak self] in
+            self?.finishMorph(generation: generation)
         }
     }
 
     private var activeMorph: (rowID: String, overlay: AcpmuxMorphBubbleView, target: CGRect)?
+    /// Identifies the flight whose springs are current; a completion from a replaced
+    /// (retargeted) spring set carries an older value and is ignored.
+    private var morphGeneration = 0
+
+    private func finishMorph(generation: Int) {
+        guard generation == morphGeneration else { return }
+        finishMorph(nil)
+    }
 
     /// Reveals the real cell and drops the overlay in one transaction: no flicker frame.
     private func finishMorph(_ overlay: AcpmuxMorphBubbleView?) {
@@ -321,13 +331,25 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
         CATransaction.commit()
     }
 
-    /// Ends the morph early when rows arriving mid-flight move its slot, so the overlay
-    /// never finishes at a stale position.
+    /// Redirects the flight when rows arriving mid-flight move its slot (a fast agent's
+    /// reply pushes the new bubble up), so the overlay never lands at a stale position.
     private func checkMorphTarget() {
-        guard let morph = activeMorph,
-              let current = transcript.bubbleFrame(of: morph.rowID).map({ convert($0, from: transcript) }) else { return }
-        if abs(current.minY - morph.target.minY) > 0.5 || abs(current.minX - morph.target.minX) > 0.5 {
+        guard let morph = activeMorph else { return }
+        guard let current = transcript.bubbleFrame(of: morph.rowID).map({ convert($0, from: transcript) }) else {
             finishMorph(nil)
+            return
+        }
+        guard abs(current.minY - morph.target.minY) > 0.5 || abs(current.minX - morph.target.minX) > 0.5 else { return }
+        morphGeneration &+= 1
+        let generation = morphGeneration
+        activeMorph = (morph.rowID, morph.overlay, current)
+        let groupedAbove = transcript.groupPosition(of: morph.rowID).map { !$0.isFirst } ?? false
+        morph.overlay.retarget(
+            to: current,
+            textOrigin: CGPoint(x: AcpmuxRowLayoutEngine.bubbleHorizontalPadding, y: AcpmuxRowLayoutEngine.bubbleVerticalPadding),
+            groupedAbove: groupedAbove
+        ) { [weak self] in
+            self?.finishMorph(generation: generation)
         }
     }
 
