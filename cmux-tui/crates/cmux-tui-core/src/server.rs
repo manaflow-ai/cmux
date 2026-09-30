@@ -6849,7 +6849,7 @@ pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
 fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
     match serde_json::from_str::<Request>(message) {
         Ok(request) => handle_request(mux, client, request, writer),
-        Err(error) => send_request_error(writer, None, &format!("bad request: {error}")),
+        Err(error) => send_bad_request(writer, message, &error),
     }
 }
 
@@ -10403,7 +10403,7 @@ fn handle_connection_message(
     }
     let request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
-        Err(error) => return send_request_error(writer, None, &format!("bad request: {error}")),
+        Err(error) => return send_bad_request(writer, message, &error),
     };
     let mut pending = Some(request);
     match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
@@ -10452,7 +10452,7 @@ fn reject_message_during_pending_handoff(message: &str, writer: &MessageWriter) 
                 is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
             )
         }
-        Err(error) => send_request_error(writer, None, &format!("bad request: {error}")),
+        Err(error) => send_bad_request(writer, message, &error),
     }
 }
 
@@ -10605,6 +10605,23 @@ fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| {
             error.downcast_ref::<ViewportWidthError>().map(|error| error.code().to_string())
         })
+}
+
+/// Answers a request line that did not decode into a command. The reply
+/// echoes the line's `id` whenever the line is a JSON object that carries
+/// one: replies can arrive out of order, so a client matches each reply to
+/// its request by id, and an id-less error would reach the wrong request.
+fn send_bad_request(writer: &MessageWriter, message: &str, error: &serde_json::Error) -> bool {
+    send_request_error(writer, undecodable_request_id(message), &format!("bad request: {error}"))
+}
+
+/// The `id` member of a request line that failed to decode, if the line is a
+/// JSON object.
+fn undecodable_request_id(message: &str) -> Option<Value> {
+    match serde_json::from_str::<Value>(message) {
+        Ok(Value::Object(mut object)) => object.remove("id"),
+        _ => None,
+    }
 }
 
 fn send_request_error(writer: &MessageWriter, id: Option<Value>, error: &str) -> bool {
