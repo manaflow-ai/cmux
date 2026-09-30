@@ -64,7 +64,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-NAME="${CMUX_E2E_BACKEND_NAME:?CMUX_E2E_BACKEND_NAME is required}"
+NAME="${CMUX_E2E_BACKEND_NAME:-}"
 STATE="${CMUX_E2E_BACKEND_STATE_DIR:-${RUNNER_TEMP:-/tmp}/e2e-backend}"
 LOGS="$STATE/logs"
 
@@ -261,6 +261,7 @@ start_tls_forward() {
 }
 
 up() {
+  : "${CMUX_E2E_BACKEND_NAME:?CMUX_E2E_BACKEND_NAME is required}"
   require_secrets
   mkdir -p "$LOGS"
   [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && printf '### Backend bring-up\n| phase | since start |\n| --- | --- |\n' >>"$GITHUB_STEP_SUMMARY"
