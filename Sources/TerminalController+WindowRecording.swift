@@ -51,6 +51,15 @@ extension TerminalController {
             )
         }
         let token = UUID()
+        let registered: Bool? = socketAwaitCallback(timeout: 10) { completion in
+            Task {
+                await WindowRecordingRegistry.shared.registerStart(token: token)
+                completion(true)
+            }
+        }
+        guard registered != nil else {
+            return .err(code: "timeout", message: "recording start registration timed out", data: nil)
+        }
         return awaitRecordingCall(
             timeout: 20,
             onTimeout: {

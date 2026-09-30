@@ -18,8 +18,8 @@ actor WindowRecordingRegistry {
     /// out can end exactly the session it opened and nothing newer.
     private var activeStartToken: UUID?
     /// Starts still running, and those whose caller has already given up.
+    private var registeredStarts: Set<UUID> = []
     private var pendingStarts: Set<UUID> = []
-    private var abandonedStarts: Set<UUID> = []
     private var history: [WindowRecordingStatus] = []
 
     enum Failure: Error, LocalizedError {
@@ -42,21 +42,27 @@ actor WindowRecordingRegistry {
         }
     }
 
+    /// Registers a start token before the socket worker launches the operation.
+    /// This closes the gap where a timeout could be observed before `start`
+    /// first entered this actor.
+    func registerStart(token: UUID) {
+        registeredStarts.insert(token)
+    }
+
     func start(
         request: WindowRecordingRequest,
         windowID: CGWindowID,
         windowHandle: String?,
         token: UUID = UUID()
     ) async throws -> WindowRecordingStatus {
+        guard registeredStarts.remove(token) != nil else {
+            throw WindowRecordingSessionError.alreadyFinished
+        }
         pendingStarts.insert(token)
         defer {
             pendingStarts.remove(token)
-            abandonedStarts.remove(token)
         }
         await harvestFinishedRecording()
-        if abandonedStarts.contains(token) {
-            throw WindowRecordingSessionError.alreadyFinished
-        }
         if let active {
             throw Failure.busy(active.id)
         }
@@ -93,9 +99,9 @@ actor WindowRecordingRegistry {
     /// not claimed the slot yet give up when it gets there. Returns once the
     /// session has released its writer and partial file.
     func abandonStart(token: UUID) async {
+        if registeredStarts.remove(token) != nil { return }
         guard pendingStarts.contains(token) || activeStartToken == token else { return }
         guard let session = active, activeStartToken == token else {
-            abandonedStarts.insert(token)
             return
         }
         await session.abandon(reason: "record start timed out; the recording was discarded")
