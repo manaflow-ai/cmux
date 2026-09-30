@@ -78,9 +78,13 @@ extension TabContentCache {
         return entry
     }
 
-    /// Typing `cmux://history` into a page's address bar shows the history
-    /// page in that tab.
+    /// History wiring of a new page: a tab restored from its record (not
+    /// opened in this process) does not count its reload as a visit, and
+    /// typing `cmux://history` into its address bar shows the history page.
     func serveAppPages(_ entry: BrowserEntry, key: String) {
+        if let tab = tabModel(key), !browserTabs.openedSurfaces.contains(tab.surface) {
+            entry.chrome.markRestored(tab.url.flatMap(URL.init(string:)))
+        }
         entry.chrome.loadOverride = { [weak self] url in
             guard HistoryPageAddress.matches(url), let self, let tab = tabModel(key) else { return false }
             showHistoryPage(in: tab)
