@@ -92,6 +92,36 @@ async function sendSentry(env: Environment, event: Record<string, unknown>): Pro
   if (!response.ok) throw new Error(`sentry_${response.status}`);
 }
 
+/**
+ * Bounded identity fields that make one device's control-plane timeline
+ * queryable. The 12-hex endpoint prefix matches the short ids in client `irx`
+ * journals, so a sink row joins directly against a Mac or phone log. Never
+ * includes user ids, display names, tokens, or full endpoint keys.
+ */
+export function deviceObservability(device: {
+  endpointId: string;
+  identity: { deviceId: string; teamId: string; buildTag: string; environment: string };
+  metadata?: { platform?: string; appVersion?: string };
+}): Record<string, string> {
+  return {
+    endpoint: device.endpointId.slice(0, 12),
+    deviceId: device.identity.deviceId,
+    teamId: device.identity.teamId,
+    buildTag: device.identity.buildTag,
+    deviceEnvironment: device.identity.environment,
+    ...(device.metadata?.platform ? { platform: device.metadata.platform } : {}),
+    ...(device.metadata?.appVersion ? { appVersion: device.metadata.appVersion } : {}),
+  };
+}
+
+/** The same attribution for an accepted socket session, from its broker state. */
+export function sessionObservability(session: {
+  endpointId: string;
+  identity: { deviceId: string; teamId: string; buildTag: string; environment: string };
+}): Record<string, string> {
+  return deviceObservability({ endpointId: session.endpointId, identity: session.identity });
+}
+
 export function observe(ctx: ObservabilityContext, env: Environment, input: ObservabilityEvent): void {
   const event = prepare(input);
   console.log(JSON.stringify(event));

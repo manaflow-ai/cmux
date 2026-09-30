@@ -13,7 +13,7 @@ import Testing
 @Suite("File explorer context menu reloads", .serialized)
 struct FileExplorerContextMenuReloadTests {
     @Test("Outline rows wait for an open context menu, then catch up")
-    func reloadWaitsForContextMenuToClose() throws {
+    func reloadWaitsForContextMenuToClose() async throws {
         let store = FileExplorerStore()
         store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
         let coordinator = FileExplorerPanelView.Coordinator(
@@ -50,11 +50,13 @@ struct FileExplorerContextMenuReloadTests {
 
         outlineView.didCloseMenu(menu, with: event)
         #expect(!outlineView.isContextMenuOpen)
-        let deadline = Date(timeIntervalSinceNow: 2)
-        while outlineView.numberOfRows != 1 && Date() < deadline {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        // The catch-up reload is queued on the main queue. This test itself runs
+        // inside a main-queue block, where a nested run loop cannot drain that
+        // queue, so yield back to it instead of spinning.
+        let caughtUp = await AppKitTestEventPump().waitUntil(timeout: .seconds(2)) {
+            outlineView.numberOfRows == 1
         }
-        #expect(outlineView.numberOfRows == 1, "The deferred reload must run after the menu closes")
+        #expect(caughtUp, "The deferred reload must run after the menu closes; rows: \(outlineView.numberOfRows)")
         withExtendedLifetime(container) {}
     }
 }

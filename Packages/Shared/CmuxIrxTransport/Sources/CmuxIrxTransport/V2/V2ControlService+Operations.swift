@@ -35,6 +35,12 @@ extension V2ControlService {
         cache.ticket = response.ticket
         failure = nil
         try await persist(run: run)
+        let issued = Int(dependencies.now().timeIntervalSince1970)
+        journal("refresh-succeeded", [
+            "schema": "ticket.request.v1",
+            "refresh_after_in_s": String(response.ticket.refreshAfter - issued),
+            "expires_in_s": String(response.ticket.expiresAt - issued),
+        ])
         return response.ticket
     }
 
@@ -81,6 +87,13 @@ extension V2ControlService {
         cache.relayCredentials = response.credentials
         failure = nil
         try await persist(run: run)
+        let issued = Int(dependencies.now().timeIntervalSince1970)
+        journal("refresh-succeeded", [
+            "schema": "relay.request.v1",
+            "count": String(response.credentials.count),
+            "refresh_after_in_s": String((response.credentials.map(\.refreshAfter).min() ?? issued) - issued),
+            "expires_in_s": String((response.credentials.map(\.expiresAt).min() ?? issued) - issued),
+        ])
         return response.credentials
     }
 
@@ -148,6 +161,12 @@ extension V2ControlService {
             cache.directory = directory
             failure = nil
             try await persist(run: run)
+            journal("refresh-succeeded", [
+                "schema": "directory.request.v1",
+                "revision": String(directory.revision),
+                "bindings": String(directory.devices.count),
+                "expires_in_s": String(directory.permissionExpiresAt - Int(dependencies.now().timeIntervalSince1970)),
+            ])
             return directory
         }
         throw V2ControlFailure.server(V2ErrorResponse(code: .revisionConflict, requestID: "directory-refresh", retryable: true, retryAfterMS: 1000, schemaID: .errorV1))

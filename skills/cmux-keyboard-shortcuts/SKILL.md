@@ -81,6 +81,8 @@ fi
 
 ## Preset templates
 
+Settings > Keyboard Shortcuts > Base Keymap (also "Base Keymap: ..." in the Command Palette) ships cmux, iTerm2, Terminal.app, and tmux-style presets. It previews the change, then writes only the overrides that differ from cmux defaults, keeps bindings the user set by hand (in `cmux.json` or legacy Settings UserDefaults), and lists macOS shortcut conflicts. Detection is stateless: a binding typed by hand that equals a preset's value for that action is treated as the preset's, so switching presets (including back to cmux) replaces or removes it. Point users there for those styles; use the templates below for the others.
+
 Apply action by action, never by overwriting the whole `shortcuts.bindings` object.
 
 ### Tmux Prefix
@@ -155,6 +157,19 @@ Workspaces and surfaces on distinct number and bracket lanes.
 "$CMUX_SETTINGS" set shortcuts.bindings.nextSurface 'cmd+shift+]'
 "$CMUX_SETTINGS" set shortcuts.bindings.prevSurface 'cmd+shift+['
 ```
+
+### Browser-Style Terminal Navigation
+
+For people who drive the terminal like a browser text field. Ctrl+W closes the surface at the shell prompt and still reaches vim, less, or tmux, because `terminalAlternateScreen` is true only while a full-screen app has the terminal. `terminalFocus` keeps Ctrl+W from closing a browser or sidebar surface, where `terminalAlternateScreen` reads false. Word and line motion come from two terminal settings rather than bindings.
+
+```bash
+"$CMUX_SETTINGS" set shortcuts.bindings.closeTab ctrl+w
+"$CMUX_SETTINGS" set shortcuts.when.closeTab '"terminalFocus && !terminalAlternateScreen"'
+"$CMUX_SETTINGS" set terminal.textEditingGestures true
+"$CMUX_SETTINGS" set terminal.textEditingCommandMovesByWord true
+```
+
+With both terminal settings on, Command and Option arrows move by word, Command and Option Delete delete by word, and Control+Left/Right move to line start and end. Warn that macOS reserves Control+Left/Right for switching Spaces until they are turned off in System Settings > Keyboard > Keyboard Shortcuts > Mission Control, that Ctrl+W no longer deletes a word at the prompt (Option+Delete still does), and that Cmd+Tab belongs to the macOS app switcher and cannot be rebound in cmux. Also warn that `textEditingCommandMovesByWord` gives up the line kill: Cmd+Delete becomes the word kill (Ctrl+W) and nothing is left bound to Ctrl+U, so `set terminal.textEditingCommandMovesByWord false` is the layout to use if deleting to the start of the line matters more than deleting by word. If the user works inside tmux, add `"$CMUX_SETTINGS" set terminal.textEditingGesturesInFullScreenApps true`, because tmux keeps the terminal on the alternate screen and gestures otherwise pass through; `!terminalAlternateScreen` likewise reads tmux as a full-screen app, so Ctrl+W reaches tmux instead of closing the surface.
 
 ### Browser Defaults Restore
 

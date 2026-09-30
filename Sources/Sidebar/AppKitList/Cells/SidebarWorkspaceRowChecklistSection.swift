@@ -25,7 +25,7 @@ final class SidebarRowChecklistSection: NSView {
     private var orderedLines: [SidebarRowChecklistItemLine] = []
     private var freeLines: [SidebarRowChecklistItemLine] = []
     private let addRow = SidebarRowChecklistAddRow()
-    private let popoverPresenter = SidebarRowSwiftUIPopoverPresenter()
+    let popoverPresenter = SidebarRowSwiftUIPopoverPresenter()
 
     private var model: SidebarWorkspaceRowModel?
     private var actions: SidebarAppKitRowActions?
@@ -487,16 +487,31 @@ final class SidebarRowChecklistSection: NSView {
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil, popoverPresenter.isShown {
             popoverAnchorDetachedWhilePresented = true
+            // Let the close this detach triggers finish without waiting on
+            // its animation, so the deferred re-present below always runs.
+            popoverPresenter.suppressCloseAnimationForAnchorDetach()
         }
         super.viewWillMove(toWindow: newWindow)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil, popoverPresenter.isShown {
-            // The popover survived the reparent, so a later close is a real
-            // click-away rather than a detach side effect.
-            popoverAnchorDetachedWhilePresented = false
+        if window != nil, popoverAnchorDetachedWhilePresented, popoverPresenter.isShown {
+            // The popover may have survived the reparent, in which case a
+            // later close is a real click-away rather than a detach side
+            // effect. Decide once the reattach settles: an animated popover
+            // stays `isShown` while its detach-induced close animates, and
+            // that close can finish after the anchor is back in the window.
+            let generation = popoverPresentationGeneration
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      self.popoverPresentationGeneration == generation,
+                      self.window != nil,
+                      self.popoverPresenter.isShown,
+                      !self.popoverPresenter.isClosing else { return }
+                self.popoverAnchorDetachedWhilePresented = false
+                self.popoverPresenter.restoreCloseAnimationAfterAnchorReattach()
+            }
         }
         if window != nil, pendingPopoverPresentation {
             needsLayout = true

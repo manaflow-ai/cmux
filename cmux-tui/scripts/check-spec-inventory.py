@@ -852,6 +852,18 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "composite",
         "route": "self: close frontend transport; peer: detach-client",
     },
+    "SetSizeMode": {
+        "classification": "direct",
+        "route": "set-size-policy",
+    },
+    "SetSizeCounts": {
+        "classification": "direct",
+        "route": "set-size-counts participant",
+    },
+    "DisconnectSizeParticipant": {
+        "classification": "composite",
+        "route": "self: close frontend transport; peer: detach-client participant",
+    },
     "SelectProviderScope": {
         "classification": "external-protocol",
         "route": "machine-provider select_scope",

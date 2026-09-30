@@ -602,6 +602,86 @@ enum BrowserAvailabilitySettings {
         defaults.set(disabled, forKey: disabledKey)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
+
+    /// Whether the UI should offer a browser-*creating* affordance at all.
+    ///
+    /// Every browser action already refuses when the browser is disabled, but
+    /// the affordances that reach those actions were gated one at a time, so
+    /// disabling the browser left inert buttons and menu items behind (issue
+    /// #10866). Affordances resolve visibility here, against the same value
+    /// the action consults, so the two gates cannot drift apart.
+    ///
+    /// Creation only. Controls that drive an already-open browser panel (Back,
+    /// Reload, developer tools) must stay visible: the user-level toggle does
+    /// not close live panels — only the managed policy does, through
+    /// `closeBrowserPanelsForManagedPolicy()` — so hiding them would strand a
+    /// working panel with no way to navigate it.
+    static func offersBrowserAffordance(isEnabled: Bool) -> Bool {
+        isEnabled
+    }
+}
+
+/// The single owner of "browser availability changed" for the whole app.
+///
+/// The gate is mutated through entrypoints that signal differently: the
+/// palette and MDM policy post ``BrowserAvailabilitySettings/didChangeNotification``,
+/// the Settings toggle writes defaults directly, and the CLI writes from
+/// another process (seen on activation at the latest). Each consumer used to
+/// observe all three itself, which both duplicated the state and made every
+/// unrelated `UserDefaults` write rebuild live tab-bar button models.
+///
+/// This type observes those sources once, tracks the resolved value, and
+/// re-broadcasts only when it actually changes. It owns *when* availability
+/// changed; ``BrowserAvailabilitySettings/isEnabled(defaults:)`` stays the one
+/// owner of *what* the value is, so a consumer reading on redraw can never see
+/// a stale cache.
+@MainActor
+final class BrowserAvailabilityMonitor {
+    static let shared = BrowserAvailabilityMonitor()
+
+    /// Posted only when the resolved availability differs from the last value.
+    static let didChangeNotification = Notification.Name(
+        "cmux.browserAvailabilityMonitorDidChange"
+    )
+
+    private(set) var isEnabled: Bool
+    private var observers: [NSObjectProtocol] = []
+
+    /// Brings the lazy singleton up. Consumers observe
+    /// ``didChangeNotification`` rather than touching ``shared``, so without
+    /// an explicit start nothing would ever construct the watcher.
+    func activate() {}
+
+    /// - Parameter notificationCenter: injectable so a test can drive the
+    ///   underlying signals without touching the app-wide center.
+    init(notificationCenter: NotificationCenter = .default) {
+        isEnabled = BrowserAvailabilitySettings.isEnabled()
+        observers = [
+            BrowserAvailabilitySettings.didChangeNotification,
+            UserDefaults.didChangeNotification,
+            NSApplication.didBecomeActiveNotification,
+        ].map { name in
+            notificationCenter.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.reevaluate(notificationCenter: notificationCenter)
+                }
+            }
+        }
+    }
+
+    /// Re-reads the gate and broadcasts only a real transition, so an
+    /// unrelated defaults write costs one boolean read instead of a rebuild
+    /// in every observer.
+    private func reevaluate(notificationCenter: NotificationCenter) {
+        let resolved = BrowserAvailabilitySettings.isEnabled()
+        guard resolved != isEnabled else { return }
+        isEnabled = resolved
+        notificationCenter.post(name: Self.didChangeNotification, object: self)
+    }
 }
 
 enum BrowserInsecureHTTPSettings {
@@ -754,6 +834,9 @@ func browserNewTabNavigationSeed(
 /// Mirrors the opener's WebKit browsing context for popup windows.
 struct BrowserPopupBrowserContext {
     let websiteDataStore: WKWebsiteDataStore
+    /// Mirrors ``BrowserPanel/refusesProxyAuthenticationChallenges`` for
+    /// popups sharing the opener's proxied store.
+    let refusesProxyAuthenticationChallenges: Bool
 }
 
 enum BrowserFileSystemAccessBridge {
@@ -1993,6 +2076,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Saved Cloud path waiting for a provider/resource to become available.
     /// It is consumed after the first successful authenticated configuration.
     var pendingCloudRestoreURL: URL?
+    /// The team that owns this pane's Cloud machine, restored from a snapshot.
+    /// Kept so a pane of another team re-persists its own team, not the selection.
+    var restoredCloudTeamID: String?
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -2003,6 +2089,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     var webView: WKWebView
+    private(set) var localFileEncodingPolicy: BrowserLocalFileEncodingPolicy
     private let surfaceSelectionReader = WebSurfaceSelectionReader()
     let viewportHostView = BrowserViewportHostView(frame: .zero)
     let viewportModel = BrowserViewportModel()
@@ -2819,7 +2906,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Popups inherit this panel's exact WebKit storage context.
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            refusesProxyAuthenticationChallenges: refusesProxyAuthenticationChallenges
         )
     }
 
@@ -3126,6 +3214,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func bindWebView(_ webView: CmuxWebView) {
+        localFileEncodingPolicy = BrowserLocalFileEncodingPolicy(
+            preferences: webView.configuration.preferences
+        )
         webViewObservationGeneration &+= 1
         browserViewportHostRestorationTask?.cancel()
         browserViewportHostRestorationTask = nil
@@ -3631,6 +3722,9 @@ final class BrowserPanel: Panel, ObservableObject {
             )
         }
         self.webView = webView
+        self.localFileEncodingPolicy = BrowserLocalFileEncodingPolicy(
+            preferences: webView.configuration.preferences
+        )
         self.insecureHTTPAlertFactory = { NSAlert() }
         mobileBrowserDialogBroker.onPresented = { [weak self] dialog in
             guard let self, !self.mobileBrowserStreamSignalHandlers.isEmpty else { return }
@@ -4125,6 +4219,13 @@ final class BrowserPanel: Panel, ObservableObject {
         resumePendingRemoteNavigationIfNeeded()
     }
 
+    /// Remote and cloud panes route only through cmux proxies that carry
+    /// their credential, so a proxy challenge there is refused rather than
+    /// shown to the user.
+    var refusesProxyAuthenticationChallenges: Bool {
+        usesRemoteWorkspaceProxy || cloudBrowserMachineID != nil
+    }
+
     func setRemoteWorkspaceStatus(_ status: BrowserRemoteWorkspaceStatus?) {
         guard remoteWorkspaceStatus != status else { return }
         remoteWorkspaceStatus = status
@@ -4149,18 +4250,33 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
+        guard let configurations = Self.remoteWorkspaceProxyConfigurations(for: endpoint) else {
+            store.proxyConfigurations = []
+            return
+        }
+        store.proxyConfigurations = [configurations.socks, configurations.connect]
+    }
+
+    /// SOCKS5 and HTTP CONNECT configurations for the remote workspace proxy,
+    /// each carrying the tunnel credential the listener requires; nil when
+    /// the endpoint is unusable.
+    private static func remoteWorkspaceProxyConfigurations(
+        for endpoint: BrowserProxyEndpoint
+    ) -> (socks: ProxyConfiguration, connect: ProxyConfiguration)? {
         let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !host.isEmpty,
               endpoint.port > 0 && endpoint.port <= 65535,
               let nwPort = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else {
-            store.proxyConfigurations = []
-            return
+            return nil
         }
 
         let nwEndpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
         let socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
         let connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
-        store.proxyConfigurations = [socks, connect]
+        let credential = endpoint.credential
+        socks.applyCredential(username: credential.username, password: credential.password)
+        connect.applyCredential(username: credential.username, password: credential.password)
+        return (socks, connect)
     }
 
     private func beginDownloadActivity() {
@@ -4543,6 +4659,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
         currentURL = restoredURL
         if let resource = snapshot.cloudResource {
+            restoredCloudTeamID = snapshot.cloudTeamID
+            if let machineID = resource.machine.cloudMachineID {
+                CmuxTuiSurfaceProviderRegistry.shared.adoptOwnerTeam(snapshot.cloudTeamID, forMachineID: machineID)
+            }
             restoreCloudResource(resource, preferredURL: restoredURL, activate: shouldRenderRestoredWebView)
             if !shouldRenderRestoredWebView { shouldRenderWebView = false; refreshNavigationAvailability() }
             return
@@ -5428,10 +5548,8 @@ final class BrowserPanel: Panel, ObservableObject {
         if cloudAccess.model != nil && cloudAccess.owns(url) {
             if cloudAccess.model?.isReady != true { return nil }
             prepareCloudBrowserNavigation()
-        } else if let provider = SurfaceCatalog.shared.machines.values.first(where: {
-            $0.privateAddress?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")) == url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        }).flatMap({ SurfaceCatalog.shared.provider(for: $0.id) as? CmuxTuiSurfaceProvider }),
-                  ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+        } else if ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                  let provider = privateAddressRouteProvider(for: url) {
             provider.configureBrowser(self, url: url)
             return nil
         } else {
@@ -5645,20 +5763,23 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func remoteProxyURLSession() -> URLSession? {
-        guard let endpoint = remoteProxyEndpoint else { return nil }
-        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty, endpoint.port > 0, endpoint.port <= 65535 else { return nil }
+        guard let endpoint = remoteProxyEndpoint,
+              let proxyConfigurations = Self.remoteWorkspaceProxyConfigurations(for: endpoint) else {
+            return nil
+        }
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .returnCacheDataElseLoad
         configuration.timeoutIntervalForRequest = 2.0
         configuration.timeoutIntervalForResource = 4.0
-        configuration.connectionProxyDictionary = [
-            kCFNetworkProxiesSOCKSEnable as String: 1,
-            kCFNetworkProxiesSOCKSProxy as String: host,
-            kCFNetworkProxiesSOCKSPort as String: endpoint.port,
-        ]
-        return URLSession(configuration: configuration)
+        // SOCKS only, as before; the legacy proxy dictionary cannot carry
+        // the listener's credential.
+        configuration.proxyConfigurations = [proxyConfigurations.socks]
+        return URLSession(
+            configuration: configuration,
+            delegate: ManagedProxySessionDelegate(),
+            delegateQueue: nil
+        )
     }
 
     private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
@@ -10285,129 +10406,8 @@ enum BrowserImportUITestFixtureLoader {
 }
 #endif
 
-@MainActor
-final class BrowserDataImportCoordinator {
-    static let shared = BrowserDataImportCoordinator()
-
-    private var importInProgress = false
-
-    /// Held detector instance; the coordinator detects and summarizes installed
-    /// browsers through this rather than the former `BrowserInstalledBrowserDetector`
-    /// static namespace.
-    private let installedBrowserDetector = BrowserInstalledBrowserDetector()
-
-    private init() {}
-
-    func presentImportDialog(
-        defaultDestinationProfileID: UUID? = nil,
-        defaultScope: BrowserImportScope? = nil
-    ) {
-        presentImportDialog(
-            prefilledBrowsers: nil,
-            defaultDestinationProfileID: defaultDestinationProfileID,
-            defaultScope: defaultScope
-        )
-    }
-
-    private struct ImportSelection {
-        let browser: InstalledBrowserCandidate
-        let executionPlan: BrowserImportExecutionPlan
-        let scope: BrowserImportScope
-        let domainFilters: [String]
-    }
-
-    private func presentImportDialog(
-        prefilledBrowsers: [InstalledBrowserCandidate]?,
-        defaultDestinationProfileID: UUID?,
-        defaultScope: BrowserImportScope?
-    ) {
-        guard !importInProgress else { return }
-#if DEBUG
-        let environment = ProcessInfo.processInfo.environment
-        let fixtureBrowsers = BrowserImportUITestFixtureLoader.browsers(from: environment)
-        let fixtureDestinationProfiles = BrowserImportUITestFixtureLoader.destinationProfiles(from: environment)
-        let browsers = prefilledBrowsers ?? fixtureBrowsers ?? installedBrowserDetector.detectInstalledBrowsers()
-#else
-        let fixtureDestinationProfiles: [BrowserProfileDefinition]? = nil
-        let browsers = prefilledBrowsers ?? installedBrowserDetector.detectInstalledBrowsers()
-#endif
-        guard !browsers.isEmpty else {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = String(
-                localized: "browser.import.noBrowsers.title",
-                defaultValue: "No importable browsers found"
-            )
-            alert.informativeText = String(
-                localized: "browser.import.noBrowsers.message",
-                defaultValue: "cmux could not find browser profiles to import from on this Mac."
-            )
-            alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-            alert.runModal()
-            return
-        }
-
-        guard let selection = promptForSelection(
-            browsers: browsers,
-            destinationProfiles: fixtureDestinationProfiles,
-            defaultDestinationProfileID: defaultDestinationProfileID,
-            defaultScope: defaultScope
-        ) else { return }
-
-#if DEBUG
-        if captureSelectionIfRequested(selection, destinationProfiles: fixtureDestinationProfiles) {
-            return
-        }
-#endif
-        let realizedPlan: RealizedBrowserImportExecutionPlan
-        do {
-            realizedPlan = try BrowserImportPlanResolver.realize(plan: selection.executionPlan)
-        } catch {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = String(
-                localized: "browser.import.error.title",
-                defaultValue: "Import could not start"
-            )
-            alert.informativeText = error.localizedDescription
-            alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-            alert.runModal()
-            return
-        }
-        importInProgress = true
-
-        let progressWindow = showProgressWindow(
-            title: String(
-                localized: "browser.import.progress.title",
-                defaultValue: "Importing Browser Data"
-            ),
-            message: String(
-                format: String(
-                    localized: "browser.import.progress.message",
-                    defaultValue: "Importing %@ from %@…"
-                ),
-                selection.scope.displayName.lowercased(),
-                selection.browser.displayName
-            )
-        )
-
-        Task.detached(priority: .userInitiated) {
-            let outcome = await BrowserDataImporter.importData(
-                from: selection.browser,
-                plan: realizedPlan,
-                scope: selection.scope,
-                domainFilters: selection.domainFilters
-            )
-
-            await MainActor.run {
-                self.hideProgressWindow(progressWindow)
-                self.presentOutcome(outcome)
-                self.importInProgress = false
-            }
-        }
-    }
-
-    private func promptForSelection(
+extension BrowserDataImportCoordinator {
+    func promptForSelection(
         browsers: [InstalledBrowserCandidate],
         destinationProfiles: [BrowserProfileDefinition]?,
         defaultDestinationProfileID: UUID?,
@@ -10423,96 +10423,7 @@ final class BrowserDataImportCoordinator {
         return wizard.runModal()
     }
 
-#if DEBUG
-    func debugMakeImportWizardWindow(
-        browsers: [InstalledBrowserCandidate],
-        destinationProfiles: [BrowserProfileDefinition]? = nil,
-        defaultDestinationProfileID: UUID? = nil,
-        defaultScope: BrowserImportScope? = nil
-    ) -> NSWindow {
-        let wizard = ImportWizardWindowController(
-            browsers: browsers,
-            destinationProfiles: destinationProfiles,
-            defaultDestinationProfileID: defaultDestinationProfileID,
-            defaultScope: defaultScope
-        )
-        return wizard.debugPanelWindow
-    }
-#endif
 
-#if DEBUG
-    private struct CapturedImportSelection: Encodable {
-        struct Entry: Encodable {
-            let sourceProfiles: [String]
-            let destinationKind: String
-            let destinationName: String
-        }
-
-        let browserName: String
-        let mode: String
-        let scope: String
-        let domainFilters: [String]
-        let entries: [Entry]
-    }
-
-    private func captureSelectionIfRequested(
-        _ selection: ImportSelection,
-        destinationProfiles: [BrowserProfileDefinition]?
-    ) -> Bool {
-        let environment = ProcessInfo.processInfo.environment
-        guard environment["CMUX_UI_TEST_BROWSER_IMPORT_MODE"] == "capture-only" else { return false }
-        guard let path = environment["CMUX_UI_TEST_BROWSER_IMPORT_CAPTURE_PATH"], !path.isEmpty else {
-            return true
-        }
-
-        let availableDestinationProfiles = destinationProfiles ?? BrowserProfileStore.shared.profiles
-        let payload = CapturedImportSelection(
-            browserName: selection.browser.displayName,
-            mode: captureModeName(selection.executionPlan.mode),
-            scope: selection.scope.rawValue,
-            domainFilters: selection.domainFilters,
-            entries: selection.executionPlan.entries.map { entry in
-                let destinationKind: String
-                let destinationName: String
-                switch entry.destination {
-                case .existing(let id):
-                    destinationKind = "existing"
-                    destinationName = availableDestinationProfiles.first(where: { $0.id == id })?.displayName
-                        ?? BrowserProfileStore.shared.displayName(for: id)
-                case .createNamed(let name):
-                    destinationKind = "create"
-                    destinationName = name
-                }
-                return CapturedImportSelection.Entry(
-                    sourceProfiles: entry.sourceProfiles.map(\.displayName),
-                    destinationKind: destinationKind,
-                    destinationName: destinationName
-                )
-            }
-        )
-
-        guard let data = try? JSONEncoder().encode(payload) else { return true }
-        let url = URL(fileURLWithPath: path)
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
-        try? data.write(to: url)
-        return true
-    }
-
-    private func captureModeName(_ mode: BrowserImportDestinationMode) -> String {
-        switch mode {
-        case .singleDestination:
-            return "singleDestination"
-        case .separateProfiles:
-            return "separateProfiles"
-        case .mergeIntoOne:
-            return "mergeIntoOne"
-        }
-    }
-#endif
 
     @MainActor
     private final class ImportWizardWindowController: NSObject, @preconcurrency NSWindowDelegate {
@@ -11548,7 +11459,7 @@ final class BrowserDataImportCoordinator {
         }
     }
 
-    private func showProgressWindow(title: String, message: String) -> NSWindow {
+    func showProgressWindow(title: String, message: String) -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 122),
             styleMask: [.titled],
@@ -11599,7 +11510,7 @@ final class BrowserDataImportCoordinator {
         return window
     }
 
-    private func hideProgressWindow(_ window: NSWindow) {
+    func hideProgressWindow(_ window: NSWindow) {
         if let parent = window.sheetParent {
             parent.endSheet(window)
         } else {
@@ -11607,7 +11518,7 @@ final class BrowserDataImportCoordinator {
         }
     }
 
-    private func presentOutcome(_ outcome: BrowserImportOutcome) {
+    func presentOutcome(_ outcome: BrowserImportOutcome) {
         let lines = outcome.formattedLines
         let alert = NSAlert()
         alert.alertStyle = .informational
