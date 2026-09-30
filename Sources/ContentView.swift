@@ -2574,6 +2574,10 @@ struct ContentView: View {
         // mismatch when @LiveSetting initializes.
         _ = leftSidebarCustomSidebarsExperimentalEnabled
         _ = leftSidebarConversationSidebarExperimentalEnabled
+        let conversationReleaseEnabled = featureFlags.isConversationSidebarAvailable
+        let conversationSidebarEnabled =
+            CmuxExtensionSidebarSelection.conversationSidebarEnabled
+            && conversationReleaseEnabled
         return CmuxExtensionSidebarSelection.effectiveProviderId(
             selectedLeftSidebarProviderId,
             extensionsEnabled: leftSidebarExtensionsExperimentalEnabled,
