@@ -13,6 +13,9 @@ final class CloudSurfaceDropRollback {
     /// A tab drop changes the target pane's selected tab; a split drop adds a pane.
     let destinationPaneID: PaneID?
     let previousDestinationPanelID: UUID?
+    /// Panes this drop reserved, in drop order. A surviving one keeps the drop's
+    /// place when a sibling rolls back.
+    private(set) var memberPanelIDs: [UUID] = []
 
     init(
         workspace: Workspace,
@@ -30,17 +33,35 @@ final class CloudSurfaceDropRollback {
         }
     }
 
-    /// Reselects what the removed pane displaced. Focus returns to the pre-drop
-    /// panel only when the removed pane held it; otherwise the user's current
-    /// focus is kept even though restoring a tab selection moves Bonsplit focus.
-    func restore(in workspace: Workspace, removedPanelWasFocused: Bool, focusBeforeRemoval: UUID?) {
-        if let paneID = destinationPaneID, let panelID = previousDestinationPanelID,
-           workspace.paneId(forPanelId: panelID) == paneID,
-           let tab = workspace.surfaceIdFromPanelId(panelID),
-           workspace.bonsplitController.selectedTab(inPane: paneID)?.id != tab {
-            workspace.bonsplitController.selectTab(tab)
+    func admit(_ panelID: UUID) { memberPanelIDs.append(panelID) }
+
+    /// Whether `panelID` is the tab the drop's target pane shows. Read before it closes.
+    func isDestinationSelection(_ panelID: UUID, in workspace: Workspace) -> Bool {
+        guard let paneID = destinationPaneID, let tab = workspace.surfaceIdFromPanelId(panelID) else { return false }
+        return workspace.bonsplitController.selectedTab(inPane: paneID)?.id == tab
+    }
+
+    /// Reselects what the removed pane displaced: a sibling from the same drop
+    /// that is still there, otherwise the pre-drop tab. Focus moves only when the
+    /// removed pane held it; otherwise the user's current focus is kept even
+    /// though restoring a tab selection moves Bonsplit focus.
+    func restore(
+        in workspace: Workspace,
+        removing removedPanelID: UUID,
+        wasSelected: Bool,
+        wasFocused: Bool,
+        focusBeforeRemoval: UUID?
+    ) {
+        let survivor = memberPanelIDs.first { $0 != removedPanelID && workspace.panels[$0] != nil }
+        if wasSelected, let paneID = destinationPaneID {
+            let replacement = [survivor, previousDestinationPanelID].compactMap { $0 }
+                .first { workspace.paneId(forPanelId: $0) == paneID }
+            if let replacement, let tab = workspace.surfaceIdFromPanelId(replacement),
+               workspace.bonsplitController.selectedTab(inPane: paneID)?.id != tab {
+                workspace.bonsplitController.selectTab(tab)
+            }
         }
-        let target = removedPanelWasFocused ? previousFocusedPanelID : focusBeforeRemoval
+        let target = wasFocused ? survivor ?? previousFocusedPanelID : focusBeforeRemoval
         guard let target, workspace.panels[target] != nil, workspace.focusedPanelId != target else { return }
         workspace.focusPanel(target)
     }
@@ -61,6 +82,7 @@ extension SurfaceCatalog.OptimisticPaneHost {
                       let reservation = workspace.reserveCloudTerminalPane(machine: machine, at: destination, focus: focus)
                 else { return nil }
                 reservation.dropRollback = rollback
+                rollback.admit(reservation.panelID)
                 return reservation
             },
             attach: { [weak workspace] reservation, resource, remoteTabID in
@@ -75,13 +97,15 @@ extension SurfaceCatalog.OptimisticPaneHost {
 extension SurfaceCatalog {
     /// The pane already showing this placement in `workspaceID`, pending or attached.
     /// A display counts once per workspace; a terminal matches its exact remote tab.
+    /// A resource on this Mac has no second view: dropping it moves its one pane.
     func openProjection(
         of id: SurfaceResourceID,
         remoteView: SurfaceRemoteView?,
         in workspaceID: UUID,
         paneLookup: PaneLookup
     ) -> SurfaceProjection? {
-        projections.first { projection in
+        guard !id.machine.isLocal else { return nil }
+        return projections.first { projection in
             guard projection.resource == id, projection.workspaceID == workspaceID,
                   paneLookup(projection.panelID, workspaceID) != nil else { return false }
             guard let remoteView, id.kind == .terminal else { return true }
@@ -101,6 +125,7 @@ extension SurfaceCatalog {
     ) -> SurfaceProjection? {
         guard member.resource.machine.tuiMachineID != nil,
               let resource = resources[member.resource], resource.kind == .terminal,
+              !isDeletingCloudResource(resource.id, remoteWorkspaceID: remoteView?.workspace.id),
               let reservation = host.reserve(resource.machine, destination, focus) else { return nil }
         let projection = recordReservedProjection(reservation, placement: member, remoteView: remoteView)
         host.attach(reservation, resource, remoteView?.tabID)
@@ -140,10 +165,11 @@ extension Workspace {
                 let attached = try await provider.materialize(
                     resource, remoteView: remoteView, at: destination, focus: false, adopting: reservation
                 )
-                // A late answer (the pane closed, sign-out, another team's provider)
-                // or one for a different placement never binds the pane.
+                // A late answer (the pane closed, sign-out, another team's provider,
+                // a delete in flight) or one for another placement never binds the pane.
                 guard !Task.isCancelled, self.cloudPendingCreations[panelID] === reservation,
                       catalog.provider(for: resource.machine) === provider,
+                      !catalog.isDeletingCloudResource(resource.id, remoteWorkspaceID: remoteView?.workspace.id),
                       attached.panelID == panelID, attached.resource == resource.id, attached.workspaceID == self.id,
                       remoteView == nil || attached.remoteTabID == nil || attached.remoteTabID == remoteView?.tabID else {
                     if attached.panelID == panelID {
@@ -186,12 +212,16 @@ extension Workspace {
         reservation.retry = nil
         cancel?()
         let focusBeforeRemoval = focusedPanelId
+        let wasSelected = rollback.isDestinationSelection(panelID, in: self)
         let catalog = rollback.catalog ?? SurfaceCatalog.shared
         catalog.endProjections(panelID: panelID, reason: .replaced)
         catalog.withProjectionEndReason(for: [panelID], reason: .replaced) {
             _ = closePanel(panelID, force: true)
         }
-        rollback.restore(in: self, removedPanelWasFocused: focusBeforeRemoval == panelID, focusBeforeRemoval: focusBeforeRemoval)
+        rollback.restore(
+            in: self, removing: panelID, wasSelected: wasSelected,
+            wasFocused: focusBeforeRemoval == panelID, focusBeforeRemoval: focusBeforeRemoval
+        )
         return true
     }
 }

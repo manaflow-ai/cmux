@@ -144,6 +144,41 @@ struct CloudSurfaceDropOptimisticTests {
         }
     }
 
+    @Test("Rolling back one member never hides a sibling from the same drop that attached")
+    func partialFailureKeepsAttachedSibling() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let d = try DropFixture(neighborPane: true)
+            defer { d.close() }
+            d.f.provider.gate = CloudLinkFirstValue<Bool>()
+            d.f.provider.failTabID = "tab-two"
+            defer { d.f.provider.gate?.resolve(true) }
+            #expect(d.drop(try d.f.row(), at: .tab))
+            #expect(await d.f.provider.started.result == true)
+            let lead = try #require(d.catalog.projections.first { $0.remoteTabID == "tab-one" }).panelID
+            let neighbor = try #require(d.neighbor)
+            d.workspace.focusPanel(neighbor)
+
+            d.f.provider.gate?.resolve(true)
+            try await d.waitUntil { d.workspace.cloudPendingCreations.isEmpty }
+            #expect(d.catalog.projections.map(\.panelID) == [lead])
+            #expect(d.workspace.bonsplitController.selectedTab(inPane: d.pane)?.id == d.workspace.surfaceIdFromPanelId(lead))
+            #expect(d.workspace.focusedPanelId == neighbor)
+        }
+    }
+
+    @Test("A resource on this Mac is never treated as already open, so its drop still moves it")
+    func localResourceIsNeverReused() {
+        let catalog = SurfaceCatalog()
+        let workspaceID = UUID()
+        let local = SurfaceResourceID(machine: .local, kind: .terminal, key: "local-shell")
+        let cloud = SurfaceResourceID(machine: .cloud("drop-reuse"), kind: .terminal, key: "term")
+        catalog.record(SurfaceProjection(resource: local, workspaceID: workspaceID, panelID: UUID()))
+        catalog.record(SurfaceProjection(resource: cloud, workspaceID: workspaceID, panelID: UUID()))
+        let lookup: SurfaceCatalog.PaneLookup = { _, _ in "pane" }
+        #expect(catalog.openProjection(of: local, remoteView: nil, in: workspaceID, paneLookup: lookup) == nil)
+        #expect(catalog.openProjection(of: cloud, remoteView: nil, in: workspaceID, paneLookup: lookup) != nil)
+    }
+
     @Test("A dropped Cloud workspace reserves every terminal before any attach answers")
     func workspaceDropReservesEveryTerminal() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
@@ -178,12 +213,14 @@ private final class DropFixture {
     let panelCount: Int
     let layout: [String]
     let focused: UUID?
+    /// A terminal in a second pane beside the drop target, when requested.
+    let neighbor: UUID?
 
     var catalog: SurfaceCatalog { f.base.catalog }
 
     /// `secondTab` adds a later tab while the first stays selected, so a rollback
     /// must restore the pane's selection rather than accept Bonsplit's neighbor.
-    init(secondTab: Bool = false) throws {
+    init(secondTab: Bool = false, neighborPane: Bool = false) throws {
         f = try CloudWorkspaceRowOpenFixture()
         workspace = try #require(f.base.manager.workspacesById[f.base.originalWorkspaceID])
         workspace.bonsplitController.setContainerFrame(CGRect(x: 0, y: 0, width: 1_000, height: 700))
@@ -196,6 +233,10 @@ private final class DropFixture {
             )
             workspace.focusPanel(original)
         }
+        neighbor = neighborPane ? try SurfacePaneFactory.makeTerminalPane(
+            initialCommand: nil, workingDirectory: nil,
+            at: .split(workspaceID: workspace.id, paneID: pane.id.uuidString, direction: .right), focus: false
+        ).panelID : nil
         panelCount = workspace.panels.count
         layout = Self.shape(workspace.bonsplitController.treeSnapshot())
         focused = workspace.focusedPanelId

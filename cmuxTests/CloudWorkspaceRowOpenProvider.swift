@@ -20,6 +20,8 @@ final class CloudWorkspaceRowOpenProvider: SurfaceProvider {
     var remoteCloses = 0
     /// Answers with this tab instead of the requested one, like a stale daemon reply.
     var answeredTabID: String?
+    /// Fails the attachment of this tab only.
+    var failTabID: String?
     /// Binds the attachment to the reserved pane, as the Cloud provider does.
     var adoptsTerminalReservations: Bool { true }
 
@@ -46,6 +48,7 @@ final class CloudWorkspaceRowOpenProvider: SurfaceProvider {
         started.resolve(true)
         if let gate { _ = await gate.result }
         if materializations == failAt { throw CloudDiagnosticFailure.conflict }
+        if let failTabID, remoteView?.tabID == failTabID { throw CloudDiagnosticFailure.conflict }
         let pane: (workspaceID: UUID, panelID: UUID)
         if let reservation {
             pane = (reservation.workspaceID, reservation.panelID)

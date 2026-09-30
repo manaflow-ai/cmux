@@ -150,7 +150,7 @@ final class SurfaceCatalog {
     // MARK: Providers
     func register(_ provider: any SurfaceProvider) {
         if let previous = providers[provider.machine], previous !== provider {
-            cloudWorkspaceCreationCoordinator.cancel(machine: provider.machine)
+            cloudWorkspaceCreationCoordinator.cancel(machine: provider.machine); rollBackCloudSurfaceDrops(on: provider.machine)
             cloudWorkspaceProjectionCoordinator.cancel(machine: provider.machine)
             let inFlightKeys = inFlightProjects.keys.filter { $0.machine == provider.machine }
             for key in inFlightKeys {

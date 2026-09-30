@@ -135,10 +135,12 @@ extension SurfaceCatalog {
         var projected: [SurfaceProjection] = []
         var alreadyOpen: [SurfaceProjection] = []
         var firstError: Error?
-        var anchor: SurfaceDestination?
+        var anchor: (destination: SurfaceDestination, panelID: UUID)?
         for member in group.placements {
             // The first new resource takes the drop spot; the rest join its pane as tabs.
-            let target = anchor ?? destination
+            // A reserved lead that already rolled back hands the spot to the next one.
+            if let lead = anchor?.panelID, !projections.contains(where: { $0.panelID == lead }) { anchor = nil }
+            let target = anchor?.destination ?? destination
             do {
                 let remoteView = try resolveRemoteView(
                     for: member,
@@ -168,9 +170,9 @@ extension SurfaceCatalog {
                 projected.append(lead)
                 if anchor == nil {
                     if let paneID = paneLookup(lead.panelID, lead.workspaceID) {
-                        anchor = .tab(workspaceID: lead.workspaceID, paneID: paneID, index: nil)
+                        anchor = (.tab(workspaceID: lead.workspaceID, paneID: paneID, index: nil), lead.panelID)
                     } else {
-                        anchor = .workspace(id: lead.workspaceID, placement: .tab)
+                        anchor = (.workspace(id: lead.workspaceID, placement: .tab), lead.panelID)
                     }
                 }
             } catch {

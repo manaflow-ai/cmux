@@ -64,7 +64,8 @@ extension Workspace {
                 // the window's recorded keyboard owner after AppKit completes the
                 // drop. Re-run the shared focus transaction once the first pane is
                 // materialized so its Bonsplit focus and bright active state agree.
-                if let first = projections.first {
+                // A reserved pane may already have rolled back; focus what remains.
+                if let first = projections.first(where: { catalog.projection(forPanel: $0.panelID) != nil }) {
                     SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID)
                 }
             } catch {
