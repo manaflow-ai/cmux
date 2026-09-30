@@ -23,6 +23,7 @@ struct NotificationFeedStoreView: View {
             projection: projection,
             refreshesOnAppear: isActive && !isSearchDestination,
             actions: actions,
+            isActive: isActive,
             isConfirmingMarkAllRead: $isConfirmingMarkAllRead,
             showsNavigationToolbar: showsNavigationToolbar
         )

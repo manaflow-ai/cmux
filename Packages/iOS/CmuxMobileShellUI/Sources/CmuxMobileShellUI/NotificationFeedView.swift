@@ -64,11 +64,12 @@ struct NotificationFeedView: View {
                 feed
             }
         }
-        .task {
+        .task(id: isActive) {
             guard isActive, refreshesOnAppear else { return }
             await actions.refresh()
         }
         .onChange(of: projection.filter) { _, filter in
+            guard isActive else { return }
             actions.filterChanged(filter)
         }
         .accessibilityIdentifier("MobileNotificationFeed")
