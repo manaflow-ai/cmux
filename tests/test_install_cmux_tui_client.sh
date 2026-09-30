@@ -20,8 +20,15 @@ trap 'report_failure "$LINENO"' ERR
 APP="$TEST_DIR/Test.app"
 mkdir -p "$APP/Contents"
 CLIENT="$TEST_DIR/client"
+# One binary: invoked as acpmux (argv[0]) it answers acpmux --version, as in
+# cmux-tui's main.rs.
 cat > "$CLIENT" <<'SH'
 #!/bin/sh
+if [ "$(basename "$0")" = acpmux ]; then
+  [ "$1" = --version ] || exit 64
+  printf '%s\n' 'acpmux 0.1.0 (test)'
+  exit 0
+fi
 [ "$1" = remote-probe ] && [ "$2" = --json ] || exit 64
 printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability"]}'
 SH
@@ -34,8 +41,25 @@ install_client() {
     "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$APP" "$@"
 }
 
+assert_layout() { # <app>: bin/cmux is the file, cmux-tui and acpmux link to it
+  local bin="$1/Contents/Resources/bin" name
+  [ -f "$bin/cmux" ] && [ ! -L "$bin/cmux" ]
+  for name in cmux-tui acpmux; do
+    [ -L "$bin/$name" ] && [ "$(readlink "$bin/$name")" = cmux ]
+  done
+}
+
 install_client
-cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux-tui"
+cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux"
+assert_layout "$APP"
+# A reinstall over an earlier layout (a real bin/cmux-tui and bin/acpmux)
+# replaces both files with the symlinks.
+rm "$APP/Contents/Resources/bin/cmux-tui" "$APP/Contents/Resources/bin/acpmux"
+cp "$CLIENT" "$APP/Contents/Resources/bin/cmux-tui"
+cp "$CLIENT" "$APP/Contents/Resources/bin/acpmux"
+install_client
+assert_layout "$APP"
+echo "PASS: bin/cmux is the binary; cmux-tui and acpmux are relative symlinks to it"
 install_client --require-capability wireguard-hub
 install_client --require-capability wireguard-hub --require-capability test-capability
 if install_client --require-capability wireguard-hub --require-capability missing > "$TEST_DIR/missing.log" 2>&1; then
@@ -48,7 +72,7 @@ echo "PASS: client installation with zero, one, and multiple required capabiliti
 # remains authoritative and is still capability-probed, even though it is a script.
 for arch in arm64 x86_64 universal; do
   install_client --arch "$arch" --require-capability wireguard-hub
-  cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux-tui"
+  cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux"
 done
 echo "PASS: local override stays unchanged for each architecture selection"
 
@@ -131,7 +155,7 @@ install_remote() { # <app> [installer options]
 ATTESTED_APP="$TEST_DIR/Attested.app"
 install_remote "$ATTESTED_APP" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
   --require-capability wireguard-hub > "$TEST_DIR/attested.log" 2>&1
-cmp "$CLIENT" "$ATTESTED_APP/Contents/Resources/bin/cmux-tui"
+cmp "$CLIENT" "$ATTESTED_APP/Contents/Resources/bin/cmux"
 grep -q "^gh attestation verify .*manifest.* --repo manaflow-ai/cmux --signer-workflow $SIGNER --source-digest $COMMIT\$" "$EVENTS"
 # The manifest is verified before any slice it names is fetched.
 [ "$(sed -n '1p' "$EVENTS")" = "curl https://files.example.test/cmux-tui/$COMMIT/manifest.json" ]
@@ -146,7 +170,7 @@ if FAKE_GH_EXIT=1 install_remote "$UNATTESTED_APP" --expected-commit "$COMMIT" -
   exit 1
 fi
 grep -q 'no valid build-provenance attestation for the cmux-tui manifest' "$TEST_DIR/unattested.log"
-[ ! -e "$UNATTESTED_APP/Contents/Resources/bin/cmux-tui" ]
+[ ! -e "$UNATTESTED_APP/Contents/Resources/bin/cmux" ]
 if grep -q 'apple-darwin' "$EVENTS"; then
   echo "FAIL: downloaded a slice named by an unverified manifest" >&2
   exit 1
@@ -166,7 +190,7 @@ echo "PASS: a malformed signer workflow is rejected before any download"
 # workflow is still required to have signed the manifest.
 DEFAULT_APP="$TEST_DIR/Default.app"
 install_remote "$DEFAULT_APP" --expected-commit "$COMMIT" > "$TEST_DIR/default.log" 2>&1
-cmp "$CLIENT" "$DEFAULT_APP/Contents/Resources/bin/cmux-tui"
+cmp "$CLIENT" "$DEFAULT_APP/Contents/Resources/bin/cmux"
 grep -q "^gh attestation verify .* --signer-workflow $SIGNER --source-digest $COMMIT\$" "$EVENTS"
 if FAKE_GH_EXIT=1 install_remote "$TEST_DIR/DefaultDenied.app" --expected-commit "$COMMIT" > "$TEST_DIR/default-denied.log" 2>&1; then
   echo "FAIL: a remote install without flags skipped attestation" >&2
@@ -178,7 +202,7 @@ echo "PASS: remote installs verify the publishing workflow's attestation by defa
 # Only the explicit local-development opt-out installs without gh, and it says so.
 OPT_OUT_APP="$TEST_DIR/OptOut.app"
 FAKE_GH_EXIT=1 install_remote "$OPT_OUT_APP" --allow-unattested > "$TEST_DIR/opt-out.log" 2>&1
-cmp "$CLIENT" "$OPT_OUT_APP/Contents/Resources/bin/cmux-tui"
+cmp "$CLIENT" "$OPT_OUT_APP/Contents/Resources/bin/cmux"
 grep -q 'warning: installing an unattested cmux-tui manifest' "$TEST_DIR/opt-out.log"
 if grep -q '^gh ' "$EVENTS"; then
   echo "FAIL: --allow-unattested still invoked gh" >&2
@@ -213,7 +237,7 @@ for arch in arm64 x86_64; do
   native_app="$TEST_DIR/Native-$arch.app"
   install_remote "$native_app" --arch "$arch" --expected-commit "$COMMIT" \
     --require-capability wireguard-hub > "$TEST_DIR/native-$arch.log" 2>&1
-  cmp "$SERVE/cmux-tui-$slice-apple-darwin" "$native_app/Contents/Resources/bin/cmux-tui"
+  cmp "$SERVE/cmux-tui-$slice-apple-darwin" "$native_app/Contents/Resources/bin/cmux"
   grep -q "^gh attestation verify .* --source-digest $COMMIT\$" "$EVENTS"
   grep -q "curl .*cmux-tui-$slice-apple-darwin\$" "$EVENTS"
   [[ "$(sed -n '2p' "$EVENTS" | cut -d' ' -f1-3)" == "gh attestation verify" ]]
@@ -249,7 +273,7 @@ for arch in arm64 x86_64; do
     echo "FAIL: native install ignored the selected slice digest" >&2; exit 1
   fi
   grep -q "sha256 mismatch for cmux-tui-$slice-apple-darwin" "$TEST_DIR/bad-digest.log"
-  [[ ! -e "$TEST_DIR/BadDigest-$arch.app/Contents/Resources/bin/cmux-tui" ]]
+  [[ ! -e "$TEST_DIR/BadDigest-$arch.app/Contents/Resources/bin/cmux" ]]
   mv "$TEST_DIR/original-slice" "$SERVE/cmux-tui-$slice-apple-darwin"
   echo "PASS: $arch keeps attestation, architecture, capability and digest checks"
 done
@@ -285,7 +309,7 @@ for scenario in apple-silicon intel rosetta sysctl-unavailable aarch64; do
   FAKE_HOST_ARCH="$host" FAKE_ARM_CAPABLE="$capable" FAKE_SYSCTL_EXIT="$sysctl_exit" \
     install_remote "$TEST_DIR/NativeHost-$scenario.app" --arch native \
     --require-capability wireguard-hub > "$TEST_DIR/native-host-$scenario.log" 2>&1
-  cmp "$SERVE/cmux-tui-$wanted-apple-darwin" "$TEST_DIR/NativeHost-$scenario.app/Contents/Resources/bin/cmux-tui"
+  cmp "$SERVE/cmux-tui-$wanted-apple-darwin" "$TEST_DIR/NativeHost-$scenario.app/Contents/Resources/bin/cmux"
   grep -q "curl .*cmux-tui-$wanted-apple-darwin\$" "$EVENTS"
   cmp "$SERVE/cmux-tui-$rejected-apple-darwin" "$TEST_DIR/NativeHost-$scenario.app/Contents/Resources/bin/cmux-tui-ssh/cmux-tui-$rejected-apple-darwin"
   echo "PASS: native $scenario selects $wanted"
@@ -296,85 +320,34 @@ fi
 [[ ! -s "$EVENTS" ]]
 echo "PASS: unsupported native host fails before network access"
 
-# --- acpmux daemon (native agent chat pane) -----------------------------------
-ACPMUX="$TEST_DIR/acpmux"
-cat > "$ACPMUX" <<'SH'
+# --- acpmux (linked into the binary, run through bin/acpmux) -----------------
+OLD_CLIENT="$TEST_DIR/old-client"
+cat > "$OLD_CLIENT" <<'SH'
 #!/bin/sh
-[ "$1" = --version ] || exit 64
-printf '%s\n' 'acpmux 0.1.0 (test)'
+[ "$1" = remote-probe ] && [ "$2" = --json ] || exit 64
+printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub"]}'
 SH
-chmod +x "$ACPMUX"
-cp "$ACPMUX" "$SERVE/cmux-tui-acpmux-aarch64-apple-darwin"
-cp "$ACPMUX" "$SERVE/cmux-tui-acpmux-x86_64-apple-darwin"
-printf '\n# Intel fixture\n' >> "$SERVE/cmux-tui-acpmux-x86_64-apple-darwin"
-ACPMUX_ARM_SHA="$(slice_sha "$SERVE/cmux-tui-acpmux-aarch64-apple-darwin")"
-ACPMUX_X64_SHA="$(slice_sha "$SERVE/cmux-tui-acpmux-x86_64-apple-darwin")"
-write_manifest() { # <with-acpmux: 0|1>
-  local acpmux_entries=""
-  if [ "$1" = 1 ]; then
-    acpmux_entries=",\"cmux-tui-acpmux-aarch64-apple-darwin\":\"$ACPMUX_ARM_SHA\",\"cmux-tui-acpmux-x86_64-apple-darwin\":\"$ACPMUX_X64_SHA\""
-  fi
-  cat > "$SERVE/manifest.json" <<JSON
-{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA"$acpmux_entries}}
-JSON
-}
+chmod +x "$OLD_CLIENT"
 
-# A manifest published before acpmux joined the workspace still installs the
-# client; acpmux is skipped with a warning unless the caller requires it.
-write_manifest 0
-OLD_APP="$TEST_DIR/NoAcpmux.app"
-install_remote "$OLD_APP" --arch arm64 > "$TEST_DIR/no-acpmux.log" 2>&1
-[ -x "$OLD_APP/Contents/Resources/bin/cmux-tui" ]
-[ ! -e "$OLD_APP/Contents/Resources/bin/acpmux" ]
-grep -q 'warning: cmux-tui manifest (commit aaaaaaaaaa) has no acpmux binaries' "$TEST_DIR/no-acpmux.log"
-if install_remote "$TEST_DIR/NoAcpmuxRequired.app" --arch arm64 --require-acpmux > "$TEST_DIR/no-acpmux-required.log" 2>&1; then
-  echo "FAIL: --require-acpmux installed from a manifest without acpmux" >&2
+install_remote "$TEST_DIR/Acpmux.app" --arch arm64 --require-acpmux > "$TEST_DIR/acpmux.log" 2>&1
+assert_layout "$TEST_DIR/Acpmux.app"
+[ "$("$TEST_DIR/Acpmux.app/Contents/Resources/bin/acpmux" --version)" = 'acpmux 0.1.0 (test)' ]
+if grep -q 'acpmux-' "$EVENTS"; then
+  echo "FAIL: downloaded a separate acpmux binary" >&2; exit 1
+fi
+echo "PASS: acpmux runs from the installed binary with no separate download"
+
+# A build from before acpmux was linked in still installs, with a warning,
+# and fails with --require-acpmux.
+mkdir -p "$TEST_DIR/OldLocal.app/Contents" "$TEST_DIR/OldRequired.app/Contents"
+CMUX_TUI_CLIENT_LOCAL="$OLD_CLIENT" /bin/bash \
+  "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/OldLocal.app" > "$TEST_DIR/old-local.log" 2>&1
+assert_layout "$TEST_DIR/OldLocal.app"
+grep -q 'warning: installed binary does not run acpmux through bin/acpmux' "$TEST_DIR/old-local.log"
+if CMUX_TUI_CLIENT_LOCAL="$OLD_CLIENT" /bin/bash \
+  "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/OldRequired.app" --require-acpmux > "$TEST_DIR/old-required.log" 2>&1; then
+  echo "FAIL: --require-acpmux accepted a binary without acpmux" >&2
   exit 1
 fi
-grep -q 'error: cmux-tui manifest (commit aaaaaaaaaa) has no acpmux binaries' "$TEST_DIR/no-acpmux-required.log"
-echo "PASS: a manifest without acpmux warns, and fails with --require-acpmux"
-
-write_manifest 1
-for arch in arm64 x86_64; do
-  if [[ "$arch" == arm64 ]]; then slice=aarch64; else slice=x86_64; fi
-  acpmux_app="$TEST_DIR/Acpmux-$arch.app"
-  install_remote "$acpmux_app" --arch "$arch" --require-acpmux > "$TEST_DIR/acpmux-$arch.log" 2>&1
-  cmp "$SERVE/cmux-tui-acpmux-$slice-apple-darwin" "$acpmux_app/Contents/Resources/bin/acpmux"
-  grep -q "curl .*cmux-tui-acpmux-$slice-apple-darwin\$" "$EVENTS"
-  grep -q "^lipo .*/bin/acpmux -verify_arch $arch\$" "$EVENTS"
-done
-UNIVERSAL_ACPMUX_APP="$TEST_DIR/AcpmuxUniversal.app"
-install_remote "$UNIVERSAL_ACPMUX_APP" --require-acpmux > "$TEST_DIR/acpmux-universal.log" 2>&1
-grep -q '^lipo -create .*cmux-tui-acpmux-aarch64-apple-darwin .*cmux-tui-acpmux-x86_64-apple-darwin' "$EVENTS"
-cmp "$SERVE/cmux-tui-acpmux-aarch64-apple-darwin" "$UNIVERSAL_ACPMUX_APP/Contents/Resources/bin/acpmux"
-echo "PASS: acpmux installs from the attested manifest for each architecture"
-
-# Corrupting the published slice must fail its manifest digest.
-printf 'tampered\n' >> "$SERVE/cmux-tui-acpmux-aarch64-apple-darwin"
-if install_remote "$TEST_DIR/AcpmuxTampered.app" --arch arm64 > "$TEST_DIR/acpmux-tampered.log" 2>&1; then
-  echo "FAIL: installed an acpmux slice whose digest does not match the manifest" >&2
-  exit 1
-fi
-grep -q 'sha256 mismatch for cmux-tui-acpmux-aarch64-apple-darwin' "$TEST_DIR/acpmux-tampered.log"
-echo "PASS: acpmux slices are digest-checked"
-
-LOCAL_APP="$TEST_DIR/LocalAcpmux.app"
-mkdir -p "$LOCAL_APP/Contents"
-CMUX_TUI_CLIENT_LOCAL="$CLIENT" CMUX_ACPMUX_LOCAL="$ACPMUX" /bin/bash \
-  "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$LOCAL_APP" --require-acpmux > /dev/null
-cmp "$ACPMUX" "$LOCAL_APP/Contents/Resources/bin/acpmux"
-mkdir -p "$TEST_DIR/LocalNoAcpmux.app/Contents"
-if CMUX_TUI_CLIENT_LOCAL="$CLIENT" /bin/bash \
-  "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/LocalNoAcpmux.app" --require-acpmux > "$TEST_DIR/local-no-acpmux.log" 2>&1; then
-  echo "FAIL: --require-acpmux accepted a local client without CMUX_ACPMUX_LOCAL" >&2
-  exit 1
-fi
-grep -q 'error: CMUX_TUI_CLIENT_LOCAL is set without CMUX_ACPMUX_LOCAL' "$TEST_DIR/local-no-acpmux.log"
-mkdir -p "$TEST_DIR/LocalWrong.app/Contents"
-if CMUX_TUI_CLIENT_LOCAL="$CLIENT" CMUX_ACPMUX_LOCAL="$CLIENT" /bin/bash \
-  "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/LocalWrong.app" > "$TEST_DIR/local-wrong.log" 2>&1; then
-  echo "FAIL: installed a CMUX_ACPMUX_LOCAL binary that is not acpmux" >&2
-  exit 1
-fi
-grep -q 'does not identify as acpmux' "$TEST_DIR/local-wrong.log"
-echo "PASS: local acpmux override is identity-checked"
+grep -q 'error: installed binary does not run acpmux through bin/acpmux' "$TEST_DIR/old-required.log"
+echo "PASS: a binary without acpmux warns, and fails with --require-acpmux"

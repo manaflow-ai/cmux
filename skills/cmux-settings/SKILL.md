@@ -22,6 +22,15 @@ skills/cmux-settings/scripts/cmux-settings <subcommand>            # from a cmux
 
 The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkout, `export PATH="$PWD/skills/cmux-settings/scripts:$PATH"`.
 
+The helper's semantic validation shells out to `cmux --json config validate`, which the Rust `cmux` does not have. Until it does, `set`, `unset` and `validate` refuse with a validator failure unless `CMUX_CLI_BIN` names a CLI that still provides it. With the app running, use its settings verbs instead; they write the same `cmux.json`:
+
+```bash
+cmux settings get app.appearance
+cmux settings set app.appearance dark        # VALUE is parsed as JSON, else stored as a string
+cmux settings unset app.appearance
+cmux settings open-json                      # app action: open cmux.json
+```
+
 | Command | What it does |
 |---|---|
 | `cmux-settings path` | Print the config path. |
@@ -73,7 +82,7 @@ cmux-settings set diffViewer.defaultLayout '"split"'
 Browser profile import, per-page navigation, developer tools, and the current
 right-sidebar tab are runtime or UI state; use the browser/sidebar commands or
 the relevant Settings pane instead of adding guessed JSON keys. After any
-successful edit, run `cmux reload-config` and validate the exact path.
+successful edit, run `cmux settings reload-configuration` and read back the exact path.
 
 `set` and `unset` print a JSON result such as `{"status": "persisted", "key": "app.appearance", "runtime": "unobserved"}`. It records what reached disk; the running app's reload is not observed. A refusal prints `{"status": "conflict", "code": ...}` on stderr and exits 1 without writing. An `invalid_config` refusal adds `issues`, the path and message of each problem the change would add.
 

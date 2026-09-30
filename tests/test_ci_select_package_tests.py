@@ -67,12 +67,16 @@ def job_scripts() -> set[str]:
     return found
 
 
-def run_package_step(package: str, attempts: list[tuple[str, int]]):
+def run_package_step(package: str, attempts: list[tuple[str, int]], ghosttykit: bool = False):
     """Execute the real lane script; only Swift's process boundary is substituted."""
     script = f"bash '{ROOT / LANE}' packages\n"
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / "Packages/macOS" / package).mkdir(parents=True)
+        if ghosttykit:
+            # A binaryTarget on the root xcframework, as a GhosttyKit package declares.
+            (root / "Packages/macOS" / package / "Package.swift").write_text(
+                '.binaryTarget(name: "GhosttyKit", path: "../../../GhosttyKit.xcframework")\n')
         (root / "scripts/ci").mkdir(parents=True)
         for helper in ("require_swift_test_execution.py", "hung_test_watchdog.py", "ci_process_tree.py"):
             shutil.copyfile(ROOT / "scripts/ci" / helper, root / "scripts/ci" / helper)
@@ -103,22 +107,22 @@ def check_package_output_behavior() -> None:
     padding = "build progress line without diagnostics\n" * 12000
     passed = "✔ Test run with 4 tests in 1 suites passed after 0.001 seconds.\n"
     cosmetic = "error: unexpected binary name GhosttyKit\n"
-    for package in ("CmuxTerminalCore",):
-        result, count = run_package_step(package, [(cosmetic + "error: real compiler failure\n" + padding + passed, 1)])
+    for package in ("GhosttyFixture",):
+        result, count = run_package_step(package, [(cosmetic + "error: real compiler failure\n" + padding + passed, 1)], True)
         assert result.returncode == 1 and count == 1, f"{package}: real error incorrectly tolerated: {result.returncode}"
-        result, count = run_package_step(package, [(cosmetic + padding + passed, 1)])
+        result, count = run_package_step(package, [(cosmetic + padding + passed, 1)], True)
         assert result.returncode == 0 and count == 1, f"{package}: cosmetic diagnostic no longer tolerated"
-        result, count = run_package_step(package, [(cosmetic + "with 1 failure\n" + padding + passed, 1)])
+        result, count = run_package_step(package, [(cosmetic + "with 1 failure\n" + padding + passed, 1)], True)
         assert result.returncode == 1 and count == 1, f"{package}: test failure incorrectly tolerated"
     for signal in (5, 6):
         startup = f"Build complete!\nerror: Exited with unexpected signal code {signal}\n" + padding
-        result, count = run_package_step("CmuxSettings", [(startup, 1), (passed, 0)])
+        result, count = run_package_step("CmuxUpdater", [(startup, 1), (passed, 0)])
         assert result.returncode == 0 and count == 2, f"startup signal {signal} must retry once"
-        result, count = run_package_step("CmuxSettings", [(startup, 1)])
+        result, count = run_package_step("CmuxUpdater", [(startup, 1)])
         assert result.returncode == 1 and count == 2, "repeated startup crashes must fail after one retry"
     for output in ("Build complete!\nerror: Exited with unexpected signal code 10\n" + padding,
                    "Build complete!\nerror: Exited with unexpected signal code 5\nTest Suite started\n" + padding):
-        result, count = run_package_step("CmuxSettings", [(output, 1)])
+        result, count = run_package_step("CmuxUpdater", [(output, 1)])
         assert result.returncode == 1 and count == 1, "non-startup failures must not retry"
     print("PASS: real package CI steps reject true errors and preserve bounded startup retries")
 
@@ -130,7 +134,7 @@ def main() -> int:
         fixture(root)
         check(root, None, PACKAGES, "an unknown diff runs everything")
         check(root, [], [], "an empty diff runs nothing")
-        check(root, ["CLI/cmux.swift", "cmuxCLITests/CLITests.swift", "web/app/page.tsx", "README.md"], [],
+        check(root, ["Resources/Info.plist", "web/app/page.tsx", "README.md"], [],
               "app, web and docs changes reach no package")
         check(root, ["Packages/macOS/Loner/Sources/Loner/A.swift"], ["Loner"], "a leaf change runs that package")
         check(root, ["Packages/macOS/Base/Sources/Base/A.swift"], ["Base", "Middle", "Top"],
@@ -144,7 +148,7 @@ def main() -> int:
         check(root, [".github/workflows/ci.yml"], PACKAGES, "the job's own workflow runs everything")
         check(root, [".github/workflows/nightly.yml", "scripts/reload.sh"], [], "other workflows and scripts run nothing")
         check(root, ["ghostty"], PACKAGES, "the GhosttyKit revision runs everything")
-        check(root, ["Loner.swift", "CLI/cmux.swift"], PACKAGES, "an unknown path runs everything")
+        check(root, ["Loner.swift", "Resources/Info.plist"], PACKAGES, "an unknown path runs everything")
 
         # Exercise the CLI used by the workflow, including mixed package/global
         # inputs. Full-suite selection retains its existing fail-open policy.

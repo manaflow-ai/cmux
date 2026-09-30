@@ -49,7 +49,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate browser skill documentation contract
-        run: python3 scripts/validate-cmux-browser-skill.py --no-cli
+        run: python3 scripts/validate-cmux-browser-skill.py
 
       - name: Exercise browser skill regression guard
         run: python3 tests/test_cmux_browser_skill.py

@@ -1,5 +1,7 @@
 # Stable identity in catalog projections
 
+> The Swift `cmux` CLI verbs named here were removed in the Rust CLI cutover ([plans/cmux-next/cli.md](../plans/cmux-next/cli.md)). `surface ls` and `vm tree` have no Rust equivalent; this page records the Swift app's catalog fields.
+
 `cmux surface ls --json` (`surface.catalog`) and `cmux vm tree --json` expose
 two nullable read fields on each local projection:
 

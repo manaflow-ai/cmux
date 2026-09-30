@@ -2,7 +2,7 @@
 """Exercise path discovery in checkout and installed layouts.
 
 Semantic validation belongs to config doctor; it must not use an ambient CLI
-or be replaced by the path inventory. See test_cli_config_doctor.py.
+or be replaced by the path inventory.
 """
 
 import json

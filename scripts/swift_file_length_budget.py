@@ -21,8 +21,8 @@ GENERATED_CONTRACT_FILES = {
 
 def main():
     base = git("merge-base", "HEAD", "origin/main")
-    # A moved file keeps the budget of its old path (B1 moved Sources/ files
-    # into CLI/), so a rename is not treated as a new file.
+    # A moved file keeps the budget of its old path, so a rename is not
+    # treated as a new file.
     previous = {}
     paths = set()
     for line in git("-c", "diff.renameLimit=0", "diff", "-M", "--name-status", base, "--", "*.swift").splitlines():

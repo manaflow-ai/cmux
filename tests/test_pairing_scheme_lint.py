@@ -12,8 +12,8 @@ spec.loader.exec_module(lint)
 
 class PairingLintTests(unittest.TestCase):
     def test_root_and_package_test_targets_are_guarded(self):
-        for root in ("cmuxTests", "cmuxUITests", "ios/cmuxUITests", "cmuxCLITests",
-                     "cmuxCLITestSupport", "Packages/Shared/Core/Tests/CoreTests"):
+        for root in ("cmuxTests", "cmuxUITests", "ios/cmuxUITests",
+                     "Packages/Shared/Core/Tests/CoreTests"):
             with self.subTest(root=root):
                 self.assertTrue(lint.is_test_file(root + "/PairingTests.swift"))
                 self.assertTrue(lint.implicit_calls("payload.encodedURL()"))

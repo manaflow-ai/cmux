@@ -51,10 +51,7 @@ GLOBAL_INPUTS = (
 # Paths that cannot reach a package test. Anything not listed here, not under
 # Packages/, and not a path dependency selects every package.
 UNRELATED_PREFIXES = (
-    "CLI/",
     "Resources/",
-    "cmuxCLITests/",
-    "cmuxCLITestSupport/",
     "cmux.xcodeproj/",
     "cmux.xcworkspace/",
     "ios/",

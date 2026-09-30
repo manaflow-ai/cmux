@@ -1259,7 +1259,7 @@ class Wiring(unittest.TestCase):
         self.assertTrue(keep["if"].startswith("steps.hosted-compile.outcome == 'success'"))
         self.assertLess(index("Compile app-host test product"), index("Keep this owned Mac's DerivedData"))
         # Staging and packaging rewrite Build/Products and the xctestruns.
-        for later in ("Stage compiled package frameworks", "Package compiled app-host test product"):
+        for later in ("Package compiled app-host test product",):
             self.assertLess(index("Keep this owned Mac's DerivedData"), index(later), later)
         self.assertTrue(self.step("Keep this owned Mac's build state")["if"].startswith("always()"))
 

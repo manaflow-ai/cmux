@@ -7,7 +7,6 @@
 # neither hides real gaps nor goes stale.
 #
 # Cases:
-#   (a) Real repo: every CLI/ Swift file is in its target.
 #   (b) A nested Sources file with no pbxproj entry fails, naming its path.
 #   (c) The same file passes when allowlisted.
 #   (d) An allowlist entry for a file that is now wired fails as stale.
@@ -28,9 +27,6 @@ fail() {
   [ -f "${2:-}" ] && cat "$2" >&2
   exit 1
 }
-
-# (a)
-"$LINT" --repo-root "$ROOT_DIR" --target cmux-cli --tests-dir CLI --recursive
 
 SANDBOX="$(mktemp -d)"
 trap 'rm -rf "$SANDBOX"' EXIT

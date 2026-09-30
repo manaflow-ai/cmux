@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Installs the cmux-tui client into an app bundle as Contents/Resources/bin/cmux-tui,
-# the same way the Ghostty CLI helper is bundled: the app carries the exact client
-# that talks to cmux Cloud machines, so the Machines panel needs no separate install.
+# Installs the cmux-tui binary into an app bundle as Contents/Resources/bin/cmux, the
+# cmux CLI, with bin/cmux-tui and bin/acpmux as relative symlinks to it (the binary
+# picks its program from argv[0]; plans/cmux-next/cli.md). The app carries the exact
+# client that talks to cmux Cloud machines, so the Machines panel needs no separate install.
 #
 # The build comes from the artifacts manifest the cmux-tui-artifacts workflow publishes
 # (rolling `latest` by default; a commit-addressed manifest pins one build). Both
@@ -24,19 +25,17 @@
 # machine without an authenticated gh; CI never passes it. A CMUX_TUI_CLIENT_LOCAL
 # binary is not downloaded and is not subject to it.
 #
-# The same manifest also carries the acpmux daemon (cmux-tui-acpmux-<target>), which the
-# native agent chat pane talks to; it is installed as Contents/Resources/bin/acpmux with
-# the same architecture selection. Manifests published before acpmux joined the
-# workspace lack it: that is a warning, or an error with --require-acpmux.
+# acpmux is linked into the same binary, so bin/acpmux needs no separate download.
+# Builds from before that lack it: `bin/acpmux --version` then does not identify as
+# acpmux, which is a warning, or an error with --require-acpmux.
 #
-# Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
-# a prebuilt binary to install instead of downloading (offline/dev builds), and
-# CMUX_ACPMUX_LOCAL does the same for acpmux.
+# Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, and CMUX_TUI_CLIENT_LOCAL
+# points at a prebuilt binary to install instead of downloading (offline/dev builds).
 # --arch selects downloaded slices only; the local override is copied unchanged
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
 
-usage() { sed -n '2,22p' "$0"; }
+usage() { sed -n '2,23p' "$0"; }
 
 APP_PATH=""
 MANIFEST_URL="${CMUX_TUI_CLIENT_MANIFEST_URL:-https://files.cmux.com/cmux-tui/latest/manifest.json}"
@@ -86,7 +85,8 @@ esac
   exit 64
 }
 DEST_DIR="$APP_PATH/Contents/Resources/bin"
-DEST="$DEST_DIR/cmux-tui"
+DEST="$DEST_DIR/cmux"
+ALIASES=(cmux-tui acpmux)
 mkdir -p "$DEST_DIR"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
@@ -132,43 +132,38 @@ PY
   done
 }
 
-ACPMUX_DEST="$DEST_DIR/acpmux"
+# Remove first: overwriting a signed Mach-O in place keeps the kernel's cached
+# code signature for the old inode and the new binary dies with SIGKILL. The
+# aliases are relative symlinks so the bundle stays relocatable and codesign
+# treats them as links, not second copies.
+install_binary() {
+  local name
+  rm -f "$DEST"
+  install -m 755 "$1" "$DEST"
+  for name in "${ALIASES[@]}"; do
+    rm -rf "${DEST_DIR:?}/$name"
+    ln -s cmux "$DEST_DIR/$name"
+  done
+}
 
-verify_acpmux() {
+# acpmux is linked into the binary; bin/acpmux runs it through argv[0].
+check_acpmux() {
   local version
-  version="$("$ACPMUX_DEST" --version 2>/dev/null || true)"
-  [[ "$version" == acpmux\ * ]] || {
-    echo "error: installed binary does not identify as acpmux: $version" >&2
-    exit 1
-  }
-}
-
-# Returns 1 when acpmux is not available and not required, so callers can skip it.
-install_local_acpmux() {
-  if [[ -n "${CMUX_ACPMUX_LOCAL:-}" ]]; then
-    [[ -f "$CMUX_ACPMUX_LOCAL" ]] || { echo "error: CMUX_ACPMUX_LOCAL not found: $CMUX_ACPMUX_LOCAL" >&2; exit 1; }
-    install -m 755 "$CMUX_ACPMUX_LOCAL" "$ACPMUX_DEST"
-    verify_acpmux
-    echo "Installed local acpmux at $ACPMUX_DEST"
-    return 0
-  fi
-  return 1
-}
-
-missing_acpmux() {
+  version="$("$DEST_DIR/acpmux" --version 2>/dev/null || true)"
+  [[ "$version" == acpmux\ * ]] && return 0
   if (( REQUIRE_ACPMUX )); then
-    echo "error: $1" >&2
+    echo "error: installed binary does not run acpmux through bin/acpmux: $version" >&2
     exit 1
   fi
-  echo "warning: $1; the agent chat pane falls back to acpmux on PATH" >&2
+  echo "warning: installed binary does not run acpmux through bin/acpmux ($version); the agent chat pane falls back to acpmux on PATH" >&2
 }
 
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
-  install -m 755 "$CMUX_TUI_CLIENT_LOCAL" "$DEST"
+  install_binary "$CMUX_TUI_CLIENT_LOCAL"
   verify_probe
+  check_acpmux
   echo "Installed local cmux-tui client at $DEST"
-  install_local_acpmux || missing_acpmux "CMUX_TUI_CLIENT_LOCAL is set without CMUX_ACPMUX_LOCAL; acpmux was not installed"
   exit 0
 fi
 
@@ -232,12 +227,13 @@ case "$ARCH" in
     VERIFY_ARCHS=(arm64 x86_64)
     ;;
 esac
-install -m 755 "$CLIENT" "$DEST"
+install_binary "$CLIENT"
 # One arch per invocation: some lipo builds (Xcode 27 beta 4) consume only one
 # arch after -verify_arch and read the second as an extra input file, failing
 # with "requires exactly one input file".
 for arch in "${VERIFY_ARCHS[@]}"; do lipo "$DEST" -verify_arch "$arch"; done
 verify_probe
+check_acpmux
 # Bootstrap payloads share the signed client's exact build. End-user SSH hosts
 # need neither Node/npm nor access to an artifact server, and the client verifies
 # these hashes again before uploading the selected platform executable.
@@ -249,34 +245,3 @@ for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl aarch64-apple
 done
 install -m 644 "$MANIFEST" "$SSH_ARTIFACT_DIR/manifest.json"
 echo "Installed $ARCH cmux-tui client (commit ${COMMIT:0:10}) at $DEST"
-
-manifest_has() {
-  python3 -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1]))["binaries"] else 1)' "$MANIFEST" "$1"
-}
-
-if ! install_local_acpmux; then
-  if ! manifest_has cmux-tui-acpmux-aarch64-apple-darwin || ! manifest_has cmux-tui-acpmux-x86_64-apple-darwin; then
-    missing_acpmux "cmux-tui manifest (commit ${COMMIT:0:10}) has no acpmux binaries"
-  else
-    case "$ARCH" in
-      arm64) ACPMUX="$(fetch_slice cmux-tui-acpmux-aarch64-apple-darwin)" ;;
-      x86_64) ACPMUX="$(fetch_slice cmux-tui-acpmux-x86_64-apple-darwin)" ;;
-      universal)
-        ACPMUX_ARM="$(fetch_slice cmux-tui-acpmux-aarch64-apple-darwin)"
-        ACPMUX_X64="$(fetch_slice cmux-tui-acpmux-x86_64-apple-darwin)"
-        ACPMUX="$BUILD_DIR/acpmux-universal"
-        if [[ ! -f "$ACPMUX" ]]; then
-          lipo -create "$ACPMUX_ARM" "$ACPMUX_X64" -output "$ACPMUX.tmp"
-          mv -f "$ACPMUX.tmp" "$ACPMUX"
-        fi
-        ;;
-    esac
-    # Remove first: overwriting a signed Mach-O in place keeps the kernel's
-    # cached code signature for the old inode and the new binary dies with SIGKILL.
-    rm -f "$ACPMUX_DEST"
-    install -m 755 "$ACPMUX" "$ACPMUX_DEST"
-    for arch in "${VERIFY_ARCHS[@]}"; do lipo "$ACPMUX_DEST" -verify_arch "$arch"; done
-    verify_acpmux
-    echo "Installed $ARCH acpmux (commit ${COMMIT:0:10}) at $ACPMUX_DEST"
-  fi
-fi

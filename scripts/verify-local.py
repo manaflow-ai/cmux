@@ -50,13 +50,10 @@ CHECK_INPUTS = {
                       "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/CmuxConfigSchema.generated.swift"),
     "launch-policy": (
         "scripts/claude-launch-environment-policy.json",
-        "Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/ClaudeSessionEnvironmentPolicy+Generated.swift",
-        "agent-chat/adapters/claude-environment-policy.generated.ts",
-        "Resources/bin/cmux-claude-wrapper"),
-    "test-wiring": ("scripts/lint-pbxproj-test-wiring.sh", "cmuxCLITests/*",
-                    "cmuxCLITestSupport/*", "cmux.xcodeproj/project.pbxproj"),
+        "agent-chat/adapters/claude-environment-policy.generated.ts"),
+    "test-wiring": ("scripts/lint-pbxproj-test-wiring.sh",),
     "package-groups": ("Packages/*", "cmux.xcworkspace/contents.xcworkspacedata"),
-    "feature-flags": ("web/*", "Packages/*", "ios/*", "CLI/*",
+    "feature-flags": ("web/*", "Packages/*", "ios/*",
                       "scripts/retired-feature-flags.txt"),
 }
 

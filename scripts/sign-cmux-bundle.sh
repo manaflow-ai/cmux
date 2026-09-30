@@ -115,6 +115,12 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
   # 1. CLI and private helpers
   for helper_dir in bin libexec; do
     for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
+      # bin/cmux-tui and bin/acpmux are relative symlinks to bin/cmux, which is
+      # signed as itself; the bundle seal records the links.
+      if [[ -L "$helper" ]]; then
+        echo "==> leaving symlink $(basename "$helper") -> $(readlink "$helper") to the bundle seal"
+        continue
+      fi
       [[ -f "$helper" && -x "$helper" ]] || continue
       # Scripts are sealed by the bundle signature. Code-signing them directly
       # stores the signature in an extended attribute, which Sparkle's
@@ -174,6 +180,14 @@ echo "==> signing main bundle ($SIGN_MODE)"
 
 echo "==> verifying"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+# The cmux CLI is one Mach-O: bin/cmux-tui and bin/acpmux must stay links to it.
+for alias in cmux-tui acpmux; do
+  alias_path="$APP_PATH/Contents/Resources/bin/$alias"
+  if [[ -e "$alias_path" || -L "$alias_path" ]] && [[ "$(readlink "$alias_path" || true)" != cmux ]]; then
+    echo "error: bin/$alias is not a symlink to cmux" >&2
+    exit 1
+  fi
+done
 if [[ -d "$COMPUTER_USE_HELPER" ]]; then
   /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
 fi
@@ -241,6 +255,7 @@ fi
 # Helpers must NOT carry the main app's application-identifier.
 for helper_dir in bin libexec; do
   for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
+    [[ ! -L "$helper" ]] || continue
     [[ -f "$helper" && -x "$helper" ]] || continue
     /usr/bin/file -b "$helper" | grep -q 'Mach-O' || continue
     if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \
