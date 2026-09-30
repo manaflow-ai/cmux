@@ -27,6 +27,10 @@ public final class PaletteController {
     /// before any key-window change it causes, so the owner's focus overlay
     /// stack never lags the panel (plans/cmux-next/input-spec.md bug B7).
     public var onVisibilityChange: ((Bool) -> Void)?
+    /// Main-thread time from an open request to the committed first frame
+    /// of the panel, and whether that open created the panel (the stall
+    /// bench, `debug.timings`).
+    public var onPresented: ((_ duration: Duration, _ createdPanel: Bool) -> Void)?
 
     private var panel: PalettePanel?
     private weak var parentWindow: NSWindow?
@@ -99,6 +103,8 @@ public final class PaletteController {
     }
 
     private func present(relativeTo window: NSWindow?) {
+        let started = ContinuousClock.now
+        let createdPanel = panel == nil
         // The document window, never a Chromium page window over it (a child
         // window): hiding gives the keys back to the window, not the page.
         var parent = window ?? NSApp.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? NSApp.mainWindow
@@ -123,6 +129,9 @@ public final class PaletteController {
         panel.makeKeyAndOrderFront(nil)
         contentView?.focusField()
         contentView?.animateIn()
+        if let onPresented {
+            CATransaction.setCompletionBlock { onPresented(started.duration(to: .now), createdPanel) }
+        }
     }
 
     /// Closes the palette. The parent window becomes key immediately so a

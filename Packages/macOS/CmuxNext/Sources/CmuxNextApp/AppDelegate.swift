@@ -19,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         control.startWatchdog()
+        DebugTimings.markLaunch("did_finish_launching_start")
+        DebugTimings.install()
+        defer { DebugTimings.markLaunch("did_finish_launching_end") }
         // Every window, shell or auxiliary, opens by one placement rule.
         WindowPlacement.noActivate = environment.noActivate
         WindowPlacement.testScreen = environment.testWindow?.screen
@@ -40,6 +43,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.windows.onPresent = { [weak services] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window)
         }
+        services.windows.onFirstWindow = { _ in DebugTimings.markLaunchOnCommit("first_window_frame_committed") }
+        services.palette.onPresented = { DebugTimings.palettePresented($0, createdPanel: $1) }
         services.windows.restoreWhenLoaded()
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.

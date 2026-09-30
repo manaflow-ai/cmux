@@ -15,6 +15,7 @@ extension ControlRouter {
                 let summary = watchdog.log.summary
                 let records = watchdog.log.records(after: after).suffix(max(0, limit))
                 let longFrames = watchdog.longFrameStats
+                let gaps = watchdog.gapStats
                 if call.params["clear"]?.boolValue == true {
                     watchdog.log.clear()
                     watchdog.resetLongFrames()
@@ -28,6 +29,8 @@ extension ControlRouter {
                     "total_ms": .number(summary.totalDuration.fractionalMilliseconds),
                     "long_frames": JSONValue(longFrames.count),
                     "long_frame_max_ms": .number(longFrames.max.fractionalMilliseconds),
+                    "frames_over_8_3ms": JSONValue(gaps.over120HzFrame),
+                    "max_gap_ms": .number(gaps.max.fractionalMilliseconds),
                     "records": .array(records.map(\.json)),
                 ]
             },
