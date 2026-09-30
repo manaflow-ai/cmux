@@ -576,3 +576,11 @@ Three layers, one decision (`CEFWindowPolicy.decide`, pure, `CEFWindowPolicyTest
 - Diagnostics: `debug.cef` `windows` (`chromium_windows` must be empty, `guard_blocked`, `fork_foreign_browsers`, `requests`, `blocked_commands`). Live check: `scripts/cmux-next/check-no-chrome-windows.py <tag>`.
 
 Not done: popups (`.popup` disposition, window features) open as normal tabs; a small floating cmux panel for them needs a pane that can host its own Chromium window. `chrome.windows.create` returns a window that closes after its tab moves into the pane.
+
+## WebKit Web Inspector attached in the pane (2026-09-30)
+
+Bug: the attached WebKit inspector flickered in and out on every frame. Cause: `BrowserChromeView` pinned the `WKWebView` to its content container with Auto Layout, and WebKit's attached inspector (WebInspectorUIProxyMac) adds its view to the web view's superview, sets the web view's frame to the area left, and applies that again on every web view frame change. Each layout pass reset the web view to full size and WebKit shrank it back: 2 frame changes per idle layout pass (`WebKitInspectorLayoutTests`, with a stand-in for WebKit's attach path).
+
+Fix: `WebKitTab.contentView` is a tab-owned `WebKitPageContainer`. The chrome pins the container; the web view inside uses autoresizing only, and nothing sets its frame after it is added. WebKit's attach path is the one owner while attached: its own dock buttons (bottom, right, separate window) and its own resize edge. A container resize reaches the web view once through autoresizing; WebKit then re-places both views. `debug.webkit_inspector` (DEBUG) counts frame changes of the web view and its siblings since `{"action":"start"}`.
+
+Decision for Lawrence: the WebKit inspector does not use the cmux DevTools dock model (divider, divider menu) that Chromium tabs use. WebKit re-places the web view on every web view frame change, so a second owner cannot be stable without private WebKit hooks. The WebKit inspector keeps Safari's own dock controls.
