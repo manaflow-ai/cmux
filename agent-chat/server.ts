@@ -161,6 +161,10 @@ const PROVIDERS: ProviderDef[] = [
   },
 ];
 
+export function providerDefinitionsForTest(): readonly ProviderDef[] {
+  return PROVIDERS;
+}
+
 const adapters = new Map<string, Adapter>();
 for (const def of PROVIDERS) {
   if (def.adapter === "claude") adapters.set(def.id, claudeAdapter);
