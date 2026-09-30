@@ -1,5 +1,5 @@
 public import CoreGraphics
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Metrics for the layout. Geometry is a pure function of this value.
 ///
@@ -32,8 +32,11 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// Draws the hairline pane border (`layout.paneBorder` = subtle). While
     /// it shows, split dividers draw no line: the borders separate panes.
     public var showsPaneBorder = false
-    /// Focus ring stroke width.
-    public var focusRingWidth: CGFloat = 1
+    /// The focus ring (`focusRing.*`). Drawn in the overlay plane only.
+    public var focusRing = FocusRingSettings()
+    /// The attention ring of panes with an unread notification
+    /// (`notifications.attention.*`).
+    public var attention = AttentionSettings()
     /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
     public var inactivePaneDimming: CGFloat = 0.14
     /// Fraction of a pane's extent that counts as an edge drop zone.
@@ -68,6 +71,8 @@ extension LayoutStyle {
         style.panePadding = Metrics.panePadding
         style.paneCornerRadius = Metrics.paneCornerRadius
         style.showsPaneBorder = Metrics.paneBorder == .subtle
+        style.focusRing = DesignSettings.shared.focusRing
+        style.attention = DesignSettings.shared.attention
         return style
     }
 }

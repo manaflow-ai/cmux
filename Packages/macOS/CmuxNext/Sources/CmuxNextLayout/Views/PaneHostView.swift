@@ -85,8 +85,10 @@ final class PaneHostView: NSView {
         chrome.setShape(padding: padding, cornerRadius: cornerRadius, headerHeight: header)
     }
 
-    func setChrome(showsRing: Bool, dim: CGFloat, ringWidth: CGFloat, showsBorder: Bool, animated: Bool) {
-        chrome.update(showsRing: showsRing, dim: dim, ringWidth: ringWidth, showsBorder: showsBorder, animated: animated)
+    func setChrome(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, showsBorder: Bool,
+                   attention: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
+        chrome.update(showsRing: showsRing, dim: dim, focusRing: focusRing, showsBorder: showsBorder,
+                      attention: attention, attentionSettings: attentionSettings, animated: animated)
     }
 }
 

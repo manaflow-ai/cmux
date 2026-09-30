@@ -200,6 +200,30 @@ nonisolated extension ActionCatalog {
                 symbol: "align.horizontal.center.fill", surfaces: [.palette], cliName: "settings center-focused-column-on-overflow"
             ),
             ActionDescriptor(
+                id: "focusRing.toggle",
+                title: String(localized: "action.focusRing.toggle", defaultValue: "Toggle Focus Ring", bundle: .module),
+                keywords: ["focus", "ring", "outline", "highlight", "pane", "appearance"], category: .settings,
+                symbol: "square.dashed.inset.filled", surfaces: [.palette], cliName: "settings toggle-focus-ring"
+            ),
+            ActionDescriptor(
+                id: "focusRing.style.ring",
+                title: String(localized: "action.focusRing.style.ring", defaultValue: "Use Ring Focus Style", bundle: .module),
+                keywords: ["focus", "ring", "outline", "stroke", "pane", "appearance"], category: .settings,
+                symbol: "square", surfaces: [.palette], cliName: "settings use-ring-focus-style"
+            ),
+            ActionDescriptor(
+                id: "focusRing.style.glow",
+                title: String(localized: "action.focusRing.style.glow", defaultValue: "Use Glow Focus Style", bundle: .module),
+                keywords: ["focus", "glow", "inner", "shadow", "pane", "appearance"], category: .settings,
+                symbol: "square.fill.on.square", surfaces: [.palette], cliName: "settings use-glow-focus-style"
+            ),
+            ActionDescriptor(
+                id: "focusRing.singlePane.toggle",
+                title: String(localized: "action.focusRing.singlePane.toggle", defaultValue: "Toggle Focus Ring for a Single Pane", bundle: .module),
+                keywords: ["focus", "ring", "single", "one", "pane", "appearance"], category: .settings,
+                symbol: "square.inset.filled", surfaces: [.palette], cliName: "settings toggle-single-pane-focus-ring"
+            ),
+            ActionDescriptor(
                 id: "appearance.interfaceSize.increase",
                 title: String(localized: "action.appearance.interfaceSize.increase", defaultValue: "Increase Interface Size", bundle: .module),
                 keywords: ["appearance", "font", "chrome", "bigger", "zoom"], category: .settings,

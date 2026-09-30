@@ -48,6 +48,10 @@ public final class LayoutModel {
         followsDesignMetrics ? baseStyle.applyingDesignMetrics() : baseStyle
     }
 
+    /// Panes that need attention (an unread notification), with the mark
+    /// the overlay draws. Set by the App from daemon unread state.
+    public var attention: [PaneID: AttentionMark] = [:]
+
     /// Panes whose frame currently intersects the visible viewport of the
     /// active screen. Hosted views stay alive while not visible; use this to
     /// pause rendering or release attach geometry for occluded panes.

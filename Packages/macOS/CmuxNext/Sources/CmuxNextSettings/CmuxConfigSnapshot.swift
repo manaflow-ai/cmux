@@ -59,6 +59,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
     public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback
+    /// `focusRing.*`.
+    public var focusRing = FocusRingSettings()
+    /// `notifications.attention.*`.
+    public var attention = AttentionSettings()
     public var diagnostics: [SettingsDiagnostic]
 
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
@@ -95,6 +99,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
         snapshot.centerFocusedColumn = centering
         if let centeringDiagnostic { snapshot.diagnostics.append(centeringDiagnostic) }
+        snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
+        snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {

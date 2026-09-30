@@ -43,6 +43,7 @@ public final class LayoutRootView: NSView {
         var gestureActive: Bool
         var centerRequest: ColumnCenterRequest?
         var centerMode: CenterFocusedColumn
+        var attention: [PaneID: AttentionMark]
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
@@ -122,7 +123,8 @@ public final class LayoutRootView: NSView {
             style: model.style,
             gestureActive: model.isGestureActive,
             centerRequest: model.centerRequest,
-            centerMode: model.centerFocusedColumn
+            centerMode: model.centerFocusedColumn,
+            attention: model.attention
         )
     }
 
@@ -139,7 +141,8 @@ public final class LayoutRootView: NSView {
                     style: model.style,
                     gestureActive: model.isGestureActive,
                     centerRequest: model.centerRequest,
-                    centerMode: model.centerFocusedColumn
+                    centerMode: model.centerFocusedColumn,
+                    attention: model.attention
                 )
             }) {
                 guard let self else { return }
@@ -182,7 +185,8 @@ public final class LayoutRootView: NSView {
             let structureChanged = previous?.screens.first(where: { $0.id == screen.id }).map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
             if view.update(layout: screen.layout, animated: animated) { needsFrames = true }
             // The focus ring of a split's new pane appears with the pane.
-            view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, animated: animated && !structureChanged)
+            view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
+                              animated: animated && !structureChanged)
             // Every snapshot reaches the scroll reducer: it anchors the camera
             // on layout changes, reveals focus, and springs back after a close.
             let focused = snapshot.focused.flatMap { screen.layout.contains($0) ? $0 : nil }

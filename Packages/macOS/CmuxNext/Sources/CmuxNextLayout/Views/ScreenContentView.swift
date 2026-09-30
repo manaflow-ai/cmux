@@ -229,17 +229,22 @@ final class ScreenContentView: NSView {
 
     // MARK: Chrome
 
-    func updateChrome(focused: PaneID?, dimsInactive: Bool, animated: Bool) {
+    /// Focus ring, inactive dim and attention rings. Overlay-only: no pane
+    /// frame or inset depends on any of it.
+    func updateChrome(focused: PaneID?, dimsInactive: Bool, attention: [PaneID: AttentionMark], animated: Bool) {
         let multiple = paneFrames.count > 1
         let style = context.style
+        let ringAllowed = multiple || style.focusRing.showsForSinglePane
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane] else { continue }
             let isFocused = pane == focused
             host.setChrome(
-                showsRing: multiple && isFocused,
+                showsRing: ringAllowed && isFocused,
                 dim: multiple && dimsInactive && !isFocused ? style.inactivePaneDimming : 0,
-                ringWidth: style.focusRingWidth,
+                focusRing: style.focusRing,
                 showsBorder: style.showsPaneBorder,
+                attention: attention[pane],
+                attentionSettings: style.attention,
                 animated: animated
             )
         }

@@ -30,6 +30,21 @@ public nonisolated struct ThemeRGB: Hashable, Sendable, CustomStringConvertible 
         self.init(red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255)
     }
 
+    /// `#RGB`, `#RRGGBB` or `#RRGGBBAA` (the `#` is optional), as cmux.json
+    /// colors are written. Nil for anything else.
+    public init?(cssHex text: String) {
+        var digits = Substring(text.trimmingCharacters(in: .whitespaces))
+        if digits.hasPrefix("#") { digits = digits.dropFirst() }
+        guard [3, 6, 8].contains(digits.count), digits.allSatisfy(\.isHexDigit), var value = UInt64(digits, radix: 16) else { return nil }
+        if digits.count == 3 {
+            let r = (value >> 8) & 0xF, g = (value >> 4) & 0xF, b = value & 0xF
+            value = (r * 17) << 16 | (g * 17) << 8 | b * 17
+        }
+        let alpha = digits.count == 8 ? Double(value & 0xFF) / 255 : 1
+        if digits.count == 8 { value >>= 8 }
+        self.init(hex: UInt32(value), alpha: alpha)
+    }
+
     public static let black = ThemeRGB(red: 0, green: 0, blue: 0)
     public static let white = ThemeRGB(red: 1, green: 1, blue: 1)
 

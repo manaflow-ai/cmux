@@ -38,6 +38,8 @@ public final class SettingsApplier {
         if design.density != density { design.density = density }
         if design.animationSpeed != snapshot.animationSpeed { design.animationSpeed = snapshot.animationSpeed }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
+        if design.focusRing != snapshot.focusRing { design.focusRing = snapshot.focusRing }
+        if design.attention != snapshot.attention { design.attention = snapshot.attention }
         for key in MetricKey.allCases {
             let value = snapshot.metrics[key.rawValue].map { CGFloat($0) }
             let range = DesignSettings.allowedRange(key)

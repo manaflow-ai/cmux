@@ -32,6 +32,10 @@ public final class DesignSettings {
     public private(set) var paneChrome = PaneChromeOverrides()
     /// `layout.centerFocusedColumn` (niri `center-focused-column`).
     public var centerFocusedColumn: CenterFocusedColumn = .never
+    /// `focusRing.*`: the focused pane's ring or glow.
+    public var focusRing = FocusRingSettings()
+    /// `notifications.attention.*`: the unread pane's attention ring.
+    public var attention = AttentionSettings()
 
     public init() {}
 

@@ -75,7 +75,7 @@ import Testing
         .notifications: 10,
         .agents: 16,
         .cloud: 23,
-        .settings: 35,
+        .settings: 39,
     ]
 
     @Test func everyKeyboardShortcutIDExists() {
