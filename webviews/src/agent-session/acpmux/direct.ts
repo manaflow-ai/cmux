@@ -63,6 +63,12 @@ function textFromContent(content: any): string {
   return "";
 }
 
+function diffCounts(value: any): { additions?: number; deletions?: number } {
+  const additions = Number(value?.additions ?? value?.added ?? NaN);
+  const deletions = Number(value?.deletions ?? value?.removed ?? NaN);
+  return { additions: Number.isFinite(additions) ? additions : undefined, deletions: Number.isFinite(deletions) ? deletions : undefined };
+}
+
 function sessionUpdate(event: EventRecord): any | undefined {
   return event.dir === "in" && event.msg.method === "session/update" ? event.msg.params?.update : undefined;
 }
@@ -143,7 +149,8 @@ export class AcpmuxDirectClient {
       const watched = await this.request("_acpmux/watch", { enabled: true });
       this.sessions = (watched?.sessions ?? []).filter((session: Session) => session.sessionId);
       const harnesses = await this.request("_acpmux/harnesses", {});
-      this.catalog = normalizeCatalog(harnesses);
+      const models = await this.request("_acpmux/models", {}).catch(() => undefined);
+      this.catalog = normalizeCatalog(harnesses, models);
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
         this.selectedSessionId = this.sessions[0]?.sessionId;
         this.events = [];
@@ -408,7 +415,7 @@ export class AcpmuxDirectClient {
       const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id);
       this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "activity", toolCount: existing?.toolCount ?? 0, items: [...(existing?.items ?? []), { kind: "thought", text }] }); this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
-      const callId = String(update.toolCallId ?? `tool-${event.seq}`); const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const previousTool = itemIndex >= 0 ? items[itemIndex].tool : undefined; const item = { kind: "tool", text: String(update.title ?? update.name ?? previousTool?.title ?? callId), tool: { id: callId, title: String(update.title ?? previousTool?.title ?? callId), kind: update.kind ?? previousTool?.kind, status: String(update.status ?? previousTool?.status ?? "in_progress"), inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : previousTool?.inputSummary, output: text || previousTool?.output } };
+      const callId = String(update.toolCallId ?? `tool-${event.seq}`); const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const previousTool = itemIndex >= 0 ? items[itemIndex].tool : undefined; const counts = diffCounts(update); const item = { kind: "tool", text: String(update.title ?? update.name ?? previousTool?.title ?? callId), tool: { id: callId, title: String(update.title ?? previousTool?.title ?? callId), kind: update.kind ?? previousTool?.kind, status: String(update.status ?? previousTool?.status ?? "in_progress"), inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : previousTool?.inputSummary, output: text || previousTool?.output, additions: counts.additions ?? previousTool?.additions, deletions: counts.deletions ?? previousTool?.deletions } };
       if (itemIndex >= 0) items[itemIndex] = item; else { items.push(item); this.turnToolCount += 1; }
       this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "activity", toolCount: items.filter((entry) => entry.kind === "tool").length, items }); this.streamingActivity = id;
     } else if (event.kind === "plan") this.rows.set(`plan-${event.seq}`, { id: `plan-${event.seq}`, version: 1, at: event.at, kind: "plan", text: text || JSON.stringify(update.entries ?? update.content ?? "") });
@@ -493,7 +500,8 @@ export class AcpmuxDirectClient {
   close(): void { this.closed = true; if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined; this.socket?.close(); this.socket = undefined; }
 }
 
-function normalizeCatalog(value: any): any[] {
+export function normalizeCatalog(value: any, modelsValue?: any): any[] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
-  return (Array.isArray(harnesses) ? harnesses : Object.entries(harnesses).map(([id, data]) => ({ id, ...(data as any) }))).map((harness: any) => ({ id: String(harness.id ?? harness.name), name: String(harness.name ?? harness.id), models: (harness.models ?? []).map((model: any) => ({ id: String(model.id ?? model.modelId), name: model.name })) }));
+  const modelsByHarness = new Map<string, any[]>((modelsValue?.harnesses ?? []).map((entry: any) => [String(entry.harness ?? entry.name), entry.models ?? []]));
+  return (Array.isArray(harnesses) ? harnesses : Object.entries(harnesses).map(([id, data]) => ({ id, ...(data as any) }))).map((harness: any) => ({ id: String(harness.id ?? harness.name), name: String(harness.name ?? harness.id), models: (harness.models ?? modelsByHarness.get(String(harness.id ?? harness.name)) ?? []).map((model: any) => ({ id: String(model.id ?? model.modelId), name: model.name })) }));
 }

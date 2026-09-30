@@ -19,7 +19,7 @@ export type AcpmuxActivity = {
   kind: string;
   text: string;
   status?: string;
-  tool?: { id: string; title: string; kind?: string; status: string; inputSummary?: string; output?: string };
+  tool?: { id: string; title: string; kind?: string; status: string; inputSummary?: string; output?: string; additions?: number; deletions?: number };
 };
 
 export type AcpmuxPermission = {

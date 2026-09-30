@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applySupersededMessage, mergeEventRecords, permissionFromMessage, settleOptimisticPrompt } from "./direct";
+import { applySupersededMessage, mergeEventRecords, normalizeCatalog, permissionFromMessage, settleOptimisticPrompt } from "./direct";
 import type { AcpmuxRow } from "./model";
 
 describe("direct acpmux event helpers", () => {
@@ -46,5 +46,10 @@ describe("direct acpmux event helpers", () => {
     applySupersededMessage(rows, messageRows, superseded, "old-message");
     expect(rows.has("assistant-1")).toBe(false);
     expect(superseded.has("old-message")).toBe(true);
+  });
+
+  test("merges model options from the daemon model catalog", () => {
+    const catalog = normalizeCatalog({ defaultHarness: "claude", harnesses: { claude: { family: "claude" } } }, { harnesses: [{ harness: "claude", models: [{ id: "sonnet", name: "Sonnet" }] }] });
+    expect(catalog).toEqual([{ id: "claude", name: "claude", models: [{ id: "sonnet", name: "Sonnet" }] }]);
   });
 });
