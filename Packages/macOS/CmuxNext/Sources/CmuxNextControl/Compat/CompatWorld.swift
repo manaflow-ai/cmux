@@ -12,6 +12,8 @@ struct CompatWorld: Sendable {
         var index: Int
         var modelID: String
         var workspaceUUID: String?
+        /// Every workspace the window lists.
+        var workspaceUUIDs: [String] = []
         var isKey: Bool
         var isVisible: Bool
     }

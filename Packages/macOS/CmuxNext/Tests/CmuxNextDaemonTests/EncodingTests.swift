@@ -180,6 +180,26 @@ import Testing
         #expect(try document.jsonValue()["windows"] != nil)
     }
 
+    @Test func windowRecordCarriesWindowMembership() throws {
+        var document = WindowStateDocument()
+        document.upsert(WindowRecord(id: "w1", workspaceKey: "k2", workspaceKeys: ["k1", "k2", "gone"], display: "D",
+                                     showsScreenSwitcher: true))
+        document.prune(liveWorkspaces: ["k1", "k2"])
+        let value = try document.jsonValue()
+        let restored = try WindowStateDocument(jsonValue: value)
+        #expect(restored == document)
+        #expect(restored.windows[0].workspaceKeys == ["k1", "k2"])
+        #expect(restored.windows[0].display == "D")
+        #expect(restored.windows[0].showsScreenSwitcher)
+        // Records from older builds have no membership list.
+        let legacy = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"old","workspace_key":"k1"}"#.utf8))
+        #expect(legacy.workspaceKeys.isEmpty)
+        #expect(legacy.workspaceKey == "k1")
+        // A window whose every workspace is gone is dropped.
+        document.prune(liveWorkspaces: [])
+        #expect(document.windows.isEmpty)
+    }
+
     @Test func groupAndMetadataCommandsUseNullToClear() throws {
         let metadata = try object(SetWorkspaceMetadataRequest(workspace: .key("k1"), color: .clear, icon: .set("folder"),
                                                               mutation: MutationIdentity(origin: "o", mutationID: "m")))

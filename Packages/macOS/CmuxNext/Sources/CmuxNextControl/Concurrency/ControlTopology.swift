@@ -59,14 +59,19 @@ public struct ControlFocus: Sendable, Hashable {
 
 public struct ControlWindowInfo: Sendable, Hashable {
     public var id: String
+    /// Workspace shown.
     public var workspaceID: String?
+    /// Every workspace the window's sidebar lists, in order (each workspace
+    /// belongs to exactly one window).
+    public var workspaceIDs: [String]
     public var isKey: Bool
     public var isVisible: Bool
     public var focusedPaneID: String?
 
-    public init(id: String, workspaceID: String?, isKey: Bool, isVisible: Bool, focusedPaneID: String?) {
+    public init(id: String, workspaceID: String?, workspaceIDs: [String] = [], isKey: Bool, isVisible: Bool, focusedPaneID: String?) {
         self.id = id
         self.workspaceID = workspaceID
+        self.workspaceIDs = workspaceIDs
         self.isKey = isKey
         self.isVisible = isVisible
         self.focusedPaneID = focusedPaneID

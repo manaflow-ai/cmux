@@ -60,11 +60,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private func observeWorkspace() {
         let machines = services.machines
         let cloud = services.cloud!
+        let windows = services.windows!
         let state = state
         workspaceObservation = Task { [weak self] in
             for await _ in Observations({ () -> [String] in
                 // Re-run when the request or any machine's workspace list changes.
                 [state.workspaceID ?? "", state.machineID, String(cloud.hasLoadedMachines)]
+                    + windows.registry.members(of: state.id)
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.workspaces.map(\.id))" }
             }) {
                 self?.showWorkspace(requested: state.workspaceID)
@@ -74,8 +76,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// Shows the requested workspace on whichever machine holds it. While
     /// its Cloud machine is still connecting (relaunch), the window waits
-    /// instead of replacing the request; once that machine is loaded or
-    /// gone, a missing workspace falls back to the first local one.
+    /// instead of replacing the request. A missing workspace falls back to
+    /// the first one this window lists; a window listing none shows the
+    /// empty state (only the last window can, see `WindowRegistry`).
     private func showWorkspace(requested: String?) {
         let machines = services.machines
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
@@ -83,9 +86,29 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             return
         }
         if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) { return }
-        let local = machines.local.store
-        guard local.isLoaded, let workspace = local.workspaces.first else { return }
-        show(workspace, on: machines.local)
+        let members = services.windows.registry.members(of: state.id)
+        if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first {
+            show(workspace, on: daemon)
+            return
+        }
+        guard requested == nil || machines.local.store.isLoaded else { return }
+        showEmptyState()
+    }
+
+    /// No workspace: a minimal page with "New Workspace".
+    private func showEmptyState() {
+        guard content != nil || !(root.content is EmptyWindowView) else { return }
+        content?.teardown()
+        content = nil
+        titleObservation?.cancel()
+        root.titlebar.title = Strings.appName
+        let empty = EmptyWindowView()
+        empty.onNewWorkspace = { [weak self] in
+            guard let self else { return }
+            self.services.windows.newWorkspace(in: self.state)
+        }
+        root.show(empty)
+        services.cloudContextDidChange()
     }
 
     private func isWaiting(for machineID: String) -> Bool {

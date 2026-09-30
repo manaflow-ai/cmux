@@ -35,16 +35,21 @@ final class SidebarBridge {
     private func observe() {
         let machines = services.machines
         let board = services.statusBoard
+        let registry = services.windows.registry
+        let windowID = state.id
         observation = Task { [weak self] in
-            for await sections in Observations({ Self.sections(machines, statuses: board) }) {
-                self?.model.sections = sections
+            for await sections in Observations({ Self.sections(machines, statuses: board, members: registry.members(of: windowID)) }) {
+                guard let self, self.model.sections != sections else { continue }
+                self.model.sections = sections
             }
         }
         let state = state
         let model = model
         widthObservation = Task { [weak self] in
-            for await _ in Observations({ (model.width, model.presentation) }) {
+            for await (width, presentation) in Observations({ (model.width, model.presentation) }) {
                 guard let self else { return }
+                state.sidebarWidth = Double(width)
+                state.sidebarCollapsed = presentation != .expanded
                 self.services.windows.stateDidChange(state)
             }
         }
@@ -60,8 +65,14 @@ final class SidebarBridge {
         }
     }
 
+    /// This window's sidebar: every machine section, listing only the
+    /// workspaces the window owns (`WindowRegistry`).
+    static func sections(_ machines: MachineRegistry, statuses: WorkspaceStatusBoard, members: [String]) -> [SidebarRowSection] {
+        SidebarMembership.filter(sections(machines, statuses: statuses), members: Set(members))
+    }
+
     /// One section per machine: the local daemon, then each Cloud machine
-    /// (empty while it connects).
+    /// (empty while it connects), with every workspace.
     static func sections(_ machines: MachineRegistry, statuses: WorkspaceStatusBoard) -> [SidebarRowSection] {
         let status = { (id: String) in statuses.line(for: id) }
         var sections = SidebarMapping.sections(machines.local.store.sidebarSections,
@@ -99,10 +110,6 @@ final class SidebarBridge {
     }
 
     // MARK: Persistence mirror
-
-    var record: (width: Double, collapsed: Bool) {
-        (Double(model.width), model.presentation != .expanded)
-    }
 
     func restore(width: Double?, collapsed: Bool) {
         if let width { model.width = CGFloat(width) }

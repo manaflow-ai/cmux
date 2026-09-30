@@ -48,7 +48,7 @@ extension AppActions {
             do {
                 let id = try await services.windows.createWorkspace(spawn)
                 guard show else { return nil }
-                if let state { services.windows.show(workspaceID: id, in: state) } else { services.windows.open(record: nil, workspaceID: id) }
+                if let state { services.windows.claim(workspaceID: id, in: state) } else { services.windows.openWindow(workspaces: [id]) }
                 return nil
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
@@ -69,8 +69,12 @@ extension AppActions {
         let store = services.activeDaemon.store
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
               let index = store.workspaces.firstIndex(where: { $0 === workspace }) else { return }
-        let target = min(max(index + offset, 0), store.workspaces.count - 1)
-        guard target != index else { return }
+        // Up/down among the workspaces its window lists: the daemon index of
+        // the neighbor in that window (other windows' workspaces are skipped).
+        let members = Set(services.windows.registry.value.owner(of: workspace.id).map(services.windows.registry.members(of:)) ?? [])
+        let visible = store.workspaces.filter { members.isEmpty || members.contains($0.id) }
+        guard let position = visible.firstIndex(where: { $0 === workspace }), visible.indices.contains(position + offset),
+              let target = store.workspaces.firstIndex(where: { $0 === visible[position + offset] }), target != index else { return }
         let daemon = services.activeDaemon
         Task {
             await daemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: target)) { connection, _ in

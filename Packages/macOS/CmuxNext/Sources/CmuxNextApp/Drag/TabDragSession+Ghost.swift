@@ -21,7 +21,7 @@ extension TabDragSession {
         } else {
             presentation = .card
             rect = TabDragGeometry.floatingRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize)
-            if drag.winner != nil { scale = 0.9 }
+            if drag.winner != nil || drag.workspaceHighlight != nil { scale = 0.9 }
         }
         let jump = presentation != drag.presentation
         drag.presentation = presentation
@@ -74,6 +74,7 @@ extension TabDragSession {
         guard let drag else { return }
         self.drag = nil
         removeMonitors(drag)
+        if case .workspaces = drag.source.item { return finishWorkspaces(drag, commit: commit) }
         let outcome = commit ? drag.outcome : .cancel
         let winner = drag.winner
         for provider in drag.touched.values where provider !== winner?.provider || outcome == .cancel {

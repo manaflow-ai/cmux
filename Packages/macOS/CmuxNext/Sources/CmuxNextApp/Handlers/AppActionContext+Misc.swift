@@ -30,19 +30,16 @@ extension AppActionContext {
         return entry
     }
 
-    /// The window to show `workspaceID` in: the active one, else a new one.
+    /// The window showing `workspaceID`: the one that lists it, else the
+    /// active one (which takes it), else a new one.
     @discardableResult
-    func window(showing workspaceID: String) -> WindowController {
-        if let active = services.windows.active {
-            services.windows.show(workspaceID: workspaceID, in: active.state)
-            return active
-        }
-        return services.windows.open(record: nil, workspaceID: workspaceID)
+    func window(showing workspaceID: String) -> WindowController? {
+        services.windows.reveal(workspaceID: workspaceID)
     }
 
     /// Shows `tab` in its workspace and pane and selects it.
     func reveal(_ located: LocatedTab) {
-        let controller = window(showing: located.workspace.id)
+        guard let controller = window(showing: located.workspace.id) else { return }
         controller.state.selection.select(located.tab.id, in: located.pane.id)
         services.paneController(for: located.pane)?.select(StripTabID(located.tab.id))
     }

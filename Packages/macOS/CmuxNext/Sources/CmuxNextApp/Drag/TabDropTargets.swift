@@ -14,23 +14,31 @@ import CmuxNextSidebar
 final class SidebarTabDropTarget: TabDropTargetProviding {
     private weak var bridge: SidebarBridge?
     private var active = false
+    /// Machine of the dragged tabs or workspaces; drops stay on it.
+    var sourceMachine: MachineID = .local
 
     init(bridge: SidebarBridge) {
         self.bridge = bridge
     }
 
-    func dropHitTest(screenPoint: CGPoint, payload: TabDragPayload) -> TabDropProposal? {
-        guard let bridge, let hit = bridge.container.sidebarView.tabDragUpdate(screenPoint: screenPoint, sourceMachine: .local) else {
+    /// The raw sidebar hit (opens a gap, lights a row or group).
+    func hit(screenPoint: CGPoint) -> SidebarTabDropHit? {
+        guard let bridge, let hit = bridge.container.sidebarView.tabDragUpdate(screenPoint: screenPoint, sourceMachine: sourceMachine) else {
             return nil
         }
         active = true
+        return hit
+    }
+
+    func dropHitTest(screenPoint: CGPoint, payload: TabDragPayload) -> TabDropProposal? {
+        guard let bridge, let hit = hit(screenPoint: screenPoint) else { return nil }
         let kind: TabDropKind
         switch hit.drop {
         case .intoWorkspace(let id):
             kind = .workspace(id: id.rawValue)
         case .newWorkspace(let section, let group, let index):
-            let root = WorkspaceOrdering.rootIndex(for: DropPosition(section: section, group: group, index: index),
-                                                   moving: [], in: bridge.model.sections)
+            let root = bridge.daemonRootIndex(for: DropPosition(section: section, group: group, index: index),
+                                              moving: [], in: bridge.model.sections)
             kind = .newWorkspace(groupID: group?.rawValue, index: root ?? -1)
         case .intoGroup(let group):
             kind = .newWorkspace(groupID: group.rawValue, index: -1)

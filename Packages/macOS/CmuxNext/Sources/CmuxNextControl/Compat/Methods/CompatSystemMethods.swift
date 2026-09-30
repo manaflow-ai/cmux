@@ -1,8 +1,8 @@
 import CmuxNextDaemon
 import Foundation
 
-/// `system.*` and `window.*`. Windows are frontend-local; every window's
-/// sidebar lists every workspace, so a window "contains" all of them.
+/// `system.*` and `window.*`. Windows are frontend-local; each window lists
+/// its own workspaces (every workspace belongs to exactly one window).
 enum CompatSystemMethods {
     static let table: [String: CompatHandler] = [
         "system.ping": .read({ _ in ["pong": true] }),
