@@ -8619,6 +8619,22 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
+        for copyAction in [
+            CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory,
+            .copyProjectRoot,
+            .copyScreen,
+        ] {
+            let metadata = copyAction.resolvedConfigMetadata
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: Self.commandPaletteCopyActionCommandID(copyAction),
+                    title: constant(metadata.title),
+                    subtitle: terminalPanelSubtitle,
+                    keywords: metadata.keywords,
+                    when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+                )
+            )
+        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitBrowserRight",
@@ -9533,6 +9549,22 @@ struct ContentView: View {
         registry.register(commandId: "palette.terminalSplitDown") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
                 tabManager.createSplit(direction: .down)
+            }
+        }
+        for copyAction in [
+            CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory,
+            .copyProjectRoot,
+            .copyScreen,
+        ] {
+            registry.register(commandId: Self.commandPaletteCopyActionCommandID(copyAction)) {
+                if let terminalCopyAction = copyAction.terminalCopyAction {
+                    let workspace = tabManager.selectedWorkspace
+                    TerminalCopyActionRunner.run(
+                        terminalCopyAction,
+                        workspace: workspace,
+                        panelId: workspace?.focusedPanelId
+                    )
+                }
             }
         }
         registry.register(commandId: "palette.terminalSplitBrowserRight") {
@@ -17208,10 +17240,12 @@ extension String {
         var lineCount = 1
         var characterCount = 0
         var truncated = false
+        var cutMidToken = false
 
         for character in self {
             if characterCount >= maxDisplayedCharacters {
                 truncated = true
+                cutMidToken = true
                 break
             }
             if character == "\n" {
@@ -17227,7 +17261,24 @@ extension String {
 
         guard truncated else { return self }
         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "..." : trimmed + "..."
+        guard !trimmed.isEmpty else { return "…" }
+
+        // A single ellipsis character, not three periods, and attached in the
+        // way the cut earns. Sidebar text is scanned for GitHub references
+        // after it is bounded, and the reference parser trims a trailing `.`
+        // before reading a number but leaves `…` alone, so the marker decides
+        // whether the last token still parses.
+        //
+        // The character bound can stop in the middle of a token, and a cut
+        // `owner/repo#8471` reads as `owner/repo#847`, which links to an issue
+        // nobody wrote. Attaching the marker to that token is what keeps it
+        // from parsing, so the row shows text instead of a wrong link.
+        //
+        // The line bound cannot: the loop breaks on `\n` before appending it,
+        // so the kept text always ends with a whole line and a whole token.
+        // Attaching the marker there would only break a reference that is
+        // complete and correct, which is why it gets a space first.
+        return cutMidToken ? trimmed + "…" : trimmed + " …"
     }
 }
 

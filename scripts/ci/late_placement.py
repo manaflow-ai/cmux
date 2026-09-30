@@ -36,7 +36,7 @@ oldest runs first). Minis first: a job an idle gui runner takes now stays.
 Every other one goes where it is expected to start sooner, in seconds: on the
 gui label behind the backlog on its online runners (GUI_JOB_SECONDS a job), or
 on RETRY_RUNNER after its start latency (BLACKSMITH_START_SECONDS) behind its
-queue on the shared Blacksmith account capacity (RETRY_JOB_SECONDS a job). A tie stays
+queue on RETRY_RUNNER's label capacity (RETRY_JOB_SECONDS a job). A tie stays
 on the minis. There is no fixed allowance of queue on the gui label: until
 2026-09-29 a job stayed while it started within one gui job length
 (GUI_QUEUE_ROUNDS), whatever Blacksmith's queue, and over the 24 hours to
@@ -183,7 +183,7 @@ def gui_backlog(github: Any, labels: Sequence[str], *, exclude_run_id: int | Non
 
 
 def overflow(jobs: Sequence[str], *, owned_jobs: str, gui_idle: int, gui_online: int, backlog: int,
-             retry_queued: int | None = None, retry_capacity: int = pool.POOL_CAPACITY,
+             retry_queued: int | None = None, retry_capacity: int | None = None,
              retry: str = "") -> tuple[str, ...]:
     """The owned gui-token jobs no idle gui runner takes now that are expected to start sooner on the
     retry pool.
@@ -201,7 +201,7 @@ def overflow(jobs: Sequence[str], *, owned_jobs: str, gui_idle: int, gui_online:
     keep = max(0, max(0, gui_idle) - max(0, backlog))
     if retry_queued is None:
         return tuple(mine[keep:])
-    capacity = max(1, retry_capacity)
+    capacity = max(1, retry_capacity if retry_capacity is not None else pool.BLACKSMITH_CAPACITIES.get(retry, pool.POOL_CAPACITY))
     retry_idle = capacity if retry_queued <= 0 else 0
     start = BLACKSMITH_START_SECONDS.get(retry, DEFAULT_BLACKSMITH_START_SECONDS)
     length = RETRY_JOB_SECONDS.get(retry, DEFAULT_RETRY_JOB_SECONDS)
@@ -267,7 +267,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
             queued, retry_queued = counts.get(gui_label, 0), counts.get(retry) if labels[1:] else None
             moved_off = overflow(jobs, owned_jobs=owned_jobs, gui_idle=gui_idle, gui_online=online,
                                  backlog=queued, retry_queued=retry_queued,
-                                 retry_capacity=pool.POOL_CAPACITY, retry=retry)
+                                 retry_capacity=pool.BLACKSMITH_CAPACITIES.get(retry, pool.POOL_CAPACITY), retry=retry)
             seen += f", {queued} gui job(s) queued ahead on {online} online"
             if retry_queued is not None:
                 seen += f" and {retry_queued} on `{retry}`"
