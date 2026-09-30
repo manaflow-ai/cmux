@@ -130,7 +130,7 @@ export function consumedInvitationEmail(
   return consumed.size === 1 ? [...consumed][0]! : null;
 }
 
-async function userVerifiedEmails(user: StackUser): Promise<Set<string>> {
+export async function userVerifiedEmails(user: StackUser): Promise<Set<string>> {
   const channels = await withStackDeadline(() => user.listContactChannels());
   const emails = new Set(
     channels.filter((channel) => channel.type === "email" && channel.isVerified)

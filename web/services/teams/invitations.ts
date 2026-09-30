@@ -1,202 +1,173 @@
 import type { TeamAccess } from "./access";
 import { TeamApiError } from "./errors";
-import { databaseTeamInviteStore, type TeamInviteStore } from "./repository";
+import { resendTeamInviteMailer, type TeamInviteMailer } from "./inviteEmail";
+import { generateInviteLinkToken, hashInviteLinkToken } from "./links";
+import { databaseTeamInviteStore, type StoredEmailInvitation, type TeamInviteStore } from "./repository";
 import { assertSeatsAvailable, memberLimitForTeam } from "./seats";
-import { withStackDeadline, type StackSentInvitation } from "./stack";
 import type { TeamInvitation, TeamRole } from "./types";
 
 export { MAX_INVITE_EMAILS } from "./limits";
 
-export type InvitationDependencies = { readonly store?: TeamInviteStore };
+export const EMAIL_INVITATION_EXPIRY_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export type InvitationDependencies = {
+  readonly store?: TeamInviteStore;
+  readonly mailer?: TeamInviteMailer;
+  readonly now?: () => Date;
+};
 
 export type InviteFailureCode = "already_member" | "invite_failed";
+
+/** Builds the emailed accept URL for a raw token; the caller knows the request origin. */
+export type InviteUrlBuilder = (token: string) => string;
 
 export function normalizeInviteEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function invitationEmail(invitation: StackSentInvitation): string | null {
-  return invitation.recipientEmail ? normalizeInviteEmail(invitation.recipientEmail) : null;
-}
-
-function toInvitation(invitation: StackSentInvitation, roles: ReadonlyMap<string, TeamRole>): TeamInvitation {
-  const email = invitationEmail(invitation);
+export function toInvitation(invitation: StoredEmailInvitation): TeamInvitation {
   return {
     id: invitation.id,
-    email,
-    role: (email && roles.get(email)) || "member",
+    email: invitation.email,
+    role: invitation.role,
     expiresAt: invitation.expiresAt.toISOString(),
   };
 }
 
-async function listStackInvitations(access: TeamAccess): Promise<readonly StackSentInvitation[]> {
-  return withStackDeadline(() => access.team.listInvitations());
+/** The inviter as the team sees them, for the email's first line. */
+export function inviterDisplayName(access: TeamAccess): string | null {
+  const inviter = access.members.find((member) => member.id === access.userId);
+  return inviter?.teamProfile?.displayName || inviter?.displayName || inviter?.primaryEmail || null;
 }
 
-/** Pending Stack invitations joined with the role cmux stored for each email. */
+/** Pending invitations of one team. */
 export async function listTeamInvitations(
   access: TeamAccess,
   dependencies: InvitationDependencies = {},
 ): Promise<TeamInvitation[]> {
-  const invitations = await listStackInvitations(access);
-  return mapInvitations(access.team.id, invitations, dependencies.store ?? databaseTeamInviteStore);
-}
-
-async function mapInvitations(
-  teamId: string,
-  invitations: readonly StackSentInvitation[],
-  store: TeamInviteStore,
-): Promise<TeamInvitation[]> {
-  const emails = [...new Set(invitations.map(invitationEmail).filter((email): email is string => email !== null))];
-  const roles = await store.inviteRoles(teamId, emails);
-  return invitations.map((invitation) => toInvitation(invitation, roles));
+  const store = dependencies.store ?? databaseTeamInviteStore;
+  return (await store.listPendingEmailInvitations(access.team.id)).map(toInvitation);
 }
 
 /**
- * Invite each email through Stack, which sends the only email. The role is
- * stored before the invitation exists, so no accept can race ahead of it.
- * Re-inviting overwrites the stored role.
+ * Invite each email: the row is written first, then the email goes out. A
+ * failed send deletes the row so nothing pending exists without an email,
+ * and a re-invite revokes the older pending row only after the new email
+ * went out, so a failed resend never strands the recipient.
  */
 export async function inviteTeamMembers(
   access: TeamAccess,
-  input: { readonly emails: readonly string[]; readonly role: TeamRole; readonly callbackUrl: string },
+  input: { readonly emails: readonly string[]; readonly role: TeamRole; readonly acceptUrl: InviteUrlBuilder },
   dependencies: InvitationDependencies = {},
 ): Promise<{ invitations: TeamInvitation[]; failed: { email: string; code: InviteFailureCode }[] }> {
   const store = dependencies.store ?? databaseTeamInviteStore;
+  const mailer = dependencies.mailer ?? resendTeamInviteMailer;
+  const now = dependencies.now ?? (() => new Date());
   const memberEmails = new Set(
     access.members.map((member) => member.primaryEmail ? normalizeInviteEmail(member.primaryEmail) : null)
       .filter((email): email is string => email !== null),
   );
   const emails = [...new Set(input.emails.map(normalizeInviteEmail))];
   const failed: { email: string; code: InviteFailureCode }[] = [];
-  const sent: string[] = [];
+  const invitations: TeamInvitation[] = [];
   const newEmails = emails.filter((email) => !memberEmails.has(email));
-  const previous = newEmails.length > 0 ? await listStackInvitations(access) : [];
+  const previous = newEmails.length > 0 ? await store.listPendingEmailInvitations(access.team.id) : [];
   if (newEmails.length > 0 && memberLimitForTeam(access.team) !== null) {
-    const pending = new Set(previous.map(invitationEmail).filter((email): email is string => email !== null));
+    const pending = new Set(previous.map((invitation) => invitation.email));
     assertSeatsAvailable({
       team: access.team,
       occupied: access.members.length + pending.size,
       adding: newEmails.filter((email) => !pending.has(email)).length,
     });
   }
+  const inviterName = inviterDisplayName(access);
   for (const email of emails) {
     if (memberEmails.has(email)) {
       failed.push({ email, code: "already_member" });
       continue;
     }
-    const previousRole = (await store.inviteRoles(access.team.id, [email])).get(email);
+    const token = generateInviteLinkToken();
+    const expiresAt = new Date(now().getTime() + EMAIL_INVITATION_EXPIRY_DAYS * DAY_MS);
+    const row = await store.createEmailInvitation({
+      stackTeamId: access.team.id,
+      email,
+      role: input.role,
+      invitedByUserId: access.userId,
+      tokenHash: hashInviteLinkToken(token),
+      expiresAt,
+    });
     try {
-      await store.upsertInviteRole({ stackTeamId: access.team.id, email, role: input.role, invitedByUserId: access.userId });
-      await withStackDeadline(() => access.team.inviteUser({ email, callbackUrl: input.callbackUrl }));
-      sent.push(email);
+      await mailer.send({
+        to: email,
+        teamName: access.team.displayName,
+        inviterName,
+        role: input.role,
+        acceptUrl: input.acceptUrl(token),
+        expiresAt,
+      });
     } catch (error) {
-      console.error("team invitation send failed", {
+      console.error("team invitation email failed", {
         teamId: access.team.id,
         errorType: error instanceof Error ? error.name : typeof error,
         message: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
       });
+      await store.deleteEmailInvitation(row.id).catch(() => {
+        console.error("team invitation cleanup failed", { teamId: access.team.id, invitationId: row.id });
+      });
       failed.push({ email, code: "invite_failed" });
-      await restoreInviteRole(store, access, email, previousRole);
       continue;
     }
-    await revokeSuperseded(previous.filter((invitation) => invitationEmail(invitation) === email));
+    await store.revokeOtherPendingEmailInvitations(access.team.id, email, row.id);
+    invitations.push(toInvitation(row));
   }
-  if (sent.length === 0) return { invitations: [], failed };
-  const all = await listStackInvitations(access);
-  const sentSet = new Set(sent);
-  const mine = latestPerEmail(all.filter((invitation) => sentSet.has(invitationEmail(invitation) ?? "")));
-  return { invitations: await mapInvitations(access.team.id, mine, store), failed };
+  return { invitations, failed };
 }
 
-/**
- * A failed send leaves any previous invitation valid, so it must keep the role
- * that invitation was sent with, and a first invite that failed stores none.
- */
-async function restoreInviteRole(
-  store: TeamInviteStore,
+async function findPendingInvitation(
   access: TeamAccess,
-  email: string,
-  previousRole: TeamRole | undefined,
-): Promise<void> {
-  try {
-    if (previousRole) {
-      await store.upsertInviteRole({ stackTeamId: access.team.id, email, role: previousRole, invitedByUserId: access.userId });
-    } else {
-      await store.deleteInviteRole(access.team.id, email);
-    }
-  } catch {
-    console.error("team invitation role restore failed", { teamId: access.team.id });
+  invitationId: string,
+  store: TeamInviteStore,
+): Promise<StoredEmailInvitation> {
+  const invitation = await store.findEmailInvitation(invitationId);
+  if (!invitation || invitation.stackTeamId !== access.team.id) throw new TeamApiError("invitation_not_found", 404);
+  if (invitation.acceptedAt || invitation.declinedAt || invitation.revokedAt) {
+    throw new TeamApiError("invitation_not_found", 404);
   }
-}
-
-/**
- * A re-invite leaves one pending invitation per email: the older codes are
- * revoked after the new one exists, so a failed send never strands the
- * recipient without a working invitation.
- */
-async function revokeSuperseded(invitations: readonly StackSentInvitation[]): Promise<void> {
-  for (const invitation of invitations) {
-    await withStackDeadline(() => invitation.revoke()).catch(() => {
-      console.error("superseded team invitation revoke failed", { invitationId: invitation.id });
-    });
-  }
-}
-
-function latestPerEmail(invitations: readonly StackSentInvitation[]): StackSentInvitation[] {
-  const byEmail = new Map<string, StackSentInvitation>();
-  for (const invitation of invitations) {
-    const email = invitationEmail(invitation) ?? invitation.id;
-    const existing = byEmail.get(email);
-    if (!existing || existing.expiresAt < invitation.expiresAt) byEmail.set(email, invitation);
-  }
-  return [...byEmail.values()];
-}
-
-async function findInvitation(access: TeamAccess, invitationId: string): Promise<StackSentInvitation> {
-  const invitations = await listStackInvitations(access);
-  const invitation = invitations.find((candidate) => candidate.id === invitationId);
-  if (!invitation) throw new TeamApiError("invitation_not_found", 404);
   return invitation;
 }
 
-/**
- * Stack cannot resend, so invite the same email again, then revoke the old
- * code. The stored role is kept, and a failed send leaves the old code valid.
- */
+/** Send the same invitation again with a fresh token and expiry. The old link stops working. */
 export async function resendTeamInvitation(
   access: TeamAccess,
   invitationId: string,
-  callbackUrl: string,
+  acceptUrl: InviteUrlBuilder,
   dependencies: InvitationDependencies = {},
 ): Promise<TeamInvitation> {
   const store = dependencies.store ?? databaseTeamInviteStore;
-  const invitation = await findInvitation(access, invitationId);
-  const email = invitationEmail(invitation);
-  if (!email) throw new TeamApiError("invitation_invalid", 409, "This invitation has no email address to resend to.");
-  await withStackDeadline(() => access.team.inviteUser({ email, callbackUrl }));
-  await revokeSuperseded([invitation]);
-  const replacement = latestPerEmail(
-    (await listStackInvitations(access)).filter((candidate) => invitationEmail(candidate) === email),
-  )[0];
-  if (!replacement) throw new TeamApiError("invitation_not_found", 404);
-  const [mapped] = await mapInvitations(access.team.id, [replacement], store);
-  return mapped!;
+  const mailer = dependencies.mailer ?? resendTeamInviteMailer;
+  const now = dependencies.now ?? (() => new Date());
+  const invitation = await findPendingInvitation(access, invitationId, store);
+  const token = generateInviteLinkToken();
+  const expiresAt = new Date(now().getTime() + EMAIL_INVITATION_EXPIRY_DAYS * DAY_MS);
+  await mailer.send({
+    to: invitation.email,
+    teamName: access.team.displayName,
+    inviterName: inviterDisplayName(access),
+    role: invitation.role,
+    acceptUrl: acceptUrl(token),
+    expiresAt,
+  });
+  await store.refreshEmailInvitation(invitation.id, { tokenHash: hashInviteLinkToken(token), expiresAt });
+  return toInvitation({ ...invitation, expiresAt });
 }
 
-/** Revoke an invitation and drop its stored role once no invitation for that email remains. */
 export async function revokeTeamInvitation(
   access: TeamAccess,
   invitationId: string,
   dependencies: InvitationDependencies = {},
 ): Promise<void> {
   const store = dependencies.store ?? databaseTeamInviteStore;
-  const invitation = await findInvitation(access, invitationId);
-  await withStackDeadline(() => invitation.revoke());
-  const email = invitationEmail(invitation);
-  if (!email) return;
-  const remaining = await listStackInvitations(access);
-  if (!remaining.some((candidate) => invitationEmail(candidate) === email)) {
-    await store.deleteInviteRole(access.team.id, email);
-  }
+  const found = await store.revokeEmailInvitation(access.team.id, invitationId);
+  if (!found) throw new TeamApiError("invitation_not_found", 404);
 }
