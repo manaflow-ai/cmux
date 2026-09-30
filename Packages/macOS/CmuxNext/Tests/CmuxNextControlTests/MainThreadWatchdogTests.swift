@@ -16,7 +16,9 @@ import Testing
         CFRunLoopWakeUp(CFRunLoopGetMain())
         CFRunLoopRunInMode(.defaultMode, 0.4, false)
         let records = watchdog.log.records()
-        let stall = try #require(records.first, "no stall recorded")
+        // The longest record: on a loaded machine a descheduled main thread
+        // can add a shorter stall before the test's own one.
+        let stall = try #require(records.max { $0.duration < $1.duration }, "no stall recorded")
         #expect(stall.duration >= .milliseconds(100))
         #expect(!stall.frames.isEmpty)
         #expect(stall.frames.contains { $0.symbol?.contains("stallForTest") == true },
@@ -47,7 +49,8 @@ import Testing
         CFRunLoopWakeUp(CFRunLoopGetMain())
         CFRunLoopRunInMode(.defaultMode, 0.4, false)
         #expect(fired)
-        let stall = try #require(watchdog.log.records().first, "a stall in a before-waiting observer was not recorded")
+        let stall = try #require(watchdog.log.records().max { $0.duration < $1.duration },
+                                 "a stall in a before-waiting observer was not recorded")
         #expect(stall.duration >= .milliseconds(100))
         #expect(watchdog.gapStats.max >= .milliseconds(100))
     }
