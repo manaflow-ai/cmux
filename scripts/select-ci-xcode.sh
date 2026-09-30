@@ -217,7 +217,7 @@ if [ -n "$PINNED_DEVELOPER_DIR" ]; then
   fi
   PINNED_SDK_VER="$(DEVELOPER_DIR="$PINNED_DEVELOPER_DIR" xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
   if [ -z "$PINNED_SDK_VER" ]; then
-    echo "::error::Pinned Xcode developer dir has no usable macOS SDK: $PINNED_DEVELOPER_DIR on runner $(this_runner). $MACHINE_MARKER" >&2
+    echo "::error::Pinned Xcode developer dir has no usable macOS SDK: $PINNED_DEVELOPER_DIR on runner $(this_runner). $MACHINE_MARKER Installed: $(installed_xcodes)" >&2
     exit 1
   fi
   select_developer_dir "$PINNED_DEVELOPER_DIR" "$PINNED_SDK_VER" "Selected pinned Xcode"
@@ -265,7 +265,7 @@ fi
 if [ "$ALLOW_BELOW_FLOOR" != "1" ] && [ -n "$POOL_DEVELOPER_DIR" ]; then
   POOL_SDK_VER="$(DEVELOPER_DIR="$POOL_DEVELOPER_DIR" xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
   if [ -z "$POOL_SDK_VER" ]; then
-    echo "::error::Pool Xcode developer dir has no usable macOS SDK: $POOL_DEVELOPER_DIR on runner $(this_runner). $MACHINE_MARKER" >&2
+    echo "::error::Pool Xcode developer dir has no usable macOS SDK: $POOL_DEVELOPER_DIR on runner $(this_runner). $MACHINE_MARKER Installed: $(installed_xcodes)" >&2
     exit 1
   fi
   select_developer_dir "$POOL_DEVELOPER_DIR" "$POOL_SDK_VER" "Selected Xcode $POOL_VERSION pinned for macOS $POOL_MAJOR runners"

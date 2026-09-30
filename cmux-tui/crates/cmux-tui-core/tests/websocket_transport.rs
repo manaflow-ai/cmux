@@ -501,10 +501,11 @@ fn clients_list_identify_resize_and_detach_across_transports() {
             "surface": surface,
             "cols": 101,
             "rows": 37,
-            "size_participating": false,
+            // The newest attached view owns the grid under `latest`.
+            "size_participating": true,
         }])
     );
-    assert_eq!(mux.surface(surface).unwrap().size(), (80, 24));
+    assert_eq!(mux.surface(surface).unwrap().size(), (101, 37));
 
     send_json(
         &mut websocket,
@@ -553,7 +554,8 @@ fn clients_list_identify_resize_and_detach_across_transports() {
             saw_response = true;
         }
     }
-    assert_eq!(mux.surface(surface).unwrap().size(), (101, 37));
+    // The departed owner hands the grid to the remaining view.
+    assert_eq!(mux.surface(surface).unwrap().size(), (120, 40));
 
     writeln!(
         unix_writer,

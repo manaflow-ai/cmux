@@ -354,6 +354,10 @@ pub struct AttachStream {
     pub kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
     pub kitty_state: KittyReplayState,
     pub colors: TerminalColors,
+    /// The incomplete sequence the parser is inside. `replay` ends at a
+    /// parser boundary; write this after it and after the colors, right
+    /// before the live stream that completes it.
+    pub pending_sequence: Arc<[u8]>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }
@@ -367,12 +371,14 @@ pub enum AttachFrame {
         output: Vec<u8>,
         colors: Box<TerminalColors>,
     },
+    /// `pending_sequence` has the meaning documented on [`AttachStream`].
     Resized {
         cols: u16,
         rows: u16,
         replay: Arc<[u8]>,
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
         kitty_state: KittyReplayState,
+        pending_sequence: Arc<[u8]>,
     },
     /// One parser transition: `replay` is theme-portable, so `colors` is part
     /// of the same replacement snapshot rather than a subsequent callback.
@@ -383,6 +389,7 @@ pub enum AttachFrame {
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
         kitty_state: KittyReplayState,
         colors: Box<TerminalColors>,
+        pending_sequence: Arc<[u8]>,
     },
     ColorsChanged(Arc<TerminalColors>),
 }
@@ -742,14 +749,36 @@ pub(crate) struct AttachLifecycle {
     state: Arc<AttachLifecycleState>,
 }
 
-#[derive(Default)]
 struct AttachLifecycleState {
     canceled: AtomicBool,
     overflowed: AtomicBool,
     overflow_reported: AtomicBool,
+    /// Whether this viewer writes a replay's pending sequence after its own
+    /// sequences (`terminal-pending-sequence-v1`). A viewer that does not
+    /// would write color sequences into it, so it reconnects instead.
+    resumes_pending_sequence: AtomicBool,
+}
+
+impl Default for AttachLifecycleState {
+    fn default() -> Self {
+        Self {
+            canceled: AtomicBool::new(false),
+            overflowed: AtomicBool::new(false),
+            overflow_reported: AtomicBool::new(false),
+            resumes_pending_sequence: AtomicBool::new(true),
+        }
+    }
 }
 
 impl AttachLifecycle {
+    pub(crate) fn set_resumes_pending_sequence(&self, resumes: bool) {
+        self.state.resumes_pending_sequence.store(resumes, Ordering::Release);
+    }
+
+    fn resumes_pending_sequence(&self) -> bool {
+        self.state.resumes_pending_sequence.load(Ordering::Acquire)
+    }
+
     pub(crate) fn cancel(&self) {
         self.state.canceled.store(true, Ordering::Release);
     }
@@ -3377,6 +3406,9 @@ impl Surface {
                                         colors: Box::new(
                                             pty.terminal_colors_locked(term, defaults),
                                         ),
+                                        // Terminal hosts replay only at a
+                                        // parser boundary.
+                                        pending_sequence: Arc::from([]),
                                     });
                                     pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                                 });
@@ -3680,6 +3712,7 @@ impl Surface {
                                 kitty_image_aliases: replacement_snapshot.kitty_image_aliases,
                                 kitty_state: replacement_snapshot.kitty_state,
                                 colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
+                                pending_sequence: Arc::from([]),
                             });
                             pty.stream_progress.notify_reconnect();
                             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
@@ -4776,6 +4809,18 @@ impl Surface {
         Some(())
     }
 
+    /// Apply PTY bytes the way the local reader does: parse them under the
+    /// terminal lock and publish the normalized bytes to byte attachments.
+    #[cfg(test)]
+    pub(crate) fn apply_local_pty_output_for_test(&self, bytes: &[u8]) -> Option<()> {
+        let pty = self.as_pty()?;
+        let mut term = pty.term.lock().unwrap();
+        let normalized = term.vt_write_with_normalized(bytes).into_owned();
+        pty.broadcast_attach_output(&normalized);
+        pty.stream_progress.notify();
+        Some(())
+    }
+
     #[cfg(test)]
     pub(crate) fn terminal_stream_waiter_count_for_test(&self) -> Option<usize> {
         Some(self.as_pty()?.stream_progress.waiter_count())
@@ -5828,6 +5873,7 @@ impl Surface {
             kitty_image_aliases: replay.kitty_image_aliases,
             kitty_state: replay.kitty_state,
             colors,
+            pending_sequence: replay.pending_sequence.into(),
             stream,
             lifecycle,
         })
@@ -6671,6 +6717,18 @@ impl PtySurface {
         !taps.is_empty()
     }
 
+    /// Viewers without pending-sequence support reconnect from a fresh
+    /// snapshot rather than receive a replay that ends inside a sequence.
+    fn cancel_taps_without_pending_support(&self) {
+        self.taps.lock().unwrap().retain(|tap| {
+            let keep = tap.lifecycle.resumes_pending_sequence();
+            if !keep {
+                tap.lifecycle.cancel();
+            }
+            keep
+        });
+    }
+
     fn broadcast_attach_frame(&self, frame: AttachFrame) {
         self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
     }
@@ -6703,6 +6761,9 @@ impl PtySurface {
         self.attach_colors_force_pending.store(false, Ordering::Release);
         *self.last_attach_colors.lock().unwrap() =
             Some(Box::new(TerminalColors::from_pty_output(term, defaults)));
+        if !replay.pending_sequence.is_empty() {
+            self.cancel_taps_without_pending_support();
+        }
         self.broadcast_attach_frame(AttachFrame::ResizedWithColors {
             cols: term.cols(),
             rows: term.rows(),
@@ -6710,6 +6771,7 @@ impl PtySurface {
             kitty_image_aliases: replay.kitty_image_aliases,
             kitty_state: replay.kitty_state,
             colors,
+            pending_sequence: replay.pending_sequence.into(),
         });
     }
 
@@ -6991,11 +7053,12 @@ impl PtySurface {
             taps.retain(|tap| !tap.lifecycle.is_canceled());
             !taps.is_empty()
         };
-        // A replacement replay cannot represent a parser that is between
-        // UTF-8 bytes or escape-sequence states. Smart mirrors resize in
-        // place, while compatibility mirrors reconnect from a fresh safe
-        // snapshot instead of consuming a corrupt replay.
-        if has_attach_taps && !term.vt_stream_is_ground() {
+        // A replacement replay ends inside the same incomplete sequence as
+        // this parser, so byte mirrors follow a resize at any byte. Only a
+        // control string larger than the replay's pending-sequence budget
+        // cannot be carried; those mirrors reconnect from a fresh snapshot
+        // instead of consuming a corrupt replay.
+        if has_attach_taps && !term.vt_replay_resumes_stream() {
             let mut taps = self.taps.lock().unwrap();
             for tap in taps.drain(..) {
                 tap.lifecycle.cancel();
@@ -7094,6 +7157,9 @@ impl PtySurface {
                 self.attach_colors_force_pending.store(false, Ordering::Release);
                 *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
             }
+            if !replay.pending_sequence.is_empty() {
+                self.cancel_taps_without_pending_support();
+            }
             self.broadcast_attach_frame(AttachFrame::ResizedWithColors {
                 cols: next.cols,
                 rows: next.rows,
@@ -7101,6 +7167,7 @@ impl PtySurface {
                 kitty_image_aliases: replay.kitty_image_aliases,
                 kitty_state: replay.kitty_state,
                 colors,
+                pending_sequence: replay.pending_sequence.into(),
             });
         }
         // Geometry changes are terminal-stream transitions too. Publish the
@@ -8343,6 +8410,202 @@ mod tests {
         assert_eq!(received, expected);
     }
 
+    /// Streaming output that crosses every kind of parser state a byte mirror
+    /// can join in the middle of: CSI, OSC (BEL and ST), OSC 8, DCS, APC, and
+    /// multi-byte UTF-8.
+    const MIRROR_TRANSCRIPT: &[u8] = concat!(
+        "before λ 🙂 ",
+        "\u{1b}[1;31mstyled 赤\u{1b}[0m ",
+        "\u{1b}]0;title λ\u{1b}\\",
+        "\u{1b}]8;;https://example.com\u{7}link\u{1b}]8;;\u{7} ",
+        "\u{1b}P$qm\u{1b}\\",
+        "\u{1b}_ignored\u{1b}\\",
+        "\u{1b}[3;7H\u{1b}[38;2;10;20;30mrgb\u{1b}[m",
+        "\r\n\u{1b}[Kafter"
+    )
+    .as_bytes();
+
+    /// Models the native Cloud pane with its grid pinned to the daemon: a byte
+    /// mirror that rebuilds from every replay at the advertised grid, writes
+    /// its color sidecar after the replay the way the pane does, and then
+    /// follows the live byte stream.
+    struct PinnedByteMirror {
+        term: Terminal,
+        attach: AttachStream,
+        replay_ended_mid_sequence: bool,
+    }
+
+    impl PinnedByteMirror {
+        fn attach(surface: &Surface) -> Self {
+            let attach = surface.attach_stream().unwrap();
+            let mut replay_ended_mid_sequence = false;
+            let term = Self::from_replay(
+                attach.cols,
+                attach.rows,
+                &attach.replay,
+                &attach.pending_sequence,
+                &mut replay_ended_mid_sequence,
+            );
+            Self { term, attach, replay_ended_mid_sequence }
+        }
+
+        fn from_replay(
+            cols: u16,
+            rows: u16,
+            replay: &[u8],
+            pending_sequence: &[u8],
+            replay_ended_mid_sequence: &mut bool,
+        ) -> Terminal {
+            let mut term = Terminal::new(cols, rows, 1000, Callbacks::default()).unwrap();
+            term.vt_write(replay);
+            // The pane appends color sequences here, which is only safe at a
+            // parser boundary.
+            *replay_ended_mid_sequence |= !term.vt_stream_is_ground();
+            term.vt_write(pending_sequence);
+            term
+        }
+
+        fn drain(&mut self) {
+            while let Ok(frame) = self.attach.stream.try_recv() {
+                match frame {
+                    AttachFrame::Output(bytes) => self.term.vt_write(&bytes),
+                    AttachFrame::OutputWithColors { output, .. } => self.term.vt_write(&output),
+                    AttachFrame::Resized { cols, rows, replay, pending_sequence, .. }
+                    | AttachFrame::ResizedWithColors {
+                        cols, rows, replay, pending_sequence, ..
+                    } => {
+                        self.term = Self::from_replay(
+                            cols,
+                            rows,
+                            &replay,
+                            &pending_sequence,
+                            &mut self.replay_ended_mid_sequence,
+                        );
+                    }
+                    AttachFrame::ColorsChanged(_) => {}
+                }
+            }
+        }
+
+        /// Returns a description of every way this mirror differs from the
+        /// authoritative terminal.
+        fn divergence(&mut self, surface: &Surface) -> Option<String> {
+            let disconnected = self.attach.lifecycle.is_canceled();
+            self.drain();
+            let pty = surface.as_pty().unwrap();
+            let mut source = pty.term.lock().unwrap();
+            let grid = (source.cols(), source.rows());
+            let mirror_grid = (self.term.cols(), self.term.rows());
+            let text = source.viewport_text().unwrap();
+            let mirror_text = self.term.viewport_text().unwrap();
+            let cursor = source.cursor_position();
+            let mirror_cursor = self.term.cursor_position();
+            let mid_sequence = self.replay_ended_mid_sequence;
+            (disconnected
+                || mid_sequence
+                || grid != mirror_grid
+                || text != mirror_text
+                || cursor != mirror_cursor)
+                .then(|| {
+                    format!(
+                        "disconnected={disconnected} replay_ended_mid_sequence={mid_sequence} \
+                         grid={grid:?}/{mirror_grid:?} cursor={cursor:?}/{mirror_cursor:?} \
+                         text={text:?} mirror={mirror_text:?}"
+                    )
+                })
+        }
+    }
+
+    fn mirror_test_surface(mux: &Arc<Mux>) -> Arc<Surface> {
+        let options = SurfaceOptions { cols: 80, rows: 10, ..SurfaceOptions::default() };
+        Surface::spawn_for_test(1, options, Arc::downgrade(mux)).unwrap()
+    }
+
+    #[test]
+    fn byte_mirror_attached_inside_any_sequence_matches_the_terminal() {
+        let mux = Mux::new_for_test("mirror-attach-mid-sequence", SurfaceOptions::default());
+        let mut failures = Vec::new();
+        for split in 0..=MIRROR_TRANSCRIPT.len() {
+            let surface = mirror_test_surface(&mux);
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[..split]).unwrap();
+            let mut mirror = PinnedByteMirror::attach(&surface);
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[split..]).unwrap();
+            if let Some(divergence) = mirror.divergence(&surface) {
+                failures.push(format!("attach at byte {split}: {divergence}"));
+            }
+        }
+        assert!(failures.is_empty(), "byte mirror diverged:\n{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn byte_mirror_survives_owner_resize_inside_any_sequence() {
+        let mux = Mux::new_for_test("mirror-resize-mid-sequence", SurfaceOptions::default());
+        let mut failures = Vec::new();
+        for split in 0..=MIRROR_TRANSCRIPT.len() {
+            let surface = mirror_test_surface(&mux);
+            let mut mirror = PinnedByteMirror::attach(&surface);
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[..split]).unwrap();
+            surface.resize(100, 30).unwrap();
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[split..]).unwrap();
+            if let Some(divergence) = mirror.divergence(&surface) {
+                failures.push(format!("resize at byte {split}: {divergence}"));
+            }
+        }
+        assert!(failures.is_empty(), "byte mirror diverged:\n{}", failures.join("\n"));
+    }
+
+    /// A released client writes its color sequences right after a resize
+    /// replay, so a replay ending inside a sequence would put them inside it.
+    /// Those viewers keep the old behavior: they reconnect from a fresh
+    /// snapshot. Viewers that advertised pending-sequence support stay.
+    #[test]
+    fn resize_inside_a_sequence_disconnects_only_viewers_without_pending_support() {
+        let mux = Mux::new_for_test("mirror-resize-legacy-viewer", SurfaceOptions::default());
+        let surface = mirror_test_surface(&mux);
+        let mut capable = PinnedByteMirror::attach(&surface);
+        let legacy_lifecycle = AttachLifecycle::default();
+        legacy_lifecycle.set_resumes_pending_sequence(false);
+        let _legacy = surface.attach_stream_with_lifecycle(legacy_lifecycle.clone()).unwrap();
+
+        surface.apply_local_pty_output_for_test(b"\x1b[1;3").unwrap();
+        surface.resize(100, 30).unwrap();
+        assert!(legacy_lifecycle.is_canceled(), "a legacy viewer kept a mid-sequence replay");
+        surface.apply_local_pty_output_for_test(b"1mred").unwrap();
+        assert_eq!(capable.divergence(&surface), None);
+    }
+
+    /// Several people view one terminal at different sizes. Viewers join at
+    /// arbitrary stream positions while geometry ownership moves between them,
+    /// and every viewer must still show exactly the authoritative screen.
+    #[test]
+    fn byte_mirrors_joining_during_owner_churn_converge_on_the_terminal() {
+        let mux = Mux::new_for_test("mirror-owner-churn", SurfaceOptions::default());
+        let transcript = [MIRROR_TRANSCRIPT, MIRROR_TRANSCRIPT].concat();
+        let owner_grids = [(45, 20), (132, 40), (80, 24)];
+        let mut failures = Vec::new();
+        for split in 0..=MIRROR_TRANSCRIPT.len() {
+            let surface = mirror_test_surface(&mux);
+            let mut first = PinnedByteMirror::attach(&surface);
+            surface.apply_local_pty_output_for_test(&transcript[..split]).unwrap();
+            let mut second = PinnedByteMirror::attach(&surface);
+            surface.resize(owner_grids[0].0, owner_grids[0].1).unwrap();
+            let middle = split + MIRROR_TRANSCRIPT.len() / 2;
+            surface.apply_local_pty_output_for_test(&transcript[split..middle]).unwrap();
+            let mut third = PinnedByteMirror::attach(&surface);
+            surface.resize(owner_grids[1].0, owner_grids[1].1).unwrap();
+            surface.resize(owner_grids[2].0, owner_grids[2].1).unwrap();
+            surface.apply_local_pty_output_for_test(&transcript[middle..]).unwrap();
+            for (name, mirror) in
+                [("first", &mut first), ("second", &mut second), ("third", &mut third)]
+            {
+                if let Some(divergence) = mirror.divergence(&surface) {
+                    failures.push(format!("{name} viewer, split {split}: {divergence}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "byte mirrors diverged:\n{}", failures.join("\n"));
+    }
+
     fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
         haystack.windows(needle.len()).any(|window| window == needle)
     }
@@ -8415,6 +8678,7 @@ mod tests {
             kitty_image_aliases: Vec::new(),
             kitty_state: KittyReplayState::disabled(),
             colors: Box::new(TerminalColors::default()),
+            pending_sequence: Arc::from([]),
         });
 
         let first_replay = match first.stream.recv_timeout(Duration::from_secs(1)).unwrap() {
@@ -8433,14 +8697,17 @@ mod tests {
     }
 
     #[test]
-    fn unsafe_legacy_resize_disconnects_the_byte_attachment() {
+    fn unresumable_legacy_resize_disconnects_the_byte_attachment() {
         let mux = Mux::new("legacy-resize-disconnect", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(73, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let attachment = surface.attach_stream().unwrap();
         let pty = surface.as_pty().unwrap();
-        pty.term.lock().unwrap().vt_write(b"partial \xce");
-        assert!(!pty.term.lock().unwrap().vt_stream_is_ground());
+        // Only a control string past the replay's pending-sequence budget
+        // cannot be carried into a replacement replay.
+        pty.term.lock().unwrap().vt_write(b"\x1b]52;c;");
+        pty.term.lock().unwrap().vt_write(&vec![b'A'; 2 * 1024 * 1024]);
+        assert!(!pty.term.lock().unwrap().vt_replay_resumes_stream());
 
         assert!(surface.resize(100, 30).unwrap());
         assert!(matches!(

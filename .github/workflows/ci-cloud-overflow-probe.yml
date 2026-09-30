@@ -22,12 +22,11 @@ name: CI cloud overflow probe
 # never touched: minis-first routing does not change, only where overflow
 # goes. Nothing here gates a merge.
 #
-# Writing variables takes a token no workflow permission grants: a GitHub
-# App (CI_OVERFLOW_SWITCH_APP_ID, secret CI_OVERFLOW_SWITCH_APP_KEY) with
-# repository permission "Variables: Read and write" and nothing else, its key
-# kept in the `ci-overflow-switch` environment so only main's runs of this
-# workflow can read it. Without it the watch still probes and names the
-# values to set by hand, and fails.
+# Writing variables takes a token no workflow permission grants. Use the
+# existing manaflow-glaeda-route App (`GLAEDA_ROUTE_APP_ID` and
+# `GLAEDA_ROUTE_APP_KEY`), which is already configured at repository scope.
+# Without it the watch still probes and names the values to set by hand, and
+# fails.
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -69,7 +68,6 @@ jobs:
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
     runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing
-    environment: ci-overflow-switch
     timeout-minutes: 25
     permissions:
       actions: write
@@ -80,17 +78,18 @@ jobs:
         with:
           persist-credentials: false
 
-      # The App has only "Variables: Read and write"; the action cannot narrow
-      # to that permission by name, so the token carries what the App has.
+      # The existing route App carries the repository variable permission; the
+      # action cannot narrow permissions by name, so the token carries what
+      # that App has.
       - name: Mint the switch token
         id: switch-token
-        if: vars.CI_OVERFLOW_SWITCH_APP_ID != ''
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.CI_OVERFLOW_SWITCH_APP_ID }}
-          private-key: ${{ secrets.CI_OVERFLOW_SWITCH_APP_KEY }}
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
 
       - name: Probe and switch
         id: switch
@@ -122,11 +121,12 @@ jobs:
             MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
         run: python3 scripts/ci/cloud_overflow_switch.py
 
-      # Last, in its own step so the summary above is already saved: the
-      # probe will never start, and a plain cancel does not end a run queued
-      # on a pool that starts nothing.
+      # Last, in its own step so the summary above is already saved. If the
+      # switch did not observe a started probe, cancel this run even when the
+      # switch failed before it could write its output; otherwise a queued
+      # probe can hold the concurrency group forever.
       - name: End this run's stuck probe
-        if: steps.switch.outputs.outcome == 'stalled'
+        if: always() && steps.switch.outputs.outcome != 'started'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh api -X POST "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/force-cancel"
