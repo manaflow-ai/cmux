@@ -21,6 +21,8 @@ struct WindowInfo {
     let key: Bool
     let selectedWorkspaceId: String?
     let workspaceCount: Int
+    /// cmux-next keeps the window off screen (`list-windows --all`).
+    var hidden = false
 }
 struct NotificationInfo {
     let id: String
@@ -6778,7 +6780,9 @@ struct CMUXCLI {
             print(jsonString(formatIDs(response, mode: idFormat)))
 
         case "list-windows":
-            let response = try sendV1Command("list_windows", client: client)
+            // `--all` adds windows cmux-next keeps off screen (marked `hidden`).
+            let includeHidden = commandArgs.contains("--all")
+            let response = try sendV1Command(includeHidden ? "list_windows --all" : "list_windows", client: client)
             if jsonOutput {
                 let windows = parseWindows(response)
                 let payload = windows.map { item -> [String: Any] in
@@ -6788,6 +6792,7 @@ struct CMUXCLI {
                         "key": item.key,
                         "workspace_count": item.workspaceCount,
                     ]
+                    if includeHidden { dict["hidden"] = item.hidden }
                     dict["selected_workspace_id"] = item.selectedWorkspaceId ?? NSNull()
                     return dict
                 }
@@ -17652,7 +17657,8 @@ struct CMUXCLI {
                     id: id,
                     key: key,
                     selectedWorkspaceId: selectedWorkspaceId,
-                    workspaceCount: workspaceCount
+                    workspaceCount: workspaceCount,
+                    hidden: parts.dropFirst(2).contains("hidden")
                 )
             }
     }
@@ -18768,9 +18774,13 @@ struct CMUXCLI {
             """
         case "list-windows":
             return """
-            Usage: cmux list-windows
+            Usage: cmux list-windows [--all]
 
-            List open windows.
+            List open windows and how many workspaces each sidebar shows.
+
+            Flags:
+              --all    Also list windows kept off screen (marked hidden), such as
+                       windows waiting for a Cloud machine
             """
         case "current-window":
             return """

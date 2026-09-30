@@ -10,7 +10,9 @@ import os
 /// cmux-tui. Saved hosts are the home session's session registry
 /// (plans/cmux-next/data-model.md 1.1): each connected machine is recorded
 /// by `SessionRegistrar` with an SSH `transport`, and the records come back
-/// here at launch. There is no second registry.
+/// here at launch. A host that has not connected yet has no session id, so
+/// it waits in the home daemon's saved-hosts projection until the registry
+/// holds it (`SSHService+SavedHosts`).
 ///
 /// Reconnect is event-driven: each daemon loop keeps its capped backoff
 /// after a failure, and the app becoming active, the Mac waking and a
@@ -18,7 +20,7 @@ import os
 /// (`SSHConnectionMachine`) decides which events may retry a failure.
 @Observable
 final class SSHService {
-    @ObservationIgnored private let machines: MachineRegistry
+    @ObservationIgnored let machines: MachineRegistry
     @ObservationIgnored let paths: SSHPaths
     @ObservationIgnored private let binary: URL?
     @ObservationIgnored private let installer: RemoteInstaller
@@ -28,6 +30,8 @@ final class SSHService {
     @ObservationIgnored var offerInstall: ((SSHMachineSession) -> Void)?
     /// Forgotten machines, so a stale registry echo does not bring them back.
     @ObservationIgnored private var forgotten: Set<String> = []
+    /// Saved hosts on the home daemon's current connection (`SSHService+SavedHosts`).
+    @ObservationIgnored var savedHosts: (connection: ObjectIdentifier, store: SavedHostsStore)?
 
     init(machines: MachineRegistry, bundleID: String?) {
         self.machines = machines
@@ -58,6 +62,7 @@ final class SSHService {
         observers.append(Task { [weak self] in
             for await records in Observations({ machines.local.store.personal.isLoaded ? machines.local.store.personal.sessions : [] }) {
                 self?.restore(records)
+                self?.restoreSavedHosts(registered: records)
             }
         })
     }
@@ -76,12 +81,18 @@ final class SSHService {
     /// seen; those the user left connected connect again.
     private func restore(_ records: [SessionRecord]) {
         for record in records {
-            guard let fields = record.transport.flatMap(Self.fields), let host = SSHHost(transportFields: fields),
-                  !forgotten.contains(host.machineID), machines.sshSession(host.machineID) == nil,
-                  let session = makeSession(host) else { continue }
-            session.autoConnect = fields["connect"] != "false"
-            if session.autoConnect { session.connect() }
+            guard let fields = record.transport.flatMap(Self.fields) else { continue }
+            restore(fields)
         }
+    }
+
+    /// Adds the machine of a saved transport unless this run has it or the
+    /// user forgot it; it connects when the user left it connected.
+    func restore(_ fields: [String: String]) {
+        guard let host = SSHHost(transportFields: fields), !forgotten.contains(host.machineID),
+              machines.sshSession(host.machineID) == nil, let session = makeSession(host) else { return }
+        session.autoConnect = fields["connect"] != "false"
+        if session.autoConnect { session.connect() }
     }
 
     // MARK: Connect, disconnect, forget
@@ -105,6 +116,9 @@ final class SSHService {
         forgotten.remove(host.machineID)
         let session = machines.sshSession(host.machineID) ?? makeSession(host)
         guard let session else { throw ActionFailure(message: RemoteStrings.noClient) }
+        // Saved now, before the first connect succeeds (no session id yet).
+        session.autoConnect = true
+        rememberHost(session)
         session.offersInstall = offerInstall
         if offerInstall { offerInstallWhenOld(session) }
         if session.linkStatus == .offline || session.daemon.connection == nil {
@@ -127,6 +141,7 @@ final class SSHService {
 
     func disconnect(_ session: SSHMachineSession) {
         session.disconnect()
+        updateSavedHost(session)
         logger.info("disconnected \(session.host.destination.description, privacy: .public)")
     }
 
@@ -137,6 +152,7 @@ final class SSHService {
         let sessionID = session.daemon.identity?.sessionID ?? recordID(for: session.host)
         session.close()
         _ = machines.removeSSH(session.machineID)
+        forgetSavedHost(session.machineID)
         guard let sessionID, machines.local.supports(DaemonCapabilities.profiles), let home = machines.local.connection else { return }
         do {
             try await home.forgetSession(sessionID, force: true)

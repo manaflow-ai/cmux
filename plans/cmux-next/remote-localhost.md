@@ -5,8 +5,9 @@ localhost from the workspace cmux tui computer associated with it (tab badge
 to indicate), kinda like ssh tunnel thing ... implemented in secure way ...
 incrementally adoptable way for cmux tui."
 
-Status (2026-09-30): stages 1 to 3 are built; stage 4 (WebKit) is not. Section
-9 lists what is verified and what is not.
+Status (2026-09-30): stages 1 to 3 are built. Stage 4 (WebKit) cannot be built
+safely on current macOS (section 7): WebKit tabs keep "this Mac". Section 9
+lists what is verified and what is not.
 
 ## 1. Which machine a tab uses
 
@@ -57,8 +58,7 @@ origin uses a **derived store**: browser profile x machine `registry_id`.
 - Chromium: a separate request context in `Profile-<profile uuid>-m-<16 hex of
   sha256(registry_id)>` (a direct child of the Chromium root, which Chrome style
   requires), with the proxy configuration of section 5.
-- WebKit: `WKWebsiteDataStore(forIdentifier:)` with a UUID derived from the same
-  pair (stage 4).
+- WebKit: none; WebKit tabs cannot forward (section 7).
 
 So `localhost:3000` cookies, localStorage and service workers of build-box
 never mix with those of this Mac or of another machine, and a github.com login
@@ -175,14 +175,38 @@ is recorded as a follow-up for the fork owner.
   qualified workspace key, `true` or `false`). The override moves to personal
   state later (data-model.md, owned by the profiles work).
 
-## 7. WebKit (stage 4)
+## 7. WebKit (stage 4): not built, unsafe on current macOS
 
-macOS 14 added `WKWebsiteDataStore.proxyConfigurations`
-(`Network.ProxyConfiguration`, HTTP CONNECT relay with credentials). A WebKit
-tab can use the same proxy: CONNECT for every destination, the derived data
-store, and `decidePolicyFor` for the store boundary. Until that is built,
-WebKit tabs whose machine is remote show "localhost = this Mac (WebKit)" and
-never pretend otherwise.
+The plan was the same proxy through `WKWebsiteDataStore.proxyConfigurations`
+(macOS 14+, an HTTP CONNECT `nw_proxy_config` with the credential listener
+of section 5, since the WebKit networking process is not a child of the app
+and fails the peer-process check), a derived store per profile x machine
+(`WKWebsiteDataStore(forIdentifier:)`) and `decidePolicyFor` for the store
+boundary.
+
+It does not work: Network.framework never sends loopback destinations to a
+per-store proxy. `scripts/cmux-next/webkit-loopback-proxy-probe.swift` loads
+URLs through such a store (failover off, credentials set, loopback names as
+match domains) and reports whether the proxy saw each one. On macOS 27.0
+(26A428), 2026-09-30:
+
+| URL | Result |
+| --- | --- |
+| `http://localhost:P/`, `http://localhost.:P/`, `http://127.0.0.1:P/`, `http://[::1]:P/` (also `127.0.0.2`, `[::ffff:127.0.0.1]`) | direct: WebKit connected to this Mac's loopback |
+| `http://foo.localhost:P/`, `http://example.com/` | proxied (CONNECT, also for plain HTTP; a Basic 407 challenge is answered) |
+
+So a WebKit tab of a remote machine would reach this Mac's `localhost:3000`
+while the page and badge claim the machine: the silent wrong-machine case
+section 2 forbids. Rewriting loopback URLs to a `*.localhost` name would
+route the main frame, but the origin changes (cookies, CORS, OAuth
+redirects, dev-server host checks) and absolute subresource URLs to
+`localhost` still go to this Mac. There is no public WebKit API for a
+network interceptor on http(s).
+
+Result: WebKit tabs of a remote machine keep "this Mac" with the tooltip
+"WebKit tabs cannot use <machine>'s localhost yet. Open it in Chromium."
+(`RemoteLocalhostFallback.webKit`). Re-run the probe on a new macOS; if it
+reports every loopback URL as proxied, build the plan above.
 
 ## 8. Security analysis (relay rules, skills/cmux-socket-policy)
 
@@ -246,7 +270,8 @@ Open items:
 - Peer-process trust means any process this app spawns (a terminal shell is
   a child of the daemon, not of the app, so it is not trusted) could use a
   machine listener. Only Chromium and WebKit helpers are app children today.
-- WebKit (section 7).
+- WebKit cannot forward on current macOS (section 7); the probe script
+  shows when that changes.
 - Deleting a browser profile must also delete its derived stores.
 - Cloud machines get `loopback-forward-v1` only after their image's cmux-tui is
   upgraded (plans/cmux-next/cloud-ios.md, remote compatibility).

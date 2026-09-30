@@ -97,15 +97,24 @@ final class ControlSnapshotPublisher {
         // Read inside tracking: every applied batch republishes, so a compat
         // read waiting on its write barrier wakes (CompatWriteBarrier).
         topology.daemonSequence = services.daemon.store.appliedSequence
+        let machines = services.machines
         topology.windows = windows.controllers.map { controller in
-            ControlWindowInfo(
+            let members = windows.registry.members(of: controller.state.id)
+            var info = ControlWindowInfo(
                 id: controller.state.id,
                 workspaceID: controller.state.workspaceID,
-                workspaceIDs: windows.registry.members(of: controller.state.id),
+                workspaceIDs: members,
                 isKey: controller.window?.isKeyWindow ?? false,
                 isVisible: controller.window?.isVisible ?? false,
                 focusedPaneID: controller.focusedPane?.pane.id
             )
+            // What the user sees: windows kept off screen until a machine
+            // reports one of their workspaces are hidden, and the count is
+            // the sidebar's (current room, reported by a machine).
+            info.isHidden = windows.awaitingContent[controller.state.id] != nil
+            info.visibleWorkspaceIDs = WindowProfiles.visible(members, profile: controller.state.profileID, machines: machines)
+                .filter { machines.workspace(id: $0) != nil }
+            return info
         }
         if let active = windows.active {
             let pane = active.focusedPane

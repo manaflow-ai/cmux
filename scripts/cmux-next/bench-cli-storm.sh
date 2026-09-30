@@ -22,9 +22,11 @@
 #       [--reap-grace 30] [--reap-margin 15] [--no-warmup] [--pty-limit 300]
 #       [--label NAME] [--profile next|legacy] [--no-fail] [--keep-daemon]
 #
-# Launch the tagged app first with a clean environment, for example:
-#   env -i HOME=$HOME USER=$USER PATH=/usr/bin:/bin CMUX_NEXT_NO_ACTIVATE=1 \
-#     CMUX_NEXT_SOCKET_MODE=automation open -g "<tagged app>"
+# Launch the tagged app first with a clean environment, running its binary
+# directly (`open -g` does not pass the environment, so no-activate is lost):
+#   env -i HOME=$HOME USER=$USER TMPDIR=$TMPDIR PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+#     CMUX_NEXT_NO_ACTIVATE=1 CMUX_NEXT_SOCKET_MODE=automation CMUX_NEXT_TEST_WINDOW_SCREEN=last \
+#     "<tagged app>/Contents/MacOS/cmux DEV" &
 #
 # Writes artifacts/cmux-next-bench/<sha>-<label>.json and exits 1 when a
 # criterion fails (unless --no-fail). `--profile legacy` drives the old

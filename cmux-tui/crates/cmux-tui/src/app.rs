@@ -86,7 +86,7 @@ use crate::session::{
     Session, SidebarPluginSurface, SurfaceAttach, SurfaceHandle, SurfaceSizeState, TreeView,
     is_remote_surface_unavailable, is_remote_timeout, is_remote_transport_failure,
 };
-use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
+use crate::sidebar_files::{FileBrowser, FileCommand, cd_command, file_url};
 use crate::sidebar_projection::{
     AgentOrderCache, ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
 };
@@ -19430,8 +19430,11 @@ impl App {
                         .set_message(localization::catalog().sidebar.file_surface_unavailable);
                     return;
                 };
-                let quoted = shell_single_quote(&path.to_string_lossy());
-                let bytes = format!("cd {quoted}\n");
+                let Some(bytes) = cd_command(&path.to_string_lossy()) else {
+                    let message = localization::catalog().sidebar.file_path_has_control_characters;
+                    self.sidebar_files.set_message(message);
+                    return;
+                };
                 if self.write_pty_bytes(
                     surface_id,
                     surface,

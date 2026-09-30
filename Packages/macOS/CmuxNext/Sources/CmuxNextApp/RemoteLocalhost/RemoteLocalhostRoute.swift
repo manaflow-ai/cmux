@@ -43,6 +43,7 @@ enum RemoteLocalhostFallback: Equatable {
     case updateMachine
     /// `browser.remoteLocalhost` (or the workspace override) is off.
     case turnedOff
-    /// WebKit tabs do not forward yet (stage 4).
+    /// WebKit tabs cannot forward: Network.framework never sends loopback
+    /// destinations to a per-store proxy (remote-localhost.md section 7).
     case webKit
 }

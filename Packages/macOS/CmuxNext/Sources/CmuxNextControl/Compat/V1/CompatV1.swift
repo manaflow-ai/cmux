@@ -55,10 +55,13 @@ enum CompatV1 {
 
     static func listWindows(_ line: CompatV1Line, _ service: CompatService) async throws -> String {
         let world = try await service.world()
-        guard !world.windows.isEmpty else { return "No windows" }
-        return world.windows.map { window in
+        // `--all` adds the windows the app keeps off screen, marked `hidden`.
+        let windows = world.listedWindows(includeHidden: line.has("all") || line.has("include-hidden"))
+        guard !windows.isEmpty else { return "No windows" }
+        return windows.map { window in
             let marker = window.uuid == world.activeWindowUUID ? "*" : " "
-            return "\(marker) \(window.index): \(window.uuid) selected_workspace=\(window.workspaceUUID ?? "none") workspaces=\(world.workspaces.count)"
+            let line = "\(marker) \(window.index): \(window.uuid) selected_workspace=\(window.workspaceUUID ?? "none") workspaces=\(window.visibleWorkspaceUUIDs.count)"
+            return window.isHidden ? line + " hidden" : line
         }.joined(separator: "\n")
     }
 

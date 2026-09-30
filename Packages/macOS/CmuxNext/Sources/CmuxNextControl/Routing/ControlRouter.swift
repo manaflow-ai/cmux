@@ -58,7 +58,13 @@ public final class ControlRouter: Sendable {
         var v1Handler: (@Sendable (String) async -> String?)?
         /// Typed error for a method nobody registered (compat: `unsupported in cmux-next: …`).
         var unknownMethod: (@Sendable (String) -> ControlError?)?
+        /// Rewrites `action.run` targets the App does not name (compat: `surface:2`, old UUIDs).
+        var targetResolver: TargetResolver?
     }
+
+    /// Maps a validated target to the App's model id, or throws a typed
+    /// error (`not_found`). Runs off the main actor under the request deadline.
+    public typealias TargetResolver = @Sendable (ControlTargetRef, ContinuousClock.Instant) async throws -> ControlTargetRef
 
     public init(
         identity: ControlIdentity,
@@ -96,6 +102,13 @@ public final class ControlRouter: Sendable {
     public func registerUnknownMethod(_ handler: @escaping @Sendable (String) -> ControlError?) {
         state.withLock { $0.unknownMethod = handler }
     }
+
+    /// Installs the `action.run` target resolver (the compat layer's old refs).
+    public func registerTargetResolver(_ resolver: @escaping TargetResolver) {
+        state.withLock { $0.targetResolver = resolver }
+    }
+
+    var targetResolver: TargetResolver? { state.withLock { $0.targetResolver } }
 
     /// Registered method names in registration order.
     public var methodNames: [String] { state.withLock { $0.order } }
