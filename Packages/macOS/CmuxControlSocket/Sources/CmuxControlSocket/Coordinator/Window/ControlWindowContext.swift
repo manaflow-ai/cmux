@@ -41,6 +41,14 @@ public protocol ControlWindowContext: AnyObject {
     /// - Returns: Whether a matching window was found and closed.
     func controlCloseWindow(id: UUID) -> Bool
 
+    /// Closes a window for a non-interactive caller, returning a safety outcome
+    /// when a live process would be terminated. The default preserves the
+    /// legacy boolean witness for test and transitional conformers.
+    func controlCloseWindow(id: UUID, force: Bool) -> ControlWindowCloseResolution
+
+    /// App-bundle-resolved messages for non-interactive window close.
+    func controlWindowCloseStrings() -> ControlWindowCloseStrings
+
     /// Snapshots every connected display for `window.displays`, in screen order.
     func controlAvailableDisplays() -> [ControlDisplayInfo]
 
