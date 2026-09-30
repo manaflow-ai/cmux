@@ -4827,6 +4827,7 @@ class TabManager: ObservableObject {
             }
 
             let preReopenFocusedPanelId = focusedPanelId(for: targetWorkspace.id)
+            targetWorkspace.beginFocusRestoreTransaction()
 
             if selectedTabId != targetWorkspace.id {
                 selectWorkspaceId(
@@ -4914,6 +4915,7 @@ class TabManager: ObservableObject {
             return false
         }
 
+        workspace.beginFocusRestoreTransaction()
         let preRestoreFocus = currentFocusHistoryEntry
         let panelId = withFocusHistoryRecordingSuppressed {
             workspace.restoreClosedPanel(entry, excludingStableIdentities: liveStableIdentitySet())

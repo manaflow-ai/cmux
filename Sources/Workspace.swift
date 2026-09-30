@@ -4662,6 +4662,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { surfaceRegistry.pendingTabSelection }
         set { surfaceRegistry.pendingTabSelection = newValue }
     }
+    /// Invalidates view-originated focus callbacks captured before a panel restore.
+    @Published private(set) var focusRestoreTransactionId = UUID()
     private(set) var activeFocusTransactionId: UUID?
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
@@ -11654,14 +11656,23 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalPanel.hostedView.ensureFocus(for: id, surfaceId: preferredPanelId)
     }
 
+    func beginFocusRestoreTransaction() {
+        focusRestoreTransactionId = UUID()
+    }
+
     func focusPanel(
         _ panelId: UUID,
         previousHostedView: GhosttySurfaceScrollView? = nil,
         trigger: FocusPanelTrigger = .standard,
         focusIntent: PanelFocusIntent? = nil,
-        focusTransactionId: UUID? = nil
+        focusTransactionId: UUID? = nil,
+        expectedFocusRestoreTransactionId: UUID? = nil
     ) {
         guard !remoteTmuxMirrorInterceptsFocusPanel(panelId, previousHostedView: previousHostedView, trigger: trigger, focusIntent: focusIntent) else { return }
+        if let expectedFocusRestoreTransactionId,
+           expectedFocusRestoreTransactionId != focusRestoreTransactionId {
+            return
+        }
         let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         markExplicitFocusIntent(on: panelId)
 #if DEBUG

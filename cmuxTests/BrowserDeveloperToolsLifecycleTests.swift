@@ -504,6 +504,8 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
 
         browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
         drainMainQueue()
+        let staleFocusRestoreTransactionId = workspace.focusRestoreTransactionId
+        let previousFocusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
 
         XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
         XCTAssertTrue(appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: manager))
@@ -513,6 +515,18 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
             XCTFail("Expected restored browser panel")
             return
         }
+        DispatchQueue.main.async {
+            workspace.focusPanel(
+                previousFocusedPanelId,
+                trigger: .terminalFirstResponder,
+                expectedFocusRestoreTransactionId: staleFocusRestoreTransactionId
+            )
+        }
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(workspace.focusedPanelId, reopenedPanel.id)
         XCTAssertEqual(reopenedPanel.currentURL, expectedURL)
         XCTAssertEqual(Double(reopenedPanel.currentPageZoomFactor()), 1.4, accuracy: 0.000_001)
         XCTAssertTrue(reopenedPanel.isMuted)

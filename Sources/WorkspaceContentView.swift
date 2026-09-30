@@ -272,6 +272,7 @@ struct WorkspaceContentView: View {
                         workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId)
                     }
                 } else {
+                    let focusRestoreTransactionId = workspace.focusRestoreTransactionId
                     WorkspacePanelContentHostView(
                         workspace: workspace,
                         panel: panel,
@@ -297,7 +298,8 @@ struct WorkspaceContentView: View {
                             workspace.focusPanel(
                                 panel.id,
                                 trigger: .terminalFirstResponder,
-                                focusTransactionId: workspace.activeFocusTransactionId
+                                focusTransactionId: workspace.activeFocusTransactionId,
+                                expectedFocusRestoreTransactionId: focusRestoreTransactionId
                             )
                         },
                         onRequestPanelFocus: {
