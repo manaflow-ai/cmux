@@ -344368,121 +344368,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments مربع نص حقل نص إدخال منسق حث تجريبي تركيز منشئ إنشاء مرفقات"
+            "value": "textbox text box rich input prompt focus composer compose attachments مربع نص حقل نص إدخال منسق حث تركيز منشئ إنشاء مرفقات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments TextBox tekstualno polje bogat unos upit beta fokus prilog"
+            "value": "textbox text box rich input prompt focus composer compose attachments TextBox tekstualno polje bogat unos upit fokus prilog"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments TextBox tekstfelt rig input prompt beta fokus vedhæftninger"
+            "value": "textbox text box rich input prompt focus composer compose attachments TextBox tekstfelt rig input prompt fokus vedhæftninger"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments textfeld text-feld rich-eingabe prompt beta fokus composer verfassen anhänge"
+            "value": "textbox text box rich input prompt focus composer compose attachments textfeld text-feld rich-eingabe prompt fokus composer verfassen anhänge"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments"
+            "value": "textbox text box rich input prompt focus composer compose attachments"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments cuadro de texto entrada enriquecida prompt beta foco redactor redactar archivos adjuntos"
+            "value": "textbox text box rich input prompt focus composer compose attachments cuadro de texto entrada enriquecida prompt foco redactor redactar archivos adjuntos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments zone de texte boîte de texte saisie riche invite bêta focus compositeur composer pièces jointes"
+            "value": "textbox text box rich input prompt focus composer compose attachments zone de texte boîte de texte saisie riche invite focus compositeur composer pièces jointes"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments TextBox casella testo input ricco prompt beta focus allegati"
+            "value": "textbox text box rich input prompt focus composer compose attachments TextBox casella testo input ricco prompt focus allegati"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments TextBox テキストボックス リッチ入力 プロンプト ベータ フォーカス 添付"
+            "value": "textbox text box rich input prompt focus composer compose attachments TextBox テキストボックス リッチ入力 プロンプト フォーカス 添付"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments TextBox ប្រអប់អត្ថបទ បញ្ចូល rich prompt beta ផ្តោត ឯកសារភ្ជាប់"
+            "value": "textbox text box rich input prompt focus composer compose attachments TextBox ប្រអប់អត្ថបទ បញ្ចូល rich prompt ផ្តោត ឯកសារភ្ជាប់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "텍스트 상자 텍스트 박스 리치 입력 프롬프트 베타 포커스 컴포저 작성 첨부 파일 textbox text box rich input prompt beta focus composer compose attachments"
+            "value": "텍스트 상자 텍스트 박스 리치 입력 프롬프트 포커스 컴포저 작성 첨부 파일 textbox text box rich input prompt focus composer compose attachments"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments TextBox tekstfelt rik inndata prompt beta fokus vedlegg"
+            "value": "textbox text box rich input prompt focus composer compose attachments TextBox tekstfelt rik inndata prompt fokus vedlegg"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments TextBox pole tekstowe bogate wejście prompt beta fokus załączniki"
+            "value": "textbox text box rich input prompt focus composer compose attachments TextBox pole tekstowe bogate wejście prompt fokus załączniki"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments TextBox caixa de texto entrada rica prompt beta foco anexos"
+            "value": "textbox text box rich input prompt focus composer compose attachments TextBox caixa de texto entrada rica prompt foco anexos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments TextBox текстовое поле расширенный ввод промпт бета фокус вложения"
+            "value": "textbox text box rich input prompt focus composer compose attachments TextBox текстовое поле расширенный ввод промпт фокус вложения"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments TextBox กล่องข้อความ อินพุต rich prompt เบต้า โฟกัส ไฟล์แนบ"
+            "value": "textbox text box rich input prompt focus composer compose attachments TextBox กล่องข้อความ อินพุต rich prompt โฟกัส ไฟล์แนบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments TextBox metin kutusu zengin giriş prompt beta odak ekler"
+            "value": "textbox text box rich input prompt focus composer compose attachments TextBox metin kutusu zengin giriş prompt odak ekler"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments TextBox текстове поле розширене введення промпт бета фокус вкладення"
+            "value": "textbox text box rich input prompt focus composer compose attachments TextBox текстове поле розширене введення промпт фокус вкладення"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments TextBox 文本框 富文本输入 提示 试用版 焦点 附件"
+            "value": "textbox text box rich input prompt focus composer compose attachments TextBox 文本框 富文本输入 提示 试用版 焦点 附件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments 文字方塊 富文字 輸入 提示 測試版 焦點 編輯器 撰寫 附件"
+            "value": "textbox text box rich input prompt focus composer compose attachments 文字方塊 富文字 輸入 提示 焦點 編輯器 撰寫 附件"
           }
         }
       }
@@ -356903,121 +356903,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta terminal.focusTextBoxOnNewTerminals تركيز مربع النص حقل نصي مطالبة إدخال غنية افتراضي طرفية جديدة مساحة عمل تقسيم علامة تبويب تجريبي"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab terminal.focusTextBoxOnNewTerminals تركيز مربع النص حقل نصي مطالبة إدخال غنية افتراضي طرفية جديدة مساحة عمل تقسيم علامة تبويب"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta fokus TextBox novi terminal radni prostor podjela kartica zadano beta"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab fokus TextBox novi terminal radni prostor podjela kartica zadano"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta fokuser TextBox ny terminal arbejdsområde split fane standard beta"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab fokuser TextBox ny terminal arbejdsområde split fane standard"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta terminal.focusTextBoxOnNewTerminals Textbox fokussieren Textfeld Rich-Eingabeaufforderung Standard neues Terminal Arbeitsbereich Aufteilung Tab Beta"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab terminal.focusTextBoxOnNewTerminals Textbox fokussieren Textfeld Rich-Eingabeaufforderung Standard neues Terminal Arbeitsbereich Aufteilung Tab"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta terminal.focusTextBoxOnNewTerminals enfocar cuadro de texto entrada enriquecida indicación predeterminada nueva terminal espacio de trabajo división pestaña beta"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab terminal.focusTextBoxOnNewTerminals enfocar cuadro de texto entrada enriquecida indicación predeterminada nueva terminal espacio de trabajo división pestaña"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta terminal.focusTextBoxOnNewTerminals focus zone de texte saisie riche invite par défaut nouveau terminal espace de travail division onglet bêta"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab terminal.focusTextBoxOnNewTerminals focus zone de texte saisie riche invite par défaut nouveau terminal espace de travail division onglet"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta focalizza TextBox nuovo terminale area lavoro split scheda predefinito beta"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab focalizza TextBox nuovo terminale area lavoro split scheda predefinito"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta TextBox フォーカス 新しい ターミナル ワークスペース 分割 タブ 既定 ベータ"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab TextBox フォーカス 新しい ターミナル ワークスペース 分割 タブ 既定"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta ផ្តោត TextBox ស្ថានីយថ្មី workspace split tab លំនាំដើម"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab ផ្តោត TextBox ស្ថានីយថ្មី workspace split tab លំនាំដើម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.focusTextBoxOnNewTerminals 포커스 텍스트 상자 텍스트 박스 리치 입력 프롬프트 기본값 새 터미널 작업 공간 분할 탭 베타 terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta"
+            "value": "terminal.focusTextBoxOnNewTerminals 포커스 텍스트 상자 텍스트 박스 리치 입력 프롬프트 기본값 새 터미널 작업 공간 분할 탭 terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta fokuser TextBox ny terminal arbeidsområde splitt fane standard beta"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab fokuser TextBox ny terminal arbeidsområde splitt fane standard"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta fokus TextBox nowy terminal obszar roboczy podział karta domyślnie beta"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab fokus TextBox nowy terminal obszar roboczy podział karta domyślnie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta focar TextBox novo terminal workspace divisão aba padrão beta"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab focar TextBox novo terminal workspace divisão aba padrão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta фокус TextBox новый терминал рабочая область разделение вкладка по умолчанию бета"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab фокус TextBox новый терминал рабочая область разделение вкладка по умолчанию"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta โฟกัส TextBox เทอร์มินัลใหม่ เวิร์กสเปซ แบ่ง แท็บ ค่าเริ่มต้น เบต้า"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab โฟกัส TextBox เทอร์มินัลใหม่ เวิร์กสเปซ แบ่ง แท็บ ค่าเริ่มต้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta TextBox odak yeni terminal çalışma alanı bölme sekme varsayılan beta"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab TextBox odak yeni terminal çalışma alanı bölme sekme varsayılan"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta фокус TextBox новий термінал робоча область поділ вкладка типово бета"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab фокус TextBox новий термінал робоча область поділ вкладка типово"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta 聚焦 TextBox 新终端 工作区 拆分 标签 默认 测试版"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab 聚焦 TextBox 新终端 工作区 拆分 标签 默认"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta terminal.focusTextBoxOnNewTerminals 聚焦文字框 進階輸入提示 預設 新終端機 工作區 分割 標籤頁 測試版"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab terminal.focusTextBoxOnNewTerminals 聚焦文字框 進階輸入提示 預設 新終端機 工作區 分割 標籤頁"
           }
         }
       }
@@ -357028,121 +357028,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta terminal.showTextBoxOnNewTerminals عرض مربع النص حقل نصي مطالبة إدخال غنية افتراضي طرفية جديدة مساحة عمل تقسيم علامة تبويب تجريبي"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab terminal.showTextBoxOnNewTerminals عرض مربع النص حقل نصي مطالبة إدخال غنية افتراضي طرفية جديدة مساحة عمل تقسيم علامة تبويب"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta prikaži TextBox novi terminal radni prostor podjela kartica zadano beta"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab prikaži TextBox novi terminal radni prostor podjela kartica zadano"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta vis TextBox ny terminal arbejdsområde split fane standard beta"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab vis TextBox ny terminal arbejdsområde split fane standard"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta terminal.showTextBoxOnNewTerminals Textbox anzeigen Textfeld Rich-Eingabeaufforderung Standard neues Terminal Arbeitsbereich Aufteilung Tab Beta"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab terminal.showTextBoxOnNewTerminals Textbox anzeigen Textfeld Rich-Eingabeaufforderung Standard neues Terminal Arbeitsbereich Aufteilung Tab"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta terminal.showTextBoxOnNewTerminals mostrar cuadro de texto entrada enriquecida indicación predeterminada nueva terminal espacio de trabajo división pestaña beta"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab terminal.showTextBoxOnNewTerminals mostrar cuadro de texto entrada enriquecida indicación predeterminada nueva terminal espacio de trabajo división pestaña"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta terminal.showTextBoxOnNewTerminals afficher zone de texte saisie riche invite par défaut nouveau terminal espace de travail division onglet bêta"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab terminal.showTextBoxOnNewTerminals afficher zone de texte saisie riche invite par défaut nouveau terminal espace de travail division onglet"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta mostra TextBox nuovo terminale area lavoro split scheda predefinito beta"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab mostra TextBox nuovo terminale area lavoro split scheda predefinito"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta TextBox 表示 新しい ターミナル ワークスペース 分割 タブ 既定 ベータ"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab TextBox 表示 新しい ターミナル ワークスペース 分割 タブ 既定"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta បង្ហាញ TextBox ស្ថានីយថ្មី workspace split tab លំនាំដើម"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab បង្ហាញ TextBox ស្ថានីយថ្មី workspace split tab លំនាំដើម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showTextBoxOnNewTerminals 텍스트 상자 표시 텍스트 박스 리치 입력 프롬프트 기본값 새 터미널 작업 공간 분할 탭 베타 terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"
+            "value": "terminal.showTextBoxOnNewTerminals 텍스트 상자 표시 텍스트 박스 리치 입력 프롬프트 기본값 새 터미널 작업 공간 분할 탭 terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta vis TextBox ny terminal arbeidsområde splitt fane standard beta"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab vis TextBox ny terminal arbeidsområde splitt fane standard"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta pokaż TextBox nowy terminal obszar roboczy podział karta domyślnie beta"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab pokaż TextBox nowy terminal obszar roboczy podział karta domyślnie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta mostrar TextBox novo terminal workspace divisão aba padrão beta"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab mostrar TextBox novo terminal workspace divisão aba padrão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta показать TextBox новый терминал рабочая область разделение вкладка по умолчанию бета"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab показать TextBox новый терминал рабочая область разделение вкладка по умолчанию"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta แสดง TextBox เทอร์มินัลใหม่ เวิร์กสเปซ แบ่ง แท็บ ค่าเริ่มต้น เบต้า"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab แสดง TextBox เทอร์มินัลใหม่ เวิร์กสเปซ แบ่ง แท็บ ค่าเริ่มต้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta TextBox göster yeni terminal çalışma alanı bölme sekme varsayılan beta"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab TextBox göster yeni terminal çalışma alanı bölme sekme varsayılan"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta показати TextBox новий термінал робоча область поділ вкладка типово бета"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab показати TextBox новий термінал робоча область поділ вкладка типово"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta 显示 TextBox 新终端 工作区 拆分 标签 默认 测试版"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab 显示 TextBox 新终端 工作区 拆分 标签 默认"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta terminal.showTextBoxOnNewTerminals 顯示文字框 進階輸入提示 預設 新終端機 工作區 分割 標籤頁 測試版"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab terminal.showTextBoxOnNewTerminals 顯示文字框 進階輸入提示 預設 新終端機 工作區 分割 標籤頁"
           }
         }
       }
@@ -357153,121 +357153,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta terminal.textBoxMaxLines مربع النص حقل نصي مطالبة إدخال غنية أقصى ارتفاع أسطر نمو تمرير تجريبي"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll terminal.textBoxMaxLines مربع النص حقل نصي مطالبة إدخال غنية أقصى ارتفاع أسطر نمو تمرير"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta TextBox maksimalno redovi visina rast pomicanje"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll TextBox maksimalno redovi visina rast pomicanje"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta TextBox maksimale linjer højde vokse rulle"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll TextBox maksimale linjer højde vokse rulle"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta terminal.textBoxMaxLines Textbox maximale Zeilen Textfeld Rich-Eingabeaufforderung maximale Höhe Zeilen wachsen scrollen Beta"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll terminal.textBoxMaxLines Textbox maximale Zeilen Textfeld Rich-Eingabeaufforderung maximale Höhe Zeilen wachsen scrollen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta terminal.textBoxMaxLines cuadro de texto entrada enriquecida indicación altura máxima líneas crecer desplazamiento beta"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll terminal.textBoxMaxLines cuadro de texto entrada enriquecida indicación altura máxima líneas crecer desplazamiento"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta terminal.textBoxMaxLines zone de texte saisie riche invite hauteur max lignes agrandir défilement bêta"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll terminal.textBoxMaxLines zone de texte saisie riche invite hauteur max lignes agrandir défilement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta TextBox righe massime altezza crescere scorrere"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll TextBox righe massime altezza crescere scorrere"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta TextBox 最大行数 高さ 行 スクロール ベータ"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll TextBox 最大行数 高さ 行 スクロール"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta TextBox បន្ទាត់អតិបរមា កម្ពស់ រមូរ"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll TextBox បន្ទាត់អតិបរមា កម្ពស់ រមូរ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.textBoxMaxLines 텍스트 상자 텍스트 박스 리치 입력 프롬프트 최대 높이 줄 늘어나기 스크롤 베타 terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta"
+            "value": "terminal.textBoxMaxLines 텍스트 상자 텍스트 박스 리치 입력 프롬프트 최대 높이 줄 늘어나기 스크롤 terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta TextBox maksimale linjer høyde vokse rull"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll TextBox maksimale linjer høyde vokse rull"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta TextBox maksymalne wiersze wysokość rosnąć przewijanie"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll TextBox maksymalne wiersze wysokość rosnąć przewijanie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta TextBox máximo linhas altura crescer rolar"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll TextBox máximo linhas altura crescer rolar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta TextBox максимум строк высота рост прокрутка бета"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll TextBox максимум строк высота рост прокрутка"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta TextBox จำนวนบรรทัดสูงสุด ความสูง เลื่อน เบต้า"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll TextBox จำนวนบรรทัดสูงสุด ความสูง เลื่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta TextBox en fazla satır yükseklik büyü kaydır beta"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll TextBox en fazla satır yükseklik büyü kaydır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta TextBox максимум рядків висота зростання прокручування бета"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll TextBox максимум рядків висота зростання прокручування"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta TextBox 最大行数 高度 增长 滚动 测试版"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll TextBox 最大行数 高度 增长 滚动"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta terminal.textBoxMaxLines 文字框 進階輸入提示 最大行數 增長 捲動 測試版"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll terminal.textBoxMaxLines 文字框 進階輸入提示 最大行數 增長 捲動"
           }
         }
       }
@@ -359205,121 +359205,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مربع النص (تجريبي)"
+            "value": "مربع النص"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (Beta)"
+            "value": "TextBox"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (beta)"
+            "value": "TextBox"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Textbox (Beta)"
+            "value": "Textbox"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox (Beta)"
+            "value": "TextBox"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuadro de texto (Beta)"
+            "value": "Cuadro de texto"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox (Bêta)"
+            "value": "TextBox"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (Beta)"
+            "value": "TextBox"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox（ベータ）"
+            "value": "TextBox"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (បេតា)"
+            "value": "TextBox"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox (베타)"
+            "value": "TextBox"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (beta)"
+            "value": "TextBox"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (Beta)"
+            "value": "TextBox"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (Beta)"
+            "value": "TextBox"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (бета)"
+            "value": "TextBox"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (เบต้า)"
+            "value": "TextBox"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (Beta)"
+            "value": "TextBox"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (бета)"
+            "value": "TextBox"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox（测试版）"
+            "value": "TextBox"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "文字框 (Beta)"
+            "value": "文字框"
           }
         }
       }
@@ -366883,131 +366883,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "텍스트 편집 제스처"
-          }
-        }
-      }
-    },
-    "settings.textBox.betaWarning": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مربع النص ميزة تجريبية. قد تتغير إعداداته الافتراضية وسلوكه أثناء اختباره."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox je beta funkcija. Zadane vrijednosti i ponašanje mogu se promijeniti tokom testiranja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox er en beta-funktion. Standarder og adfærd kan ændre sig under test."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TextBox ist eine Beta-Funktion. Standardwerte und Verhalten können sich während der Testphase ändern."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TextBox is a beta feature. Its defaults and behavior may change while it is being tested."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TextBox es una característica beta. Sus valores predeterminados y comportamiento pueden cambiar mientras se prueba."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La TextBox est une fonctionnalité bêta. Ses valeurs par défaut et son comportement peuvent changer pendant sa phase de test."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox è una funzionalità beta. Valori predefiniti e comportamento possono cambiare durante i test."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TextBox はベータ機能です。テスト中のため、既定値や動作が変わる場合があります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox គឺជាមុខងារបេតា។ តម្លៃលំនាំដើម និងឥរិយាបថអាចផ្លាស់ប្តូរនៅពេលកំពុងសាកល្បង។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TextBox는 베타 기능입니다. 테스트되는 동안 기본값 및 동작이 변경될 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox er en betafunksjon. Standardverdier og oppførsel kan endres mens den testes."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox jest funkcją beta. Domyślne ustawienia i zachowanie mogą się zmienić podczas testów."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox é um recurso beta. Seus padrões e comportamento podem mudar durante os testes."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox — бета-функция. Во время тестирования значения по умолчанию и поведение могут измениться."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox เป็นฟีเจอร์เบต้า ค่าเริ่มต้นและพฤติกรรมอาจเปลี่ยนแปลงระหว่างการทดสอบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox bir beta özelliğidir. Varsayılanlar ve davranış test süresince değişebilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox — бета-функція. Під час тестування типові значення й поведінка можуть змінюватися."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TextBox 是测试版功能。在测试期间，默认值和行为可能会变化。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "文字框是一項 Beta 功能。在測試期間，其預設值與行為可能會發生變更。"
           }
         }
       }
@@ -582689,6 +582564,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "비교 뷰어: 이전 헝크"
+          }
+        }
+      }
+    },
+    "settings.search.alias.section.themes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent design designs farbschema farben palette hell dunkel akzent"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent thème thèmes couleurs palette clair sombre accent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent سمة سمات ألوان لوحة فاتح داكن تمييز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent tema temas colores paleta claro oscuro acento"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent 主題 配色 顏色 調色盤 淺色 深色 強調色"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent 主题 配色 颜色 调色板 浅色 深色 强调色"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent 테마 색상 팔레트 라이트 다크 강조색"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent テーマ 配色 カラー パレット ライト ダーク アクセント"
+          }
+        }
+      }
+    },
+    "settings.section.themes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Themes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السمات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Designs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thèmes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主題"
+          }
+        }
+      }
+    },
+    "settings.terminal.theme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Theme"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سمة الطرفية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Design"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tema del terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thème du terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルテーマ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 테마"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機主題"
           }
         }
       }
