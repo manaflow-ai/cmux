@@ -14,6 +14,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ENV = ROOT / "scripts/e2e/backend-env.sh"
 BACKEND_UP = ROOT / "scripts/e2e/backend-up.sh"
+IOS_E2E_RUN = ROOT / "scripts/e2e/ios-e2e-run.sh"
 
 
 class BackendScriptContractTests(unittest.TestCase):
@@ -178,6 +179,65 @@ class BackendScriptContractTests(unittest.TestCase):
         result = self.run_backend_up_fixture("down")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("stopped processes", result.stdout)
+
+    def test_ios_driver_failure_uses_the_documented_machine_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "repo"
+            e2e_dir = fixture / "scripts/e2e"
+            e2e_dir.mkdir(parents=True)
+            shutil.copy2(IOS_E2E_RUN, e2e_dir / IOS_E2E_RUN.name)
+            shutil.copy2(ROOT / "scripts/e2e/ocr.swift", e2e_dir / "ocr.swift")
+
+            debug_cli = fixture / "scripts/cmux-debug-cli.sh"
+            debug_cli.parent.mkdir(parents=True, exist_ok=True)
+            debug_cli.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            debug_cli.chmod(0o755)
+
+            fake_bin = Path(directory) / "bin"
+            fake_bin.mkdir()
+            swiftc = fake_bin / "swiftc"
+            swiftc.write_text(
+                "#!/bin/sh\nout=\"\"; for arg do out=\"$arg\"; done; "
+                "printf '#!/bin/sh\\n' > \"$out\"; chmod +x \"$out\"\n",
+                encoding="utf-8",
+            )
+            swiftc.chmod(0o755)
+            xcrun = fake_bin / "xcrun"
+            xcrun.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1 $2\" = \"simctl list\" ]; then echo 'SIM-UDID (Booted)'; fi\n"
+                "exit 0\n",
+                encoding="utf-8",
+            )
+            xcrun.chmod(0o755)
+            axe = fake_bin / "axe"
+            axe.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            axe.chmod(0o755)
+
+            env = os.environ.copy()
+            env["PATH"] = f"{fake_bin}:{env['PATH']}"
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(e2e_dir / IOS_E2E_RUN.name),
+                    "--tag",
+                    "driver-contract",
+                    "--sim-udid",
+                    "SIM-UDID",
+                    "--evidence-dir",
+                    str(Path(directory) / "evidence"),
+                ],
+                cwd=fixture,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        stderr_lines = result.stderr.rstrip().splitlines()
+        self.assertTrue(stderr_lines, result.stdout)
+        self.assertTrue(stderr_lines[-1].startswith("E2E FAIL step="), result.stderr)
 
 
 if __name__ == "__main__":
