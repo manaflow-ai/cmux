@@ -15,11 +15,11 @@ struct CloudTreeMachineRowContent: View {
     var body: some View {
         CloudTreeMachineBand(style: style) {
             HStack(alignment: .top, spacing: scaled(style.iconGap)) {
-                CloudTreeRowIcon(
-                    style: style,
-                    systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud",
-                    tint: CloudTreeIconPalette.machine
-                )
+                if machine.freeAccess == .expired {
+                    CloudTreeRowIcon(style: style, systemName: "lock.fill", tint: CloudTreeIconPalette.machine)
+                } else {
+                    Color.clear
+                }
                 .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight))
                 VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
                     nameRow

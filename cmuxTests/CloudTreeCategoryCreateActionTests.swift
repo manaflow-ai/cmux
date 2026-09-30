@@ -13,7 +13,7 @@ import Testing
 @MainActor
 @Suite("Cloud sidebar category create rows")
 struct CloudTreeCategoryCreateActionTests {
-    @Test("Cloud Machines ends with a New Cloud Machine row, even when the fleet is empty")
+    @Test("Cloud Machines starts with a New Cloud Machine row, even when the fleet is empty")
     func cloudMachinesCategoryHasPersistentMachineAction() throws {
         let fixture = Fixture()
         defer { fixture.close() }
@@ -24,6 +24,11 @@ struct CloudTreeCategoryCreateActionTests {
             if case .createAction(.newCloudVM) = node.kind { return true }
             return false
         })
+        #expect(section.children.filter { node in
+            if case .createAction(.newCloudVM) = node.kind { return true }
+            return false
+        }.count == 1)
+        #expect(section.children.first === action)
         #expect(action.kind == .createAction(.newCloudVM))
         #expect(fixture.row(for: action) >= 0)
         #expect(try fixture.cell(for: action).accessibilityLabel() == CloudTreeCreateAction.newCloudVM.title)
@@ -36,15 +41,13 @@ struct CloudTreeCategoryCreateActionTests {
         )
         let hit = try #require(outline.hitTest(hitPoint))
         #expect(outline.validateProposedFirstResponder(hit, for: nil))
-        let fallback = try #require(section.children.first { node in
-            if case .createAction(.newWorkspaceOnResolvedMachine) = node.kind { return true }
-            return false
+        #expect(section.children.allSatisfy { node in
+            if case .createAction(.newWorkspace) = node.kind { return false }
+            return true
         })
-        fixture.coordinator.open(fallback)
-        #expect(fixture.events.resolvedWorkspaceActionCalled)
     }
 
-    @Test("Disabled Cloud omits the no-machine workspace fallback")
+    @Test("Disabled Cloud omits category create actions")
     func disabledCloudOmitsResolvedWorkspaceAction() throws {
         let fixture = Fixture()
         defer { fixture.close() }
@@ -57,7 +60,7 @@ struct CloudTreeCategoryCreateActionTests {
         })
     }
 
-    @Test("A pending Cloud machine suppresses the no-machine workspace fallback")
+    @Test("A pending Cloud machine keeps New Cloud Machine at the category top")
     func pendingMachineSuppressesResolvedWorkspaceAction() throws {
         let fixture = Fixture()
         defer { fixture.close() }
@@ -75,8 +78,25 @@ struct CloudTreeCategoryCreateActionTests {
             if case .pendingMachine = node.kind { return true }
             return false
         })
-        #expect(section.children.allSatisfy { node in
-            if case .createAction(.newWorkspaceOnResolvedMachine) = node.kind { return false }
+        #expect(section.children.first?.kind == .createAction(.newCloudVM))
+    }
+
+    @Test("An unavailable Cloud machine has no workspace destination action")
+    func unavailableMachineOmitsWorkspaceAction() throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+        let info = SurfaceMachineInfo(
+            id: .cloud(fixture.machineID), name: fixture.machine.displayName, status: "offline",
+            image: nil, hasDesktop: false, memoryMb: nil, diskMb: nil,
+            linkState: .unavailable, linkError: "Unavailable", remoteWorkspaces: []
+        )
+        let nodes = CloudTreeCreateActionBuilder.add(to: CloudTreeNodeBuilder.nodes(
+            machines: [fixture.machine], snapshot: SurfaceCatalogSnapshot(machines: [info], resources: [], projections: []),
+            localWorkspaces: [], includeLocalMachine: false, source: .cloud
+        ))
+        let machine = try #require(nodes.first)
+        #expect(CloudTreeNodeBuilder.flattened([machine]).allSatisfy { node in
+            if case .createAction(.newWorkspace) = node.kind { return false }
             return true
         })
     }
@@ -222,8 +242,7 @@ struct CloudTreeCategoryCreateActionTests {
                 closeTerminal: { _ in }, closeWorkspace: { _, _ in },
                 renameWorkspace: { _, _ in }, renameTerminal: { _, _ in },
                 selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: {},
-                newMachine: { eventBox.cloudVMActionCalled = true },
-                newWorkspaceOnResolvedMachine: { eventBox.resolvedWorkspaceActionCalled = true }
+                newMachine: { eventBox.cloudVMActionCalled = true }
             )
             coordinator = CloudTreeOutlineView.Coordinator(
                 machineActions: MachineRowActions(
@@ -289,7 +308,6 @@ struct CloudTreeCategoryCreateActionTests {
         final class Events {
             var workspaceMachine: SurfaceMachineID?
             var cloudVMActionCalled = false
-            var resolvedWorkspaceActionCalled = false
         }
     }
 }

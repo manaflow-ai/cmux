@@ -1,8 +1,8 @@
 import XCTest
 
-/// The Cloud tab's section headers: Cloud Machines' hover "+" opens the same
-/// New Machine sheet as Cmd-Y, once per click, and My Devices no longer
-/// explains its ⋯ menu in a hint line.
+/// The Cloud tab's persistent category actions open the same New Machine sheet
+/// as Cmd-Y, once per click, and My Devices no longer explains its ⋯ menu in a
+/// hint line.
 final class CloudSectionHeaderActionsUITests: XCTestCase {
     private let flagKeys = [
         "cmux.flags.override.cloud-machines-enabled-release",
@@ -34,7 +34,7 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
         super.tearDown()
     }
 
-    func testCloudMachinesPlusOpensOneNewMachineSheetLikeCmdY() {
+    func testCloudMachinesActionOpensOneNewMachineSheetLikeCmdY() {
         let app = launchSignedInApp()
         defer { app.terminate() }
         let cloudMode = app.buttons["RightSidebarModeButton.machines"]
@@ -43,12 +43,10 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
 
         let tree = app.descendants(matching: .any).matching(identifier: "CloudMachinesTree").firstMatch
         XCTAssertTrue(tree.waitForExistence(timeout: 10), "Expected the Cloud tree with its section headers")
-        // The team picker bar above the tree has its own "New Machine" +, so
-        // the header + is found by its identifier inside the tree only.
-        let plus = tree.buttons.matching(identifier: "CloudMachinesNewMachineButton").firstMatch
-        // Faded at rest, the + keeps its place in the accessibility tree.
-        XCTAssertTrue(plus.waitForExistence(timeout: 5), "Expected the Cloud Machines header + in the tree")
-        XCTAssertEqual(plus.label, "New Machine")
+        let create = tree.buttons.matching(identifier: "CloudMachinesNewCloudVMAction").firstMatch
+        XCTAssertTrue(create.waitForExistence(timeout: 5), "Expected one persistent Cloud Machines create action")
+        XCTAssertEqual(create.label, "New Cloud Machine")
+        XCTAssertEqual(tree.buttons.matching(identifier: "CloudMachinesNewCloudVMAction").count, 1)
 
         // The My Devices controls keep their rows and lose the ⋯ hint.
         XCTAssertTrue(app.buttons["DevicesOptionsMenu"].exists || app.menuButtons["DevicesOptionsMenu"].exists)
@@ -58,12 +56,9 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
         )
         capture(app, "cloud-headers-at-rest")
 
-        // Pointing at the + hovers its header row, which fades the + in.
-        plus.hover()
-        capture(app, "cloud-machines-header-hovered")
-        plus.click()
-        assertOneNewMachineSheet(in: app, opener: "the Cloud Machines +")
-        capture(app, "new-machine-sheet-from-plus")
+        create.click()
+        assertOneNewMachineSheet(in: app, opener: "the Cloud Machines action")
+        capture(app, "new-machine-sheet-from-action")
         cancelNewMachineSheet(in: app)
 
         app.typeKey("y", modifierFlags: [.command])

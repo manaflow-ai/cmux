@@ -12,12 +12,11 @@ import Testing
 @testable import cmux
 #endif
 
-/// The Cloud tab's section headers carry hover-only trailing actions: My
-/// Devices' ⋯ options menu and Cloud Machines' New Machine "+". The action
-/// host is always laid out and stays in the hit-test and accessibility trees;
-/// only its alpha follows hover, so the header title and count never shift.
+/// The Cloud tab's section headers carry hover-only trailing actions for My
+/// Devices. Cloud Machines uses one persistent create row directly under its
+/// header so the category has a single, discoverable creation affordance.
 @MainActor
-@Suite("Cloud sidebar: hover-only section header actions")
+@Suite("Cloud sidebar: section header actions")
 struct CloudTreeHeaderActionsTests {
     @Test("My Devices' ⋯ appears only while its header is hovered and stays clickable at rest", arguments: [220.0, 380.0])
     func devicesOptionsMenuIsHoverOnly(width: Double) throws {
@@ -71,112 +70,53 @@ struct CloudTreeHeaderActionsTests {
         #expect(menu.alphaValue == 1)
     }
 
-    @Test("Cloud Machines' + appears only while its header is hovered and stays clickable at rest", arguments: [220.0, 380.0])
-    func cloudMachinesPlusIsHoverOnly(width: Double) throws {
+    @Test("Cloud Machines uses one persistent create row instead of a duplicate header action", arguments: [220.0, 380.0])
+    func cloudMachinesCreateActionIsPersistent(width: Double) throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let tree = try Tree(fixture: fixture, width: width, canCreateCloudMachine: true)
         let header = try tree.cell(for: tree.cloudSection)
-        let plus = try Self.controls(in: header)
-        let title = try Self.display(in: header)
-        let restingTitleFrame = title.frame
-
-        #expect(!plus.isHidden)
-        #expect(plus.alphaValue == 0)
-        let hit = try tree.hit(atCenterOf: plus)
-        #expect(hit.isDescendant(of: plus))
-        #expect(tree.outline.validateProposedFirstResponder(hit, for: nil))
-
-        // Hover follows the pointer from one header to the other and off the list.
-        tree.move(to: tree.cloudSection)
-        #expect(plus.alphaValue == 1)
-        #expect(title.frame == restingTitleFrame)
-        let menu = try Self.controls(in: tree.cell(for: tree.devicesSection))
-        tree.move(to: tree.devicesSection)
-        #expect(plus.alphaValue == 0)
-        #expect(menu.alphaValue == 1)
-        tree.exit()
-        #expect(plus.alphaValue == 0)
-        #expect(menu.alphaValue == 0)
-        #expect(title.frame == restingTitleFrame)
+        #expect(header.subviews.first { $0 is CloudTreeRowControlsHostingView } == nil)
+        let action = try #require(tree.cloudSection.children.first { if case .createAction(.newCloudVM) = $0.kind { true } else { false } })
+        let actionCell = try tree.cell(for: action)
+        #expect(actionCell.accessibilityLabel() == CloudTreeCreateAction.newCloudVM.title)
+        #expect(tree.cloudSection.children.filter { if case .createAction(.newCloudVM) = $0.kind { true } else { false } }.count == 1)
     }
 
-    /// The header renders while Cloud Machines is off too; there it has nothing
-    /// to create, so it carries no "+".
-    @Test("Cloud Machines' + is present only when a machine can be created")
-    func cloudMachinesPlusFollowsAvailability() throws {
+    @Test("Cloud Machines has no hover controls when creation is unavailable")
+    func cloudMachinesHasNoHeaderActionWhenUnavailable() throws {
         #expect(!CloudTreeRowHoverButtons.hasButtons(for: .cloudMachinesSection(canCreateMachine: false)))
-        #expect(CloudTreeRowHoverButtons.hasButtons(for: .cloudMachinesSection(canCreateMachine: true)))
-
+        #expect(!CloudTreeRowHoverButtons.hasButtons(for: .cloudMachinesSection(canCreateMachine: true)))
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let tree = try Tree(fixture: fixture, width: 380)
         let header = try tree.cell(for: tree.cloudSection)
-        let controls = header.subviews.first { $0 is CloudTreeRowControlsHostingView }
-        #expect(controls?.isHidden ?? true)
+        #expect(header.subviews.first { $0 is CloudTreeRowControlsHostingView } == nil)
     }
 
-    /// Fading is visual only: VoiceOver still finds both controls at rest,
-    /// with their roles and labels.
-    @Test("Faded header actions stay in the accessibility tree with their labels")
+    /// The Devices menu remains in the accessibility tree while faded; the
+    /// persistent Cloud Machine action is exposed by its own row instead.
+    @Test("Faded device header actions stay in the accessibility tree with their labels")
     func fadedHeaderActionsStayAccessible() async throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let tree = try Tree(fixture: fixture, width: 380, canCreateCloudMachine: true)
-        let cloudHeader = try tree.cell(for: tree.cloudSection)
         let devicesHeader = try tree.cell(for: tree.devicesSection)
-        let plusHost = try #require(try Self.controls(in: cloudHeader) as? CloudTreeRowControlsHostingView)
         let menuHost = try #require(try Self.controls(in: devicesHeader) as? CloudTreeRowControlsHostingView)
-        // An in-process test has no assistive client to turn on SwiftUI's
-        // accessibility output for these hosted controls.
-        for host in [plusHost, menuHost] {
-            host.rootView = AnyView(host.rootView.environment(\.accessibilityEnabled, true))
-        }
-        #expect(plusHost.alphaValue == 0)
+        menuHost.rootView = AnyView(menuHost.rootView.environment(\.accessibilityEnabled, true))
         #expect(menuHost.alphaValue == 0)
 
-        var plus: NSObject?
         var menu: NSObject?
         let published = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
             fixture.container.layoutSubtreeIfNeeded()
             fixture.window.displayIfNeeded()
-            // Walk from the row, as VoiceOver reaches the controls.
-            plus = Self.accessibilityElement("CloudMachinesNewMachineButton", in: cloudHeader)
             menu = Self.accessibilityElement("DevicesOptionsMenu", in: devicesHeader)
-            return plus != nil && menu != nil
+            return menu != nil
         }
-        try #require(published, "Faded header controls must stay in the accessibility tree")
-        let plusElement = try #require(plus)
+        try #require(published, "Faded device header controls must stay in the accessibility tree")
         let menuElement = try #require(menu)
-        #expect(Self.accessibilityAttribute(.role, getter: "accessibilityRole", of: plusElement) as? String == NSAccessibility.Role.button.rawValue)
-        #expect(Self.accessibilityAttribute(.description, getter: "accessibilityLabel", of: plusElement) as? String == "New Machine")
         #expect(Self.accessibilityAttribute(.description, getter: "accessibilityLabel", of: menuElement) as? String == "Manage My Devices")
-        #expect(plusHost.alphaValue == 0)
         #expect(menuHost.alphaValue == 0)
-    }
-
-    @Test("Both header actions share one trailing slot: same size, trailing edge, and vertical center", arguments: [220.0, 380.0])
-    func headerActionsAlign(width: Double) throws {
-        let fixture = CloudSidebarOrderingFixture()
-        defer { fixture.close() }
-        let tree = try Tree(fixture: fixture, width: width, canCreateCloudMachine: true)
-        let cloudHeader = try tree.cell(for: tree.cloudSection)
-        let devicesHeader = try tree.cell(for: tree.devicesSection)
-        let plus = try Self.controls(in: cloudHeader)
-        let menu = try Self.controls(in: devicesHeader)
-        let plusFrame = plus.convert(plus.bounds, to: tree.outline)
-        let menuFrame = menu.convert(menu.bounds, to: tree.outline)
-
-        #expect(plusFrame.size == menuFrame.size)
-        #expect(plusFrame.maxX == menuFrame.maxX)
-        let cloudRow = tree.outline.rect(ofRow: tree.outline.row(forItem: tree.cloudSection))
-        let devicesRow = tree.outline.rect(ofRow: tree.outline.row(forItem: tree.devicesSection))
-        let verticalOffsetDelta = (plusFrame.midY - cloudRow.midY)
-            - (menuFrame.midY - devicesRow.midY)
-        #expect(
-            abs(verticalOffsetDelta) < 0.001,
-            "AppKit frame conversion may differ by floating-point rounding"
-        )
     }
 
     /// The row-level controls used to reserve two lines for "Change these
@@ -314,13 +254,13 @@ struct CloudTreeHeaderActionsTests {
         ) throws {
             self.fixture = fixture
             fixture.window.setContentSize(NSSize(width: width, height: 620))
-            nodes = CloudTreeNodeBuilder.nodes(
+            nodes = CloudTreeCreateActionBuilder.add(to: CloudTreeNodeBuilder.nodes(
                 machines: machines,
                 snapshot: SurfaceCatalogSnapshot(machines: devices, resources: [], projections: []),
                 localWorkspaces: [], includeLocalMachine: false,
                 source: .cloudWithDevicesSection, devicesSection: devicesSection,
                 canCreateCloudMachine: canCreateCloudMachine
-            )
+            ))
             fixture.coordinator.apply(nodes: nodes)
             outline = try #require(fixture.coordinator.outlineView)
             outline.expandItem(nil, expandChildren: true)

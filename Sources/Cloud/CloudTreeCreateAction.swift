@@ -2,19 +2,16 @@ import CmuxCloud
 import CmuxSurfaceCatalogModel
 import SwiftUI
 
-/// A persistent create row rendered at the end of its owning Cloud category.
+/// A persistent create row rendered at its owning Cloud category boundary.
 enum CloudTreeCreateAction: Equatable {
     case newCloudVM
     case newWorkspace(SurfaceMachineID)
-    case newWorkspaceOnResolvedMachine
 
     var title: String {
         switch self {
         case .newCloudVM:
             return String(localized: "cloudTree.action.newCloudMachine", defaultValue: "New Cloud Machine")
         case .newWorkspace:
-            return String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")
-        case .newWorkspaceOnResolvedMachine:
             return String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")
         }
     }
@@ -23,7 +20,6 @@ enum CloudTreeCreateAction: Equatable {
         switch self {
         case .newCloudVM: return "CloudMachinesNewCloudVMAction"
         case .newWorkspace: return "CloudMachineNewWorkspaceAction"
-        case .newWorkspaceOnResolvedMachine: return "CloudMachinesNewWorkspaceAction"
         }
     }
 
@@ -31,7 +27,6 @@ enum CloudTreeCreateAction: Equatable {
         switch self {
         case .newCloudVM: return .cloud("cloud-machines-section")
         case .newWorkspace(let machine): return machine
-        case .newWorkspaceOnResolvedMachine: return .cloud("cloud-machines-section")
         }
     }
 
@@ -42,8 +37,6 @@ enum CloudTreeCreateAction: Equatable {
             actions.newMachine()
         case .newWorkspace(let machine):
             actions.newWorkspace(machine)
-        case .newWorkspaceOnResolvedMachine:
-            actions.newWorkspaceOnResolvedMachine()
         }
     }
 }

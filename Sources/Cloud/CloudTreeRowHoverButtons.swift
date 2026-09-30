@@ -36,13 +36,8 @@ struct CloudTreeRowHoverButtons: View {
             .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
             .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
             .accessibilityIdentifier("DevicesOptionsMenu")
-        case .cloudMachinesSection(let canCreateMachine, _):
-            if canCreateMachine {
-                plus(String(localized: "machines.new", defaultValue: "New Machine")) {
-                    nodeActions.newMachine()
-                }
-                .accessibilityIdentifier("CloudMachinesNewMachineButton")
-            }
+        case .cloudMachinesSection:
+            EmptyView()
         case .machine(let machine, _):
             MachinesChromeIconButton(
                 symbolName: "trash",
@@ -130,8 +125,8 @@ struct CloudTreeRowHoverButtons: View {
         switch kind {
         case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection:
             return true
-        case .cloudMachinesSection(let canCreateMachine, _):
-            return canCreateMachine
+        case .cloudMachinesSection:
+            return false
         case .pendingMachine:
             return true
         case .device(let row):
