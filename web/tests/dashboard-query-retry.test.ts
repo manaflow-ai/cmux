@@ -19,3 +19,14 @@ describe("dashboard query retry policy", () => {
     expect(isTransientError(declared("UNAVAILABLE", 503))).toBe(true);
   });
 });
+
+describe("dashboard query retry budget", () => {
+  test("a transient failure is retried once, about a second later, so the error shows within ~2 s", async () => {
+    const { shouldRetryQuery, DASHBOARD_RETRY_DELAY_MS } = await import("../dashboard-app/lib/query-client");
+    const outage = declared("UNAVAILABLE", 503);
+    expect([shouldRetryQuery(0, outage), shouldRetryQuery(1, outage)]).toEqual([true, false]);
+    expect(shouldRetryQuery(0, declared("FORBIDDEN", 403))).toBe(false);
+    expect(DASHBOARD_RETRY_DELAY_MS).toBeGreaterThanOrEqual(500);
+    expect(DASHBOARD_RETRY_DELAY_MS).toBeLessThanOrEqual(1500);
+  });
+});
