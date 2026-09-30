@@ -26,20 +26,32 @@ function recordingRows(raw: string, title: string, harness: string): { snapshot:
     const content = (msg.content ?? {}) as Record<string, unknown>;
     const text = String(msg.text ?? content.text ?? "");
     if (eventKind === "user_message" || eventKind === "session/prompt") {
+      assistant = undefined;
       append({ id: `user-${sequence++}`, version: 1, at: Number(event.at ?? Date.now()), kind: "user", text: String(msg.text ?? msg.prompt ?? "") });
     } else if (eventKind === "agent_message_chunk") {
       if (!assistant) { assistant = { id: `assistant-${sequence++}`, version: 1, at: Number(event.at ?? Date.now()), kind: "assistant", text: "", streaming: true }; append(assistant); }
       assistant.text = `${assistant.text ?? ""}${text}`;
       assistant.version += 1;
-      const last = rows[rows.length - 1];
-      if (last?.id === assistant.id) rows[rows.length - 1] = structuredClone(assistant);
-      else append(structuredClone(assistant));
+      const rowIndex = rows.findIndex((row) => row.id === assistant?.id);
+      if (rowIndex >= 0) rows[rowIndex] = structuredClone(assistant);
+      else rows.push(structuredClone(assistant));
+      replay.push(structuredClone(assistant));
     } else if (eventKind === "agent_thought_chunk" || eventKind === "think") {
       append({ id: `thought-${sequence++}`, version: 1, at: Number(event.at ?? Date.now()), kind: "plan", text: text || "Thinking…" });
     } else if (eventKind === "tool_call" || eventKind === "tool_call_update" || eventKind === "execute" || eventKind === "read") {
       append({ id: `activity-${sequence++}`, version: 1, at: Number(event.at ?? Date.now()), kind: "activity", toolCount: 1, items: [{ kind: "tool", text: String(msg.title ?? msg.name ?? eventKind), tool: { id: `tool-${sequence}`, title: String(msg.title ?? eventKind), kind: eventKind, status: "completed", inputSummary: String(msg.input ?? msg.path ?? "") } }] });
     } else if (eventKind === "turn_end" || eventKind === "status") {
-      if (eventKind === "turn_end") { if (assistant) assistant.streaming = false; append({ id: `summary-${sequence++}`, version: 1, at: Number(event.at ?? Date.now()), kind: "turnSummary", durationMs: 4200, toolCount: rows.filter((row) => row.kind === "activity").length }); }
+      if (eventKind === "turn_end") {
+        if (assistant) {
+          assistant.streaming = false;
+          assistant.version += 1;
+          const rowIndex = rows.findIndex((row) => row.id === assistant?.id);
+          if (rowIndex >= 0) rows[rowIndex] = structuredClone(assistant);
+          replay.push(structuredClone(assistant));
+        }
+        assistant = undefined;
+        append({ id: `summary-${sequence++}`, version: 1, at: Number(event.at ?? Date.now()), kind: "turnSummary", durationMs: 4200, toolCount: rows.filter((row) => row.kind === "activity").length });
+      }
     }
   }
   snapshot.rows = rows;

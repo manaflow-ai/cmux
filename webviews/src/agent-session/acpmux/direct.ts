@@ -196,6 +196,19 @@ export class AcpmuxDirectClient {
     });
     else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
     else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
+    else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
+  }
+
+  private resyncAfterLag(params: any): void {
+    const sessionId = String(params?.sessionId ?? "");
+    if (!sessionId || sessionId !== this.selectedSessionId) return;
+    const generation = this.selectionGeneration;
+    this.events = [];
+    this.summary = undefined;
+    this.queue = [];
+    this.rebuild();
+    this.emit("resyncing");
+    void this.attach(sessionId, undefined, generation).catch(() => undefined);
   }
 
   private request(method: string, params: Record<string, unknown>): Promise<any> {

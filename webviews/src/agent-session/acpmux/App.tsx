@@ -1,7 +1,7 @@
 import React, { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { lexer, type Token } from "marked";
 import { applyAgentTheme } from "../shared/theme";
-import { diffRows, layoutConversation, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
+import { diffRows, layoutConversation, visibleLayoutRange, type AcpmuxActivity, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
@@ -103,7 +103,22 @@ function VirtualTranscript({ rows, onToggleActivity, expanded }: { rows: AcpmuxR
   const registry = { ...defaultRegistry, ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined) };
   const rowKind = (row: AcpmuxRow) => row.kind === "activity" && row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ? "editedFiles" : row.kind;
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
-  const layout = layoutConversation(rows, Math.max(120, width - 36), measurementCache.current, (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth) ?? measuredHeights.get(row.id));
+  // The transcript column is capped at 760px by .acpmux-thread/.acpmux-row.
+  // Measure the same width that will be painted so wide panes cannot overlap rows.
+  const transcriptWidth = Math.max(120, Math.min(760, width - 36));
+  const measure = (row: AcpmuxRow, rowWidth: number) => {
+    if (row.kind === "activity" && expanded.has(row.id)) {
+      const lineWidth = Math.max(24, Math.floor(rowWidth / 8));
+      const itemHeight = (item: AcpmuxActivity) => {
+        const output = item.tool?.output ?? "";
+        const outputLines = output ? Math.max(1, Math.ceil(output.length / lineWidth)) : 0;
+        return 26 + outputLines * 20;
+      };
+      return 28 + (row.items ?? []).reduce((total, item) => total + itemHeight(item), 0);
+    }
+    return registry[rowKind(row)]?.measure?.(row, rowWidth) ?? measuredHeights.get(row.id);
+  };
+  const layout = layoutConversation(rows, transcriptWidth, measurementCache.current, measure);
   const range = visibleLayoutRange(layout, scrollTop, height);
   useLayoutEffect(() => {
     const old = previousLayout.current;
@@ -122,7 +137,7 @@ function VirtualTranscript({ rows, onToggleActivity, expanded }: { rows: AcpmuxR
   }, [layout, range.first]);
   const scheduleScroll = useRef<number | null>(null);
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => { const next = event.currentTarget.scrollTop; if (scheduleScroll.current !== null) return; scheduleScroll.current = requestAnimationFrame(() => { scheduleScroll.current = null; setScrollTop(next); }); };
-  return <div ref={ref} className="acpmux-scroll" onScroll={onScroll}><div className="acpmux-spacer" style={{ height: layout.totalHeight }}><div className="acpmux-thread">{rows.slice(range.first, range.last).map((row, index) => { const absoluteIndex = range.first + index; const kind = rowKind(row); const Component = registry[kind] ?? NoticeRow; const rendered = <Component row={row} onToggleActivity={onToggleActivity} expanded={expanded.has(row.id)} />; return <article className={`acpmux-row acpmux-${kind}`} style={{ transform: `translateY(${layout.tops[absoluteIndex]}px)` }} key={row.id}>{Component.measure || defaultRegistry[kind] ? rendered : <MeasuredCustomRow onHeight={(value) => setMeasuredHeights((current) => { if (current.get(row.id) === value) return current; const next = new Map(current); next.set(row.id, value); return next; })}>{rendered}</MeasuredCustomRow>}</article>; })}</div></div></div>;
+  return <div ref={ref} className="acpmux-scroll" onScroll={onScroll}><div className="acpmux-spacer" style={{ height: layout.totalHeight }}><div className="acpmux-thread">{rows.slice(range.first, range.last).map((row, index) => { const absoluteIndex = range.first + index; const kind = rowKind(row); const Component = registry[kind] ?? NoticeRow; const rendered = <Component row={row} onToggleActivity={onToggleActivity} expanded={expanded.has(row.id)} />; const hasExactMeasure = Component === defaultRegistry[kind] || Boolean(Component.measure); return <article className={`acpmux-row acpmux-${kind}`} style={{ transform: `translateY(${layout.tops[absoluteIndex]}px)`, height: layout.heights[absoluteIndex] }} key={row.id}>{hasExactMeasure ? rendered : <MeasuredCustomRow onHeight={(value) => setMeasuredHeights((current) => { if (current.get(row.id) === value) return current; const next = new Map(current); next.set(row.id, value); return next; })}>{rendered}</MeasuredCustomRow>}</article>; })}</div></div></div>;
 }
 
 function PermissionCard({ permission }: { permission: AcpmuxPermission }) { return <div className="acpmux-permission-card"><strong>{permission.title || "Permission required"}</strong><div className="acpmux-permission-buttons">{permission.options.map((option) => <button key={option.id} onClick={() => void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })}>{option.name}</button>)}</div></div>; }
@@ -181,13 +196,18 @@ export function AcpmuxApp() {
       try {
         const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string }>("ready");
         if (cancelled || host.transport !== "acpmux-websocket" || !host.endpoint || !host.token) return;
+        let persistedSessionId = host.sessionId;
+        const persistSession = (sessionId?: string) => {
+          if (!sessionId || sessionId === persistedSessionId) return Promise.resolve();
+          return callNative("chat.persistSession", { sessionId }).then(() => { persistedSessionId = sessionId; }).catch(() => undefined);
+        };
         const client = await AcpmuxDirectClient.connect(host as AcpmuxHostConfig, (next) => {
           rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
           setSnapshot(next);
+          void persistSession(next.sessionId);
         });
         if (cancelled) { client.close(); return; }
         directClient.current = client;
-        const persistSession = (sessionId?: string) => sessionId ? callNative("chat.persistSession", { sessionId }).catch(() => undefined) : Promise.resolve();
         window.cmuxAcpmuxActions = {
           "chat.send": async ({ text }) => { const sessionId = await client.ensureSession(); await persistSession(sessionId); return client.send(String(text ?? "")); },
           "chat.cancel": () => client.cancel(),

@@ -210,6 +210,8 @@ final class AcpmuxChatWebRendererCoordinator: NSObject, WKNavigationDelegate, WK
         switch request.method {
         case "ready":
             let endpoint = try await model.webSocketEndpoint()
+            applyTheme()
+            sendCustomization()
             return Self.jsonObject(AcpmuxWebHostHandshake(endpoint: endpoint.endpoint, token: endpoint.token, sessionId: model.sessionId)) ?? [:]
         case "chat.persistSession":
             guard let sessionId = request.string("sessionId"), !sessionId.isEmpty else {

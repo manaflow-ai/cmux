@@ -7,14 +7,55 @@ import { previewFixtures, type PreviewFixture } from "./fixtures";
 
 type BridgeMessage = { id?: string; method?: string; params?: Record<string, unknown> };
 
+type PreviewSocketMessage = { id?: number; method?: string; params?: Record<string, any> };
+
+class PreviewSocket {
+  static bridge: MockBridge | undefined;
+  readyState = 0;
+  onopen?: (event: Event) => void;
+  onmessage?: (event: MessageEvent<string>) => void;
+  onerror?: (event: Event) => void;
+  onclose?: (event: CloseEvent) => void;
+  private readonly bridge: MockBridge | undefined;
+
+  constructor(_url: string) {
+    this.bridge = PreviewSocket.bridge;
+    window.setTimeout(() => {
+      if (this.readyState !== 0) return;
+      this.readyState = 1;
+      this.onopen?.(new Event("open"));
+    }, 0);
+  }
+
+  send(raw: string): void {
+    if (this.readyState !== 1) return;
+    try { this.bridge?.handleSocket(this, JSON.parse(raw) as PreviewSocketMessage); } catch { this.onerror?.(new Event("error")); }
+  }
+
+  close(): void {
+    if (this.readyState === 3) return;
+    this.readyState = 3;
+    this.onclose?.(new CloseEvent("close"));
+  }
+
+  deliver(message: Record<string, unknown>): void {
+    if (this.readyState !== 1) return;
+    this.onmessage?.({ data: JSON.stringify(message) } as MessageEvent<string>);
+  }
+}
+
 class MockBridge {
   private snapshot: AcpmuxSnapshot;
   private replayTimer: number | undefined;
   private fixture: PreviewFixture;
+  private socket?: PreviewSocket;
+  private nextSeq = 1;
 
   constructor(fixture: PreviewFixture) { this.fixture = fixture; this.snapshot = structuredClone(fixture.snapshot); }
 
   install(): void {
+    PreviewSocket.bridge = this;
+    window.WebSocket = PreviewSocket as unknown as typeof WebSocket;
     window.webkit = { messageHandlers: { agentSession: { postMessage: (message: unknown) => Promise.resolve(this.handle(message as BridgeMessage)) } } } as unknown as typeof window.webkit;
   }
 
@@ -22,31 +63,84 @@ class MockBridge {
     if (this.replayTimer) window.clearTimeout(this.replayTimer);
     this.fixture = fixture;
     this.snapshot = structuredClone(fixture.snapshot);
-    this.emit();
+    this.socket?.close();
   }
 
   emit(): void { window.cmuxAcpmuxBridge?.receive(structuredClone(this.snapshot)); }
 
   replay(): void {
     if (!this.fixture.replay?.length) return;
-    const rows = new Map<string, AcpmuxRow>();
+    const previousText = new Map<string, string>();
     const events = this.fixture.replay;
     let index = 0;
     const tick = () => {
       const row = events[index];
       if (!row) return;
-      rows.set(row.id, structuredClone(row));
-      this.snapshot = { ...this.snapshot, rows: [...rows.values()], isWorking: index < events.length - 1 };
-      this.emit();
+      const previous = previousText.get(row.id) ?? "";
+      const text = row.text ?? "";
+      const delta = text.startsWith(previous) ? text.slice(previous.length) : text;
+      previousText.set(row.id, text);
+      if (delta || row.kind !== "assistant") this.socket?.deliver(this.eventMessage(row, delta));
       index += 1;
       this.replayTimer = window.setTimeout(tick, Math.min(500, index < 3 ? 140 : 70));
     };
     tick();
   }
 
+  handleSocket(socket: PreviewSocket, message: PreviewSocketMessage): void {
+    this.socket = socket;
+    const reply = (result: unknown) => socket.deliver({ jsonrpc: "2.0", id: message.id, result });
+    switch (message.method) {
+      case "initialize": reply({ protocolVersion: 1 }); return;
+      case "_acpmux/watch": reply({ sessions: this.snapshot.sessions }); return;
+      case "_acpmux/harnesses": reply({ harnesses: this.snapshot.catalog }); return;
+      case "_acpmux/attach": {
+        const summary = this.snapshot.summary ?? { sessionId: this.snapshot.sessionId ?? "preview-session" };
+        const events = this.fixture.id === "streaming-replay" ? [] : this.snapshotToEvents(this.snapshot.rows);
+        reply({ session: summary, events });
+        return;
+      }
+      case "session/new": {
+        const sessionId = `preview-session-${Date.now()}`;
+        this.snapshot = { ...this.snapshot, sessionId, sessions: [...this.snapshot.sessions, { sessionId, title: "New preview session" }] };
+        reply({ sessionId });
+        return;
+      }
+      case "session/prompt": {
+        const text = String(message.params?.prompt?.[0]?.text ?? "");
+        const promptId = String(message.params?._meta?.acpmux?.promptId ?? `preview-user-${Date.now()}`);
+        const user: AcpmuxRow = { id: promptId, version: 1, at: Date.now(), kind: "user", text };
+        reply(null);
+        window.setTimeout(() => {
+          this.socket?.deliver(this.eventMessage(user));
+          const assistant: AcpmuxRow = { id: `preview-assistant-${Date.now()}`, version: 1, at: Date.now(), kind: "assistant", text: `Preview response for “${text}”`, streaming: true };
+          this.socket?.deliver(this.eventMessage(assistant));
+          this.socket?.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: { sessionId: this.snapshot.sessionId, seq: this.nextSeq++, at: Date.now(), dir: "mux", kind: "turn_result", msg: { status: "completed" } } });
+        }, 120);
+        return;
+      }
+      case "_acpmux/permission_respond":
+        reply(null);
+        this.socket?.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: { sessionId: this.snapshot.sessionId, seq: this.nextSeq++, at: Date.now(), dir: "mux", kind: "permission_decision", msg: {} } });
+        return;
+      default: reply(null);
+    }
+  }
+
+  private snapshotToEvents(rows: AcpmuxRow[]): Record<string, unknown>[] { return rows.map((row) => this.eventMessage(row)); }
+
+  private eventMessage(row: AcpmuxRow, text = row.text ?? ""): Record<string, unknown> {
+    const seq = this.nextSeq++;
+    if (row.kind === "user") return { jsonrpc: "2.0", method: "_acpmux/event", params: { sessionId: this.snapshot.sessionId, seq, at: row.at, dir: "mux", kind: "user_message", msg: { text, promptId: row.id } } };
+    if (row.kind === "assistant") return { jsonrpc: "2.0", method: "_acpmux/event", params: { sessionId: this.snapshot.sessionId, seq, at: row.at, dir: "in", kind: "agent_message_chunk", msg: { method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", messageId: row.id, content: { type: "text", text } } } } } };
+    if (row.kind === "plan") return { jsonrpc: "2.0", method: "_acpmux/event", params: { sessionId: this.snapshot.sessionId, seq, at: row.at, dir: "in", kind: "agent_thought_chunk", msg: { method: "session/update", params: { update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text } } } } } };
+    if (row.kind === "activity") return { jsonrpc: "2.0", method: "_acpmux/event", params: { sessionId: this.snapshot.sessionId, seq, at: row.at, dir: "in", kind: "tool_call", msg: { method: "session/update", params: { update: { sessionUpdate: "tool_call", toolCallId: row.items?.[0]?.tool?.id ?? row.id, title: row.items?.[0]?.text ?? "Tool call", status: "completed" } } } } };
+    return { jsonrpc: "2.0", method: "_acpmux/event", params: { sessionId: this.snapshot.sessionId, seq, at: row.at, dir: "mux", kind: "turn_result", msg: { status: "completed" } } };
+  }
+
   private handle(message: BridgeMessage): { ok: true; value: unknown } {
     switch (message.method) {
-      case "ready": this.emit(); return { ok: true, value: { protocolVersion: 1, transport: "preview" } };
+      case "ready": this.emit(); return { ok: true, value: { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://preview.invalid/acpmux", token: "preview-token", sessionId: this.snapshot.sessionId } };
       case "chat.send": {
         const text = String(message.params?.text ?? "");
         const user: AcpmuxRow = { id: `preview-user-${Date.now()}`, version: 1, at: Date.now(), kind: "user", text };
