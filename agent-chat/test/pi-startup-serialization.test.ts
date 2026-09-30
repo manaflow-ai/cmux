@@ -92,7 +92,7 @@ const retrySess = { ...sess, id: "pi-startup-retry", events: [], internal: {
     activeTurn: false,
   },
 } } as unknown as SessionCtx;
-const initialSend = piAdapter.send(retrySess, "stale prompt").catch(() => {});
+const initialSend = Promise.resolve(piAdapter.send(retrySess, "stale prompt")).catch(() => {});
 await Promise.resolve();
 await Promise.resolve();
 piAdapter.dispose(retrySess);
