@@ -44,8 +44,7 @@ final class TabContentCache {
     private(set) lazy var suggestionEngine = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)])
     /// History and suggestions of each non-default browser profile.
     var profileHistories: [BrowserProfileID: ProfileHistory] = [:]
-    /// A profile's omnibar history was created or dropped (the App makes
-    /// it durable, plans/cmux-next/history.md).
+    /// A profile's omnibar history was created or dropped (`HistoryService`).
     var onProfileHistoryCreated: ((BrowserProfileID, InMemoryBrowserHistory) -> Void)?
     var onProfileHistoryDropped: ((BrowserProfileID) -> Void)?
     /// Incognito pages' history and page installs (`TabContentCache+Incognito`).
