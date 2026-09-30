@@ -49,6 +49,7 @@ import Testing
             messageLine(role: "user", content: "<environment_context>cwd: /tmp</environment_context>"),
             messageLine(role: "user", content: "<user_instructions>be terse</user_instructions>"),
             messageLine(role: "user", content: "<subagent_notification>done</subagent_notification>"),
+            messageLine(role: "user", content: "# AGENTS.md instructions for /repo\n<INSTRUCTIONS>be terse</INSTRUCTIONS>"),
             messageLine(role: "user", content: "Actual user question about flaky tests")
         ]
         let messages = engine.extractCodexMessages(fromRolloutLines: lines)
