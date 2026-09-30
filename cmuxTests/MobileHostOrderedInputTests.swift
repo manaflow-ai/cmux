@@ -99,9 +99,11 @@ struct MobileHostOrderedInputTests {
             },
             onClose: { _ in }
         )
-        // input-1 is held on surface s1; input-2 targets surface s2 and must
+        // input-1 is held on one surface; input-2 targets another and must
         // run concurrently: ordering is a per-PTY property, and one surface's
-        // slow request must not block typing on another.
+        // slow request must not block typing on another. Surface ids are
+        // UUIDs because the ordering key is the canonical terminal UUID; an
+        // id that does not parse falls into the shared no-terminal bucket.
         let batch = try Self.framedBatch(
             [
                 ("input-1", "terminal.input"),
@@ -112,6 +114,13 @@ struct MobileHostOrderedInputTests {
                 "input-2": UUID().uuidString,
             ]
         )
+
+        // The two requests must land in different ordering buckets, or the
+        // wait for input-2 below can never finish while input-1 is held.
+        // Check the buckets up front so a keying change fails here at once.
+        let orderingKeys = try Self.orderedInputSurfaceKeys(in: batch)
+        try #require(orderingKeys.count == 2)
+        try #require(orderingKeys[0] != orderingKeys[1])
 
         await connection.debugHandleReceiveDataForTesting(batch)
         await gate.waitUntilFirstInputStarts()
@@ -170,6 +179,13 @@ struct MobileHostOrderedInputTests {
         let responses = await transport.waitForResponseCount(2)
         #expect(Set(responses) == Set(["stall-1", "stall-2"]))
         await connection.close(reason: "test complete")
+    }
+
+    private static func orderedInputSurfaceKeys(in batch: Data) throws -> [String] {
+        var buffer = batch
+        return try MobileSyncFrameCodec.decodeFrames(from: &buffer).map {
+            try MobileHostRPCEnvelope.decodeRequest($0).get().orderedInputSurfaceKey
+        }
     }
 
     private static func framedBatch(

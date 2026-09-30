@@ -6,8 +6,8 @@ import SwiftUI
 /// **Browser** section — mirrors the legacy in-app section
 /// row-for-row inside a single `SettingsCard`: Enable cmux Browser,
 /// Default Search Engine, conditional Custom Search Engine fields,
-/// Show Search Suggestions, Browser Theme, Browser Memory Saver rows
-/// (``BrowserMemorySaverSettingsRows``), Open Terminal Links / Intercept open,
+/// Show Search Suggestions, Browser Memory Saver +
+/// Memory Saver Delay, Open Terminal Links / Intercept open,
 /// conditional Hosts editor and the External Patterns text editor, HTTP Hosts
 /// Allowed in Embedded Browser editor, URL Allowlist editor, Import Browser Data
 /// subsection, React Grab Version, Browsing History.
@@ -24,6 +24,8 @@ public struct BrowserSection: View {
     @State private var suggestions: DefaultsValueModel<Bool>
     @State private var theme: DefaultsValueModel<BrowserThemeMode>
     @State private var defaultZoom: DefaultsValueModel<Double>
+    @State private var discardEnabled: DefaultsValueModel<Bool>
+    @State private var discardDelay: DefaultsValueModel<Double>
     @State private var askWhereToSaveDownloads: DefaultsValueModel<Bool>
     @State private var openTermLinks: DefaultsValueModel<Bool>
     @State private var interceptOpen: DefaultsValueModel<Bool>
@@ -73,6 +75,8 @@ public struct BrowserSection: View {
         _suggestions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showSearchSuggestions))
         _theme = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme))
         _defaultZoom = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultZoomLevel))
+        _discardEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews))
+        _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
         _askWhereToSaveDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.askWhereToSaveDownloads))
         _openTermLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.openTerminalLinksInCmuxBrowser))
         _interceptOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser))
@@ -103,7 +107,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
@@ -246,8 +250,42 @@ public struct BrowserSection: View {
             }
             SettingsCardDivider()
 
-            // Browser Memory Saver, mode, budget and delay
-            BrowserMemorySaverSettingsRows(controlWidth: Self.columnWidth)
+            // Browser Memory Saver
+            SettingsCardRow(
+                configurationReview: .json("browser.discardHiddenWebViews"),
+                String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"),
+                subtitle: String(localized: "settings.browser.hiddenWebViewDiscard.subtitle", defaultValue: "Frees memory from browser tabs hidden longer than the delay. They reload when shown again.")
+            ) {
+                Toggle("", isOn: Binding(get: { discardEnabled.current }, set: { discardEnabled.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardToggle")
+            }
+            SettingsCardDivider()
+
+            // Memory Saver Delay
+            SettingsCardRow(
+                configurationReview: .json("browser.hiddenWebViewDiscardDelaySeconds"),
+                String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Memory Saver Delay"),
+                subtitle: String(localized: "settings.browser.hiddenWebViewDiscardDelay.subtitle", defaultValue: "How long a browser tab must stay hidden before cmux frees its page memory. Active downloads, popups, developer tools, fullscreen, and loading pages are skipped."),
+                controlWidth: Self.columnWidth
+            ) {
+                HStack(spacing: 8) {
+                    Text(formatDiscardDelay(discardDelay.current))
+                        .cmuxFont(.body, design: .monospaced)
+                        .monospacedDigit()
+                        .frame(width: 56, alignment: .trailing)
+                    Stepper(
+                        "",
+                        value: Binding(get: { discardDelay.current }, set: { discardDelay.set($0) }),
+                        in: 0...3_600,
+                        step: 30
+                    )
+                    .labelsHidden()
+                }
+                .disabled(!discardEnabled.current)
+                .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardDelayStepper")
+            }
             SettingsCardDivider()
 
             // Download Save Prompt
@@ -764,8 +802,27 @@ public struct BrowserSection: View {
         }
     }
 
+    /// Formats the Memory Saver Delay value as `Xm Ys` (or `Ys`) so
+    /// the stepper readout reads naturally for delays measured in
+    /// minutes. Matches the legacy
+    /// `browserHiddenWebViewDiscardDelayLabel` formatter, including
+    /// the localized format strings.
     private func formatZoomPercent(_ zoom: Double) -> String {
         let format = String(localized: "settings.browser.defaultZoomLevel.percent", defaultValue: "%lld%%")
         return String.localizedStringWithFormat(format, Int64((zoom * 100).rounded()))
+    }
+
+    private func formatDiscardDelay(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds.rounded()))
+        if total < 60 {
+            let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.seconds", defaultValue: "%llds")
+            return String.localizedStringWithFormat(format, Int64(total))
+        }
+        if total % 60 == 0 {
+            let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.minutes", defaultValue: "%lldm")
+            return String.localizedStringWithFormat(format, Int64(total / 60))
+        }
+        let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.minutesSeconds", defaultValue: "%lldm %llds")
+        return String.localizedStringWithFormat(format, Int64(total / 60), Int64(total % 60))
     }
 }
