@@ -307,14 +307,29 @@ extension CMUXCLI {
                 print(command.render(rows, hiddenEnded: hiddenEnded, payload: payload))
             }
         case .open(let query):
+            let truncated = payload["truncated"] as? Bool == true
+            let incompleteSnapshotMessage = String.localizedStringWithFormat(
+                String(
+                    localized: "cli.agents.error.noMatchTruncated",
+                    defaultValue: "agents: no agent matches '%@' in the first read; more agents exist. Pass a resource ref or session id."
+                ),
+                query
+            )
             switch AgentsCommand.resolve(query, in: all) {
             case .none:
+                if truncated {
+                    throw CLIError(message: incompleteSnapshotMessage)
+                }
                 throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.agents.error.noMatch", defaultValue: "agents: no agent matches '%@'. See: cmux agents --all"), query))
             case .ambiguous(let candidates):
                 var list = candidates.prefix(10).map { "  \($0.name)  \($0.resourceRef)" }.joined(separator: "\n")
                 if candidates.count > 10 { list += "\n  …" }
                 throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.agents.error.ambiguous", defaultValue: "agents: '%@' matches more than one agent; pass a longer name or a resource ref:"), query) + "\n" + list)
             case .match(let row):
+                let exactReference = row.resourceRef == query || row.sessionID?.lowercased() == query.lowercased()
+                if truncated, !exactReference {
+                    throw CLIError(message: incompleteSnapshotMessage)
+                }
                 // Name the workspace that already shows the terminal. Without it the
                 // app projects into the selected workspace, which fails ownership
                 // checks when that workspace belongs to a Cloud machine.

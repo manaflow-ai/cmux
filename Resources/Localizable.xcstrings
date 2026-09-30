@@ -567888,6 +567888,65 @@
         }
       }
     },
+    "cli.agents.error.noMatchTruncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: no agent matches '%@' in the first read; more agents exist. Pass a resource ref or session id."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: لا يوجد وكيل يطابق '%@' في القراءة الأولى؛ توجد وكلاء إضافيون. مرّر مرجع مورد أو معرّف جلسة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: Im ersten Abruf passt kein Agent zu '%@'; weitere Agenten sind vorhanden. Übergeben Sie eine Ressourcenreferenz oder Sitzungs-ID."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: ningún agente coincide con '%@' en la primera lectura; hay más agentes. Pasa una referencia de recurso o un ID de sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents : aucun agent ne correspond à '%@' lors de la première lecture ; d'autres agents existent. Indiquez une référence de ressource ou un identifiant de session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 最初の読み取りでは '%@' に一致するエージェントがありません。ほかのエージェントもあります。リソース参照またはセッション ID を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 첫 번째 읽기에서 '%@'와 일치하는 에이전트가 없습니다. 더 많은 에이전트가 있습니다. 리소스 참조 또는 세션 ID를 전달하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 首次读取中没有与 '%@' 匹配的代理；还有更多代理。请传递资源引用或会话 ID。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 第一次讀取中沒有符合 '%@' 的代理；還有更多代理。請傳遞資源參照或工作階段 ID。"
+          }
+        }
+      }
+    },
     "cli.agents.error.openUsage": {
       "extractionState": "manual",
       "localizations": {
