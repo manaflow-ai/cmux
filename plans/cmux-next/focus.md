@@ -139,7 +139,11 @@ window that no longer has the keyboard.
 
 ## 4. Design: one `FocusCoordinator` per window
 
-A pure state machine owns focus. AppKit, Ghostty, WebKit, CEF, `LayoutModel` and the
+`WindowState.focus` (one per window, PR 15773's per-window state) is the coordinator. It
+reads the selected workspace and tab selection from `WindowState` (topology snapshots are
+inputs, not a second owner) and itself owns the focused pane, the last focused pane per
+workspace and browser focus mode; `WindowState.focusedPane` is gone. A pure state machine
+owns focus. AppKit, Ghostty, WebKit, CEF, `LayoutModel` and the
 registry context become outputs. Nothing else writes focus.
 
 State (`FocusState`, value type, never persisted, never sent to the daemon):
@@ -208,8 +212,7 @@ Entry points: layout mouse-down and keyboard navigation (`PaneHandlers`,
 `ColumnHandlers`), tab strip clicks and `TabHandlers`, the CLI (`AppCompatFrontend`),
 palette commands, `WindowController` key notifications, `ShellWindow.makeFirstResponder`,
 the tab drag session, and creation paths (split, column, new tab, new browser, empty
-workspace repair) all send events. `WindowState.focusedPane` and the `pending*Focus`
-fields are removed. Tab selection stays client state in `WindowState.selection`, but
+workspace repair) all send events. The `pending*Focus` fields are removed. Tab selection stays client state in `WindowState.selection`, but
 user selection goes through `selectTab` and the applier performs it.
 
 Context: the coordinator of the key (else last active) window publishes

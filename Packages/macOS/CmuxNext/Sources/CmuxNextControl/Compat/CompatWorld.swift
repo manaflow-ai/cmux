@@ -12,6 +12,8 @@ struct CompatWorld: Sendable {
         var index: Int
         var modelID: String
         var workspaceUUID: String?
+        /// Every workspace the window lists.
+        var workspaceUUIDs: [String] = []
         var isKey: Bool
         var isVisible: Bool
     }
@@ -107,6 +109,15 @@ struct CompatWorld: Sendable {
     func orderedPanes(in workspace: Workspace) -> [Pane] { workspace.paneUUIDs.compactMap { panes[$0] } }
     func orderedSurfaces(in workspace: Workspace) -> [Surface] { workspace.surfaceUUIDs.compactMap { surfaces[$0] } }
     func orderedSurfaces(in pane: Pane) -> [Surface] { pane.surfaceUUIDs.compactMap { surfaces[$0] } }
+
+    /// The workspaces `window` lists (each workspace belongs to one window),
+    /// in world order. Every workspace for no window, or for a topology
+    /// that carries no membership.
+    func workspaces(in window: Window?) -> [Workspace] {
+        guard let window, !window.workspaceUUIDs.isEmpty else { return workspaces }
+        let members = Set(window.workspaceUUIDs)
+        return workspaces.filter { members.contains($0.uuid) }
+    }
 
     /// The workspace a window shows, else the first one.
     func currentWorkspace(window: Window?) -> Workspace? {

@@ -92,6 +92,7 @@ final class ControlSnapshotPublisher {
             ControlWindowInfo(
                 id: controller.state.id,
                 workspaceID: controller.state.workspaceID,
+                workspaceIDs: windows.registry.members(of: controller.state.id),
                 isKey: controller.window?.isKeyWindow ?? false,
                 isVisible: controller.window?.isVisible ?? false,
                 focusedPaneID: controller.focusedPane?.pane.id

@@ -5,7 +5,10 @@ import CmuxNextBridge
 // a cancel restores the focus the source window had; focus never targets a
 // pane the move removed.
 extension TabDragSession {
-    func focusDragBegan(_ item: Item, from pane: PaneController) {
+    /// Workspace drags (no source pane) change window membership, which
+    /// reaches focus as an ordinary topology change.
+    func focusDragBegan(_ item: Item, from pane: PaneController?) {
+        guard let pane else { return }
         services.windowController(showing: pane)?.focus.send(.dragBegan(tabs: Self.focusTabs(item, pane: pane), pane: pane.paneKey))
     }
 
@@ -35,8 +38,8 @@ extension TabDragSession {
     }
 
     /// A torn-off window focuses the dragged tab once its workspace loads.
-    func focusTornOff(_ controller: WindowController, drag: Drag) {
-        guard let pane = drag.source.pane else { return }
+    func focusTornOff(_ controller: WindowController?, drag: Drag) {
+        guard let controller, let pane = drag.source.pane else { return }
         controller.focus.send(.dragEnded(.dropped(tabs: Self.focusTabs(drag.source.item, pane: pane))))
     }
 
@@ -46,6 +49,8 @@ extension TabDragSession {
         switch item {
         case .tab(let id):
             return [id]
+        case .workspaces:
+            return []
         case .group(_, let members):
             guard let selected = pane.stripModel.selectedID?.rawValue, members.contains(selected) else { return members }
             return [selected] + members.filter { $0 != selected }

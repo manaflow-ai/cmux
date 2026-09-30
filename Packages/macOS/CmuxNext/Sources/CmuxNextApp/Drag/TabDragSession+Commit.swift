@@ -22,6 +22,8 @@ extension TabDragSession {
         case .group(let id, _):
             executeGroup(outcome, group: CmuxNextDaemon.TabGroupID(rawValue: id.rawValue), dropWindow: dropWindow, drag: drag,
                          transaction: transaction, settle: settle)
+        case .workspaces:
+            settle(false)
         }
     }
 
@@ -48,7 +50,7 @@ extension TabDragSession {
             Task {
                 let key = await TabMoves.toNewWorkspace(tab, group: group.map(WorkspaceGroupID.init(rawValue:)), index: index,
                                                         services: services, transaction: transaction)
-                if let key, let state = dropWindow?.state { services.windows.show(workspaceID: key.rawValue, in: state) }
+                if let key, let state = dropWindow?.state { services.windows.claim(workspaceID: key.rawValue, in: state) }
                 settle(key != nil)
             }
         case .workspace(let id):
@@ -86,7 +88,7 @@ extension TabDragSession {
             Task {
                 let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: workspaceGroup.map(WorkspaceGroupID.init(rawValue:)),
                                                              index: index, services: services, transaction: transaction)
-                if let key, let state = dropWindow?.state { services.windows.show(workspaceID: key.rawValue, in: state) }
+                if let key, let state = dropWindow?.state { services.windows.claim(workspaceID: key.rawValue, in: state) }
                 settle(key != nil)
             }
         case .workspace(let id):
@@ -108,11 +110,8 @@ extension TabDragSession {
     /// Opens the torn-off workspace in a new window under the pointer. The
     /// window list and frame persist through `WindowManager`.
     @discardableResult
-    func openTornOff(workspace key: WorkspaceKey, frame: CGRect) -> WindowController {
-        let controller = services.windows.open(record: nil, workspaceID: key.rawValue)
-        controller.window?.setFrame(frame, display: true)
-        services.windows.stateDidChange(controller.state)
-        return controller
+    func openTornOff(workspace key: WorkspaceKey, frame: CGRect) -> WindowController? {
+        services.windows.openWindow(workspaces: [key.rawValue], frame: frame)
     }
 
     // MARK: Lookup

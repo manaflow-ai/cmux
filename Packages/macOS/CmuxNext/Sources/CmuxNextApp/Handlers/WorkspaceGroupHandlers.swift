@@ -86,11 +86,6 @@ enum WorkspaceGroupHandlers {
 
         registry.bindUnavailable(["workspaceGroup.togglePin"], ActionFailure.needsDaemonCapability("workspace-group-pin-v1"))
         registry.bindUnavailable(["workspaceGroup.markUnread"], ActionFailure.needsDaemonCapability("notification-mark-unread-v1"))
-        // A window shows one workspace; moving a group to a window needs
-        // per-window workspace sets, which cmux-next does not have.
-        for id: ActionID in ["workspaceGroup.moveToWindow", "workspaceGroup.moveToNewWindow"] {
-            registry.bindUnavailable([id], ActionFailure.needsAppCapability("per-window-workspace-sets"))
-        }
     }
 
     private static func sidebarID(_ group: WorkspaceGroupModel) -> CmuxNextSidebar.GroupID {

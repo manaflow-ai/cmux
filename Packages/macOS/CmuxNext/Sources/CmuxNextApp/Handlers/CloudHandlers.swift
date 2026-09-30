@@ -65,7 +65,7 @@ enum CloudHandlers {
     /// Shows `workspaceID` in the active window (or a new one).
     static func show(_ workspaceID: String, _ context: AppActionContext) {
         let windows = context.services.windows!
-        if let state = windows.active?.state { windows.show(workspaceID: workspaceID, in: state) } else { windows.open(record: nil, workspaceID: workspaceID) }
+        if let state = windows.active?.state { windows.show(workspaceID: workspaceID, in: state) } else { windows.openWindow(workspaces: [workspaceID]) }
     }
 
     /// The machine's first workspace, created (with a terminal) when it has none.

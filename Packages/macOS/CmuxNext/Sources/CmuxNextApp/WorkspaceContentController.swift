@@ -21,19 +21,20 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var connectionObservation: Task<Void, Never>?
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
-    /// The window's focus state machine (plans/cmux-next/focus.md). Every
-    /// focus change in this content goes through it.
+    /// The window's focus state machine (`WindowState.focus`,
+    /// plans/cmux-next/focus.md). Every focus change in this content goes
+    /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
 
-    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState,
-         focus: FocusCoordinator = FocusCoordinator()) {
+    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState) {
         self.workspace = workspace
         self.daemon = daemon
         self.services = services
         self.state = state
-        self.focus = focus
+        focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
+        layoutModel.showsScreenSwitcher = state.showsScreenSwitcher
         layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
         observe()
     }

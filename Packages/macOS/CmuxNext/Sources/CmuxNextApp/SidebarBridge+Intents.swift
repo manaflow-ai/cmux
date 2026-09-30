@@ -98,7 +98,7 @@ extension SidebarBridge {
     }
 
     /// The one daemon owning every workspace in `ids`, or nil when they span machines.
-    private func sameMachine(_ ids: [SidebarWorkspaceID]) -> (DaemonService, [WorkspaceKey])? {
+    func sameMachine(_ ids: [SidebarWorkspaceID]) -> (DaemonService, [WorkspaceKey])? {
         let pairs = keys(ids)
         guard let daemon = pairs.first?.0, pairs.allSatisfy({ $0.0 === daemon }) else { return nil }
         return (daemon, pairs.map(\.1))
@@ -116,10 +116,10 @@ extension SidebarBridge {
         command(label, on: daemon) { c, _ in try await body(c, id) }
     }
 
-    private func reorder(_ ids: [SidebarWorkspaceID], to position: DropPosition, in sections: [SidebarRowSection]) {
+    func reorder(_ ids: [SidebarWorkspaceID], to position: DropPosition, in sections: [SidebarRowSection]) {
         guard case .machine(let machine) = position.section, let target = services.machines.daemon(machine: machine.rawValue),
               let (daemon, members) = sameMachine(ids), daemon === target,
-              let root = WorkspaceOrdering.rootIndex(for: position, moving: ids, in: sections.filter { $0.id == position.section })
+              let root = daemonRootIndex(for: position, moving: ids, in: sections)
         else { return resync() }
         for (offset, key) in members.enumerated() {
             let index = root + offset
@@ -133,8 +133,8 @@ extension SidebarBridge {
     }
 
     /// Puts daemon truth back after a refused or rejected intent.
-    private func resync() {
-        model.sections = Self.sections(services.machines, statuses: services.statusBoard)
+    func resync() {
+        model.sections = Self.sections(services.machines, statuses: services.statusBoard, members: services.windows.registry.members(of: state.id))
     }
 
     private func command(_ label: String, on daemon: DaemonService, patch: OptimisticPatch = .custom { _ in },
