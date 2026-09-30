@@ -3,7 +3,7 @@ import CmuxNextDesign
 
 /// The window's content: step counter, title and subtitle, the step body,
 /// and a footer with progress bars, Skip, Back and Continue.
-final class OnboardingRootView: NSView {
+final class OnboardingRootView: ThemedView {
     private let model: OnboardingModel
     private let eyebrow = OnboardingLabel.make(font: Typography.caption, color: Palette.textTertiary)
     private let titleLabel = OnboardingLabel.make(font: Typography.title)
@@ -21,6 +21,9 @@ final class OnboardingRootView: NSView {
     init(model: OnboardingModel) {
         self.model = model
         super.init(frame: NSRect(origin: .zero, size: OnboardingMetrics.windowSize))
+        translatesAutoresizingMaskIntoConstraints = true
+        // The window background, redrawn at once on a theme change.
+        fill = { Palette.windowBackground }
         header.orientation = .vertical
         header.alignment = .leading
         header.spacing = Metrics.space3

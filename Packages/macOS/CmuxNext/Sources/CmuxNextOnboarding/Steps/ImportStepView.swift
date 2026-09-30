@@ -45,7 +45,7 @@ final class FullDiskAccessNotice: ThemedView {
         let detail = OnboardingLabel.make(OnboardingStrings.fullDiskAccessDetail, font: Typography.caption, color: Palette.textTertiary, lines: 3)
         let open = OnboardingButton(OnboardingStrings.openSystemSettings, style: .secondary) { [weak model] in model?.openFullDiskAccessSettings() }
         let recheck = OnboardingButton(OnboardingStrings.checkAgain, style: .plain) { [weak model] in model?.redetect() }
-        let buttons = NSStackView(views: [open, recheck])
+        let buttons = NSStackView(views: [open, recheck, FlexibleSpace()])
         buttons.spacing = Metrics.space3
         let text = NSStackView(views: [title, detail, buttons])
         text.orientation = .vertical

@@ -65,7 +65,10 @@ final class DefaultTerminalStepView: NSView {
         for (claim, row) in rows {
             row.setState(claimed: model.isClaimed(claim), pending: model.pending.contains(claim), error: model.errors[claim])
         }
-        useAll.isHidden = DefaultHandlerClaim.terminalClaims.allSatisfy(model.isClaimed)
+        // Hidden without giving up its space, so the list does not jump.
+        let allClaimed = DefaultHandlerClaim.terminalClaims.allSatisfy(model.isClaimed)
+        useAll.alphaValue = allClaimed ? 0 : 1
+        useAll.isEnabled = !allClaimed
     }
 }
 
@@ -93,7 +96,7 @@ final class ClaimRowView: NSView {
         text.alignment = .leading
         text.spacing = Metrics.space1
         statusIcon.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)
-        statusIcon.contentTintColor = Palette.success
+        statusIcon.contentTintColor = Palette.textSecondary
         let statusRow = NSStackView(views: [statusIcon, status])
         statusRow.spacing = Metrics.space2
         let row = NSStackView(views: [icon, text, FlexibleSpace(), statusRow, action])
@@ -105,6 +108,8 @@ final class ClaimRowView: NSView {
             row.leadingAnchor.constraint(equalTo: leadingAnchor), row.trailingAnchor.constraint(equalTo: trailingAnchor),
             row.topAnchor.constraint(equalTo: topAnchor), row.bottomAnchor.constraint(equalTo: bottomAnchor),
             icon.widthAnchor.constraint(equalToConstant: Metrics.space6 + Metrics.space2),
+            // The same height with the button or the status, so rows never jump.
+            heightAnchor.constraint(greaterThanOrEqualToConstant: OnboardingMetrics.buttonHeight + Metrics.space5 * 2),
         ])
         statusRow.isHidden = true
     }

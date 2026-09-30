@@ -18,7 +18,7 @@ final class DefaultBrowserStepView: NSView {
         button.onPress = { [weak model] in model?.request(.webBrowser) }
         let hero = HeroSymbolView(symbol: "globe")
         check.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil)
-        check.contentTintColor = Palette.success
+        check.contentTintColor = Palette.textPrimary
         check.translatesAutoresizingMaskIntoConstraints = false
         let statusRow = NSStackView(views: [check, status])
         statusRow.spacing = Metrics.space3

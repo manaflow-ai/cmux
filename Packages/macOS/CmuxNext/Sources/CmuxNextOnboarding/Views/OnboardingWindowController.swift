@@ -26,6 +26,9 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.standardWindowButton(.zoomButton)?.isHidden = true
         window.backgroundColor = Palette.windowBackground
         window.animationBehavior = .alertPanel
+        // A fixed size: content never grows the window.
+        window.contentMinSize = OnboardingMetrics.windowSize
+        window.contentMaxSize = OnboardingMetrics.windowSize
         window.identifier = NSUserInterfaceItemIdentifier("cmux.onboarding")
         ThemeStore.shared.adopt(window)
         super.init(window: window)
