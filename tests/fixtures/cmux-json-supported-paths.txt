@@ -159,7 +159,9 @@ terminal.showTextBoxOnNewTerminals
 terminal.textBoxDefaultSubmitAction
 terminal.textBoxMaxLines
 terminal.textBoxSubmitActions
+terminal.textEditingCommandMovesByWord
 terminal.textEditingGestures
+terminal.textEditingGesturesInFullScreenApps
 terminal.uploadCommands
 workspaceColors.colors
 workspaceColors.customColors
