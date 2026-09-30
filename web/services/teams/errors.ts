@@ -77,3 +77,8 @@ export class TeamApiError extends Error {
 export class TeamServiceUnavailableError extends Error {
   override readonly name = "TeamServiceUnavailableError";
 }
+
+/** Stack reported that the team no longer exists (deleted mid-request). */
+export class TeamGoneError extends Error {
+  override readonly name = "TeamGoneError";
+}

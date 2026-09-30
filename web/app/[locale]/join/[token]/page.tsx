@@ -4,8 +4,8 @@ import { Suspense } from "react";
 import { optionalDashboardUser } from "@/app/lib/dashboard-auth";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
-import { DashboardQueryProvider } from "../../dashboard/components/query-provider";
-import { DashboardSectionSkeleton } from "../../dashboard/components/dashboard-skeleton";
+import { DashboardQueryProvider } from "@/dashboard-app/components/query-provider";
+import { DashboardSectionSkeleton } from "@/dashboard-app/components/dashboard-skeleton";
 import { JoinInvite } from "./join-invite";
 
 type Params = Promise<{ locale: string; token: string }>;

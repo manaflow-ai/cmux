@@ -25,6 +25,11 @@
       "message": "La configurazione della VM Cloud non è riuscita e la pulizia è ancora in sospeso.",
       "action": "Contatta il supporto con l’ID della traccia prima di creare un’altra macchina."
     },
+    "recreateRequired": {
+      "title": "Ricrea questa macchina",
+      "message": "Questa macchina è stata creata prima di un aggiornamento di Cloud e non può essere collegata.",
+      "action": "Crea una nuova macchina, copia i tuoi file con cmux vm pull e cmux vm push, poi elimina questa."
+    },
     "unsupported": {
       "title": "Operazione Cloud VM non disponibile",
       "reason": "Questo tipo di macchina non offre questa operazione.",
@@ -134,7 +139,9 @@
     "backToBlog": "Torna al blog",
     "readTheDocs": "Leggi la documentazione",
     "viewChangelog": "Vedi il changelog",
-    "otherPlatforms": "Altre piattaforme"
+    "otherPlatforms": "Altre piattaforme",
+    "copyCode": "Copia codice",
+    "copied": "Copiato"
   },
   "nav": {
     "docs": "Docs",
@@ -376,6 +383,20 @@
         "empty": "Nessuna macchina ha usato coderouter negli ultimi {days} giorni.",
         "unavailable": "L'utilizzo per macchina non è al momento disponibile.",
         "estimateNote": "Il valore equivalente API è una stima basata sui prezzi di listino pubblici, non la spesa effettiva."
+      },
+      "metrics": {
+        "title": "Utilizzo negli ultimi 30 giorni",
+        "scope": "Totale del team {team}",
+        "period": "Ultimi {days} giorni",
+        "inputTokens": "Token di input",
+        "outputTokens": "Token di output",
+        "tokens": "Token totali",
+        "apiEquivalent": "Valore equivalente API",
+        "unpriced": "Il {share} di questi token proviene da modelli senza prezzo di listino ed è escluso da questo valore.",
+        "chartLabel": "Utilizzo giornaliero dei token CodeRouter",
+        "privacy": "Nessun prompt, output, etichetta di account o identità dei membri viene registrato o mostrato.",
+        "estimate": "Il valore equivalente API è quanto sarebbero costati questi token ai prezzi di listino pubblici delle API (tariffario {version}). Non è quanto hai pagato.",
+        "unavailable": "L’utilizzo del team non è temporaneamente disponibile."
       }
     },
     "accountMenu": {
@@ -485,10 +506,6 @@
         "uploadImage": "Carica immagine",
         "removeImage": "Rimuovi immagine",
         "zoom": "Zoom"
-      },
-      "redirect": {
-        "redirecting": "Apertura delle impostazioni…",
-        "openSettings": "Vai alle impostazioni"
       },
       "profile": {
         "title": "Profilo",
@@ -871,7 +888,7 @@
         },
         "maxUsesLabel": "Utilizzi massimi",
         "maxUsesPlaceholder": "Illimitati",
-        "maxUsesInvalid": "Gli utilizzi massimi devono essere un numero intero da 1 a 10000, oppure vuoti per illimitati.",
+        "maxUsesInvalid": "Gli utilizzi massimi devono essere un numero intero da 1 a {max}, oppure vuoti per illimitati.",
         "create": "Crea link",
         "creating": "Creazione…",
         "memberOnly": "Chi si unisce tramite link diventa membro. Se serve, promuovilo ad admin in seguito.",
@@ -1010,6 +1027,11 @@
       "apiKeyUsageDetail": "ultimi 30 giorni: {completions} completamenti · {tokens} token ({input} input / {output} output) · equivalente API {value}",
       "apiKeyUsageUnavailable": "Utilizzo non disponibile",
       "revokeApiKeyConfirmBody": "I client che usano questa chiave non potranno più autenticarsi."
+    },
+    "notFound": {
+      "title": "Pagina non trovata",
+      "body": "Questa pagina della dashboard non esiste o è stata spostata.",
+      "home": "Vai alla dashboard"
     }
   },
   "community": {
@@ -2072,7 +2094,6 @@
       "restartNew": "Crea un nuovo workspace (predefinito)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Attiva o disattiva il ritorno a capo nell’editor di file (Option+Z).",
       "title": "Scorciatoie da tastiera",
       "description": "Tutte le scorciatoie da tastiera disponibili in cmux, raggruppate per categoria.",
       "metaDescription": "Tutte le scorciatoie da tastiera cmux per workspace, superfici, pannelli divisi, browser, notifiche, ricerca e gestione delle finestre su macOS.",
@@ -2858,6 +2879,28 @@
       "fixTransferDisabled": "Un criterio gestito disattiva il trasferimento di file. Rivolgiti al tuo amministratore.",
       "supportTitle": "Ottenere assistenza",
       "supportDesc": "Se una creazione non riesce, usa Copy Error nella notifica e includi l'errore, insieme al trace ID se presente, quando contatti l'assistenza."
+    },
+    "ui": {
+      "onThisPage": "In questa pagina",
+      "copyPage": "Copia pagina",
+      "copyPageDesc": "Copia la pagina in Markdown per gli LLM",
+      "copied": "Copiato",
+      "pageActions": "Altre azioni della pagina",
+      "openInChatGPT": "Apri in ChatGPT",
+      "openInClaude": "Apri in Claude",
+      "openInDesc": "Fai domande su questa pagina",
+      "askPrompt": "Leggi {url} così posso farti domande al riguardo.",
+      "previous": "Precedente",
+      "next": "Successivo",
+      "helpful": "Questa pagina ti è stata utile?",
+      "yes": "Sì",
+      "no": "No",
+      "thanks": "Grazie per il tuo feedback.",
+      "raiseIssue": "Apri una issue",
+      "openNavigation": "Apri navigazione",
+      "closeNavigation": "Chiudi navigazione",
+      "searchShortcut": "Cerca nella documentazione (⌘K)",
+      "navigation": "Documentazione"
     }
   },
   "legal": {
@@ -4925,7 +4968,10 @@
     "emailUnavailable": "email non disponibile",
     "organization": "Organizzazione",
     "personalAccount": "account personale",
-    "switchAccountButton": "Usa un altro account"
+    "switchAccountButton": "Usa un altro account",
+    "signedOutTitle": "Accedi per autorizzare coderouter",
+    "signedOutBody": "Un'applicazione a riga di comando è in attesa del tuo accesso. Accedi con il tuo account cmux per completare il collegamento di questo terminale. Se non hai avviato questa richiesta, chiudi questa pagina.",
+    "signInButton": "Accedi"
   },
   "MobileRelease106": {
     "title": "Novità di 1.0.6",

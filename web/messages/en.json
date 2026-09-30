@@ -166,6 +166,11 @@
       "message": "Cloud VM setup is temporarily unavailable.",
       "action": "Try again later. If the problem continues, contact support."
     },
+    "recreateRequired": {
+      "title": "Recreate this machine",
+      "message": "This machine was created before a Cloud update and can't be attached.",
+      "action": "Create a new machine, copy your files over with cmux vm pull and cmux vm push, then delete this one."
+    },
     "unsupported": {
       "title": "Cloud VM operation unavailable",
       "reason": "This machine kind does not provide this operation.",
@@ -336,7 +341,9 @@
     "backToBlog": "Back to blog",
     "readTheDocs": "Read the Docs",
     "viewChangelog": "View Changelog",
-    "otherPlatforms": "Other platforms"
+    "otherPlatforms": "Other platforms",
+    "copyCode": "Copy code",
+    "copied": "Copied"
   },
   "dashboard": {
     "nav": {
@@ -413,6 +420,20 @@
         "empty": "No machines have used coderouter in the last {days} days.",
         "unavailable": "Machine usage is temporarily unavailable.",
         "estimateNote": "API-equivalent value is an estimate using public list prices, not actual spend."
+      },
+      "metrics": {
+        "title": "30-day usage",
+        "scope": "Team aggregate for {team}",
+        "period": "Last {days} days",
+        "inputTokens": "Input tokens",
+        "outputTokens": "Output tokens",
+        "tokens": "Total tokens",
+        "apiEquivalent": "API-equivalent value",
+        "unpriced": "{share} of these tokens came from models without a list price and are left out of that value.",
+        "chartLabel": "Daily CodeRouter token usage",
+        "privacy": "No prompts, outputs, account labels, or member identities are recorded or shown.",
+        "estimate": "API-equivalent value is what these tokens would have cost at public API list prices (rate card {version}). It is not what you paid.",
+        "unavailable": "Team usage is temporarily unavailable."
       }
     },
     "coderouterAccounts": {
@@ -758,10 +779,6 @@
         "uploadImage": "Upload image",
         "removeImage": "Remove image",
         "zoom": "Zoom"
-      },
-      "redirect": {
-        "redirecting": "Opening settings…",
-        "openSettings": "Continue to settings"
       },
       "profile": {
         "title": "Profile",
@@ -1144,7 +1161,7 @@
         },
         "maxUsesLabel": "Max uses",
         "maxUsesPlaceholder": "Unlimited",
-        "maxUsesInvalid": "Max uses must be a whole number from 1 to 10000, or empty for unlimited.",
+        "maxUsesInvalid": "Max uses must be a whole number from 1 to {max}, or empty for unlimited.",
         "create": "Create link",
         "creating": "Creating…",
         "memberOnly": "People who join by link become members. Promote them to admin afterwards if needed.",
@@ -1233,6 +1250,11 @@
         "description": "Keys that act for this team. Anyone with a key can use the team's access, so store keys securely.",
         "create": "Create team API key"
       }
+    },
+    "notFound": {
+      "title": "Page not found",
+      "body": "This dashboard page does not exist or was moved.",
+      "home": "Go to dashboard"
     }
   },
   "vault": {
@@ -3326,7 +3348,6 @@
       "workspaceActionsDefaultDesc": "Use the <defaultMenu>Default for New Workspace</defaultMenu> submenu to pick which saved workspace layout plain New Workspace should run, or choose None to return to a blank terminal. The save dialog also has a <checkbox>Use as default for new workspaces</checkbox> checkbox. The setting is <action>ui.newWorkspace.action</action>; a project-local <localConfig>.cmux/cmux.json</localConfig> value wins over <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Toggle File Editor Word Wrap (Option+Z).",
       "title": "Keyboard Shortcuts",
       "description": "Default cmux keyboard shortcuts. Every cmux-owned shortcut can be changed in Settings or ~/.config/cmux/cmux.json, including two-step chords.",
       "metaTitle": "Keyboard Shortcuts",
@@ -4382,6 +4403,28 @@
       "fixTransferDisabled": "A managed policy turns off file transfer. Ask your administrator.",
       "supportTitle": "Get help",
       "supportDesc": "If a create fails, use Copy Error in the notification and include it, with the trace ID if there is one, when you contact support."
+    },
+    "ui": {
+      "onThisPage": "On this page",
+      "copyPage": "Copy page",
+      "copyPageDesc": "Copy page as Markdown for LLMs",
+      "copied": "Copied",
+      "pageActions": "More page actions",
+      "openInChatGPT": "Open in ChatGPT",
+      "openInClaude": "Open in Claude",
+      "openInDesc": "Ask questions about this page",
+      "askPrompt": "Read {url} so I can ask questions about it.",
+      "previous": "Previous",
+      "next": "Next",
+      "helpful": "Was this page helpful?",
+      "yes": "Yes",
+      "no": "No",
+      "thanks": "Thanks for your feedback.",
+      "raiseIssue": "Raise issue",
+      "openNavigation": "Open navigation",
+      "closeNavigation": "Close navigation",
+      "searchShortcut": "Search docs (⌘K)",
+      "navigation": "Documentation"
     }
   },
   "deeplink": {
@@ -6673,7 +6716,10 @@
     "emailUnavailable": "email unavailable",
     "organization": "Organization",
     "personalAccount": "personal account",
-    "switchAccountButton": "Use a different account"
+    "switchAccountButton": "Use a different account",
+    "signedOutTitle": "Sign in to authorize coderouter",
+    "signedOutBody": "A command line application is waiting for you to sign in. Sign in with your cmux account to finish connecting this terminal. If you did not start this request, close this page.",
+    "signInButton": "Sign in"
   },
   "MobileRelease106": {
     "title": "What's New in 1.0.6",

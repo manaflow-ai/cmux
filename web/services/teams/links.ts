@@ -13,7 +13,7 @@ import {
 import type { TeamInviteLink } from "./types";
 
 export const INVITE_LINK_EXPIRY_DAYS = [1, 7, 30] as const;
-export const MAX_INVITE_LINK_USES = 1000;
+export { MAX_INVITE_LINK_USES } from "./limits";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** 32 random bytes, base64url: 256 bits that exist only in the create response. */

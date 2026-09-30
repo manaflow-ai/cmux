@@ -25,6 +25,11 @@
       "message": "Cloud VM 설정에 실패했으며 정리가 아직 완료되지 않았습니다.",
       "action": "다른 머신을 만들기 전에 추적 ID와 함께 지원팀에 문의하세요."
     },
+    "recreateRequired": {
+      "title": "이 머신을 다시 만드세요",
+      "message": "이 머신은 Cloud 업데이트 이전에 만들어져 연결할 수 없습니다.",
+      "action": "새 머신을 만들고 cmux vm pull과 cmux vm push로 파일을 옮긴 다음 이 머신을 삭제하세요."
+    },
     "unsupported": {
       "title": "Cloud VM 작업을 사용할 수 없음",
       "reason": "이 머신 종류는 이 작업을 제공하지 않습니다.",
@@ -134,7 +139,9 @@
     "backToBlog": "블로그로 돌아가기",
     "readTheDocs": "문서 읽기",
     "viewChangelog": "변경 로그 보기",
-    "otherPlatforms": "다른 플랫폼"
+    "otherPlatforms": "다른 플랫폼",
+    "copyCode": "코드 복사",
+    "copied": "복사됨"
   },
   "nav": {
     "docs": "문서",
@@ -376,6 +383,20 @@
         "empty": "최근 {days}일 동안 coderouter를 사용한 머신이 없습니다.",
         "unavailable": "머신별 사용량을 일시적으로 확인할 수 없습니다.",
         "estimateNote": "API 환산 금액은 공개 정가를 기준으로 한 추정치이며 실제 지출이 아닙니다."
+      },
+      "metrics": {
+        "title": "30일 사용량",
+        "scope": "{team} 팀 합계",
+        "period": "최근 {days}일",
+        "inputTokens": "입력 토큰",
+        "outputTokens": "출력 토큰",
+        "tokens": "총 토큰",
+        "apiEquivalent": "API 환산 금액",
+        "unpriced": "이 토큰 중 {share}는 정가가 없는 모델에서 발생하여 환산 금액에 포함되지 않았습니다.",
+        "chartLabel": "일별 CodeRouter 토큰 사용량",
+        "privacy": "프롬프트, 출력, 계정 라벨, 멤버 신원은 기록하거나 표시하지 않습니다.",
+        "estimate": "API 환산 금액은 이 토큰을 공개 API 정가(요금표 {version})로 사용했을 때의 금액이며, 실제 결제 금액이 아닙니다.",
+        "unavailable": "팀 사용량을 일시적으로 확인할 수 없습니다."
       }
     },
     "accountMenu": {
@@ -485,10 +506,6 @@
         "uploadImage": "이미지 업로드",
         "removeImage": "이미지 제거",
         "zoom": "확대/축소"
-      },
-      "redirect": {
-        "redirecting": "설정을 여는 중…",
-        "openSettings": "설정으로 이동"
       },
       "profile": {
         "title": "프로필",
@@ -871,7 +888,7 @@
         },
         "maxUsesLabel": "최대 사용 횟수",
         "maxUsesPlaceholder": "무제한",
-        "maxUsesInvalid": "최대 사용 횟수는 1에서 10000 사이의 정수여야 합니다. 무제한으로 하려면 비워 두세요.",
+        "maxUsesInvalid": "최대 사용 횟수는 1에서 {max} 사이의 정수여야 합니다. 무제한으로 하려면 비워 두세요.",
         "create": "링크 만들기",
         "creating": "만드는 중…",
         "memberOnly": "링크로 참여한 사람은 멤버가 됩니다. 필요하면 나중에 관리자로 지정하세요.",
@@ -1010,6 +1027,11 @@
       "apiKeyUsageDetail": "최근 30일: 완료 {completions}회 · 토큰 {tokens}개 ({input} 입력 / {output} 출력) · API 환산 {value}",
       "apiKeyUsageUnavailable": "사용량을 사용할 수 없음",
       "revokeApiKeyConfirmBody": "이 키를 사용하는 클라이언트는 즉시 인증할 수 없게 됩니다."
+    },
+    "notFound": {
+      "title": "페이지를 찾을 수 없습니다",
+      "body": "이 대시보드 페이지가 없거나 이동되었습니다.",
+      "home": "대시보드로 이동"
     }
   },
   "community": {
@@ -2072,7 +2094,6 @@
       "restartNew": "새 워크스페이스 만들기 (기본값)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "파일 편집기 자동 줄 바꿈 전환 (Option+Z).",
       "title": "키보드 단축키",
       "description": "카테고리별로 정리된 cmux의 모든 키보드 단축키.",
       "metaDescription": "워크스페이스, 서피스, 분할 패널, 브라우저, 알림, 검색, 창 관리를 위한 cmux의 모든 macOS 키보드 단축키.",
@@ -2855,6 +2876,28 @@
       "fixTransferDisabled": "관리 정책이 파일 전송을 끄고 있습니다. 관리자에게 문의하세요.",
       "supportTitle": "도움 받기",
       "supportDesc": "생성에 실패하면 알림의 Copy Error를 사용하고, 추적 ID가 있으면 함께 포함해 지원팀에 문의하세요."
+    },
+    "ui": {
+      "onThisPage": "이 페이지 내용",
+      "copyPage": "페이지 복사",
+      "copyPageDesc": "LLM용 Markdown으로 복사",
+      "copied": "복사됨",
+      "pageActions": "더 많은 페이지 작업",
+      "openInChatGPT": "ChatGPT에서 열기",
+      "openInClaude": "Claude에서 열기",
+      "openInDesc": "이 페이지에 대해 질문하기",
+      "askPrompt": "{url} 문서를 읽고 내용에 대한 질문에 답해 주세요.",
+      "previous": "이전",
+      "next": "다음",
+      "helpful": "이 페이지가 도움이 되었나요?",
+      "yes": "예",
+      "no": "아니요",
+      "thanks": "의견을 보내 주셔서 감사합니다.",
+      "raiseIssue": "이슈 등록",
+      "openNavigation": "탐색 열기",
+      "closeNavigation": "탐색 닫기",
+      "searchShortcut": "문서 검색 (⌘K)",
+      "navigation": "문서"
     }
   },
   "legal": {
@@ -4922,7 +4965,10 @@
     "emailUnavailable": "이메일을 확인할 수 없음",
     "organization": "조직",
     "personalAccount": "개인 계정",
-    "switchAccountButton": "다른 계정 사용"
+    "switchAccountButton": "다른 계정 사용",
+    "signedOutTitle": "coderouter를 승인하려면 로그인하세요",
+    "signedOutBody": "명령줄 애플리케이션이 로그인을 기다리고 있습니다. cmux 계정으로 로그인하면 이 터미널 연결이 완료됩니다. 이 요청을 시작하지 않았다면 이 페이지를 닫으세요.",
+    "signInButton": "로그인"
   },
   "MobileRelease106": {
     "title": "1.0.6의 새로운 기능",

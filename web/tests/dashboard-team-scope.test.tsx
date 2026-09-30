@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { DashboardTeamScope } from "../app/[locale]/dashboard/dashboard-team-scope";
+import type { DashboardTeamScope } from "../dashboard-app/shell/dashboard-team-scope";
 
 type ReadyTeamScope = Extract<DashboardTeamScope, { status: "ready" }>;
 
@@ -20,8 +20,9 @@ let pending = false;
 let searchTeam: string | null = null;
 let legacyCookieScope: string | null = "team-2";
 const queryData = new Map<string, unknown>();
-const routerReplace = mock(() => undefined);
-const routerRefresh = mock(() => undefined);
+// `replaceSearch` is recorded as the resulting dashboard URL.
+const routerReplace = mock((url: string) => url);
+const routerRefresh = mock(async () => undefined);
 
 function queryKey(value: readonly unknown[]): string {
   return JSON.stringify(value);
@@ -41,17 +42,16 @@ mock.module("@tanstack/react-query", () => ({
   useQueryClient: () => queryClient,
 }));
 
-mock.module("next/navigation", () => ({
-  useSearchParams: () => ({
-    get: (name: string) => (name === "team" ? searchTeam : null),
-    has: (name: string) => name === "team" && searchTeam !== null,
-    toString: () => searchTeam ? `team=${encodeURIComponent(searchTeam)}` : "",
+mock.module("../dashboard-app/lib/url", () => ({
+  useDashboardUrl: () => ({
+    pathname: "/dashboard/coderouter",
+    searchParams: new URLSearchParams(searchTeam ? { team: searchTeam } : {}),
+    replaceSearch: (search: URLSearchParams) => {
+      const query = search.toString();
+      routerReplace(`/dashboard/coderouter${query ? `?${query}` : ""}`);
+    },
+    refresh: routerRefresh,
   }),
-}));
-
-mock.module("@/i18n/navigation", () => ({
-  usePathname: () => "/dashboard/coderouter",
-  useRouter: () => ({ replace: routerReplace, refresh: routerRefresh }),
 }));
 
 mock.module("@/services/coderouter/organizationScope", () => ({
@@ -65,14 +65,24 @@ mock.module("@/services/coderouter/organizationScope", () => ({
 }));
 
 const { useDashboardTeamScope, parseTeamCatalog, selectedTeam, permittedTeams } = await import(
-  "../app/[locale]/dashboard/dashboard-team-scope"
+  "../dashboard-app/shell/dashboard-team-scope"
 );
 
 let probedScope: DashboardTeamScope | undefined;
 
-function Probe({ userId }: { userId: string | null }) {
-  const scope = useDashboardTeamScope(userId);
+const recordScope = (scope: DashboardTeamScope) => {
   probedScope = scope;
+};
+
+function Probe({
+  userId,
+  onScope = recordScope,
+}: {
+  userId: string | null;
+  onScope?: (scope: DashboardTeamScope) => void;
+}) {
+  const scope = useDashboardTeamScope(userId);
+  onScope(scope);
   return (
     <pre data-status={scope.status}>
       {scope.status === "ready"

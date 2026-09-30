@@ -244,6 +244,11 @@ extension TerminalController {
             return String(localized: "socket.authTeam.invalidName", defaultValue: "Enter a team name.")
         case is TeamsClientError, is TeamMembersFlowError:
             return HostAccountFlow.teamMembersUserMessage(error)
+        case is TeamChangeInProgressError:
+            return String(
+                localized: "socket.authTeam.busy",
+                defaultValue: "Another team change is in progress. Try again when it finishes."
+            )
         default:
             return String(localized: "socket.authTeam.failed", defaultValue: "Could not update the team. Try again.")
         }

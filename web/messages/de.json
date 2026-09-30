@@ -25,6 +25,11 @@
       "message": "Die Einrichtung der Cloud-VM ist fehlgeschlagen. Die Bereinigung steht noch aus.",
       "action": "Wenden Sie sich mit der Trace-ID an den Support, bevor Sie eine weitere Maschine erstellen."
     },
+    "recreateRequired": {
+      "title": "Diese Maschine neu erstellen",
+      "message": "Diese Maschine wurde vor einem Cloud-Update erstellt und kann nicht verbunden werden.",
+      "action": "Erstelle eine neue Maschine, kopiere deine Dateien mit cmux vm pull und cmux vm push hinüber und lösche dann diese."
+    },
     "unsupported": {
       "title": "Cloud-VM-Vorgang nicht verfügbar",
       "reason": "Dieser Maschinentyp stellt diesen Vorgang nicht bereit.",
@@ -134,7 +139,9 @@
     "backToBlog": "Zurück zum Blog",
     "readTheDocs": "Dokumentation lesen",
     "viewChangelog": "Changelog ansehen",
-    "otherPlatforms": "Andere Plattformen"
+    "otherPlatforms": "Andere Plattformen",
+    "copyCode": "Code kopieren",
+    "copied": "Kopiert"
   },
   "nav": {
     "docs": "Dokumentation",
@@ -376,6 +383,20 @@
         "empty": "In den letzten {days} Tagen hat keine Maschine coderouter genutzt.",
         "unavailable": "Die Nutzung pro Maschine ist vorübergehend nicht verfügbar.",
         "estimateNote": "Der API-Gegenwert ist eine Schätzung auf Basis öffentlicher Listenpreise, keine tatsächlichen Ausgaben."
+      },
+      "metrics": {
+        "title": "Nutzung der letzten 30 Tage",
+        "scope": "Team-Gesamtwerte für {team}",
+        "period": "Letzte {days} Tage",
+        "inputTokens": "Eingabe-Token",
+        "outputTokens": "Ausgabe-Token",
+        "tokens": "Token gesamt",
+        "apiEquivalent": "API-Gegenwert",
+        "unpriced": "{share} dieser Token stammen von Modellen ohne Listenpreis und sind in diesem Wert nicht enthalten.",
+        "chartLabel": "Tägliche CodeRouter-Token-Nutzung",
+        "privacy": "Es werden keine Prompts, Ausgaben, Kontobezeichnungen oder Mitgliederidentitäten erfasst oder angezeigt.",
+        "estimate": "Der API-Gegenwert entspricht den Kosten dieser Token zu öffentlichen API-Listenpreisen (Preisliste {version}). Er entspricht nicht dem, was du bezahlt hast.",
+        "unavailable": "Die Team-Nutzung ist vorübergehend nicht verfügbar."
       }
     },
     "accountMenu": {
@@ -485,10 +506,6 @@
         "uploadImage": "Bild hochladen",
         "removeImage": "Bild entfernen",
         "zoom": "Zoom"
-      },
-      "redirect": {
-        "redirecting": "Einstellungen werden geöffnet…",
-        "openSettings": "Weiter zu den Einstellungen"
       },
       "profile": {
         "title": "Profil",
@@ -871,7 +888,7 @@
         },
         "maxUsesLabel": "Max. Nutzungen",
         "maxUsesPlaceholder": "Unbegrenzt",
-        "maxUsesInvalid": "Max. Nutzungen muss eine ganze Zahl von 1 bis 10000 sein oder leer für unbegrenzt.",
+        "maxUsesInvalid": "Max. Nutzungen muss eine ganze Zahl von 1 bis {max} sein oder leer für unbegrenzt.",
         "create": "Link erstellen",
         "creating": "Wird erstellt…",
         "memberOnly": "Wer über einen Link beitritt, wird Mitglied. Befördere Personen bei Bedarf danach zum Admin.",
@@ -1010,6 +1027,11 @@
       "apiKeyUsageDetail": "letzte 30 Tage: {completions} Abschlüsse · {tokens} Tokens ({input} Eingabe / {output} Ausgabe) · {value} API-Äquivalent",
       "apiKeyUsageUnavailable": "Nutzung nicht verfügbar",
       "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren."
+    },
+    "notFound": {
+      "title": "Seite nicht gefunden",
+      "body": "Diese Dashboard-Seite existiert nicht oder wurde verschoben.",
+      "home": "Zum Dashboard"
     }
   },
   "community": {
@@ -2072,7 +2094,6 @@
       "restartNew": "Neuen Workspace erstellen (Standard)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Zeilenumbruch im Dateieditor umschalten (Option+Z).",
       "title": "Tastaturkürzel",
       "description": "Alle in cmux verfügbaren Tastaturkürzel, nach Kategorie gruppiert.",
       "metaDescription": "Alle cmux-Tastaturkürzel für Workspaces, Oberflächen, geteilte Bereiche, Browser, Benachrichtigungen, Suche und Fensterverwaltung unter macOS.",
@@ -2858,6 +2879,28 @@
       "fixTransferDisabled": "Eine verwaltete Richtlinie deaktiviert die Dateiübertragung. Wende dich an deinen Administrator.",
       "supportTitle": "Hilfe erhalten",
       "supportDesc": "Schlägt eine Erstellung fehl, nutze Copy Error in der Benachrichtigung und füge den Fehler, gegebenenfalls mit der Trace-ID, bei, wenn du den Support kontaktierst."
+    },
+    "ui": {
+      "onThisPage": "Auf dieser Seite",
+      "copyPage": "Seite kopieren",
+      "copyPageDesc": "Seite als Markdown für LLMs kopieren",
+      "copied": "Kopiert",
+      "pageActions": "Weitere Seitenaktionen",
+      "openInChatGPT": "In ChatGPT öffnen",
+      "openInClaude": "In Claude öffnen",
+      "openInDesc": "Fragen zu dieser Seite stellen",
+      "askPrompt": "Lies {url}, damit ich Fragen dazu stellen kann.",
+      "previous": "Zurück",
+      "next": "Weiter",
+      "helpful": "War diese Seite hilfreich?",
+      "yes": "Ja",
+      "no": "Nein",
+      "thanks": "Danke für dein Feedback.",
+      "raiseIssue": "Issue melden",
+      "openNavigation": "Navigation öffnen",
+      "closeNavigation": "Navigation schließen",
+      "searchShortcut": "Dokumentation durchsuchen (⌘K)",
+      "navigation": "Dokumentation"
     }
   },
   "legal": {
@@ -4925,7 +4968,10 @@
     "emailUnavailable": "E-Mail nicht verfügbar",
     "organization": "Organisation",
     "personalAccount": "persönliches Konto",
-    "switchAccountButton": "Anderes Konto verwenden"
+    "switchAccountButton": "Anderes Konto verwenden",
+    "signedOutTitle": "Anmelden, um coderouter zu autorisieren",
+    "signedOutBody": "Eine Kommandozeilenanwendung wartet auf deine Anmeldung. Melde dich mit deinem cmux-Konto an, um die Verbindung dieses Terminals abzuschließen. Wenn du diese Anfrage nicht gestartet hast, schließe diese Seite.",
+    "signInButton": "Anmelden"
   },
   "MobileRelease106": {
     "title": "Neu in 1.0.6",

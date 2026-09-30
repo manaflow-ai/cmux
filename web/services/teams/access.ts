@@ -1,5 +1,5 @@
 import type { AuthedUser } from "../vms/auth";
-import { teamErrorResponse, TeamServiceUnavailableError } from "./errors";
+import { TeamGoneError, teamErrorResponse, TeamServiceUnavailableError } from "./errors";
 import {
   grantsByUser,
   roleFromGrants,
@@ -66,6 +66,8 @@ export async function requireTeamAccess(
   try {
     access = await loadTeamAccess(user.id, teamId, options.stack ?? defaultTeamStackApp());
   } catch (error) {
+    // Deleted while this request ran: the same refusal as any missing team.
+    if (error instanceof TeamGoneError) return refuse(TEAM_NOT_FOUND);
     if (!(error instanceof TeamServiceUnavailableError)) throw error;
     return refuse(PERMISSION_UNAVAILABLE);
   }

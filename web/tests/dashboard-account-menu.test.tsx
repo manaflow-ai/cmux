@@ -1,14 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type React from "react";
-import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 
 type MenuUser = Parameters<typeof DashboardAccountMenu>[0]["user"];
 let currentUser: MenuUser = null;
 const appSignOut = mock(async () => undefined);
-const routerPush = mock(() => undefined);
-const routerReplace = mock(() => undefined);
-const routerRefresh = mock(() => undefined);
 
 mock.module("@hexclave/next", () => ({
   useStackApp: () => ({ signOut: appSignOut }),
@@ -30,11 +26,14 @@ mock.module("@base-ui-components/react/menu", () => ({
     Item: ({
       children,
       render,
-      ...props
-    }: React.HTMLAttributes<HTMLElement> & { render?: React.ReactElement }) =>
-      render
+      ...itemProps
+    }: React.HTMLAttributes<HTMLElement> & { render?: React.ReactElement; closeOnClick?: boolean }) => {
+      const { closeOnClick, ...props } = itemProps;
+      void closeOnClick;
+      return render
         ? <span {...props}>{render}{children}</span>
-        : <button {...props}>{children}</button>,
+        : <button {...props}>{children}</button>;
+    },
     Separator: () => <hr />,
     SubmenuRoot: ({ children }: { children: React.ReactNode }) => <div data-testid="team-submenu">{children}</div>,
     RadioGroup: ({ children, value }: { children: React.ReactNode; value: string }) => {
@@ -58,14 +57,8 @@ mock.module("@/app/[locale]/theme", () => ({
 }));
 
 let teamScope: unknown = { status: "unavailable" };
-mock.module("../app/[locale]/dashboard/dashboard-team-scope", () => ({
+mock.module("../dashboard-app/shell/dashboard-team-scope", () => ({
   useDashboardTeamScope: () => teamScope,
-}));
-
-mock.module("next/navigation", () => ({
-  ...createNextNavigationMock((target: unknown) => {
-    throw new Error(`redirect:${target}`);
-  }),
 }));
 
 mock.module("next-intl", () => ({
@@ -73,23 +66,18 @@ mock.module("next-intl", () => ({
   useTranslations: () => (key: string) => key,
 }));
 
-mock.module("@/i18n/navigation", () => ({
+mock.module("@tanstack/react-router", () => ({
   Link: ({
-    href,
+    to,
     children,
     ...props
-  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
-    <a href={href} {...props}>{children}</a>
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => (
+    <a href={to} {...props}>{children}</a>
   ),
-  useRouter: () => ({
-    push: routerPush,
-    replace: routerReplace,
-    refresh: routerRefresh,
-  }),
 }));
 
 const { DashboardAccountMenu } = await import(
-  "../app/[locale]/dashboard/dashboard-account-menu"
+  "../dashboard-app/shell/dashboard-account-menu"
 );
 
 function sessionUser(): MenuUser {
@@ -100,7 +88,6 @@ function sessionUser(): MenuUser {
     primaryEmailVerified: true,
     profileImageUrl: null,
     selectedTeamId: null,
-    isAnonymous: false,
   };
 }
 

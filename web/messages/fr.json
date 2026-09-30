@@ -25,6 +25,11 @@
       "message": "La configuration de la VM Cloud a échoué et le nettoyage est encore en attente.",
       "action": "Contactez le support avec l’identifiant de trace avant de créer une autre machine."
     },
+    "recreateRequired": {
+      "title": "Recréez cette machine",
+      "message": "Cette machine a été créée avant une mise à jour de Cloud et ne peut pas être connectée.",
+      "action": "Créez une nouvelle machine, copiez vos fichiers avec cmux vm pull et cmux vm push, puis supprimez celle-ci."
+    },
     "unsupported": {
       "title": "Opération de Cloud VM indisponible",
       "reason": "Ce type de machine ne propose pas cette opération.",
@@ -134,7 +139,9 @@
     "backToBlog": "Retour au blog",
     "readTheDocs": "Lire la documentation",
     "viewChangelog": "Voir le changelog",
-    "otherPlatforms": "Autres plateformes"
+    "otherPlatforms": "Autres plateformes",
+    "copyCode": "Copier le code",
+    "copied": "Copié"
   },
   "nav": {
     "docs": "Docs",
@@ -376,6 +383,20 @@
         "empty": "Aucune machine n'a utilisé coderouter au cours des {days} derniers jours.",
         "unavailable": "L'utilisation par machine est temporairement indisponible.",
         "estimateNote": "La valeur équivalente API est une estimation basée sur les prix publics, pas une dépense réelle."
+      },
+      "metrics": {
+        "title": "Utilisation sur 30 jours",
+        "scope": "Total de l’équipe {team}",
+        "period": "{days} derniers jours",
+        "inputTokens": "Jetons d’entrée",
+        "outputTokens": "Jetons de sortie",
+        "tokens": "Jetons au total",
+        "apiEquivalent": "Valeur équivalente API",
+        "unpriced": "{share} de ces jetons proviennent de modèles sans prix public et ne sont pas inclus dans cette valeur.",
+        "chartLabel": "Utilisation quotidienne des jetons CodeRouter",
+        "privacy": "Aucun prompt, résultat, libellé de compte ni identité de membre n’est enregistré ou affiché.",
+        "estimate": "La valeur équivalente API correspond au coût de ces jetons aux prix publics de l’API (grille tarifaire {version}). Ce n’est pas ce que vous avez payé.",
+        "unavailable": "L’utilisation de l’équipe est temporairement indisponible."
       }
     },
     "accountMenu": {
@@ -485,10 +506,6 @@
         "uploadImage": "Importer une image",
         "removeImage": "Supprimer l’image",
         "zoom": "Zoom"
-      },
-      "redirect": {
-        "redirecting": "Ouverture des réglages…",
-        "openSettings": "Continuer vers les réglages"
       },
       "profile": {
         "title": "Profil",
@@ -871,7 +888,7 @@
         },
         "maxUsesLabel": "Utilisations max.",
         "maxUsesPlaceholder": "Illimité",
-        "maxUsesInvalid": "Le nombre d’utilisations max. doit être un nombre entier de 1 à 10000, ou vide pour illimité.",
+        "maxUsesInvalid": "Le nombre d’utilisations max. doit être un nombre entier de 1 à {max}, ou vide pour illimité.",
         "create": "Créer un lien",
         "creating": "Création…",
         "memberOnly": "Les personnes qui rejoignent l’équipe via un lien deviennent membres. Promouvez-les ensuite en admin si nécessaire.",
@@ -1010,6 +1027,11 @@
       "apiKeyUsageDetail": "30 derniers jours : {completions} complétions · {tokens} tokens ({input} entrée / {output} sortie) · équivalent API {value}",
       "apiKeyUsageUnavailable": "Utilisation indisponible",
       "revokeApiKeyConfirmBody": "Les clients utilisant cette clé ne pourront plus s’authentifier immédiatement."
+    },
+    "notFound": {
+      "title": "Page introuvable",
+      "body": "Cette page du tableau de bord n’existe pas ou a été déplacée.",
+      "home": "Aller au tableau de bord"
     }
   },
   "community": {
@@ -2073,7 +2095,6 @@
       "restartNew": "Créer un nouveau workspace (par défaut)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Activer ou désactiver le retour à la ligne de l’éditeur de fichiers (Option+Z).",
       "title": "Raccourcis clavier",
       "description": "Tous les raccourcis clavier disponibles dans cmux, classés par catégorie.",
       "metaDescription": "Tous les raccourcis clavier cmux pour les espaces de travail, surfaces, panneaux divisés, navigateur, notifications, recherche et gestion des fenêtres sur macOS.",
@@ -2860,6 +2881,28 @@
       "fixTransferDisabled": "Une stratégie gérée désactive le transfert de fichiers. Contactez votre administrateur.",
       "supportTitle": "Obtenir de l'aide",
       "supportDesc": "Si une création échoue, utilisez Copy Error dans la notification et joignez l'erreur, avec l'identifiant de trace s'il y en a un, lorsque vous contactez l'assistance."
+    },
+    "ui": {
+      "onThisPage": "Sur cette page",
+      "copyPage": "Copier la page",
+      "copyPageDesc": "Copier la page en Markdown pour les LLM",
+      "copied": "Copié",
+      "pageActions": "Autres actions de la page",
+      "openInChatGPT": "Ouvrir dans ChatGPT",
+      "openInClaude": "Ouvrir dans Claude",
+      "openInDesc": "Poser des questions sur cette page",
+      "askPrompt": "Lis {url} pour que je puisse poser des questions dessus.",
+      "previous": "Précédent",
+      "next": "Suivant",
+      "helpful": "Cette page vous a-t-elle été utile ?",
+      "yes": "Oui",
+      "no": "Non",
+      "thanks": "Merci pour votre retour.",
+      "raiseIssue": "Signaler un problème",
+      "openNavigation": "Ouvrir la navigation",
+      "closeNavigation": "Fermer la navigation",
+      "searchShortcut": "Rechercher dans la documentation (⌘K)",
+      "navigation": "Documentation"
     }
   },
   "legal": {
@@ -4927,7 +4970,10 @@
     "emailUnavailable": "adresse e-mail indisponible",
     "organization": "Organisation",
     "personalAccount": "compte personnel",
-    "switchAccountButton": "Utiliser un autre compte"
+    "switchAccountButton": "Utiliser un autre compte",
+    "signedOutTitle": "Connectez-vous pour autoriser coderouter",
+    "signedOutBody": "Une application en ligne de commande attend votre connexion. Connectez-vous avec votre compte cmux pour terminer la connexion de ce terminal. Si vous n'êtes pas à l'origine de cette demande, fermez cette page.",
+    "signInButton": "Se connecter"
   },
   "MobileRelease106": {
     "title": "Nouveautés de la version 1.0.6",

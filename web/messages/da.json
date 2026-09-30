@@ -25,6 +25,11 @@
       "message": "Opsætningen af Cloud VM mislykkedes, og oprydningen afventer stadig.",
       "action": "Kontakt support med sporings-ID’et, før du opretter en ny maskine."
     },
+    "recreateRequired": {
+      "title": "Genopret denne maskine",
+      "message": "Denne maskine blev oprettet før en Cloud-opdatering og kan ikke tilknyttes.",
+      "action": "Opret en ny maskine, kopiér dine filer over med cmux vm pull og cmux vm push, og slet så denne."
+    },
     "unsupported": {
       "title": "Cloud VM-handling er ikke tilgængelig",
       "reason": "Denne maskintype tilbyder ikke denne handling.",
@@ -134,7 +139,9 @@
     "backToBlog": "Tilbage til blog",
     "readTheDocs": "Læs dokumentationen",
     "viewChangelog": "Se ændringslog",
-    "otherPlatforms": "Andre platforme"
+    "otherPlatforms": "Andre platforme",
+    "copyCode": "Kopiér kode",
+    "copied": "Kopieret"
   },
   "nav": {
     "docs": "Dokumentation",
@@ -376,6 +383,20 @@
         "empty": "Ingen maskiner har brugt coderouter i de seneste {days} dage.",
         "unavailable": "Forbrug pr. maskine er midlertidigt utilgængeligt.",
         "estimateNote": "API-ækvivalent værdi er et estimat baseret på offentlige listepriser, ikke faktisk forbrug."
+      },
+      "metrics": {
+        "title": "Forbrug de seneste 30 dage",
+        "scope": "Samlet for teamet {team}",
+        "period": "Seneste {days} dage",
+        "inputTokens": "Input-tokens",
+        "outputTokens": "Output-tokens",
+        "tokens": "Tokens i alt",
+        "apiEquivalent": "API-ækvivalent værdi",
+        "unpriced": "{share} af disse tokens kom fra modeller uden listepris og er ikke medregnet i den værdi.",
+        "chartLabel": "Dagligt CodeRouter-tokenforbrug",
+        "privacy": "Ingen prompts, outputs, kontonavne eller medlemsidentiteter registreres eller vises.",
+        "estimate": "Den API-ækvivalente værdi er, hvad disse tokens ville have kostet til offentlige API-listepriser (prisliste {version}). Det er ikke, hvad du har betalt.",
+        "unavailable": "Teamets forbrug er midlertidigt utilgængeligt."
       }
     },
     "accountMenu": {
@@ -485,10 +506,6 @@
         "uploadImage": "Upload billede",
         "removeImage": "Fjern billede",
         "zoom": "Zoom"
-      },
-      "redirect": {
-        "redirecting": "Åbner indstillinger…",
-        "openSettings": "Fortsæt til indstillinger"
       },
       "profile": {
         "title": "Profil",
@@ -871,7 +888,7 @@
         },
         "maxUsesLabel": "Maks. antal brug",
         "maxUsesPlaceholder": "Ubegrænset",
-        "maxUsesInvalid": "Maks. antal brug skal være et heltal fra 1 til 10000 eller tomt for ubegrænset.",
+        "maxUsesInvalid": "Maks. antal brug skal være et heltal fra 1 til {max} eller tomt for ubegrænset.",
         "create": "Opret link",
         "creating": "Opretter…",
         "memberOnly": "Personer, der bliver medlem via link, bliver medlemmer. Forfrem dem til administrator bagefter, hvis det er nødvendigt.",
@@ -1010,6 +1027,11 @@
       "apiKeyUsageDetail": "sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
       "apiKeyUsageUnavailable": "Brug er ikke tilgængelig",
       "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen."
+    },
+    "notFound": {
+      "title": "Siden blev ikke fundet",
+      "body": "Denne dashboardside findes ikke eller er blevet flyttet.",
+      "home": "Gå til dashboard"
     }
   },
   "community": {
@@ -2072,7 +2094,6 @@
       "restartNew": "Opret et nyt workspace (standard)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Slå linjeombrydning i fileditoren til eller fra (Option+Z).",
       "title": "Tastaturgenveje",
       "description": "Alle tastaturgenveje tilgængelige i cmux, grupperet efter kategori.",
       "metaDescription": "Alle cmux-tastaturgenveje til workspaces, surfaces, opdelte paneler, browser, notifikationer, søgning og vindueshåndtering på macOS.",
@@ -2855,6 +2876,28 @@
       "fixTransferDisabled": "En administreret politik slår filoverførsel fra. Spørg din administrator.",
       "supportTitle": "Få hjælp",
       "supportDesc": "Hvis en oprettelse mislykkes, skal du bruge Copy Error i notifikationen og medtage fejlen, sammen med trace-ID'et hvis der er et, når du kontakter support."
+    },
+    "ui": {
+      "onThisPage": "På denne side",
+      "copyPage": "Kopiér side",
+      "copyPageDesc": "Kopiér siden som Markdown til LLM'er",
+      "copied": "Kopieret",
+      "pageActions": "Flere sidehandlinger",
+      "openInChatGPT": "Åbn i ChatGPT",
+      "openInClaude": "Åbn i Claude",
+      "openInDesc": "Stil spørgsmål om denne side",
+      "askPrompt": "Læs {url}, så jeg kan stille spørgsmål om den.",
+      "previous": "Forrige",
+      "next": "Næste",
+      "helpful": "Var denne side nyttig?",
+      "yes": "Ja",
+      "no": "Nej",
+      "thanks": "Tak for din feedback.",
+      "raiseIssue": "Opret issue",
+      "openNavigation": "Åbn navigation",
+      "closeNavigation": "Luk navigation",
+      "searchShortcut": "Søg i dokumentationen (⌘K)",
+      "navigation": "Dokumentation"
     }
   },
   "legal": {
@@ -4922,7 +4965,10 @@
     "emailUnavailable": "e-mail ikke tilgængelig",
     "organization": "Organisation",
     "personalAccount": "personlig konto",
-    "switchAccountButton": "Brug en anden konto"
+    "switchAccountButton": "Brug en anden konto",
+    "signedOutTitle": "Log ind for at godkende coderouter",
+    "signedOutBody": "Et kommandolinjeprogram venter på, at du logger ind. Log ind med din cmux-konto for at færdiggøre forbindelsen af denne terminal. Hvis du ikke startede denne anmodning, så luk denne side.",
+    "signInButton": "Log ind"
   },
   "MobileRelease106": {
     "title": "Nyt i 1.0.6",

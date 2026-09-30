@@ -43,6 +43,8 @@ final class SurfaceCatalog {
     private(set) var cloudStates: [SurfaceMachineID: CloudVMState] = [:]
     private(set) var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
+    /// Admits one display creation per machine so repeated clicks cannot project the same guest twice.
+    var activeDisplayCreations: Set<SurfaceMachineID> = []
     /// Remote rename intents shared by all local windows.
     let cloudRenameCoordinator = CloudRenameCoordinator()
     let sidebarOrganization: CloudSidebarOrganizationStore
@@ -227,11 +229,12 @@ final class SurfaceCatalog {
     /// reconnect timeout.
     func refresh(machine: SurfaceMachineID, force: Bool = false) async {
         guard let provider = providers[machine] else { return }
+        if force { requestPortDiscovery(for: machine) }
         await provider.refresh(force: force)
     }
-
     func refreshAll(force: Bool = false) async {
         for provider in providers.values {
+            if force { requestPortDiscovery(for: provider.machine) }
             await provider.refresh(force: force)
         }
     }

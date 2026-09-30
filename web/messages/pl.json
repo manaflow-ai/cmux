@@ -25,6 +25,11 @@
       "message": "Konfiguracja maszyny Cloud VM nie powiodła się, a usuwanie pozostałości nadal oczekuje.",
       "action": "Przed utworzeniem kolejnej maszyny skontaktuj się z pomocą techniczną, podając identyfikator śledzenia."
     },
+    "recreateRequired": {
+      "title": "Utwórz tę maszynę ponownie",
+      "message": "Ta maszyna została utworzona przed aktualizacją Cloud i nie można się z nią połączyć.",
+      "action": "Utwórz nową maszynę, skopiuj pliki za pomocą cmux vm pull i cmux vm push, a potem usuń tę."
+    },
     "unsupported": {
       "title": "Operacja Cloud VM jest niedostępna",
       "reason": "Ten typ maszyny nie udostępnia tej operacji.",
@@ -134,7 +139,9 @@
     "backToBlog": "Powrót do bloga",
     "readTheDocs": "Przeczytaj dokumentację",
     "viewChangelog": "Zobacz dziennik zmian",
-    "otherPlatforms": "Inne platformy"
+    "otherPlatforms": "Inne platformy",
+    "copyCode": "Kopiuj kod",
+    "copied": "Skopiowano"
   },
   "nav": {
     "docs": "Dokumentacja",
@@ -376,6 +383,20 @@
         "empty": "Żadna maszyna nie korzystała z coderouter w ciągu ostatnich {days} dni.",
         "unavailable": "Użycie na maszynę jest tymczasowo niedostępne.",
         "estimateNote": "Wartość równoważna API to szacunek oparty na publicznych cenach katalogowych, a nie rzeczywisty koszt."
+      },
+      "metrics": {
+        "title": "Użycie z 30 dni",
+        "scope": "Suma dla zespołu {team}",
+        "period": "Ostatnie {days} dni",
+        "inputTokens": "Tokeny wejściowe",
+        "outputTokens": "Tokeny wyjściowe",
+        "tokens": "Tokeny łącznie",
+        "apiEquivalent": "Wartość równoważna API",
+        "unpriced": "{share} tych tokenów pochodzi z modeli bez ceny katalogowej i nie jest uwzględnione w tej wartości.",
+        "chartLabel": "Dzienne użycie tokenów CodeRouter",
+        "privacy": "Nie rejestrujemy ani nie pokazujemy promptów, odpowiedzi, etykiet kont ani tożsamości członków.",
+        "estimate": "Wartość równoważna API to koszt tych tokenów według publicznych cen katalogowych API (cennik {version}). To nie jest kwota, którą zapłacono.",
+        "unavailable": "Użycie zespołu jest tymczasowo niedostępne."
       }
     },
     "accountMenu": {
@@ -485,10 +506,6 @@
         "uploadImage": "Prześlij obraz",
         "removeImage": "Usuń obraz",
         "zoom": "Powiększenie"
-      },
-      "redirect": {
-        "redirecting": "Otwieranie ustawień…",
-        "openSettings": "Przejdź do ustawień"
       },
       "profile": {
         "title": "Profil",
@@ -871,7 +888,7 @@
         },
         "maxUsesLabel": "Maks. liczba użyć",
         "maxUsesPlaceholder": "Bez limitu",
-        "maxUsesInvalid": "Maks. liczba użyć musi być liczbą całkowitą od 1 do 10000 lub pusta (bez limitu).",
+        "maxUsesInvalid": "Maks. liczba użyć musi być liczbą całkowitą od 1 do {max} lub pusta (bez limitu).",
         "create": "Utwórz link",
         "creating": "Tworzenie…",
         "memberOnly": "Osoby dołączające przez link zostają członkami. W razie potrzeby awansuj je później na administratorów.",
@@ -1010,6 +1027,11 @@
       "apiKeyUsageDetail": "ostatnie 30 dni: {completions} ukończeń · {tokens} tokenów ({input} wejście / {output} wyjście) · równowartość API {value}",
       "apiKeyUsageUnavailable": "Użycie niedostępne",
       "revokeApiKeyConfirmBody": "Klienci używający tego klucza natychmiast stracą uwierzytelnianie."
+    },
+    "notFound": {
+      "title": "Nie znaleziono strony",
+      "body": "Ta strona panelu nie istnieje lub została przeniesiona.",
+      "home": "Przejdź do panelu"
     }
   },
   "community": {
@@ -2073,7 +2095,6 @@
       "restartNew": "Utwórz nowy workspace (domyślnie)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Przełącz zawijanie wierszy w edytorze plików (Option+Z).",
       "title": "Skróty klawiszowe",
       "description": "Wszystkie skróty klawiszowe dostępne w cmux, pogrupowane według kategorii.",
       "metaDescription": "Wszystkie skróty klawiszowe cmux dla workspace'ów, surface'ów, dzielonych paneli, przeglądarki, powiadomień, wyszukiwania i zarządzania oknami na macOS.",
@@ -2858,6 +2879,28 @@
       "fixTransferDisabled": "Zasada zarządzana wyłącza przesyłanie plików. Skontaktuj się z administratorem.",
       "supportTitle": "Uzyskiwanie pomocy",
       "supportDesc": "Jeśli tworzenie się nie powiedzie, użyj Copy Error w powiadomieniu i dołącz błąd, wraz z identyfikatorem śledzenia, jeśli jest dostępny, gdy kontaktujesz się z pomocą techniczną."
+    },
+    "ui": {
+      "onThisPage": "Na tej stronie",
+      "copyPage": "Kopiuj stronę",
+      "copyPageDesc": "Kopiuj stronę jako Markdown dla LLM",
+      "copied": "Skopiowano",
+      "pageActions": "Więcej akcji strony",
+      "openInChatGPT": "Otwórz w ChatGPT",
+      "openInClaude": "Otwórz w Claude",
+      "openInDesc": "Zadaj pytania o tę stronę",
+      "askPrompt": "Przeczytaj {url}, abym mógł zadawać pytania na jej temat.",
+      "previous": "Poprzednia",
+      "next": "Następna",
+      "helpful": "Czy ta strona była pomocna?",
+      "yes": "Tak",
+      "no": "Nie",
+      "thanks": "Dziękujemy za opinię.",
+      "raiseIssue": "Zgłoś problem",
+      "openNavigation": "Otwórz nawigację",
+      "closeNavigation": "Zamknij nawigację",
+      "searchShortcut": "Szukaj w dokumentacji (⌘K)",
+      "navigation": "Dokumentacja"
     }
   },
   "legal": {
@@ -4925,7 +4968,10 @@
     "emailUnavailable": "adres e-mail niedostępny",
     "organization": "Organizacja",
     "personalAccount": "konto osobiste",
-    "switchAccountButton": "Użyj innego konta"
+    "switchAccountButton": "Użyj innego konta",
+    "signedOutTitle": "Zaloguj się, aby autoryzować coderouter",
+    "signedOutBody": "Aplikacja wiersza poleceń czeka, aż się zalogujesz. Zaloguj się kontem cmux, aby dokończyć łączenie tego terminala. Jeśli to nie Ty rozpocząłeś to żądanie, zamknij tę stronę.",
+    "signInButton": "Zaloguj się"
   },
   "MobileRelease106": {
     "title": "Co nowego w 1.0.6",

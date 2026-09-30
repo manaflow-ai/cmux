@@ -41,7 +41,7 @@ describe("trusted invite origin", () => {
 });
 
 describe("invite URLs", () => {
-  const environment = { CMUX_APP_ORIGIN: "https://app.cmux.test", NODE_ENV: "production" };
+  const environment = { CMUX_APP_ORIGIN: "https://cmux.com", NODE_ENV: "production" };
 
   test("allow-lists the locale so request data cannot change the host or path", () => {
     expect(safeTeamLocale("ja")).toBe("ja");
@@ -54,17 +54,17 @@ describe("invite URLs", () => {
       cookie: "NEXT_LOCALE=//evil.com",
     });
     const url = new URL(teamInviteAcceptUrl(hostile, environment));
-    expect(url.origin).toBe("https://app.cmux.test");
+    expect(url.origin).toBe("https://cmux.com");
     expect(url.pathname).toBe("/en/dashboard/team/accept");
   });
 
   test("uses the caller's supported locale", () => {
     const japanese = request("https://app.cmux.test/api/teams", { referer: "https://app.cmux.test/ja/dashboard/teams/x" });
-    expect(teamInviteAcceptUrl(japanese, environment)).toBe("https://app.cmux.test/ja/dashboard/team/accept");
+    expect(teamInviteAcceptUrl(japanese, environment)).toBe("https://cmux.com/ja/dashboard/team/accept");
   });
 
   test("builds the join URL on the trusted origin", () => {
     const token = "A".repeat(43);
-    expect(teamInviteLinkUrl(request("https://evil.example/x"), token, environment)).toBe(`https://app.cmux.test/en/join/${token}`);
+    expect(teamInviteLinkUrl(request("https://evil.example/x"), token, environment)).toBe(`https://cmux.com/en/join/${token}`);
   });
 });

@@ -4,9 +4,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocale } from "next-intl";
 import { useState } from "react";
 import { useRouter } from "@/i18n/navigation";
-import { InviteResponseCard, type InviteResponseState } from "../../dashboard/team/accept/invite-response";
-import { type JoinLinkInfo, teamApi, teamErrorCode } from "../../dashboard/teams/team-api";
-import { useTeamErrorText } from "../../dashboard/teams/team-ui";
+import { InviteResponseCard, type InviteResponseState } from "@/dashboard-app/screens/teams/invite-response";
+import { type JoinLinkInfo, teamApi, teamErrorCode } from "@/dashboard-app/queries/teams";
+import { useTeamErrorText } from "@/dashboard-app/screens/teams/team-ui";
 
 const INVALID_LINK_CODES = new Set(["link_invalid", "link_not_found", "invitation_invalid", "http_404", "http_410"]);
 

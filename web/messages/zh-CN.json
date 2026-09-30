@@ -25,6 +25,11 @@
       "message": "Cloud VM 设置失败，清理仍未完成。",
       "action": "创建另一台机器之前，请提供跟踪 ID 联系支持团队。"
     },
+    "recreateRequired": {
+      "title": "重新创建这台机器",
+      "message": "这台机器创建于 Cloud 更新之前，无法连接。",
+      "action": "请创建一台新机器，用 cmux vm pull 和 cmux vm push 复制文件，然后删除这台机器。"
+    },
     "unsupported": {
       "title": "云端虚拟机操作不可用",
       "reason": "此机器类型不提供此操作。",
@@ -134,7 +139,9 @@
     "backToBlog": "返回博客",
     "readTheDocs": "阅读文档",
     "viewChangelog": "查看更新日志",
-    "otherPlatforms": "其他平台"
+    "otherPlatforms": "其他平台",
+    "copyCode": "复制代码",
+    "copied": "已复制"
   },
   "nav": {
     "docs": "文档",
@@ -376,6 +383,20 @@
         "empty": "过去 {days} 天内没有机器使用 coderouter。",
         "unavailable": "机器使用情况暂时不可用。",
         "estimateNote": "API 等值金额是按公开标价估算的，并非实际支出。"
+      },
+      "metrics": {
+        "title": "30 天用量",
+        "scope": "{team} 的团队汇总",
+        "period": "最近 {days} 天",
+        "inputTokens": "输入令牌",
+        "outputTokens": "输出令牌",
+        "tokens": "总令牌数",
+        "apiEquivalent": "API 等值金额",
+        "unpriced": "其中 {share} 的令牌来自没有公开定价的模型，未计入该金额。",
+        "chartLabel": "CodeRouter 每日令牌用量",
+        "privacy": "不会记录或显示任何提示词、输出、账户标签或成员身份。",
+        "estimate": "API 等值金额是这些令牌按公开 API 定价（价目表 {version}）计算的费用，并非你的实际支出。",
+        "unavailable": "团队用量暂时不可用。"
       }
     },
     "accountMenu": {
@@ -485,10 +506,6 @@
         "uploadImage": "上传图片",
         "removeImage": "移除图片",
         "zoom": "缩放"
-      },
-      "redirect": {
-        "redirecting": "正在打开设置…",
-        "openSettings": "前往设置"
       },
       "profile": {
         "title": "个人资料",
@@ -871,7 +888,7 @@
         },
         "maxUsesLabel": "最大使用次数",
         "maxUsesPlaceholder": "不限",
-        "maxUsesInvalid": "最大使用次数必须是 1 到 10000 之间的整数，留空表示不限。",
+        "maxUsesInvalid": "最大使用次数必须是 1 到 {max} 之间的整数，留空表示不限。",
         "create": "创建链接",
         "creating": "正在创建…",
         "memberOnly": "通过链接加入的人将成为成员。如有需要，之后可将其提升为管理员。",
@@ -1010,6 +1027,11 @@
       "apiKeyUsageDetail": "过去 30 天：{completions} 次完成 · {tokens} 个令牌（输入 {input} / 输出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用数据不可用",
       "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。"
+    },
+    "notFound": {
+      "title": "找不到页面",
+      "body": "此仪表板页面不存在或已被移动。",
+      "home": "前往仪表板"
     }
   },
   "community": {
@@ -2072,7 +2094,6 @@
       "restartNew": "创建新的 workspace（默认）"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "切换文件编辑器自动换行 (Option+Z).",
       "title": "快捷键",
       "description": "cmux 中所有可用的快捷键，按类别分组。",
       "metaDescription": "cmux 的所有 macOS 快捷键，涵盖工作区、surface、分屏面板、浏览器、通知、查找和窗口管理。",
@@ -2858,6 +2879,28 @@
       "fixTransferDisabled": "托管策略关闭了文件传输。请联系你的管理员。",
       "supportTitle": "获取帮助",
       "supportDesc": "如果创建失败，请使用通知中的 Copy Error，并在联系支持时附上错误信息以及追踪 ID（如有）。"
+    },
+    "ui": {
+      "onThisPage": "本页内容",
+      "copyPage": "复制页面",
+      "copyPageDesc": "以 Markdown 格式复制，供 LLM 使用",
+      "copied": "已复制",
+      "pageActions": "更多页面操作",
+      "openInChatGPT": "在 ChatGPT 中打开",
+      "openInClaude": "在 Claude 中打开",
+      "openInDesc": "就本页提问",
+      "askPrompt": "请阅读 {url}，以便我就其内容提问。",
+      "previous": "上一页",
+      "next": "下一页",
+      "helpful": "此页面对您有帮助吗？",
+      "yes": "是",
+      "no": "否",
+      "thanks": "感谢您的反馈。",
+      "raiseIssue": "提交 Issue",
+      "openNavigation": "打开导航",
+      "closeNavigation": "关闭导航",
+      "searchShortcut": "搜索文档 (⌘K)",
+      "navigation": "文档"
     }
   },
   "legal": {
@@ -4925,7 +4968,10 @@
     "emailUnavailable": "电子邮件地址不可用",
     "organization": "组织",
     "personalAccount": "个人账户",
-    "switchAccountButton": "使用其他账号"
+    "switchAccountButton": "使用其他账号",
+    "signedOutTitle": "登录以授权 coderouter",
+    "signedOutBody": "一个命令行应用正在等待你登录。使用你的 cmux 账户登录，即可完成此终端的连接。如果这不是你发起的请求，请关闭此页面。",
+    "signInButton": "登录"
   },
   "MobileRelease106": {
     "title": "1.0.6 更新内容",

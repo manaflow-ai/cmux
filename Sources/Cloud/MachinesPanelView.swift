@@ -77,6 +77,22 @@ struct MachinesPanelView: View {
         return CloudMachinesFeature.isEnabled
     }
 
+    /// The panel replaces its cached tree as soon as a team mutation starts;
+    /// waiting for the scope observer would leave the previous team's rows
+    /// visible while the create or switch is still in flight.
+    private var isTeamChangePending: Bool {
+        accountFlow?.isSelectingTeam == true
+            || accountFlow?.isCreatingTeam == true
+            || viewModel.awaitingCatalogScope
+    }
+
+    private var teamScopeLoadingLabel: String {
+        if accountFlow?.isCreatingTeam == true {
+            return String(localized: "cloud.teamPicker.creating", defaultValue: "Creating team…")
+        }
+        return String(localized: "cloud.teamPicker.switching", defaultValue: "Switching teams…")
+    }
+
     private var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
 
     private var treeSnapshot: SurfaceCatalogSnapshot {
@@ -170,9 +186,23 @@ struct MachinesPanelView: View {
             .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityIdentifier("CloudDevBackendStartup")
+        } else if isTeamChangePending {
+            teamScopeLoading
         } else {
             content
         }
+    }
+
+    private var teamScopeLoading: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text(teamScopeLoadingLabel)
+                .cmuxFont(size: 12)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("CloudMachinesTeamLoading")
     }
     private func syncPolling(for state: CloudVMPanelAuthState) {
         switch state {
@@ -428,8 +458,9 @@ struct MachinesPanelView: View {
                 discoveryEnabled: includesDevices,
                 incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? false,
                 discoveryManaged: discoveryManaged,
-                incomingAccessManaged: incomingAccessManaged
+                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable()
             ),
+            showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
             reveal: devicesModel.revealRequest,
@@ -460,6 +491,19 @@ struct MachinesPanelView: View {
                 // Say the true thing instead of pretending the fleet is empty:
                 // offline, reconnecting, or the failure with its real fix.
                 MachinesListStatusEmptyState(status: status, perform: performListStatusAction)
+            } else if viewModel.awaitingCatalogScope {
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(
+                        localized: "cloud.teamPicker.switching",
+                        defaultValue: "Switching teams…"
+                    ))
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("CloudMachinesTeamLoading")
             } else if viewModel.hasLoadedOnce {
                 Image(systemName: "cloud")
                     .font(.system(size: 30, weight: .light))
