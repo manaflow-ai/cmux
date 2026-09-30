@@ -74,7 +74,30 @@ public enum Metrics {
     public static let dividerThickness: CGFloat = 1
     public static let dividerHitWidth: CGFloat = 7
 
+    /// Inset around every pane's tab strip and content (`layout.panePadding`;
+    /// 0 is edge to edge).
+    public static var panePadding: CGFloat {
+        DesignSettings.shared.paneChrome.padding ?? (density == .compact ? 2 : 4)
+    }
+
     // MARK: Shape
+
+    /// Corner radius of a pane's rounded rect (`layout.paneCornerRadius`; 0 is
+    /// square). Without padding and border the default is 0, so panes are
+    /// exactly edge to edge unless the radius is set explicitly.
+    public static var paneCornerRadius: CGFloat {
+        let chrome = DesignSettings.shared.paneChrome
+        if let radius = chrome.cornerRadius { return radius }
+        if panePadding == 0 && paneBorder == .none { return 0 }
+        return densityPaneCornerRadius
+    }
+    /// The density's rounded pane corner radius, used when padding or a
+    /// border shows and `layout.paneCornerRadius` is unset.
+    public static var densityPaneCornerRadius: CGFloat { density == .compact ? 6 : 8 }
+    /// Pane border (`layout.paneBorder`). The line is one device pixel wide.
+    public static var paneBorder: PaneBorderStyle {
+        DesignSettings.shared.paneChrome.border ?? .subtle
+    }
 
     /// Corner radius for floating glass panels (sidebar, palette).
     public static var panelCornerRadius: CGFloat { pick(10, 12, .panelCornerRadius) }

@@ -2,14 +2,23 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Wraps one App-provided pane view. Its focus ring and inactive dim
-/// (`chrome`) live in the layout's `OverlayPlane`, not in this view, so they
-/// draw above content that is a child window (Chromium pages); the root
-/// keeps them on this view's displayed frame.
+/// Wraps one App-provided pane view. The content sits in `clipView`, the
+/// cell inset by the pane padding and clipped to a rounded rect, so
+/// layer-backed content (the Ghostty Metal layer, WebKit) takes the pane's
+/// corners. Chromium pages are child windows the clip cannot reach; the
+/// browser module reads the rounded ancestor and masks the page itself.
+///
+/// The focus ring, border and inactive dim (`chrome`) live in the layout's
+/// `OverlayPlane`, not in this view, so they draw above content that is a
+/// child window (Chromium pages); the root keeps them on this view's
+/// displayed frame.
 final class PaneHostView: NSView {
     let pane: PaneID
     let content: NSView
     let chrome = PaneOverlayView()
+    private let clipView = PaneClipView()
+    private(set) var padding: CGFloat = 0
+    private(set) var cornerRadius: CGFloat = 0
 
     init(pane: PaneID, content: NSView) {
         self.pane = pane
@@ -17,10 +26,12 @@ final class PaneHostView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
+        clipView.frame = bounds
+        addSubview(clipView)
         content.translatesAutoresizingMaskIntoConstraints = true
         content.autoresizingMask = [.width, .height]
-        content.frame = bounds
-        addSubview(content)
+        content.frame = clipView.bounds
+        clipView.addSubview(content)
     }
 
     @available(*, unavailable)
@@ -30,24 +41,46 @@ final class PaneHostView: NSView {
 
     override var isFlipped: Bool { true }
 
-    func setChrome(showsRing: Bool, dim: CGFloat, ringWidth: CGFloat, animated: Bool) {
-        chrome.update(showsRing: showsRing, dim: dim, ringWidth: ringWidth, animated: animated)
+    /// The rounded content rect in this view's coordinates.
+    var contentRect: CGRect { clipView.frame }
+
+    /// Applies the pane padding and corner radius (live style values).
+    func applyShape(padding: CGFloat, cornerRadius: CGFloat) {
+        guard padding != self.padding || cornerRadius != self.cornerRadius else { return }
+        self.padding = padding
+        self.cornerRadius = cornerRadius
+        layoutClip()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        layoutClip()
+    }
+
+    private func layoutClip() {
+        var style = LayoutStyle()
+        style.panePadding = padding
+        style.paneCornerRadius = cornerRadius
+        let rect = PaneChromeGeometry.contentRect(forCell: bounds, style: style)
+        if clipView.frame != rect { clipView.frame = rect }
+        clipView.setCornerRadius(PaneChromeGeometry.cornerRadius(for: rect, style: style))
+        chrome.setShape(padding: padding, cornerRadius: cornerRadius)
+    }
+
+    func setChrome(showsRing: Bool, dim: CGFloat, ringWidth: CGFloat, showsBorder: Bool, animated: Bool) {
+        chrome.update(showsRing: showsRing, dim: dim, ringWidth: ringWidth, showsBorder: showsBorder, animated: animated)
     }
 }
 
-/// Non-interactive overlay: subtle gray ring (never blue) and a dim layer.
-final class PaneOverlayView: NSView {
-    private let ring = CALayer()
-    private let dimLayer = CALayer()
-
+/// The rounded clip around a pane's content. `masksToBounds` with a corner
+/// radius clips every sublayer, Metal layers included. Corners are circular
+/// (not continuous) so the Chromium page mask, a circular-arc path built
+/// from this layer's radius, matches them exactly.
+final class PaneClipView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        ring.borderWidth = 1
-        ring.opacity = 0
-        dimLayer.opacity = 0
-        layer?.addSublayer(dimLayer)
-        layer?.addSublayer(ring)
+        layer?.masksToBounds = true
     }
 
     @available(*, unavailable)
@@ -55,48 +88,13 @@ final class PaneOverlayView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override var isFlipped: Bool { true }
 
-    /// Whether the ring is showing (for `debug.layers`).
-    var showsRing: Bool { ring.opacity > 0 }
-
-    override func layout() {
-        super.layout()
+    func setCornerRadius(_ radius: CGFloat) {
+        guard let layer, layer.cornerRadius != radius else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        ring.frame = bounds
-        dimLayer.frame = bounds
+        layer.cornerRadius = radius
         CATransaction.commit()
-    }
-
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        needsLayout = true
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
-
-    func update(showsRing: Bool, dim: CGFloat, ringWidth: CGFloat, animated: Bool) {
-        applyColors()
-        CATransaction.begin()
-        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            CATransaction.setAnimationDuration(0.16)
-        } else {
-            CATransaction.setDisableActions(true)
-        }
-        ring.borderWidth = ringWidth
-        ring.opacity = showsRing ? 1 : 0
-        dimLayer.opacity = Float(dim)
-        CATransaction.commit()
-    }
-
-    private func applyColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            ring.borderColor = Palette.focusRing.withAlphaComponent(0.55).cgColor
-            dimLayer.backgroundColor = Palette.contentBackground.withAlphaComponent(1).cgColor
-        }
     }
 }

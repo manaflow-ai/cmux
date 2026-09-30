@@ -20,6 +20,11 @@ final class DividerHandleView: NSView {
     let kind: Kind
     private(set) var axis: SplitAxis
     var lineThickness: CGFloat = 1 { didSet { needsLayout = true } }
+    /// Draws the split line at rest. Off while panes have a border (the
+    /// borders separate them); hover and drag still show the line.
+    var showsIdleLine = true {
+        didSet { if showsIdleLine != oldValue { applyColors() } }
+    }
     var onDrag: ((DragEvent) -> Void)?
 
     private let line = CALayer()
@@ -128,7 +133,7 @@ final class DividerHandleView: NSView {
             if isEdge {
                 color = active ? Palette.focusRing.withAlphaComponent(0.45) : .clear
             } else {
-                color = active ? Palette.focusRing.withAlphaComponent(0.6) : Palette.separator
+                color = active ? Palette.focusRing.withAlphaComponent(0.6) : (showsIdleLine ? Palette.separator : .clear)
             }
             CATransaction.begin()
             CATransaction.setAnimationDuration(0.12)

@@ -25,6 +25,9 @@ public final class DesignSettings {
     public var density: Density = .compact
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
+    /// Pane padding, corner radius and border from cmux.json `layout.*`,
+    /// clamped by `setPaneChrome`.
+    public private(set) var paneChrome = PaneChromeOverrides()
 
     public init() {}
 
@@ -35,6 +38,11 @@ public final class DesignSettings {
         }
         let range = Self.allowedRange(key)
         overrides[key] = min(max(value, range.lowerBound), range.upperBound)
+    }
+
+    public func setPaneChrome(_ value: PaneChromeOverrides) {
+        let clamped = value.clamped
+        if paneChrome != clamped { paneChrome = clamped }
     }
 
     public static func allowedRange(_ key: MetricKey) -> ClosedRange<CGFloat> {

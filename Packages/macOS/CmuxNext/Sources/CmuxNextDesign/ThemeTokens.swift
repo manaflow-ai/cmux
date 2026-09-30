@@ -40,6 +40,8 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
     public var pressedFill: ThemeRGB
     public var badgeFill: ThemeRGB
     public var separator: ThemeRGB
+    /// The subtle hairline around each pane.
+    public var paneBorder: ThemeRGB
     public var focusRing: ThemeRGB
     /// Tint laid over Liquid Glass so it takes the theme's cast.
     public var glassTint: ThemeRGB
@@ -99,6 +101,7 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
             pressedFill: pressed,
             badgeFill: fg.withAlpha(isDark ? 0.14 : 0.10),
             separator: fg.withAlpha(isDark ? 0.08 : 0.07),
+            paneBorder: fg.withAlpha(isDark ? 0.07 : 0.09),
             focusRing: fg.withAlpha(0.40),
             glassTint: bg.withAlpha(isDark ? 0.40 : 0.30),
             shadow: bg.mixed(toward: .black, 0.85),

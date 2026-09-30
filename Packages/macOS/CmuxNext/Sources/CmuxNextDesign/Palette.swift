@@ -42,6 +42,8 @@ public enum Palette {
     public static let focusRing = token(\.focusRing)
     /// Hairline separators.
     public static let separator = token(\.separator)
+    /// The subtle hairline around each pane (`layout.paneBorder`).
+    public static let paneBorder = token(\.paneBorder)
     /// Tint applied to glass so it takes the theme's cast.
     public static let glassTint = token(\.glassTint)
     /// Drop shadow color (opaque; the layer's shadowOpacity sets strength).

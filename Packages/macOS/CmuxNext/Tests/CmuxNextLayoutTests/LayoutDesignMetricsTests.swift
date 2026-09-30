@@ -7,16 +7,31 @@ import Testing
 /// Mutates `DesignSettings.shared`, so the suite runs serially and restores it.
 @MainActor
 @Suite(.serialized) struct LayoutDesignMetricsTests {
-    private let layout = ScreenLayout.columns([
+    let layout = ScreenLayout.columns([
         LayoutColumn(id: "c1", width: 0.5, root: .leaf("a")),
         LayoutColumn(id: "c2", width: 0.5, root: .leaf("b")),
     ])
-    private let viewport = CGSize(width: 1000, height: 400)
+    let viewport = CGSize(width: 1000, height: 400)
 
+    /// Column gap tests run without pane padding, which the strip gap
+    /// would otherwise absorb (`LayoutStyle.stripGap`).
     private func withColumnGap<T>(_ gap: CGFloat?, _ body: () async throws -> T) async rethrows -> T {
         let previous = DesignSettings.shared.overrides[.columnGap]
+        let previousChrome = DesignSettings.shared.paneChrome
         DesignSettings.shared.setOverride(.columnGap, gap)
-        defer { DesignSettings.shared.setOverride(.columnGap, previous) }
+        DesignSettings.shared.setPaneChrome(PaneChromeOverrides(padding: 0))
+        defer {
+            DesignSettings.shared.setOverride(.columnGap, previous)
+            DesignSettings.shared.setPaneChrome(previousChrome)
+        }
+        return try await body()
+    }
+
+    /// Runs `body` with `chrome` as the pane chrome overrides, then restores.
+    func withPaneChrome<T>(_ chrome: PaneChromeOverrides, _ body: () async throws -> T) async rethrows -> T {
+        let previous = DesignSettings.shared.paneChrome
+        DesignSettings.shared.setPaneChrome(chrome)
+        defer { DesignSettings.shared.setPaneChrome(previous) }
         return try await body()
     }
 
@@ -73,7 +88,7 @@ import Testing
 
     /// Yields to the main actor until `condition` holds; the view applies
     /// model changes from an `Observations` task.
-    private func waitUntil(_ condition: () -> Bool) async throws {
+    func waitUntil(_ condition: () -> Bool) async throws {
         for _ in 0..<1000 where !condition() {
             await Task.yield()
         }
@@ -81,6 +96,6 @@ import Testing
     }
 }
 
-private final class StubProvider: LayoutPaneContentProvider {
+final class StubProvider: LayoutPaneContentProvider {
     func makeContentView(for pane: PaneID) -> NSView { NSView() }
 }

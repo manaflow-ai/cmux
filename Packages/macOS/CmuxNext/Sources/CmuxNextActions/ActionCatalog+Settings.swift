@@ -146,6 +146,24 @@ extension ActionCatalog {
                 symbol: "safari", surfaces: [.palette], cliName: "settings use-webkit-by-default"
             ),
             ActionDescriptor(
+                id: "appearance.paneBorder.toggle",
+                title: String(localized: "action.appearance.paneBorder.toggle", defaultValue: "Toggle Pane Borders", bundle: .module),
+                keywords: ["border", "outline", "hairline", "pane", "appearance", "layout"], category: .settings,
+                symbol: "square.dashed", surfaces: [.palette], cliName: "settings toggle-pane-border"
+            ),
+            ActionDescriptor(
+                id: "appearance.panePadding.toggle",
+                title: String(localized: "action.appearance.panePadding.toggle", defaultValue: "Toggle Pane Padding", bundle: .module),
+                keywords: ["padding", "gap", "inset", "edge to edge", "pane", "appearance", "layout"], category: .settings,
+                symbol: "rectangle.inset.filled", surfaces: [.palette], cliName: "settings toggle-pane-padding"
+            ),
+            ActionDescriptor(
+                id: "appearance.paneCorners.toggle",
+                title: String(localized: "action.appearance.paneCorners.toggle", defaultValue: "Toggle Rounded Pane Corners", bundle: .module),
+                keywords: ["corner", "radius", "rounded", "square", "pane", "appearance", "layout"], category: .settings,
+                symbol: "square.on.square", surfaces: [.palette], cliName: "settings toggle-pane-corners"
+            ),
+            ActionDescriptor(
                 id: "appearance.interfaceSize.increase",
                 title: String(localized: "action.appearance.interfaceSize.increase", defaultValue: "Increase Interface Size", bundle: .module),
                 keywords: ["appearance", "font", "chrome", "bigger", "zoom"], category: .settings,

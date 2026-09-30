@@ -115,6 +115,11 @@ final class WindowOverlayLayer {
         requestPageUpdate()
     }
 
+    /// Pane corners or padding changed: pages re-read their clip shape.
+    func paneShapesDidChange() {
+        requestPageUpdate()
+    }
+
     func interactiveRectsDidChange() {
         updateInteractiveRects()
         // The plane syncs on every layout step: a cheap moment to confirm

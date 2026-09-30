@@ -12,7 +12,7 @@ extension ScreenContentView {
             current: scroll.target,
             viewportWidth: bounds.width,
             contentWidth: geometry.contentWidth,
-            gap: context.style.columnGap,
+            gap: context.style.stripGap,
             mode: mode
         )
         guard target != scroll.target else { return false }
@@ -78,7 +78,7 @@ extension ScreenContentView {
 
     func reportLeadingColumn() {
         guard geometry.isColumns,
-              let index = ColumnStripGeometry.leadingColumnIndex(frames: geometry.orderedColumnFrames, offset: scroll.value, gap: context.style.columnGap)
+              let index = ColumnStripGeometry.leadingColumnIndex(frames: geometry.orderedColumnFrames, offset: scroll.value, gap: context.style.stripGap)
         else { return }
         context.model.reportScroll(screen: screenID, leadingColumn: geometry.columnOrder[index])
     }

@@ -4,8 +4,8 @@ import CmuxNextDesign
 import CmuxNextSettings
 import os
 
-/// Density and interface size (the chrome body font; terminal fonts come
-/// from the Ghostty config). Applied to `DesignSettings` at once, then
+/// Density, interface size (the chrome body font; terminal fonts come
+/// from the Ghostty config) and pane chrome (border, padding). Applied to `DesignSettings` at once, then
 /// written to cmux.json, which owns settings; the watcher reapplies the
 /// same value.
 enum AppearanceHandlers {
@@ -16,6 +16,9 @@ enum AppearanceHandlers {
         registry.bind("appearance.density.comfortable", run: { _ in setDensity(.comfortable, context) })
         registry.bind("appearance.interfaceSize.increase", run: { _ in stepInterfaceSize(by: 1, context) })
         registry.bind("appearance.interfaceSize.decrease", run: { _ in stepInterfaceSize(by: -1, context) })
+        registry.bind("appearance.paneBorder.toggle", run: { _ in togglePaneBorder(context) })
+        registry.bind("appearance.panePadding.toggle", run: { _ in togglePanePadding(context) })
+        registry.bind("appearance.paneCorners.toggle", run: { _ in togglePaneCorners(context) })
         registry.bind("appearance.interfaceSize.reset", run: { _ in
             DesignSettings.shared.setOverride(.chromeFontSize, nil)
             write(context, "reset interface size") { try await $0.file.remove(fontSizePath) }
@@ -27,6 +30,46 @@ enum AppearanceHandlers {
     private static func setDensity(_ density: Density, _ context: AppActionContext) {
         DesignSettings.shared.density = density
         write(context, "set density") { try await $0.setDensity(density) }
+    }
+
+    /// Subtle border on or off. Subtle is the default, so turning it back
+    /// on removes the key instead of writing it.
+    private static func togglePaneBorder(_ context: AppActionContext) {
+        let design = DesignSettings.shared
+        let next: PaneBorderStyle = Metrics.paneBorder == .subtle ? .none : .subtle
+        var chrome = design.paneChrome
+        chrome.border = next == .subtle ? nil : next
+        design.setPaneChrome(chrome)
+        let border = chrome.border
+        write(context, "toggle pane border") { try await $0.setPaneBorder(border) }
+    }
+
+    /// Padding off (0) or back to the density default.
+    private static func togglePanePadding(_ context: AppActionContext) {
+        let design = DesignSettings.shared
+        var chrome = design.paneChrome
+        chrome.padding = Metrics.panePadding > 0 ? 0 : nil
+        design.setPaneChrome(chrome)
+        let padding = chrome.padding.map(Double.init)
+        write(context, "toggle pane padding") { try await $0.setPanePadding(padding) }
+    }
+
+    /// Square corners (0) or back to the default radius. With no padding and
+    /// no border the default is square, so "rounded" writes the density
+    /// radius explicitly.
+    private static func togglePaneCorners(_ context: AppActionContext) {
+        let design = DesignSettings.shared
+        var chrome = design.paneChrome
+        if Metrics.paneCornerRadius > 0 {
+            chrome.cornerRadius = 0
+        } else {
+            chrome.cornerRadius = nil
+            design.setPaneChrome(chrome)
+            if Metrics.paneCornerRadius == 0 { chrome.cornerRadius = Metrics.densityPaneCornerRadius }
+        }
+        design.setPaneChrome(chrome)
+        let radius = chrome.cornerRadius.map(Double.init)
+        write(context, "toggle pane corners") { try await $0.setPaneCornerRadius(radius) }
     }
 
     /// Body size in points: the override, else the density default.

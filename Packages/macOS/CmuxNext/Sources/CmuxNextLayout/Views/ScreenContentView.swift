@@ -76,6 +76,7 @@ final class ScreenContentView: NSView {
         let animateFrames = animate && !structural
 
         // Panes.
+        let style = context.style
         for (pane, target) in geometry.panes {
             if var existing = paneFrames[pane] {
                 existing.setTarget(target, alpha: 1)
@@ -88,6 +89,7 @@ final class ScreenContentView: NSView {
                 }
                 paneFrames[pane] = AnimatedFrame(target)
             }
+            context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius)
         }
         for pane in paneFrames.keys where geometry.panes[pane] == nil {
             paneFrames[pane] = nil
@@ -111,6 +113,7 @@ final class ScreenContentView: NSView {
                 dividerViews[kind] = view
             }
             view.lineThickness = context.style.dividerThickness
+            view.showsIdleLine = context.style.showsDividerLine
             if var frame = dividerFrames[kind] {
                 frame.setTarget(target.rect, alpha: 1)
                 if !animateFrames { frame.snap() }
@@ -217,6 +220,7 @@ final class ScreenContentView: NSView {
                 showsRing: multiple && isFocused,
                 dim: multiple && dimsInactive && !isFocused ? style.inactivePaneDimming : 0,
                 ringWidth: style.focusRingWidth,
+                showsBorder: style.showsPaneBorder,
                 animated: animated
             )
         }

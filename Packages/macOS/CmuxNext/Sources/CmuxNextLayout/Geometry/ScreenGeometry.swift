@@ -34,12 +34,12 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
             let result = SplitGeometry.layout(root, in: CGRect(origin: .zero, size: viewport), style: style, scale: scale)
             return ScreenGeometry(viewport: viewport, panes: result.panes, dividers: result.dividers, contentWidth: viewport.width, isColumns: false)
         case let .columns(columns):
-            let gap = style.columnGap
+            let gap = style.stripGap
             let minimums = columns.map { SplitGeometry.minimumSize(of: $0.root, style: style).width }
             let strip = ColumnStripGeometry.frames(widths: columns.map(\.width), viewport: viewport, gap: gap, scale: scale,
                                                    minimumWidths: minimums)
             var geometry = ScreenGeometry(viewport: viewport, contentWidth: strip.contentWidth, isColumns: true)
-            let edgeHit = max(gap, style.dividerHitThickness)
+            let edgeHit = style.columnEdgeHitThickness
             let dropWidth = max(gap, style.newColumnDropWidth)
             geometry.gapZones.append(ColumnGapZone(after: nil, frame: CGRect(x: gap / 2 - dropWidth / 2, y: 0, width: dropWidth, height: viewport.height)))
             for (column, frame) in zip(columns, strip.frames) {

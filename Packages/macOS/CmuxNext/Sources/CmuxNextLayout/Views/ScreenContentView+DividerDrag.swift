@@ -68,7 +68,7 @@ extension ScreenContentView {
             context.model.setSplitRatio(id, ratio: ratio, transaction: drag.transaction, phase: phase)
         case let .columnEdge(id):
             let width = max(point.x - drag.grabOffset - drag.container.minX, drag.minimumA)
-            let fraction = ColumnStripGeometry.fraction(forPixelWidth: width, viewportWidth: bounds.width, gap: style.columnGap)
+            let fraction = ColumnStripGeometry.fraction(forPixelWidth: width, viewportWidth: bounds.width, gap: style.stripGap)
             context.model.setColumnWidth(id, width: fraction, transaction: drag.transaction, phase: phase)
         }
     }

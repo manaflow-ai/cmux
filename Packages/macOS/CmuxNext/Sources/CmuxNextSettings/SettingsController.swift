@@ -125,6 +125,29 @@ public final class SettingsController {
         try await file.set(.string(density.rawValue), at: ["appearance", "density"])
     }
 
+    /// Writes `layout.panePadding` in points; nil removes it (density default).
+    public func setPanePadding(_ points: Double?) async throws {
+        try await setLayoutValue(points.map(JSONValue.number), key: "panePadding")
+    }
+
+    /// Writes `layout.paneCornerRadius` in points; nil removes it.
+    public func setPaneCornerRadius(_ points: Double?) async throws {
+        try await setLayoutValue(points.map(JSONValue.number), key: "paneCornerRadius")
+    }
+
+    /// Writes `layout.paneBorder`; nil removes it (subtle).
+    public func setPaneBorder(_ border: PaneBorderStyle?) async throws {
+        try await setLayoutValue(border.map { .string($0.rawValue) }, key: "paneBorder")
+    }
+
+    private func setLayoutValue(_ value: JSONValue?, key: String) async throws {
+        if let value {
+            try await file.set(value, at: ["layout", key])
+        } else {
+            try await file.remove(["layout", key])
+        }
+    }
+
     // MARK: - Loading
 
     /// Coalesces bursts of file events into one load of the latest content.

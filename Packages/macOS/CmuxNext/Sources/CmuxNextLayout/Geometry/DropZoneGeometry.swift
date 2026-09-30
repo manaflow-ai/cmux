@@ -39,7 +39,8 @@ public nonisolated enum DropZoneGeometry {
     public static func highlightRect(for target: DropTarget, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect? {
         switch target {
         case let .pane(pane, zone):
-            guard let rect = geometry.panes[pane] else { return nil }
+            guard let cell = geometry.panes[pane] else { return nil }
+            let rect = PaneChromeGeometry.contentRect(forCell: cell, style: style)
             switch zone {
             case .center: return rect
             case .left: return CGRect(x: rect.minX, y: rect.minY, width: rect.width / 2, height: rect.height)

@@ -24,6 +24,14 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// only the buttons). Split geometry, divider drags, column widths and
     /// the split room check all honor it.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
+    /// Inset between a pane's cell and its rounded content rect (tab strip
+    /// plus content). Token: `Metrics.panePadding`. 0 is edge to edge.
+    public var panePadding: CGFloat = 0
+    /// Corner radius of the pane content rect. Token: `Metrics.paneCornerRadius`.
+    public var paneCornerRadius: CGFloat = 0
+    /// Draws the hairline pane border (`layout.paneBorder` = subtle). While
+    /// it shows, split dividers draw no line: the borders separate panes.
+    public var showsPaneBorder = false
     /// Focus ring stroke width.
     public var focusRingWidth: CGFloat = 1
     /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
@@ -38,9 +46,10 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public init() {}
 
     /// Smallest frame a pane gets while its screen has room: the minimum
-    /// content area plus the chrome above it.
+    /// content area plus the chrome above it and the padding around both.
     public var minimumPaneSize: CGSize {
-        CGSize(width: minimumPaneContentSize.width, height: paneChromeHeight + minimumPaneContentSize.height)
+        CGSize(width: minimumPaneContentSize.width + panePadding * 2,
+               height: paneChromeHeight + minimumPaneContentSize.height + panePadding * 2)
     }
 }
 
@@ -56,6 +65,9 @@ extension LayoutStyle {
         style.columnGap = Metrics.columnGap
         style.panelCornerRadius = Metrics.panelCornerRadius
         style.paneChromeHeight = Metrics.tabStripHeight
+        style.panePadding = Metrics.panePadding
+        style.paneCornerRadius = Metrics.paneCornerRadius
+        style.showsPaneBorder = Metrics.paneBorder == .subtle
         return style
     }
 }

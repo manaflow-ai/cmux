@@ -62,6 +62,7 @@ import Testing
     /// Workspace and tab include the group families (architecture.md section 7).
     /// Pane, tab, and terminal also count the cmux-next rows in
     /// `ActionCatalog+Layout.swift` (26 pane/column/screen, 6 tab, 10 terminal).
+    /// Settings counts the pane border, padding and corner toggles.
     static let expectedCounts: [ActionCategory: Int] = [
         .window: 22,
         .workspace: 80,
@@ -73,7 +74,7 @@ import Testing
         .notifications: 10,
         .agents: 16,
         .cloud: 23,
-        .settings: 26,
+        .settings: 29,
     ]
 
     @Test func everyKeyboardShortcutIDExists() {

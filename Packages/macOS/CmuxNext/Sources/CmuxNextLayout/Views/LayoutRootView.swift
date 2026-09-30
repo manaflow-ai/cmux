@@ -203,6 +203,9 @@ public final class LayoutRootView: NSView {
         }
         updateVisibility()
         syncOverlay()
+        // Pane padding or corners changed: pages drawn as child windows
+        // re-read their clip shape (their frames may not have moved).
+        if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
         if needsFrames || snapshot.gestureActive { driver.start() }
     }
 

@@ -57,7 +57,7 @@ public nonisolated enum SplitGeometry {
                 divider = CGRect(x: rect.minX, y: rect.minY + aExtent, width: rect.width, height: t)
                 bRect = CGRect(x: rect.minX, y: divider.maxY, width: rect.width, height: max(0, rect.maxY - divider.maxY))
             }
-            let grow = max(0, style.dividerHitThickness - t) / 2
+            let grow = max(0, style.effectiveDividerHitThickness - t) / 2
             let hit = axis == .horizontal ? divider.insetBy(dx: -grow, dy: 0) : divider.insetBy(dx: 0, dy: -grow)
             result.dividers.append(DividerGeometry(id: id, axis: axis, frame: divider, hitFrame: hit, container: rect,
                                                    minimumA: minimumA, minimumB: minimumB))

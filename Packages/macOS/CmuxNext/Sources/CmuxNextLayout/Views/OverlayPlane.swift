@@ -86,4 +86,8 @@ public protocol OverlayPlaneHosting: AnyObject {
     /// The plane's home finished a layout pass (its size or position may
     /// have changed); not called on animation frames.
     func planeDidLayout(_ plane: OverlayPlane)
+    /// Pane padding or corner radius changed: content drawn outside the
+    /// view tree (Chromium page windows) must re-read its clip shape even
+    /// where no frame moved.
+    func paneShapesDidChange(_ plane: OverlayPlane)
 }

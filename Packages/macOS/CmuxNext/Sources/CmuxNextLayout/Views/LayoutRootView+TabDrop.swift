@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Tab drops: the in-process drag API for tab strips that track the mouse
 /// themselves, and the AppKit `NSDraggingDestination` path.
@@ -18,7 +19,13 @@ extension LayoutRootView {
             return nil
         }
         let rect = convert(hit.highlight, from: view)
-        if highlight.show(rect, text: LayoutStrings.label(for: hit.target), cornerRadius: context.style.panelCornerRadius, animated: canAnimate) { driver.start() }
+        let style = context.style
+        // Pane zones trace the rounded pane rect (already inset by the
+        // padding); without pane chrome the highlight floats inside the pane.
+        let traces = style.hasPaneChrome && hit.target.isPaneZone
+        let radius = traces ? PaneChromeGeometry.cornerRadius(for: rect, style: style) : style.panelCornerRadius
+        if highlight.show(rect, text: LayoutStrings.label(for: hit.target), inset: traces ? 0 : Metrics.space2,
+                          cornerRadius: radius, animated: canAnimate) { driver.start() }
         return hit.target
     }
 

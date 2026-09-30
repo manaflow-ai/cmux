@@ -42,8 +42,8 @@ final class DropHighlightView: NSView {
     /// Moves the highlight to `rect` (superview coordinates). Returns true if
     /// an animation frame is needed. Design tokens are re-read on every call
     /// so a density change applies to the next drag without a rebuild.
-    func show(_ rect: CGRect, text: String, cornerRadius: CGFloat, animated: Bool) -> Bool {
-        let rect = rect.insetBy(dx: Metrics.space2, dy: Metrics.space2)
+    func show(_ rect: CGRect, text: String, inset: CGFloat, cornerRadius: CGFloat, animated: Bool) -> Bool {
+        let rect = rect.insetBy(dx: inset, dy: inset)
         glass.cornerRadius = cornerRadius
         label.font = Typography.bodyEmphasized
         label.stringValue = text

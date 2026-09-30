@@ -3,7 +3,7 @@ public import CmuxNextActions
 public import CmuxNextDesign
 
 /// Applies a parsed cmux.json snapshot to the live objects on the main
-/// actor: `DesignSettings` (density and metric overrides) and the action
+/// actor: `DesignSettings` (density, metric overrides and pane chrome) and the action
 /// registry (shortcut overrides). The file is the source of truth, so a key
 /// removed from the file reverts to its default on the next apply.
 @MainActor
@@ -43,6 +43,8 @@ public final class SettingsApplier {
             // Skip no-op writes so observers do not re-lay out on every save.
             if design.overrides[key] != clamped { design.setOverride(key, value) }
         }
+
+        design.setPaneChrome(snapshot.paneChrome)
 
         var applied: Set<ActionID> = []
         for (rawID, binding) in snapshot.shortcuts.sorted(by: { $0.key < $1.key }) {

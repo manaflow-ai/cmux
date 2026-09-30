@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextActions
+public import CmuxNextDesign
 
 /// A problem found while reading cmux.json. Loading never fails on a bad
 /// entry: the entry is skipped and reported here.
@@ -46,6 +47,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// Key routing tiers by action ID (`shortcuts.tiers.<id>`: `system`,
     /// `navigation` or `content`), plans/cmux-next/focus.md section 5.
     public var keyTiers: [String: String] = [:]
+    /// `layout.panePadding`, `layout.paneCornerRadius`, `layout.paneBorder`.
+    public var paneChrome = PaneChromeOverrides()
     /// `ui.surfaceTabBar.buttons`, resolved; the defaults when unset.
     public var tabBar: SurfaceTabBarConfig = .defaults
     /// Runnable `actions.<name>` entries plus inline command buttons.
@@ -79,6 +82,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (engine, engineDiagnostic) = BrowserDefaultEngine.parse(root)
         snapshot.browserDefaultEngine = engine
         if let engineDiagnostic { snapshot.diagnostics.append(engineDiagnostic) }
+        let paneChrome = PaneChromeConfigParser.parse(root)
+        snapshot.paneChrome = paneChrome.overrides
+        snapshot.diagnostics += paneChrome.diagnostics
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {

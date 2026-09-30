@@ -45,13 +45,13 @@ public nonisolated enum SplitRoom {
         case let .columns(columns):
             guard let index = columns.firstIndex(where: { $0.root.contains(pane) }) else { return .split }
             let strip = ColumnStripGeometry.frames(
-                widths: columns.map(\.width), viewport: viewport, gap: style.columnGap, scale: 2,
+                widths: columns.map(\.width), viewport: viewport, gap: style.stripGap, scale: 2,
                 minimumWidths: columns.map { SplitGeometry.minimumSize(of: $0.root, style: style).width }
             )
             let container = CGSize(width: strip.frames[index].width, height: viewport.height)
             let need = minimumSize(splitting: pane, axis: axis, in: columns[index].root, removing: removing, style: style)
             if fits(need, in: container) { return .split }
-            if axis == .horizontal, fits(style.minimumPaneSize, in: CGSize(width: max(1, viewport.width - style.columnGap * 2), height: viewport.height)) {
+            if axis == .horizontal, fits(style.minimumPaneSize, in: CGSize(width: max(1, viewport.width - style.stripGap * 2), height: viewport.height)) {
                 return .newColumn
             }
             return .refused(.notEnoughRoom)
