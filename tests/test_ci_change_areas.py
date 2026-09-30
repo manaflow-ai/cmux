@@ -6371,8 +6371,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     # pin. A fork pull request runs on Blacksmith macOS 26 (the picker offers
     # no other pool), so it takes the macOS 26 image's pin; only another event
     # (ci-macos-15.yml's schedule) reaches the macOS 15 pool and its pin.
+    # ci-macos-15.yml's macos_15_lane pins the macOS 15 Xcode first.
     admission_pin = PR_LANE_XCODE_PIN.replace(
         "github.event_name == 'pull_request'",
+        "inputs.macos_15_lane == 'true' && vars.CMUX_CI_XCODE_APP_MACOS_15 || "
         "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group')",
         1,
     ).replace(
