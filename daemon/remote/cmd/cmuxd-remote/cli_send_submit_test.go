@@ -493,6 +493,31 @@ func TestSendSubmitRequiresHostAgentFlagForCodexQueue(t *testing.T) {
 	}
 }
 
+func TestSendSubmitUsesHostInputStateWithoutScreenHeuristics(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "draft_length": 5, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "draft_length": 5, "agent_kind": "claude"},
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+	}, nil)
+	output := captureStdout(t, func() {
+		if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
+			t.Fatalf("send --submit: exit %d", code)
+		}
+	})
+	if output != "submitted\n" {
+		t.Fatalf("output = %q, want submitted", output)
+	}
+	if keys := mock.keysSnapshot(); len(keys) != 2 {
+		t.Fatalf("keys = %v, want one retry from host state", keys)
+	}
+	for _, method := range mock.methods() {
+		if method == "surface.read_text" {
+			t.Fatal("relay used screen text despite complete host input_state")
+		}
+	}
+}
+
 func TestSendSubmitUsesAgentKindOnlyWithHostAgentFlag(t *testing.T) {
 	for _, kind := range []string{"claude", "codex"} {
 		t.Run(kind, func(t *testing.T) {
