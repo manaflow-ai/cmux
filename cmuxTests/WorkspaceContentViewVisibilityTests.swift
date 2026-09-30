@@ -226,6 +226,11 @@ final class WorkspaceContentViewVisibilityTests {
         for _ in 0..<7 {
             tabManager.addWorkspace(initialSurface: .cloudVMLoading, select: tabManager.tabs.isEmpty, autoWelcomeIfNeeded: false)
         }
+        // The right-side file explorer is outside this test's minimal-mode
+        // scope. Keep it hidden so delayed workspace-root discovery cannot
+        // invalidate the chrome bodies during the toggle measurement.
+        let fileExplorerState = FileExplorerState(defaults: defaults)
+        fileExplorerState.setVisible(false)
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
@@ -233,7 +238,7 @@ final class WorkspaceContentViewVisibilityTests {
             .environmentObject(notificationStore)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
-            .environmentObject(FileExplorerState())
+            .environmentObject(fileExplorerState)
             .environmentObject(CmuxConfigStore())
             .environment(
                 \.minimalModeInvalidationProbe,
