@@ -23,7 +23,7 @@ extension CMUXCLI {
           --out <path>           Write here instead of a temporary directory
           --label <text>         Name the file
           --no-captions          Do not draw `record note` captions into the clip
-          --window <id|ref>      Window to record (default: the frontmost one)
+          --window <id|ref|index>  Window to record (default: the frontmost one)
 
         Output: `<id> <state> <frames> <path>`, or the full response with --json.
 

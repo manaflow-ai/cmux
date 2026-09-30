@@ -64,9 +64,15 @@ range value comes back as an error naming the socket field.
 | `--fps` | n/a | 1 to 30 (default 12 for mp4, 8 for gif) |
 | `--max-seconds` | n/a | 0.5 to 120 (default 15) |
 | `--scale` | 0.1 to 1.0 (default 1) | 0.1 to 1.0 (default 1 for mp4, 0.5 for gif) |
-| `--max-width` | 64 to 8192 | 64 to 4096 (default none for mp4, 960 for gif) |
+| `--max-width` | 64 to 8192 | 64 to 4096 for mp4, 64 to 1280 for gif (default none for mp4, 960 for gif) |
 | `--quality` | 0.1 to 1.0 (default 0.8, jpg only) | n/a |
 | `--region` | 8 to 100000 points per side | 8 to 100000 points per side |
+
+A gif carries two more ceilings, both refused as `invalid_params` naming the
+socket field. `--max-seconds` times `--fps` may not ask for more than 960
+frames, so a two minute gif has to come down to 8 fps, and a frame may not
+exceed 4000000 pixels after `--scale` and `--max-width`. An mp4 has neither
+limit, so a long or large clip is an mp4 that the uploader converts.
 
 ## Window selection
 
@@ -85,7 +91,11 @@ rectangle is clipped to the window, so a region larger than the window yields
 the window rather than black bars. A region that starts at the window's origin
 is still a crop: it is the size that decides, not the offset. A window resized
 mid-recording keeps the frame size it started with and its content is
-letterboxed inside it, so the clip never stretches.
+letterboxed inside it, so the clip never stretches. A window that shrinks far
+enough that the region no longer overlaps it is the one case that ends a clip
+early: the crop has nothing left in it, so the recording stops in state
+`failed` with `region lies outside the window`, keeping the frames it already
+had.
 
 ## Error codes
 
@@ -95,9 +105,9 @@ has no socket error code.
 
 | Code | When |
 | --- | --- |
-| `invalid_params` | A value out of range, a malformed region, a region under 8 or over 100000 points, or an `--out` path that is relative, carries the wrong extension, or is not a file |
-| `not_found` | The named window does not exist, no cmux window is open, the window closed during the capture, or the named recording is unknown or already stopped |
-| `conflict` | A recording is already active when another recording is started, or a `stop` raced the start it was stopping |
+| `invalid_params` | A value out of range, a malformed region, a region under 8 or over 100000 points, or an `--out` path that is relative, carries the wrong extension, is not a file, or is somewhere the recorder cannot create the file, such as a read-only volume |
+| `not_found` | The named window does not exist, no cmux window is open, the window closed during the capture, the window has no capturable content, or the named recording is unknown or already stopped |
+| `conflict` | A recording is already active when another recording is started |
 | `unsupported` | The system cannot capture windows at all |
 | `timeout` | The capture did not finish in time (20 seconds for a screenshot) |
 | `internal_error` | The capture or the encode failed for another reason |
@@ -126,3 +136,8 @@ refused with `invalid_params` and left alone.
 The `window.record.*` and `window.screenshot` methods are release v2 methods, so
 `cmux rpc window.screenshot '{"label":"x"}'` works too. Prefer the verbs; `rpc`
 is for a param the CLI has no flag for yet.
+
+One thing does not survive the drop to `rpc`: the socket's `window` param takes
+a window id and nothing else, because the CLI is what turns a ref such as
+`window:2` or an index into an id. `{"window":"window:2"}` comes back
+`not_found`.

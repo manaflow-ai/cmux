@@ -19,7 +19,7 @@ extension CMUXCLI {
           --out <path>           Write here instead of a temporary directory
           --label <text>         Name the file
           --caption <text>       Draw a caption into the image
-          --window <id|ref>      Window to capture (default: the frontmost one)
+          --window <id|ref|index>  Window to capture (default: the frontmost one)
 
         Output: `<width>x<height> <bytes> <path>`, or the full response with --json.
 

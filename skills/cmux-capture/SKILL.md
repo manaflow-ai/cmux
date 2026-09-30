@@ -47,7 +47,8 @@ cmux shot --region 0,0,420,900 --label sidebar-final     # keep the end state
   above the time the actions take or the clip ends early.
 - **One at a time.** A second `record start` is refused with `conflict` while
   one is running. `cmux record list` says whether anything is going, and
-  `cmux record status` reports the frame count and the effective frame rate.
+  `cmux record status` reports the frame count, with the effective frame rate
+  in `--json`.
 - **Caption as you go.** `cmux record note "<text>"` draws text into the clip
   from that moment on. A clip has no step list beside it, so one note before
   each thing a reviewer should notice is worth more than a longer clip.
