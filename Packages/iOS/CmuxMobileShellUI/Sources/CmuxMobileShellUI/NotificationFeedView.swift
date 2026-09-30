@@ -24,7 +24,6 @@ struct NotificationFeedView: View {
     var isActive = true
     @Binding var isConfirmingMarkAllRead: Bool
     let showsNavigationToolbar: Bool
-    @State private var refreshTimedOut = false
     /// Mark-all-read cannot be undone in one gesture, so the toolbar button
     /// only arms this confirmation instead of mutating directly.
 
@@ -40,7 +39,7 @@ struct NotificationFeedView: View {
                 hasMoreRows: projection.hasMoreRows,
                 filter: projection.filter,
                 hasSearchQuery: !projection.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                status: refreshTimedOut ? .unavailable : status,
+                status: status,
                 actions: actions,
                 toggleGroup: { projection.toggleGroup($0) },
                 loadMoreRows: {
@@ -73,35 +72,13 @@ struct NotificationFeedView: View {
         }
         .task(id: isActive) {
             guard isActive, refreshesOnAppear else { return }
-            refreshTimedOut = false
-            refreshTimedOut = !(await refreshWithTimeout())
+            await actions.refresh()
         }
         .onChange(of: projection.filter) { _, filter in
             guard isActive else { return }
             actions.filterChanged(filter)
         }
-        .onChange(of: status) { _, status in
-            if status == .ready {
-                refreshTimedOut = false
-            }
-        }
         .accessibilityIdentifier("MobileNotificationFeed")
-    }
-
-    private func refreshWithTimeout() async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await actions.refresh()
-                return true
-            }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(15))
-                return false
-            }
-            let completed = await group.next() ?? false
-            group.cancelAll()
-            return completed
-        }
     }
 }
 

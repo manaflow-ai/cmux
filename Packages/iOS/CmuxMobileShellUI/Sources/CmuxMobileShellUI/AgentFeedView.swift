@@ -27,7 +27,6 @@ struct AgentFeedView: View {
     @State private var now = Date()
     @State private var composeContext: AgentFeedComposeContext?
     @State private var readingItem: MobileAgentFeedItem?
-    @State private var refreshTimedOut = false
 
     init(
         items: [MobileAgentFeedItem],
@@ -99,7 +98,7 @@ struct AgentFeedView: View {
 
     var body: some View {
         Group {
-            switch refreshTimedOut ? .unavailable : status {
+            switch status {
             case .idle, .loading where items.isEmpty:
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -136,41 +135,18 @@ struct AgentFeedView: View {
         }
         .task(id: isActive) {
             guard isActive, refreshesOnAppear else { return }
-            refreshTimedOut = false
-            refreshTimedOut = !(await refreshWithTimeout())
+            await actions.refresh()
         }
         .onChange(of: items) { _, newItems in
             preparedRows = newItems.map(AgentFeedRowModel.init)
-        }
-        .onChange(of: status) { _, status in
-            if status == .ready {
-                refreshTimedOut = false
-            }
-        }
-    }
-
-    private func refreshWithTimeout() async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await actions.refresh()
-                return true
-            }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(15))
-                return false
-            }
-            let completed = await group.next() ?? false
-            group.cancelAll()
-            return completed
         }
     }
 
     private var feedList: some View {
         List {
-            let effectiveStatus = refreshTimedOut ? MobileNotificationFeedStatus.unavailable : status
-            if !items.isEmpty, effectiveStatus == .unavailable || effectiveStatus == .requiresMacUpdate {
+            if !items.isEmpty, status == .unavailable || status == .requiresMacUpdate {
                 Section {
-                    AgentFeedAvailabilityBanner(status: effectiveStatus)
+                    AgentFeedAvailabilityBanner(status: status)
                 }
             }
             Section {
