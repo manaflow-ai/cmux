@@ -136,7 +136,7 @@ extension TerminalSurface {
     /// can start the PTY, and a zero-sized real-window attachment can establish
     /// ownership, but neither is enough to present a renderer.
     @MainActor
-    private var isRendererPresentationReady: Bool {
+    var isRendererPresentationReady: Bool {
         guard let attachedView,
               let presentationWindow = uiWindow,
               attachedView.window === presentationWindow else { return false }
@@ -217,6 +217,8 @@ extension TerminalSurface {
         rendererPresentationState.inFlightToken = nil
         rendererPresentationState.recoveryAttempted = false
         rendererPresentationState.didPresentFrame = false
+        rendererPresentationState.readinessGeometry =
+            TerminalRendererPresentationGeometry(committedPaneGeometry)
         renderHealth = .notStarted
         let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
         callbackContext?.cancelRendererPresentationRepair()
@@ -234,16 +236,6 @@ extension TerminalSurface {
             setOcclusion(false)
             _ = releaseRenderer()
         }
-    }
-
-    /// Completes a deferred first presentation after AppKit supplies both a real
-    /// window and usable drawable geometry. Attachment and sizing paths call this
-    /// transition, so a skipped reentrant layout can recover on the next normal
-    /// layout pass without forcing the hosting hierarchy to lay out recursively.
-    @MainActor
-    public func rendererPresentationReadinessDidChange() {
-        guard rendererPortalVisible, isRendererPresentationReady else { return }
-        ensureRendererPresented(presentationReady: true)
     }
 
     /// Release the runtime surface's GPU renderer (Metal swap chain / IOSurface)
@@ -411,8 +403,14 @@ extension TerminalSurface {
     func rendererFrameDidPresent(token: UInt64) {
         guard rendererPresentationState.inFlightToken == token,
               rendererPortalVisible,
-              rendererWindowVisible,
               rendererPresentationPhase != .released else { return }
+        guard rendererWindowVisible else {
+            rendererPresentationState.inFlightToken = nil
+            if renderHealth != .shellExited {
+                renderHealth = .notStarted
+            }
+            return
+        }
         rendererPresentationState.inFlightToken = nil
         rendererPresentationState.recoveryAttempted = false
         rendererPresentationState.didPresentFrame = true
