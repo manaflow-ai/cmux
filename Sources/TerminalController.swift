@@ -257,6 +257,8 @@ class TerminalController {
         var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil
         /// Device identity the phone reported with its viewport (shared sizing).
         var deviceKind: TerminalDeviceKind = .iphone; var deviceName: String? = nil
+        /// The viewer's stable per-install `device_id`, when it sent one.
+        var deviceID: String? = nil
         /// Sticky reports come from the dedicated `mobile.terminal.viewport`
         /// RPC and live for the client's connection lifetime (cleared on
         /// disconnect or surface detach), so an idle paired device keeps its
@@ -1878,6 +1880,8 @@ class TerminalController {
             }
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
+        case "surface.input_state":
+            return v2Result(id: request.id, v2SurfaceInputState(params: request.params))
         case "workspace.ssh.open":
             return v2VmCall(id: request.id, timeoutSeconds: 190) {
                 try await self.openSSHTuiWorkspace(params: request.params)
@@ -16289,6 +16293,7 @@ class TerminalController {
             deviceKind: v2String(params, "device_kind").flatMap(TerminalDeviceKind.init(rawValue:))
                 ?? reports[clientID]?.deviceKind ?? .iphone,
             deviceName: v2String(params, "device_name") ?? reports[clientID]?.deviceName,
+            deviceID: v2String(params, "device_id").map { String($0.prefix(64)) } ?? reports[clientID]?.deviceID,
             sticky: reportIsSticky
         )
         mobileViewportReportsBySurfaceID[terminalPanel.id] = reports

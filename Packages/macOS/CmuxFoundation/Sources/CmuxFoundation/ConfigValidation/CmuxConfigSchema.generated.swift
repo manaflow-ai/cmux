@@ -1371,6 +1371,18 @@ enum CmuxEmbeddedConfigSchema {
           "additionalProperties": false,
           "description": "Experimental sidebar features.",
           "properties": {
+            "conversations": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "descriptionKey": "schemaDescriptions.sidebar.beta.conversations.enabled",
+                  "description": "Show the unified Conversations view in the sidebar picker."
+                }
+              }
+            },
             "workspaceTodos": {
               "type": "object",
               "additionalProperties": false,
@@ -1724,6 +1736,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "descriptionKey": "schemaDescriptions.automation.suppressSubagentNotifications",
           "description": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+        },
+        "agentAutoResume": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.automation.agentAutoResume",
+          "description": "Send `continue` to a cmux-launched agent whose turn ended on a retryable upstream error (model at capacity, overloaded, or connection lost), with backoff. Turns waiting on a human are never resumed."
         },
         "ampIntegration": {
           "type": "boolean",

@@ -39,6 +39,52 @@ final class AgentChatTranscriptService {
     private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
+    struct SidebarRevisionSnapshot: Sendable, Equatable {
+        let liveRevision: UInt64
+        let historyRevision: UInt64
+    }
+
+    private var sidebarLiveRevision: UInt64 = 0
+    private var sidebarHistoryRevision: UInt64 = 0
+    private var sidebarChangeObservers: [UUID: AsyncStream<SidebarRevisionSnapshot>.Continuation] = [:]
+
+    var sidebarRevisionSnapshot: SidebarRevisionSnapshot {
+        SidebarRevisionSnapshot(
+            liveRevision: sidebarLiveRevision,
+            historyRevision: sidebarHistoryRevision
+        )
+    }
+
+    /// Typed observation owned by the authoritative session service. The
+    /// newest revision pair subsumes any unread changes, so bursts coalesce
+    /// without losing a history invalidation.
+    func sidebarChanges() -> AsyncStream<SidebarRevisionSnapshot> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let id = UUID()
+            sidebarChangeObservers[id] = continuation
+            continuation.yield(sidebarRevisionSnapshot)
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in self?.sidebarChangeObservers[id] = nil }
+            }
+        }
+    }
+
+    private func publishSidebarChange(liveChanged: Bool, historyChanged: Bool) {
+        guard liveChanged || historyChanged else { return }
+        if liveChanged { sidebarLiveRevision &+= 1 }
+        if historyChanged { sidebarHistoryRevision &+= 1 }
+        let snapshot = sidebarRevisionSnapshot
+        var terminatedIDs: [UUID] = []
+        for (id, continuation) in sidebarChangeObservers {
+            if case .terminated = continuation.yield(snapshot) {
+                terminatedIDs.append(id)
+            }
+        }
+        for id in terminatedIDs {
+            sidebarChangeObservers[id] = nil
+        }
+    }
+
     private struct ProseTurnState {
         let token: AgentChatProseStreamer.TurnToken
         let startedAt: Date
@@ -124,6 +170,11 @@ final class AgentChatTranscriptService {
         }
         proseWakeDriver.stop()
         proseStreamer.stopAll()
+        let observers = Array(sidebarChangeObservers.values)
+        sidebarChangeObservers.removeAll()
+        for continuation in observers {
+            continuation.finish()
+        }
     }
 
     /// Rendered screen rows (top to bottom) for a surface, the source the prose
@@ -587,6 +638,9 @@ final class AgentChatTranscriptService {
         }
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
+        let liveProjectionChanged = Self.sidebarProjectionChangedMeaningfully(previous: previous, current: record)
+        let historyChanged = record.state == .ended && (stateChanged || transcriptBecameAvailable)
+        publishSidebarChange(liveChanged: liveProjectionChanged, historyChanged: historyChanged)
         if transcriptBecameAvailable {
             fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
             failedResolutions.remove(record.sessionID)
@@ -631,6 +685,7 @@ final class AgentChatTranscriptService {
             object: self,
             userInfo: ["workspace_id": record.workspaceID as Any]
         )
+        publishSidebarChange(liveChanged: true, historyChanged: false)
         fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
         endProseTurn(sessionID: record.sessionID)
         latestTranscriptSeqBySessionID[record.sessionID] = nil
