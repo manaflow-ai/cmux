@@ -3,7 +3,7 @@ public import Foundation
 
 /// Downloads the over-the-air task-model catalog used when a selected Mac
 /// cannot enumerate models from its installed agent.
-public struct MobileTaskModelCatalogClient: Sendable {
+public nonisolated struct MobileTaskModelCatalogClient: Sendable {
     /// Injectable transport used by package tests and debug previews.
     public typealias Loader = @Sendable (URL) async throws -> Data
 

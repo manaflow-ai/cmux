@@ -1,7 +1,7 @@
 public import Foundation
 
 /// Last picker choices for one paired Mac, independent of saved task drafts.
-public struct MobileTaskComposerPickerPreferences: Codable, Equatable, Sendable {
+public nonisolated struct MobileTaskComposerPickerPreferences: Codable, Equatable, Sendable {
     public var templateID: MobileTaskTemplate.ID
     /// Preserve the selected model's labels and efforts through a cold cache.
     public var model: MobileTaskAgentModel?

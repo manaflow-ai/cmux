@@ -1,5 +1,5 @@
 /// One paired Mac to warm before the task composer opens.
-public struct MobileTaskModelPrefetchTarget: Equatable, Sendable {
+public nonisolated struct MobileTaskModelPrefetchTarget: Equatable, Sendable {
     public let macDeviceID: String
     public let instanceTag: String?
     /// Changes when a live host connection is replaced. `nil` keeps backend

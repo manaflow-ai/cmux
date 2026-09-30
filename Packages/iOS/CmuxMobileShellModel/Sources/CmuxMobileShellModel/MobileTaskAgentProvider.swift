@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Model catalogs are supplied at runtime by the selected Mac or cmux's
 /// backend. This type owns only provider detection and model-flag spelling.
-public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
+public nonisolated enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
     /// Anthropic's Claude Code CLI.
     case claude
     /// OpenAI's Codex CLI.
@@ -300,7 +300,7 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
 }
 
 /// One selectable model for a coding-agent provider.
-public struct MobileTaskAgentModel: Codable, Equatable, Sendable, Identifiable {
+public nonisolated struct MobileTaskAgentModel: Codable, Equatable, Sendable, Identifiable {
     /// CLI identifier passed to the provider's model flag.
     public let id: String
     /// Product name displayed verbatim in the composer.
@@ -330,7 +330,7 @@ public struct MobileTaskAgentModel: Codable, Equatable, Sendable, Identifiable {
 }
 
 /// One effort choice reported for one exact coding-agent model.
-public struct MobileTaskAgentEffort: Codable, Equatable, Sendable, Identifiable {
+public nonisolated struct MobileTaskAgentEffort: Codable, Equatable, Sendable, Identifiable {
     /// CLI value passed to the provider's effort or variant flag.
     public let id: String
     /// Product name displayed verbatim in the composer.
