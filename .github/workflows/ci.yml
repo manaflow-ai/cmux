@@ -1094,6 +1094,18 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # A requested manual dispatch may only be suppressed by a PR run that has
+  # selected the equivalent full suite. The guard watcher reads this cheap
+  # marker from the run's jobs rather than inferring coverage from its SHA.
+  full-suite-coverage:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.full_suite == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - run: echo "full-suite coverage selected"
+
   static-preflight:
     name: Fast static checks
     # No package installs, submodules or app build: reject malformed inputs

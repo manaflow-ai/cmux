@@ -29,6 +29,21 @@ class ManualDispatchGuard(unittest.TestCase):
             self.assertEqual(module.main(env), 0)
             api.cancel.assert_called_once_with("42")
 
+    def test_watcher_uses_source_identity_and_full_suite_marker(self):
+        env = {"SOURCE_EVENT_NAME": "workflow_dispatch", "GH_TOKEN": "test",
+               "SOURCE_REPOSITORY": "manaflow-ai/cmux", "SOURCE_REF_NAME": "topic",
+               "SOURCE_SHA": "same", "SOURCE_RUN_ID": "42",
+               "GITHUB_EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "wrong"}
+        with patch.object(module, "GitHub") as constructor:
+            api = constructor.return_value
+            api.open_pull_requests.return_value = [pr("topic", "same")]
+            api.normal_ci_runs.return_value = [{
+                "event": "pull_request", "head_sha": "same", "status": "in_progress",
+                "full_suite": True,
+            }]
+            self.assertEqual(module.main(env, check_only=True), 1)
+            api.cancel.assert_not_called()
+
     def test_changes_check_fails_open_on_api_error(self):
         env = {"GITHUB_EVENT_NAME": "workflow_dispatch", "GH_TOKEN": "test",
                "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
@@ -41,7 +56,7 @@ class ManualDispatchGuard(unittest.TestCase):
         result = module.decide(event="workflow_dispatch", repository="manaflow-ai/cmux",
                                ref_name="feat/custom-sidebar-templates", sha="6611c69",
                                pull_requests=[pr()], normal_ci_runs=[
-                                   {"id": 42, "event": "pull_request", "head_sha": "6611c69", "status": "in_progress"}
+                                   {"id": 42, "event": "pull_request", "head_sha": "6611c69", "status": "in_progress", "full_suite": True}
                                ])
         self.assertEqual(result, module.Decision(True, "pull request run covers this head"))
 
@@ -53,10 +68,25 @@ class ManualDispatchGuard(unittest.TestCase):
 
     def test_cancelled_or_skipped_ci_run_does_not_cover_head(self):
         runs = [
-            {"event": "pull_request", "head_sha": "6611c69", "status": "completed", "conclusion": "cancelled"},
-            {"event": "pull_request", "head_sha": "6611c69", "status": "completed", "conclusion": "skipped"},
+            {"event": "pull_request", "head_sha": "6611c69", "status": "completed", "conclusion": "cancelled", "full_suite": True},
+            {"event": "pull_request", "head_sha": "6611c69", "status": "completed", "conclusion": "skipped", "full_suite": True},
         ]
         self.assertFalse(module.has_covering_ci_run(runs, "6611c69"))
+
+    def test_compile_only_marker_does_not_cover_dispatch(self):
+        self.assertFalse(module.has_covering_ci_run([
+            {"event": "pull_request", "head_sha": "6611c69", "status": "in_progress", "full_suite": False},
+        ], "6611c69"))
+
+    def test_completed_full_suite_success_covers_head(self):
+        self.assertTrue(module.has_covering_ci_run([
+            {"event": "pull_request", "head_sha": "6611c69", "status": "completed", "conclusion": "success", "full_suite": True},
+        ], "6611c69"))
+
+    def test_completed_failed_full_suite_does_not_cover_head(self):
+        self.assertFalse(module.has_covering_ci_run([
+            {"event": "pull_request", "head_sha": "6611c69", "status": "completed", "conclusion": "failure", "full_suite": True},
+        ], "6611c69"))
 
     def test_other_sha_or_event_does_not_cover_head(self):
         runs = [{"event": "workflow_dispatch", "head_sha": "6611c69", "status": "in_progress"}]

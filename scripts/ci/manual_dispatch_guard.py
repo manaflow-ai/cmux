@@ -18,14 +18,12 @@ class Decision:
 
 
 def has_covering_ci_run(runs: Sequence[Mapping[str, Any]], sha: str) -> bool:
-    """Whether a non-cancelled pull-request CI run covers this head."""
+    """Whether a successful or active full-suite pull-request run covers this head."""
     return any(
         item.get("event") == "pull_request"
         and item.get("head_sha") == sha
-        and not (
-            item.get("status") == "completed"
-            and item.get("conclusion") in {"cancelled", "skipped"}
-        )
+        and item.get("full_suite") is True
+        and (item.get("status") != "completed" or item.get("conclusion") == "success")
         for item in runs
     )
 
@@ -83,7 +81,20 @@ class GitHub:
         body = self._request(
             f"/repos/{self.repository}/actions/workflows/ci.yml/runs?{query}"
         )
-        return body.get("workflow_runs", []) if isinstance(body, Mapping) else []
+        runs = body.get("workflow_runs", []) if isinstance(body, Mapping) else []
+        for run in runs:
+            try:
+                jobs = self._request(
+                    f"/repos/{self.repository}/actions/runs/{run['id']}/jobs?per_page=100"
+                )
+                run["full_suite"] = any(
+                    job.get("name") == "full-suite-coverage"
+                    and job.get("conclusion") not in {"cancelled", "skipped"}
+                    for job in jobs.get("jobs", [])
+                ) if isinstance(jobs, Mapping) else False
+            except (KeyError, OSError, ValueError, TypeError):
+                run["full_suite"] = False
+        return runs
 
     def cancel(self, run_id: str) -> None:
         self._request(f"/repos/{self.repository}/actions/runs/{run_id}/cancel", "POST")
@@ -95,30 +106,33 @@ def main(env: Mapping[str, str] | None = None, *, check_only: bool = False) -> i
     if env.get("SOURCE_WORKFLOW_PATH", expected_path) != expected_path:
         print("manual dispatch guard: unexpected source workflow", file=sys.stderr)
         return 0
-    event = env.get("GITHUB_EVENT_NAME", "")
+    event = env.get("SOURCE_EVENT_NAME", env.get("GITHUB_EVENT_NAME", ""))
     if event != "workflow_dispatch":
         return 0
     token = env.get("GH_TOKEN", "")
-    repository = env.get("GITHUB_REPOSITORY", "")
+    repository = env.get("SOURCE_REPOSITORY", env.get("GITHUB_REPOSITORY", ""))
     if not token or not repository:
         print("::warning title=manual dispatch guard::missing GitHub token or repository", file=sys.stderr)
         return 0
     try:
         api = GitHub(token, repository)
-        pull_requests = api.open_pull_requests(env.get("GITHUB_REF_NAME", ""))
+        ref_name = env.get("SOURCE_REF_NAME", env.get("GITHUB_REF_NAME", ""))
+        sha = env.get("SOURCE_SHA", env.get("GITHUB_SHA", ""))
+        run_id = env.get("SOURCE_RUN_ID", env.get("GITHUB_RUN_ID", ""))
+        pull_requests = api.open_pull_requests(ref_name)
         matching_sha = any(
-            (item.get("head") or {}).get("sha") == env.get("GITHUB_SHA", "")
+            (item.get("head") or {}).get("sha") == sha
             and item.get("state", "open") == "open"
             and (item.get("head") or {}).get("repo", {}).get("full_name") == repository
-            and (item.get("head") or {}).get("ref") == env.get("GITHUB_REF_NAME", "")
-            for item in pull_requests
+            and (item.get("head") or {}).get("ref") == ref_name
+        for item in pull_requests
         )
-        normal_ci_runs = api.normal_ci_runs(env.get("GITHUB_SHA", "")) if matching_sha else []
+        normal_ci_runs = api.normal_ci_runs(sha) if matching_sha else []
         decision = decide(
             event=event,
             repository=repository,
-            ref_name=env.get("GITHUB_REF_NAME", ""),
-            sha=env.get("GITHUB_SHA", ""),
+            ref_name=ref_name,
+            sha=sha,
             pull_requests=pull_requests,
             normal_ci_runs=normal_ci_runs,
         )
@@ -128,7 +142,7 @@ def main(env: Mapping[str, str] | None = None, *, check_only: bool = False) -> i
                 # Fail changes before any consumer can start expensive work.
                 # The default-branch watcher cancels the run with its own token.
                 return 1
-            api.cancel(env.get("GITHUB_RUN_ID", ""))
+            api.cancel(run_id)
     except Exception as error:  # noqa: BLE001 - fail open keeps CI available
         print(f"::warning title=manual dispatch guard::{error}", file=sys.stderr)
     return 0

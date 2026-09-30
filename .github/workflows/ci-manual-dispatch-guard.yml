@@ -30,10 +30,10 @@ jobs:
       - name: Cancel stale or duplicate manual dispatch
         env:
           GH_TOKEN: ${{ github.token }}
-          GITHUB_EVENT_NAME: ${{ github.event.workflow_run.event }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REF_NAME: ${{ github.event.workflow_run.head_branch }}
-          GITHUB_SHA: ${{ github.event.workflow_run.head_sha }}
-          GITHUB_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_EVENT_NAME: ${{ github.event.workflow_run.event }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_REF_NAME: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
           SOURCE_WORKFLOW_PATH: ${{ github.event.workflow_run.path }}
         run: python3 scripts/ci/manual_dispatch_guard.py
