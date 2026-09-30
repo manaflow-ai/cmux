@@ -137,7 +137,9 @@ extension WorkspaceBlueprint {
                 (screen.pane(handle)?.tabs ?? []).compactMap { tab in
                     switch tab.kind {
                     case .pty: .terminal(cwd: tab.cwd)
-                    case .browser: tab.url.map { .browser(url: $0, engine: tab.browserEngine.flatMap(BrowserEngine.init(rawValue:))) }
+                    case .browser: tab.url.map {
+                        .browser(url: $0, engine: tab.browserEngine.flatMap(BrowserEngine.init(rawValue:)), profile: tab.snapshot.browserProfileID)
+                    }
                     // A remote reference is not re-created on duplicate.
                     case .remoteTerminal, .other: nil
                     }
