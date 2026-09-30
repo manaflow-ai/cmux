@@ -4,7 +4,7 @@ Vault restores built-in agent sessions and can also read custom agent registrati
 `cmux.json`. Registrations define how cmux detects a running terminal process, where the
 agent's native session id comes from, and which command resumes that session.
 
-Pi Coding Agent, OMP, Campfire, Amp, Antigravity, Grok, Kimi, and Hermes Agent are
+Pi, OMP, Campfire, Amp, Antigravity, Grok, Kimi Code, and Hermes Agent are
 registered by default. The following partial example shows the Pi, OMP, and Campfire
 registrations:
 
@@ -91,8 +91,8 @@ example `pi --session {{sessionId}}`.
 is the argv template for forking (branching) a session into a new copy, for
 example `{{executable}} --session {{sessionId}} --fork`. Provide it only when the
 agent supports forking; when omitted, the right-click **Fork Conversation** item
-stays hidden for that agent (resume still works via `resumeCommand`). Pi and OMP
-ship with `{{executable}} --fork {{sessionId}}`.
+stays hidden for that agent (resume still works via `resumeCommand`). Of the built-in
+agents, only Pi and OMP ship with `{{executable}} --fork {{sessionId}}`.
 
 `iconAssetName` is optional. When omitted, Vault uses a neutral system icon for
 registered agents instead of reusing another agent's brand mark.
