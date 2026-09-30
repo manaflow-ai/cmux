@@ -297,7 +297,6 @@ extension CMUXCLI {
 
     struct DiffViewerAssets {
         var appModuleURL: String
-        var workerModuleURL: String
         var files: [URL]
     }
 
@@ -7513,10 +7512,7 @@ extension CMUXCLI {
         }
         let assets = try preparedAssets ?? ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtime)
         let config: [String: Any] = [
-            "payload": payload,
-            "assets": [
-                "workerModuleURL": assets.workerModuleURL
-            ]
+            "payload": payload
         ]
         let configLiteral = try jsonScriptLiteral(config)
         let appModuleURL = htmlEscaped(assets.appModuleURL)
@@ -7608,72 +7604,37 @@ extension CMUXCLI {
     }
 
     func ensureDiffViewerAssets(nextTo viewerURL: URL, runtime: URL? = nil) throws -> DiffViewerAssets {
+        // The webviews bundle is the only asset directory: it holds the page
+        // entry, the lazy grammar/theme/WASM chunks and the highlight worker
+        // entry (`chunks/diff-worker.mjs`), which the page spawns relative to
+        // its own chunk URL.
         let sourceDirectory = try diffViewerBundledAssetDirectory(runtime: runtime)
-        let assetDirectoryName = "pierre-diffs-1.2.7-trees-1.0.0-beta.4"
+        // The shared /tmp asset cache is written by every running cmux build
+        // (stable, nightly, each tagged dev app). Content-key the directory so
+        // builds with different webview bundles coexist instead of clobbering
+        // each other's chunks, which broke pages whose per-token allowlist no
+        // longer matched the files on disk.
+        let assetDirectoryName = "cmux-webviews-app-\(try diffViewerAppAssetContentKey(directory: sourceDirectory))"
         let targetDirectory = viewerURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent(assetDirectoryName, isDirectory: true)
         try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
 
-        let appAssets = try diffViewerBundledAppAssetDirectory(nextTo: sourceDirectory)
-        let appAssetDirectoryName = appAssets.targetDirectoryName
-        let targetAppDirectory = viewerURL.deletingLastPathComponent()
-            .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent(appAssetDirectoryName, isDirectory: true)
-        try FileManager.default.createDirectory(at: targetAppDirectory, withIntermediateDirectories: true)
-
-        // The webviews app bundles `@pierre/diffs` and `@pierre/trees` for the
-        // main thread; only the highlight worker (plus its WASM engine) is
-        // still served from this vendored directory.
         let assetPaths = try diffViewerBundledAssetRelativePaths(in: sourceDirectory)
-        guard assetPaths.contains("worker-pool/worker-portable.js") else {
+        guard assetPaths.contains("main.mjs") else {
+            throw CLIError(message: "Bundled cmux diff viewer app entry asset not found")
+        }
+        guard assetPaths.contains("chunks/diff-worker.mjs") else {
             throw CLIError(message: "Bundled diff viewer worker asset not found")
         }
         let copiedAssetURLs = try assetPaths.map {
             try copyDiffViewerAsset(relativePath: $0, from: sourceDirectory, to: targetDirectory)
         }
 
-        let appAssetPaths = try diffViewerBundledAssetRelativePaths(in: appAssets.sourceDirectory)
-        guard appAssetPaths.contains("main.mjs") else {
-            throw CLIError(message: "Bundled cmux diff viewer app entry asset not found")
-        }
-        let copiedAppAssetURLs = try appAssetPaths.map {
-            try copyDiffViewerAsset(relativePath: $0, from: appAssets.sourceDirectory, to: targetAppDirectory)
-        }
-
         return DiffViewerAssets(
-            appModuleURL: "./assets/\(appAssetDirectoryName)/main.mjs",
-            workerModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-portable.js",
-            files: copiedAssetURLs + copiedAppAssetURLs
+            appModuleURL: "./assets/\(assetDirectoryName)/main.mjs",
+            files: copiedAssetURLs
         )
-    }
-
-    private func diffViewerBundledAppAssetDirectory(
-        nextTo sourceDirectory: URL
-    ) throws -> (sourceDirectory: URL, targetDirectoryName: String) {
-        let sourceRoot = sourceDirectory.deletingLastPathComponent()
-        let candidates: [(sourceName: String, targetName: String)] = [
-            ("webviews-app", "cmux-webviews-app"),
-            ("diff-viewer-app", "cmux-diff-viewer-app")
-        ]
-        for candidate in candidates {
-            let appDirectory = sourceRoot
-                .appendingPathComponent(candidate.sourceName, isDirectory: true)
-                .standardizedFileURL
-            var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: appDirectory.path, isDirectory: &isDirectory),
-               isDirectory.boolValue,
-               (try? diffViewerBundledAssetFileURL(relativePath: "main.mjs", in: appDirectory)) != nil {
-                // The shared /tmp asset cache is written by every running cmux
-                // build (stable, nightly, each tagged dev app). Content-key the
-                // directory so builds with different webview bundles coexist
-                // instead of clobbering each other's chunks, which broke pages
-                // whose per-token allowlist no longer matched the files on disk.
-                let targetName = "\(candidate.targetName)-\(try diffViewerAppAssetContentKey(directory: appDirectory))"
-                return (sourceDirectory: appDirectory, targetDirectoryName: targetName)
-            }
-        }
-        throw CLIError(message: "Bundled cmux diff viewer app assets not found")
     }
 
     private func diffViewerAppAssetContentKey(directory: URL) throws -> String {

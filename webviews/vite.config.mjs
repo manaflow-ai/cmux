@@ -16,6 +16,18 @@ export default defineConfig({
       },
     }),
     tailwindcss(),
+    {
+      // `@pierre/diffs` declares `sideEffects: false`, which is right for the
+      // main-thread exports but tree-shakes the worker entry (a self-registering
+      // `onmessage` script with no exports) down to an empty chunk.
+      name: "cmux-diff-worker-side-effects",
+      transform(code, id) {
+        if (id.endsWith("/@pierre/diffs/dist/worker/worker.js")) {
+          return { code, map: null, moduleSideEffects: true };
+        }
+        return null;
+      },
+    },
   ],
   build: {
     emptyOutDir: true,
@@ -33,10 +45,12 @@ export default defineConfig({
     // load grants read access to the whole output directory.
     modulePreload: false,
     rollupOptions: {
-      input: { main: "src/main.tsx" },
+      input: { main: "src/main.tsx", "diff-worker": "src/diff-worker.ts" },
       output: {
         format: "es",
-        entryFileNames: "main.mjs",
+        // `main.mjs` is the page entry the host HTML loads; the worker entry
+        // sits under `chunks/` so `diffSurface.mjs` can spawn it as a sibling.
+        entryFileNames: (chunk) => (chunk.name === "main" ? "main.mjs" : "chunks/[name].mjs"),
         // Stable (un-hashed) chunk names. The diff viewer copies these into its
         // long-lived `/tmp/cmux-diff-viewer-$uid/assets/cmux-webviews-app`
         // cache and overwrites in place via a size+mtime check; content hashes
@@ -57,9 +71,11 @@ export default defineConfig({
         // fetches only for the languages present in the diff. Collapsing them
         // into `diff-vendor` evaluates every grammar on open (~10MB). The
         // eager set is budgeted by `scripts/check-webviews-diff-budget.mjs`.
-        // The worker keeps its own vendored copy of shiki under
-        // `Resources/markdown-viewer/diff-viewer/worker-pool`; main-thread
-        // grammars are resolved here and posted to it.
+        // The highlight worker (`src/diff-worker.ts`, emitted as
+        // `chunks/diff-worker.mjs`) is a second entry of this same graph, so
+        // shiki core lives once in `shiki-core` (imported by both threads)
+        // and the WASM chunk is one file shared by the page and every worker.
+        // Grammars are resolved on the main thread and posted to the workers.
         manualChunks(id) {
           const shikiLanguage = id.match(/\/@shikijs\/langs\/dist\/([^/]+)\.mjs$/);
           if (shikiLanguage) {
@@ -82,18 +98,27 @@ export default defineConfig({
           // which would make the entry statically pull that chunk (e.g. the
           // agent session eagerly loading the 10MB diff vendor bundle).
           if (id.includes("vite/preload-helper")) {
-            return "vendor";
+            return "preload-helper";
+          }
+          // The highlight worker entry stays in its own entry chunk; routing it
+          // into `diff-vendor` would make the worker evaluate the main-thread
+          // renderer (and React) on start.
+          if (id.endsWith("/@pierre/diffs/dist/worker/worker.js")) {
+            return undefined;
           }
           if (!id.includes("node_modules")) {
             return undefined;
           }
           if (
-            id.includes("/@pierre/") ||
             id.includes("/shiki/") ||
             id.includes("/@shikijs/") ||
             id.includes("/oniguruma-parser/") ||
-            id.includes("/oniguruma-to-es/")
+            id.includes("/oniguruma-to-es/") ||
+            id.includes("/node_modules/diff/")
           ) {
+            return "shiki-core";
+          }
+          if (id.includes("/@pierre/")) {
             return "diff-vendor";
           }
           // Framework code both surfaces share. Pinning it to a stable `vendor`
