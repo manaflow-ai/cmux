@@ -592,6 +592,17 @@ mod tests {
                                 "{at} generation"
                             );
                         }
+                        if let Some(keys) = step.get("priority_keys").and_then(Value::as_object) {
+                            for (participant, expected) in keys {
+                                assert_eq!(
+                                    state
+                                        .participant(participant)
+                                        .map(|row| row.priority_key.as_str()),
+                                    expected.as_str(),
+                                    "{at} priority_key {participant}"
+                                );
+                            }
+                        }
                         if let Some(counts) = step.get("counts").and_then(Value::as_object) {
                             for (participant, expected) in counts {
                                 assert_eq!(
