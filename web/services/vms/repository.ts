@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, max, ne, or, sql, type SQL } from "drizzle-orm";
+import { alias, type AnyPgColumn } from "drizzle-orm/pg-core";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -201,6 +202,16 @@ export type VmRepositoryShape = {
     readonly tunnelPurpose: "terminal" | "browser";
   }) => Effect.Effect<CloudVmTunnelRow | null, VmDatabaseError>;
   readonly listUserTunnels?: (userId: string) => Effect.Effect<CloudVmTunnelRow[], VmDatabaseError>;
+  /**
+   * Live tunnels with no enrollment or config read since `inactiveBefore`
+   * that a more recently active live tunnel of the same purpose on the same
+   * Mac (access grant) has replaced, oldest activity first. The newest tunnel
+   * per Mac and purpose is never returned, so an idle Mac keeps its access.
+   */
+  readonly listStaleTunnelCandidates?: (input: {
+    readonly inactiveBefore: Date;
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmTunnelRow[], VmDatabaseError>;
   /**
    * Tunnel rows for provider tunnel ids, revoked or not. Ids with no row are
    * absent: the provider account may hold tunnels this database never issued.
@@ -1454,6 +1465,31 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .from(cloudVmTunnels)
         .where(and(eq(cloudVmTunnels.userId, userId), isNull(cloudVmTunnels.revokedAt)))
         .orderBy(desc(cloudVmTunnels.createdAt));
+    }),
+
+  listStaleTunnelCandidates: (input) =>
+    dbEffect("listStaleTunnelCandidates", async () => {
+      const db = cloudDb();
+      const newerName = "newer_tunnel";
+      const newer = alias(cloudVmTunnels, newerName);
+      const activity = tunnelActivitySql(cloudVmTunnels);
+      return await db
+        .select()
+        .from(cloudVmTunnels)
+        .where(and(
+          isNull(cloudVmTunnels.revokedAt),
+          sql`${activity} < ${input.inactiveBefore.toISOString()}::timestamptz`,
+          sql`exists (
+            select 1 from ${cloudVmTunnels} as ${sql.identifier(newerName)}
+            where ${newer.accessGrantId} = ${cloudVmTunnels.accessGrantId}
+              and ${newer.tunnelPurpose} = ${cloudVmTunnels.tunnelPurpose}
+              and ${newer.revokedAt} is null
+              and ${newer.id} <> ${cloudVmTunnels.id}
+              and ${tunnelActivitySql(newer)} > ${activity}
+          )`,
+        ))
+        .orderBy(asc(activity))
+        .limit(input.limit);
     }),
 
   findTunnelsByProviderTunnelIds: (provider, providerTunnelIds) =>
@@ -3659,3 +3695,15 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
 Object.assign(vmRepositoryLiveShape, tunnelEnrollmentRepositoryMethods);
 
 export const VmRepositoryLive = Layer.succeed(VmRepository, vmRepositoryLiveShape);
+
+/**
+ * When a tunnel was last enrolled or had its config read. Both paths touch
+ * `last_config_issued_at` and `updated_at`; `created_at` covers legacy rows.
+ */
+function tunnelActivitySql(table: {
+  readonly updatedAt: AnyPgColumn;
+  readonly lastConfigIssuedAt: AnyPgColumn;
+  readonly createdAt: AnyPgColumn;
+}): SQL {
+  return sql`greatest(${table.updatedAt}, coalesce(${table.lastConfigIssuedAt}, ${table.createdAt}))`;
+}

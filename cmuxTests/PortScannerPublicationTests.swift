@@ -217,7 +217,12 @@ struct PortScanPublicationBufferTests {
     @MainActor
     @Test("Changing one TTY enqueues only that panel's empty lifecycle publication")
     func ttyChangePublicationIsPanelScoped() throws {
-        let scanner = PortScanner()
+        // The TTY names below are fixtures, not devices this test owns. The
+        // default identity provider opens `/dev/<name>` on the main actor, and
+        // on a shared CI host `ttys001`...`ttys003` belong to other sessions:
+        // a wedged one blocked that open(2) in the kernel forever. Name
+        // changes alone drive the lifecycle revision this test covers.
+        let scanner = PortScanner(ttySessionIdentityProvider: { _ in nil })
         let workspaceID = UUID()
         let changedPanelID = UUID()
         let unchangedPanelID = UUID()

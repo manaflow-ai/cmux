@@ -62,7 +62,6 @@ MACOS_JOBS = (
     "release-admission",
     "release-build",
 )
-CI_STATUS_FALLBACK_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-fallback.yml"
 PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
 
 spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
@@ -1998,9 +1997,6 @@ def test_ci_label_only_reruns_preserve_inflight_compile() -> None:
     )
     assert expected in workflow
 
-    fallback = CI_STATUS_FALLBACK_WORKFLOW.read_text(encoding="utf-8")
-    assert "  workflow_dispatch: {}" in fallback
-    assert "  pull_request:" not in fallback
 
 
 def detect_step_script(workflow_path: Path = CI_WORKFLOW) -> str:
