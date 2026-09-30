@@ -132,10 +132,13 @@ Every viewer whose viewport differs from the grid draws, from the size state
 (a viewer whose viewport equals the grid draws none of it, even while others
 are attached):
 
-- a 1 pt neutral border (colors below) on each side of the grid that
-  faces unused space. A side flush with the viewport edge gets no line, because
-  the tab bar, navigation bar or pane edge already draws one there;
-- a faint hatch outside the grid, so empty space never reads as blank output;
+- a 1 pt border in the split divider color (colors below) on each side of
+  the grid that faces unused space. A side flush with the viewport edge gets
+  no line, because the tab bar, navigation bar or pane edge already draws one
+  there;
+- a faint hatch outside the grid: thin diagonal lines in the divider color at
+  60%, with no fill, so the terminal background shows through and empty
+  space never reads as blank output;
 - one small chip outside the grid's bottom-right corner,
   `118×38 · Maya's Mac` (plus `· 12 cols hidden` when the viewer is smaller),
   that opens the size panel. It never covers the grid's last row: on the
@@ -153,22 +156,36 @@ are attached):
 - on each change, the border animates to the new grid. There is no HUD.
 
 The sizing UI is neutral, with no per-participant colors; the owner is marked
-by a thin ring on its avatar. Every color derives from the surface it sits on
-by one pure function per platform (`BonsplitContrastPalette` in bonsplit on
-the Mac, `TerminalSizingPalette` in `CmuxMobileTerminalKit` on iOS): the
-surface's text color is mixed into its background in gamma-encoded sRGB at a
-fixed ratio per role (fill 14%, hatch 22%, line 40%, glyph and text 72%), then
-moved toward black or white until its WCAG 2 contrast floor holds. Glyphs,
-initials and chip text reach 4.5:1 on their fill; rings, the grid border and
-the chip outline 3:1 on the background; fills and hatch stay visible
-(1.2:1 and 1.3:1). Fills are opaque, never alpha over an unknown background.
+by a thin ring on its avatar.
+
+Lines on the terminal (the grid border, the hatch and the chip outline) use
+the gray of the split dividers, so the bounds read as one more pane edge. On
+the Mac that is the workspace's split divider color
+(`BonsplitConfiguration.Appearance.splitDividerColor`: a configured pane
+border color, else Ghostty's `split-divider-color`, else the chrome separator); on iOS it is
+`UIColor.separator` resolved in the appearance the terminal chrome uses for
+the theme (dark when white text reads better on the background). A
+translucent divider color composites over the terminal background, the
+backdrop the divider itself draws on. The hatch is that color at 60% over the
+background (`BonsplitSizingChromePalette` on the Mac,
+`TerminalSizingChromePalette` in `CmuxMobileTerminalKit` on iOS). The chip is
+filled with the terminal background and outlined in the divider color.
+
+Only text keeps a contrast floor. Text and glyph colors derive from the
+surface they sit on by one pure function per platform
+(`BonsplitContrastPalette` in bonsplit on the Mac, `TerminalSizingPalette` on
+iOS): the surface's text color is mixed into its background in gamma-encoded
+sRGB (72% for glyphs and text, 14% for avatar fills), then moved toward black
+or white until WCAG 2 contrast holds. Chip text reaches 4.5:1 on the terminal
+background; avatar initials and glyphs reach 4.5:1 on their fill, and the
+owner ring 3:1. Fills are opaque, never alpha over an unknown background.
 
 | Surface | Background / foreground |
 | --- | --- |
 | Mac tab accessory | the tab's fill (selected) or the tab bar, and the tab bar text color |
-| Mac pane border, hatch, cut fade, chip | the terminal theme background and foreground |
+| Mac pane border, hatch, cut fade, chip | the terminal theme background and foreground; lines in the split divider color |
 | Mac size panel avatars | the popover's window background and label color |
-| iPhone border, hatch, cut fade, chip | the surface's terminal theme background and foreground |
+| iPhone border, hatch, cut fade, chip | the surface's terminal theme background and foreground; lines in `UIColor.separator` |
 | iPhone size sheet avatars | the inset-grouped row background and label color |
 
 System colors resolve in the appearance that draws them, so a light terminal
@@ -192,7 +209,12 @@ palette and the shortcut. The tab context menu adds Size to My Window, a
 Terminal Size submenu with the five modes, and Disconnect Others… while anyone
 else is attached.
 The iPhone size sheet uses the same neutral avatars and marks rows "Sets size"
-or "Not counted" the same way.
+or "Not counted" the same way. It opens from the chip and from **Connected
+Devices…** in the terminal title menu (the title button beside the back
+button), whose subtitle counts the other attached devices ("2 others", or
+"Only this device"). The menu item shows whenever the terminal's Mac has
+published a size state, including while this phone's viewport matches the
+grid and the chip is hidden. Both entrypoints call the same action.
 
 On the iPhone, when the grid is larger than the phone, the phone renders the
 exact shared grid scaled to its width and pinned to the bottom. Pinch zooms
