@@ -220,7 +220,6 @@ final class CEFPaneHost {
         tab.isCreationPending = true
         add(tab)
         runtime.register(tab, browser: browser)
-        tab.useEngineBackground()
         tab.inheritDelegates(from: opener)
         opener?.emit(.adoptTab(tab, disposition))
     }

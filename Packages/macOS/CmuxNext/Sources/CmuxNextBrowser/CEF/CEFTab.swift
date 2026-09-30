@@ -150,17 +150,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         Task { _ = try? await runtime.devTools(browser, method: "Emulation.setDefaultBackgroundColorOverride", params: white) }
     }
 
-    /// A page opened by a page (`PageBackground.startsWithTheme`): back to
-    /// Chromium's white default now, whatever it committed already.
-    func useEngineBackground() {
-        guard !PageBackground.startsWithTheme(openedByPage: true) else { return }
-        usesThemeBackground = false
-        guard let browser = browserID else { return }
-        let white: [String: Any] = ["color": ["r": 255, "g": 255, "b": 255, "a": 1]]
-        let runtime = runtime
-        Task { _ = try? await runtime.devTools(browser, method: "Emulation.setDefaultBackgroundColorOverride", params: white) }
-    }
-
     func creationFailed() {
         isCreationPending = false
         let error = BrowserLoadError(domain: "CEF", code: -1, message: Strings.cefUnavailable, failingURL: pendingURL)
