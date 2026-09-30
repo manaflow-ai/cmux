@@ -396,6 +396,42 @@ final class FileSearchPanelView: NSView {
         }
     }
 
+    // MARK: - Socket and CLI
+
+    /// `right_sidebar set find --query`: shows the pattern and toggles in the
+    /// query bar and searches through the same path as editing them. Include,
+    /// exclude and ignore-file settings stay as the user left them.
+    func applyRemoteQuery(_ remote: FileSearchQuery) {
+        var query = queryBar.query
+        query.pattern = remote.pattern
+        query.isCaseSensitive = remote.isCaseSensitive
+        query.matchesWholeWord = remote.matchesWholeWord
+        query.isRegex = remote.isRegex
+        historyCursor.reset()
+        queryBar.show(query: query, showsDetails: queryBar.showsDetails)
+        queryDidChange(immediate: true)
+    }
+
+    /// `right_sidebar find_status`: the query, phase and totals.
+    func remoteStatus() -> RightSidebarFindStatus {
+        let engine = session.engine
+        let phase: String
+        switch engine.phase {
+        case .idle: phase = "idle"
+        case .searching: phase = "searching"
+        case .finished(.completed): phase = "completed"
+        case .finished(.limited): phase = "limited"
+        case .finished(.failed): phase = "failed"
+        }
+        return RightSidebarFindStatus(
+            query: session.query,
+            phase: phase,
+            results: engine.tree.matchCount,
+            files: engine.tree.fileCount,
+            message: statusLabel.isHidden ? queryBar.regexErrorText : statusLabel.stringValue
+        )
+    }
+
     // MARK: - Engine events
 
     private func handle(_ event: FileSearchEngineEvent) {

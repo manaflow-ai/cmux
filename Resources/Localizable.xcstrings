@@ -583709,6 +583709,419 @@
           }
         }
       }
+    },
+    "cli.rightSidebar.error.findOptionsRequireFind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar: --query, --regex, --case-sensitive and --whole-word need 'find' or 'set find' and a --query"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar: تتطلب --query و--regex و--case-sensitive و--whole-word الأمر 'find' أو 'set find' مع --query"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar: --query, --regex, --case-sensitive und --whole-word erfordern 'find' oder 'set find' und ein --query"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar: --query, --regex, --case-sensitive y --whole-word requieren 'find' o 'set find' y un --query"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar : --query, --regex, --case-sensitive et --whole-word nécessitent 'find' ou 'set find' et un --query"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar: --query、--regex、--case-sensitive、--whole-word には 'find' または 'set find' と --query が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar: --query, --regex, --case-sensitive, --whole-word에는 'find' 또는 'set find'와 --query가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar：--query、--regex、--case-sensitive 和 --whole-word 需要配合 'find' 或 'set find' 以及 --query"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar：--query、--regex、--case-sensitive 和 --whole-word 需要搭配 'find' 或 'set find' 以及 --query"
+          }
+        }
+      }
+    },
+    "cli.rightSidebar.error.queryRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar: --query requires text"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar: يتطلب --query نصًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar: --query erfordert Text"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar: --query requiere texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar : --query nécessite un texte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar: --query にはテキストが必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar: --query에는 텍스트가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar：--query 需要文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar：--query 需要文字"
+          }
+        }
+      }
+    },
+    "cli.rightSidebar.usage.find": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find:\n  set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]\n                                 Search Find for <text> as if typed into its field\n  find-status                    Print the Find query, phase, results and files as JSON"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث:\n  set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]\n                                 البحث عن <text> كما لو كُتب في حقل البحث\n  find-status                    طباعة استعلام البحث والمرحلة والنتائج والملفات بتنسيق JSON"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suche:\n  set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]\n                                 Mit Suche nach <text> suchen, als wäre es in das Suchfeld eingegeben\n  find-status                    Suchanfrage, Phase, Treffer und Dateien als JSON ausgeben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar:\n  set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]\n                                 Buscar <text> como si se escribiera en el campo Buscar\n  find-status                    Imprimir la consulta, la fase, los resultados y los archivos como JSON"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher :\n  set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]\n                                 Rechercher <text> comme s’il était saisi dans le champ Rechercher\n  find-status                    Afficher la requête, la phase, les résultats et les fichiers en JSON"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索:\n  set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]\n                                 検索フィールドに入力したように <text> を検索します\n  find-status                    検索クエリ、フェーズ、結果数、ファイル数を JSON で出力します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "찾기:\n  set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]\n                                 찾기 필드에 입력한 것처럼 <text>를 검색합니다\n  find-status                    찾기 쿼리, 단계, 결과, 파일 수를 JSON으로 출력합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找：\n  set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]\n                                 如同在查找字段中输入一样搜索 <text>\n  find-status                    以 JSON 打印查找查询、阶段、结果与文件数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尋找：\n  set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]\n                                 如同在尋找欄位中輸入一般搜尋 <text>\n  find-status                    以 JSON 列印尋找查詢、階段、結果與檔案數"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.findUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Find is not open in the right sidebar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: البحث غير مفتوح في الشريط الجانبي الأيمن"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Die Suche ist in der rechten Seitenleiste nicht geöffnet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Buscar no está abierto en la barra lateral derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Rechercher n’est pas ouvert dans la barre latérale droite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 右サイドバーで検索が開いていません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 오른쪽 사이드바에서 찾기가 열려 있지 않습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 右侧边栏未打开查找"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 右側邊欄未開啟尋找"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.queryRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: --query requires text"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: يتطلب --query نصًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: --query erfordert Text"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: --query requiere texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: --query nécessite un texte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: --query にはテキストが必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: --query에는 텍스트가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: --query 需要文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: --query 需要文字"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.usage.findQuery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: الاستخدام: right_sidebar set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Verwendung: right_sidebar set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Uso: right_sidebar set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Utilisation : right_sidebar set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 使用法: right_sidebar set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 사용법: right_sidebar set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：right_sidebar set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：right_sidebar set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.usage.findStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar find_status [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: الاستخدام: right_sidebar find_status [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Verwendung: right_sidebar find_status [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Uso: right_sidebar find_status [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Utilisation : right_sidebar find_status [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 使用法: right_sidebar find_status [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 사용법: right_sidebar find_status [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：right_sidebar find_status [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：right_sidebar find_status [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

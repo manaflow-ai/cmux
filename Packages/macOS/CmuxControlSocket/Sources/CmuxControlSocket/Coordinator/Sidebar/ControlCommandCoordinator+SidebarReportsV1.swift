@@ -508,6 +508,17 @@ extension ControlCommandCoordinator {
                 "visible": .bool(visible),
                 "mode": .string(modeRawValue),
             ]))
+        case .findStatus(let status):
+            return ControlResponseEncoder().encode(.object([
+                "query": .string(status.query),
+                "regex": .bool(status.isRegex),
+                "case_sensitive": .bool(status.isCaseSensitive),
+                "whole_word": .bool(status.matchesWholeWord),
+                "phase": .string(status.phase),
+                "results": .int(Int64(status.results)),
+                "files": .int(Int64(status.files)),
+                "message": status.message.map { .string($0) } ?? .null,
+            ]))
         case .failure(let message):
             return message
         }

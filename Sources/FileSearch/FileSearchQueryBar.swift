@@ -63,6 +63,9 @@ final class FileSearchQueryBar: NSView {
         setDetailsVisible(showsDetails || !query.includePatterns.isEmpty || !query.excludePatterns.isEmpty)
     }
 
+    /// The inline regular-expression error, when shown.
+    var regexErrorText: String? { errorLabel.isHidden ? nil : errorLabel.stringValue }
+
     /// Shows or hides the inline regular-expression error.
     func setRegexError(_ message: String?) {
         let text = message ?? ""

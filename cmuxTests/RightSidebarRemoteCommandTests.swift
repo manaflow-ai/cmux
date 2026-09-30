@@ -1,3 +1,4 @@
+import CmuxFileSearch
 import Foundation
 import Testing
 
@@ -147,6 +148,27 @@ extension TerminalControllerSocketSecurityTests {
                 RightSidebarRemoteRequest(command: .getState, target: RightSidebarRemoteTarget())
             ),
             (
+                "right_sidebar set find --query \"two words\" --regex --whole-word --no-focus",
+                RightSidebarRemoteRequest(
+                    command: .setFindQuery(
+                        FileSearchQuery(pattern: "two words", matchesWholeWord: true, isRegex: true),
+                        focus: false
+                    ),
+                    target: RightSidebarRemoteTarget()
+                )
+            ),
+            (
+                "right_sidebar find --query=needle --case-sensitive",
+                RightSidebarRemoteRequest(
+                    command: .setFindQuery(FileSearchQuery(pattern: "needle", isCaseSensitive: true), focus: true),
+                    target: RightSidebarRemoteTarget()
+                )
+            ),
+            (
+                "right_sidebar find_status",
+                RightSidebarRemoteRequest(command: .getFindStatus, target: RightSidebarRemoteTarget())
+            ),
+            (
                 "right_sidebar state --workspace \(workspaceId.uuidString) --window \(windowId.uuidString)",
                 RightSidebarRemoteRequest(command: .getState, target: RightSidebarRemoteTarget(windowId: windowId, workspaceId: workspaceId))
             ),
@@ -166,6 +188,10 @@ extension TerminalControllerSocketSecurityTests {
             ("right_sidebar --bad", "Unknown right sidebar option"),
             ("right_sidebar show --tab not-a-uuid", "Invalid right sidebar --tab id"),
             ("right_sidebar show --window", "--window requires an id"),
+            ("right_sidebar set files --query x", "Usage: right_sidebar set find --query"),
+            ("right_sidebar set find --regex", "Usage: right_sidebar set find --query"),
+            ("right_sidebar find --query", "--query requires text"),
+            ("right_sidebar find_status --regex", "Usage: right_sidebar find_status"),
         ]
 
         for (line, expectedMessage) in invalidCases {
@@ -191,6 +217,9 @@ extension TerminalControllerSocketSecurityTests {
             ("right_sidebar set find", true),
             ("right_sidebar sessions", true),
             ("right_sidebar set vault --no-focus", false),
+            ("right_sidebar set find --query x --no-focus", false),
+            ("right_sidebar find --query x", true),
+            ("right_sidebar find_status", false),
             ("right_sidebar hide", false),
             ("right_sidebar mode", false),
             ("right_sidebar state", false),
@@ -279,7 +308,7 @@ extension TerminalControllerSocketSecurityTests {
         ) {
         case .failure(let message):
             #expect(message.contains("target not found"), Comment(rawValue: message))
-        case .ok, .state:
+        case .ok, .state, .findStatus:
             Issue.record("Expected targeted toggle without a window to fail")
         }
         #expect(!stateB.isVisible)
@@ -295,7 +324,7 @@ extension TerminalControllerSocketSecurityTests {
         ) {
         case .failure(let message):
             #expect(message.contains("state not available"), Comment(rawValue: message))
-        case .ok, .state:
+        case .ok, .state, .findStatus:
             Issue.record("Expected explicit target without right-sidebar state to fail")
         }
 
@@ -305,7 +334,7 @@ extension TerminalControllerSocketSecurityTests {
         ) {
         case .failure(let message):
             #expect(message.contains("target not found"), Comment(rawValue: message))
-        case .ok, .state:
+        case .ok, .state, .findStatus:
             Issue.record("Expected missing workspace target to fail")
         }
     }

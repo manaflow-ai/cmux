@@ -20769,6 +20769,11 @@ struct CMUXCLI {
               cmux right-sidebar set find
               cmux right-sidebar set custom panel-info
               cmux right-sidebar mode
+            """) + "\n\n" + String(localized: "cli.rightSidebar.usage.find", defaultValue: """
+            Find:
+              set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]
+                                             Search Find for <text> as if typed into its field
+              find-status                    Print the Find query, phase, results and files as JSON
             """)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
@@ -21258,6 +21263,8 @@ struct CMUXCLI {
         let workspace: String?
         let window: String?
         let noFocus: Bool
+        /// `--query`, `--regex`, `--case-sensitive`, `--whole-word` for Find.
+        var findOptions: [String] = []
     }
 
     private func forwardRightSidebarCommand(
@@ -21282,7 +21289,8 @@ struct CMUXCLI {
             .map(shellQuote)
             .joined(separator: " ")
         let response = try sendV1Command(command, client: client)
-        if parsed.positional.first?.lowercased() == "mode" {
+        let action = parsed.positional.first?.lowercased()
+        if action == "mode" || action == "find-status" || action == "find_status" {
             print(response)
         }
     }
@@ -21467,11 +21475,21 @@ struct CMUXCLI {
         var workspace: String?
         var window: String?
         var noFocus = false
+        var findOptions: [String] = []
         var index = 0
 
         while index < args.count {
             let arg = args[index]
             switch arg {
+            case "--query":
+                guard index + 1 < args.count else {
+                    throw CLIError(message: String(localized: "cli.rightSidebar.error.queryRequiresValue", defaultValue: "right-sidebar: --query requires text"))
+                }
+                findOptions.append("--query=\(args[index + 1])")
+                index += 2
+            case "--regex", "--case-sensitive", "--whole-word":
+                findOptions.append(arg)
+                index += 1
             case "--workspace":
                 guard index + 1 < args.count else {
                     throw CLIError(message: String(localized: "cli.rightSidebar.error.workspaceRequiresValue", defaultValue: "right-sidebar: --workspace requires an id"))
@@ -21488,7 +21506,10 @@ struct CMUXCLI {
                 noFocus = true
                 index += 1
             default:
-                if arg.hasPrefix("--workspace=") {
+                if arg.hasPrefix("--query=") {
+                    findOptions.append(arg)
+                    index += 1
+                } else if arg.hasPrefix("--workspace=") {
                     workspace = String(arg.dropFirst("--workspace=".count))
                     index += 1
                 } else if arg.hasPrefix("--window=") {
@@ -21506,12 +21527,32 @@ struct CMUXCLI {
             positional: positional,
             workspace: workspace,
             window: window,
-            noFocus: noFocus
+            noFocus: noFocus,
+            findOptions: findOptions
         )
     }
     private func rightSidebarSocketArguments(from parsed: RightSidebarCLIArguments) throws -> [String] {
         guard let action = parsed.positional.first?.lowercased() else {
             throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand"))
+        }
+
+        if action == "find-status" || action == "find_status" {
+            guard parsed.positional.count == 1, !parsed.noFocus, parsed.findOptions.isEmpty else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
+            }
+            return ["find_status"]
+        }
+        if !parsed.findOptions.isEmpty {
+            let modeArgument = action == "set" && parsed.positional.count == 2 ? parsed.positional[1] : action
+            guard normalizedRightSidebarCLIArgument(modeArgument) == "find",
+                  parsed.positional.count == (action == "set" ? 2 : 1),
+                  parsed.findOptions.contains(where: { $0.hasPrefix("--query=") }) else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.findOptionsRequireFind", defaultValue: "right-sidebar: --query, --regex, --case-sensitive and --whole-word need 'find' or 'set find' and a --query"))
+            }
+            guard action == "set" || !parsed.noFocus else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
+            }
+            return ["set", "find"] + parsed.findOptions + (parsed.noFocus ? ["--no-focus"] : [])
         }
 
         switch action {

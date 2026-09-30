@@ -304,6 +304,28 @@ struct FileSearchPanelTests {
         #expect(container.needsLayout, "A genuine visibility change must still invalidate layout.")
     }
 
+    @Test("A socket query uses the Find field's path and find_status reports it")
+    func remoteQueryAndStatus() async throws {
+        let backend = ReplayFileSearchBackend(batches: [[matches("/tmp/cmux-find-panel/a.swift", lines: [1, 2])]])
+        let fixture = makeFixture(backend: backend)
+        let panel = fixture.panel
+        panel.queryBar.show(query: FileSearchQuery(includePatterns: "src"), showsDetails: true)
+        panel.queryDidChange(immediate: true)
+
+        panel.applyRemoteQuery(FileSearchQuery(pattern: "needle", isCaseSensitive: true, isRegex: true))
+        try await waitUntil("the remote search") { panel.remoteStatus().phase == "completed" }
+
+        #expect(panel.queryBar.queryField.stringValue == "needle")
+        let status = panel.remoteStatus()
+        #expect(status.query.pattern == "needle")
+        #expect(status.query.isCaseSensitive && status.query.isRegex && !status.query.matchesWholeWord)
+        #expect(status.query.includePatterns == "src", "Globs the user set are kept.")
+        #expect(status.results == 2)
+        #expect(status.files == 1)
+        #expect(status.message == FileSearchStatusText.summary(results: 2, files: 1))
+        #expect(backend.receivedQueries.last?.pattern == "needle")
+    }
+
     @Test("Find draws the cmux accent and follows app.accentColor live")
     func accentFollowsSetting() throws {
         let fixture = makeFixture(backend: ReplayFileSearchBackend(batches: []))

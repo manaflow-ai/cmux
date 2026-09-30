@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFileSearch
 import CmuxFoundation
 import CmuxTerminal
 
@@ -57,6 +58,8 @@ final class MainWindowFocusController {
     private weak var fileSearchHost: FileExplorerContainerView?
     /// Text selected where Find was invoked, applied when the Find field focuses.
     private var pendingFileSearchSeed: String?
+    /// A query sent through `right_sidebar set find --query` before Find mounted.
+    private var pendingFileSearchQuery: FileSearchQuery?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
 
@@ -129,6 +132,10 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .find:
             fileSearchHost = host
+            if let query = pendingFileSearchQuery {
+                pendingFileSearchQuery = nil
+                host.findPanel.applyRemoteQuery(query)
+            }
         case .sessions, .feed, .dock, .machines, .customSidebar:
             break
         }
@@ -545,6 +552,23 @@ final class MainWindowFocusController {
         let result = modeResult || fallbackResult || rightSidebarFocusState.request?.mode == mode
         publishFeedFocusSnapshot()
         return result
+    }
+
+    /// Searches `query` in Find through the same path as typing in its
+    /// field. Waits for Find to register when it is not mounted yet.
+    func applyFileSearchQuery(_ query: FileSearchQuery) {
+        if let fileSearchHost, fileSearchHost.window != nil {
+            pendingFileSearchQuery = nil
+            fileSearchHost.findPanel.applyRemoteQuery(query)
+        } else {
+            pendingFileSearchQuery = query
+        }
+    }
+
+    /// Find's current query and totals, or nil when Find is not mounted.
+    func fileSearchStatus() -> RightSidebarFindStatus? {
+        guard let fileSearchHost, fileSearchHost.window != nil else { return nil }
+        return fileSearchHost.findPanel.remoteStatus()
     }
 
     @discardableResult

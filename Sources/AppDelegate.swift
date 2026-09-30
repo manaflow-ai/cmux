@@ -7783,9 +7783,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch command {
         case .focus:
             requiresWindowFocus = true
-        case .setMode(_, let focus), .setCustomSidebar(_, let focus):
+        case .setMode(_, let focus), .setCustomSidebar(_, let focus), .setFindQuery(_, let focus):
             requiresWindowFocus = focus
-        case .toggle, .show, .hide, .getState:
+        case .toggle, .show, .hide, .getState, .getFindStatus:
             requiresWindowFocus = false
         }
         if requiresWindowFocus, !target.isActiveTarget, preferredWindow == nil {
@@ -7871,6 +7871,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return .ok
         case .getState:
             return .state(.init(visible: state.isVisible, modeRawValue: state.rightSidebarRemoteModeRawValue))
+
+        case .setFindQuery(let query, let focus):
+            let modeResult = applyRightSidebarRemoteCommand(.setMode(.find, focus: focus), target: target)
+            guard modeResult == .ok else { return modeResult }
+            guard let coordinator = (context ?? preferredRegisteredMainWindowContext(preferredWindow: preferredWindow))?.keyboardFocusCoordinator else {
+                return .failure(String(localized: "rightSidebar.remote.error.unavailable", defaultValue: "ERROR: Right sidebar not available"))
+            }
+            // Applied now when Find is mounted, otherwise when it registers.
+            coordinator.applyFileSearchQuery(query)
+            return .ok
+
+        case .getFindStatus:
+            guard let status = ((context ?? preferredRegisteredMainWindowContext(preferredWindow: preferredWindow))?.keyboardFocusCoordinator)?
+                .fileSearchStatus() else {
+                return .failure(String(localized: "rightSidebar.remote.error.findUnavailable", defaultValue: "ERROR: Find is not open in the right sidebar"))
+            }
+            return .findStatus(status)
         }
     }
 
@@ -7885,7 +7902,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let target = RightSidebarRemoteTarget(windowId: context.windowId)
         let result = applyRightSidebarRemoteCommand(.setMode(.machines, focus: true), target: target)
         switch result {
-        case .ok, .state:
+        case .ok, .state, .findStatus:
             registry.reveal(instance: instance, windowID: context.windowId)
         case .failure:
             break
