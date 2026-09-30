@@ -26,22 +26,20 @@ public struct ComputersSection: View {
             SettingsCard {
                 DevicesAccessToggleRow(
                     searchAnchorID: "setting:computers:incoming-access",
-                    title: String(localized: "devices.incoming.toggle", defaultValue: "Make this Mac discoverable"),
-                    help: String(localized: "devices.incoming.help", defaultValue: "Turning this off removes this Mac from discovery and disconnects incoming sessions. You can still connect to your other Macs."),
-                    isOn: snapshot.incomingAccessEnabled,
-                    managed: incomingAccessManaged,
-                    unavailable: snapshot.unavailableMessage != nil,
+                    control: DeviceAccessControl(
+                        .incomingAccess, enabled: snapshot.incomingAccessEnabled,
+                        managed: incomingAccessManaged, unavailable: snapshot.unavailableMessage != nil
+                    ),
                     identifier: "SettingsComputersIncomingAccessToggle",
                     set: { enabled in Task { await actions.setIncomingAccessEnabled(enabled) } }
                 )
                 SettingsCardDivider()
                 DevicesAccessToggleRow(
                     searchAnchorID: "setting:computers:discovery",
-                    title: String(localized: "devices.discovery.toggle", defaultValue: "Discover other Macs"),
-                    help: String(localized: "devices.discovery.help", defaultValue: "Find and connect to other Macs signed in to your account. Turning this off disconnects their panes without closing their terminals."),
-                    isOn: snapshot.discoveryEnabled,
-                    managed: discoveryManaged,
-                    unavailable: snapshot.unavailableMessage != nil,
+                    control: DeviceAccessControl(
+                        .discovery, enabled: snapshot.discoveryEnabled,
+                        managed: discoveryManaged, unavailable: snapshot.unavailableMessage != nil
+                    ),
                     identifier: "SettingsComputersDiscoveryToggle",
                     set: { enabled in Task { await actions.setDiscoveryEnabled(enabled) } }
                 )
