@@ -720,7 +720,7 @@ final class SurfaceCatalog {
             provider.discardMaterialization(projection)
             throw CancellationError()
         }
-        record(projection)
+        recordMaterializedProjection(projection)
         return (projection, false)
     }
 
@@ -834,9 +834,9 @@ final class SurfaceCatalog {
             let returnedProjection: SurfaceProjection
             let ownsProjection: Bool
             if let registered = projections.first(where: { $0.panelID == projection.panelID && $0.resource == id }) {
-                // The pane bound its resource while the provider configured it. It is
-                // still this operation's pane: keep that record and finish placement
-                // (workspace membership, focus) exactly like a fresh materialization.
+                // The pane bound its resource while the provider configured it. It is still this
+                // operation's pane: finish placement exactly like a fresh materialization.
+                replayMaterializedCloudPlacement(registered)
                 returnedProjection = registered
                 ownsProjection = true
             } else if let existing = projections.first(where: {
@@ -848,7 +848,7 @@ final class SurfaceCatalog {
                 returnedProjection = existing
                 ownsProjection = false
             } else {
-                record(projection)
+                recordMaterializedProjection(projection)
                 returnedProjection = projection
                 ownsProjection = true
             }

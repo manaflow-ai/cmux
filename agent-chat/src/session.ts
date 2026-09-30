@@ -253,14 +253,15 @@ export interface SessionState {
   providerOptions: Record<string, SessionOption[]>;
   providerCommands: Record<string, CommandGroup[]>;
   filesByCwd: Record<string, string[]>;
-  cwdChecks: Record<string, { ok: boolean; message?: string }>;
+  cwdChecks: Record<string, { ok: boolean; message?: string; repositorySlug?: string }>;
   fileDiffs: Record<string, string>;
   lastError: string;
   forkPending: boolean;
   handoffPending: boolean;
   start(opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }): boolean;
   compose(): void;
-  reply(text: string): void;
+  /** Sends a reply, returning false when the WebSocket is not ready. */
+  reply(text: string): boolean;
   stop(): void;
   /** Focuses the terminal pane behind a terminal chat view. */
   focusTerminal(): void;
@@ -352,7 +353,7 @@ export function useSession(): SessionState {
   const [providerCommands, setProviderCommands] = useState<Record<string, CommandGroup[]>>({});
   const latestCommandRequestsRef = useRef(new Map<string, { requestId: string; cwd: string; pending: boolean }>());
   const [filesByCwd, setFilesByCwd] = useState<Record<string, string[]>>({});
-  const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string }>>({});
+  const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string; repositorySlug?: string }>>({});
   const [fileDiffs, setFileDiffs] = useState<Record<string, string>>({});
   const [lastError, setLastError] = useState("");
   const [forkPending, setForkPending] = useState(false);
@@ -627,7 +628,7 @@ export function useSession(): SessionState {
             setFilesByCwd((m) => ({ ...m, [msg.cwd]: msg.files ?? [] }));
             break;
           case "cwd-check":
-            setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message } }));
+            setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message, repositorySlug: typeof msg.repositorySlug === "string" ? msg.repositorySlug : undefined } }));
             if (Array.isArray(msg.harnesses) && acceptsCwdHarnessResponse(latestCwdRequestRef.current, msg)) {
               setHarnessSnapshot({ cwd: String(msg.cwd), harnesses: msg.harnesses as HarnessRecommendation[] });
             }
@@ -736,26 +737,27 @@ export function useSession(): SessionState {
   const reply = useCallback((text: string) => {
     const pending = pendingStartRef.current;
     if (!sessionIdRef.current && pending?.failed) {
-      start({ provider: pending.provider, cwd: pending.cwd, prompt: text, options: pending.options });
-      return;
+      return start({ provider: pending.provider, cwd: pending.cwd, prompt: text, options: pending.options });
     }
     if (!sessionIdRef.current && pending && !pending.failed) {
       pending.queuedReplies.push({ requestId: newClientRequestId("turn"), prompt: text });
       optimisticUsersRef.current.push(text);
       setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
-      return;
+      return true;
     }
     if (sessionIdRef.current) {
-      if (sendRaw({ op: "send", sessionId: sessionIdRef.current, requestId: newClientRequestId("turn"), prompt: text })) {
-        setSession((s) => (s ? { ...s, status: "running" } : s));
-        // A terminal view's prompt only reaches the event log when the agent's
-        // transcript records it; show it now and drop that echo when it lands.
-        if (sessionModeRef.current === "transcript") {
-          optimisticUsersRef.current.push(text);
-          setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
-        }
+      const sent = sendRaw({ op: "send", sessionId: sessionIdRef.current, requestId: newClientRequestId("turn"), prompt: text });
+      if (!sent) return false;
+      setSession((s) => (s ? { ...s, status: "running" } : s));
+      // A terminal view's prompt only reaches the event log when the agent's
+      // transcript records it; show it now and drop that echo when it lands.
+      if (sessionModeRef.current === "transcript") {
+        optimisticUsersRef.current.push(text);
+        setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
       }
+      return true;
     }
+    return false;
   }, [sendRaw, start]);
   const focusTerminal = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });

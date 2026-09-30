@@ -690,6 +690,25 @@ describe("billing checkout route", () => {
     });
   });
 
+  test("a dashboard checkout records a validated returnTo and cancels back to it", async () => {
+    stripeConfigured = true;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+    await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=max&returnTo=%2Fja%2Fdashboard%2Fcloud%3Fx%3D1"));
+    expect(createdStripeSessions[0]).toMatchObject({
+      metadata: expect.objectContaining({ plan: "max", returnTo: "/ja/dashboard/cloud" }),
+      cancel_url: "https://cmux.test/ja/dashboard/cloud",
+    });
+  });
+
+  test("an external returnTo is ignored", async () => {
+    stripeConfigured = true;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+    await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=max&returnTo=https%3A%2F%2Fevil.example%2Fdashboard"));
+    const created = createdStripeSessions[0] as { metadata: Record<string, string>; cancel_url: string };
+    expect(created.metadata.returnTo).toBeUndefined();
+    expect(created.cancel_url).toBe("https://cmux.test/pricing?billing=cancelled&interval=month");
+  });
+
   test("creates a monthly Go checkout with its capped entry plan", async () => {
     stripeConfigured = true;
     userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
