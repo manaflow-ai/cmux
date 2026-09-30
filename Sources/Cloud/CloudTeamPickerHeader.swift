@@ -69,7 +69,7 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
         // Without its own container, the row's help and copy menu let the
         // panel's RightSidebar identifier replace the message's and Close's.
         .accessibilityElement(children: .contain)
-        .padding(.horizontal, 10)
-        .padding(.top, 4)
+        .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+        .padding(.top, RightSidebarChromeMetrics.barVerticalPadding)
     }
 }
