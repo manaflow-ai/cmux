@@ -7868,7 +7868,7 @@ extension CMUXCLI {
           --focus <true|false>         Focus the diff browser split (default: false)
           --no-focus                   Do not focus the opened diff browser split
           --title <text>               Set the diff viewer title to the provided text
-          --layout <split|unified>     Diff layout (default: unified; configurable via diffViewer.defaultLayout in cmux.json)
+          --layout <split|unified>     Diff layout (default: your last choice in the viewer, then diffViewer.defaultLayout in cmux.json, then unified)
           --font-size <points>         Set diff font size (default: 10)
 
         Examples:
