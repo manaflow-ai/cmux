@@ -96,6 +96,7 @@ struct SettingsRowAnchorResolutionTests {
         "fileEditor.tabWidth",
         "fileEditor.wordWrap",
         "mobile.artifactFolderAccess",
+        "mobile.browserTunnel.allowOtherHosts",
         "notifications.agentIdleReminder",
         "notifications.agentPermissionPrompt",
         "notifications.agentTurnComplete",
@@ -106,6 +107,7 @@ struct SettingsRowAnchorResolutionTests {
         "notifications.showInMenuBar",
         "notifications.sound",
         "notifications.soundOverrides",
+        "notifications.soundWhenFocused",
         "notifications.unreadPaneRing",
         "sidebar.branchLayout",
         "sidebar.hideAllDetails",
@@ -116,6 +118,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.rightMaxWidth",
         "sidebar.showBranchDirectory",
         "sidebar.showCustomMetadata",
+        "sidebar.compactAgentStatus",
         "sidebar.showLog",
         "sidebar.showNotificationMessage",
         "sidebar.notificationMessageLineLimit",
@@ -169,7 +172,8 @@ struct SettingsRowAnchorResolutionTests {
     /// (no single cmux.json path): pickers and action buttons. Each must
     /// match the corresponding curated entry id verbatim.
     static let explicitlyAnchoredEntryIDs: Set<String> = [
-        "setting:app:appearance",
+        "setting:themes:appearance",
+        "setting:themes:terminal-theme",
         "setting:app:app-icon",
         "setting:app:file-drops",
         "setting:app:terminal-config",
@@ -186,7 +190,6 @@ struct SettingsRowAnchorResolutionTests {
         "setting:computers:incoming-access",
         "setting:computers:discovery",
         "setting:betaFeatures:feed",
-        "setting:betaFeatures:dock",
         "setting:betaFeatures:cloudMachines",
         "setting:betaFeatures:customSidebars",
         "setting:betaFeatures:remoteTmux",

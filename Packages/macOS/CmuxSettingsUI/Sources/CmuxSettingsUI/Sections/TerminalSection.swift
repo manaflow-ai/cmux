@@ -29,7 +29,6 @@ public struct TerminalSection: View {
     @State private var textEditingGestures: DefaultsValueModel<Bool>
     @State private var passwordInputIndicator: DefaultsValueModel<Bool>
     @State private var passwordInputDots: DefaultsValueModel<Bool>
-    @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
@@ -62,12 +61,6 @@ public struct TerminalSection: View {
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
         _passwordInputIndicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputIndicator))
         _passwordInputDots = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputDots))
-        _adaptiveDefaultTheme = State(
-            initialValue: DefaultsValueModel(
-                store: defaultsStore,
-                key: catalog.terminal.adaptiveDefaultTheme
-            )
-        )
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
@@ -104,7 +97,6 @@ public struct TerminalSection: View {
             textEditingGestures,
             passwordInputIndicator,
             passwordInputDots,
-            adaptiveDefaultTheme,
             autoResume,
             hibernation,
             idleSeconds,
@@ -271,8 +263,6 @@ public struct TerminalSection: View {
                 }
             }
             SettingsCardDivider()
-            TerminalThemeSettingsRows(hostActions: hostActions)
-            SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .settingsOnly,
                 String(localized: "settings.terminal.importFromTerminal", defaultValue: "Import from Another Terminal"),
@@ -289,33 +279,6 @@ public struct TerminalSection: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsTerminalImportButton")
-            }
-            SettingsCardDivider()
-            SettingsCardRow(
-                configurationReview: .json("terminal.adaptiveDefaultTheme"),
-                String(
-                    localized: "settings.terminal.adaptiveDefaultTheme",
-                    defaultValue: "Adapt Default Theme to Appearance"
-                ),
-                subtitle: String(localized: "settings.terminal.adaptiveDefaultTheme.subtitle", defaultValue: "Matches terminal colors to the light or dark appearance when no Ghostty theme or colors are set.")
-            ) {
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { adaptiveDefaultTheme.current },
-                        set: { enabled in
-                            adaptiveDefaultTheme.set(enabled) {
-                                @MainActor [hostActions] in
-                                hostActions.terminalAdaptiveDefaultThemeDidChange()
-                            }
-                        }
-                    )
-                )
-                .labelsHidden()
-                .controlSize(.small)
-                .accessibilityIdentifier(
-                    "SettingsTerminalAdaptiveDefaultThemeToggle"
-                )
             }
             SettingsCardDivider()
             SettingsCardRow(
@@ -517,7 +480,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.agentHibernation.enabled"),
                 String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
-                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under critical memory pressure.")
+                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under memory pressure.")
             ) {
                 Toggle("", isOn: Binding(get: { hibernation.current }, set: { hibernation.set($0) }))
                     .labelsHidden()

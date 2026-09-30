@@ -2,8 +2,8 @@ import SwiftUI
 
 /// **Cloud Machines** section — the plan card for persistent cloud VMs.
 /// Deliberately small: machines are managed from the right-sidebar Machines
-/// panel; Settings shows the plan meter and the two entry points (open the
-/// panel, manage the plan). Renders nothing when the host doesn't expose
+/// panel; Settings also exposes the plan and optional system VPN setup.
+/// Renders nothing when the host doesn't expose
 /// Cloud Machines, so the section is invisible to users outside the flag.
 @MainActor
 public struct CloudMachinesSection: View {
@@ -26,11 +26,14 @@ public struct CloudMachinesSection: View {
                     planRow
                     Divider().padding(.horizontal, 14)
                     panelRow
+                    Divider().padding(.horizontal, 14)
+                    vpnRow
                 }
             }
             .settingsSearchAnchors([
                 "setting:cloudMachines:plan",
                 "setting:cloudMachines:open-panel",
+                "setting:cloudMachines:vpn",
             ])
             .task {
                 plan = await hostActions.cloudMachinesPlanSummary()
@@ -80,6 +83,27 @@ public struct CloudMachinesSection: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .id("setting:cloudMachines:open-panel")
+    }
+
+    private var vpnRow: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Optional private IP access for other apps"))
+                Text(String(localized: "cloud.vpn.setup.howItWorks.body", defaultValue: "Connect Safari, Chrome, and other apps to your Cloud machines. Each machine keeps its private IP address and original ports. Only traffic to your Cloud network uses this encrypted connection. cmux terminals, Ports, and Desktop work without it."))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Button(String(localized: "cloudTree.ports.setupVPN", defaultValue: "Set Up VPN…")) {
+                hostActions.openCloudVPNSetup()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsCloudVPNSetup")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .id("setting:cloudMachines:vpn")
     }
 
     private var planSubtitle: String {

@@ -24,11 +24,12 @@ import {
   vmActiveLimitExceededResponse,
   vmErrorResponse,
   resolveVmProvisioningAccountScope,
+  reverifyVmRequestForTeam,
   type VmWorkflowErrorOverrides,
 } from "../../../../services/vms/routeHelpers";
 import { runVmRoute } from "../../../../services/vms/routeWorkflow";
 import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGateway";
-import type { VmTimingRecorder } from "../../../../services/vms/timings";
+import { measureVmAsync, type VmTimingRecorder } from "../../../../services/vms/timings";
 import {
   openBaseVm,
   resetBaseVm,
@@ -46,7 +47,19 @@ export async function runBaseRoute(input: {
   if (!parsed.ok) return parsed.response;
 
   const requestedBillingTeamId = parsed.body.billingTeamId || requestedVmTeamIdFromRequest(input.request);
-  const account = await resolveVmProvisioningAccountScope(input.user, input.request, { requestedBillingTeamId });
+  const reverified = await reverifyVmRequestForTeam({
+    request: input.request,
+    user: input.user,
+    requestedBillingTeamId,
+    authErrorLabel: `/api/vm.base-${input.operation}.team-auth`,
+    // Keep the second Stack round trip inside the "auth" stage the way POST
+    // /api/vm does, so a cross-team Base open does not show up as unattributed
+    // time in the span.
+    measure: (run) => measureVmAsync(input.timing, "auth", run),
+  });
+  if (!reverified.ok) return reverified.response;
+  const user = reverified.user;
+  const account = await resolveVmProvisioningAccountScope(user, input.request, { requestedBillingTeamId });
   if (!account.ok) return account.response;
   const entitlements = account.entitlements;
 
@@ -95,7 +108,7 @@ export async function runBaseRoute(input: {
   }
 
   const programInput = {
-    userId: input.user.id,
+    userId: user.id,
     billingCustomerType: entitlements.billingCustomerType,
     billingTeamId: entitlements.billingTeamId,
     billingPlanId: entitlements.planId,
@@ -108,7 +121,7 @@ export async function runBaseRoute(input: {
     teamDirectory: vmClientRoutesTeamNetworks(input.request) ? vmTeamDirectory() : undefined,
     modelPlane: vmModelPlaneGatewayFor({
       teamId: entitlements.billingTeamId,
-      stackUserId: input.user.id,
+      stackUserId: user.id,
     }),
     timing: input.timing,
   };

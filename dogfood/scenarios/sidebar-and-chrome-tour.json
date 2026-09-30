@@ -1,4 +1,5 @@
 {
+  "paths": ["Sources/*Sidebar*", "Sources/*Workspace*", "Sources/ContentView*", "Sources/TabManager*", "Sources/TabItemView*", "Sources/*CommandPalette*", "Sources/*Settings*", "Sources/*Shortcut*", "Sources/*Split*", "Packages/macOS/CmuxSidebar/*", "Packages/macOS/CmuxWorkspaces/*", "Packages/macOS/CmuxCommandPalette/*", "Packages/macOS/CmuxSettings*", "Packages/macOS/CmuxPanes/*", "Packages/macOS/CmuxWindowing/*", "vendor/bonsplit"],
   "steps": [
     {"socket": "workspace.create", "params": {"title": "Build", "initial_input": "echo building; ls\n", "focus": false}, "save": "build"},
     {"socket": "workspace.create", "params": {"title": "Agents", "initial_input": "echo agents\n", "focus": true}, "save": "agents"},

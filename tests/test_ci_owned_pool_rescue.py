@@ -188,7 +188,71 @@ def refusing_run(refused_at=60, **kwargs):
     return jobs
 
 
+def setup_job(*, started=41, past_setup=False):
+    """An owned job its runner took, still in glaeda's hook ("Set up runner") unless past_setup."""
+    found = job("macos / macOS compile admission", status="in_progress", labels=[MINI], created=40, runner="mini-1")
+    found.update(started_at=stamp(started), steps=[
+        {"name": "Set up job", "status": "completed", "conclusion": "success"},
+        {"name": "Set up runner", "status": "completed" if past_setup else "in_progress", "conclusion": None,
+         "started_at": stamp(started + 3)},
+        {"name": "Checkout", "status": "in_progress" if past_setup else "queued", "conclusion": None}])
+    return found
+
+
+class SetupWait(unittest.TestCase):
+    def test_a_job_waiting_in_setup_is_watched_then_rescued(self):
+        waiting = setup_job()
+        self.assertTrue(rescue.in_setup(waiting))
+        self.assertFalse(rescue.in_setup(setup_job(past_setup=True)))
+        early = START + dt.timedelta(seconds=41 + rescue.REFUSAL_SECONDS + 60)
+        self.assertFalse(rescue.accepted(waiting, early), "a job in setup has not been accepted yet")
+        self.assertTrue(rescue.accepted(setup_job(past_setup=True), early))
+        look = rescue.assess([changes()(60), waiting], now=early, budget_seconds=90)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        # measured from the setup step the hook waits in, not from the job's start
+        self.assertEqual(rescue.assess([changes()(60), waiting], budget_seconds=90,
+                                       now=START + dt.timedelta(seconds=41 + rescue.SETUP_WAIT_SECONDS)).action,
+                         "watch")
+        late = START + dt.timedelta(seconds=44 + rescue.SETUP_WAIT_SECONDS)
+        look = rescue.assess([changes()(60), waiting], now=late, budget_seconds=90)
+        self.assertEqual(look.action, "rescue")
+        self.assertIn("runner setup", look.reason)
+        self.assertEqual(rescue.assess([changes()(60), setup_job(past_setup=True)], now=late,
+                                       budget_seconds=90).action, "watch")
+        # a job that entered setup late is judged before the watch ends, but not before the queued budget
+        soon = START + dt.timedelta(seconds=44 + 300)
+        self.assertEqual(rescue.assess([changes()(60), waiting], now=soon, budget_seconds=90,
+                                       deadline=soon + dt.timedelta(seconds=rescue.END_MARGIN_SECONDS)).action,
+                         "rescue")
+        early_close = START + dt.timedelta(seconds=44 + 30)
+        self.assertEqual(rescue.assess([changes()(60), waiting], now=early_close, budget_seconds=90,
+                                       deadline=early_close).action, "watch")
+        # a sibling still running is not cancelled for it, until the watch is about to end
+        shard = job("macos / shard", status="in_progress", labels=[MINI], runner="mini-2")
+        look = rescue.assess([changes()(60), waiting, shard], now=late, budget_seconds=90)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        look = rescue.assess([changes()(60), waiting, shard], now=late, budget_seconds=90,
+                             deadline=late + dt.timedelta(seconds=rescue.END_MARGIN_SECONDS - 1))
+        self.assertEqual(look.action, "rescue")
+
+
 class Refusal(unittest.TestCase):
+    def test_missing_pinned_xcode_on_owned_runner_is_refused_even_after_helper_build(self):
+        steps = [
+            {"name": "Set up job", "conclusion": "success"},
+            {"name": "Checkout", "conclusion": "success"},
+            {"name": "Build helper", "conclusion": "success"},
+            {"name": "Select helper Xcode", "conclusion": "failure"},
+        ]
+        failed = refused_job(seconds=rescue.REFUSAL_SECONDS + 500, steps=steps)
+        self.assertTrue(rescue.refused(failed))
+        self.assertEqual(rescue.assess([failed], now=START, budget_seconds=90).action, "refused")
+        steps[-1]["name"] = "Select Xcode"
+        self.assertTrue(rescue.refused(failed))
+        self.assertFalse(rescue.refused({**failed, "labels": [BLACKSMITH]}))
+        steps[-1]["name"] = "Build"
+        self.assertFalse(rescue.refused(failed))
+
     def test_what_counts_as_a_refusal(self):
         self.assertTrue(rescue.refused(refused_job()))
         self.assertTrue(rescue.refused(refused_job(steps=[])))
@@ -212,6 +276,29 @@ class Refusal(unittest.TestCase):
         self.assertFalse(rescue.refused(refused_job(seconds=rescue.REFUSAL_SECONDS + 1)))
         self.assertFalse(rescue.refused(refused_job(labels=(BLACKSMITH,))))
         self.assertFalse(rescue.refused({**refused_job(), "conclusion": "cancelled"}))
+
+    def test_a_job_whose_runner_was_lost_counts_as_a_refusal_whatever_its_length(self):
+        # PR 15160's run 36420353579: cmux14-glaeda took compile admission at 12:20:18
+        # with its listener stopped; GitHub failed it at 12:30:18 ("The self-hosted
+        # runner lost communication with the server") and it listed no step at all.
+        lost = refused_job(seconds=600, steps=[])
+        self.assertTrue(rescue.refused(lost))
+        self.assertFalse(rescue.accepted(lost, START + dt.timedelta(hours=1)))
+        # A job that ran its own steps and then failed is still the code's.
+        self.assertFalse(rescue.refused(refused_job(seconds=600, steps=[
+            {"name": "Set up job", "conclusion": "success"},
+            {"name": "Checkout", "conclusion": "success"},
+            {"name": "Build", "conclusion": "failure"}])))
+        self.assertFalse(rescue.refused(refused_job(seconds=600, steps=[], labels=(BLACKSMITH,))))
+
+    def test_a_lost_runner_is_rerun_once_the_run_finishes(self):
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(refused_at=0, seconds=600, steps=[]), marker=True,
+                      finished=lambda seconds: True)
+        target = rescue.sweep_target(listed(RUN_ID), "manaflow-ai/cmux", late=False)
+        rescue.follow(api, target, seconds=90, queue_rounds="0", light_retry=False,
+                      now=clock.now, sleep=clock.sleep, log=lambda text: None)
+        self.assertEqual(api.calls.count("rerun-failed"), 1)
 
     def test_a_refused_job_reruns_the_failed_jobs_after_cancelling(self):
         clock = Clock()
@@ -1218,6 +1305,10 @@ class IOSDispatch(unittest.TestCase):
         self.assertEqual((target.pr_number > 0, target.e2e, target.picker_job), (True, True, "runner"))
         self.assertIsInstance(rescue.target_from_event(
             event(path=".github/workflows/ios-screenshots.yml"), "manaflow-ai/cmux"), str)
+        # The Iroh release gate's runner job places its Tailscale job the same way.
+        path = ".github/workflows/iroh-release-gate.yml"
+        target = rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux")
+        self.assertEqual((target.pr_number, target.e2e, target.picker_job, target.path), (0, True, "runner", path))
         # Signing and streamed validation never take an owned Mac, so they are never watched.
         for path in (".github/workflows/ios-testflight.yml", ".github/workflows/ios-streamed-validate.yml"):
             self.assertIsInstance(rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux"), str)

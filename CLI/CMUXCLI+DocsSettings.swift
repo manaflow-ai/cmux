@@ -747,7 +747,7 @@ extension CMUXCLI {
           docs                Print the same output as `cmux docs settings`.
 
         Targets:
-          account, app, terminal, networking, computers, devices, sidebar-appearance,
+          account, app, themes, terminal, networking, computers, devices, sidebar-appearance,
           custom-sidebars, automation, browser, browser-import,
           global-hotkey, keyboard-shortcuts, shortcuts, workspace-colors,
           cmux-json, json, reset
@@ -779,6 +779,8 @@ extension CMUXCLI {
             return "account"
         case "app", "general":
             return "app"
+        case "themes", "theme", "appearance":
+            return "themes"
         case "terminal":
             return "terminal"
         case "sidebar", "sidebar-appearance", "sidebarappearance":
