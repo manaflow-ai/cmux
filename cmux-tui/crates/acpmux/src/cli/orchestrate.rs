@@ -6,9 +6,9 @@
 use crate::cli::errors::{AppError, Code};
 use crate::cli::output::*;
 use crate::cli::run::resolve_id;
-use acpmux::client::Client;
-use acpmux::rpc::{Message, method};
-use acpmux::transcript::Transcript;
+use crate::client::Client;
+use crate::rpc::{Message, method};
+use crate::transcript::Transcript;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use std::io::Write;
@@ -84,8 +84,8 @@ impl Matcher {
 fn transcript_text(t: &Transcript) -> String {
     t.items
         .iter()
-        .filter(|i| !matches!(i, acpmux::transcript::Item::User { .. }))
-        .map(acpmux::transcript::item_text)
+        .filter(|i| !matches!(i, crate::transcript::Item::User { .. }))
+        .map(crate::transcript::item_text)
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -296,7 +296,7 @@ pub(crate) async fn ensure(
         }
         None => (None, None),
     };
-    acpmux::session_name::validate(name).map_err(AppError::usage)?;
+    crate::session_name::validate(name).map_err(AppError::usage)?;
     let existing = client.request(method::MUX_SESSIONS, json!({})).await?;
     let full = match &host {
         Some(h) => format!("{h}/{name}"),

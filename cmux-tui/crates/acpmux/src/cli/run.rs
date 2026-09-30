@@ -2,11 +2,11 @@
 
 use crate::cli::output::*;
 use crate::cli::{errors, orchestrate};
-use crate::*;
-use acpmux::client::Client;
-use acpmux::config::{Config, home};
-use acpmux::daemon::connect;
-use acpmux::rpc::method;
+use crate::cli::command::*;
+use crate::client::Client;
+use crate::config::{Config, home};
+use crate::daemon::connect;
+use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 
@@ -114,7 +114,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
         }
         Command::Schema => {
             use std::io::Write;
-            let _ = std::io::stdout().write_all(acpmux::schema::SCHEMA.as_bytes());
+            let _ = std::io::stdout().write_all(crate::schema::SCHEMA.as_bytes());
             Ok(())
         }
         Command::Defaults { family, pairs, clear } => {
@@ -271,7 +271,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
         Command::New(args) => {
             let client = connect(true).await?;
             if let Some(n) = &args.name {
-                acpmux::session_name::validate(n).map_err(|e| anyhow!(e))?;
+                crate::session_name::validate(n).map_err(|e| anyhow!(e))?;
             }
             let mut meta = json!({});
             if let Some(spec) = &args.model {
@@ -375,7 +375,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             if args.detach || json_out {
                 return Ok(());
             }
-            acpmux::tui::run(client, Some(id)).await
+            crate::tui::run(client, Some(id)).await
         }
         Command::Send { session, prompt, steer, no_wait, quiet, timeout, on_permission, stall } => {
             let client = connect(true).await?;
@@ -445,7 +445,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 let id = id.ok_or_else(|| anyhow!("--plain needs a session"))?;
                 return plain_attach(client, &id).await;
             }
-            acpmux::tui::run(client, id).await
+            crate::tui::run(client, id).await
         }
         Command::Tail { session, last, follow, since } => {
             orchestrate::tail(connect(true).await?, &session, last, since, follow, suppress_reads)
@@ -647,7 +647,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 {
                     let remote_path =
                         v.get("path").and_then(Value::as_str).unwrap_or("").to_owned();
-                    let local = acpmux::config::home().join("bundles").join(format!(
+                    let local = crate::config::home().join("bundles").join(format!(
                         "{peer}-{}",
                         std::path::Path::new(&remote_path)
                             .file_name()

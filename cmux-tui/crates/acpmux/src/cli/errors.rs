@@ -148,7 +148,7 @@ mod tests {
         );
         assert_eq!(classify(&anyhow::anyhow!("turn timed out after 5s")).code, Code::Timeout);
         assert_eq!(classify(&anyhow::anyhow!("something broke")).code, Code::Runtime);
-        let closed = classify(&acpmux::client::closed_error("waiting", Some("abc 2026-01-01")));
+        let closed = classify(&crate::client::closed_error("waiting", Some("abc 2026-01-01")));
         assert_eq!(closed.detail, "daemon_closed");
         assert!(closed.retryable);
         assert!(

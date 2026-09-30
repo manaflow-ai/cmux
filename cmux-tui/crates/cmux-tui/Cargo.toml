@@ -53,6 +53,8 @@ uuid.workspace = true
 wait-timeout.workspace = true
 
 [target.'cfg(unix)'.dependencies]
+# `cmux acp` and the `acpmux` multicall name (plans/cmux-next/cli.md).
+acpmux = { path = "../acpmux" }
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true

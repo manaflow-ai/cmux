@@ -5,9 +5,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+static HOME_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Set the state directory for this process, below `ACPMUX_HOME` in
+/// precedence. A host binary uses it to keep a tagged build's daemon apart
+/// from the user's (`cmux acp` under `CMUX_TAG`). Set once, before `home()`.
+pub fn set_home_override(path: PathBuf) {
+    let _ = HOME_OVERRIDE.set(path);
+}
+
 pub fn home() -> PathBuf {
     if let Ok(v) = std::env::var("ACPMUX_HOME") {
         return PathBuf::from(v);
+    }
+    if let Some(path) = HOME_OVERRIDE.get() {
+        return path.clone();
     }
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
 }

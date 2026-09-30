@@ -538,8 +538,11 @@ Run `cmux <scope> --help` for scope-specific paths.
 
 fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
     format!(
-        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}",
-        messages.root_remote_usage, messages.root_server_usage, messages.root_server_scope,
+        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{}\n{ROOT_HELP_SCOPES_SUFFIX}",
+        messages.root_remote_usage,
+        messages.root_server_usage,
+        messages.root_server_scope,
+        messages.root_acp_scope,
     )
 }
 

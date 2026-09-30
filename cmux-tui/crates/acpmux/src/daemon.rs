@@ -24,6 +24,13 @@ pub struct DaemonOptions {
 pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
 
 pub async fn run(opts: DaemonOptions) -> Result<()> {
+    // Processes started before readiness (the login shell probe, agents)
+    // must not hold the readiness pipe open.
+    if let Some(fd) = opts.ready_fd.filter(|fd| *fd > 2) {
+        unsafe {
+            libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+        }
+    }
     let login_env = crate::login_env::requested();
     let mut config = Config::load()?;
     if opts.memory {
@@ -193,6 +200,18 @@ fn acquire_lock(path: &PathBuf) -> Result<std::fs::File> {
     Ok(file)
 }
 
+static DAEMON_PREFIX: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
+
+/// Arguments placed before `daemon run` when a client starts the daemon, for
+/// a host binary that runs acpmux under a subcommand (`cmux acp daemon run`).
+/// Set once, before the first `connect`.
+pub fn set_daemon_prefix(prefix: Vec<std::ffi::OsString>) {
+    let _ = DAEMON_PREFIX.set(prefix);
+}
+
+/// How long a started daemon may take to report that its socket is bound.
+const START_BUDGET: Duration = Duration::from_secs(8);
+
 /// Connect to the daemon, starting one if needed.
 pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
     let path = socket_path();
@@ -202,45 +221,87 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
     }
-    spawn_detached()?;
-    let deadline = std::time::Instant::now() + Duration::from_secs(8);
-    loop {
-        if let Ok(c) = Client::connect(&path).await {
-            return Ok(c);
-        }
-        if std::time::Instant::now() > deadline {
+    let ready = spawn_detached()?;
+    // The daemon writes one line to the pipe once its socket is bound, or
+    // the pipe reaches end of file when it exits first (another daemon won
+    // the lock, bad config). Either way connect once afterwards.
+    let wait = tokio::task::spawn_blocking(move || {
+        use std::io::BufRead;
+        let mut line = String::new();
+        std::io::BufReader::new(ready).read_line(&mut line).map(|_| line)
+    });
+    let line = match tokio::time::timeout(START_BUDGET, wait).await {
+        Ok(joined) => joined.context("wait for acpmux daemon")?.unwrap_or_default(),
+        Err(_) => {
             return Err(anyhow!(
-                "daemon did not come up at {}; see {}",
+                "daemon did not come up at {} within {START_BUDGET:?}; see {}",
                 path.display(),
                 home().join("daemon.log").display()
             ));
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    };
+    Client::connect(&path).await.map_err(|e| {
+        let why = if line.trim().is_empty() { "exited before it was ready" } else { "is ready but refused the connection" };
+        anyhow!(
+            "daemon {why} at {}: {e:#}; see {}",
+            path.display(),
+            home().join("daemon.log").display()
+        )
+    })
 }
 
-fn spawn_detached() -> Result<()> {
+/// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
+/// return the read end of its readiness pipe.
+fn spawn_detached() -> Result<std::fs::File> {
+    use std::os::fd::FromRawFd;
     let exe = std::env::current_exe()?;
     std::fs::create_dir_all(home())?;
     let log =
         std::fs::OpenOptions::new().create(true).append(true).open(home().join("daemon.log"))?;
     let log_err = log.try_clone()?;
+    let mut fds = [0i32; 2];
+    // SAFETY: fds has room for the two descriptors pipe writes.
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+        return Err(std::io::Error::last_os_error()).context("pipe for acpmux daemon readiness");
+    }
+    let (read_fd, write_fd) = (fds[0], fds[1]);
+    // SAFETY: both descriptors were just created and are owned here.
+    let (reader, writer) =
+        unsafe { (std::fs::File::from_raw_fd(read_fd), std::fs::File::from_raw_fd(write_fd)) };
+    // Neither end leaks into other children; pre_exec reopens the write end
+    // for the daemon only.
+    unsafe {
+        libc::fcntl(read_fd, libc::F_SETFD, libc::FD_CLOEXEC);
+        libc::fcntl(write_fd, libc::F_SETFD, libc::FD_CLOEXEC);
+    }
     let mut cmd = std::process::Command::new(exe);
     crate::config::scrub_nested_claude_env(&mut cmd);
-    cmd.args(["daemon", "run"]).stdin(std::process::Stdio::null()).stdout(log).stderr(log_err);
+    // The daemon must use this client's state directory, including a host
+    // override that its own environment would not reproduce.
+    cmd.env("ACPMUX_HOME", home())
+        .args(DAEMON_PREFIX.get().map(Vec::as_slice).unwrap_or_default())
+        .args(["daemon", "run", "--ready-fd"])
+        .arg(write_fd.to_string())
+        .stdin(std::process::Stdio::null())
+        .stdout(log)
+        .stderr(log_err);
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        // New session so the daemon outlives the terminal.
         unsafe {
-            cmd.pre_exec(|| {
+            cmd.pre_exec(move || {
+                // New session so the daemon outlives the terminal; keep the
+                // readiness descriptor open across exec.
                 libc::setsid();
+                libc::fcntl(write_fd, libc::F_SETFD, 0);
                 Ok(())
             });
         }
     }
     cmd.spawn().context("spawn acpmux daemon")?;
-    Ok(())
+    // Close this process's copy so end of file means the daemon closed it.
+    drop(writer);
+    Ok(reader)
 }
 
 /// Run `notify_command` from the config on two transitions only: a

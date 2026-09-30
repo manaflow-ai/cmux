@@ -3,7 +3,7 @@
 //! get a launchd agent; others get a nohup fallback.
 
 use crate::cli::output::print_json;
-use acpmux::client::Client;
+use crate::client::Client;
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
 use std::process::Command;

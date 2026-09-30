@@ -1,8 +1,8 @@
 //! Printing helpers and the streaming/attach views for the CLI.
 
-use acpmux::client::Client;
-use acpmux::rpc::{Message, method};
-use acpmux::transcript::{Item, Transcript};
+use crate::client::Client;
+use crate::rpc::{Message, method};
+use crate::transcript::{Item, Transcript};
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
@@ -36,7 +36,7 @@ pub(crate) fn short(s: &str, n: usize) -> String {
 }
 
 pub(crate) fn age(ms: u64) -> String {
-    let now = acpmux::store::now_ms();
+    let now = crate::store::now_ms();
     let d = now.saturating_sub(ms) / 1000;
     if d < 60 {
         format!("{d}s")

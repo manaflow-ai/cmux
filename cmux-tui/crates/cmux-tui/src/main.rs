@@ -7,6 +7,8 @@
 //! headless) session over that socket, which is how detach/reattach works.
 
 #[cfg(unix)]
+mod acp;
+#[cfg(unix)]
 mod agent_browser_provider;
 mod agent_hook_install;
 mod app;
@@ -1594,6 +1596,18 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 }
 
 fn main() -> std::process::ExitCode {
+    // One binary ships as `cmux` (this CLI and mux) and as `acpmux` through a
+    // symlink, so both always have the same version.
+    #[cfg(unix)]
+    if std::env::args_os()
+        .next()
+        .as_deref()
+        .and_then(|argv0| Path::new(argv0).file_name())
+        .is_some_and(|name| name == "acpmux")
+    {
+        let code = acp::run_standalone(std::env::args_os().skip(1).collect());
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
     // Hook helper mode for hosts that received only this binary (see
     // `agent_hook_install::HOOK_MODE_ARG`). It runs inside a provider's hook,
     // so it touches no daemon, log, or config state.
@@ -1673,6 +1687,14 @@ fn run_main() {
             client_log::exit(1);
         }
         return;
+    }
+    // `cmux acp …` runs acpmux in this process. It needs none of the mux's
+    // provider credentials or signal handlers.
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str) == Some("acp") {
+        discard_provider_secret_environment();
+        let args = std::env::args_os().skip(2).collect();
+        client_log::exit(acp::run(args));
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
