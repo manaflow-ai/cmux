@@ -77,6 +77,47 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
             windowPixelWidth: windowPixelWidth,
             windowPixelHeight: windowPixelHeight,
             pointPixelScale: pointPixelScale,
+            request: request,
+            maximumPixels: request.format == .gif
+                ? WindowRecordingRequest.gifMaximumPixelsPerFrame
+                : nil
+        )
+    }
+
+    /// Plans a later frame's crop for a clip whose size is already fixed.
+    ///
+    /// The encoded frame size comes from the first frame, so the gif pixel
+    /// ceiling may not be applied again here: a window that grows mid-clip is
+    /// cropped and drawn into the size the clip opened with, and failing it
+    /// would end a recording over a size nothing ever encodes. A `region` the
+    /// window has shrunk out of still fails, because no rectangle is left to
+    /// sample.
+    public static func planCrop(
+        windowPixelWidth: Int,
+        windowPixelHeight: Int,
+        pointPixelScale: Double,
+        request: WindowRecordingRequest
+    ) throws -> WindowRecordingFrameGeometry {
+        try plan(
+            windowPixelWidth: windowPixelWidth,
+            windowPixelHeight: windowPixelHeight,
+            pointPixelScale: pointPixelScale,
+            request: request,
+            maximumPixels: nil
+        )
+    }
+
+    private static func plan(
+        windowPixelWidth: Int,
+        windowPixelHeight: Int,
+        pointPixelScale: Double,
+        request: WindowRecordingRequest,
+        maximumPixels: Int?
+    ) throws -> WindowRecordingFrameGeometry {
+        try plan(
+            windowPixelWidth: windowPixelWidth,
+            windowPixelHeight: windowPixelHeight,
+            pointPixelScale: pointPixelScale,
             region: {
                 if case let .region(region) = request.target { return region }
                 return nil
@@ -84,9 +125,7 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
             scale: request.scale,
             maximumWidth: request.maximumWidth,
             widthQuantum: request.format == .mp4 ? 2 : 1,
-            maximumPixels: request.format == .gif
-                ? WindowRecordingRequest.gifMaximumPixelsPerFrame
-                : nil
+            maximumPixels: maximumPixels
         )
     }
 
