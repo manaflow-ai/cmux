@@ -232,14 +232,20 @@ struct CodexAutoNamingArguments: Sendable {
             arguments.insert("--ignore-user-config", at: arguments.firstIndex(of: "--ignore-rules")!)
         }
         guard let configToml else { return arguments }
-        let overrides = providerOverrides(from: configToml)
+        let overrides = providerOverrides(
+            from: configToml,
+            includeProviderEntries: !usesTemporaryConfig
+        )
         for override in overrides.reversed() {
             arguments.insert(contentsOf: ["-c", override], at: 1)
         }
         return arguments
     }
 
-    private static func providerOverrides(from toml: String) -> [String] {
+    private static func providerOverrides(
+        from toml: String,
+        includeProviderEntries: Bool = true
+    ) -> [String] {
         var model: String?
         var modelProvider: String?
         var providerEntries: [(section: String, key: String, value: String)] = []
@@ -268,17 +274,18 @@ struct CodexAutoNamingArguments: Sendable {
         }
         var result = ["model_provider=\(modelProvider)"]
         if let model { result.append("model=\(model)") }
-        guard !usesTemporaryConfig else { return result }
-        result.append(contentsOf: providerEntries
-            .filter { $0.section.hasPrefix("model_providers.\(providerName)") }
-            .filter { !isCredentialBearingKey($0.key) }
-            .map {
-                let prefix = "model_providers.\(providerName)"
-                let nestedPath = String($0.section.dropFirst(prefix.count))
-                    .trimmingCharacters(in: CharacterSet(charactersIn: "."))
-                let keyPath = nestedPath.isEmpty ? $0.key : "\(nestedPath).\($0.key)"
-                return "model_providers.\(providerName).\(keyPath)=\($0.value)"
-            })
+        if includeProviderEntries {
+            result.append(contentsOf: providerEntries
+                .filter { $0.section.hasPrefix("model_providers.\(providerName)") }
+                .filter { !isCredentialBearingKey($0.key) }
+                .map {
+                    let prefix = "model_providers.\(providerName)"
+                    let nestedPath = String($0.section.dropFirst(prefix.count))
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+                    let keyPath = nestedPath.isEmpty ? $0.key : "\(nestedPath).\($0.key)"
+                    return "model_providers.\(providerName).\(keyPath)=\($0.value)"
+                })
+        }
         return result
     }
 

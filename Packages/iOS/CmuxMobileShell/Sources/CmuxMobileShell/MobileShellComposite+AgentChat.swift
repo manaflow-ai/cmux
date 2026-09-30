@@ -19,4 +19,13 @@ extension MobileShellComposite {
             diagnosticLog: diagnosticLog
         )
     }
+
+    /// Creates the acpmux-backed conversation source for the native GUI. It
+    /// intentionally lives beside the existing transcript source so callers
+    /// choose a backend explicitly instead of making the UI depend on one.
+    public func makeAcpmuxChatEventSource() -> AcpmuxMobileEventSource? {
+        guard connectionState == .connected,
+              let client = remoteClientForAgentChat else { return nil }
+        return AcpmuxMobileEventSource(client: client)
+    }
 }

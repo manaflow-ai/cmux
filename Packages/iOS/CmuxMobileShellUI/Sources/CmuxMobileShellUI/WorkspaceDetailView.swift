@@ -71,6 +71,8 @@ struct WorkspaceDetailView: View {
     @State var closeConfirmation: MobileWorkspaceCloseConfirmation = .macWorkspace
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
+    @State private var isAcpmuxChatPresented = false
+    @State private var acpmuxChatSource: AcpmuxMobileEventSource?
     @State private var feedbackText = ""
     @State private var feedbackEmail = ""
     @State private var isSubmittingFeedback = false
@@ -324,6 +326,22 @@ struct WorkspaceDetailView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
+            .sheet(
+                isPresented: $isAcpmuxChatPresented,
+                onDismiss: { acpmuxChatSource = nil }
+            ) {
+                if let source = acpmuxChatSource {
+                    WorkspaceAcpmuxChatSheet(
+                        source: source,
+                        workspaceID: workspace.rpcWorkspaceID.rawValue
+                    )
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
                 text: $renameText,
@@ -495,8 +513,13 @@ struct WorkspaceDetailView: View {
     }
 
     private var trailingClusterToolbarContent: some View {
-        terminalPickerToolbarButton
-            .frame(width: 44, height: 44)
+        HStack(spacing: 0) {
+            if store.supportsAcpmuxChat {
+                acpmuxChatToolbarButton
+            }
+            terminalPickerToolbarButton
+                .frame(width: 44, height: 44)
+        }
             // Only the always-structural cluster wires collapse detection: a
             // conditional item's structural removal also detaches its probe
             // and would be indistinguishable from a More-menu collapse.
@@ -513,6 +536,22 @@ struct WorkspaceDetailView: View {
                     }
                 }
             )
+    }
+
+    var acpmuxChatToolbarButton: some View {
+        Button(action: openAcpmuxChat) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .frame(width: 44, height: 44)
+        }
+        .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
+        .accessibilityLabel("Open chat")
+        .accessibilityIdentifier("MobileAcpmuxChatButton")
+    }
+
+    func openAcpmuxChat() {
+        guard let source = store.makeAcpmuxChatEventSource() else { return }
+        acpmuxChatSource = source
+        isAcpmuxChatPresented = true
     }
 
     // Which trailing toolbar items are structurally in the bar right now.

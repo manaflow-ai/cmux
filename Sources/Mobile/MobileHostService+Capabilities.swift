@@ -44,6 +44,13 @@ extension MobileHostService {
         "mobile.chat.send",
         "mobile.chat.session",
         "mobile.chat.sessions",
+        "mobile.acpmux.answer",
+        "mobile.acpmux.cancel",
+        "mobile.acpmux.history",
+        "mobile.acpmux.send",
+        "mobile.acpmux.session",
+        "mobile.acpmux.session.new",
+        "mobile.acpmux.sessions",
         "mobile.directory.list",
         "mobile.directory.search",
         "mobile.events.probe",
@@ -278,6 +285,7 @@ extension MobileHostService {
             "chat.artifact.v1",
             "chat.artifact.folders.v1",
             "chat.artifact.gallery.v1",
+            "chat.acpmux.v1",
             "dogfood.v1",
             // The workspace list carries group sections (group_id per workspace +
             // a top-level groups array) and the host accepts

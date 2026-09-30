@@ -48,6 +48,15 @@ extension MobileHostService {
             // List-shaped reads may span the Mac's workspaces; same-account
             // Stack authorization remains the authoritative data-plane gate.
             return nil
+        case "mobile.acpmux.sessions", "mobile.acpmux.session",
+             "mobile.acpmux.session.new", "mobile.acpmux.history",
+             "mobile.acpmux.send", "mobile.acpmux.cancel", "mobile.acpmux.answer":
+            // acpmux owns a Mac-wide session registry rather than cmux
+            // workspace ids. Same-account Stack authorization therefore
+            // scopes this surface; a workspace-pinned attach ticket must not
+            // make the conversation picker appear empty or silently deny a
+            // session that the daemon owns.
+            return nil
         case "mobile.sync.fetch":
             // Cursor-based read of the same Mac-scoped list state as
             // `mobile.workspace.list`; carries no workspace/terminal selection.

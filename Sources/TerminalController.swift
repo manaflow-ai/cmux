@@ -148,6 +148,10 @@ class TerminalController {
     @MainActor private(set) var accountFlow: HostAccountFlow?
     @MainActor private(set) var caffeineController: CaffeineController?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
+    /// Lazily connected acpmux bridge used by the native iOS conversation GUI.
+    /// It is separate from the terminal transcript service so the two backends
+    /// cannot accidentally share session identity or lifecycle state.
+    @MainActor var acpmuxMobileBridge: AcpmuxMobileBridge?
     /// App-lifetime automation engine, attached by the composition root after
     /// the initial TabManager and notification store are ready.
     @MainActor var automationEngine: AutomationEngine?
@@ -15124,6 +15128,11 @@ class TerminalController {
                 method: method,
                 params: request.params,
                 executionContext: executionContext
+            )
+        case let method where method.hasPrefix("mobile.acpmux."):
+            result = await v2MobileAcpmuxDispatch(
+                method: method,
+                params: request.params
             )
         case let method where method.hasPrefix("mobile.browser."):
             result = await v2MobileBrowserDispatch(
