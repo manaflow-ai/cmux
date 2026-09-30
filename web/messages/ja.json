@@ -171,6 +171,11 @@
       "message": "このマシンは Cloud の更新前に作成されたため、接続できません。",
       "action": "新しいマシンを作成し、cmux vm pull と cmux vm push でファイルを移してから、このマシンを削除してください。"
     },
+    "networkFull": {
+      "title": "Cloud ネットワークが満杯です",
+      "message": "プライベート Cloud ネットワークに、新しいマシンやコンピューター用の空きアドレスがありません。未使用と確認できたアドレスは cmux がすでに解放しました。",
+      "action": "不要なマシンを `cmux vm rm <id>` で削除するか、使っていない Mac を cmux.com/dashboard/cloud で取り消してから、もう一度お試しください。"
+    },
     "unsupported": {
       "title": "Cloud VM 操作を利用できません",
       "reason": "このマシン種別ではこの操作を利用できません。",

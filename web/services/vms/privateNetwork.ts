@@ -3,7 +3,9 @@ import * as Effect from "effect/Effect";
 import type { ProviderId } from "./drivers";
 import { trace } from "@opentelemetry/api";
 import { setSpanAttributes } from "../telemetry";
-import { vmPrivateNetworkEnabled, type VmRuntimeEnv } from "./config";
+import { vmNetworkNamespace, vmNetworkSlugPrefix, vmPrivateNetworkEnabled, type VmRuntimeEnv } from "./config";
+
+export { vmNetworkNamespace };
 import {
   VmAccessGrantRevokedError,
   VmAccessGrantMutationBusyError,
@@ -20,6 +22,7 @@ import {
 } from "./repository";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { isProviderTunnelNetworkOverlap } from "./providerErrors";
+import { retryAfterNetworkReclaim } from "./networkCapacity";
 import type { ProviderNetwork, ProviderTunnel } from "./drivers";
 
 /**
@@ -97,6 +100,10 @@ export function isWireGuardPublicKey(value: unknown): value is string {
   return decoded.length === 32 && decoded.toString("base64") === trimmed;
 }
 
+function namespacedPrefix(kind: "net" | "team-net" | "wg", env: VmRuntimeEnv): string {
+  return vmNetworkSlugPrefix(kind, vmNetworkNamespace(env));
+}
+
 /**
  * The provider-side slug for an account's network.
  *
@@ -104,10 +111,35 @@ export function isWireGuardPublicKey(value: unknown): value is string {
  * is shared by every cmux user, so slugs are visible to whoever reads that
  * account's resource list, and a raw Stack Auth user id there would be an
  * avoidable identifier leak. The hash is stable, so the same account always
- * resolves to the same network without a lookup.
+ * resolves to the same network without a lookup. See {@link vmNetworkNamespace}
+ * for the deployment prefix.
  */
-export function networkSlugForUser(userId: string): string {
-  return `cmux-net-${accountHash("network", userId)}`;
+export function networkSlugForUser(userId: string, env: VmRuntimeEnv = process.env): string {
+  return `${namespacedPrefix("net", env)}-${accountHash("network", userId)}`;
+}
+
+/**
+ * The pool new production user networks take their IPv4 range from, and the
+ * size of each range.
+ *
+ * A /20 holds 4,094 members against the platform default's 254; the network
+ * that failed held 255 (85 machines and 170 tunnel attachments). The pool
+ * sits inside 10.0.0.0/8, which every tunnel routes, and above the band the
+ * platform derives its /24s from (10.16-10.95 so far), so a user's own /20
+ * does not overlap the platform-derived team networks their tunnel also
+ * attaches. Different users may share a range: provider address reservations
+ * are scoped to one network, and one tunnel only ever attaches its owner's
+ * network plus team networks.
+ */
+const USER_NETWORK_POOL_BASE = (10 << 24) + (192 << 16);
+const USER_NETWORK_POOL_SLOTS = 1024;
+const USER_NETWORK_RANGE_SIZE = 4096;
+
+/** The IPv4 /20 a production user's network is created with. */
+export function userNetworkCidr(userId: string): string {
+  const slot = Number.parseInt(accountHash("network-cidr", userId).slice(0, 8), 16) % USER_NETWORK_POOL_SLOTS;
+  const base = USER_NETWORK_POOL_BASE + slot * USER_NETWORK_RANGE_SIZE;
+  return `${[24, 16, 8, 0].map((shift) => (base >>> shift) & 255).join(".")}/20`;
 }
 
 /**
@@ -116,8 +148,8 @@ export function networkSlugForUser(userId: string): string {
  * network list is the only record of team networks: finding one is a read by
  * this slug, and no cmux table tracks them or their tunnel attachments.
  */
-export function networkSlugForTeam(teamId: string): string {
-  return `cmux-team-net-${accountHash("team-network", teamId)}`;
+export function networkSlugForTeam(teamId: string, env: VmRuntimeEnv = process.env): string {
+  return `${namespacedPrefix("team-net", env)}-${accountHash("team-network", teamId)}`;
 }
 
 /** The provider-side slug for one of an account's computers. Same reasoning as the network slug. */
@@ -125,8 +157,9 @@ export function tunnelSlugForDevice(
   userId: string,
   deviceFingerprint: string,
   tunnelPurpose: "terminal" | "browser" = "browser",
+  env: VmRuntimeEnv = process.env,
 ): string {
-  return `cmux-wg-${accountHash("tunnel", `${userId}\0${deviceFingerprint}\0${tunnelPurpose}`)}`;
+  return `${namespacedPrefix("wg", env)}-${accountHash("tunnel", `${userId}\0${deviceFingerprint}\0${tunnelPurpose}`)}`;
 }
 
 function accountHash(domain: string, value: string): string {
@@ -424,9 +457,15 @@ function resolveUserNetwork(
     if (existing) return existing;
 
     const slug = networkSlugForUser(input.userId);
+    // Production networks get a /20 (see userNetworkCidr). A namespaced
+    // deployment keeps the platform's account-unique /24: a Mac that runs a
+    // production and a dev build routes both networks at once, and two
+    // networks derived from the same user would otherwise overlap.
+    const cidr = vmNetworkNamespace() === null ? userNetworkCidr(input.userId) : undefined;
     const network = yield* providers.ensureNetwork(input.provider, {
       slug,
       displayName: "cmux machines",
+      ...(cidr ? { cidr } : {}),
     });
     // The provider call is idempotent by slug and the upsert is idempotent by
     // (user, provider), so two machines created at once converge on one row
@@ -531,12 +570,14 @@ export function enrollVmTunnel(input: {
         tunnelPurpose: input.tunnelPurpose,
       });
 
+      const reclaim = { provider: input.provider, networkId: network.providerNetworkId };
       if (existing) {
-        const live = yield* providers.getTunnel(
+        // Reading re-attaches a detached tunnel, which needs a free address.
+        const live = yield* retryAfterNetworkReclaim(reclaim, providers.getTunnel(
           input.provider,
           existing.providerTunnelId,
           network.providerNetworkId,
-        );
+        ));
         if (live) {
           const rotated = live.clientPublicKey.trim() !== clientPublicKey;
           const current = rotated
@@ -562,12 +603,12 @@ export function enrollVmTunnel(input: {
         yield* repo.revokeTunnel(existing.id);
       }
 
-      const created = yield* providers.createTunnel(input.provider, {
+      const created = yield* retryAfterNetworkReclaim(reclaim, providers.createTunnel(input.provider, {
         slug: tunnelSlugForDevice(input.userId, input.deviceFingerprint, input.tunnelPurpose),
         displayName: input.deviceName?.trim() || "cmux computer",
         clientPublicKey,
         networkId: network.providerNetworkId,
-      });
+      }));
       const row = yield* repo.insertTunnel({
         userId: input.userId,
         networkId: network.id,

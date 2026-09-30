@@ -278,6 +278,12 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_VM_PRIVATE_NETWORK_ENABLED`, fail-closed private networking switch. Unset/`1`:
   Freestyle machines join their owner's VPC and open no public inbound port. `0`: new
   machine creation and tunnel enrollment stop. The switch never selects public ingress.
+- `CMUX_VM_NETWORK_NAMESPACE`, prefix for every provider network and tunnel slug this
+  deployment derives (`cmux-<ns>-net-…`, `cmux-<ns>-wg-…`). Leave it unset in production.
+  Every other deployment that shares the Freestyle account and the Stack project must set
+  it, or it resolves users to their production networks. `web/scripts/load-dev-env.sh`
+  sets `dev-<hash of the dev database>` for local and dev-backend stacks. Remove a
+  namespace's provider resources with `bun scripts/cloud-vm-namespace-cleanup.ts --apply`.
 - `CMUX_VM_ALLOWED_ORIGINS`, optional comma-separated extra origins allowed for cookie mutations.
 - `FREESTYLE_API_KEY`, the normal Freestyle provider credential. A complete
   `FREESTYLE_STACK_ACCESS_TOKEN` plus `FREESTYLE_TEAM_ID` pair is the supported
@@ -598,6 +604,19 @@ transport. The route is the VM's private VPC address. The app carries it through
 user-space WireGuard. The daemon's Noise enrollment gates sessions. The backend writes
 only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client.
 Machines created by the old cmuxd-remote drivers need recreation on the private network.
+
+**Address capacity.** Every machine and every attached tunnel holds one IPv4 address in the
+owner's network. A production network created now gets a /20 (4,094 members) from
+10.192.0.0/10, chosen from the user id; networks created earlier keep their
+platform-derived /24 (254), because Freestyle cannot resize a network. When the provider
+refuses a create or a tunnel enrollment for a full network (`409 CONFLICT … no free
+addresses`), the control plane reclaims what it can prove unused and retries once
+(`networkCapacity.ts`): it deletes tunnels whose row is revoked, and detaches from that
+network (never deletes) tunnels no row here describes and that have not changed for a day,
+oldest first, at most 16. It never touches a tunnel with a live row, because the Mac reuses
+its saved config without contacting the control plane. If the network is still full the
+route answers non-retryable `409 vm_network_full`. The provider-status cron also deletes
+provider tunnels whose row is revoked.
 
 Operational note: before rollout, verify the deployed provider, create switch,
 image manifest, and credential presence with

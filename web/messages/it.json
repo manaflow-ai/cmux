@@ -30,6 +30,11 @@
       "message": "Questa macchina è stata creata prima di un aggiornamento di Cloud e non può essere collegata.",
       "action": "Crea una nuova macchina, copia i tuoi file con cmux vm pull e cmux vm push, poi elimina questa."
     },
+    "networkFull": {
+      "title": "La rete Cloud è piena",
+      "message": "La tua rete Cloud privata non ha un indirizzo libero per un'altra macchina o un altro computer. cmux ha già liberato gli indirizzi che poteva dimostrare inutilizzati.",
+      "action": "Elimina le macchine che non ti servono più con `cmux vm rm <id>` oppure revoca i Mac che non usi più su cmux.com/dashboard/cloud, poi riprova."
+    },
     "unsupported": {
       "title": "Operazione Cloud VM non disponibile",
       "reason": "Questo tipo di macchina non offre questa operazione.",

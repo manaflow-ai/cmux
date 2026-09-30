@@ -30,6 +30,11 @@
       "message": "Diese Maschine wurde vor einem Cloud-Update erstellt und kann nicht verbunden werden.",
       "action": "Erstelle eine neue Maschine, kopiere deine Dateien mit cmux vm pull und cmux vm push hinüber und lösche dann diese."
     },
+    "networkFull": {
+      "title": "Cloud-Netzwerk ist voll",
+      "message": "Dein privates Cloud-Netzwerk hat keine freie Adresse für eine weitere Maschine oder einen weiteren Computer. cmux hat die Adressen, die nachweislich ungenutzt waren, bereits freigegeben.",
+      "action": "Lösche nicht mehr benötigte Maschinen mit `cmux vm rm <id>` oder widerrufe nicht mehr genutzte Macs unter cmux.com/dashboard/cloud und versuche es dann erneut."
+    },
     "unsupported": {
       "title": "Cloud-VM-Vorgang nicht verfügbar",
       "reason": "Dieser Maschinentyp stellt diesen Vorgang nicht bereit.",

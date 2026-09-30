@@ -144,7 +144,9 @@ function sourcedNetworkNamespace(env) {
   const inherited = { ...process.env };
   delete inherited.CMUX_VM_NETWORK_NAMESPACE;
   delete inherited.DATABASE_URL;
-  delete inherited.CMUX_DEV_USE_EXTERNAL_DATABASE_URL;
+  for (const key of ["CMUX_DEV_USE_EXTERNAL_DATABASE_URL", "CMUX_DEV_USE_PLANETSCALE", "CMUX_DB_PASSWORD", "CMUX_DB_PORT", "CMUX_DB_USER", "CMUX_DB_NAME", "CMUX_PORT", "PORT"]) {
+    delete inherited[key];
+  }
   try {
     return execFileSync(
       "bash",
@@ -160,24 +162,24 @@ function sourcedNetworkNamespace(env) {
 }
 
 test("each dev database gets its own Cloud network namespace", () => {
-  const stackA = sourcedNetworkNamespace({
+  // A dev-backend stack: Compose passes the stack's own database password
+  // and URL; the shared secret file may carry another DATABASE_URL.
+  const stack = (password) => ({
+    CMUX_PORT: "3811",
+    CMUX_DB_PASSWORD: password,
     CMUX_DEV_USE_EXTERNAL_DATABASE_URL: "1",
-    DATABASE_URL: "postgres://cmux:stack-a-password@postgres:5432/cmux",
+    DATABASE_URL: `postgres://cmux:${password}@postgres:5432/cmux`,
   });
-  const stackB = sourcedNetworkNamespace({
-    CMUX_DEV_USE_EXTERNAL_DATABASE_URL: "1",
-    DATABASE_URL: "postgres://cmux:stack-b-password@postgres:5432/cmux",
-  });
+  const stackA = sourcedNetworkNamespace(stack("stack-a-password"));
+  const stackB = sourcedNetworkNamespace(stack("stack-b-password"));
   const local = sourcedNetworkNamespace({ CMUX_PORT: "3811" });
   for (const value of [stackA, stackB, local]) {
     assert.match(value, /^set:dev-[0-9a-f]{10}$/);
   }
   assert.notEqual(stackA, stackB);
   assert.notEqual(stackA, local);
-  assert.equal(stackA, sourcedNetworkNamespace({
-    CMUX_DEV_USE_EXTERNAL_DATABASE_URL: "1",
-    DATABASE_URL: "postgres://cmux:stack-a-password@postgres:5432/cmux",
-  }));
+  assert.equal(stackA, sourcedNetworkNamespace(stack("stack-a-password")));
+  assert.notEqual(local, sourcedNetworkNamespace({ CMUX_PORT: "3812" }));
   assert.equal(stackA.includes("stack-a-password"), false);
 });
 

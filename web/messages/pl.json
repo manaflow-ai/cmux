@@ -30,6 +30,11 @@
       "message": "Ta maszyna została utworzona przed aktualizacją Cloud i nie można się z nią połączyć.",
       "action": "Utwórz nową maszynę, skopiuj pliki za pomocą cmux vm pull i cmux vm push, a potem usuń tę."
     },
+    "networkFull": {
+      "title": "Sieć Cloud jest pełna",
+      "message": "Twoja prywatna sieć Cloud nie ma wolnego adresu dla kolejnej maszyny ani komputera. cmux zwolnił już adresy, co do których mógł wykazać, że nie są używane.",
+      "action": "Usuń niepotrzebne maszyny poleceniem `cmux vm rm <id>` lub cofnij dostęp Maców, których już nie używasz, na cmux.com/dashboard/cloud, a następnie spróbuj ponownie."
+    },
     "unsupported": {
       "title": "Operacja Cloud VM jest niedostępna",
       "reason": "Ten typ maszyny nie udostępnia tej operacji.",

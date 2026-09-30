@@ -30,6 +30,11 @@
       "message": "这台机器创建于 Cloud 更新之前，无法连接。",
       "action": "请创建一台新机器，用 cmux vm pull 和 cmux vm push 复制文件，然后删除这台机器。"
     },
+    "networkFull": {
+      "title": "Cloud 网络已满",
+      "message": "你的私有 Cloud 网络没有可用于另一台机器或电脑的空闲地址。cmux 已释放它能证明未被使用的地址。",
+      "action": "使用 `cmux vm rm <id>` 删除不再需要的机器，或在 cmux.com/dashboard/cloud 撤销不再使用的 Mac，然后重试。"
+    },
     "unsupported": {
       "title": "云端虚拟机操作不可用",
       "reason": "此机器类型不提供此操作。",

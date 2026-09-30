@@ -30,6 +30,11 @@
       "message": "Denne maskinen ble opprettet før en Cloud-oppdatering og kan ikke kobles til.",
       "action": "Opprett en ny maskin, kopier filene dine med cmux vm pull og cmux vm push, og slett så denne."
     },
+    "networkFull": {
+      "title": "Cloud-nettverket er fullt",
+      "message": "Det private Cloud-nettverket ditt har ingen ledig adresse til enda en maskin eller datamaskin. cmux har allerede frigjort adressene det kunne bevise var ubrukte.",
+      "action": "Slett maskiner du ikke lenger trenger med `cmux vm rm <id>`, eller tilbakekall Mac-er du ikke lenger bruker på cmux.com/dashboard/cloud, og prøv igjen."
+    },
     "unsupported": {
       "title": "Cloud VM-operasjon er ikke tilgjengelig",
       "reason": "Denne maskintypen tilbyr ikke denne operasjonen.",

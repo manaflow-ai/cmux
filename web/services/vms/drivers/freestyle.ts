@@ -19,6 +19,7 @@ import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
   ProviderMachineRecreateRequiredError,
+  ProviderNetworkAddressExhaustedError,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -26,9 +27,11 @@ import {
   type CmuxRemoteEndpoint,
   type CreateOptions,
   type CreateProviderTunnelOptions,
+  type EnsureProviderNetworkOptions,
   type ExecOptions,
   type ExecResult,
   type ProviderNetwork,
+  type ProviderNetworkTunnel,
   type ProviderTunnel,
   type ProviderTunnelAttachment,
   ProviderTunnelNetworkOverlapError,
@@ -565,6 +568,44 @@ function isNotFound(err: unknown): boolean {
 }
 
 /**
+ * Freestyle's answer when a VM or tunnel attachment needs an address in a
+ * network that has none left. The platform has no dedicated code for it: it is
+ * a generic `409 CONFLICT` whose message reads
+ * `vpc <id> has no free addresses in <cidr>`, so the message is the only
+ * discriminator (a slug conflict is the same status and code).
+ */
+export function isFreestyleNetworkAddressExhausted(err: unknown): boolean {
+  if (!(err instanceof FreestyleApiError) || err.status !== 409) return false;
+  return /\bno free address(?:es)?\b/i.test(err.message);
+}
+
+/**
+ * The error a failed VM create or restore throws: a full network is typed so
+ * routes answer `vm_network_full`, a driver error passes through, anything else
+ * is wrapped with the operation that failed.
+ */
+function freestyleCreateFailure(err: unknown, network: { readonly id: string } | undefined, operation: string): ProviderError {
+  if (isFreestyleNetworkAddressExhausted(err)) return new ProviderNetworkAddressExhaustedError("freestyle", network?.id ?? null, err);
+  return err instanceof ProviderError ? err : new ProviderError("freestyle", operation, err);
+}
+
+function freestyleTimestamp(value: string | null | undefined): number {
+  const parsed = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** A provider tunnel listing entry in the driver-neutral shape. */
+export function mapFreestyleNetworkTunnel(data: TunnelData): ProviderNetworkTunnel {
+  return {
+    id: data.tunnelId ?? data.id,
+    slug: data.slug?.trim() || null,
+    createdAt: freestyleTimestamp(data.createdAt),
+    updatedAt: freestyleTimestamp(data.updatedAt),
+    networkIds: (data.attachments ?? []).map((attachment) => attachment.vpcId),
+  };
+}
+
+/**
  * The Freestyle-side half of cmux private networking: one VPC per owner, and
  * one WireGuard tunnel per owner's computer attached to it.
  *
@@ -585,7 +626,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
    * it is off the request path because a rule deleted out of band is an
    * operator event, not something every create should pay to re-check.
    */
-  async ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean }): Promise<ProviderNetwork> {
+  async ensureNetwork(options: EnsureProviderNetworkOptions): Promise<ProviderNetwork> {
     const slug = options.slug.trim();
     if (!slug) throw new ProviderError("freestyle", "ensureNetwork requires a slug");
     return withVmSpan(
@@ -602,12 +643,14 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           return existing;
         }
         try {
-          // The CIDRs are deliberately left to the platform: a derived /24 out
-          // of 10.0.0.0/8 and a unique-local /64 both sit inside a tunnel's
-          // default routes, so no cmux code has to allocate address space.
+          // Without a requested range the platform derives an account-unique
+          // /24 out of 10.0.0.0/8 and a unique-local /64, both inside a
+          // tunnel's default routes. A caller that needs more than 254
+          // members names a larger IPv4 range; it cannot be changed later.
           const { data } = await fs.vpc.create({
             slug,
             displayName: options.displayName,
+            ...(options.cidr ? { cidr: options.cidr } : {}),
             firewall: { rules: options.membersRule === false ? [] : FREESTYLE_NETWORK_FIREWALL_RULES },
           });
           setSpanAttributes(span, { "cmux.vm.network.id": data.id, "cmux.vm.network.created": true });
@@ -678,6 +721,11 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           setSpanAttributes(span, { "cmux.vm.tunnel.id": tunnel.id });
           return { tunnel, created: true, rotated: false };
         } catch (err) {
+          // A full network is a definite refusal: nothing was created, so a
+          // recovery read would only hide the reason.
+          if (isFreestyleNetworkAddressExhausted(err)) {
+            throw new ProviderNetworkAddressExhaustedError("freestyle", options.networkId, err);
+          }
           if (!tunnelCreateMayHaveSucceeded(err)) {
             throw new ProviderError("freestyle", `createTunnel(${options.slug})`, err);
           }
@@ -747,6 +795,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
       return mapFreestyleTunnel(data, networkId);
     } catch (err) {
       if (isNotFound(err)) return null;
+      if (isFreestyleNetworkAddressExhausted(err)) throw new ProviderNetworkAddressExhaustedError("freestyle", networkId, err);
       throw new ProviderError("freestyle", `getTunnel(${tunnelId})`, err);
     }
   }
@@ -778,7 +827,9 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
       if (!attachment) throw new Error("missing attachment");
       return { networkId, addressV4: attachment.ipv4 ?? null, addressV6: attachment.ipv6 ?? null };
     } catch (err) {
-      // Freestyle uses generic CONFLICT for 409s; without remoteCidrs or pinned addresses, overlap is the only reachable 409.
+      if (isFreestyleNetworkAddressExhausted(err)) throw new ProviderNetworkAddressExhaustedError("freestyle", networkId, err);
+      // Freestyle uses generic CONFLICT for 409s; without remoteCidrs or pinned
+      // addresses, overlap is the only other reachable 409.
       if (err instanceof FreestyleApiError && err.status === 409 && err.code === "CONFLICT") {
         throw new ProviderTunnelNetworkOverlapError(`Freestyle refused overlapping tunnel network ${networkId}`);
       }
@@ -801,6 +852,24 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
       return tunnels.map((tunnel) => tunnel.tunnelId ?? tunnel.id);
     } catch (err) {
       throw new ProviderError("freestyle", `listNetworkTunnelIds(${networkId})`, err);
+    }
+  }
+
+  async listNetworkTunnels(networkId: string): Promise<ProviderNetworkTunnel[]> {
+    try {
+      const { tunnels } = await this.client().vpc.ref(networkId).tunnels.list();
+      return tunnels.map(mapFreestyleNetworkTunnel);
+    } catch (err) {
+      throw new ProviderError("freestyle", `listNetworkTunnels(${networkId})`, err);
+    }
+  }
+
+  async listTunnels(): Promise<ProviderNetworkTunnel[]> {
+    try {
+      const { tunnels } = await this.client().tunnels.list();
+      return tunnels.map(mapFreestyleNetworkTunnel);
+    } catch (err) {
+      throw new ProviderError("freestyle", "listTunnels", err);
     }
   }
 
@@ -1015,7 +1084,7 @@ export class FreestyleProvider implements VMProvider {
             },
           };
         } catch (err) {
-          throw err instanceof ProviderError ? err : new ProviderError("freestyle", `create(${image}) failed`, err);
+          throw freestyleCreateFailure(err, options.network, `create(${image}) failed`);
         }
       },
     );
@@ -1350,7 +1419,7 @@ export class FreestyleProvider implements VMProvider {
             },
           };
         } catch (err) {
-          throw err instanceof ProviderError ? err : new ProviderError("freestyle", `restore(${snapshotId})`, err);
+          throw freestyleCreateFailure(err, options?.network, `restore(${snapshotId})`);
         }
       },
     );

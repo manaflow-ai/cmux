@@ -30,6 +30,11 @@
       "message": "Denne maskine blev oprettet før en Cloud-opdatering og kan ikke tilknyttes.",
       "action": "Opret en ny maskine, kopiér dine filer over med cmux vm pull og cmux vm push, og slet så denne."
     },
+    "networkFull": {
+      "title": "Cloud-netværket er fuldt",
+      "message": "Dit private Cloud-netværk har ingen ledig adresse til endnu en maskine eller computer. cmux har allerede frigivet de adresser, det kunne bevise var ubrugte.",
+      "action": "Slet maskiner, du ikke længere har brug for, med `cmux vm rm <id>`, eller tilbagekald Mac-computere, du ikke længere bruger, på cmux.com/dashboard/cloud, og prøv igen."
+    },
     "unsupported": {
       "title": "Cloud VM-handling er ikke tilgængelig",
       "reason": "Denne maskintype tilbyder ikke denne handling.",

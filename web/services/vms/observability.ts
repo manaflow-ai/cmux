@@ -30,6 +30,10 @@ const OPERATOR_FAULT_VM_ERROR_CODES: ReadonlySet<string> = new Set([
   "vm_cloud_service_unavailable",
   "vm_base_create_failed",
   "vm_create_failed",
+  // A full private network after reclaim means addresses leaked or the range
+  // is too small for the account; the user can free some, but it is ours to
+  // notice.
+  "vm_network_full",
 ]);
 
 /**

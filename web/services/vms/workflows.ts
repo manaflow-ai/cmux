@@ -96,7 +96,8 @@ import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
-import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
+import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNetworkAddressExhausted, isProviderNotFoundError } from "./providerErrors";
+import { reconcileRevokedProviderTunnels, retryAfterNetworkReclaim } from "./networkCapacity";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import {
@@ -108,6 +109,7 @@ import {
   CREATE_CLEANUP_PROVIDER_VM_ID_KEY,
   PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+  PROVIDER_NETWORK_FULL_FAILURE_CODE,
   VmRepository,
   vmRepositoryLiveShape,
   type BeginCreateResult,
@@ -561,6 +563,12 @@ export function reconcileVmProviderStatuses(input: {
         input.teamNetworkPageSize, input.teamReconcileBudgetMs, input.now,
       );
     }
+    // Revoked rows whose provider tunnel survived still hold an address in
+    // every network the tunnel is attached to.
+    yield* reconcileRevokedProviderTunnels().pipe(
+      Effect.provideService(VmRepository, repo),
+      Effect.provideService(VmProviderGateway, providers),
+    );
     return {
       checked: candidates.length,
       updated,
@@ -971,7 +979,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
-      providers.create(input.provider, {
+      retryAfterNetworkReclaim({ provider: input.provider, networkId: network.providerNetworkId }, providers.create(input.provider, {
         image: input.image,
         // The display label is reserved with the row before provider work starts.
         // Passing it here makes the first guest prompt correct and removes the
@@ -989,7 +997,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         imageSize: input.imageSize ?? (input.billingPlanId === "go" ? { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } : undefined),
         edgeRules: materials?.edgeRules,
         network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
-      }),
+      })),
     ).pipe(
       Effect.tapError((err) =>
         awaitRequestedEvents.pipe(Effect.andThen(Effect.all([
@@ -1002,7 +1010,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
             // instead of allocating a duplicate machine.
             ...(isProviderCreateCleanupError(err.cause)
               ? { code: PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE, cleanupProviderVmId: err.cause.providerVmId }
-              : { code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE }),
+              : { code: isProviderNetworkAddressExhausted(err.cause) ? PROVIDER_NETWORK_FULL_FAILURE_CODE : PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE }),
             message: isProviderCreateCleanupError(err.cause)
               ? `${errorMessage(err.cause.cause)}; cleanup: ${errorMessage(err.cause.cleanupCause)}`
               : errorMessage(err.cause),
@@ -1365,7 +1373,7 @@ function finishBaseCreate(
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
-      providers.create(input.provider, {
+      retryAfterNetworkReclaim({ provider: input.provider, networkId: network.providerNetworkId }, providers.create(input.provider, {
         image: input.image,
         imageSize: input.imageSize,
         runtimeBudgetSeconds: input.runtimeBudgetSeconds,
@@ -1374,7 +1382,10 @@ function finishBaseCreate(
         providerMetadata: create.vm.providerMetadata,
         edgeRules: materials?.edgeRules,
         network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
-      }),
+      })).pipe(
+        Effect.provideService(VmRepository, repo),
+        Effect.provideService(VmProviderGateway, providers),
+      ),
     ).pipe(
       Effect.tapError((err) =>
         Effect.all([
@@ -1387,7 +1398,7 @@ function finishBaseCreate(
             userId: input.userId,
             ...(isProviderCreateCleanupError(err.cause)
               ? { code: PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE, cleanupProviderVmId: err.cause.providerVmId }
-              : { code: err.operation }),
+              : { code: isProviderNetworkAddressExhausted(err.cause) ? PROVIDER_NETWORK_FULL_FAILURE_CODE : err.operation }),
             message: errorMessage(err.cause),
           }), {
             userId: input.userId,

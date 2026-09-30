@@ -731,6 +731,13 @@ export const FAILED_CREATE_RETRY_WINDOW_MS = 15 * 60 * 1000;
  * provider failure).
  */
 export const PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE = "provider_create_unavailable";
+/**
+ * failureCode stored when the provider refused the create because the owner's
+ * private network had no free address even after reclaim. Retryable at the
+ * idempotency layer: once the user frees an address, the same key must reach
+ * the provider again instead of replaying this failure.
+ */
+export const PROVIDER_NETWORK_FULL_FAILURE_CODE = "provider_network_full";
 /** Provider allocation remains owned by the failed row until cleanup is confirmed. */
 export const PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE = "provider_create_cleanup_pending";
 /** Durable metadata keys for a provider allocation retained after create failure. */
@@ -754,6 +761,7 @@ const RETRYABLE_FAILED_CREATE_CODES = new Set([
   "billing_credits_insufficient",
   "billing_reserve_failed",
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+  PROVIDER_NETWORK_FULL_FAILURE_CODE,
   // Model-plane failures happen before any provider call: a coderouter outage
   // clears on its own, so a same-key retry must reach provisioning again. The
   // legacy entitlement code is kept for rows written before that gate was

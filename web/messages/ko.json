@@ -30,6 +30,11 @@
       "message": "이 머신은 Cloud 업데이트 이전에 만들어져 연결할 수 없습니다.",
       "action": "새 머신을 만들고 cmux vm pull과 cmux vm push로 파일을 옮긴 다음 이 머신을 삭제하세요."
     },
+    "networkFull": {
+      "title": "Cloud 네트워크가 가득 찼습니다",
+      "message": "비공개 Cloud 네트워크에 다른 머신이나 컴퓨터에 할당할 빈 주소가 없습니다. cmux가 사용하지 않는 것으로 확인된 주소는 이미 해제했습니다.",
+      "action": "더 이상 필요 없는 머신을 `cmux vm rm <id>`로 삭제하거나 cmux.com/dashboard/cloud에서 더 이상 사용하지 않는 Mac을 해지한 다음 다시 시도하세요."
+    },
     "unsupported": {
       "title": "Cloud VM 작업을 사용할 수 없음",
       "reason": "이 머신 종류는 이 작업을 제공하지 않습니다.",

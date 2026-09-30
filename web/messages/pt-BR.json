@@ -30,6 +30,11 @@
       "message": "Esta máquina foi criada antes de uma atualização do Cloud e não pode ser conectada.",
       "action": "Crie uma nova máquina, copie seus arquivos com cmux vm pull e cmux vm push e depois exclua esta."
     },
+    "networkFull": {
+      "title": "A rede do Cloud está cheia",
+      "message": "Sua rede privada do Cloud não tem um endereço livre para outra máquina ou outro computador. O cmux já liberou os endereços que conseguiu comprovar que não estavam em uso.",
+      "action": "Exclua as máquinas de que você não precisa mais com `cmux vm rm <id>` ou revogue os Macs que você não usa mais em cmux.com/dashboard/cloud e tente novamente."
+    },
     "unsupported": {
       "title": "Operação de Cloud VM indisponível",
       "reason": "Este tipo de máquina não oferece esta operação.",

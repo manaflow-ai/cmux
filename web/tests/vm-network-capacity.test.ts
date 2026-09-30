@@ -35,7 +35,8 @@ import { createVm } from "../services/vms/workflows";
 // answered a retryable 502, and the client retried every 5 s forever while
 // 150 WireGuard tunnels leaked by dev stacks held the addresses.
 
-const NOW = Date.parse("2026-09-29T12:00:00Z");
+// Workflow paths read the wall clock, so fixtures are relative to it.
+const NOW = Date.now();
 const DAY = 24 * 60 * 60 * 1000;
 const FULL_NETWORK = "vpc-full";
 const EXHAUSTED_MESSAGE = `conflict: vpc ${FULL_NETWORK} has no free addresses in 10.16.162.0/24`;
@@ -284,8 +285,8 @@ function reclaimGateway(calls: ReclaimCalls, options: {
     }),
     getTunnel: () => Effect.succeed(null),
     rotateTunnelKey: () => Effect.die("unused"),
-    deleteTunnel: (_provider, tunnelId) => Effect.sync(() => { calls.deleted.push(tunnelId); }),
-    detachTunnelNetwork: (_provider, tunnelId, networkId) => {
+    deleteTunnel: (_provider: string, tunnelId: string) => Effect.sync(() => { calls.deleted.push(tunnelId); }),
+    detachTunnelNetwork: (_provider: string, tunnelId: string, networkId: string) => {
       if (tunnelId === options.failDetach) {
         calls.failures.push(tunnelId);
         return Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "detachTunnelNetwork", cause: new Error("down") }));

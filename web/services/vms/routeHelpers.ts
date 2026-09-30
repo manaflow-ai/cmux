@@ -58,6 +58,7 @@ import {
   vmDisplayNameCopy,
   vmCreateCleanupPendingCopy,
   vmGuestInstallCopy,
+  vmNetworkFullCopy,
   vmRecreateRequiredCopy,
   vmRequestLocale,
   vmRequiresProCopy,
@@ -69,6 +70,7 @@ import {
 import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
 import { ProviderArtifactUnavailableError, ProviderMachineRecreateRequiredError } from "./drivers/types";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
+import { isProviderNetworkAddressExhausted } from "./providerErrors";
 import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
 
@@ -810,6 +812,9 @@ export const vmWorkflowErrorResponders = {
     if (providerMachineRecreateRequired(error.cause)) {
       return vmRecreateRequiredResponse(error, context.locale);
     }
+    if (isProviderNetworkAddressExhausted(error.cause)) {
+      return vmNetworkFullResponse(error, context.locale);
+    }
     if (isProviderCreateCleanupError(error.cause)) {
       return vmCreateCleanupPendingResponse(context.locale);
     }
@@ -1154,6 +1159,26 @@ async function vmRecreateRequiredResponse(error: VmProviderOperationError, local
   const copy = await vmRecreateRequiredCopy(locale);
   return vmErrorResponse({
     error: "vm_recreate_required",
+    status: 409,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: false },
+  });
+}
+
+/**
+ * The owner's private network has no free address even after the control
+ * plane reclaimed what it could prove unused. Retrying the same request cannot
+ * help, so the answer is non-retryable and names the user's way out.
+ */
+async function vmNetworkFullResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmNetworkFullCopy(locale);
+  return vmErrorResponse({
+    error: "vm_network_full",
     status: 409,
     message: copy.message,
     action: copy.action,

@@ -171,6 +171,11 @@
       "message": "This machine was created before a Cloud update and can't be attached.",
       "action": "Create a new machine, copy your files over with cmux vm pull and cmux vm push, then delete this one."
     },
+    "networkFull": {
+      "title": "Cloud network is full",
+      "message": "Your private Cloud network has no free address for another machine or computer. cmux already released the addresses it could prove were unused.",
+      "action": "Delete machines you no longer need with `cmux vm rm <id>`, or revoke Macs you no longer use at cmux.com/dashboard/cloud, then try again."
+    },
     "unsupported": {
       "title": "Cloud VM operation unavailable",
       "reason": "This machine kind does not provide this operation.",

@@ -30,6 +30,11 @@
       "message": "Bu makine bir Cloud güncellemesinden önce oluşturuldu ve bağlanılamıyor.",
       "action": "Yeni bir makine oluşturun, dosyalarınızı cmux vm pull ve cmux vm push ile aktarın, ardından bunu silin."
     },
+    "networkFull": {
+      "title": "Cloud ağı dolu",
+      "message": "Özel Cloud ağınızda başka bir makine veya bilgisayar için boş adres yok. cmux, kullanılmadığını kanıtlayabildiği adresleri zaten serbest bıraktı.",
+      "action": "Artık ihtiyaç duymadığınız makineleri `cmux vm rm <id>` ile silin veya artık kullanmadığınız Mac'lerin erişimini cmux.com/dashboard/cloud adresinden iptal edin, ardından yeniden deneyin."
+    },
     "unsupported": {
       "title": "Cloud VM işlemi kullanılamıyor",
       "reason": "Bu makine türü bu işlemi sağlamıyor.",
