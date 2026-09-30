@@ -686,3 +686,62 @@ see Caveats) injects into the page.
 - Recompute everything with:
   `/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node --experimental-strip-types tests/browser-parity/compare/chatgpt-live.ts`
   then `node tests/browser-parity/compare/run.mjs --pages fixtures,nest,corpus`.
+
+## After: cmux at 3dfed73 (2026-09-30)
+
+The five "New cmux must" items and last round's leftovers are implemented
+(commits bef0349 and 3dfed73). Rerun:
+`node tests/browser-parity/compare/run.mjs --pages fixtures,nest,corpus
+--skip-tools aside,browser-use,stagehand` (cmux tools and the offline
+ChatGPT stand-ins; the live ChatGPT columns are the committed captures).
+The harness now also scores `cmux-v`, `snapshot({ viewport: true })`. The
+frozen corpus pages now keep same-host links root-relative (they were
+absolute, which made every link off-site on the fixture server); markup is
+otherwise unchanged.
+
+| metric (corpus unless noted) | cmux before | cmux after | cmux-i after | cmux-v | chatgpt-live-ax | chatgpt-live-dom |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| tokens, 9 corpus pages | 66k | 67k | 42k | **14k** | 111k | 28k |
+| recall, corpus | 99.6% | **100%** | **100%** | 31% (viewport only) | 99.7% | 35.9% |
+| recall, corpus first screen | 99.6% | **100%** | **100%** | **100%** | 99.7% | 95.7% |
+| recall, fixtures | 100% | 100% | 100% | 94% (100% first screen) | 96.7% | 80.0% |
+| leaked hidden targets, Wikipedia corpus | 84/698 | 3/597 | 3/597 | 1/112 | 83/700 | 0/119 |
+| leaked hidden targets, all corpus | 89 (3.5%) | **8 (0.3%)** | 8 (0.3%) | 1 | 115 (4.5%) | 2 (0.2%) |
+| structure probes (36) | 35 | 35 | 29 | 32 | 22 | 14 |
+| action flow: cmux-i shows the submit result | no (334 B) | - | **yes (383 B)** | - | yes (1,242 B) | n/a |
+
+- **Interactive diffs carry result text.** After fill, check and submit,
+  cmux-i prints `+ - text: "Submitted me@x.com tos=true plan=Pro"` with the
+  ancestor lines that locate it.
+- **Named disclosures.** MDN's sidebar prints `button "Guides" [ref=…]
+  [expanded=false]:` with the link inside; corpus BBC and MDN-iframe recall
+  reach 100%.
+- **Zero-size links.** A link or button whose box has zero width or height
+  is left out unless some content inside it shows (content hidden by
+  `clip`/`clip-path`, as screen-reader labels are, does not count). On the
+  frozen Wikipedia page this removes the 101 zero-width citation backlinks.
+  On live Wikipedia those backlinks are 10x16 boxes that show "a", "b",
+  "c" and stay (the frozen page lost the rule that draws them).
+- **Off-site destinations.** Links to another site print
+  `[url=host/segment/…]` (at most 48 characters): live HN marks its 31
+  off-site story and source links, `[url=github.com/ninjahawk/…]`. The
+  `link-target` probe (a same-site link) still needs `{ urls: true }`.
+- **Viewport scope.** `cmux-v` is 14k tokens on the corpus, half of
+  `dom_cua`'s 28k, with 100% first-screen recall against its 95.7%, and 1
+  leaked target.
+
+Live pages on the app (tag brepl-v26, 1280x800), bytes of `snapshot()` and
+`snapshot({ viewport: true })`, and printed URLs (off-site host form, and
+on-site ones for unnamed or image-only links, at most 100 characters):
+
+| page | full | viewport | off-site URLs | on-site URLs | Aside full (previous round) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Wikipedia | 67,997 | 6,678 | 188 | 16 | 69,213 |
+| Hacker News | 10,084 | 7,440 | 30 | 1 | 11,770 |
+| GitHub | 62,736 | 6,642 | 43 | 27 | 64,244 |
+| Amazon | 59,078 | 8,114 | 31 | 0 | 62,566 |
+
+The off-site URLs cost about 9% on Wikipedia (its citations go to other
+sites) and little elsewhere; cmux stays below Aside on all four. Aside's
+sizes on the corpus are unchanged (it prints no URLs); cmux is below them
+on 8 of 9 corpus pages and 3% above on BBC.
