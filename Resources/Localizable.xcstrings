@@ -569921,55 +569921,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud machines need cmux Pro, showing last known"
+            "value": "Cloud machines need cmux Pro — showing last known"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتطلب الأجهزة السحابية إصدار cmux Pro، يتم عرض آخر حالة معروفة"
+            "value": "تتطلب الأجهزة السحابية إصدار cmux Pro — يتم عرض آخر حالة معروفة"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-Maschinen erfordern cmux Pro, zeige letzten bekannten Stand"
+            "value": "Cloud-Maschinen erfordern cmux Pro – zeige letzten bekannten Stand"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las máquinas en la nube requieren cmux Pro, se muestra el último estado conocido"
+            "value": "Las máquinas en la nube requieren cmux Pro — se muestra el último estado conocido"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les machines Cloud nécessitent cmux Pro, affichage des dernières informations connues"
+            "value": "Les machines Cloud nécessitent cmux Pro — affichage des dernières informations connues"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud マシンには cmux Pro が必要です。最後の状態を表示中"
+            "value": "Cloud マシンには cmux Pro が必要です — 最後の状態を表示中"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드 머신을 사용하려면 cmux Pro가 필요함, 마지막으로 확인된 상태 표시 중"
+            "value": "클라우드 머신을 사용하려면 cmux Pro가 필요함 — 마지막으로 확인된 상태 표시 중"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云端机器需要 cmux Pro，显示的是最后已知状态"
+            "value": "云端机器需要 cmux Pro —— 显示的是最后已知状态"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "雲端機器需要 cmux Pro，顯示上次已知的狀態"
+            "value": "雲端機器需要 cmux Pro — 顯示上次已知的狀態"
           }
         }
       }
@@ -569980,55 +569980,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign-in needs a refresh, showing last known"
+            "value": "Sign-in needs a refresh — showing last known"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحتاج تسجيل الدخول إلى تحديث، يتم عرض آخر حالة معروفة"
+            "value": "يحتاج تسجيل الدخول إلى تحديث — يتم عرض آخر حالة معروفة"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Anmeldung muss aktualisiert werden, zeige letzten bekannten Stand"
+            "value": "Anmeldung muss aktualisiert werden – zeige letzten bekannten Stand"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Es necesario actualizar el inicio de sesión, se muestra el último estado conocido"
+            "value": "Es necesario actualizar el inicio de sesión — se muestra el último estado conocido"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La connexion doit être actualisée, affichage des dernières informations connues"
+            "value": "La connexion doit être actualisée — affichage des dernières informations connues"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再サインインが必要です。最後の状態を表示中"
+            "value": "再サインインが必要です — 最後の状態を表示中"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "로그인 갱신 필요, 마지막으로 확인된 상태 표시 중"
+            "value": "로그인 갱신 필요 — 마지막으로 확인된 상태 표시 중"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "登录状态需要刷新，显示的是最后已知状态"
+            "value": "登录状态需要刷新 —— 显示的是最后已知状态"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "登入狀態需要重新整理，顯示上次已知的狀態"
+            "value": "登入狀態需要重新整理 — 顯示上次已知的狀態"
           }
         }
       }
