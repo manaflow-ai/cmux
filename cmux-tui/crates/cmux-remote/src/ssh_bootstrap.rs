@@ -231,7 +231,7 @@ impl SshBootstrapper {
         self.create_remote_staging(self.remote_parent(), &temporary_dir).await?;
         let package = format!("{}@{}", platform.npm_package, self.config.package_version);
         let command = pinned_package_command(&temporary_dir, &package);
-        let output = match self.run_remote([command.as_str()]).await {
+        let output = match self.run_remote_script(&command).await {
             Ok(output) => output,
             Err(error) => {
                 self.cleanup_remote_staging(&temporary_dir, deadline).await;
@@ -401,7 +401,7 @@ impl SshBootstrapper {
             "mv -f -- {temporary} {} && {{ rmdir -- {temporary_dir} 2>/dev/null || true; }}",
             self.config.remote_binary
         );
-        let output = match self.run_remote([command.as_str()]).await {
+        let output = match self.run_remote_script(&command).await {
             Ok(output) => output,
             Err(error) => {
                 self.cleanup_remote_staging(temporary_dir, deadline).await;
@@ -450,7 +450,7 @@ impl SshBootstrapper {
             "mkdir -p -- {parent} && mkdir -m 700 -- {temporary_dir} && \
              {{ command -v gzip >/dev/null 2>&1 && echo {GZIP_UPLOAD_MARKER}; true; }}"
         );
-        let output = self.run_remote([command.as_str()]).await?;
+        let output = self.run_remote_script(&command).await?;
         if output.status != 0 {
             return Err(BootstrapError::Install {
                 status: output.status,
@@ -585,6 +585,16 @@ impl SshBootstrapper {
         self.run_remote_with_timeout(remote_arguments, self.config.timeout).await
     }
 
+    /// Runs a POSIX `sh` script on the remote. OpenSSH hands the command
+    /// string to the user's login shell, which may be fish or tcsh, so any
+    /// script with `$?`, `{ ...; }`, `[ ... ]`, subshells or redirections
+    /// must go through `sh -c`. Plain argument lists that every shell parses
+    /// the same way keep using [`Self::run_remote`].
+    async fn run_remote_script(&self, script: &str) -> Result<RemoteOutput, BootstrapError> {
+        let command = posix_shell_command(script);
+        self.run_remote([command.as_str()]).await
+    }
+
     async fn run_remote_with_timeout<const N: usize>(
         &self,
         remote_arguments: [&str; N],
@@ -697,7 +707,7 @@ impl SshBootstrapper {
     ) -> Result<RemoteOutput, BootstrapError> {
         let mut command = Command::new(&self.config.ssh_binary);
         self.configure_ssh_command(&mut command);
-        command.arg(remote_command);
+        command.arg(posix_shell_command(remote_command));
         match encoding {
             UploadEncoding::Raw => {
                 let source = std::fs::File::open(source).map_err(BootstrapError::Io)?;
@@ -709,6 +719,22 @@ impl SshBootstrapper {
             }
         }
     }
+}
+
+/// Wraps a POSIX script as one `sh -c '<script>'` command that any remote
+/// login shell (sh, bash, zsh, fish, tcsh) parses as the same three words.
+/// Single quotes keep `$`, `{`, `[`, `;` and redirections away from the login
+/// shell. An embedded quote becomes `'\''`, which each of those shells reads
+/// as a literal quote. Scripts must not contain backslashes (fish unescapes
+/// them inside single quotes), newlines (tcsh rejects them inside quotes) or
+/// `!` (csh history), so every caller builds its script from validated,
+/// shell-safe values on one line.
+fn posix_shell_command(script: &str) -> String {
+    debug_assert!(
+        !script.contains(['\\', '\n', '!']),
+        "remote script is not portable across login shells: {script}"
+    );
+    format!("sh -c '{}'", script.replace('\'', r"'\''"))
 }
 
 /// How the payload travels to the remote staging file.
@@ -752,7 +778,7 @@ fn pinned_package_command(temporary_dir: &str, package: &str) -> String {
          [ \"$rc\" -eq 0 ] || exit \"$rc\"; \
          sha256sum payload 2>/dev/null || shasum -a 256 payload 2>/dev/null || \
          openssl dgst -sha256 -r payload 2>/dev/null || \
-         {{ echo 'cannot verify the npm package: the remote host has no sha256sum, shasum or openssl' >&2; exit 1; }}"
+         {{ echo \"cannot verify the npm package: the remote host has no sha256sum, shasum or openssl\" >&2; exit 1; }}"
     )
 }
 
@@ -1079,6 +1105,30 @@ mod tests {
             0o755
         );
         assert!(!marker.exists(), "the downloaded package ran before verification");
+    }
+
+    /// The login shell must see exactly `sh`, `-c` and the unchanged script,
+    /// including a script that itself contains single quotes.
+    #[cfg(unix)]
+    #[test]
+    fn posix_shell_command_hands_sh_the_exact_script() {
+        let script = "rc=0; { printf '%s|' \"a b\" $rc; }; [ \"$rc\" -eq 0 ] || exit 1";
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "set -- {}; printf '%s\\n' \"$#\" \"$1\" \"$2\" \"$3\"",
+                posix_shell_command(script)
+            ))
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout), format!("3\nsh\n-c\n{script}\n"));
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(posix_shell_command(script))
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"a b|0|");
     }
 
     #[test]
