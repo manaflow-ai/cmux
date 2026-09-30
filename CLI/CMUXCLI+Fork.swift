@@ -189,6 +189,10 @@ extension CMUXCLI {
             } else {
                 nil
             }
+        try seedClaudeTranscriptForForkIfNeeded(
+            record: record,
+            targetWorkingDirectory: effectiveWorkingDirectory
+        )
         let request = AgentRestoreRequest(
             mode: .forkAgent,
             kind: record.kind,
@@ -287,6 +291,73 @@ extension CMUXCLI {
             invocation,
             appliedWorkingDirectory: effectiveWorkingDirectory
         )
+    }
+
+    /// Claude resolves `--resume` from the project directory for the current
+    /// cwd. Forking into another workspace therefore needs a copy of the source
+    /// transcript in that project directory before Claude starts.
+    static func seedClaudeTranscriptForForkIfNeeded(
+        record: RestoreRecord,
+        targetWorkingDirectory: String?,
+        fileManager: FileManager = .default,
+        homeDirectory: String = NSHomeDirectory()
+    ) throws {
+        guard record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "claude",
+              let sessionID = record.checkpointID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              sessionID.range(of: #"[\\/]"#, options: .regularExpression) == nil,
+              !sessionID.isEmpty,
+              let targetWorkingDirectory = targetWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !targetWorkingDirectory.isEmpty else { return }
+
+        let launchEnvironment = record.launchCommand?.environment ?? [:]
+        let rawConfigRoot = record.environment["CLAUDE_CONFIG_DIR"]
+            ?? launchEnvironment["CLAUDE_CONFIG_DIR"]
+            ?? ((homeDirectory as NSString).appendingPathComponent(".claude"))
+        let configRoot = ClaudeConfigDirectoryPath.preferredPath(
+            rawConfigRoot,
+            fileManager: fileManager,
+            homeDirectory: homeDirectory
+        )
+        let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
+        let targetProject = (projectsRoot as NSString).appendingPathComponent(
+            encodeClaudeProjectDirectory(targetWorkingDirectory)
+        )
+        let targetTranscript = (targetProject as NSString).appendingPathComponent("\(sessionID).jsonl")
+        guard !fileManager.fileExists(atPath: targetTranscript) else { return }
+
+        let sourceWorkingDirectory = record.launchCommand?.workingDirectory ?? record.workingDirectory
+        let sourceProject: String? = sourceWorkingDirectory.map {
+            (projectsRoot as NSString).appendingPathComponent(encodeClaudeProjectDirectory($0))
+        }
+        let sourceTranscript: String? = {
+            if let sourceProject {
+                let candidate = (sourceProject as NSString).appendingPathComponent("\(sessionID).jsonl")
+                if fileManager.fileExists(atPath: candidate) { return candidate }
+            }
+            guard let projectNames = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else { return nil }
+            return projectNames.sorted().lazy.map {
+                (projectsRoot as NSString).appendingPathComponent($0)
+            }.map {
+                ($0 as NSString).appendingPathComponent("\(sessionID).jsonl")
+            }.first { fileManager.fileExists(atPath: $0) }
+        }()
+        guard let sourceTranscript else { return }
+
+        try fileManager.createDirectory(atPath: targetProject, withIntermediateDirectories: true)
+        try fileManager.copyItem(atPath: sourceTranscript, toPath: targetTranscript)
+
+        let sourceSidecar = (sourceTranscript as NSString).deletingPathExtension
+        let targetSidecar = (targetTranscript as NSString).deletingPathExtension
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: sourceSidecar, isDirectory: &isDirectory), isDirectory.boolValue,
+           !fileManager.fileExists(atPath: targetSidecar) {
+            try fileManager.copyItem(atPath: sourceSidecar, toPath: targetSidecar)
+        }
+    }
+
+    private static func encodeClaudeProjectDirectory(_ path: String) -> String {
+        path.replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ".", with: "-")
     }
 
     private func legacyForkCommand(for record: RestoreRecord) -> String? {
