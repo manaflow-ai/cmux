@@ -23,7 +23,9 @@ def test_unix_installer_selects_verifies_and_installs_native_binary(
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
     payload = b"real cmux binary fixture\n"
+    stale_payload = b"stale cmux binary fixture\n"
     checksum = hashlib.sha256(payload).hexdigest()
+    commit = "a" * 40
 
     write_executable(
         fake_bin / "uname",
@@ -43,12 +45,16 @@ while [ "$#" -gt 0 ]; do
     *) shift ;;
   esac
 done
-case "$url" in
+  case "$url" in
   */manifest.json)
-    printf '{{"binaries":{{"cmux-tui-aarch64-apple-darwin":"{checksum}"}}}}\\n' >"$out"
+    printf '{{"commit":"{commit}","binaries":{{"cmux-tui-aarch64-apple-darwin":"{checksum}"}}}}\\n' >"$out"
     ;;
   */cmux-tui-aarch64-apple-darwin)
-    printf 'real cmux binary fixture\\n' >"$out"
+    case "$url" in
+      */latest/*) printf 'stale cmux binary fixture\\n' >"$out" ;;
+      */{commit}/*) printf 'real cmux binary fixture\\n' >"$out" ;;
+      *) exit 22 ;;
+    esac
     ;;
   *) exit 22 ;;
 esac
@@ -76,6 +82,7 @@ esac
     assert installed.read_bytes() == payload
     assert installed.stat().st_mode & stat.S_IXUSR
     assert f"Installed cmux to {installed}" in result.stdout
+    assert hashlib.sha256(stale_payload).hexdigest() != checksum
 
 
 def test_install_scripts_are_public_and_checksum_verified() -> None:
@@ -84,9 +91,13 @@ def test_install_scripts_are_public_and_checksum_verified() -> None:
 
     assert "https://files.cmux.com/cmux-tui/latest" in unix
     assert "checksum verification failed" in unix
+    assert '"commit"' in unix
+    assert "/latest" in unix
     assert "release manifest" not in unix
     assert "cmux-tui-x86_64-pc-windows-gnu.exe" in windows
     assert "Get-FileHash" in windows
+    assert ".commit" in windows
+    assert "/latest" in windows
     assert "SetEnvironmentVariable" in windows
     assert "SecurityProtocolType]::Tls12" in windows
     assert "release manifest" not in windows
