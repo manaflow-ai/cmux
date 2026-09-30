@@ -15,6 +15,21 @@ fi
 
 if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   printf '%s\n' "$@" >> "$CMUX_CAPTURE_XCODEBUILD_ARGS"
+  result_bundle_path=""
+  previous_argument=""
+  for argument in "$@"; do
+    if [ "$previous_argument" = "-resultBundlePath" ]; then
+      result_bundle_path="$argument"
+      break
+    fi
+    previous_argument="$argument"
+  done
+  if [ -n "$result_bundle_path" ]; then
+    if [ -e "$result_bundle_path" ] && [ -n "${CMUX_CAPTURE_RESULT_BUNDLE_STATE:-}" ]; then
+      echo "existing" >> "$CMUX_CAPTURE_RESULT_BUNDLE_STATE"
+    fi
+    mkdir -p "$result_bundle_path"
+  fi
   printf '%s\n' "${TEST_RUNNER_CMUX_TEST_PROCESS:-<unset>}" >> "$CMUX_CAPTURE_TEST_RUNNER_ENV"
   if [ -n "${CMUX_CAPTURE_TEST_RUNNER_CI_ENV:-}" ]; then
     printf '%s|%s\n' "${TEST_RUNNER_CI-<unset>}" "${TEST_RUNNER_GITHUB_ACTIONS-<unset>}" \
@@ -356,6 +371,37 @@ fi
 if [ "$(grep -Fxc '/ci/node/bin:/usr/bin|/ci/bun' "$TMP_DIR/test-runner-tool-env.log" || true)" -ne "$invocation_count" ]; then
   cat "$TMP_DIR/test-runner-tool-env.log"
   echo "FAIL: focused test-runner tool paths must reach every app-host launch"
+  exit 1
+fi
+
+set +e
+fixed_result_bundle="$RUNNER_TEMP_DIR/fixed-ui.xcresult"
+result_bundle_state="$TMP_DIR/result-bundle-state.log"
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/fixed-bundle-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/fixed-bundle-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/fixed-bundle-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/fixed-bundle-runner-home-env.log" \
+CMUX_CAPTURE_RESULT_BUNDLE_STATE="$result_bundle_state" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=0.1 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" \
+    -resultBundlePath "$fixed_result_bundle" test >"$TMP_DIR/fixed-bundle-output.log" 2>&1
+fixed_bundle_status=$?
+set -e
+
+if [ "$fixed_bundle_status" -ne 124 ] \
+  || [ -s "$result_bundle_state" ] \
+  || [ ! -d "$fixed_result_bundle" ] \
+  || [ ! -d "${fixed_result_bundle}.attempt-1" ]; then
+  cat "$TMP_DIR/fixed-bundle-output.log"
+  cat "$result_bundle_state" 2>/dev/null || true
+  echo "FAIL: caller-owned result bundles must be replaced cleanly on each retry"
   exit 1
 fi
 

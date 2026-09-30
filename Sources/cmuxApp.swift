@@ -1095,6 +1095,15 @@ struct cmuxApp: App {
                 }
             }
 
+            splitCommandButton(
+                title: String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input"),
+                shortcut: menuShortcut(for: .focusTextBoxInput)
+            ) {
+                _ = AppDelegate.shared?.performFocusTextBoxInputShortcut(
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                )
+            }
+
             splitCommandButton(title: String(localized: "menu.view.toggleRightSidebar", defaultValue: "Toggle Right Sidebar"), shortcut: menuShortcut(for: .toggleRightSidebar)) {
                 if AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
                     preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
