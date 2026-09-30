@@ -53,6 +53,7 @@ final class CmuxFeatureFlags {
     private static let mobileTerminalFilesChipDefault = true
     private nonisolated static let mobileTaskComposerDefault = true
     private static let goPlanDefault = false
+    private static let agentInboxQuickViewDefault = false
     #if DEBUG
     nonisolated static let cloudMachinesDefault = true
     #else
@@ -177,6 +178,17 @@ final class CmuxFeatureFlags {
             defaultValue: "Shows and sells the $10/month Go personal Cloud VM plan."
         ),
         defaultWhenUnavailable: CmuxFeatureFlags.goPlanDefault
+    )
+
+    // FLAG(key: agent-inbox-quick-view-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-15, defaultWhenUnavailable: false)
+    // Keeps the agent inbox quick view behind an explicit rollout while the
+    // placement and cross-agent attention model are evaluated.
+    static let agentInboxQuickViewFlag = CmuxFeatureFlagDefinition(
+        key: "agent-inbox-quick-view-enabled-release",
+        title: String(localized: "featureFlags.agentInbox.title", defaultValue: "Agent Inbox quick view"),
+        flagDescription: String(localized: "featureFlags.agentInbox.description", defaultValue: "Shows a keyboard-summoned inbox for agent messages, pending Feed decisions, and finished turns."),
+        defaultWhenUnavailable: CmuxFeatureFlags.agentInboxQuickViewDefault
     )
 
     // FLAG(key: cloud-machines-enabled-release, owner: austinwang,
@@ -305,6 +317,7 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.mobileTaskComposerFlag,
             CmuxFeatureFlags.goPlanFlag,
             CmuxFeatureFlags.cloudMachinesFlag,
+            CmuxFeatureFlags.agentInboxQuickViewFlag,
         ]
     }()
 
@@ -355,6 +368,10 @@ final class CmuxFeatureFlags {
 
     var isGoPlanEnabled: Bool {
         effectiveValue(for: Self.goPlanFlag)
+    }
+
+    var isAgentInboxQuickViewEnabled: Bool {
+        effectiveValue(for: Self.agentInboxQuickViewFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host

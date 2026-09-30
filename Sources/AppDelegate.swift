@@ -6190,6 +6190,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    func requestAgentInbox(preferredWindow: NSWindow? = nil, source: String = "api.agentInbox") {
+        guard CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled else { return }
+        postCommandPaletteRequest(
+            kind: .agentInbox,
+            preferredWindow: preferredWindow,
+            source: source
+        )
+    }
+
     func requestCommandPaletteRenameTab(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteRenameTab") {
         postCommandPaletteRequest(
             kind: .renameTab,
@@ -15018,6 +15027,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if matchConfiguredShortcut(event: event, action: .commandPalette) {
                 let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
                 requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
+                return true
+            }
+
+            if CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled,
+               matchConfiguredShortcut(event: event, action: .agentInbox) {
+                let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+                requestAgentInbox(preferredWindow: targetWindow, source: "shortcut.agentInbox")
                 return true
             }
 

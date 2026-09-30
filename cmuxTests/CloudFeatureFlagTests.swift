@@ -40,6 +40,22 @@ struct CloudFeatureFlagTests {
         withExtendedLifetime(observer) {}
     }
     #endif
+    @Test("Agent inbox quick view defaults off")
+    func agentInboxQuickViewDefaultsOff() throws {
+        let suite = "cmux.agentInbox.flag.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            overrideCapability: .init(bundleIdentifier: "com.cmuxterm.app", isDebugBuild: false),
+            remoteFlagValueProvider: { nil }
+        )
+        flags.applyLoadedFlags()
+        #expect(!flags.isAgentInboxQuickViewEnabled)
+        let definition = try #require(CmuxFeatureFlags.allFlags.first { $0.key == "agent-inbox-quick-view-enabled-release" })
+        #expect(definition.defaultWhenUnavailable == false)
+    }
+
     @Test("Stable Cloud defaults off and only follows remote values")
     func remoteResolution() throws {
         let suite = "cmux.cloud.flag.\(UUID().uuidString)"

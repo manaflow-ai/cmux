@@ -71,6 +71,7 @@ export const shortcutCategories: ShortcutCategory[] = [
         note: { en: "when cmux is active", ja: "cmuxがアクティブな場合" },
       },
       { id: "commandPalette", combos: [["⌘", "⇧", "P"]], description: { en: "Command palette", ja: "コマンドパレット" } },
+      { id: "agentInbox", combos: [["⌘", "⇧", "I"]], description: { en: "Show agent inbox", ja: "エージェント受信トレイを表示" } },
       {
         id: "commandPaletteNext",
         combos: [["⌃", "N"]],
