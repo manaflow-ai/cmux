@@ -5,14 +5,19 @@ const realRunVmWorkflow = workflowsModule.runVmWorkflow;
 const realReconcileVmProviderStatuses = workflowsModule.reconcileVmProviderStatuses;
 const realReapStaleVmTunnels = workflowsModule.reapStaleVmTunnels;
 const tunnelReap = { candidates: 3, reaped: 2, skipped: 0, failed: 1, budgetExhausted: false };
-const runVmWorkflow = mock(async (program: unknown) =>
-  (program as { workflow?: string }).workflow === "tunnel-reap" ? tunnelReap : {
-    checked: 2,
-    updated: 1,
-    destroyed: 0,
-    skipped: 1,
-    skippedNoGetStatus: false,
-  });
+let tunnelReapFails = false;
+const runVmWorkflow = mock(async (program: unknown) => {
+  if ((program as { workflow?: string }).workflow !== "tunnel-reap") return reconcileResult;
+  if (tunnelReapFails) throw new Error("database down");
+  return tunnelReap;
+});
+const reconcileResult = {
+  checked: 2,
+  updated: 1,
+  destroyed: 0,
+  skipped: 1,
+  skippedNoGetStatus: false,
+};
 const reconcileVmProviderStatuses = mock(() => ({ workflow: "vm-reconcile" }));
 const reapStaleVmTunnels = mock(() => ({ workflow: "tunnel-reap" }));
 let useWorkflowStubs = false;
@@ -47,6 +52,7 @@ beforeEach(() => {
   runVmWorkflow.mockClear();
   reconcileVmProviderStatuses.mockClear();
   reapStaleVmTunnels.mockClear();
+  tunnelReapFails = false;
 });
 
 afterEach(() => {
@@ -117,10 +123,7 @@ describe("VM reconcile cron route", () => {
   });
 
   test("a failed tunnel reap does not fail the status reconcile", async () => {
-    runVmWorkflow.mockImplementationOnce(async () => ({
-      checked: 0, updated: 0, destroyed: 0, skipped: 0, skippedNoGetStatus: false,
-    }));
-    runVmWorkflow.mockImplementationOnce(async () => { throw new Error("database down"); });
+    tunnelReapFails = true;
 
     const response = await GET(new Request("https://cmux.test/api/cron/vm-reconcile", {
       headers: { authorization: "Bearer cron-secret" },
