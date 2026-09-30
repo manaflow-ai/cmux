@@ -291,6 +291,17 @@ jobs:
         with:
           bun-version: "1.4.2"
 
+      - name: Install AXe simulator driver
+        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
+        run: |
+          set -euo pipefail
+          # ios-e2e-run.sh uses AXe for accessibility and HID input. Hosted
+          # runners do not guarantee it in PATH, so install the maintained
+          # Homebrew formula explicitly before any simulator interaction.
+          brew install cameroncooke/axe/axe
+          command -v axe
+          axe --version
+
       - name: Install web runtime dependencies
         if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
         working-directory: web
