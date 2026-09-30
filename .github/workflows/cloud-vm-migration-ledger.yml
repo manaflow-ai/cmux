@@ -1,0 +1,210 @@
+name: Migration ledger
+
+# Merging main deploys web/ to production on Vercel, and a deploy never runs
+# migrations. A migration that reaches main before production applied it is
+# code that can already be querying a table or column that does not exist.
+# That happened twice in September 2026 (#14073, #15138) while the rule
+# "apply to production before merging" was only written down.
+#
+# This check reads production's Drizzle ledger (drizzle.__drizzle_migrations,
+# the table the migrator itself uses to pick pending names) and fails when the
+# tree about to merge holds a migration production has not recorded:
+#
+#   merge_group          the exact tree that will deploy; any pending name fails
+#   pull_request_target  early signal; fails only for folders the PR adds, and
+#                        skips the database when it adds none
+#   push to main, hourly the drift monitor; any pending name fails and opens or
+#                        updates an issue, so a bypass is caught within an hour
+#
+# Staging is read on every run but only warns.
+#
+# The workflow runs from the base branch (pull_request_target) or the merge
+# group, executes only the trusted base revision's checker, and reads the
+# candidate's migration folders as data. The credentials are ledger-only
+# PlanetScale roles held by the cloud-vm-migration-ledger environment; they
+# can SELECT drizzle.__drizzle_migrations and nothing else.
+
+on:
+  pull_request_target:
+    branches:
+      - main
+    types: [opened, reopened, synchronize, ready_for_review]
+  merge_group:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-ledger-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
+
+jobs:
+  ledger:
+    # The required context. Keep it literal.
+    name: Migration ledger
+    # Reads untrusted bytes with a secret in scope: GitHub-hosted only.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: cloud-vm-migration-ledger
+    outputs:
+      production_status: ${{ steps.production.outputs.status }}
+      production_pending: ${{ steps.production.outputs.pending }}
+      production_reason: ${{ steps.production.outputs.reason }}
+    env:
+      TRUSTED_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
+      CANDIDATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+      MODE: ${{ github.event_name == 'pull_request_target' && 'pull-request' || 'gate' }}
+      SOURCE_REF: ${{ github.event.pull_request.head.sha || (github.event_name != 'merge_group' && 'main' || '') }}
+    steps:
+      - name: Require GitHub-hosted runner
+        if: runner.environment != 'github-hosted'
+        run: |
+          echo "::error::Migration ledger requires a GitHub-hosted runner"
+          exit 1
+
+      - name: Checkout trusted checker revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TRUSTED_SHA }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout candidate migrations as data
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ env.CANDIDATE_REPOSITORY }}
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: web/db/migrations
+          sparse-checkout-cone-mode: true
+
+      - name: Select work
+        id: scope
+        run: |
+          set -euo pipefail
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git -C trusted rev-parse HEAD)" == "$TRUSTED_SHA" ]]
+          [[ "$(git -C candidate rev-parse HEAD)" == "$CANDIDATE_SHA" ]]
+          [[ -f trusted/web/scripts/cloud-vm/check-migration-ledger.mjs ]]
+          folders() { find "$1/web/db/migrations" -mindepth 2 -maxdepth 2 -name migration.sql -printf '%h\n' | xargs -r -n1 basename | sort; }
+          added="$(comm -13 <(folders trusted) <(folders candidate) | tr '\n' ' ')"
+          if [[ "$MODE" == "pull-request" && -z "$added" ]]; then
+            echo "This pull request adds no migration folders; the merge queue and the hourly monitor check the rest."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New migration folders: ${added:-none}"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Bun
+        if: steps.scope.outputs.run == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install trusted checker dependencies
+        if: steps.scope.outputs.run == 'true'
+        working-directory: trusted/web
+        run: bun install --frozen-lockfile
+
+      - name: Check production ledger
+        id: production
+        if: steps.scope.outputs.run == 'true'
+        working-directory: trusted/web
+        env:
+          CMUX_CLOUD_VM_ENV_SOURCE: process
+          DATABASE_URL: ${{ secrets.PRODUCTION_LEDGER_DATABASE_URL }}
+        run: |
+          set -uo pipefail
+          report="$RUNNER_TEMP/production-ledger.json"
+          args=(production --mode "$MODE" --migrations "$GITHUB_WORKSPACE/candidate/web/db/migrations"
+            --repository "$GITHUB_REPOSITORY" --json "$report")
+          if [[ "$MODE" == "pull-request" ]]; then args+=(--base-migrations "$GITHUB_WORKSPACE/trusted/web/db/migrations"); fi
+          if [[ -n "$SOURCE_REF" ]]; then args+=(--source-ref "$SOURCE_REF"); fi
+          bun scripts/cloud-vm/check-migration-ledger.mjs "${args[@]}"
+          code=$?
+          if [[ -f "$report" ]]; then
+            {
+              echo "status=$(jq -r .status "$report")"
+              echo "pending=$(jq -r '[.pending[]?.name] | join(" ")' "$report")"
+              echo "reason=$(jq -r '.reason // ""' "$report")"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "status=unverified" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$code"
+
+      - name: Check staging ledger (advisory)
+        if: always() && steps.scope.outputs.run == 'true'
+        working-directory: trusted/web
+        env:
+          CMUX_CLOUD_VM_ENV_SOURCE: process
+          DATABASE_URL: ${{ secrets.STAGING_LEDGER_DATABASE_URL }}
+        run: |
+          bun scripts/cloud-vm/check-migration-ledger.mjs staging --mode advisory \
+            --migrations "$GITHUB_WORKSPACE/candidate/web/db/migrations" --repository "$GITHUB_REPOSITORY" \
+            ${SOURCE_REF:+--source-ref "$SOURCE_REF"}
+
+  drift-issue:
+    name: Production migration drift issue
+    needs: ledger
+    if: >-
+      always() && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      STATUS: ${{ needs.ledger.outputs.production_status || 'unverified' }}
+      PENDING: ${{ needs.ledger.outputs.production_pending }}
+      REASON: ${{ needs.ledger.outputs.production_reason }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Open, update, or close the drift issue
+        run: |
+          set -euo pipefail
+          title="Production database is missing migrations from main"
+          existing="$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
+            --jq "map(select(.title == \"$title\"))[0].number // empty")"
+          if [[ "$STATUS" == "ok" || "$STATUS" == "warn" ]]; then
+            if [[ -n "$existing" ]]; then
+              gh issue close "$existing" --comment "Production's ledger has every migration on main again ($RUN_URL)."
+            fi
+            exit 0
+          fi
+          {
+            echo "<!-- cmux:migration-ledger-drift -->"
+            if [[ "$STATUS" == "fail" ]]; then
+              echo "Production (PlanetScale \`cmux-prod\`, branch \`main\`) has not applied these migrations, but main already deploys code that may read them:"
+              echo ""
+              for name in $PENDING; do echo "- \`$name\`"; done
+              echo ""
+              echo "Apply them now: \`gh workflow run cloud-vm-migrate.yml --repo $GH_REPO --ref main -f target=production\`, then approve the \`cloud-vm-production\` job. The run migrates staging first."
+            else
+              echo "The drift monitor could not read production's migration ledger, so drift is unobserved. ${REASON:-The ledger job did not report.}"
+              echo ""
+              echo "Check the \`cloud-vm-migration-ledger\` environment secret \`PRODUCTION_LEDGER_DATABASE_URL\` and the PlanetScale role behind it."
+            fi
+            echo ""
+            echo "Latest run: $RUN_URL. This issue closes itself when the ledger matches main."
+          } > "$RUNNER_TEMP/body.md"
+          if [[ -n "$existing" ]]; then
+            gh issue edit "$existing" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          fi
