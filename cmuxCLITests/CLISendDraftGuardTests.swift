@@ -241,6 +241,16 @@ struct CLISendDraftGuardTests {
         #expect(run.requests.filter { $0["method"] as? String == "surface.send_key" }.count == 1)
     }
 
+    @Test func sendSubmitRejectsAStaleEmptySnapshotAfterPaste() throws {
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [Self.empty, Self.empty, Self.empty, Self.empty]
+        )
+
+        #expect(run.result.status != 0, Comment(rawValue: run.result.stderr))
+        #expect(run.requests.contains { $0["method"] as? String == "surface.send_key" } == false)
+    }
+
     // MARK: - Harness
 
     private struct Run {
