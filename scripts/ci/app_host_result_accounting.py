@@ -163,8 +163,19 @@ def parse_xcresult_tests(data: Any) -> dict[str, str]:
 
 
 def load_json(path: Path) -> Any:
-    """Read one UTF-8 JSON document."""
-    return json.loads(path.read_text(encoding="utf-8"))
+    """Read one UTF-8 JSON document, naming the file when it cannot be read.
+
+    An aborted app-host batch leaves a zero-length typed result behind, and a
+    bare decoder message ("Expecting value: line 1 column 1 (char 0)") is the
+    last line the step prints before its exit code. Say which file was empty.
+    """
+    text = path.read_text(encoding="utf-8")
+    if not text.strip():
+        raise ValueError(f"{path}: empty file, expected a JSON document")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{path}: not valid JSON ({error})") from error
 
 
 def load_inventory(path: Path) -> set[str]:
