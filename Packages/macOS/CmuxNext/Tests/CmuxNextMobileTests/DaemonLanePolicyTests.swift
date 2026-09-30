@@ -33,6 +33,51 @@ struct DaemonLanePolicyTests {
         }
     }
 
+    /// `run` and `create-surface-with-receipt` start an arbitrary program
+    /// on the Mac without a terminal the user drives; the phone never sends
+    /// them (remote-relay-authorization.md rules 2-4).
+    @Test func refusesNonInteractiveProgramStarts() throws {
+        for line in [#"{"id":1,"cmd":"run","argv":["/bin/sh","-c","id"]}"#,
+                     #"{"id":2,"cmd":"run","command":"id"}"#,
+                     #"{"id":3,"cmd":"create-surface-with-receipt","operation":"pane.split","origin":"x","receipt":"r","argv":["id"]}"#] {
+            #expect(refusal(line)?["error_code"] as? String == "forbidden", "\(line)")
+        }
+    }
+
+    /// Terminal creation carries no program, directory or environment from
+    /// the phone (`env` alone can run code through DYLD_* or BASH_ENV), and
+    /// an unknown field is refused, not ignored: a daemon field added later
+    /// must be reviewed before a phone may set it.
+    @Test func refusesCommandBearingAndUnknownCreationParams() throws {
+        for line in [#"{"id":1,"cmd":"create-terminal","key":"w","argv":["id"]}"#,
+                     #"{"id":2,"cmd":"create-terminal","key":"w","command":"id"}"#,
+                     #"{"id":3,"cmd":"create-terminal","key":"w","cwd":"/"}"#,
+                     #"{"id":4,"cmd":"create-terminal","key":"w","env":{"BASH_ENV":"/tmp/x"}}"#,
+                     #"{"id":5,"cmd":"new-tab","pane":1,"env":{"DYLD_INSERT_LIBRARIES":"/tmp/x.dylib"}}"#,
+                     #"{"id":6,"cmd":"new-tab","pane":1,"cwd":"/private"}"#,
+                     #"{"id":7,"cmd":"split","pane":1,"dir":"right","env":{"A":"b"}}"#,
+                     #"{"id":8,"cmd":"new-pane","pane":1,"cwd":"/"}"#,
+                     #"{"id":9,"cmd":"new-pane-right","pane":1,"env":{"A":"b"}}"#,
+                     #"{"id":10,"cmd":"create-terminal","key":"w","shell":"/bin/zsh"}"#,
+                     #"{"id":11,"cmd":"new-tab","pane":1,"terminal_id":"term_0123"}"#] {
+            let response = try #require(refusal(line), "\(line)")
+            #expect(response["error_code"] as? String == "forbidden", "\(line)")
+        }
+    }
+
+    /// Exactly what the iOS `CmuxTUIControl` sends still passes.
+    @Test func forwardsThePhonesOwnCreationRequests() {
+        for line in [#"{"id":1,"cmd":"new-screen","workspace":3,"cols":80,"rows":24}"#,
+                     #"{"id":2,"cmd":"new-tab","pane":4,"cols":80,"rows":24}"#,
+                     #"{"id":3,"cmd":"split","pane":4,"dir":"down","cols":80,"rows":24}"#,
+                     #"{"id":4,"cmd":"create-workspace","name":"phone"}"#,
+                     #"{"id":5,"cmd":"create-terminal","key":"ws_1","cols":80,"rows":24,"name":"t"}"#,
+                     #"{"id":6,"cmd":"new-workspace","name":"n","cols":80,"rows":24}"#,
+                     #"{"id":7,"cmd":"create-terminal","key":"ws_1","origin":"ios","mutation_id":"m1","expected_generation":"g"}"#] {
+            #expect(verdict(line) == .forward, "\(line)")
+        }
+    }
+
     @Test func personalProjectionIsPerDevice() {
         let own = #"{"id":1,"cmd":"put-frontend-projection","frontend":"ios","scope":"personal","subject_key":"ios-device:phone-1","schema_version":1,"projection":{}}"#
         let mac = #"{"id":2,"cmd":"put-frontend-projection","frontend":"cmux-next","scope":"personal","subject_key":"windows","schema_version":1,"projection":{}}"#
