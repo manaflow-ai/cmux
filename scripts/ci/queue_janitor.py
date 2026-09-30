@@ -395,7 +395,7 @@ MAX_ARTIFACT_PAGES = 5
 # (post-admission jobs reuse admission's machine, so placed can exceed jobs).
 # The E2E and iOS markers, and ones uploaded before `p<placed>`, omit it.
 # workflow_dispatch workflows whose runner job may pick an owned pool and upload it.
-OWNED_DISPATCH_WORKFLOWS = ("/test-e2e.yml", "/test-ios.yml", "/ios-screenshots.yml")
+OWNED_DISPATCH_WORKFLOWS = ("/test-e2e.yml", "/test-ios.yml", "/ios-screenshots.yml", "/iroh-release-gate.yml")
 OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)"
                           r"(?:p(?P<placed>[0-9]+))?-(?P<pool>.+)")
 
@@ -438,8 +438,9 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
 
     Only attempt 1 of a same-repository pull request run of CI, of main's
     full-suite dispatch of CI (pr_runner_pool.py routes it too), or of an
-    E2E or iOS dispatch (the runner job of test-e2e.yml, test-ios.yml and
-    ios-screenshots.yml uploads the same marker), can. While
+    E2E, iOS or Iroh release gate dispatch (the runner job of test-e2e.yml,
+    test-ios.yml, ios-screenshots.yml and iroh-release-gate.yml uploads the
+    same marker), can. While
     CI_OWNED_LIGHT_RETRY is 1 (`light_retry`), attempt 2 can too: the
     rescue's full re-run picks again and may take the light tier
     (pr_runner_pool.LIGHT_RETRY_ATTEMPT), publishing its own marker. A re-run

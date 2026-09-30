@@ -107,7 +107,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         setSchemeTaskOperation(operation, taskID: taskID, generation: generation)
     }
 
-    /// Restores a missing session asynchronously before routing a WebKit request.
+    /// Restores missing sessions or newly registered assets before serving a WebKit request.
     private func serve(
         requestURL: URL,
         taskID: ObjectIdentifier,
@@ -128,8 +128,8 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         guard isSchemeTaskActive(taskID, generation: generation) else { return }
 
         // Mirror the HTTP server's picker routes after the token is backed by a
-        // validated session. Ordinary file misses remain cache-only; only a
-        // successful branch regeneration explicitly reloads its manifest.
+        // validated session. File requests below may refresh that session when
+        // the sidecar has appended a new asset to its manifest.
         let path = URLComponents(
             url: requestURL,
             resolvingAgainstBaseURL: false
@@ -153,7 +153,18 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
 
-        guard let file = registeredFile(for: requestURL) else {
+        var file = registeredFile(for: requestURL)
+        if file == nil {
+            // Typed sidecar sessions append their generated patch after the
+            // page's manifest has already been installed. Refresh only for an
+            // unknown path so the in-memory allowlist sees that new entry.
+            guard await registerFromManifest(token: token) else {
+                failSchemeTask(taskID, generation: generation, code: NSURLErrorFileDoesNotExist)
+                return
+            }
+            file = registeredFile(for: requestURL)
+        }
+        guard let file else {
             failSchemeTask(taskID, generation: generation, code: NSURLErrorFileDoesNotExist)
             return
         }
@@ -364,7 +375,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// Re-registers a token from its bounded on-disk manifest without blocking the main actor.
     ///
-    /// Concurrent requests for the same missing token share one detached load. The
+    /// Concurrent requests for the same token share one detached load. The
     /// prepared session is installed only after all JSON, path, file, and lease
     /// validation has completed.
     func registerFromManifest(token: String, now: Date = Date()) async -> Bool {

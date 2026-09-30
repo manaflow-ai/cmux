@@ -1,6 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
-import CmuxMobileTerminal
+@testable import CmuxMobileTerminal
 import CmuxMobileShellModel
 import SwiftUI
 import Testing
@@ -72,6 +72,7 @@ struct TerminalSurfaceMountOwnershipTests {
             runtime: try GhosttyRuntime.shared(),
             delegate: coordinator
         )
+        surfaceView.stopDisplayLink()
         let host = UIViewController()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = host
@@ -86,6 +87,7 @@ struct TerminalSurfaceMountOwnershipTests {
 
         surfaceView.frame = host.view.bounds
         host.view.addSubview(surfaceView)
+        surfaceView.stopDisplayLink()
         for _ in 0..<20 {
             await Task.yield()
         }
@@ -126,6 +128,7 @@ struct TerminalSurfaceMountOwnershipTests {
         ))
 
         host.view.addSubview(surfaceView)
+        surfaceView.stopDisplayLink()
         for _ in 0..<20 {
             await Task.yield()
         }
