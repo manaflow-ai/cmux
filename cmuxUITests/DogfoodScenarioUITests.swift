@@ -228,13 +228,21 @@ final class DogfoodScenarioUITests: XCTestCase {
         let bar = app.menuBars.menuBarItems[top]
         guard bar.waitForExistence(timeout: 5) else { throw DogfoodError("no menu \(top)") }
         bar.click()
+        var scope = bar
         for item in path.dropFirst() {
-            let menuItem = app.menuItems[item]
+            // Scoped to the menu that was opened, not the whole app. A DEBUG
+            // build lists "Cloud Sidebar Spacing Lab…" in both the Debug menu
+            // and the Help menu, and an app-wide `menuItems[…]` matched both,
+            // so the click failed with "Multiple matching elements found" on an
+            // item that is unambiguous inside the menu the tour just opened.
+            // Each step scopes the next, so a submenu path stays anchored too.
+            let menuItem = scope.menuItems[item]
             guard menuItem.waitForExistence(timeout: 3) else {
                 app.typeKey(.escape, modifierFlags: [])
-                throw DogfoodError("no menu item \(item)")
+                throw DogfoodError("no menu item \(item) under \(path.joined(separator: " > "))")
             }
             menuItem.click()
+            scope = menuItem
         }
     }
 
