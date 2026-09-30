@@ -176,11 +176,36 @@ struct AgentPromptInputDetectorTests {
     func busyClaude() {
         let screen = [
             [span(" ✻ Thinking…")],
-            [span("\u{276F}\u{00A0}"), span("\u{203A} quoted output", at: 2)],
+            [span("  \u{203A} quoted output")],
+            [span("  1. Continue")],
+            [span("\u{276F}\u{00A0}")],
         ]
         let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
         #expect(snapshot.agentKind == .claude)
         #expect(snapshot.busy)
+    }
+
+    @Test("Transcript prose near a prompt does not mark an agent busy")
+    func proseNearPromptIsNotBusy() {
+        let screen = [
+            [span("The assistant is thinking about the next explanation.")],
+            [span("working directories are listed below")],
+            [span("\u{276F}\u{00A0}")],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == .claude)
+        #expect(!snapshot.busy)
+    }
+
+    @Test("A random Codex mention does not brand a plain screen")
+    func randomCodexMentionIsNotAnAgent() {
+        let screen = [
+            [span("I used Codex for an earlier experiment.")],
+            [span("leo@host ~ % ")],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == nil)
+        #expect(snapshot.state == .unknown)
     }
 
     @Test("Codex queued status is exposed separately from busy")
