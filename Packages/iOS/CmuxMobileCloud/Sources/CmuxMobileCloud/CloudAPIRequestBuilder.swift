@@ -176,8 +176,11 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
 
     private static func pathSegment(_ value: String) throws -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        var allowed = CharacterSet.urlPathAllowed
-        allowed.remove(charactersIn: "/")
+        // URL(string:) treats an already escaped separator as path syntax
+        // after this value is interpolated. Restrict the allowed set to RFC
+        // 3986 unreserved characters so `%`, `/`, and other delimiters are
+        // always encoded as data in one machine-id segment.
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
         guard !trimmed.isEmpty,
               let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: allowed),
               !encoded.contains("/") else {

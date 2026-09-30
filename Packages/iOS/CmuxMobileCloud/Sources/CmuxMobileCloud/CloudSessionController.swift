@@ -252,7 +252,10 @@ public final class CloudSessionController {
     /// machine whose link failed is re-dialed from scratch.
     public func retryConnections() {
         retryTunnel()
-        for (id, connection) in connections where connection.lastError != nil {
+        let failedConnections = connections.compactMap { id, connection in
+            connection.lastError == nil ? nil : (id, connection)
+        }
+        for (id, connection) in failedConnections {
             connection.close()
             connections.removeValue(forKey: id)
         }

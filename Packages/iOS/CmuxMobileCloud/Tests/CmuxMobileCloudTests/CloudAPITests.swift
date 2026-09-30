@@ -99,6 +99,18 @@ import Testing
         #expect(json["clientCapabilities"] as? [String] == ["direct-ws-user-agent"])
     }
 
+    @Test func attachEscapesAlreadyEncodedPathSeparatorsAsData() throws {
+        let request = try builder.openAttach(
+            machineID: "vm%2Fother",
+            deviceFingerprint: "ios-1",
+            clientCapabilities: [],
+            accessToken: "acc",
+            refreshToken: "ref"
+        )
+        #expect(request.url?.path == "/api/vm/vm%2Fother/attach-endpoint")
+        #expect(request.url?.absoluteString.contains("vm%252Fother") == true)
+    }
+
     @Test func approveTargetsTheMachineAndInvitation() throws {
         let request = try builder.approveEnrollment(machineID: "vm1", invitationId: "inv", accessToken: "a", refreshToken: "r")
         #expect(request.url?.path == "/api/vm/vm1/cmux-remote/approve")
