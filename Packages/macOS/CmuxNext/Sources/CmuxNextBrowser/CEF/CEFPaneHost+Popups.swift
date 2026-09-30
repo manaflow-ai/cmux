@@ -30,6 +30,7 @@ extension CEFPaneHost {
         tab.popupOpenerHost = self
         host.add(tab)
         runtime.register(tab, browser: browser)
+        tab.useEngineBackground()
         tab.inheritDelegates(from: opener)
         // Chromium made the popup this window's active tab. Show the opener
         // again on the next turn (this may run inside Chromium's tab
@@ -76,6 +77,7 @@ extension CEFPaneHost {
             guard let browser = tab.browserID else { continue }
             if shim.tabMoveToWindow(browser, anchor, -1) == 1 {
                 tab.awaitsWindowMove = false
+                tab.useEngineBackground()
                 if let opener = tab.popupOpenerHost { openers.append(opener) }
             } else {
                 runtime.logger.error("CEF popup \(browser) could not move into its own window; closing it")

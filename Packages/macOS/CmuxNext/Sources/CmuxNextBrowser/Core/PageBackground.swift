@@ -16,8 +16,11 @@ nonisolated enum PageBackground {
         return url.absoluteString == "about:blank" || url.absoluteString.isEmpty
     }
 
-    /// Whether a new page starts on the theme color.
-    static func startsWithTheme(openedByPage: Bool) -> Bool { true }
+    /// Whether a new page starts on the theme color: only a tab cmux opens
+    /// (a new tab, before its first paint). A page a page opened (a popup,
+    /// target=_blank) has usually committed before cmux adopts it, so it
+    /// takes the engine default (Chrome's white) at once.
+    static func startsWithTheme(openedByPage: Bool) -> Bool { !openedByPage }
 
     /// `Palette.pageBackground` as opaque 0xAARRGGBB, the form
     /// `CefBrowserSettings.background_color` takes.

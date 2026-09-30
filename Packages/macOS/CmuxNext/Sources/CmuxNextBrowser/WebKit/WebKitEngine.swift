@@ -44,7 +44,8 @@ public final class WebKitEngine: BrowserEngine {
     ) -> WebKitTab {
         let webConfiguration = webViewConfiguration ?? makeConfiguration(for: configuration.profile)
         prepare(webConfiguration)
-        let tab = WebKitTab(configuration: configuration, webViewConfiguration: webConfiguration, engine: self)
+        let tab = WebKitTab(configuration: configuration, webViewConfiguration: webConfiguration, engine: self,
+                            openedByPage: webViewConfiguration != nil)
         if let url = configuration.initialURL {
             tab.load(url)
         }

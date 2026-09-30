@@ -38,7 +38,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored private var findState = FindState()
     @ObservationIgnored private var isClosed = false
 
-    init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine) {
+    init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
+         openedByPage: Bool = false) {
         self.id = configuration.id
         self.profileID = configuration.profile
         self.engine = engine
@@ -55,8 +56,9 @@ public final class WebKitTab: NSObject, BrowserTab {
         webView.isInspectable = true
         webView.underPageBackgroundColor = .clear
         // No white before the first page: the pane's theme color shows
-        // through until a real page finishes (`PageBackground`).
-        setDrawsPageBackground(false)
+        // through until a real page finishes (`PageBackground`). A page a
+        // page opened draws WebKit's default at once.
+        setDrawsPageBackground(!PageBackground.startsWithTheme(openedByPage: openedByPage))
 
         let controller = webViewConfiguration.userContentController
         controller.addUserScript(WKUserScript(
