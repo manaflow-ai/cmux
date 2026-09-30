@@ -10,10 +10,12 @@ import {
   redeemTeamInviteLink,
   revokeTeamInviteLink,
 } from "../services/teams/links";
+import { removeMember } from "../services/teams/members";
 import {
   ADMIN_ID,
   MEMBER_ID,
   MemoryInviteStore,
+  noLock,
   OUTSIDER_ID,
   standardTeam,
   TEAM_ID,
@@ -156,3 +158,28 @@ describe("invite link redemption", () => {
   });
 });
 
+// Regression: a redemption row outlived the membership, so a removed member
+// reopened a used single-use link and was added again without a new use.
+describe("rejoining after leaving or removal", () => {
+  async function accessOf(stack: ReturnType<typeof standardTeam>, userId: string) {
+    const result = await requireTeamAccess({ id: userId }, TEAM_ID, { stack: stack.app() });
+    if (!result.ok) throw new Error("access refused");
+    return result.access;
+  }
+
+  test("a removed member cannot rejoin through a single-use link they already used", async () => {
+    const { stack, store, token, deps } = await setup({ maxUses: 1 });
+    await redeemTeamInviteLink(OUTSIDER_ID, token, deps);
+    await removeMember(await accessOf(stack, ADMIN_ID), OUTSIDER_ID, { stack: stack.app(), lock: noLock, store });
+    expect(await code(redeemTeamInviteLink(OUTSIDER_ID, token, deps))).toBe("410:link_invalid");
+    expect(stack.teams.get(TEAM_ID)!.members.has(OUTSIDER_ID)).toBe(false);
+  });
+
+  test("leaving and rejoining through an unlimited link counts a new use", async () => {
+    const { stack, store, token, deps } = await setup();
+    await redeemTeamInviteLink(OUTSIDER_ID, token, deps);
+    await removeMember(await accessOf(stack, OUTSIDER_ID), OUTSIDER_ID, { stack: stack.app(), lock: noLock, store });
+    expect(await code(redeemTeamInviteLink(OUTSIDER_ID, token, deps))).toBe("ok");
+    expect(store.links[0]!.useCount).toBe(2);
+  });
+});
