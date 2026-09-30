@@ -19,10 +19,12 @@ Modes:
                that CefInitialize never ran during the storm: only the new
                Chromium window's stall is allowed.
 
-Launch the tagged app with a clean environment first, for example:
+Launch the tagged app with a clean environment first, running its binary
+directly (`open -g` does not pass the environment, so no-activate is lost):
 
-  env -i HOME=$HOME USER=$USER PATH=/usr/bin:/bin CMUX_NEXT_NO_ACTIVATE=1 \\
-    CMUX_NEXT_SOCKET_MODE=automation open -g "<tagged app>"
+  env -i HOME=$HOME USER=$USER TMPDIR=$TMPDIR PATH=/usr/bin:/bin:/usr/sbin:/sbin \\
+    CMUX_NEXT_NO_ACTIVATE=1 CMUX_NEXT_SOCKET_MODE=automation CMUX_NEXT_TEST_WINDOW_SCREEN=last \\
+    "<tagged app>/Contents/MacOS/cmux DEV" &
   scripts/cmux-next/check-first-chromium.py <tag> [--mode cold|warm]
       [--actions 20] [--clients 2] [--interval-ms 150] [--max-stall-ms 50]
       [--exception-max-ms 200] [--warm-timeout 30] [--url URL]
