@@ -120,9 +120,18 @@ struct SimulatedScreen {
     private(set) var row: [UInt8] = SimulatedLineEditor.prompt
     private(set) var cursor = SimulatedLineEditor.prompt.count
     private var escape: [UInt8]?
+    /// How many times each column was written or cleared.
+    private var writes: [Int: Int] = [:]
 
     func character(at column: Int) -> UInt8? {
         column >= 0 && column < row.count ? row[column] : nil
+    }
+
+    func writeCount(at column: Int) -> Int { writes[column, default: 0] }
+
+    /// Every column from `column` to the end of the row changed.
+    private mutating func touchThroughEnd(from column: Int) {
+        for touched in column..<max(column + 1, row.count) { writes[touched, default: 0] += 1 }
     }
 
     mutating func apply(_ bytes: [UInt8]) {
@@ -140,10 +149,12 @@ struct SimulatedScreen {
             let count = max(1, Int(String(decoding: sequence.dropFirst().dropLast(), as: UTF8.self)) ?? 1)
             switch byte {
             case UInt8(ascii: "K"):
+                touchThroughEnd(from: cursor)
                 if cursor < row.count { row.removeSubrange(cursor...) }
             case UInt8(ascii: "D"):
                 cursor = max(0, cursor - count)
             case UInt8(ascii: "P"):
+                touchThroughEnd(from: cursor)
                 if cursor < row.count { row.removeSubrange(cursor..<min(row.count, cursor + count)) }
             default:
                 break
@@ -160,6 +171,7 @@ struct SimulatedScreen {
         case 0x20...0x7E:
             while row.count <= cursor { row.append(0x20) }
             row[cursor] = byte
+            writes[cursor, default: 0] += 1
             cursor += 1
         default:
             break
@@ -198,7 +210,7 @@ struct PredictionSimulation {
     }
 
     let simulationCase: SimulationCase
-    private var engine = TerminalPredictionEngine(isEnabled: true)
+    private var engine = TerminalPredictionEngine(isEnabled: true, isRemoteSurface: true)
     private var queue: [Scheduled] = []
     private var order = 0
     private var screen = SimulatedScreen()
@@ -215,6 +227,10 @@ struct PredictionSimulation {
     /// What the overlay shows, anchored at the cursor when it last synced.
     private var overlay: [DrawnGlyph] = []
     private(set) var trace: [String] = []
+    /// Blanks drawn over text already where it belongs. Fine while the remote
+    /// has yet to rewrite that cell (the user deleted the text and typed the
+    /// same character again); a failure if nothing ever touches it again.
+    private var blanksOverSettledText: [(column: Int, seenByEngine: Bool, writes: Int, message: String, traceCount: Int)] = []
     /// Events after which the overlay drew a speculative glyph, so a pass
     /// cannot come from a simulation that never predicts.
     private(set) var predictedEvents = 0
@@ -316,7 +332,7 @@ struct PredictionSimulation {
                 if let failure = check(at: deadline) { return failure }
                 continue
             }
-            guard let next else { return nil }
+            guard let next else { return blankThatHidSettledText() }
             let scheduled = queue.remove(at: next)
             handle(scheduled.event, at: scheduled.time)
             rescheduleExpiry(at: scheduled.time)
@@ -355,22 +371,30 @@ struct PredictionSimulation {
 
         case .drain:
             isDrainScheduled = false
-            var changed = false
-            for batch in inbox {
-                screenSeenByEngine.apply(batch.bytes)
-                changed = engine.observedOutput(batch.bytes, at: Self.instant(batch.time)) || changed
-            }
-            inbox.removeAll()
-            trace.append("\(time)µs drain\(changed ? " (redraw)" : "")")
-            if changed { sync(at: time) }
+            let changed = drainInbox()
+            trace.append("\(time)µs drain\(changed ? " (redraw)" : "")\(engine.holdsLayoutUntilFrame ? " (held)" : "")")
+            if changed, !engine.holdsLayoutUntilFrame { sync(at: time) }
 
         case .frame:
             isFrameScheduled = false
             guard isTrackingFrames else { return }
+            // The host drains what the parser already applied before it
+            // retires and re-anchors, so the engine matches the grid.
+            _ = drainInbox()
             _ = engine.presentedFrame(at: now)
             trace.append("\(time)µs frame")
             sync(at: time)
         }
+    }
+
+    private mutating func drainInbox() -> Bool {
+        var changed = false
+        for batch in inbox {
+            screenSeenByEngine.apply(batch.bytes)
+            changed = engine.observedOutput(batch.bytes, at: Self.instant(batch.time)) || changed
+        }
+        inbox.removeAll()
+        return changed
     }
 
     /// The host's `syncPredictionOverlay`: re-anchor on the live cursor.
@@ -402,10 +426,40 @@ struct PredictionSimulation {
         expiryTask = max(time, micros) + 1
     }
 
-    private func check(at time: Int) -> SimulationFailure? {
+    private mutating func noteBlank(column: Int, seenByEngine: Bool, prefix: String, glyphs: String, cursor: Int) {
+        let view = seenByEngine ? screenSeenByEngine : screen
+        let row = intended.row
+        guard column >= 0, column < row.count, let shown = view.character(at: column),
+              shown == row[column], shown != 0x20 else { return }
+        blanksOverSettledText.append((
+            column: column,
+            seenByEngine: seenByEngine,
+            writes: view.writeCount(at: column),
+            message: "\(prefix): blank drawn at column \(column) hides '\(Character(UnicodeScalar(shown)))', which stays; glyphs \(glyphs) cursor \(cursor)",
+            traceCount: trace.count
+        ))
+    }
+
+    /// At the end of the run: a blank over settled text whose cell the remote
+    /// never wrote again hid text the user was meant to see.
+    private func blankThatHidSettledText() -> SimulationFailure? {
+        for blank in blanksOverSettledText {
+            let view = blank.seenByEngine ? screenSeenByEngine : screen
+            if view.writeCount(at: blank.column) == blank.writes {
+                return SimulationFailure(message: blank.message, trace: Array(trace.prefix(blank.traceCount)))
+            }
+        }
+        return nil
+    }
+
+    private mutating func check(at time: Int) -> SimulationFailure? {
         // The engine against the output it has read: exact after every event.
         for glyph in engine.glyphs {
             let column = screenSeenByEngine.cursor + glyph.offset
+            if glyph.standing == .erased {
+                noteBlank(column: column, seenByEngine: true, prefix: "engine at \(time)µs", glyphs: engine.glyphs.map { "\($0.character)@\($0.offset)" }.description, cursor: screenSeenByEngine.cursor)
+                continue
+            }
             if let problem = misplacement(
                 column: column,
                 character: glyph.character,
@@ -422,6 +476,10 @@ struct PredictionSimulation {
         // drained and the frame after it presented.
         guard !isDrainScheduled, !isFrameScheduled else { return nil }
         for glyph in overlay {
+            if glyph.standing == .erased {
+                noteBlank(column: glyph.column, seenByEngine: false, prefix: "overlay at \(time)µs", glyphs: Self.describe(overlay), cursor: screen.cursor)
+                continue
+            }
             if let problem = misplacement(
                 column: glyph.column,
                 character: glyph.character,
@@ -456,6 +514,10 @@ struct PredictionSimulation {
             guard screen.character(at: column) == byte else {
                 return "confirmed '\(character)' drawn at column \(column), which holds \(screen.character(at: column).map { "'\(Character(UnicodeScalar($0)))'" } ?? "nothing")"
             }
+        case .erased:
+            // Checked by `noteBlank`: a blank may only hide a cell the remote
+            // is about to clear or overwrite.
+            break
         }
         return nil
     }
@@ -557,6 +619,11 @@ enum SimulationCases {
             ))
         }
 
+        // Two keys echoed one at a time first: the run arms only after two
+        // echoes in a row, and this case is about what happens once it has.
+        for _ in 0..<2 {
+            add(.character(alphabet.randomElement(using: &random)!), gap: roundTrip * 3)
+        }
         for _ in 0..<Int.random(in: 1...3, using: &random) {
             let burst = Int.random(in: 1...12, using: &random)
             for _ in 0..<burst {

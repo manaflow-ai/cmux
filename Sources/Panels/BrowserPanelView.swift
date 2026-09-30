@@ -7825,6 +7825,10 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         if portalHostAccepted {
+            BrowserWindowPortalRegistry.updatePaneDropContext(
+                for: webView,
+                context: activePaneDropContext
+            )
             BrowserWindowPortalRegistry.updateDropZoneOverlay(
                 for: webView,
                 zone: coordinator.desiredPortalVisibleInUI ? paneDropZone : nil
@@ -7832,10 +7836,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                 for: webView,
                 height: coordinator.desiredPortalVisibleInUI ? paneTopChromeHeight : 0
-            )
-            BrowserWindowPortalRegistry.updatePaneDropContext(
-                for: webView,
-                context: activePaneDropContext
             )
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
             BrowserWindowPortalRegistry.updateDesignComposer(for: webView, configuration: activeDesignComposer)

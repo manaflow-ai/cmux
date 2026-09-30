@@ -12,6 +12,13 @@ import protocol CmuxWorkspaces.FileOpening
 
 @Suite("Terminal link open coordinator", .serialized)
 struct TerminalLinkOpenCoordinatorTests {
+    @Test("Only text and HTML Ghostty actions authorize local export files")
+    func ghosttyOpenURLKindProvenance() {
+        #expect(TerminalLinkOpenRequest.isLocalExportActionKind(GHOSTTY_ACTION_OPEN_URL_KIND_TEXT))
+        #expect(TerminalLinkOpenRequest.isLocalExportActionKind(GHOSTTY_ACTION_OPEN_URL_KIND_HTML))
+        #expect(!TerminalLinkOpenRequest.isLocalExportActionKind(GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN))
+    }
+
     @Test("SSH file links use the remote preview route even when the same path exists locally")
     @MainActor
     func remoteFileLinkNeverOpensLocalShadow() throws {
@@ -242,7 +249,7 @@ struct TerminalLinkOpenCoordinatorTests {
         var externallyOpened: [URL] = []
         let coordinator = TerminalLinkOpenCoordinator(
             defaults: defaults,
-            containerResolver: { _, _ in nil },
+            containerResolver: { _, _ in LocalLinkContainer() },
             externalOpen: { openedURL in
                 externallyOpened.append(openedURL)
                 return true
@@ -287,7 +294,7 @@ struct TerminalLinkOpenCoordinatorTests {
         let fileOpener = RecordingFileOpener()
         let coordinator = TerminalLinkOpenCoordinator(
             defaults: defaults,
-            containerResolver: { _, _ in nil },
+            containerResolver: { _, _ in LocalLinkContainer() },
             externalOpen: { openedURL in
                 externallyOpened.append(openedURL)
                 return true
@@ -336,7 +343,7 @@ struct TerminalLinkOpenCoordinatorTests {
         let fileOpener = RecordingFileOpener()
         let coordinator = TerminalLinkOpenCoordinator(
             defaults: defaults,
-            containerResolver: { _, _ in nil },
+            containerResolver: { _, _ in LocalLinkContainer() },
             fileOpen: fileOpener,
             deferOperation: { operation in operation() }
         )
@@ -481,6 +488,148 @@ struct TerminalLinkOpenCoordinatorTests {
         )
     }
 
+    @Test(
+        "Links from a terminal on another machine never open a file on this Mac",
+        arguments: [false, true]
+    )
+    @MainActor
+    func remoteTerminalLinksNeverOpenLocalFiles(remoteInitiated: Bool) throws {
+        let defaults = makeDefaults()
+        let directory = try makeLaunchableFixtures()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let container = CloudGuestURLTestContainer()
+        let fileOpener = RecordingFileOpener()
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in container },
+            externalOpen: { url in Issue.record("Remote file link escaped to \(url)"); return true },
+            fileOpen: fileOpener,
+            deferOperation: { operation in operation() }
+        )
+
+        for rawValue in launchableRawValues(in: directory) {
+            #expect(!coordinator.open(TerminalLinkOpenRequest(
+                rawValue: rawValue,
+                sourceWorkspaceId: UUID(),
+                sourcePanelId: UUID(),
+                workingDirectory: directory.path,
+                isRemoteInitiated: remoteInitiated
+            )), "\(rawValue)")
+        }
+        #expect(fileOpener.opened.isEmpty)
+        #expect(container.opened.isEmpty)
+    }
+
+    @Test("A remote-initiated open never reaches a file on this Mac")
+    @MainActor
+    func remoteInitiatedOpenNeverOpensLocalFile() throws {
+        let defaults = makeDefaults()
+        let directory = try makeLaunchableFixtures()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let container = LocalLinkContainer()
+        let fileOpener = RecordingFileOpener()
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in container },
+            externalOpen: { url in Issue.record("Remote-initiated file open escaped to \(url)"); return true },
+            fileOpen: fileOpener,
+            deferOperation: { operation in operation() }
+        )
+
+        for rawValue in launchableRawValues(in: directory) {
+            #expect(!coordinator.open(TerminalLinkOpenRequest(
+                rawValue: rawValue,
+                sourceWorkspaceId: UUID(),
+                sourcePanelId: UUID(),
+                workingDirectory: directory.path,
+                isRemoteInitiated: true
+            )), "\(rawValue)")
+        }
+        #expect(fileOpener.opened.isEmpty)
+        #expect(container.deferredFilePaths.isEmpty)
+    }
+
+    @Test("A remote-initiated web link fails closed before browser routing")
+    @MainActor
+    func remoteInitiatedWebLinkFailsClosedBeforeRouting() throws {
+        let defaults = makeDefaults()
+        let container = CloudGuestURLTestContainer()
+        var external: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in container },
+            externalOpen: { url in
+                external.append(url)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
+
+        #expect(!coordinator.open(TerminalLinkOpenRequest(
+            rawValue: "https://example.com/login",
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            workingDirectory: nil,
+            isRemoteInitiated: true
+        )))
+        #expect(container.opened.isEmpty)
+        #expect(external.isEmpty)
+    }
+
+    @Test("File links from a terminal cmux cannot place never open a file on this Mac")
+    @MainActor
+    func unplacedTerminalLinkNeverOpensLocalFile() throws {
+        let defaults = makeDefaults()
+        let directory = try makeLaunchableFixtures()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileOpener = RecordingFileOpener()
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in nil },
+            externalOpen: { url in Issue.record("Unplaced file link escaped to \(url)"); return true },
+            fileOpen: fileOpener,
+            deferOperation: { operation in operation() }
+        )
+
+        for rawValue in launchableRawValues(in: directory) {
+            #expect(!coordinator.open(TerminalLinkOpenRequest(
+                rawValue: rawValue,
+                sourceWorkspaceId: nil,
+                sourcePanelId: UUID(),
+                workingDirectory: directory.path
+            )), "\(rawValue)")
+        }
+        #expect(fileOpener.opened.isEmpty)
+    }
+
+    /// Files that macOS would launch or render if handed to the system opener.
+    private func makeLaunchableFixtures() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-remote-file-link-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory.appendingPathComponent("Tool.app/Contents", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        for name in ["run.command", "notes.md", "index.html"] {
+            try "echo fixture\n".write(
+                to: directory.appendingPathComponent(name),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        return directory
+    }
+
+    private func launchableRawValues(in directory: URL) -> [String] {
+        [
+            directory.appendingPathComponent("Tool.app", isDirectory: true).absoluteString,
+            directory.appendingPathComponent("run.command").absoluteString,
+            directory.appendingPathComponent("run.command").path,
+            directory.appendingPathComponent("notes.md").path,
+            directory.appendingPathComponent("index.html").path
+        ]
+    }
+
     private func makeHTMLFixture(pathExtension: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-html-click-\(UUID().uuidString)", isDirectory: true)
@@ -515,6 +664,25 @@ private final class RemotePreviewLinkContainer: TerminalLinkOpenContainer {
     ) -> Bool {
         Issue.record("Remote file reached local file route")
         return false
+    }
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool { false }
+}
+
+/// A terminal that runs on this Mac.
+@MainActor
+private final class LocalLinkContainer: TerminalLinkOpenContainer {
+    private(set) var deferredFilePaths: [String] = []
+    var terminalLinkContainerDebugName: String { "local-test" }
+    func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? { nil }
+    func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool { false }
+    func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? { nil }
+    func deferTerminalFileLinkOpen(
+        sourcePanelId: UUID,
+        filePath: String,
+        fallback: @escaping @MainActor @Sendable () -> Void
+    ) -> Bool {
+        deferredFilePaths.append(filePath)
+        return true
     }
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool { false }
 }

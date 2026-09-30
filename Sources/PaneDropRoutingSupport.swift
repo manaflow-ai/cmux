@@ -246,6 +246,11 @@ final class PaneDropZoneOverlayAnimator {
     private let overlayView: NSView
     private var displayedZone: DropZone?
     private var animationGeneration: UInt64 = 0
+    /// The coordinate-space owner used for the last presented frame. A pane
+    /// portal can reparent its overlay while a drag is active; a frame from
+    /// the old owner must never become the starting point of a slide in the
+    /// new owner.
+    private weak var geometrySuperview: NSView?
 
     init(overlayView: NSView) {
         self.overlayView = overlayView
@@ -270,6 +275,7 @@ final class PaneDropZoneOverlayAnimator {
         overlayView.layer?.removeAllAnimations()
         overlayView.isHidden = true
         overlayView.alphaValue = 1
+        geometrySuperview = nil
     }
 
     /// Shows the highlight for `zone`, or fades it out for `nil`.
@@ -310,6 +316,10 @@ final class PaneDropZoneOverlayAnimator {
         }
 
         ensureAttached()
+        let previousSuperview = geometrySuperview
+        let currentSuperview = overlayView.superview
+        let geometryOwnerChanged = previousSuperview != nil && previousSuperview !== currentSuperview
+        geometrySuperview = currentSuperview
         let targetFrame = frameForZone(zone)
         bringToFront()
         let zoneChanged = previousZone != zone
@@ -328,6 +338,17 @@ final class PaneDropZoneOverlayAnimator {
             return .shown
         }
 
+        // A model frame has meaning only in its superview's coordinate space.
+        // Reparenting during a portal handoff changes that space even when the
+        // pane's logical zone is unchanged, so snap before any new animation.
+        if geometryOwnerChanged {
+            snapFrame(targetFrame)
+            if overlayView.alphaValue < 1 {
+                fadeIn()
+            }
+            return .moved
+        }
+
         // A new zone slides; a reframe of the same zone follows layout at once.
         if zoneChanged && overlayView.window != nil && !reducesMotion() {
             slide(to: targetFrame)
@@ -343,12 +364,12 @@ final class PaneDropZoneOverlayAnimator {
     /// Moves the overlay straight to `frame` for a layout change. An in-flight
     /// slide is dropped, since its offsets were measured from the old layout.
     func snapFrame(_ frame: CGRect) {
-        guard !Self.rectApproximatelyEqual(overlayView.frame, frame) else { return }
         if let layer = overlayView.layer {
             for key in layer.animationKeys() ?? [] where key.hasPrefix(Self.slideKeyPrefix) {
                 layer.removeAnimation(forKey: key)
             }
         }
+        guard !Self.rectApproximatelyEqual(overlayView.frame, frame) else { return }
         setModelFrame(frame)
     }
 
