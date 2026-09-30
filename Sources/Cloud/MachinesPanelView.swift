@@ -480,13 +480,13 @@ struct MachinesPanelView: View {
             guard let instance = machine.deviceInstance else { return }
             Task { await devicesModel?.preferences?.setHidden(instance, hidden: true) }
         }
+        nodeActions.markWorkspaceRead = { machine, workspaceID in CloudNotificationSyncHub.shared.noteRead(remoteWorkspaceID: workspaceID, machineID: machine.rawValue) }
         nodeActions.setDeviceDiscovery = { [weak devicesModel] enabled in
             Task { await devicesModel?.preferences?.setDiscoveryEnabled(enabled) }
         }
         nodeActions.setDeviceIncomingAccess = { [weak devicesModel] enabled in
             Task { await devicesModel?.preferences?.setIncomingAccessEnabled(enabled) }
         }
-        // The header "+" is Cmd-Y from this window: same gates, sheet, optimistic create, and no workspace until the sheet completes.
         nodeActions.newMachine = { [weak tabManager] in
             _ = AppDelegate.shared?.performNewCloudMachineAction(
                 tabManager: tabManager,

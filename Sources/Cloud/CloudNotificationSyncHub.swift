@@ -15,6 +15,7 @@ final class CloudNotificationSyncHub {
     static let shared = CloudNotificationSyncHub()
     let persistenceStore: CloudNotificationSyncStore
     private var syncs: [String: CloudNotificationSync] = [:]
+    private var remoteWorkspaceResolvers: [String: @MainActor (String) -> String?] = [:]
     private var notificationGate: CloudMachineNotificationGate
 
     /// Defaults resolve here rather than as default arguments: the store is
@@ -39,13 +40,18 @@ final class CloudNotificationSyncHub {
     private weak var store: TerminalNotificationStore?
     private var unreadCloudKeys: Set<String>?
 
-    func register(_ sync: CloudNotificationSync) {
+    func register(
+        _ sync: CloudNotificationSync,
+        remoteWorkspaceID: @escaping @MainActor (String) -> String? = { _ in nil }
+    ) {
         syncs[sync.machineID] = sync
+        remoteWorkspaceResolvers[sync.machineID] = remoteWorkspaceID
         observeStoreIfNeeded()
     }
 
     func unregister(machineID: String) {
         syncs.removeValue(forKey: machineID)
+        remoteWorkspaceResolvers.removeValue(forKey: machineID)
         if unreadTerminalIDs.removeValue(forKey: machineID) != nil {
             NotificationCenter.default.post(name: .cmuxCloudNotificationUnreadDidChange, object: nil)
         }
@@ -166,5 +172,21 @@ final class CloudNotificationSyncHub {
         )
         guard next != state else { return }
         persistenceStore.save(next, machineID: machineID)
+    }
+
+    /// Marks the notification rows belonging to one remote Cloud workspace as
+    /// read. The workspace id is machine-scoped, so equal names on different
+    /// machines cannot acknowledge each other's rows.
+    @discardableResult
+    func noteRead(remoteWorkspaceID: String, machineID: String) -> [String] {
+        guard let sync = syncs[machineID], !remoteWorkspaceID.isEmpty else { return [] }
+        let resolve = remoteWorkspaceResolvers[machineID] ?? { _ in nil }
+        let ids = sync.rows.compactMap { row -> String? in
+            guard let terminalID = row.terminalID,
+                  resolve(terminalID) == remoteWorkspaceID else { return nil }
+            return row.id
+        }
+        sync.noteRead(notificationIDs: ids)
+        return ids
     }
 }
