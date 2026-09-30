@@ -3,11 +3,6 @@ import CmuxTerminalCore
 import GhosttyKit
 
 extension GhosttyNSView {
-    private var codexActionCacheRuntimeGeneration: UInt64 = .max
-    private var codexActionCacheFrameSequence: UInt64 = .max
-    private var codexActionCacheIsLiveCodexPanel = false
-    private var codexActionCacheRows: [String]?
-
     private func codexActionCell(at point: NSPoint, surface: ghostty_surface_t) -> (TerminalPanel, CodexActionCommand)? {
         guard let terminalSurface, let panel = codexActionPanel(),
               refreshCodexActionCache(for: panel), bounds.contains(point) else { return nil }
