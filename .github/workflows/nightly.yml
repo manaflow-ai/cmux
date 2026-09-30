@@ -1034,6 +1034,7 @@ jobs:
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target aarch64-apple-darwin
+          cargo build -p acpmux --bin acpmux --release --locked --target aarch64-apple-darwin
           binary="target/aarch64-apple-darwin/release/cmux-tui"
           test -x "$binary"
           probe="$($binary remote-probe --json)"
@@ -1185,8 +1186,10 @@ jobs:
           local_client="$GITHUB_WORKSPACE/cmux-tui/target/aarch64-apple-darwin/release/cmux-tui"
           test -x "$local_client"
           CMUX_TUI_CLIENT_LOCAL="$local_client" \
+          CMUX_ACPMUX_LOCAL="$GITHUB_WORKSPACE/cmux-tui/target/aarch64-apple-darwin/release/acpmux" \
             ./scripts/install-cmux-tui-client.sh "$app" \
-            --require-capability wireguard-hub
+            --require-capability wireguard-hub \
+            --require-acpmux
 
       - name: Build immutable SSH daemon assets once for every app variant
         if: needs.decide.outputs.build_only != 'true'
@@ -1480,10 +1483,12 @@ jobs:
             "$app" \
             --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
             --expected-commit "$cmux_tui_commit" \
-            --require-capability wireguard-hub
+            --require-capability wireguard-hub \
+            --require-acpmux
           # Same local-symbol strip scripts/strip-release-bundle.sh applied when
           # the client was bundled before the unsigned app was archived.
           strip -S -x "$app/Contents/Resources/bin/cmux-tui"
+          strip -S -x "$app/Contents/Resources/bin/acpmux"
 
       - name: Run bundled Ghostty theme picker helper regression
         run: |
@@ -1516,6 +1521,7 @@ jobs:
             "$APP/Contents/Resources/bin/cmux" \
             "$APP/Contents/Resources/bin/ghostty" \
             "$APP/Contents/Resources/bin/cmux-tui" \
+            "$APP/Contents/Resources/bin/acpmux" \
             "$APP/Contents/Resources/bin/cmux-cua" \
             "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
             "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"

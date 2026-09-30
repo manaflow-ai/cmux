@@ -46,6 +46,8 @@ extension TerminalController {
         "debug.session_snapshot_benchmark",
         "debug.session_snapshot_seed_scrollback",
         "debug.window.screenshot",
+        "debug.window.record",
+        "debug.agent_chat.action",
         "debug.cloudtree.gallery",
         "debug.cloudtree.spacing",
         "debug.terminal.simulate_file_drop",

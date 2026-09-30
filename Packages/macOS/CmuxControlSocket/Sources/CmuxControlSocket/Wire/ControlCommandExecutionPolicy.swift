@@ -206,6 +206,12 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // compositor before falling back to AppKit. Keep that wait on the
         // socket worker so WebKit-backed panels can render on the main actor.
         "debug.window.screenshot",
+        // Window recording starts and stops a ScreenCaptureKit stream and waits for the
+        // file to finalize; keep those waits on the socket worker like the screenshot.
+        "debug.window.record",
+        // Drives scripted agent chat interactions (scroll, jump, toggle) for animation
+        // recordings; one v2MainSync hop, like the recorder's window lookup.
+        "debug.agent_chat.action",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via

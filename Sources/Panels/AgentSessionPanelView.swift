@@ -4,10 +4,6 @@ import CmuxSettings
 
 struct AgentSessionPanelView: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
-    @AppStorage(SessionContentWidthSettings.maxWidthKey)
-    private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
-    @AppStorage(SessionContentWidthSettings.alignmentKey)
-    private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
     let panel: AgentSessionPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -18,13 +14,9 @@ struct AgentSessionPanelView: View {
     var body: some View {
         Group {
             if isVisibleInUI {
-                AgentSessionWebRenderer(
+                AcpmuxChatPaneRepresentable(
                     panel: panel,
-                    isFocused: isFocused,
-                    backgroundColor: appearance.contentBackgroundColor,
-                    theme: AgentSessionWebTheme.resolve(appearance: appearance, accent: cmuxAccent),
-                    sessionContentWidthPresentation: sessionContentWidthPresentation,
-                    onRequestPanelFocus: onRequestPanelFocus
+                    theme: AcpmuxChatTheme.resolve(appearance: appearance, accent: cmuxAccent)
                 )
                 .id(panel.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -34,12 +26,5 @@ struct AgentSessionPanelView: View {
             }
         }
         .background(Color(nsColor: appearance.contentBackgroundColor))
-    }
-
-    private var sessionContentWidthPresentation: SessionContentWidthPresentation {
-        SessionContentWidthPresentation(
-            storedMaximumWidth: storedSessionContentMaximumWidth,
-            storedAlignment: storedSessionContentAlignment
-        )
     }
 }

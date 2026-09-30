@@ -329,6 +329,18 @@ extension TerminalController {
         ) else {
             return .surfaceNotFoundForID
         }
+        // An agent chat surface takes text as composer input; a newline sends it.
+        // Relay callers stay terminal-only.
+        if routing.remoteRelayOwnerWorkspaceID == nil,
+           let agentPanel = ws.panels[requestedSurfaceID] as? AgentSessionPanel {
+            agentPanel.receiveComposerInput(text)
+            return .sent(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: ws.id,
+                surfaceID: requestedSurfaceID,
+                queued: false
+            )
+        }
         guard ws.controlTerminalTarget(for: requestedSurfaceID) != nil else {
             return .surfaceNotTerminal(requestedSurfaceID)
         }

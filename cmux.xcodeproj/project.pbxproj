@@ -21,6 +21,31 @@
 		A5C017000000000000000007 /* AccountSignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C017000000000000000008 /* AccountSignInView.swift */; };
 		D0B102020000000000000001 /* AcknowledgmentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103020000000000000001 /* AcknowledgmentsView.swift */; };
 		D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */; };
+		AE9894C2C654DA172D7F6466 /* AcpmuxBubblePath.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA48C75ACD383B75B39B9D28 /* AcpmuxBubblePath.swift */; };
+		8F50E8969074B2940650060B /* AcpmuxChatConnectorFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F6103F4CD1BBBCC136A75A4 /* AcpmuxChatConnectorFactory.swift */; };
+		E889AFF3636FAD17F9BAFF92 /* AcpmuxChatHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 680B68232C2E828EC8959222 /* AcpmuxChatHeaderView.swift */; };
+		0485616F9969D32DAB18D10F /* AcpmuxChatPaneRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = F591FDF029506691CFE3F975 /* AcpmuxChatPaneRepresentable.swift */; };
+		C6F223CD8940C9B23BAFA3A6 /* AcpmuxChatPaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3966F42C70F1FB3B005D97F4 /* AcpmuxChatPaneView.swift */; };
+		28764616EBBB107A57F3CD03 /* AcpmuxChatTextRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDF66A15515094E2BA4B1511 /* AcpmuxChatTextRenderer.swift */; };
+		0FAB8E99714F862D6B33AB56 /* AcpmuxChatTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBCF4B1984E3F50A490E0E38 /* AcpmuxChatTheme.swift */; };
+		47B46CB5997B0BEAF1485921 /* AcpmuxChipButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE791F8DB15DA66276BBA60 /* AcpmuxChipButton.swift */; };
+		4BE4AD2B8729479CB021D9B3 /* AcpmuxComposerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1682F8EB802F8126AA9768DE /* AcpmuxComposerTextView.swift */; };
+		4B659FCAA38B4A064E898DAD /* AcpmuxComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59A5EF06E729024F46CD1630 /* AcpmuxComposerView.swift */; };
+		A88BCC6021F24388AF58E262 /* AcpmuxFlippedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D3ACC471A4DB72FA501761 /* AcpmuxFlippedView.swift */; };
+		DEE8C97458EE8BAD826012AC /* AcpmuxJumpToLatestPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9371419723BE18777276B6C /* AcpmuxJumpToLatestPill.swift */; };
+		A46D185C34A176A9E57B745E /* AcpmuxMorphBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54CFFAB58D62A0FF10CEA0B /* AcpmuxMorphBubbleView.swift */; };
+		20D277065D230FA9297B74A3 /* AcpmuxPermissionCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888CF4D05D0015B8B248FCBE /* AcpmuxPermissionCardView.swift */; };
+		D9C51698FBCACC069509F074 /* AcpmuxQueueStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7C75A8511047AC453B93D4A /* AcpmuxQueueStripView.swift */; };
+		E1B8A1E158233287D626A085 /* AcpmuxRowGroupPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68EAF7F7280B8B2F406B262 /* AcpmuxRowGroupPosition.swift */; };
+		D22DE2AC04AB36033E16662A /* AcpmuxRowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A79F7D92C58B1DB23CCDC77 /* AcpmuxRowLayout.swift */; };
+		A425FD3648F46BA614AD99D2 /* AcpmuxRowLayoutEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EF9E593D9454B548C4C053B /* AcpmuxRowLayoutEngine.swift */; };
+		D661E0B88DBD1E27DB1ADD99 /* AcpmuxTextLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44FAB315C1A7EFD98368BE89 /* AcpmuxTextLayout.swift */; };
+		D7937C15ADD9F459BDA178E7 /* AcpmuxTranscriptDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C8DEEDA9BBD684E9E8E3994 /* AcpmuxTranscriptDiff.swift */; };
+		19C7048C911F762357C2EC85 /* AcpmuxTranscriptRowCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8261E8AA5886EC0ACC1053BF /* AcpmuxTranscriptRowCellView.swift */; };
+		10D05AA0B2C6A2A783A0AEE9 /* AcpmuxTranscriptTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50A63BDE12570AC9BEE26B0 /* AcpmuxTranscriptTableView.swift */; };
+		6A0BCAFB83B52E76D065D429 /* AcpmuxTranscriptTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B9520E8C73A9B95DF9ABAA7 /* AcpmuxTranscriptTextView.swift */; };
+		6933493F2BCA1D503D315ADF /* AcpmuxTranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20248562E84F99B5F5EC2AC /* AcpmuxTranscriptView.swift */; };
+		1A0830D8FED4C3B15E680040 /* AcpmuxTypingIndicatorCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7187A2142284FA4EB5F51152 /* AcpmuxTypingIndicatorCellView.swift */; };
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
 		5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */; };
@@ -199,6 +224,7 @@
 		A9E020000000000000000004 /* AgentSessionPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000004 /* AgentSessionPanelView.swift */; };
 		A9F20000000000000000000F /* AgentSessionPermissionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000000F /* AgentSessionPermissionMode.swift */; };
 		A9E020000000000000000009 /* AgentSessionProcessStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000009 /* AgentSessionProcessStore.swift */; };
+		97AE9F1D5DE01BC772769919 /* AgentSessionProvider+Acpmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F895BA1634AB279C6BE0521 /* AgentSessionProvider+Acpmux.swift */; };
 		A9E020000000000000000001 /* AgentSessionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000001 /* AgentSessionProvider.swift */; };
 		A6E5E0C00000000000000001 /* AgentSessionRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E5E0C00000000000000002 /* AgentSessionRecovery.swift */; };
 		C8D49BF2BF83C58161EE2FF4 /* AgentSessionRecoveryAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1CDC8E5DB7360FFDF7A1E6 /* AgentSessionRecoveryAppTests.swift */; };
@@ -1014,6 +1040,8 @@
 		B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmux.swift */; };
 		C0DE1A060000000000000001 /* cmux_layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A060000000000000002 /* cmux_layout.swift */; };
 		B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000030A1B2C3D4E5F60719 /* cmux_open.swift */; };
+		AC9A00000000000000000003 /* CmuxAcpmux in Frameworks */ = {isa = PBXBuildFile; productRef = AC9A00000000000000000002 /* CmuxAcpmux */; };
+		AC9A00000000000000000004 /* CmuxAcpmux in Frameworks */ = {isa = PBXBuildFile; productRef = AC9A00000000000000000002 /* CmuxAcpmux */; };
 		A5001654 /* CmuxActionTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001655 /* CmuxActionTrust.swift */; };
 		AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */; };
 		AC4A6E7C4A700001AC4A0005 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat */; };
@@ -1636,6 +1664,7 @@
 		DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */; };
 		C0DE31410000000000000103 /* DebugEventLogSerializedAppendTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31410000000000000104 /* DebugEventLogSerializedAppendTests.swift */; };
 		A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */; };
+		8C311A0F4902C0503027F964 /* DebugWindowRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E494FDF2D8061EDBCF12CE0 /* DebugWindowRecorder.swift */; };
 		917300000000000000000001 /* DeferredActionReplacementStackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 917300000000000000000002 /* DeferredActionReplacementStackTests.swift */; };
 		BA7A43065A846B4A19D749FE /* DeferredAdmissionTestOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96D0A50A9C2220332A4B28A /* DeferredAdmissionTestOwner.swift */; };
 		9132BC2F156AD09D1346256D /* DeferredAgentResumeAdmissionOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = F164F24D9F2A42688990D73E /* DeferredAgentResumeAdmissionOwner.swift */; };
@@ -2483,6 +2512,7 @@
 		D77690000000000000000007 /* NotificationsPopoverResizeHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000008 /* NotificationsPopoverResizeHandle.swift */; };
 		D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000A /* NotificationsPopoverResizeView.swift */; };
 		2C9949001245BCD676E5ACA6 /* NotificationSuppressWhenAppFocusedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D45948E0E0E282796BE8936 /* NotificationSuppressWhenAppFocusedTests.swift */; };
+		A213FEDDFAE4D64B5D0B9C19 /* NSAttributedStringKey+AcpmuxCodeBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD9A3AEB72A14E2A2FC43179 /* NSAttributedStringKey+AcpmuxCodeBlock.swift */; };
 		CF5D844BBCB1482280ABA319 /* NSImageView+SidebarWorkspaceAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21111C055F1D46288E928B8C /* NSImageView+SidebarWorkspaceAccessory.swift */; };
 		F12748000000000000000005 /* NSTextView+FilePreviewLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12748000000000000000006 /* NSTextView+FilePreviewLayout.swift */; };
 		C01E00080000000000000001 /* NSTextView+FilePreviewTabWidth.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01E00080000000000000002 /* NSTextView+FilePreviewTabWidth.swift */; };
@@ -3509,6 +3539,7 @@
 		90979E3986A3C0D488E3B616 /* TerminalController+CurrentWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD26BDF22AEF02E4171683F8 /* TerminalController+CurrentWork.swift */; };
 		C57B00040000000000000001 /* TerminalController+CustomSidebarCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00040000000000000002 /* TerminalController+CustomSidebarCommands.swift */; };
 		C0DEBEEF0000000000000002 /* TerminalController+DebugMethodNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEBEEF0000000000000001 /* TerminalController+DebugMethodNames.swift */; };
+		FBB8F34FC477B15F81C8537D /* TerminalController+DebugWindowRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0BD23016CCA92209074B6B /* TerminalController+DebugWindowRecord.swift */; };
 		A28B087F000000000000000B /* TerminalController+DiffViewerTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F000000000000000C /* TerminalController+DiffViewerTrust.swift */; };
 		8777C0018777C0018777C001 /* TerminalController+DockControlTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8777C0028777C0028777C002 /* TerminalController+DockControlTopology.swift */; };
 		8672D0038672D0038672D003 /* TerminalController+FeedAcknowledgment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672D0048672D0048672D004 /* TerminalController+FeedAcknowledgment.swift */; };
@@ -4314,6 +4345,31 @@
 		A5C017000000000000000008 /* AccountSignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInView.swift; sourceTree = "<group>"; };
 		D0B103020000000000000001 /* AcknowledgmentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AcknowledgmentsView.swift; sourceTree = "<group>"; };
 		D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AcknowledgmentsWindowController.swift; sourceTree = "<group>"; };
+		CA48C75ACD383B75B39B9D28 /* AcpmuxBubblePath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxBubblePath.swift; sourceTree = "<group>"; };
+		0F6103F4CD1BBBCC136A75A4 /* AcpmuxChatConnectorFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxChatConnectorFactory.swift; sourceTree = "<group>"; };
+		680B68232C2E828EC8959222 /* AcpmuxChatHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxChatHeaderView.swift; sourceTree = "<group>"; };
+		F591FDF029506691CFE3F975 /* AcpmuxChatPaneRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxChatPaneRepresentable.swift; sourceTree = "<group>"; };
+		3966F42C70F1FB3B005D97F4 /* AcpmuxChatPaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxChatPaneView.swift; sourceTree = "<group>"; };
+		CDF66A15515094E2BA4B1511 /* AcpmuxChatTextRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxChatTextRenderer.swift; sourceTree = "<group>"; };
+		BBCF4B1984E3F50A490E0E38 /* AcpmuxChatTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxChatTheme.swift; sourceTree = "<group>"; };
+		1AE791F8DB15DA66276BBA60 /* AcpmuxChipButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxChipButton.swift; sourceTree = "<group>"; };
+		1682F8EB802F8126AA9768DE /* AcpmuxComposerTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxComposerTextView.swift; sourceTree = "<group>"; };
+		59A5EF06E729024F46CD1630 /* AcpmuxComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxComposerView.swift; sourceTree = "<group>"; };
+		18D3ACC471A4DB72FA501761 /* AcpmuxFlippedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxFlippedView.swift; sourceTree = "<group>"; };
+		A9371419723BE18777276B6C /* AcpmuxJumpToLatestPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxJumpToLatestPill.swift; sourceTree = "<group>"; };
+		C54CFFAB58D62A0FF10CEA0B /* AcpmuxMorphBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxMorphBubbleView.swift; sourceTree = "<group>"; };
+		888CF4D05D0015B8B248FCBE /* AcpmuxPermissionCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxPermissionCardView.swift; sourceTree = "<group>"; };
+		B7C75A8511047AC453B93D4A /* AcpmuxQueueStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxQueueStripView.swift; sourceTree = "<group>"; };
+		A68EAF7F7280B8B2F406B262 /* AcpmuxRowGroupPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxRowGroupPosition.swift; sourceTree = "<group>"; };
+		2A79F7D92C58B1DB23CCDC77 /* AcpmuxRowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxRowLayout.swift; sourceTree = "<group>"; };
+		3EF9E593D9454B548C4C053B /* AcpmuxRowLayoutEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxRowLayoutEngine.swift; sourceTree = "<group>"; };
+		44FAB315C1A7EFD98368BE89 /* AcpmuxTextLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxTextLayout.swift; sourceTree = "<group>"; };
+		5C8DEEDA9BBD684E9E8E3994 /* AcpmuxTranscriptDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxTranscriptDiff.swift; sourceTree = "<group>"; };
+		8261E8AA5886EC0ACC1053BF /* AcpmuxTranscriptRowCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxTranscriptRowCellView.swift; sourceTree = "<group>"; };
+		E50A63BDE12570AC9BEE26B0 /* AcpmuxTranscriptTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxTranscriptTableView.swift; sourceTree = "<group>"; };
+		5B9520E8C73A9B95DF9ABAA7 /* AcpmuxTranscriptTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxTranscriptTextView.swift; sourceTree = "<group>"; };
+		C20248562E84F99B5F5EC2AC /* AcpmuxTranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxTranscriptView.swift; sourceTree = "<group>"; };
+		7187A2142284FA4EB5F51152 /* AcpmuxTypingIndicatorCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxTypingIndicatorCellView.swift; sourceTree = "<group>"; };
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
 		5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatChildRunTests.swift; sourceTree = "<group>"; };
@@ -4487,6 +4543,7 @@
 		A9E010000000000000000004 /* AgentSessionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionPanelView.swift; sourceTree = "<group>"; };
 		A9F10000000000000000000F /* AgentSessionPermissionMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionPermissionMode.swift; sourceTree = "<group>"; };
 		A9E010000000000000000009 /* AgentSessionProcessStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionProcessStore.swift; sourceTree = "<group>"; };
+		9F895BA1634AB279C6BE0521 /* AgentSessionProvider+Acpmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSessionProvider+Acpmux.swift"; sourceTree = "<group>"; };
 		A9E010000000000000000001 /* AgentSessionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionProvider.swift; sourceTree = "<group>"; };
 		A6E5E0C00000000000000002 /* AgentSessionRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRecovery.swift; sourceTree = "<group>"; };
 		4A1CDC8E5DB7360FFDF7A1E6 /* AgentSessionRecoveryAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSessionRecoveryAppTests.swift"; sourceTree = "<group>"; };
@@ -5779,6 +5836,7 @@
 		DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolverTests.swift; sourceTree = "<group>"; };
 		C0DE31410000000000000104 /* DebugEventLogSerializedAppendTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugEventLogSerializedAppendTests.swift; sourceTree = "<group>"; };
 		A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DebugLogging.swift; sourceTree = "<group>"; };
+		3E494FDF2D8061EDBCF12CE0 /* DebugWindowRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugWindowRecorder.swift; sourceTree = "<group>"; };
 		917300000000000000000002 /* DeferredActionReplacementStackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeferredActionReplacementStackTests.swift; sourceTree = "<group>"; };
 		D96D0A50A9C2220332A4B28A /* DeferredAdmissionTestOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DeferredAdmissionTestOwner.swift"; sourceTree = "<group>"; };
 		F164F24D9F2A42688990D73E /* DeferredAgentResumeAdmissionOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeferredAgentResumeAdmissionOwner.swift; sourceTree = "<group>"; };
@@ -6617,6 +6675,7 @@
 		D77690000000000000000008 /* NotificationsPopoverResizeHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverResizeHandle.swift; sourceTree = "<group>"; };
 		D7769000000000000000000A /* NotificationsPopoverResizeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverResizeView.swift; sourceTree = "<group>"; };
 		5D45948E0E0E282796BE8936 /* NotificationSuppressWhenAppFocusedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationSuppressWhenAppFocusedTests.swift"; sourceTree = "<group>"; };
+		DD9A3AEB72A14E2A2FC43179 /* NSAttributedStringKey+AcpmuxCodeBlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/AcpmuxChat/NSAttributedStringKey+AcpmuxCodeBlock.swift"; sourceTree = "<group>"; };
 		21111C055F1D46288E928B8C /* NSImageView+SidebarWorkspaceAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSImageView+SidebarWorkspaceAccessory.swift"; sourceTree = "<group>"; };
 		F12748000000000000000006 /* NSTextView+FilePreviewLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/NSTextView+FilePreviewLayout.swift"; sourceTree = "<group>"; };
 		C01E00080000000000000002 /* NSTextView+FilePreviewTabWidth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/NSTextView+FilePreviewTabWidth.swift"; sourceTree = "<group>"; };
@@ -7627,6 +7686,7 @@
 		FD26BDF22AEF02E4171683F8 /* TerminalController+CurrentWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+CurrentWork.swift"; sourceTree = "<group>"; };
 		C57B00040000000000000002 /* TerminalController+CustomSidebarCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+CustomSidebarCommands.swift"; sourceTree = "<group>"; };
 		C0DEBEEF0000000000000001 /* TerminalController+DebugMethodNames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+DebugMethodNames.swift"; sourceTree = "<group>"; };
+		5B0BD23016CCA92209074B6B /* TerminalController+DebugWindowRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+DebugWindowRecord.swift"; sourceTree = "<group>"; };
 		A28B087F000000000000000C /* TerminalController+DiffViewerTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+DiffViewerTrust.swift"; sourceTree = "<group>"; };
 		8777C0028777C0028777C002 /* TerminalController+DockControlTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+DockControlTopology.swift"; sourceTree = "<group>"; };
 		8672D0048672D0048672D004 /* TerminalController+FeedAcknowledgment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+FeedAcknowledgment.swift"; sourceTree = "<group>"; };
@@ -8326,6 +8386,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AC9A00000000000000000003 /* CmuxAcpmux in Frameworks */,
 				AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */,
 				A77A0003A1B2C3D4E5F60001 /* CmuxAgentJournal in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
@@ -8447,6 +8508,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */,
+				AC9A00000000000000000004 /* CmuxAcpmux in Frameworks */,
 				AC4A6E7C4A700001AC4A0005 /* CmuxAgentChat in Frameworks */,
 				9758E0049758E0049758E004 /* CmuxAgentSessionStore in Frameworks */,
 				C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
@@ -11174,12 +11236,41 @@
 				01AFEB5B2588D6391DC94892 /* WorkspaceActivityReorderController.swift */,
 				FFFCEC5E783F29C91BC6A8EE /* Workspace+SplitSpace.swift */,
 				F2A8C8F36CBB9D59049A238F /* SidebarResizerAccessibilityModifier.swift */,
+				9F895BA1634AB279C6BE0521 /* AgentSessionProvider+Acpmux.swift */,
+				CA48C75ACD383B75B39B9D28 /* AcpmuxBubblePath.swift */,
+				0F6103F4CD1BBBCC136A75A4 /* AcpmuxChatConnectorFactory.swift */,
+				680B68232C2E828EC8959222 /* AcpmuxChatHeaderView.swift */,
+				F591FDF029506691CFE3F975 /* AcpmuxChatPaneRepresentable.swift */,
+				3966F42C70F1FB3B005D97F4 /* AcpmuxChatPaneView.swift */,
+				CDF66A15515094E2BA4B1511 /* AcpmuxChatTextRenderer.swift */,
+				BBCF4B1984E3F50A490E0E38 /* AcpmuxChatTheme.swift */,
+				1AE791F8DB15DA66276BBA60 /* AcpmuxChipButton.swift */,
+				1682F8EB802F8126AA9768DE /* AcpmuxComposerTextView.swift */,
+				59A5EF06E729024F46CD1630 /* AcpmuxComposerView.swift */,
+				18D3ACC471A4DB72FA501761 /* AcpmuxFlippedView.swift */,
+				A9371419723BE18777276B6C /* AcpmuxJumpToLatestPill.swift */,
+				C54CFFAB58D62A0FF10CEA0B /* AcpmuxMorphBubbleView.swift */,
+				888CF4D05D0015B8B248FCBE /* AcpmuxPermissionCardView.swift */,
+				B7C75A8511047AC453B93D4A /* AcpmuxQueueStripView.swift */,
+				A68EAF7F7280B8B2F406B262 /* AcpmuxRowGroupPosition.swift */,
+				2A79F7D92C58B1DB23CCDC77 /* AcpmuxRowLayout.swift */,
+				3EF9E593D9454B548C4C053B /* AcpmuxRowLayoutEngine.swift */,
+				44FAB315C1A7EFD98368BE89 /* AcpmuxTextLayout.swift */,
+				5C8DEEDA9BBD684E9E8E3994 /* AcpmuxTranscriptDiff.swift */,
+				8261E8AA5886EC0ACC1053BF /* AcpmuxTranscriptRowCellView.swift */,
+				E50A63BDE12570AC9BEE26B0 /* AcpmuxTranscriptTableView.swift */,
+				5B9520E8C73A9B95DF9ABAA7 /* AcpmuxTranscriptTextView.swift */,
+				C20248562E84F99B5F5EC2AC /* AcpmuxTranscriptView.swift */,
+				7187A2142284FA4EB5F51152 /* AcpmuxTypingIndicatorCellView.swift */,
 				60FA3A8B7182AEE47EC38033 /* DiffViewerPreferencesStore.swift */,
 				EF429A8ABD1F6FBA507AEBC8 /* KeyboardShortcutSettings+DiffViewerNavigation.swift */,
 				E9E08FF3907FC5F144872BDF /* DeviceDiscoverabilityConfirmation.swift */,
 				4845BF2DCEA4B76EC0EBC410 /* BrowserWindowSlotView+PaneDropOverlay.swift */,
 				E7E4D51BF3365A4CB3A658E4 /* GhosttySurfaceScrollView+PaneDropOverlay.swift */,
+				DD9A3AEB72A14E2A2FC43179 /* NSAttributedStringKey+AcpmuxCodeBlock.swift */,
 				2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */,
+				3E494FDF2D8061EDBCF12CE0 /* DebugWindowRecorder.swift */,
+				5B0BD23016CCA92209074B6B /* TerminalController+DebugWindowRecord.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -12802,6 +12893,7 @@
 				1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */,
 				D0F3A0000000000000000002 /* CmuxCloudImagePaste */,
 				C4B1E0000000000000000002 /* CmuxMobileHost */,
+				AC9A00000000000000000002 /* CmuxAcpmux */,
 			);
 			productName = cmux;
 			productReference = A5001000 /* cmux.app */;
@@ -12934,6 +13026,7 @@
 				AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat */,
 				D0F3A0000000000000000002 /* CmuxCloudImagePaste */,
 				C4B1E0000000000000000002 /* CmuxMobileHost */,
+				AC9A00000000000000000002 /* CmuxAcpmux */,
 			);
 			productName = cmuxTests;
 			productReference = F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */;
@@ -13072,6 +13165,7 @@
 				1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */,
 				D0F3A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudImagePaste" */,
 				C4B1E0000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileHost" */,
+				AC9A00000000000000000001 /* XCLocalSwiftPackageReference "CmuxAcpmux" */,
 			);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -13400,6 +13494,31 @@
 				A5C017000000000000000007 /* AccountSignInView.swift in Sources */,
 				D0B102020000000000000001 /* AcknowledgmentsView.swift in Sources */,
 				D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */,
+				AE9894C2C654DA172D7F6466 /* AcpmuxBubblePath.swift in Sources */,
+				8F50E8969074B2940650060B /* AcpmuxChatConnectorFactory.swift in Sources */,
+				E889AFF3636FAD17F9BAFF92 /* AcpmuxChatHeaderView.swift in Sources */,
+				0485616F9969D32DAB18D10F /* AcpmuxChatPaneRepresentable.swift in Sources */,
+				C6F223CD8940C9B23BAFA3A6 /* AcpmuxChatPaneView.swift in Sources */,
+				28764616EBBB107A57F3CD03 /* AcpmuxChatTextRenderer.swift in Sources */,
+				0FAB8E99714F862D6B33AB56 /* AcpmuxChatTheme.swift in Sources */,
+				47B46CB5997B0BEAF1485921 /* AcpmuxChipButton.swift in Sources */,
+				4BE4AD2B8729479CB021D9B3 /* AcpmuxComposerTextView.swift in Sources */,
+				4B659FCAA38B4A064E898DAD /* AcpmuxComposerView.swift in Sources */,
+				A88BCC6021F24388AF58E262 /* AcpmuxFlippedView.swift in Sources */,
+				DEE8C97458EE8BAD826012AC /* AcpmuxJumpToLatestPill.swift in Sources */,
+				A46D185C34A176A9E57B745E /* AcpmuxMorphBubbleView.swift in Sources */,
+				20D277065D230FA9297B74A3 /* AcpmuxPermissionCardView.swift in Sources */,
+				D9C51698FBCACC069509F074 /* AcpmuxQueueStripView.swift in Sources */,
+				E1B8A1E158233287D626A085 /* AcpmuxRowGroupPosition.swift in Sources */,
+				D22DE2AC04AB36033E16662A /* AcpmuxRowLayout.swift in Sources */,
+				A425FD3648F46BA614AD99D2 /* AcpmuxRowLayoutEngine.swift in Sources */,
+				D661E0B88DBD1E27DB1ADD99 /* AcpmuxTextLayout.swift in Sources */,
+				D7937C15ADD9F459BDA178E7 /* AcpmuxTranscriptDiff.swift in Sources */,
+				19C7048C911F762357C2EC85 /* AcpmuxTranscriptRowCellView.swift in Sources */,
+				10D05AA0B2C6A2A783A0AEE9 /* AcpmuxTranscriptTableView.swift in Sources */,
+				6A0BCAFB83B52E76D065D429 /* AcpmuxTranscriptTextView.swift in Sources */,
+				6933493F2BCA1D503D315ADF /* AcpmuxTranscriptView.swift in Sources */,
+				1A0830D8FED4C3B15E680040 /* AcpmuxTypingIndicatorCellView.swift in Sources */,
 					C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */,
 				C7A53F000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinator.swift in Sources */,
 				A6E57A0D0000000000000001 /* AgentChatProseStreamWakeDriver.swift in Sources */,
@@ -13518,6 +13637,7 @@
 				A9E020000000000000000004 /* AgentSessionPanelView.swift in Sources */,
 				A9F20000000000000000000F /* AgentSessionPermissionMode.swift in Sources */,
 				A9E020000000000000000009 /* AgentSessionProcessStore.swift in Sources */,
+				97AE9F1D5DE01BC772769919 /* AgentSessionProvider+Acpmux.swift in Sources */,
 				A9E020000000000000000001 /* AgentSessionProvider.swift in Sources */,
 				A6E5E0C00000000000000001 /* AgentSessionRecovery.swift in Sources */,
 				A9E02000000000000000000F /* AgentSessionRendererKind.swift in Sources */,
@@ -14111,6 +14231,7 @@
 				C57B00090000000000000001 /* CustomSidebarPanelView.swift in Sources */,
 				DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */,
 				A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */,
+				8C311A0F4902C0503027F964 /* DebugWindowRecorder.swift in Sources */,
 				9132BC2F156AD09D1346256D /* DeferredAgentResumeAdmissionOwner.swift in Sources */,
 				D10786DB0000000000000001 /* DeferredBrowserPanel.swift in Sources */,
 				D10786DB0000000000000003 /* DeferredBrowserPanelView.swift in Sources */,
@@ -14673,6 +14794,7 @@
 				D7769000000000000000000F /* NotificationsPopoverMetrics.swift in Sources */,
 				D77690000000000000000007 /* NotificationsPopoverResizeHandle.swift in Sources */,
 				D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */,
+				A213FEDDFAE4D64B5D0B9C19 /* NSAttributedStringKey+AcpmuxCodeBlock.swift in Sources */,
 				CF5D844BBCB1482280ABA319 /* NSImageView+SidebarWorkspaceAccessory.swift in Sources */,
 				F12748000000000000000005 /* NSTextView+FilePreviewLayout.swift in Sources */,
 				C01E00080000000000000001 /* NSTextView+FilePreviewTabWidth.swift in Sources */,
@@ -15358,6 +15480,7 @@
 				90979E3986A3C0D488E3B616 /* TerminalController+CurrentWork.swift in Sources */,
 				C57B00040000000000000001 /* TerminalController+CustomSidebarCommands.swift in Sources */,
 				C0DEBEEF0000000000000002 /* TerminalController+DebugMethodNames.swift in Sources */,
+				FBB8F34FC477B15F81C8537D /* TerminalController+DebugWindowRecord.swift in Sources */,
 				A28B087F000000000000000B /* TerminalController+DiffViewerTrust.swift in Sources */,
 				8777C0018777C0018777C001 /* TerminalController+DockControlTopology.swift in Sources */,
 				8672D0038672D0038672D003 /* TerminalController+FeedAcknowledgment.swift in Sources */,
@@ -18206,6 +18329,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxMobileHost;
 		};
+		AC9A00000000000000000001 /* XCLocalSwiftPackageReference "CmuxAcpmux" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxAcpmux;
+		};
 		D0F4A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTunnelCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCloudTunnelCore;
@@ -18569,6 +18696,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C4B1E0000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileHost" */;
 			productName = CmuxMobileHost;
+		};
+		AC9A00000000000000000002 /* CmuxAcpmux */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AC9A00000000000000000001 /* XCLocalSwiftPackageReference "CmuxAcpmux" */;
+			productName = CmuxAcpmux;
 		};
 		CE57E10000000000000000B2 /* CmuxSentryReporting */ = {
 			isa = XCSwiftPackageProductDependency;
