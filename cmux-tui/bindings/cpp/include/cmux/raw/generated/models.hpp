@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd";
+inline constexpr std::string_view kProtocolIrSha256 = "4a2a6f0ff525cd2ad19e7e742e85dc4097b693faec39c532177f67beddc442bc";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -254,6 +254,7 @@ struct NewBrowserTabRequest;
 struct NewFrontendBrowserTabRequest;
 struct NewPaneRequest;
 struct NewPaneRightRequest;
+struct NewRemoteTerminalTabRequest;
 struct NewScreenRequest;
 struct NewTabRequest;
 struct NewWorkspaceRequest;
@@ -275,6 +276,7 @@ struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
+struct RemoteTerminalSnapshotRequest;
 struct RemoveScreensFromScreenGroupRequest;
 struct RemoveTabsFromTabGroupRequest;
 struct RenamePaneRequest;
@@ -334,6 +336,7 @@ struct UnsaveTabGroupRequest;
 struct UpdateFrontendBrowserTabRequest;
 struct UpdatePersonalGroupRequest;
 struct UpdateProfileRequest;
+struct UpdateRemoteTerminalTabRequest;
 struct UpdateScreenGroupRequest;
 struct UpdateTabGroupRequest;
 struct UpdateWorkspaceGroupRequest;
@@ -2184,6 +2187,17 @@ struct NewPaneRightRequest {
     friend bool operator==(const NewPaneRightRequest&, const NewPaneRightRequest&) = default;
 };
 
+struct NewRemoteTerminalTabRequest {
+    Field<std::uint16_t> cols{};
+    Field<Id> pane{};
+    Field<std::uint16_t> rows{};
+    std::string session_id{};
+    std::string session_name{};
+    std::string terminal_id{};
+    Field<std::string> title{};
+    friend bool operator==(const NewRemoteTerminalTabRequest&, const NewRemoteTerminalTabRequest&) = default;
+};
+
 struct NewScreenRequest {
     Field<std::string> color{};
     Field<std::uint16_t> cols{};
@@ -2495,6 +2509,11 @@ struct ReloadConfigRequest {
 struct ReloadConfigResult {
     std::optional<std::string> path{};
     friend bool operator==(const ReloadConfigResult&, const ReloadConfigResult&) = default;
+};
+
+struct RemoteTerminalSnapshotRequest {
+    Id surface{};
+    friend bool operator==(const RemoteTerminalSnapshotRequest&, const RemoteTerminalSnapshotRequest&) = default;
 };
 
 struct RemoveScreensFromScreenGroupRequest {
@@ -3456,6 +3475,14 @@ struct UpdateProfileRequest {
     std::string profile{};
     Field<std::string> theme{};
     friend bool operator==(const UpdateProfileRequest&, const UpdateProfileRequest&) = default;
+};
+
+struct UpdateRemoteTerminalTabRequest {
+    Field<std::string> session_name{};
+    Field<std::string> snapshot{};
+    Id surface{};
+    Field<std::string> title{};
+    friend bool operator==(const UpdateRemoteTerminalTabRequest&, const UpdateRemoteTerminalTabRequest&) = default;
 };
 
 struct UpdateScreenGroupRequest {
@@ -5073,6 +5100,12 @@ struct Codec<NewPaneRightRequest> {
 };
 
 template <>
+struct Codec<NewRemoteTerminalTabRequest> {
+    static Result<Json> encode(const NewRemoteTerminalTabRequest& value);
+    static Result<NewRemoteTerminalTabRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<NewScreenRequest> {
     static Result<Json> encode(const NewScreenRequest& value);
     static Result<NewScreenRequest> decode(const Json& value);
@@ -5196,6 +5229,12 @@ template <>
 struct Codec<ReloadConfigResult> {
     static Result<Json> encode(const ReloadConfigResult& value);
     static Result<ReloadConfigResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteTerminalSnapshotRequest> {
+    static Result<Json> encode(const RemoteTerminalSnapshotRequest& value);
+    static Result<RemoteTerminalSnapshotRequest> decode(const Json& value);
 };
 
 template <>
@@ -5550,6 +5589,12 @@ template <>
 struct Codec<UpdateProfileRequest> {
     static Result<Json> encode(const UpdateProfileRequest& value);
     static Result<UpdateProfileRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UpdateRemoteTerminalTabRequest> {
+    static Result<Json> encode(const UpdateRemoteTerminalTabRequest& value);
+    static Result<UpdateRemoteTerminalTabRequest> decode(const Json& value);
 };
 
 template <>

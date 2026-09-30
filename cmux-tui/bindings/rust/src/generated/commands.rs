@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd.
+// cmux-tui mux protocol 12, IR 4a2a6f0ff525cd2ad19e7e742e85dc4097b693faec39c532177f67beddc442bc.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1280,6 +1280,25 @@ pub struct NewPaneRightRequest {
 pub type NewPaneRightResult = T::SurfaceResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewRemoteTerminalTabRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub rows: Optional<u16>,
+    pub session_id: String,
+    pub session_name: String,
+    pub terminal_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub title: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type NewRemoteTerminalTabResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct NewScreenRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1529,6 +1548,15 @@ pub struct ReloadConfigResult {
     pub path: Nullable<String>,
     pub reloaded: bool,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteTerminalSnapshotRequest {
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type RemoteTerminalSnapshotResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2271,6 +2299,21 @@ pub type UpdateProfileResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateRemoteTerminalTabRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub session_name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub snapshot: Optional<String>,
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub title: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type UpdateRemoteTerminalTabResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateScreenGroupRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub collapsed: Optional<bool>,
@@ -2894,6 +2937,10 @@ impl CmuxClient {
         self.execute(&NEW_PANE_RIGHT_METADATA, &request)
     }
 
+    pub fn new_remote_terminal_tab(&mut self, request: NewRemoteTerminalTabRequest) -> Result<NewRemoteTerminalTabResult> {
+        self.execute(&NEW_REMOTE_TERMINAL_TAB_METADATA, &request)
+    }
+
     pub fn new_screen(&mut self, request: NewScreenRequest) -> Result<NewScreenResult> {
         self.execute(&NEW_SCREEN_METADATA, &request)
     }
@@ -2984,6 +3031,10 @@ impl CmuxClient {
 
     pub fn reload_config(&mut self, request: ReloadConfigRequest) -> Result<ReloadConfigResult> {
         self.execute(&RELOAD_CONFIG_METADATA, &request)
+    }
+
+    pub fn remote_terminal_snapshot(&mut self, request: RemoteTerminalSnapshotRequest) -> Result<RemoteTerminalSnapshotResult> {
+        self.execute(&REMOTE_TERMINAL_SNAPSHOT_METADATA, &request)
     }
 
     pub fn remove_screens_from_screen_group(&mut self, request: RemoveScreensFromScreenGroupRequest) -> Result<RemoveScreensFromScreenGroupResult> {
@@ -3326,6 +3377,10 @@ impl CmuxClient {
 
     pub fn update_profile(&mut self, request: UpdateProfileRequest) -> Result<UpdateProfileResult> {
         self.execute(&UPDATE_PROFILE_METADATA, &request)
+    }
+
+    pub fn update_remote_terminal_tab(&mut self, request: UpdateRemoteTerminalTabRequest) -> Result<UpdateRemoteTerminalTabResult> {
+        self.execute(&UPDATE_REMOTE_TERMINAL_TAB_METADATA, &request)
     }
 
     pub fn update_screen_group(&mut self, request: UpdateScreenGroupRequest) -> Result<UpdateScreenGroupResult> {

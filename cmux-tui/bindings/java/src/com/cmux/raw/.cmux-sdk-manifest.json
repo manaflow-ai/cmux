@@ -347,8 +347,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "b6c3f894e3b9d00ff1d062ae8ddbf11d69bfe03b43456c33c2bb913a1850b806",
-      "size": 47150
+      "sha256": "bae5ef53d984bc77a7fa43fe59efb4af9832e25abcdc90a0b8ec6aedac8bf7e8",
+      "size": 47985
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -597,8 +597,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "d0e7d33fc3abc06f30525c020d11fb7d9bea7e31f02ccc9fa786232ecb91b836",
-      "size": 42272
+      "sha256": "1f45e38fc7c0e9c41ebac2be02bc8c0e2de85ae752804b011d4f9151bb1cfbb6",
+      "size": 43006
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -986,6 +986,11 @@
       "size": 6375
     },
     {
+      "path": "NewRemoteTerminalTabRequest.java",
+      "sha256": "89af0a2bece5bdf93b597aa9ca789fb2be84345402036198ce5f64e977d637bb",
+      "size": 6187
+    },
+    {
       "path": "NewScreenRequest.java",
       "sha256": "4fd17bf510fdbf5066a99f2b89ba5deda2ff362dd7751dcdfaed0bf91b16faf7",
       "size": 7514
@@ -1132,7 +1137,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "332772ff1413ed405728cc1f839e321d32364b1cce0a22ba16f128311db9977d",
+      "sha256": "7cd31be3c45331c51bc965c81de0e387f57638fee64ff22d2e2414e51a9a6a47",
       "size": 4696
     },
     {
@@ -1204,6 +1209,11 @@
       "path": "ReloadConfigResult.java",
       "sha256": "94b93c987c315a63322d159d8a9157d8b136498ee754a7adaa512eeda6b2797c",
       "size": 2136
+    },
+    {
+      "path": "RemoteTerminalSnapshotRequest.java",
+      "sha256": "ca5af619716610ef20457c81a73d064616dcd3ebddf62b31bde64a7c2b43af81",
+      "size": 2148
     },
     {
       "path": "RemoveScreensFromScreenGroupRequest.java",
@@ -1971,6 +1981,11 @@
       "size": 6827
     },
     {
+      "path": "UpdateRemoteTerminalTabRequest.java",
+      "sha256": "0122dc18364f45ab1411de34fe90d82460980ce1734e81e6cafaa3ec7d22a826",
+      "size": 4208
+    },
+    {
       "path": "UpdateScreenGroupRequest.java",
       "sha256": "70a5203d636ce4a02a580f5516b00db0ca9f967a8a470b7aa589143f5694f7d2",
       "size": 3962
@@ -2097,7 +2112,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd",
+  "ir_sha256": "4a2a6f0ff525cd2ad19e7e742e85dc4097b693faec39c532177f67beddc442bc",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

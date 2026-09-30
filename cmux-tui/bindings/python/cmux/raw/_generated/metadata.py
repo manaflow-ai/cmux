@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd'
+IR_SHA256 = '4a2a6f0ff525cd2ad19e7e742e85dc4097b693faec39c532177f67beddc442bc'
 
 
 @dataclass(frozen=True)
@@ -1282,6 +1282,23 @@ COMMANDS = {
             'width': CommandFieldMetadata(None, None),
         },
     ),
+    'new-remote-terminal-tab': CommandMetadata(
+        'new-remote-terminal-tab',
+        'control',
+        12,
+        'remote-terminal-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'cols': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
+            'session_id': CommandFieldMetadata(None, None),
+            'session_name': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
+        },
+    ),
     'new-screen': CommandMetadata(
         'new-screen',
         'control',
@@ -1542,6 +1559,17 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+        },
+    ),
+    'remote-terminal-snapshot': CommandMetadata(
+        'remote-terminal-snapshot',
+        'control',
+        12,
+        'remote-terminal-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'remove-screens-from-screen-group': CommandMetadata(
@@ -2319,6 +2347,20 @@ COMMANDS = {
             'name': CommandFieldMetadata(None, None),
             'profile': CommandFieldMetadata(None, None),
             'theme': CommandFieldMetadata(None, None),
+        },
+    ),
+    'update-remote-terminal-tab': CommandMetadata(
+        'update-remote-terminal-tab',
+        'control',
+        12,
+        'remote-terminal-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'session_name': CommandFieldMetadata(None, None),
+            'snapshot': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
         },
     ),
     'update-screen-group': CommandMetadata(
