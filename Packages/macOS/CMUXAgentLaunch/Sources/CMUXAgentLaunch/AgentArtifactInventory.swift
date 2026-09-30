@@ -5,6 +5,7 @@ import Foundation
 /// The inventory has no cleanup side effects. It recognizes only the canonical
 /// cmux root and session directories carrying a regular `.cmux-owned` marker;
 /// unmarked paths and symlinks are ignored.
+// lint:allow namespace-type — static read-only inventory API keeps traversal policy centralized.
 public enum AgentArtifactInventory {
     public static let ownershipMarkerName = ".cmux-owned"
     public static let ownershipMarkerPrefix = "cmux-agent-artifact-v1"
