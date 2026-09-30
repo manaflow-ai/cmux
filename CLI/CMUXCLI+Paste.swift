@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CMUXAgentLaunch
 
 extension CMUXCLI {
     /// Parsed `cmux paste` arguments: the target options stay raw so the shared
@@ -297,31 +298,57 @@ extension CMUXCLI {
             Thread.sleep(forTimeInterval: 0.1)
         }
 
-        let busyCodex = agent
-            && ((state?["busy"] as? Bool) == true || (state?["lifecycle"] as? String) == "running")
-            && Self.stateOrScreenLooksLikeCodex(state, screen: screen)
-        let key: String
-        if busyCodex {
-            key = "tab"
-        } else {
-            key = "return"
-        }
         let maxAttempts = 3
-        let minimumAttempts = key == "return"
-            && ((state?["slash_command_popup"] as? Bool) == true || Self.screenShowsSlashPopup(screen)) ? 2 : 1
         var lastState = state
         for attempt in 0..<maxAttempts {
-            if attempt > 0,
-               let current = lastState,
-               (current["state"] as? String) == "draft",
-               let draftLength = current["draft_length"] as? Int,
-               draftLength != text.count {
-                try throwIfAgentPromptBlocks(current, kind: .text, command: command, target: target)
+            if attempt > 0 {
+                let current = try? client.sendV2(method: "surface.input_state", params: target)
+                if let current {
+                    lastState = current
+                    state = current
+                }
+                if let refreshed = try? client.sendV2(method: "surface.read_text", params: target),
+                   let refreshedText = refreshed["text"] as? String {
+                    screen = refreshedText
+                }
+                if sendStateIsConfirmed(lastState, screen: screen) {
+                    return printSubmitResult(
+                        status: sendSubmitStatus(lastState),
+                        payload: lastState ?? target,
+                        jsonOutput: jsonOutput,
+                        idFormat: idFormat
+                    )
+                }
+                if let current = lastState,
+                   (current["state"] as? String) == "dialog",
+                   !((current["slash_command_popup"] as? Bool) == true || Self.screenShowsSlashPopup(screen)) {
+                    return try sendSubmitUnconfirmed(
+                        command: command,
+                        target: target,
+                        reason: "the target opened a dialog; retry was refused",
+                        jsonOutput: jsonOutput,
+                        idFormat: idFormat
+                    )
+                }
+                guard !agent || Self.sendComposerMatches(screen, text: text, agentKind: state?["agent_kind"] as? String) else {
+                    return try sendSubmitUnconfirmed(
+                        command: command,
+                        target: target,
+                        reason: "the composer changed or could not be identified; retry was refused to preserve human input",
+                        jsonOutput: jsonOutput,
+                        idFormat: idFormat
+                    )
+                }
             }
+            let busyCodex = agent
+                && ((state?["busy"] as? Bool) == true || (state?["lifecycle"] as? String) == "running")
+                && Self.stateOrScreenLooksLikeCodex(state, screen: screen)
+            let key = busyCodex ? "tab" : "return"
+            let slashPopupBeforeKey = (state?["slash_command_popup"] as? Bool) == true || Self.screenShowsSlashPopup(screen)
             var keyParams = target
             keyParams["key"] = key
             _ = try client.sendV2(method: "surface.send_key", params: keyParams)
-            Thread.sleep(forTimeInterval: 0.05 * Double(attempt + 1))
+            Thread.sleep(forTimeInterval: 0.1 * Double(attempt + 1))
 
             // Plain shells have no composer to inspect. The separate key was
             // accepted by the socket, which is the complete shell contract.
@@ -358,47 +385,42 @@ extension CMUXCLI {
                 ((lastState["state"] as? String) == "empty"
                     || (lastState["state"] as? String) == "queued"
                     || (lastState["queued"] as? Bool) == true),
-                (attempt + 1 >= minimumAttempts || !popupStillVisible) {
-                let knownKind = (lastState["agent_kind"] as? String)?.isEmpty == false
-                let status: String
-                if !knownKind {
-                    status = "sent"
-                } else if key == "tab" || (lastState["state"] as? String) == "queued"
-                            || (lastState["queued"] as? Bool) == true {
-                    status = "queued"
-                } else {
-                    status = "submitted"
-                }
+                (!popupStillVisible || !slashPopupBeforeKey || attempt > 0) {
                 return printSubmitResult(
-                    status: status,
+                    status: sendSubmitStatus(lastState, key: key),
                     payload: lastState,
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
-            }
-            if let refreshed = try? client.sendV2(method: "surface.read_text", params: target),
-               let refreshedText = refreshed["text"] as? String {
-                screen = refreshedText
             }
             if attempt + 1 < maxAttempts {
                 continue
             }
         }
 
-        let reason: String
-        if (lastState?["state"] as? String) == "dialog" {
-            reason = "the target opened a dialog while submitting"
-        } else {
-            reason = "the agent composer still contains the message after \(maxAttempts) submit attempts"
+        Thread.sleep(forTimeInterval: 0.3)
+        if let finalState = try? client.sendV2(method: "surface.input_state", params: target) {
+            lastState = finalState
         }
-        throw CLIError(message: String(
-            format: String(
-                localized: "cli.send.error.submitUnconfirmed",
-                defaultValue: "%@: %@; nothing was confirmed as submitted"
-            ),
-            command,
-            reason
-        ))
+        if let refreshed = try? client.sendV2(method: "surface.read_text", params: target),
+           let refreshedText = refreshed["text"] as? String {
+            screen = refreshedText
+        }
+        if sendStateIsConfirmed(lastState, screen: screen) {
+            return printSubmitResult(
+                status: sendSubmitStatus(lastState),
+                payload: lastState ?? target,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat
+            )
+        }
+        return try sendSubmitUnconfirmed(
+            command: command,
+            target: target,
+            reason: "the submit key was sent but submission was not confirmed after bounded retries",
+            jsonOutput: jsonOutput,
+            idFormat: idFormat
+        )
     }
 
     private func printSubmitResult(
@@ -412,6 +434,48 @@ extension CMUXCLI {
         result["submitted"] = status == "submitted"
         result["queued"] = status == "queued"
         printV2Payload(result, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: status)
+    }
+
+    private func sendSubmitUnconfirmed(
+        command: String,
+        target: [String: Any],
+        reason: String,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        var payload = target
+        payload["status"] = "unconfirmed"
+        payload["submitted"] = false
+        payload["queued"] = false
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "unconfirmed")
+        throw CLIError(message: String(
+            format: String(
+                localized: "cli.send.error.submitUnconfirmed",
+                defaultValue: "%@: %@; text may already be submitted, do not paste it again without checking the target"
+            ),
+            command,
+            reason
+        ))
+    }
+
+    private func sendSubmitStatus(_ state: [String: Any]?, key: String = "return") -> String {
+        if (state?["state"] as? String) == "queued" || (state?["queued"] as? Bool) == true || key == "tab" {
+            return "queued"
+        }
+        let kind = (state?["agent_kind"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return kind?.isEmpty == false ? "submitted" : "sent"
+    }
+
+    private func sendStateIsConfirmed(_ state: [String: Any]?, screen: String?) -> Bool {
+        let observed = state ?? screen.flatMap(Self.submitInputStateFromScreen)
+        guard let observed,
+              (observed["agent"] as? Bool) == true,
+              !((observed["slash_command_popup"] as? Bool) == true || Self.screenShowsSlashPopup(screen)) else {
+            return false
+        }
+        return (observed["state"] as? String) == "empty"
+            || (observed["state"] as? String) == "queued"
+            || (observed["queued"] as? Bool) == true
     }
 
     private func throwIfAgentPromptBlocks(
@@ -474,48 +538,64 @@ extension CMUXCLI {
 
     private static func screenShowsSlashPopup(_ screen: String?) -> Bool {
         guard let screen else { return false }
-        let lines = screen.split(separator: "\n", omittingEmptySubsequences: false)
-        guard let prompt = lines.last(where: { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            return trimmed.hasPrefix("❯") || trimmed.hasPrefix("›")
-        }) else { return false }
-        let promptText = String(prompt.drop(while: { $0 == "❯" || $0 == "›" }))
-            .trimmingCharacters(in: .whitespaces)
-        guard promptText.hasPrefix("/") else { return false }
-        return lines.contains { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            return trimmed.hasPrefix("/") && trimmed != promptText
-        }
+        return AgentPromptSubmissionSnapshot(screenText: screen).slashCommandPopup
     }
 
-    /// Conservative text-only fallback for relay clients that cannot ask for
-    /// `surface.input_state`. It recognizes the same prompt glyphs as the app
-    /// detector and only blocks when visible text or a dialog hint is present.
     private static func submitInputStateFromScreen(_ screen: String) -> [String: Any]? {
-        let lines = screen.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let promptIndex = lines.lastIndex(where: { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            return trimmed.hasPrefix("❯") || trimmed.hasPrefix("›") || trimmed.hasPrefix("│ ❯") || trimmed.hasPrefix("│ ›")
-        })
-        let dialogRows = promptIndex.map { Array(lines.dropFirst($0 + 1)) } ?? lines
-        let loweredDialog = dialogRows.joined(separator: "\n").lowercased()
-        if ["esc to cancel", "esc to go back", "press enter to", "enter to confirm", "enter to select"]
-            .contains(where: loweredDialog.contains) {
-            return ["state": "dialog", "agent": true, "blocks_typing": true]
+        let snapshot = AgentPromptSubmissionSnapshot(screenText: screen)
+        var state: [String: Any] = [
+            "state": "unknown",
+            "agent": snapshot.agentKind != nil,
+            "busy": snapshot.busy,
+            "queued": snapshot.queued,
+            "slash_command_popup": snapshot.slashCommandPopup,
+            "blocks_typing": snapshot.state.blocksTyping,
+        ]
+        switch snapshot.state {
+        case .unknown:
+            break
+        case .empty:
+            state["state"] = "empty"
+        case .draft(let text):
+            state["state"] = "draft"
+            state["draft_length"] = text.count
+            state["draft_text"] = text
+        case .dialog:
+            state["state"] = "dialog"
         }
-        for line in lines.reversed() {
-            var trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("│") { trimmed = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces) }
-            if trimmed.hasPrefix("❯") || trimmed.hasPrefix("›") {
-                let body = trimmed.dropFirst().trimmingCharacters(in: .whitespaces)
-                return [
-                    "state": body.isEmpty ? "empty" : "draft",
-                    "agent": true,
-                    "blocks_typing": !body.isEmpty,
-                ]
-            }
+        if let kind = snapshot.agentKind?.rawValue {
+            state["agent_kind"] = kind
         }
-        return ["state": "unknown", "agent": false, "blocks_typing": false]
+        return state
+    }
+
+    private static func sendComposerMatches(
+        _ screen: String?,
+        text: String,
+        agentKind: String?
+    ) -> Bool {
+        guard let screen,
+              let observed = submitInputStateFromScreen(screen),
+              let draft = observed["draft_text"] as? String else {
+            return false
+        }
+        if let agentKind,
+           let observedKind = observed["agent_kind"] as? String,
+           !agentKind.isEmpty,
+           observedKind != agentKind {
+            return false
+        }
+        return normalizeComposerText(draft) == normalizeComposerText(text)
+    }
+
+    private static func normalizeComposerText(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func pasteSummary(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
