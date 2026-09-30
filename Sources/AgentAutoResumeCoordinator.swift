@@ -265,12 +265,11 @@ final class AgentAutoResumeCoordinator {
                 && ["sonnet ", "opus ", "haiku "].contains(where: contextParts[0].hasPrefix)
                 && contextParts[1].hasSuffix("%")
                 && Int(contextParts[1].dropLast()) != nil
-            let isClaudeModeStatus = lowered == "⏵⏵ auto mode on (shift+tab to cycle)"
+            let isClaudeModeStatus = lowered.hasPrefix("⏵⏵ auto mode on (shift+tab to cycle)")
             let codexStatusParts = lowered.components(separatedBy: " · ")
-            let isCodexModelStatus = codexStatusParts.count == 2
-                && codexStatusParts[0].hasPrefix("gpt-")
-                && codexStatusParts[0].contains(" ")
-                && codexStatusParts[1].hasPrefix("/")
+            let isCodexModelStatus = codexStatusParts.first?.hasPrefix("gpt-") == true
+                && codexStatusParts.first?.contains(" ") == true
+                && codexStatusParts.dropFirst().contains(where: { $0.hasPrefix("/") })
             let isStalledFooter = lowered.hasSuffix("goal stalled (/goal resume)")
             let isStatusRow = isClaudeModelStatus || isClaudeModeStatus || isCodexModelStatus || isStalledFooter
             if !isStatusRow {
