@@ -614,8 +614,14 @@ function emitDoneAfterFiles(sess: Session, evt: InternalDoneEvent) {
 
 function sendPrompt(sess: Session, prompt: string, requestId = crypto.randomUUID()) {
   if (sess.transcript) {
-    // Typed into the terminal's agent; the transcript records the prompt.
-    void sess.adapter.send(sess, prompt);
+    // Typed into the terminal's agent; the transcript records the prompt, so
+    // there is no turn generation to unwind and no "done" to emit. The send
+    // can still reject (a replaced agent process, a failed spawn), and that
+    // has to reach the user rather than becoming an unhandled rejection.
+    Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
+      console.error("[agent-chat] send failed", err);
+      sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
+    });
     return;
   }
   emitRouting(sess, { phase: "started", requestId, attempt: 1, provider: sess.provider });
