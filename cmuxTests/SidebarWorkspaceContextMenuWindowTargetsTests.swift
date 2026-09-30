@@ -143,6 +143,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             clearCustomDescription: {},
             editDescription: {},
             closeWorkspace: {},
+            parkTargets: { _ in },
             moveBy: { _ in },
             moveTargetsToTop: { _ in },
             currentWindowMoveTargets: currentWindowMoveTargets,

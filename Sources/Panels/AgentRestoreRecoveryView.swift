@@ -6,8 +6,16 @@ struct AgentRestoreRecoveryView: View {
     let state: AgentRestoreRecoveryPresentation.State
 
     var body: some View {
+        let showsProgress: Bool = switch state {
+        case .checking, .writerLock:
+            true
+        case .liveOwner, .parkedTranscriptUnavailable, .parkedResumeUnavailable:
+            false
+        }
         HStack(spacing: 8) {
-            ProgressView().controlSize(.small)
+            if showsProgress {
+                ProgressView().controlSize(.small)
+            }
             Text(message).font(.callout).textSelection(.enabled)
             Spacer(minLength: 0)
         }
@@ -31,6 +39,10 @@ struct AgentRestoreRecoveryView: View {
                 kind,
                 String(processID)
             )
+        case .parkedTranscriptUnavailable:
+            String(localized: "sessionIndex.preview.noFile", defaultValue: "No transcript file")
+        case .parkedResumeUnavailable:
+            String(localized: "sessionIndex.preview.error", defaultValue: "Couldn't load transcript")
         }
     }
 }

@@ -2207,6 +2207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
                 )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
+                _ = ParkedWorkspaceStore.shared.flush()
                 self.terminateCleanupPhase = .agentTermination
                 if savedForQuit {
                     await self.terminateAgentProcessesBeforeQuit(index: resumeIndexes.restorableAgentIndex)
@@ -2258,6 +2259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                             removeWhenEmpty: false
                         )
                         ClosedItemHistoryStore.shared.flushPendingSaves()
+                        _ = ParkedWorkspaceStore.shared.flush()
                     }
                     self.terminationWatchdog.arm()
                     self.replyToTerminateOnce(true)
@@ -2467,6 +2469,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         }
         ClosedItemHistoryStore.shared.flushPendingSaves()
+        _ = ParkedWorkspaceStore.shared.flush()
         terminationWatchdog.arm()
         sentryStopMemoryContextRefresh()
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
@@ -2538,6 +2541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         ClosedItemHistoryStore.shared.flushPendingSaves()
+        _ = ParkedWorkspaceStore.shared.flush()
     }
 
     /// Captures fresh resume indexes for the update relaunch save. The cached index misses an
@@ -9432,6 +9436,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // entrypoint; remove only Cloud VM records while preserving local tab
         // history for the next account/session.
         ClosedItemHistoryStore.shared.removeManagedCloudVMRecords()
+        ParkedWorkspaceStore.shared.removeManagedCloudVMRecords()
         cloudWorkspaceOperationController?.cancelAll()
         cloudTunnelAccessDidEnd()
         NotificationCenter.default.post(name: .cmuxCloudVMAccessDidEnd, object: self)
