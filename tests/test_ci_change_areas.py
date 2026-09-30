@@ -3876,7 +3876,15 @@ def test_linux_failure_still_blocks_tests_after_macos_succeeds() -> None:
         needs["linux-preflight"]["result"] = outcome
         result = run_tests_gate(needs)
         assert result.returncode != 0, outcome
-        assert f"linux preflight did not pass: {outcome}" in result.stderr
+        if outcome == "cancelled":
+            # The gate reports a cancelled job as a stopped run rather than a
+            # routing defect, and it does so before reaching the preflight
+            # check, so the message names the cancellation. Blocking is still
+            # what matters here; only the wording differs.
+            assert "cancelled: linux-preflight" in result.stderr, result.stderr
+            assert "rerun it, or push again" in result.stderr, result.stderr
+        else:
+            assert f"linux preflight did not pass: {outcome}" in result.stderr, result.stderr
 
 
 def test_macos_status_accepts_compile_only_prior_admission_skip() -> None:
