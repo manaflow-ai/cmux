@@ -192,32 +192,66 @@ struct PaneDropTargetIdentityTests {
     }
 
     @Test("Browser pane drag exit hides its preview immediately")
-    func browserPaneDragExitHidesImmediately() throws {
-        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        window.contentView = slot
-        slot.setPaneDropContext(BrowserPaneDropContext(
-            workspaceId: UUID(),
-            panelId: UUID(),
-            paneId: PaneID()
-        ))
-        let target = try #require(slot.paneDropTargetForDrop(at: NSPoint(x: 120, y: 60)))
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.browser-pane-exit.\(UUID().uuidString)"))
-        pasteboard.clearContents()
-        #expect(pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/drop-exit.txt") as NSURL]))
-        let dropPoint = slot.convert(NSPoint(x: 120, y: 60), to: nil)
-        let dragInfo = MockDraggingInfo(window: window, location: dropPoint, pasteboard: pasteboard)
+    func browserPaneDragExitHidesImmediately() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            appDelegate.tabManager = manager
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+            let workspace = try #require(manager.tabs.first)
+            let panel = try #require(workspace.panels.values.first)
+            let pane = try #require(workspace.paneId(forPanelId: panel.id))
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
+            let window = NSWindow(
+                contentRect: container.bounds,
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            defer { window.orderOut(nil) }
+            window.contentView = container
+            let slot = WindowBrowserSlotView(frame: container.bounds)
+            container.addSubview(slot)
+            slot.setPaneDropContext(BrowserPaneDropContext(
+                workspaceId: workspace.id,
+                panelId: panel.id,
+                paneId: pane
+            ))
+            slot.layoutSubtreeIfNeeded()
+            let target = try #require(slot.paneDropTargetForDrop(at: NSPoint(x: 120, y: 60)))
+            let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.browser-pane-exit.\(UUID().uuidString)"))
+            pasteboard.clearContents()
+            defer { pasteboard.releaseGlobally() }
+            let dragId = UUID()
+            _ = FilePreviewDragRegistry.shared.register(
+                FilePreviewDragEntry(filePath: "/tmp/drop-exit.txt", displayTitle: "drop-exit.txt"),
+                id: dragId
+            )
+            defer { FilePreviewDragRegistry.shared.discard(id: dragId) }
+            let registration = try #require(appDelegate.tabDragTransferRegistry.register(
+                TabDragTransfer(
+                    tab: Tab(id: TabID(uuid: dragId), title: "drop-exit.txt", kind: "filePreview"),
+                    sourcePaneId: PaneID()
+                )
+            ))
+            defer { appDelegate.tabDragTransferRegistry.end(registration) }
+            #expect(registration.write(to: pasteboard))
+            pasteboard.setString("file-preview", forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+            let dropPoint = slot.convert(NSPoint(x: 120, y: 60), to: nil)
+            let dragInfo = MockDraggingInfo(window: window, location: dropPoint, pasteboard: pasteboard)
 
-        #expect(target.draggingEntered(dragInfo) == .copy)
-        #expect(browserOverlay(in: slot)?.isHidden == false)
-        target.draggingExited(dragInfo)
+            #expect(target.draggingEntered(dragInfo) == .move)
+            #expect(browserOverlay(in: slot)?.isHidden == false)
+            target.draggingExited(dragInfo)
 
-        #expect(browserOverlay(in: slot)?.isHidden == true)
+            #expect(browserOverlay(in: slot)?.isHidden == true)
+        }
     }
 }
