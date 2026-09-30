@@ -20,6 +20,8 @@ final class AgentChatSessionRegistry {
     private var metadataRefreshPending = false
     private var metadataRefreshLastStartedAt: Date?
     private let metadataRefreshMinimumInterval: TimeInterval = 15
+    private let metadataRefreshPeriodicInterval: Duration = .seconds(15 * 60)
+    private var metadataRefreshPeriodicTask: Task<Void, Never>?
 
     /// Called after a record mutation with the previous value (nil for a
     /// brand-new record), so the owner derives state/descriptor deltas in
@@ -646,7 +648,19 @@ final class AgentChatSessionRegistry {
                     }
                     self?.scheduleMetadataRefresh(force: true)
                 }
+            } else {
+                self.schedulePeriodicMetadataRefresh()
             }
+        }
+    }
+
+    private func schedulePeriodicMetadataRefresh() {
+        metadataRefreshPeriodicTask?.cancel()
+        metadataRefreshPeriodicTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: self.metadataRefreshPeriodicInterval)
+            guard !Task.isCancelled, !self.records.isEmpty else { return }
+            self.scheduleMetadataRefresh(force: true)
         }
     }
 
