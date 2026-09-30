@@ -20,6 +20,10 @@ public final class SidebarModel {
     public var activeWorkspaceID: WorkspaceID?
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
+    /// Machine sections list loose workspaces before groups (a daemon-backed
+    /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
+    /// never offers a slot past the first group.
+    @ObservationIgnored public var ungroupedFirst = false
     /// Shown or hidden. Setting it notifies `onPresentationChange`
     /// synchronously, before any animation, so focus can leave a hiding
     /// sidebar in the same turn.

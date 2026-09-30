@@ -23,6 +23,7 @@ final class SidebarBridge {
         self.state = state
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
+        model.ungroupedFirst = true
         // Synchronous, before the hide animation starts: focus leaves the
         // sidebar in the same turn (plans/cmux-next/focus.md).
         model.onPresentationChange = { [weak state] presentation in
