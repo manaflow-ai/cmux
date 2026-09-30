@@ -566,7 +566,13 @@ runs:
           XCTESTRUN_PATH="$CMUX_UI_XCTESTRUN"
           mkdir -p "$RUNNER_TEMP/cmux-app-host-xcresults"
           XCODEBUILD_CMD=(
-            xcodebuild
+            # UI dispatches used to invoke xcodebuild directly, bypassing the
+            # per-machine app-host lock and bounded retries already used by
+            # cmuxTests. Keep UI's existing non-isolated host environment,
+            # while applying the same runner-communication recovery. The
+            # wrapper removes a caller-owned result bundle before each retry.
+            env CMUX_CI_APP_HOST_ISOLATION_REQUIRED=0
+            scripts/ci/run-app-host-xcodebuild.sh
             -xctestrun "$XCTESTRUN_PATH"
             -resultBundlePath "$RUNNER_TEMP/cmux-app-host-xcresults/cmuxUITests.xcresult"
             -destination "platform=macOS"
