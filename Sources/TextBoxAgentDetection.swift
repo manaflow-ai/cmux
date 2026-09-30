@@ -87,6 +87,20 @@ enum TextBoxAgentDetection: CaseIterable {
         agentKind == .claude && containsNewline ? "ctrl+enter" : "return"
     }
 
+    static func defaultCopyKey(context: String) -> (agent: String, key: String)? {
+        for agent in allCases {
+            guard agent.matchesActive(context: context) else { continue }
+            switch agent {
+            case .codex: return ("codex", "ctrl+o")
+            case .claudeCode: return ("claude", "ctrl+shift+c")
+            case .opencode: return ("opencode", "ctrl+shift+c")
+            case .pi: return ("pi", "ctrl+shift+c")
+            case .ollama: return ("ollama", "ctrl+shift+c")
+            }
+        }
+        return nil
+    }
+
     static func boundedLaunchCommandContext(from rawCommand: String) -> String? {
         let command = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return nil }

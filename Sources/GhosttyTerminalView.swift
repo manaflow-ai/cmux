@@ -874,7 +874,7 @@ class GhosttyApp {
             // Mac's clipboard without a user gesture or confirmation.
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
                   let terminalSurface = callbackContext.terminalSurface,
-                  terminalSurface.allowsAutomaticClipboardWrite,
+                  (terminalSurface.allowsAutomaticClipboardWrite || terminalSurface.consumeClipboardWritePermit()),
                   let content = content, len > 0 else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
             let decoder = TerminalClipboardRepresentationDecoder()
@@ -6546,7 +6546,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if keyboardCopyModeActive {
             _ = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
         } else {
-            _ = copyCurrentGhosttySelectionToClipboard(surface: surface)
+            let copied = copyCurrentGhosttySelectionToClipboard(surface: surface)
+            if !copied, let terminalSurface,
+               let workspace = terminalSurface.owningWorkspace(),
+               let panel = workspace.terminalPanel(for: terminalSurface.id) {
+                let context = WorkspaceContentView.terminalAgentContext(
+                    panel: panel,
+                    workspace: workspace
+                )
+                if let (agent, fallbackKey) = TextBoxAgentDetection.defaultCopyKey(context: context) {
+                    let configuredKeys = AppDelegate.shared?.settingsRuntime.map {
+                        $0.jsonStore.snapshotValue(for: $0.catalog.terminal.agentKeys)
+                    } ?? [:]
+                    let key = configuredKeys[agent] ?? fallbackKey
+                    terminalSurface.permitClipboardWriteForAgentCopy()
+                    _ = terminalSurface.sendNamedKey(key)
+                }
+            }
         }
     }
 

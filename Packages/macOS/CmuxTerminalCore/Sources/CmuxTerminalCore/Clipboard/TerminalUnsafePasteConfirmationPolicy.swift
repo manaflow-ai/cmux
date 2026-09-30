@@ -3,8 +3,7 @@
 /// Ghostty asks for confirmation in two cases: a paste its
 /// `clipboard-paste-protection` flags as unsafe, and an OSC 52 clipboard read
 /// under `clipboard-read = ask`. cmux approves an unsafe paste without asking
-/// unless `terminal.confirmUnsafePaste` is on. It always asks about a
-/// clipboard read, because Ghostty only sends one here under `ask`;
+/// unless `terminal.confirmUnsafePaste` is on. It rejects every clipboard read;
 /// `clipboard-read = allow` and `deny` never reach this policy.
 public struct TerminalUnsafePasteConfirmationPolicy: Equatable, Sendable {
     /// How to answer one confirmation request.
@@ -53,6 +52,9 @@ public struct TerminalUnsafePasteConfirmationPolicy: Equatable, Sendable {
     /// - Returns: The decision. A request that needs asking is rejected when
     ///   there is no window to ask in, rather than completed unasked.
     public func decision(isPasteRequest: Bool, hasWindow: Bool) -> Decision {
+        // Clipboard reads are never granted. This keeps terminal programs from
+        // reading the user's clipboard even when an app window is available.
+        guard isPasteRequest else { return .reject }
         if isPasteRequest, !confirmationEnabled { return .approve }
         return hasWindow ? .askInWindowSheet : .reject
     }

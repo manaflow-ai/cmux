@@ -221,10 +221,23 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Remote exec terminals still use ``ioMode`` ``.exec`` because Ghostty
     /// owns their local PTY, so protocol callbacks need this origin bit too.
     public let isRemoteTerminal: Bool
-    /// Whether OSC 52 may publish into the local clipboard without a gesture.
-    /// Manual mirrors and remote exec PTYs are both untrusted terminal input.
+    /// Whether OSC 52 may publish into the local clipboard.
+    /// Manual mirrors and remote exec PTYs need a one-shot agent-copy permit.
     public var allowsAutomaticClipboardWrite: Bool {
-        !ioMode.usesManualIO && !isRemoteTerminal
+        !ioMode.usesManualIO && !isRemoteTerminal || clipboardWritePermit
+    }
+    private var clipboardWritePermit = false
+
+    /// Allows one agent-initiated OSC 52 write after a user copy gesture.
+    @MainActor public func permitClipboardWriteForAgentCopy() {
+        clipboardWritePermit = true
+    }
+
+    /// Consumes the one-shot agent copy permit.
+    @MainActor public func consumeClipboardWritePermit() -> Bool {
+        guard clipboardWritePermit else { return false }
+        clipboardWritePermit = false
+        return true
     }
     /// Ordered input from the manual transport (literal bytes or named keys).
     let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?

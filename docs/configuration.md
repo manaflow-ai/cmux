@@ -258,6 +258,23 @@ Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF
 - A pull request glyph shows whether the pull request is open, merged or closed, and nothing about its checks. cmux does not fetch CI status or mergeability for a pull request, so there is no passing, failing or conflict glyph: adding one would advertise a color no user could see. An open pull request shows gray, merged shows purple, and closed shows gray with a minus badge. See [#12807](https://github.com/manaflow-ai/cmux/issues/12807).
 - Pull request and branch details follow `sidebar.showPullRequests` and the git branch toggle: turn either off and the glyph ignores it. Toggle compact status from **Settings > Sidebar > Compact Agent Status**.
 
+## Copying in agent terminals
+
+When a terminal selection exists, Cmd+C copies it normally. In a detected agent terminal, Cmd+C with no terminal selection sends the agent copy action instead. Codex defaults to `ctrl+o`; Claude Code defaults to `ctrl+shift+c`. Override these in `~/.config/cmux/cmux.json`:
+
+```json
+{
+  "terminal": {
+    "agentKeys": {
+      "codex": "ctrl+o",
+      "claude": "ctrl+shift+c"
+    }
+  }
+}
+```
+
+Codex and Claude Code capture mouse input in their full-screen views. Hold Shift while dragging to make a native terminal selection, then Cmd+C. For Codex copy forwarding through tmux, use a recent tmux with `set -g set-clipboard on`; when passthrough is needed by the agent, enable `allow-passthrough on`. cmux accepts the resulting OSC 52 write after Cmd+C, including for SSH and tmux panes. OSC 52 clipboard reads remain denied.
+
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 
 `terminal.showTextBoxOnNewTerminals` opens the TextBox on newly-created terminal sessions without moving keyboard focus into it.
