@@ -20565,7 +20565,7 @@ mod tests {
         let state = mux.terminal_size_state(surface.id).unwrap();
         assert!(state.participant(&mac).is_none());
         assert!(state.participant(&phone).unwrap().counts, "the phone no longer defers");
-        assert_eq!(state.owners, [phone.clone()]);
+        assert_eq!(state.owners, [phone]);
         assert_eq!(surface.size(), (54, 26));
 
         // The detached view's own reports and activity do not count.
