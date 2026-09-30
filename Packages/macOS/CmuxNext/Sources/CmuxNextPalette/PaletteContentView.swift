@@ -217,20 +217,21 @@ final class PaletteContentView: NSView {
 
     // MARK: Animation
 
-    /// Opens with a fade and a spring from 97% scale anchored at the top
-    /// edge (Spotlight-like). Reopening while the close still runs continues
-    /// from what is on screen instead of restarting from zero.
+    /// Opens like Linear's command menu: a fade and an `appear` spring from
+    /// `Motion.panelOpenScale` about the panel's center. Reopening while the
+    /// close still runs continues from what is on screen instead of
+    /// restarting from zero.
     func animateIn() {
         guard let layer else { return }
         layoutSubtreeIfNeeded()
         let closing = layer.animation(forKey: "opacity") != nil
         Motion.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: closing ? nil : Float(0))
-        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .panel,
-                   from: closing ? nil : NSValue(caTransform3D: scaleAboutTopCenter(0.97)))
+        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .appear,
+                   from: closing ? nil : NSValue(caTransform3D: panelScale(Motion.panelOpenScale)))
     }
 
-    /// Fades out (with a slight shrink) faster than it opened and calls
-    /// `completion` when done.
+    /// Closes faster than it opened: a `fadeOut` with a slight shrink to
+    /// `Motion.panelCloseScale` about the center; calls `completion` when done.
     func animateOut(completion: @escaping @MainActor () -> Void) {
         guard let layer else {
             completion()
@@ -239,7 +240,7 @@ final class PaletteContentView: NSView {
         CATransaction.begin()
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
         Motion.set(layer, "opacity", to: Float(0), fade: .fadeOut)
-        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: scaleAboutTopCenter(0.98)), fade: .fadeOut)
+        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: panelScale(Motion.panelCloseScale)), fade: .fadeOut)
         CATransaction.commit()
     }
 
@@ -255,15 +256,11 @@ final class PaletteContentView: NSView {
         return CGPoint(x: margin + PaletteLayout.width / 2, y: bounds.height - margin - PaletteLayout.height / 2)
     }
 
-    func scaleAboutTopCenter(_ scale: CGFloat) -> CATransform3D {
-        // sublayerTransform pivots on the layer's center; shift the pivot to
-        // the glass panel's top edge (maxY in the unflipped layer).
-        let pivot = CGPoint(x: bounds.midX, y: bounds.height - PaletteLayout.shadowMargin)
-        let dx = pivot.x - bounds.midX
-        let dy = pivot.y - bounds.midY
-        var transform = CATransform3DMakeTranslation(dx, dy, 0)
-        transform = CATransform3DScale(transform, scale, scale, 1)
-        return CATransform3DTranslate(transform, -dx, -dy, 0)
+    /// The panel scaled about its own center (`Motion.scale` accounts for
+    /// the backing layer's (0, 0) anchor point).
+    func panelScale(_ scale: CGFloat) -> CATransform3D {
+        guard let layer else { return CATransform3DIdentity }
+        return Motion.scale(scale, about: panelCenter, in: layer)
     }
 
     /// Fades the actions menu. The fade starts from the view's current

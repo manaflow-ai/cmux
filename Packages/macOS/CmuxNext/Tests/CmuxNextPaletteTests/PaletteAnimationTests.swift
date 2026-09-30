@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextPalette
 import QuartzCore
 import Testing
@@ -24,8 +25,8 @@ struct PaletteAnimationTests {
         view.layoutSubtreeIfNeeded()
         let layer = try #require(view.layer)
         let center = view.panelCenter
-        for scale in [0.97, 0.98] as [CGFloat] {
-            let point = rendered(center, by: view.scaleAboutTopCenter(scale), in: layer)
+        for scale in [Motion.panelOpenScale, Motion.panelCloseScale] {
+            let point = rendered(center, by: view.panelScale(scale), in: layer)
             #expect(abs(point.x - center.x) < 0.01 && abs(point.y - center.y) < 0.01,
                     "scale \(scale) moves the panel center \(center) to \(point) (anchor \(layer.anchorPoint))")
         }
