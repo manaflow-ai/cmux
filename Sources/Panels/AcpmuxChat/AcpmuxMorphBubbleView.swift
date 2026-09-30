@@ -31,12 +31,19 @@ final class AcpmuxMorphBubbleView: NSView {
             label.drawsBackground = false
             label.isBordered = false
             label.lineBreakMode = .byWordWrapping
-            label.preferredMaxLayoutWidth = textWidth
-            let height = (label.cell?.cellSize(forBounds: CGRect(x: 0, y: 0, width: textWidth, height: .greatestFiniteMagnitude)).height).map { ceil($0) } ?? 20
-            label.frame = CGRect(origin: .zero, size: CGSize(width: textWidth + 4, height: height))
             addSubview(label)
         }
+        setTextWidth(textWidth)
         finalLabel.alphaValue = 0
+    }
+
+    /// Re-wraps the text at `width`, the final bubble's text width once it is known.
+    func setTextWidth(_ width: CGFloat) {
+        for label in [sourceLabel, finalLabel] {
+            label.preferredMaxLayoutWidth = width
+            let height = (label.cell?.cellSize(forBounds: CGRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)).height).map { ceil($0) } ?? 20
+            label.frame = CGRect(origin: label.frame.origin, size: CGSize(width: width + 4, height: height))
+        }
     }
 
     @available(*, unavailable)

@@ -252,17 +252,25 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
 
     private func submit(_ text: String) {
         let startFrame = convert(composer.textFrame, from: composer)
-        composer.clear()
-        guard let rowID = model.send(text) else {
-            transcript.jumpToLatest()
-            return
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Put the overlay over the composer text before anything else changes, so every
+        // frame shows the message somewhere: in the composer, in flight, or in its bubble.
+        var overlay: AcpmuxMorphBubbleView?
+        if !reduceMotion, window != nil {
+            let view = AcpmuxMorphBubbleView(text: trimmed, theme: theme, from: startFrame, textWidth: max(1, startFrame.width - 8))
+            addSubview(view)
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+            overlay = view
         }
-        guard !reduceMotion, window != nil else {
+        composer.clear()
+        guard let rowID = model.send(text), let overlay else {
+            overlay?.removeFromSuperview()
             transcript.jumpToLatest()
             return
         }
         // One transaction: insert the hidden row, scroll it into its final slot, measure,
-        // and add the overlay, so no frame shows the cell before the overlay covers it.
+        // and start the morph.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -272,21 +280,12 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
         transcript.layoutSubtreeIfNeeded()
         guard let target = transcript.bubbleFrame(of: rowID).map({ convert($0, from: transcript) }) else {
             transcript.setRowHidden(rowID, hidden: false)
+            overlay.removeFromSuperview()
             return
         }
         let horizontal = AcpmuxRowLayoutEngine.bubbleHorizontalPadding
         let vertical = AcpmuxRowLayoutEngine.bubbleVerticalPadding
-        let overlay = AcpmuxMorphBubbleView(
-            text: text.trimmingCharacters(in: .whitespacesAndNewlines),
-            theme: theme,
-            from: startFrame,
-            textWidth: max(1, target.width - 2 * horizontal)
-        )
-        addSubview(overlay)
-        // Draw the overlay's text now, inside this transaction, so the first frame without
-        // the composer text already shows the overlay.
-        overlay.layoutSubtreeIfNeeded()
-        overlay.displayIfNeeded()
+        overlay.setTextWidth(max(1, target.width - 2 * horizontal))
         activeMorph = (rowID, overlay, target)
         overlay.morph(to: target, textOrigin: CGPoint(x: horizontal, y: vertical)) { [weak self, weak overlay] in
             self?.finishMorph(overlay)
