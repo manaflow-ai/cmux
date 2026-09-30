@@ -273,6 +273,11 @@ class GhosttyApp {
         }
     )
 
+    /// The process-wide per-surface "output since last scrollback checkpoint"
+    /// flags. The PTY tee bridge sets them; the app delegate's checkpoint
+    /// coordinator and persist step read and re-arm the same instance.
+    static let terminalScrollbackCheckpointActivity = TerminalScrollbackCheckpointActivity()
+
     /// The process-wide bounded native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
@@ -316,7 +321,9 @@ class GhosttyApp {
             )
         }(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
-        byteTee: TerminalOutputByteTeeBridge(),
+        byteTee: TerminalOutputByteTeeBridge(
+            scrollbackCheckpointActivity: GhosttyApp.terminalScrollbackCheckpointActivity
+        ),
         rendererRealization: RendererRealizationController.shared,
         hibernationRecorder: TerminalAgentHibernationRecorder(),
         runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,
@@ -4282,14 +4289,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// rather than in the engine: Ctrl+A arrives carrying text "a", which is a
     /// chord, not a character.
     ///
-    /// `isPlainBackspace` and `isBound` come from the caller, which has to
-    /// classify the key before ghostty consumes it. A key a binding consumed
-    /// put nothing on the PTY, so it withdraws instead of predicting.
+    /// The binding classifications come from the caller, which has to inspect
+    /// the key before Ghostty consumes it. Ghostty marks a binding as local
+    /// only when it is consumed without a PTY write or terminal-grid change.
+    /// Every other binding is treated as untracked input.
     private func recordPredictedEchoInput(
         _ keyEvent: ghostty_input_key_s,
         isPlainBackspace: Bool,
         isLineErase: Bool,
-        isBound: Bool
+        isLocalOnlyBinding: Bool,
+        isUntrackedBinding: Bool
     ) {
         guard let surfaceID = terminalSurface?.id,
               TerminalPredictionCenter.shared.predictsInput(surfaceID: surfaceID) else { return }
@@ -4301,8 +4310,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             TerminalPredictionCenter.shared.typedLineErase(surfaceID: surfaceID)
             return
         }
+        if isLocalOnlyBinding {
+            TerminalPredictionCenter.shared.typedNothing(surfaceID: surfaceID)
+            return
+        }
+        if isUntrackedBinding {
+            TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: surfaceID)
+            return
+        }
         TerminalPredictionCenter.shared.typed(
-            printableASCII: isBound ? nil : Self.predictedEchoByte(for: keyEvent),
+            printableASCII: Self.predictedEchoByte(for: keyEvent),
             surfaceID: surfaceID
         )
     }
@@ -7564,6 +7581,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var predictionBindingFlags = ghostty_binding_flags_e(0)
         let isBoundForPrediction = predictsInput
             && ghostty_surface_key_is_binding(surface, keyEvent, &predictionBindingFlags)
+        let isLocalOnlyBindingForPrediction = isBoundForPrediction
+            && (predictionBindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_PREDICTION_LOCAL_ONLY.rawValue) != 0
+        let isUntrackedBindingForPrediction = isBoundForPrediction
+            && !isLocalOnlyBindingForPrediction
         let isPlainBackspace = predictsInput
             && !isBoundForPrediction
             && Self.isPlainBackspace(keyEvent)
@@ -7579,7 +7600,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEvent,
                 isPlainBackspace: isPlainBackspace,
                 isLineErase: isLineErase,
-                isBound: isBoundForPrediction
+                isLocalOnlyBinding: isLocalOnlyBindingForPrediction,
+                isUntrackedBinding: isUntrackedBindingForPrediction
             )
         }
         return handled

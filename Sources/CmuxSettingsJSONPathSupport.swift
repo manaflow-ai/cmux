@@ -308,6 +308,11 @@ enum TerminalSettingsFileMapping {
             invalidPath: terminal.showPasswordInputDots.id
         ),
         .init(
+            jsonKey: "predictiveLocalEcho",
+            defaultsKey: terminal.predictiveLocalEcho.userDefaultsKey,
+            invalidPath: terminal.predictiveLocalEcho.id
+        ),
+        .init(
             jsonKey: "autoResumeAgentSessions",
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
@@ -431,6 +436,10 @@ enum AutomationSettingsFileMapping {
             defaultsKey: automation.suppressSubagentNotifications.userDefaultsKey
         ),
         .init(jsonKey: "codexIntegration", defaultsKey: automation.codexIntegration.userDefaultsKey),
+        .init(
+            jsonKey: "canonicalAgentScratch",
+            defaultsKey: automation.canonicalAgentScratch.userDefaultsKey
+        ),
         .init(jsonKey: "ampIntegration", defaultsKey: automation.ampIntegration.userDefaultsKey),
         .init(jsonKey: "cursorIntegration", defaultsKey: automation.cursorIntegration.userDefaultsKey),
         .init(jsonKey: "geminiIntegration", defaultsKey: automation.geminiIntegration.userDefaultsKey),
