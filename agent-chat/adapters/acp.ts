@@ -163,7 +163,7 @@ function effectiveSpawnModel(def: ProviderDef, options: Record<string, OptionVal
     : def.defaultModel ?? def.models?.[0]?.value ?? "";
 }
 
-function commandForSession(def: ProviderDef, options: Record<string, OptionValue>): string[] {
+export function commandForSession(def: ProviderDef, options: Record<string, OptionValue>): string[] {
   const cmd = [...(def.cmd ?? [])];
   if (def.models?.length) {
     cmd.push("--model", effectiveSpawnModel(def, options));
