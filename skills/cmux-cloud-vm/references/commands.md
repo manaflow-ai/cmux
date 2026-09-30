@@ -334,7 +334,9 @@ Prints the machine `vm run` / `vm agent` would use for a directory and why, with
 ### `cmux vm agent`
 
 ```bash
-cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>
+cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--fan-out <count>] [--operation-id <id>] [--new] [--size <s>] [--json] -- <prompt or args...>
+cmux vm agent status <operation-id> [--json]
+cmux vm agent wait <operation-id> [--timeout <seconds>] [--json]
 ```
 
 Starts a coding agent on a cloud machine chosen like `vm run` (or pinned with `--machine`) as a **detached terminal in the machine's cmux-tui session**: `surface.new_terminal {machine, command, name, open}`, where the command is a login shell that starts in the remote `$HOME` and puts `$HOME/.npm-global/bin`, `$HOME/.bun/bin`, and `$HOME/.local/bin` first. The daemon supplies its own home; the CLI does not send a hard-coded `cwd`. A bare prompt uses the agent's one-shot form (`claude -p`, `codex exec`, `opencode run`, `pi -p`); args that start with a flag or a known subcommand (`codex exec …`, `claude --resume …`) pass through verbatim. `--sync` pushes `--cwd` (default: the current directory) to `work/<basename>` first and starts the agent there; `--name` sets the terminal's name in the tree (default `<agent>: <prompt…>`); `--no-open` starts it without a pane. The command returns as soon as the terminal starts.
@@ -345,6 +347,18 @@ Text: `Started <agent> on <machine> — terminal <term> in workspace <ws> …`, 
 The exit code passes through (1 on timeout/signal); Ctrl-C ends the wait, not the
 remote agent. With waiting, launch diagnostics go to stderr and stdout carries
 the result. `--json` emits one final object. Without `--wait`, launch returns immediately.
+
+`--fan-out <count>` starts that many independent detached child terminals in one
+remote workspace (by default a new workspace). `--remote-workspace <ws>` reuses
+an existing remote workspace. `--operation-id <id>` makes retries idempotent:
+repeating the same request returns the persisted operation and does not create
+duplicate children. Fan-out does not support the single-agent `--wait` or
+`--output` path. `cmux vm agent status` reads the persisted operation, including
+child terminal records; `cmux vm agent wait` performs a bounded long poll. Each
+socket wait is capped at 30 seconds, so callers repeat it for longer work.
+
+The corresponding app socket methods are `vm.agent_fan_out`,
+`vm.agent_fan_out_status`, and `vm.agent_fan_out_wait`.
 
 ## Workspaces and terminals (the machine's cmux-tui session)
 
