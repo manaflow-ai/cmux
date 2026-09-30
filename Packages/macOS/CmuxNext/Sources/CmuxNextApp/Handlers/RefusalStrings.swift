@@ -31,6 +31,7 @@ nonisolated enum RefusalStrings {
     static func needsDaemonCapability(_ capability: String) -> String { format("handlers.refusal.needsDaemonCapability", "needs daemon capability %@", capability) }
     static func needsAppCapability(_ feature: String) -> String { format("handlers.refusal.needsAppCapability", "needs app capability %@", feature) }
     static func notShownInAnyWindow(_ target: String) -> String { format("handlers.refusal.notShownInAnyWindow", "%@ is not shown in any window", target) }
+    static var notEnoughRoomToSplit: String { text("handlers.refusal.notEnoughRoomToSplit", "not enough room to split this pane") }
     static var focusedPaneHasNoTab: String { text("handlers.refusal.focusedPaneHasNoTab", "the focused pane has no tab") }
     static func noTab(_ id: String) -> String { format("handlers.refusal.noTab", "no tab %@", id) }
     static func sessionLocalTab(_ id: String) -> String { format("handlers.refusal.sessionLocalTab", "tab %@ is session-local, not a daemon tab", id) }

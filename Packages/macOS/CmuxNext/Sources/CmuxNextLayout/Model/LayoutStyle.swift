@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// Metrics for the layout. Geometry is a pure function of this value.
 ///
 /// `LayoutModel.style` fills the design-token fields (gap, divider, corner
-/// radius) from the live `Metrics` so density and override changes relayout;
+/// radius, pane chrome height) from the live `Metrics` so density and override changes relayout;
 /// the defaults here only matter for a style built by hand (tests).
 public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// Visible divider thickness between split panes. Token: `Metrics.dividerThickness`.
@@ -15,8 +15,13 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var columnGap: CGFloat = 6
     /// Corner radius of floating layout chrome (drop highlight). Token: `Metrics.panelCornerRadius`.
     public var panelCornerRadius: CGFloat = 10
-    /// Smallest pane extent the divider drag allows along its axis.
-    public var minimumPaneExtent: CGFloat = 48
+    /// Chrome every pane draws above its content (the tab strip). Token:
+    /// `Metrics.tabStripHeight`, so the minimum pane height follows density.
+    public var paneChromeHeight: CGFloat = 28
+    /// Smallest content area a pane keeps below its chrome: about 12 columns
+    /// by 4 rows of a 13 pt terminal cell (8 x 16 pt). Split geometry, divider
+    /// drags, column widths and the split room check all honor it.
+    public var minimumPaneContentSize = CGSize(width: 96, height: 64)
     /// Focus ring stroke width.
     public var focusRingWidth: CGFloat = 1
     /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
@@ -29,6 +34,12 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var newColumnDropWidth: CGFloat = 36
 
     public init() {}
+
+    /// Smallest frame a pane gets while its screen has room: the minimum
+    /// content area plus the chrome above it.
+    public var minimumPaneSize: CGSize {
+        CGSize(width: minimumPaneContentSize.width, height: paneChromeHeight + minimumPaneContentSize.height)
+    }
 }
 
 extension LayoutStyle {
@@ -42,6 +53,7 @@ extension LayoutStyle {
         style.dividerHitThickness = Metrics.dividerHitWidth
         style.columnGap = Metrics.columnGap
         style.panelCornerRadius = Metrics.panelCornerRadius
+        style.paneChromeHeight = Metrics.tabStripHeight
         return style
     }
 }

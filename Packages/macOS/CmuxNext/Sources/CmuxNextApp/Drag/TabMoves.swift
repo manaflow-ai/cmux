@@ -36,6 +36,15 @@ enum TabMoves {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
         guard services.daemon(for: pane) === daemon else { return completion(false) }
+        switch services.splitRoom(for: pane, edge: edge, movingFrom: services.locateTab(tab.id)?.1) {
+        case .split:
+            break
+        case .newColumn(let afterColumn, _):
+            return toNewColumn(tab, anchor: pane, afterColumn: afterColumn, services: services, transaction: transaction, completion: completion)
+        case .refused(let reason):
+            services.registry.refuse(reason)
+            return completion(false)
+        }
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapabilities.tabDrag)
         services.registry.track(Task {

@@ -44,6 +44,12 @@ public final class LayoutModel {
     /// pause rendering or release attach geometry for occluded panes.
     public private(set) var visiblePanes: Set<PaneID> = []
 
+    /// `visiblePanes` plus panes within one viewport width of the viewport
+    /// on the active screen (architecture.md 4). Keep their content alive
+    /// (paused) so scrolling back shows it with no blank frames; release
+    /// content of panes outside this set like hidden tabs.
+    public private(set) var keepAlivePanes: Set<PaneID> = []
+
     /// True while a divider or column drag is in progress.
     public private(set) var isGestureActive = false
 
@@ -313,9 +319,12 @@ public final class LayoutModel {
 
     // MARK: View reports
 
-    /// Called by the view when pane visibility changes.
-    public func reportVisiblePanes(_ panes: Set<PaneID>) {
+    /// Called by the view when pane visibility changes. `keepAlive`
+    /// includes the visible panes.
+    public func reportVisiblePanes(_ panes: Set<PaneID>, keepAlive: Set<PaneID>) {
         if visiblePanes != panes { visiblePanes = panes }
+        let keepAlive = keepAlive.union(panes)
+        if keepAlivePanes != keepAlive { keepAlivePanes = keepAlive }
     }
 
     private func emit(_ intent: LayoutIntent) {

@@ -261,6 +261,14 @@ final class ScreenContentView: NSView {
         return result
     }
 
+    /// Panes whose displayed frame lies within one viewport width of the
+    /// viewport on either side (architecture.md 4): visible panes plus the
+    /// off-screen columns a short scroll brings in. Their content stays
+    /// alive, paused, so scrolling back shows it at once.
+    func keepAlivePanes() -> Set<PaneID> {
+        KeepAliveBand.panes(displayed: paneFrames.mapValues { $0.rect.offsetBy(dx: -scroll.value, dy: 0) }, viewport: bounds)
+    }
+
     func pane(at localPoint: NSPoint) -> PaneID? {
         let content = CGPoint(x: localPoint.x + scroll.value, y: localPoint.y)
         return geometry.panes.first { $0.value.contains(content) }?.key
@@ -269,9 +277,33 @@ final class ScreenContentView: NSView {
     /// Drop target and its highlight rect in local coordinates.
     func dropTarget(at localPoint: NSPoint) -> (target: DropTarget, highlight: CGRect)? {
         let content = CGPoint(x: localPoint.x + scroll.value, y: localPoint.y)
-        guard let target = DropZoneGeometry.target(at: content, screen: screenID, geometry: geometry, style: context.style),
-              let rect = DropZoneGeometry.highlightRect(for: target, geometry: geometry, style: context.style) else { return nil }
+        guard let hit = DropZoneGeometry.target(at: content, screen: screenID, geometry: geometry, style: context.style) else { return nil }
+        let target = roomAdjusted(hit)
+        guard let rect = DropZoneGeometry.highlightRect(for: target, geometry: geometry, style: context.style) else { return nil }
         return (target, rect.offsetBy(dx: -scroll.value, dy: 0))
+    }
+
+    /// Where splitting `pane` along `axis` goes on this screen right now.
+    func splitPlacement(splitting pane: PaneID, axis: SplitAxis, removing: PaneID?) -> SplitPlacement {
+        SplitRoom.placement(splitting: pane, axis: axis, in: layout, viewport: bounds.size, style: context.style, removing: removing)
+    }
+
+    /// An edge drop that cannot split for lack of room becomes a new column
+    /// beside the pane's column (columns screen, side edge) or joins the pane.
+    private func roomAdjusted(_ target: DropTarget) -> DropTarget {
+        guard case let .pane(pane, zone) = target, let axis = zone.splitAxis else { return target }
+        switch splitPlacement(splitting: pane, axis: axis, removing: nil) {
+        case .split:
+            return target
+        case .newColumn:
+            guard let column = layout.column(containing: pane), let index = layout.columns.firstIndex(of: column) else {
+                return .pane(pane, .center)
+            }
+            let after = zone == .left ? (index > 0 ? layout.columns[index - 1].id : nil) : column.id
+            return .newColumn(screen: screenID, after: after)
+        case .refused:
+            return .pane(pane, .center)
+        }
     }
 
     /// Displayed frame of `pane` in local coordinates.

@@ -4,13 +4,18 @@
 Runs random tab moves (to new splits, new columns, sibling panes), new tabs
 and column scrolls through the app's control socket, samples `debug.surfaces`
 after each one, and fails if any visible pane is blank once layout settles.
+Then sweeps the column strip right to the end and back, sampling after each
+step: a pane scrolled into view must show content at once (keep-alive band,
+architecture.md 4).
 
-  scripts/cmux-next/surface-drag-stress.py --tag <tag> [--ops 20] [--seed 1] [--settle 0.05]
+  scripts/cmux-next/surface-drag-stress.py --tag <tag> [--ops 20] [--seed 1] [--settle 0.05] [--sweeps 2]
 
 The tagged app must be running (launched with CMUX_NEXT_SOCKET_MODE=automation).
 Samples taken `--settle` seconds after an op may catch a pane mid re-attach;
-the pass criterion is the settled state: blank_panes == 0 and
-invariant_violations == 0.
+the pass criterion is the settled state: blank_panes == 0,
+collapsed_panes == 0 (minimum pane size), cold_keep_alive_panes == 0 and
+invariant_violations == 0, plus no blank sample during the column sweep.
+Splits refused for lack of room ("not enough room") are expected and counted.
 """
 import argparse, glob, json, os, random, subprocess, sys, time
 
@@ -19,6 +24,7 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--ops", type=int, default=20)
 parser.add_argument("--seed", type=int, default=1)
 parser.add_argument("--settle", type=float, default=0.05)
+parser.add_argument("--sweeps", type=int, default=2, help="column sweeps right and back after the ops")
 parser.add_argument("--cli", help="cmux CLI inside the tagged app (default: found in DerivedData)")
 opts = parser.parse_args()
 OPS, SEED, SETTLE = opts.ops, opts.seed, opts.settle
@@ -78,6 +84,7 @@ for _ in range(3):
 time.sleep(SETTLE)
 
 total_blank = 0
+refused = 0
 for i in range(OPS):
     panes = topology()
     tabs = [(p["id"], t["id"]) for p in panes for t in p["tabs"]]
@@ -106,15 +113,41 @@ for i in range(OPS):
     total_blank += len(b)
     err = res.get("error") if isinstance(res, dict) else None
     line = f"op{i:02d} {op:7s} tab={tab[-6:]} panes={len(panes)} blank={len(b)} live={report.get('live_terminals')} viol={report.get('invariant_violations')}"
-    if err: line += f" err={str(err)[:80]}"
+    if err:
+        line += f" err={str(err)[:80]}"
+        if "room" in str(err): refused += 1
     print(line, flush=True)
     for p in b:
         print("   BLANK", json.dumps(p), flush=True)
 
 time.sleep(1.0)
+
+# Column sweep: focus to the last column and back, sampling right after each
+# step. Panes a single column step brings in were in the keep-alive band, so
+# they must never sample blank.
+sweep_blank = 0
+# The topology has no column list; one step per pane (capped) reaches the end.
+# Steps past the last column refuse harmlessly.
+steps = max(1, min(len(topology()), 12))
+for sweep in range(opts.sweeps):
+    for direction in ["column.focusRight"] * steps + ["column.focusLeft"] * steps:
+        run(direction)
+        time.sleep(SETTLE)
+        report = surfaces()
+        b = blanks(report)
+        sweep_blank += len(b)
+        for p in b:
+            print("   SWEEP BLANK", direction, json.dumps(p), flush=True)
+    print(f"sweep{sweep} steps={steps} blank={sweep_blank} keep_alive={report.get('keep_alive_panes')} "
+          f"cold_keep_alive={report.get('cold_keep_alive_panes')} live={report.get('live_terminals')}", flush=True)
+
+time.sleep(1.0)
 final = surfaces()
-result = {"transient_blank_samples": total_blank, "blank_panes": final.get("blank_panes"),
-          "collapsed_panes": final.get("collapsed_panes"), "invariant_violations": final.get("invariant_violations"),
-          "live_terminals": final.get("live_terminals")}
+result = {"transient_blank_samples": total_blank, "sweep_blank_samples": sweep_blank, "refused_splits": refused,
+          "blank_panes": final.get("blank_panes"), "collapsed_panes": final.get("collapsed_panes"),
+          "keep_alive_panes": final.get("keep_alive_panes"), "cold_keep_alive_panes": final.get("cold_keep_alive_panes"),
+          "invariant_violations": final.get("invariant_violations"), "live_terminals": final.get("live_terminals")}
 print(json.dumps(result))
-sys.exit(0 if result["blank_panes"] == 0 and result["invariant_violations"] == 0 else 1)
+ok = (result["blank_panes"] == 0 and result["invariant_violations"] == 0 and result["collapsed_panes"] == 0
+      and result["cold_keep_alive_panes"] == 0 and sweep_blank == 0)
+sys.exit(0 if ok else 1)

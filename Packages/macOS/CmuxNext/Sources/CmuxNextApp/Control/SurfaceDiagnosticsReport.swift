@@ -36,6 +36,8 @@ enum SurfaceDiagnosticsReport {
             "windows": .array(order.map { key in ["window": .string(key), "panes": .array(windows[key] ?? [])] }),
             "blank_panes": JSONValue(blank),
             "collapsed_panes": JSONValue(rows.filter(\.status.isCollapsed).count),
+            "keep_alive_panes": JSONValue(rows.filter { $0.status.presence == "keep_alive" }.count),
+            "cold_keep_alive_panes": JSONValue(rows.filter(\.status.isColdKeepAlive).count),
             "live_terminals": JSONValue(services.cache.liveTerminalCount),
             "invariant_violations": JSONValue(services.surfaceInvariant.violations),
             "invariant_checks": JSONValue(services.surfaceInvariant.checks),

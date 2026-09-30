@@ -5,20 +5,46 @@ public import AppKit
 /// and the active tab's content.
 ///
 /// Views stay alive and in the hierarchy while scrolled offscreen or on an
-/// inactive screen. Use `paneVisibilityDidChange` (or `LayoutModel.visiblePanes`)
-/// to pause rendering and release attach geometry for occluded panes.
+/// inactive screen. Use `panePresenceDidChange` (or `LayoutModel.visiblePanes`
+/// and `keepAlivePanes`) to pause rendering for occluded panes and to release
+/// content of panes far from the viewport.
 public protocol LayoutPaneContentProvider: AnyObject {
     /// Creates the view for a pane the first time it appears.
     func makeContentView(for pane: PaneID) -> NSView
     /// The pane left the layout and its removal animation finished.
     func releaseContentView(_ view: NSView, for pane: PaneID)
-    /// The pane became visible or hidden (scrolled off, other screen).
-    func paneVisibilityDidChange(_ pane: PaneID, isVisible: Bool)
+    /// The pane scrolled on screen, into the keep-alive band, or away (other
+    /// screen, far scroll). Panes start `.hidden`.
+    func panePresenceDidChange(_ pane: PaneID, presence: PanePresence)
 }
 
 extension LayoutPaneContentProvider {
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
-    public func paneVisibilityDidChange(_ pane: PaneID, isVisible: Bool) {}
+    public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
+}
+
+/// How near a pane is to the viewport of the active screen.
+public nonisolated enum PanePresence: Hashable, Sendable {
+    /// Its frame intersects the viewport: render.
+    case visible
+    /// Off screen but within one viewport width of it (architecture.md 4):
+    /// keep content alive, paused, so a scroll back shows it at once.
+    case keepAlive
+    /// Farther away or on an inactive screen: content may be released.
+    case hidden
+
+    init(_ pane: PaneID, visible: Set<PaneID>, keepAlive: Set<PaneID>) {
+        self = visible.contains(pane) ? .visible : keepAlive.contains(pane) ? .keepAlive : .hidden
+    }
+
+    /// Ordering for change delivery: releases before acquisitions.
+    var rank: Int {
+        switch self {
+        case .hidden: 0
+        case .keepAlive: 1
+        case .visible: 2
+        }
+    }
 }
 
 /// Pasteboard type for tab drags the layout accepts through AppKit drag and

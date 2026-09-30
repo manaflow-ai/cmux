@@ -8,6 +8,9 @@ extension ScreenContentView {
         var grabOffset: CGFloat
         var container: CGRect
         var axis: SplitAxis
+        /// Minimum extents of the two sides (split) or of the column.
+        var minimumA: CGFloat = 0
+        var minimumB: CGFloat = 0
     }
 
     func contentPoint(fromWindow point: NSPoint) -> CGPoint {
@@ -33,10 +36,13 @@ extension ScreenContentView {
                 guard let divider = geometry.dividers.first(where: { $0.id == id }) else { return }
                 let pointer = divider.axis == .horizontal ? point.x : point.y
                 let start = divider.axis == .horizontal ? divider.frame.minX : divider.frame.minY
-                activeDrag = ActiveDrag(kind: kind, transaction: .make(), grabOffset: pointer - start, container: divider.container, axis: divider.axis)
+                activeDrag = ActiveDrag(kind: kind, transaction: .make(), grabOffset: pointer - start, container: divider.container,
+                                        axis: divider.axis, minimumA: divider.minimumA, minimumB: divider.minimumB)
             case let .columnEdge(id):
                 guard let frame = geometry.columns[id] else { return }
-                activeDrag = ActiveDrag(kind: kind, transaction: .make(), grabOffset: point.x - frame.maxX, container: frame, axis: .horizontal)
+                let minimum = layout.columns.first { $0.id == id }.map { SplitGeometry.minimumSize(of: $0.root, style: context.style).width } ?? 0
+                activeDrag = ActiveDrag(kind: kind, transaction: .make(), grabOffset: point.x - frame.maxX, container: frame,
+                                        axis: .horizontal, minimumA: minimum)
             }
             model.setGestureActive(true)
             context.requestFrames()
@@ -57,10 +63,11 @@ extension ScreenContentView {
         switch drag.kind {
         case let .split(id):
             let pointer = drag.axis == .horizontal ? point.x : point.y
-            let ratio = SplitGeometry.ratio(forPointer: pointer, grabOffset: drag.grabOffset, container: drag.container, axis: drag.axis, style: style)
+            let ratio = SplitGeometry.ratio(forPointer: pointer, grabOffset: drag.grabOffset, container: drag.container, axis: drag.axis,
+                                            style: style, minimumA: drag.minimumA, minimumB: drag.minimumB)
             context.model.setSplitRatio(id, ratio: ratio, transaction: drag.transaction, phase: phase)
         case let .columnEdge(id):
-            let width = point.x - drag.grabOffset - drag.container.minX
+            let width = max(point.x - drag.grabOffset - drag.container.minX, drag.minimumA)
             let fraction = ColumnStripGeometry.fraction(forPixelWidth: width, viewportWidth: bounds.width, gap: style.columnGap)
             context.model.setColumnWidth(id, width: fraction, transaction: drag.transaction, phase: phase)
         }

@@ -37,11 +37,18 @@ extension WorkspaceContentController {
                 try await $0.newColumn(rightOf: handle, width: width, options: SpawnOptions(cwd: cwd, workspace: key))
             }
         case .split(let pane, let axis):
-            guard let handle = handles.panes[pane] else { return }
+            guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return }
             let cwd = panes[pane]?.selectedTab?.cwd
             let direction: SplitDirection = axis == .horizontal ? .right : .down
             let key = workspace.key
-            spawnPane("split") { try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd, workspace: key)) }
+            switch services.splitRoom(for: model, edge: axis == .horizontal ? .right : .bottom) {
+            case .split:
+                spawnPane("split") { try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd, workspace: key)) }
+            case .newColumn(_, let anchor):
+                spawnPane("new-pane-right") { try await $0.newColumn(rightOf: anchor, options: SpawnOptions(cwd: cwd, workspace: key)) }
+            case .refused(let reason):
+                services.registry.refuse(reason)
+            }
         }
     }
 
