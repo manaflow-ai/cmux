@@ -418,6 +418,6 @@ cmux jest darmowy, open source i zawsze taki będzie. Jeśli chcesz wesprzeć ro
 
 ## Licencja
 
-cmux jest oprogramowaniem open source na licencji [GPL-3.0-or-later](LICENSE). Oprogramowanie serwerowe cmux (`web/`, workery Cloudflare i usługi przekaźnikowe wymienione w [LICENSE](LICENSE)) korzysta zamiast tego z [Business Source License 1.1](web/LICENSE): możesz je czytać, modyfikować i uruchamiać do użytku nieprodukcyjnego, a użycie produkcyjne lub samodzielny hosting wymagają licencji komercyjnej.
+cmux jest oprogramowaniem open source na licencji [GPL-3.0-or-later](LICENSE). Oprogramowanie serwerowe cmux (`web/`, workery Cloudflare i usługi przekaźnikowe wymienione w [LICENSE](LICENSE)) korzysta zamiast tego z [Business Source License 1.1](web/LICENSE): możesz je czytać, modyfikować i uruchamiać, także w samodzielnym hostingu dla siebie lub na wewnętrzny użytek swojej organizacji. Oferowanie go innym jako usługi hostowanej lub zarządzanej, a także sprzedaż lub odsprzedaż, wymagają licencji komercyjnej.
 
 Jeśli Twoja organizacja nie może spełnić wymogów GPL, dostępna jest licencja komercyjna. Skontaktuj się pod adresem [founders@cmux.com](mailto:founders@cmux.com), aby uzyskać szczegóły.

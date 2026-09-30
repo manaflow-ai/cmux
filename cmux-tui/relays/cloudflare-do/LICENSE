@@ -12,18 +12,31 @@ Licensed Work:        The cmux server software in the following directories of
                         workers/presence/
                         services/iroh-relay-minter/
                         cmux-tui/relays/cloudflare-do/
+                        mux/cloud/
                       The Licensed Work excludes web/data/cmux.schema.json,
                       files generated from sources outside those directories,
                       and third-party material that is subject to its own
                       license or notice. Each excluded file keeps the license
                       that applies to it.
                       The Licensed Work is (c) 2024-present Manaflow, Inc.
-Additional Use Grant: None
+Additional Use Grant: You may make production use of the Licensed Work,
+                      including self-hosting it, for yourself or for the
+                      internal use of your organization, provided that you
+                      do not:
+                      (a) offer the Licensed Work, or any work derived from
+                          it, to third parties as a hosted, managed or
+                          embedded service, or otherwise make its
+                          functionality available to third parties; or
+                      (b) sell, resell, rent, sublicense or otherwise
+                          commercially distribute the Licensed Work or any
+                          work derived from it.
+                      "Third parties" excludes your organization's
+                      employees and contractors acting on its behalf.
 Change Date:          Four years from the date the Licensed Work is published.
 Change License:       GPL-3.0-or-later
 
 For information about alternative licensing arrangements for the Licensed
-Work, including production use and self-hosting, contact founders@cmux.com.
+Work, including hosting or reselling it, contact founders@cmux.com.
 
 Notice
 

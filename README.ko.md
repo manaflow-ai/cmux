@@ -418,6 +418,6 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발�
 
 ## 라이선스
 
-cmux는 [GPL-3.0-or-later](LICENSE) 하에 오픈 소스예요. cmux 서버 소프트웨어(`web/`, Cloudflare 워커, [LICENSE](LICENSE)에 나열된 릴레이 서비스)는 대신 [Business Source License 1.1](web/LICENSE)을 따라요. 비프로덕션 용도로 읽고, 수정하고, 실행할 수 있지만 프로덕션 사용이나 셀프 호스팅에는 상용 라이선스가 필요해요.
+cmux는 [GPL-3.0-or-later](LICENSE) 하에 오픈 소스예요. cmux 서버 소프트웨어(`web/`, Cloudflare 워커, [LICENSE](LICENSE)에 나열된 릴레이 서비스)는 대신 [Business Source License 1.1](web/LICENSE)을 따라요. 읽고, 수정하고, 실행할 수 있으며, 본인이나 조직 내부 용도로 셀프 호스팅할 수도 있어요. 다른 사람에게 호스팅형 또는 관리형 서비스로 제공하거나 판매 또는 재판매하려면 상용 라이선스가 필요해요.
 
 GPL을 준수할 수 없는 조직을 위해 상용 라이선스도 제공돼요. 자세한 내용은 [founders@cmux.com](mailto:founders@cmux.com)으로 문의해주세요.

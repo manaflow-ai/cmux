@@ -418,6 +418,6 @@ cmux ücretsiz, açık kaynak ve her zaman öyle olacak. Geliştirmeyi desteklem
 
 ## Lisans
 
-cmux, [GPL-3.0-or-later](LICENSE) kapsamında açık kaynaklıdır. cmux sunucu yazılımı (`web/`, Cloudflare worker'ları ve [LICENSE](LICENSE) içinde listelenen relay servisleri) bunun yerine [Business Source License 1.1](web/LICENSE) kullanır: üretim dışı kullanım için okuyabilir, değiştirebilir ve çalıştırabilirsiniz; üretim kullanımı veya kendi sunucunuzda barındırma ticari lisans gerektirir.
+cmux, [GPL-3.0-or-later](LICENSE) kapsamında açık kaynaklıdır. cmux sunucu yazılımı (`web/`, Cloudflare worker'ları ve [LICENSE](LICENSE) içinde listelenen relay servisleri) bunun yerine [Business Source License 1.1](web/LICENSE) kullanır: okuyabilir, değiştirebilir ve çalıştırabilirsiniz; buna kendiniz veya kuruluşunuzun iç kullanımı için kendi sunucunuzda barındırma da dahildir. Başkalarına barındırılan veya yönetilen hizmet olarak sunmak ya da satmak veya yeniden satmak ticari lisans gerektirir.
 
 Kuruluşunuz GPL'ye uyum sağlayamıyorsa, ticari lisans mevcuttur. Ayrıntılar için [founders@cmux.com](mailto:founders@cmux.com) ile iletişime geçin.
