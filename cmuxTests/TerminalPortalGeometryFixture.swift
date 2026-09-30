@@ -22,7 +22,10 @@ final class TerminalPortalGeometryFixture {
     var hosted: GhosttySurfaceScrollView { surface.hostedView }
     var hostedID: ObjectIdentifier { ObjectIdentifier(hosted) }
 
-    init(anchorView: NSView? = nil) {
+    /// - Parameter stalledShimInstallDeadline: When set, the surface's agent
+    ///   command-shim install never finishes, so only this install deadline
+    ///   (#9769) can release its first runtime.
+    init(anchorView: NSView? = nil, stalledShimInstallDeadline: Duration? = nil) {
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 420),
             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
@@ -35,9 +38,47 @@ final class TerminalPortalGeometryFixture {
         anchor = anchorView ?? NSView(frame: NSRect(x: 8, y: 8, width: 520, height: 280))
         window.contentView?.addSubview(anchor)
         portal = WindowTerminalPortal(window: window)
+        let live = GhosttyApp.terminalSurfaceRuntimeDependencies
         surface = TerminalSurface(
             tabId: workspace.id, context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil, workingDirectory: nil
+            configTemplate: nil, workingDirectory: nil,
+            dependencies: stalledShimInstallDeadline.map {
+                Self.dependencies(live, stallingShimInstallUntil: $0)
+            } ?? live
+        )
+    }
+
+    /// The live runtime collaborators with a command-shim install that does
+    /// not finish within the test.
+    private static func dependencies(
+        _ live: TerminalSurfaceRuntimeDependencies,
+        stallingShimInstallUntil deadline: Duration
+    ) -> TerminalSurfaceRuntimeDependencies {
+        TerminalSurfaceRuntimeDependencies(
+            registry: live.registry,
+            engine: live.engine,
+            viewProvider: live.viewProvider,
+            spawnPolicy: live.spawnPolicy,
+            byteTee: live.byteTee,
+            rendererRealization: live.rendererRealization,
+            hibernationRecorder: live.hibernationRecorder,
+            runtimeTeardown: live.runtimeTeardown,
+            restoreSpawnScheduler: live.restoreSpawnScheduler,
+            runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
+                agentCommandShimRootDirectory: live.runtimeFilesystem.agentCommandShimRootDirectory,
+                installAgentCommandShims: { _, _, _ in
+                    try? await Task.sleep(for: .seconds(60))
+                    return nil
+                },
+                isExecutableFile: live.runtimeFilesystem.isExecutableFile
+            ),
+            agentCommandShimInstallDeadline: deadline,
+            agentCommandShimInstallDeadlineClock: live.agentCommandShimInstallDeadlineClock,
+            sessionPortBase: live.sessionPortBase,
+            sessionPortRangeSize: live.sessionPortRangeSize,
+            scrollbackReplayEnvironmentKey: live.scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent: live.globalFontMagnificationPercent,
+            terminalWork: live.terminalWork
         )
     }
 
