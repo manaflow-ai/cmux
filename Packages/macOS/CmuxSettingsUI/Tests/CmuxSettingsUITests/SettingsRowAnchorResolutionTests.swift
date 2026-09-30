@@ -61,6 +61,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.warnBeforeClosingWindow",
         "app.warnBeforeClosingWorkspace",
         "app.workspaceInheritWorkingDirectory",
+        "automation.agentAutoResume",
         "automation.claudeBinaryPath",
         "automation.claudeCodeIntegration",
         "automation.piIntegration",

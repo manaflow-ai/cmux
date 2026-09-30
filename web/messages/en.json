@@ -3248,6 +3248,7 @@
         "automation": {
           "ampIntegration": "Turns the cmux hooks for Amp on or off. Turning them off leaves the bundled plugin installed but idle.",
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry.",
+          "agentAutoResume": "Send `continue` to a cmux-launched agent whose turn ended on a retryable upstream error (model at capacity, overloaded, or connection lost), with backoff. Turns waiting on a human are never resumed.",
           "workspaceAutoNaming": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win.",
           "autoNamingAgent": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
