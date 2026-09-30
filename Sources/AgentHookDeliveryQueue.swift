@@ -41,6 +41,7 @@ actor AgentHookDeliveryQueue {
             return newerEvent.canReplaceBufferedLifecycleState(earlierEvent)
         }
 
+        /// Identifies the teardown event that receives the reserved ingress slot.
         var isSessionEnd: Bool {
             guard case .event(let event) = self else { return false }
             return event.subcommand == "session-end"
@@ -212,6 +213,7 @@ actor AgentHookDeliveryQueue {
         return signal.wait(timeout: .now() + timeout) == .success
     }
 
+    /// Publishes one bounded ingress record without waiting on the actor.
     private nonisolated func publish(
         _ item: PendingItem,
         admissionClass: AdmissionClass,
