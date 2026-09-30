@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d47bea9f7d0d29f310c6ec2e6a529451364fa5c8572ad0acfa44674593e08d85";
+inline constexpr std::string_view kProtocolIrSha256 = "e99ab305cc3ecdb10514b1f33d3f9bfa20340a0aa4b50891fe3474a5d6f185ab";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -132,6 +132,10 @@ struct TerminalModifiers;
 struct TerminalPlacement;
 struct TerminalRecord;
 struct TerminalRegistryEvent;
+struct TerminalResourceHost;
+struct TerminalResourceProcess;
+struct TerminalResources;
+struct TerminalResourcesResult;
 struct Tree;
 enum class ViewAttachmentOutcome;
 struct VtStateResult;
@@ -276,6 +280,7 @@ struct SplitRequest;
 struct SubscribeRequest;
 struct SwapPaneRequest;
 struct TerminalEventsRequest;
+struct TerminalResourcesRequest;
 struct UndoLayoutRequest;
 struct UngroupTabGroupRequest;
 struct UnregisterBrowserProviderRequest;
@@ -2916,6 +2921,44 @@ struct TerminalRegistryChangedEvent {
     friend bool operator==(const TerminalRegistryChangedEvent&, const TerminalRegistryChangedEvent&) = default;
 };
 
+struct TerminalResourceHost {
+    std::uint64_t cpu_ns{};
+    std::uint64_t memory_bytes{};
+    std::uint32_t pid{};
+    friend bool operator==(const TerminalResourceHost&, const TerminalResourceHost&) = default;
+};
+
+struct TerminalResourceProcess {
+    std::uint64_t cpu_ns{};
+    std::uint64_t memory_bytes{};
+    std::string name{};
+    std::uint32_t pid{};
+    std::uint32_t ppid{};
+    friend bool operator==(const TerminalResourceProcess&, const TerminalResourceProcess&) = default;
+};
+
+struct TerminalResources {
+    std::optional<TerminalResourceHost> host{};
+    std::optional<std::uint32_t> pid{};
+    std::vector<TerminalResourceProcess> processes{};
+    Id surface{};
+    std::optional<std::string> terminal_id{};
+    bool truncated{};
+    friend bool operator==(const TerminalResources&, const TerminalResources&) = default;
+};
+
+struct TerminalResourcesRequest {
+    Field<std::vector<Id>> surfaces{};
+    friend bool operator==(const TerminalResourcesRequest&, const TerminalResourcesRequest&) = default;
+};
+
+struct TerminalResourcesResult {
+    std::vector<Id> missing{};
+    std::uint64_t sampled_at_ns{};
+    std::vector<TerminalResources> terminals{};
+    friend bool operator==(const TerminalResourcesResult&, const TerminalResourcesResult&) = default;
+};
+
 struct TitleChangedEvent {
     Id surface{};
     std::optional<std::string> title{};
@@ -3850,6 +3893,30 @@ struct Codec<TerminalRegistryEvent> {
 };
 
 template <>
+struct Codec<TerminalResourceHost> {
+    static Result<Json> encode(const TerminalResourceHost& value);
+    static Result<TerminalResourceHost> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalResourceProcess> {
+    static Result<Json> encode(const TerminalResourceProcess& value);
+    static Result<TerminalResourceProcess> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalResources> {
+    static Result<Json> encode(const TerminalResources& value);
+    static Result<TerminalResources> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalResourcesResult> {
+    static Result<Json> encode(const TerminalResourcesResult& value);
+    static Result<TerminalResourcesResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<Tree> {
     static Result<Json> encode(const Tree& value);
     static Result<Tree> decode(const Json& value);
@@ -4711,6 +4778,12 @@ template <>
 struct Codec<TerminalEventsRequest> {
     static Result<Json> encode(const TerminalEventsRequest& value);
     static Result<TerminalEventsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalResourcesRequest> {
+    static Result<Json> encode(const TerminalResourcesRequest& value);
+    static Result<TerminalResourcesRequest> decode(const Json& value);
 };
 
 template <>

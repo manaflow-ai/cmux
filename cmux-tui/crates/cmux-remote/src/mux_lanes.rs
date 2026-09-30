@@ -176,8 +176,8 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
         // look missing to the client resolving it.
         Some(
             "identify" | "ping" | "list-clients" | "list-workspaces" | "export-layout" | "wait-for"
-            | "ids" | "list-agents" | "pane-neighbor" | "process-info" | "subscribe"
-            | "resolve-terminal",
+            | "ids" | "list-agents" | "pane-neighbor" | "process-info" | "terminal-resources"
+            | "subscribe" | "resolve-terminal",
         ) => Lane::Control,
         // Mutations default to one ordered lane with compact PTY input. This
         // keeps a later close, move, focus, resize, or configuration change

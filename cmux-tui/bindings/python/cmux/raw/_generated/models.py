@@ -1213,6 +1213,43 @@ class TerminalRegistryEvent:
 
 
 @dataclass(frozen=True)
+class TerminalResourceHost:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalResourceHost'
+    cpu_ns: int
+    memory_bytes: int
+    pid: int
+
+
+@dataclass(frozen=True)
+class TerminalResourceProcess:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalResourceProcess'
+    cpu_ns: int
+    memory_bytes: int
+    name: str
+    pid: int
+    ppid: int
+
+
+@dataclass(frozen=True)
+class TerminalResources:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalResources'
+    surface: Id
+    terminal_id: Union[str, None]
+    host: Union[TerminalResourceHost, None]
+    pid: Union[int, None]
+    processes: List[TerminalResourceProcess]
+    truncated: bool
+
+
+@dataclass(frozen=True)
+class TerminalResourcesResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalResourcesResult'
+    missing: List[Id]
+    sampled_at_ns: int
+    terminals: List[TerminalResources]
+
+
+@dataclass(frozen=True)
 class Tree:
     __cmux_schema_path__: ClassVar[str] = 'types/Tree'
     workspaces: List[Workspace]
@@ -2412,6 +2449,12 @@ class TerminalEventsRequest:
 
 
 @dataclass(frozen=True)
+class TerminalResourcesRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-resources/request'
+    surfaces: Union[List[Id], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class UndoLayoutRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/undo-layout/request'
     pane: Id
@@ -3235,6 +3278,10 @@ __all__ = [
     'TerminalPlacement',
     'TerminalRecord',
     'TerminalRegistryEvent',
+    'TerminalResourceHost',
+    'TerminalResourceProcess',
+    'TerminalResources',
+    'TerminalResourcesResult',
     'Tree',
     'VtStateResult',
     'WaitForResult',
@@ -3377,6 +3424,7 @@ __all__ = [
     'SubscribeRequest',
     'SwapPaneRequest',
     'TerminalEventsRequest',
+    'TerminalResourcesRequest',
     'UndoLayoutRequest',
     'UngroupTabGroupRequest',
     'UnregisterBrowserProviderRequest',

@@ -85,6 +85,7 @@ pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[path = "server/image_paste.rs"]
 mod image_paste;
 mod terminal_create;
+mod terminal_resources;
 mod url_open;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
@@ -136,6 +137,9 @@ pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
 /// `close-screen`, `close-workspace`, and `close-tab-group`: many
 /// placements and the terminals they end close in one durable commit.
 pub const BATCH_CLOSE_CAPABILITY: &str = "batch-close-v1";
+/// Advertises `terminal-resources`: CPU time and memory of each terminal's
+/// shell, its descendants, and its terminal host, read on request.
+pub const TERMINAL_RESOURCES_CAPABILITY: &str = "terminal-resources-v1";
 /// Advertises a caller-chosen `terminal_id` on `new-tab`, `split`,
 /// `new-pane`, and `new-pane-right`, plus `cwd`/`env` on `new-pane` and
 /// `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four
@@ -277,6 +281,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
+        TERMINAL_RESOURCES_CAPABILITY,
         TERMINAL_PLACEMENT_ENV_CAPABILITY,
         WORKSPACE_GROUPS_CAPABILITY,
         WORKSPACE_METADATA_CAPABILITY,
@@ -1364,6 +1369,12 @@ enum Command {
     },
     ProcessInfo {
         surface: SurfaceId,
+    },
+    /// CPU time and memory of terminal process trees, read on request.
+    /// Omitted `surfaces` means every PTY surface.
+    TerminalResources {
+        #[serde(default)]
+        surfaces: Option<Vec<SurfaceId>>,
     },
     MoveTerminal {
         terminal_id: String,
@@ -13365,6 +13376,9 @@ fn handle_command_with_cancellation(
                     .and_then(platform::foreground_process_name),
             }))
         }
+        Command::TerminalResources { surfaces } => {
+            Ok(terminal_resources::terminal_resources(mux, surfaces))
+        }
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
             let workspace_mutation = workspace_mutation(&mutation)?;
             let result = mux.move_terminal_with_mutation(
@@ -22653,6 +22667,7 @@ mod tests {
     fn cmux_next_close_tabs_and_end_terminals_over_the_wire() {
         let mux = test_mux();
         assert!(advertised_capabilities(false).contains(&BATCH_CLOSE_CAPABILITY));
+        assert!(advertised_capabilities(false).contains(&TERMINAL_RESOURCES_CAPABILITY));
         let first = mux.new_workspace(None, None).unwrap().id;
         let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
         let second = mux.new_tab(Some(pane), None, None).unwrap().id;

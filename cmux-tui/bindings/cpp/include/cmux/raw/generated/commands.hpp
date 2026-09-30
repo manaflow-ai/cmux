@@ -173,6 +173,7 @@ public:
     [[nodiscard]] Result<EventStream> subscribe(const SubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> swap_pane(const SwapPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalEventsResult> terminal_events(const TerminalEventsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<TerminalResourcesResult> terminal_resources(const TerminalResourcesRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<LayoutUndoResult> undo_layout(const UndoLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> ungroup_tab_group(const UngroupTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BrowserProviderUnregisterResult> unregister_browser_provider(const UnregisterBrowserProviderRequest& request = {}, RequestOptions options = {});

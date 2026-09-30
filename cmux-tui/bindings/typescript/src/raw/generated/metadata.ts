@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d47bea9f7d0d29f310c6ec2e6a529451364fa5c8572ad0acfa44674593e08d85. */
+/* cmux-tui mux protocol 12, IR e99ab305cc3ecdb10514b1f33d3f9bfa20340a0aa4b50891fe3474a5d6f185ab. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d47bea9f7d0d29f310c6ec2e6a529451364fa5c8572ad0acfa44674593e08d85" as const;
+export const SDK_IR_SHA256 = "e99ab305cc3ecdb10514b1f33d3f9bfa20340a0aa4b50891fe3474a5d6f185ab" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1675,6 +1675,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Consumers apply only contiguous revisions for one registry_id and generation."
+    ]
+  },
+  "terminal-resources": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-resources-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Omitted or null surfaces means every PTY surface.",
+      "Read on request; the daemon keeps no sampler, cache, or timer."
     ]
   },
   "undo-layout": {
@@ -7277,6 +7288,188 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalResourceHost": {
+    "additional_properties": false,
+    "fields": {
+      "cpu_ns": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "memory_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "pid": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalResourceProcess": {
+    "additional_properties": false,
+    "constraints": [
+      "cpu_ns is cumulative user plus system CPU time since the process started.",
+      "memory_bytes is the physical footprint on macOS and the resident set size on Linux."
+    ],
+    "fields": {
+      "cpu_ns": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "memory_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pid": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "ppid": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalResources": {
+    "additional_properties": false,
+    "constraints": [
+      "processes lists the shell first, then every descendant breadth-first, each pid once, at most 512.",
+      "truncated is true when the tree had more than 512 processes.",
+      "host is null for a PTY the daemon owns itself."
+    ],
+    "fields": {
+      "host": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalResourceHost"
+        }
+      },
+      "pid": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "processes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "TerminalResourceProcess"
+          },
+          "kind": "array"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "terminal_id": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "truncated": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalResourcesResult": {
+    "additional_properties": false,
+    "constraints": [
+      "sampled_at_ns is a monotonic clock in nanoseconds (macOS CLOCK_UPTIME_RAW, Linux CLOCK_MONOTONIC), comparable only between replies of one daemon host.",
+      "missing lists requested surfaces that do not exist or are not PTY surfaces."
+    ],
+    "fields": {
+      "missing": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
+      "sampled_at_ns": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "terminals": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "TerminalResources"
+          },
+          "kind": "array"
         }
       }
     },
@@ -13509,6 +13702,30 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "TerminalEventsResult"
+    }
+  },
+  "terminal-resources": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surfaces": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalResourcesResult"
     }
   },
   "undo-layout": {

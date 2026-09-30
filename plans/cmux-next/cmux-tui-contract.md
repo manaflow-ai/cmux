@@ -336,6 +336,23 @@ records.
   (`core/mux.rs:1533-1537`). The same notification can arrive on subscribe and
   attach streams, so dedupe by id (`events.md:701`).
 
+### 2.8 Terminal resources (CPU and memory)
+
+`terminal-resources {surfaces?}` (capability `terminal-resources-v1`,
+`spec/commands.md` "terminal-resources") returns, for each PTY surface, the
+shell, every descendant (breadth-first, each pid once, capped at 512 with
+`truncated`), and the `__terminal-host` that owns the PTY (`host`, null for an
+in-daemon PTY). Each process carries `cpu_ns` (cumulative user+system) and
+`memory_bytes` (macOS physical footprint, Linux RSS). `sampled_at_ns` is a
+monotonic clock; `missing` lists unknown or non-PTY surfaces. Omitted
+`surfaces` means every PTY surface.
+
+The daemon computes it on request only: no background sampler, cache, or
+timer, so an idle daemon does no work for it (no-polling rule, REWRITE.md).
+A frontend that shows a rate asks while the view that shows it is visible,
+and computes `delta(cpu_ns) / delta(sampled_at_ns)` between two replies. It
+must not run a periodic request while nothing on screen shows the figures.
+
 ## 3. Terminal rendering with GhosttyKit
 
 ### 3.1 What TerminalBytesDemo does (do not copy it)

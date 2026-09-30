@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d47bea9f7d0d29f310c6ec2e6a529451364fa5c8572ad0acfa44674593e08d85.
+// cmux-tui mux protocol 12, IR e99ab305cc3ecdb10514b1f33d3f9bfa20340a0aa4b50891fe3474a5d6f185ab.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1755,6 +1755,13 @@ pub struct TerminalEventsRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TerminalResourcesRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surfaces: Optional<Vec<T::Id>>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UndoLayoutRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -2654,6 +2661,10 @@ impl CmuxClient {
 
     pub fn terminal_events(&mut self, request: TerminalEventsRequest) -> Result<T::TerminalEventsResult> {
         self.execute(&TERMINAL_EVENTS_METADATA, &request)
+    }
+
+    pub fn terminal_resources(&mut self, request: TerminalResourcesRequest) -> Result<T::TerminalResourcesResult> {
+        self.execute(&TERMINAL_RESOURCES_METADATA, &request)
     }
 
     pub fn undo_layout(&mut self, request: UndoLayoutRequest) -> Result<UndoLayoutResult> {

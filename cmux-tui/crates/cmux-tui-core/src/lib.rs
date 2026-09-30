@@ -53,6 +53,7 @@ mod workspace_registry;
 
 pub mod layout;
 pub mod platform;
+pub mod process_resources;
 pub mod server;
 pub mod terminal_host;
 pub mod terminal_host_protocol;

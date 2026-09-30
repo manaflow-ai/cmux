@@ -408,6 +408,9 @@ class GeneratedClientMixin:
     def terminal_events(self, *, after_revision: Union[int, MissingType] = MISSING) -> TerminalEventsResult:
         return self._invoke_command('terminal-events', TerminalEventsRequest(after_revision=after_revision))
 
+    def terminal_resources(self, *, surfaces: Union[List[Id], None, MissingType] = MISSING) -> TerminalResourcesResult:
+        return self._invoke_command('terminal-resources', TerminalResourcesRequest(surfaces=surfaces))
+
     def undo_layout(self, pane: Id, *, confirm_close: Union[bool, MissingType] = MISSING, revision: Union[int, None, MissingType] = MISSING) -> LayoutUndoResult:
         return self._invoke_command('undo-layout', UndoLayoutRequest(pane=pane, confirm_close=confirm_close, revision=revision))
 
@@ -583,6 +586,7 @@ GeneratedClientMixin.split.__cmux_command__ = COMMANDS['split']
 GeneratedClientMixin.subscribe.__cmux_command__ = COMMANDS['subscribe']
 GeneratedClientMixin.swap_pane.__cmux_command__ = COMMANDS['swap-pane']
 GeneratedClientMixin.terminal_events.__cmux_command__ = COMMANDS['terminal-events']
+GeneratedClientMixin.terminal_resources.__cmux_command__ = COMMANDS['terminal-resources']
 GeneratedClientMixin.undo_layout.__cmux_command__ = COMMANDS['undo-layout']
 GeneratedClientMixin.ungroup_tab_group.__cmux_command__ = COMMANDS['ungroup-tab-group']
 GeneratedClientMixin.unregister_browser_provider.__cmux_command__ = COMMANDS['unregister-browser-provider']

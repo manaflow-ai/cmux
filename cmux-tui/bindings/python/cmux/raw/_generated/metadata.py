@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'd47bea9f7d0d29f310c6ec2e6a529451364fa5c8572ad0acfa44674593e08d85'
+IR_SHA256 = 'e99ab305cc3ecdb10514b1f33d3f9bfa20340a0aa4b50891fe3474a5d6f185ab'
 
 
 @dataclass(frozen=True)
@@ -1793,6 +1793,17 @@ COMMANDS = {
         None,
         {
             'after_revision': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-resources': CommandMetadata(
+        'terminal-resources',
+        'control',
+        12,
+        'terminal-resources-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surfaces': CommandFieldMetadata(None, None),
         },
     ),
     'undo-layout': CommandMetadata(

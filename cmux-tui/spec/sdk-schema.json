@@ -3612,6 +3612,188 @@
    },
    "additional_properties": false
   },
+  "TerminalResourcesResult": {
+   "kind": "object",
+   "fields": {
+    "sampled_at_ns": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminals": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "TerminalResources"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "missing": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "sampled_at_ns is a monotonic clock in nanoseconds (macOS CLOCK_UPTIME_RAW, Linux CLOCK_MONOTONIC), comparable only between replies of one daemon host.",
+    "missing lists requested surfaces that do not exist or are not PTY surfaces."
+   ]
+  },
+  "TerminalResources": {
+   "kind": "object",
+   "fields": {
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "pid": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "host": {
+     "type": {
+      "kind": "ref",
+      "name": "TerminalResourceHost"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "processes": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "TerminalResourceProcess"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "truncated": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "processes lists the shell first, then every descendant breadth-first, each pid once, at most 512.",
+    "truncated is true when the tree had more than 512 processes.",
+    "host is null for a PTY the daemon owns itself."
+   ]
+  },
+  "TerminalResourceHost": {
+   "kind": "object",
+   "fields": {
+    "pid": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cpu_ns": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "memory_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalResourceProcess": {
+   "kind": "object",
+   "fields": {
+    "pid": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "ppid": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cpu_ns": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "memory_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "cpu_ns is cumulative user plus system CPU time since the process started.",
+    "memory_bytes is the physical footprint on macOS and the resident set size on Linux."
+   ]
+  },
   "MoveTerminalResult": {
    "kind": "object",
    "fields": {
@@ -8228,6 +8410,38 @@
    "stream": null,
    "constraints": [
     "PTY surfaces only."
+   ]
+  },
+  "terminal-resources": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-resources-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surfaces": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "Id"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalResourcesResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Omitted or null surfaces means every PTY surface.",
+    "Read on request; the daemon keeps no sampler, cache, or timer."
    ]
   },
   "move-terminal": {

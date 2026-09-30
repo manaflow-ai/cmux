@@ -142,6 +142,7 @@ public final class Commands {
     public static final CommandMetadata SUBSCRIBE = new CommandMetadata("subscribe", Authority.FRONTEND, 5, null, StreamKind.SUBSCRIBE, Map.ofEntries(Map.entry("surface", 9L), Map.entry("tree_events", 7L)), Map.ofEntries(Map.entry("surface", "surface-subscribe-filter")));
     public static final CommandMetadata SWAP_PANE = new CommandMetadata("swap-pane", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_EVENTS = new CommandMetadata("terminal-events", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata TERMINAL_RESOURCES = new CommandMetadata("terminal-resources", Authority.CONTROL, 12, "terminal-resources-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNDO_LAYOUT = new CommandMetadata("undo-layout", Authority.CONTROL, 9, "layout-undo-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNGROUP_TAB_GROUP = new CommandMetadata("ungroup-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNREGISTER_BROWSER_PROVIDER = new CommandMetadata("unregister-browser-provider", Authority.LOCAL_ADMIN, 10, "browser-provider-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -292,6 +293,7 @@ public final class Commands {
         values.put("subscribe", SUBSCRIBE);
         values.put("swap-pane", SWAP_PANE);
         values.put("terminal-events", TERMINAL_EVENTS);
+        values.put("terminal-resources", TERMINAL_RESOURCES);
         values.put("undo-layout", UNDO_LAYOUT);
         values.put("ungroup-tab-group", UNGROUP_TAB_GROUP);
         values.put("unregister-browser-provider", UNREGISTER_BROWSER_PROVIDER);
