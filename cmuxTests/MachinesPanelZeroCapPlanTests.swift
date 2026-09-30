@@ -8,8 +8,8 @@ import Testing
 @testable import cmux
 #endif
 
-/// A zero machine ceiling is the server's marker for Cloud access granted
-/// outside the plan row, not a free-plan meter.
+/// A zero machine ceiling is granted access only when the fleet already has
+/// machines; an empty fleet still has the free-plan paywall.
 @Suite("Cloud machines zero-cap plan")
 struct MachinesPanelZeroCapPlanTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -47,7 +47,9 @@ struct MachinesPanelZeroCapPlanTests {
         #expect(plan.isAtLimit == false)
         #expect(CloudTreeGroupCount(usage: plan.usage).isWarning == false)
         #expect(plan.usage.countLabel == "3 machines")
-        #expect(plan.maxActiveVms == nil)
+        #expect(plan.maxActiveVms == 0)
+        #expect(plan.isCloudAccessGranted)
+        #expect(plan.usage.maxActiveVms == nil)
         #expect(plan.hasPlanMeter == false)
         #expect(plan.freeAccessBanner == .none)
         #expect(plan.freeAccessBannerText == nil)
@@ -75,9 +77,56 @@ struct MachinesPanelZeroCapPlanTests {
             machines: [],
             now: now
         ))
-        #expect(plan.maxActiveVms == nil)
-        #expect(plan.hasPlanMeter == false)
+        #expect(plan.maxActiveVms == 0)
+        #expect(plan.isCloudAccessGranted == false)
+        #expect(plan.hasPlanMeter)
+        #expect(plan.isAtLimit)
         #expect(plan.freeAccessBanner != .none)
         #expect(plan.freeAccessBannerText != nil)
+    }
+
+    @Test("Granted access clears row locks and the new-machine free-window note")
+    @MainActor
+    func grantedAccessClearsFreeWindowPresentation() throws {
+        let plan = try #require(MachineSnapshotBuilder.planSnapshot(
+            activeCount: 3,
+            limits: limits(maxActiveVms: 0),
+            machines: machines(count: 3),
+            now: now
+        ))
+        let locked = machines(count: 3).map { machine -> MachineSnapshot in
+            var machine = machine
+            machine.freeAccess = .expired
+            return machine
+        }
+        let unlocked = MachineSnapshotBuilder.applyingFreeAccess(to: locked, plan: plan, now: now)
+        #expect(unlocked.allSatisfy { $0.freeAccess == .unrestricted })
+
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: plan,
+            memoryOptionsMb: [],
+            submit: { _ in false }
+        )
+        #expect(model.freeAccessNoteText == nil)
+    }
+
+    @Test("The presenter keeps the upgrade gate only for an unentitled zero-cap account")
+    @MainActor
+    func presenterUpgradeGateDistinguishesGrant() throws {
+        let granted = try #require(MachineSnapshotBuilder.planSnapshot(
+            activeCount: 3,
+            limits: limits(maxActiveVms: 0),
+            machines: machines(count: 3),
+            now: now
+        ))
+        let unentitled = try #require(MachineSnapshotBuilder.planSnapshot(
+            activeCount: 0,
+            limits: limits(maxActiveVms: 0),
+            machines: [],
+            now: now
+        ))
+        #expect(NewMachineSheetPresenter.shouldPresentUpgrade(for: granted) == false)
+        #expect(NewMachineSheetPresenter.shouldPresentUpgrade(for: unentitled))
     }
 }
