@@ -600951,6 +600951,65 @@
           }
         }
       }
+    },
+    "socket.palette.list.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The window command palette is not ready."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحة أوامر النافذة غير جاهزة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Befehlspalette des Fensters ist nicht bereit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La paleta de comandos de la ventana no está lista."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La palette de commandes de la fenêtre n’est pas prête."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウのコマンドパレットはまだ準備できていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 명령 팔레트가 준비되지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口命令面板尚未准备好。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗命令面板尚未準備好。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
