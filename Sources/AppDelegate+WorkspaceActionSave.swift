@@ -124,14 +124,20 @@ struct ActionsAndLaunchersDiscoveryModel: Equatable {
 
     private static func actionType(_ action: CmuxSurfaceTabBarButtonAction) -> String {
         switch action {
-        case .builtIn: return "builtin"
-        case .command: return "command"
-        case .agent: return "agent"
-        case .workspaceCommand: return "workspaceCommand"
-        case .workspace: return "workspace"
-        case .setting(.preset): return "settingPreset"
-        case .setting: return "setting"
-        case .actionReference: return "action"
+        case .builtIn:
+            return "builtin"
+        case .command:
+            return "command"
+        case .agent:
+            return "agent"
+        case .workspaceCommand:
+            return "workspaceCommand"
+        case .workspace:
+            return "workspace"
+        case .setting:
+            return "setting"
+        case .actionReference:
+            return "action"
         }
     }
 }
