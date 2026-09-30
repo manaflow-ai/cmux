@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 
 /// Invariant: every visible Chromium page window covers its pane's page
 /// area exactly, in screen coordinates, whatever moved or resized the
@@ -33,6 +34,11 @@ enum ChildPageGeometry {
         return problems
     }
 
+    /// Where the Chromium windows of one pane must be: its tab content.
+    static func expectedHosts(pane: String, contentRect: CGRect, devTools: (page: CGRect, devTools: CGRect?)?) -> [Host] {
+        [Host(pane: pane, screenRect: contentRect)]
+    }
+
     /// The window's Chromium hosts (visible, in this window) and page windows now.
     static func sample(_ controller: WindowController) -> (hosts: [Host], pages: [CGRect]) {
         guard let window = controller.window else { return ([], []) }
@@ -41,7 +47,9 @@ enum ChildPageGeometry {
             guard case .browser(let entry)? = pane.currentContent, entry.tab.presentation == .childWindow else { continue }
             let content = entry.tab.contentView
             guard content.window === window, !content.isHiddenOrHasHiddenAncestor, !content.bounds.isEmpty else { continue }
-            hosts.append(Host(pane: pane.paneKey, screenRect: window.convertToScreen(content.convert(content.bounds, to: nil))))
+            let contentRect = window.convertToScreen(content.convert(content.bounds, to: nil))
+            let devTools = (entry.tab as? CEFTab)?.devToolsDiagnosticFrames
+            hosts += expectedHosts(pane: pane.paneKey, contentRect: contentRect, devTools: devTools)
         }
         let pages = window.isVisible ? WindowOverlayLayer.contentChildWindows(of: window).map(\.frame) : []
         return (hosts, pages)

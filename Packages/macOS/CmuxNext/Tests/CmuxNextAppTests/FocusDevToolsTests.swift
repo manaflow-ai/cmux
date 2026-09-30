@@ -67,4 +67,25 @@ struct FocusDevToolsTests {
         #expect(registry.effectiveShortcut(for: "showBrowserJavaScriptConsole") == Shortcut("j", modifiers: [.command, .option]))
         #expect(registry.effectiveShortcut(for: "inspectBrowserElement") == Shortcut("c", modifiers: [.command, .option]))
     }
+
+    /// Cmd-Opt-I closes DevTools while DevTools has the keyboard, through
+    /// the window key equivalent (a DevTools window that is not key, or a
+    /// synthesized key) as well as DevTools' own pre-key hook. The other
+    /// content chords (Copy, Reload) still belong to DevTools.
+    @Test func devToolsActionsRunWhileDevToolsHasTheKeyboard() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        var ran: [ActionID] = []
+        for id: ActionID in ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement", "browserReload"] {
+            services.registry.bind(id, invoke: { _ in ran.append(id) })
+        }
+        services.registry.context.insert(.browserFocused)
+        for (key, code) in [("i", UInt16(34)), ("j", 38), ("c", 8)] {
+            let event = try K.key(key, keyCode: code, [.command, .option])
+            #expect(services.keyRouter.routeContentKeyEquivalent(event, focus: Self.devTools), "cmd-opt-\(key)")
+        }
+        #expect(ran == ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement"])
+        let reload = try K.key("r", keyCode: 15, [.command])
+        #expect(!services.keyRouter.routeContentKeyEquivalent(reload, focus: Self.devTools))
+        #expect(!ran.contains("browserReload"))
+    }
 }
