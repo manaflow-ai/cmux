@@ -312,14 +312,14 @@ extension Workspace {
             (snapshot.surfaceProjections ?? []).filter { !$0.resource.machine.isLocal }.map(\.panelID)
         )
         let cloudProjectionRecordsByPanelID = Dictionary((snapshot.surfaceProjections ?? []).map { ($0.panelID, $0) }, uniquingKeysWith: { first, _ in first })
-        let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { panel in
+        let panelSnapshotsById = Dictionary(snapshot.panels.map { panel in
             var panel = panel
             if cloudVMBinding != nil || cloudProjectedPanelIDs.contains(panel.id) {
                 panel.directoryIsTrustedRemoteReport = false
                 panel.directoryRequiresRemoteTrust = true
             }
             return (panel.id, panel)
-        })
+        }, uniquingKeysWith: { first, _ in first })
         let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
         let shouldRestoreSingleDefaultCloudTerminal =
             isDefaultFreestyleSSHDRemoteWorkspace &&

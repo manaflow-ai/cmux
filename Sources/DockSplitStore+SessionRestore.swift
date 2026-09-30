@@ -38,7 +38,10 @@ extension DockSplitStore {
 
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let scaffold = withProgrammaticDockSplit { layoutCodec.restoreScaffold(snapshot.layout) }
-        let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
+        let panelSnapshotsById = Dictionary(
+            snapshot.panels.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
         var oldToNewPanelIds: [UUID: UUID] = [:]
         var restoredPanelIds: Set<UUID> = []
