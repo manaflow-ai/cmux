@@ -21,6 +21,7 @@ import {
 } from "./gallery-fixtures";
 import { groupTurns } from "./turns";
 import { agentChatText } from "./i18n";
+import { RepositorySlugContext } from "./context";
 
 const cwd = "/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-agent-chat-ui/agent-chat";
 const noLoadingProviders = new Set<string>();
@@ -384,7 +385,9 @@ export function GalleryApp() {
             {activityScenarios.map((scenario) => (
               <div key={scenario.id} className="gallery-transcript small">
                 <div className="gallery-label">{scenario.label}</div>
-                <Blocks blocks={scenario.blocks} status={scenario.status} actions={galleryActions} onFork={() => {}} forkPending={false} thinkingDefaultOpen />
+                <RepositorySlugContext.Provider value={scenario.repositorySlug ?? null}>
+                  <Blocks blocks={scenario.blocks} status={scenario.status} actions={galleryActions} onFork={() => {}} forkPending={false} thinkingDefaultOpen />
+                </RepositorySlugContext.Provider>
               </div>
             ))}
             <div className="gallery-transcript small">
