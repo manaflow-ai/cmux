@@ -134,7 +134,7 @@ fi
 
 mkdir -p "$CACHE_DIR"
 MANIFEST="$CACHE_DIR/manifest.$(printf '%s' "$MANIFEST_URL" | shasum -a 256 | cut -c1-12).json"
-curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$MANIFEST_URL" -o "$MANIFEST"
+curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused --connect-timeout 15 --speed-limit 10240 --speed-time 30 "$MANIFEST_URL" -o "$MANIFEST"
 if (( ALLOW_UNATTESTED )); then
   echo "warning: installing an unattested cmux-tui manifest from $MANIFEST_URL (--allow-unattested)" >&2
 else
@@ -165,7 +165,7 @@ fetch_slice() { # <artifact-name> -> path
   if [[ -f "$out" ]] && [[ "$(sha256_of "$out")" == "$want" ]]; then
     printf '%s' "$out"; return
   fi
-  curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$BASE/$name" -o "$out.tmp"
+  curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused --connect-timeout 15 --speed-limit 10240 --speed-time 30 "$BASE/$name" -o "$out.tmp"
   got="$(sha256_of "$out.tmp")"
   [[ "$got" == "$want" ]] || { echo "error: sha256 mismatch for $name (want $want, got $got)" >&2; rm -f "$out.tmp"; exit 1; }
   mv -f "$out.tmp" "$out"
