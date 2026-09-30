@@ -1064,13 +1064,23 @@ jobs:
           go-version: '1.26.x'
           cache: false
 
-      # The Embed CEF phase fetches the pinned Chromium engine from the private
-      # manaflow-ai/cef release (scripts/cmux-next/cef-manifest.json). With no
-      # readable token it builds without the engine and the app reports the
+      # The Embed CEF phase embeds the pinned Chromium engine
+      # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
+      # step fills the cache from the private R2 bucket with the read-only key
+      # (the GitHub release with CMUX_CEF_READ_TOKEN is the fallback); only
+      # this step gets the key, so the build step runs without it. With no
+      # readable source the app builds without the engine and reports the
       # browser unavailable; "Report the embedded Chromium engine" flags that.
-      - name: Build nightly app (Release)
+      - name: Fetch the Chromium engine
         env:
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ENV_FILE: /dev/null
           GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
+        run: scripts/cmux-next/ensure-cef.sh --optional
+
+      - name: Build nightly app (Release)
         run: |
           set -euo pipefail
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
@@ -1233,7 +1243,7 @@ jobs:
           if [[ -d "$framework" ]]; then
             echo "Chromium engine embedded: $(lipo -archs "$framework/Versions/A/Chromium Embedded Framework")"
           else
-            echo "::warning title=No Chromium engine::The CEF artifact was not readable (secret CMUX_CEF_READ_TOKEN); this build ships the browser as unavailable."
+            echo "::warning title=No Chromium engine::The CEF artifact was not readable (secrets CMUX_CEF_R2_*); this build ships the browser as unavailable."
           fi
 
       - name: Archive unsigned nightly app
