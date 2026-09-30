@@ -432,7 +432,13 @@ public struct MobileAuthComposition {
         // Unsigned simulator apps cannot rely on Keychain entitlements. Keep
         // tokens in this simulator app's sandbox so a process restart exercises
         // real session restoration. Bundle and Stack project remain isolated.
-        guard let support = simulatorSupportDirectory else { return .none }
+        guard let support = simulatorSupportDirectory else {
+            // Same reasoning as a missing app identity above: .none leaves
+            // StackClientApp with a NullTokenStore, so the next authenticated
+            // operation fatalErrors. Losing the session on relaunch is
+            // recoverable; trapping the process is not.
+            return .memory
+        }
         let projectComponent = Data(legacyProjectID.utf8).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
