@@ -27,7 +27,7 @@ test("generated active events exclude serialized-only shapes", () => {
   const emitted = Object.entries(EVENT_METADATA)
     .filter(([, metadata]) => metadata.emission === "emitted")
     .map(([name]) => name);
-  assert.equal(emitted.length, 49);
+  assert.equal(emitted.length, 52);
   assert.equal(EVENT_METADATA["machine-usage-changed"].emission, "emitted");
   assert.equal(emitted.includes("machine-usage-changed"), true);
   assert.equal(EVENT_METADATA["client-list-invalidated"].emission, "serialized-never-emitted");
