@@ -125846,65 +125846,6 @@
         }
       }
     },
-    "cloudTree.menu.renameTerminal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rename…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "名称変更…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重命名…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Umbenennen…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Renommer…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة التسمية…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Renombrar…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新命名…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이름 바꾸기…"
-          }
-        }
-      }
-    },
     "cloudTree.menu.renameTerminalAllViews": {
       "extractionState": "manual",
       "localizations": {
@@ -126078,124 +126019,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 삭제하는 중…"
-          }
-        }
-      }
-    },
-    "cloudTree.operation.renameTerminal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Renaming %@…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ の名称を変更しています…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在重命名 %@…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ wird umbenannt…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Renommage de %@…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جاري إعادة تسمية %@…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Renombrando %@…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在重新命名 %@…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 이름 바꾸는 중…"
-          }
-        }
-      }
-    },
-    "cloudTree.operation.clearTerminal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clearing %@…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ のカスタム名をクリアしています…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在清空 %@…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ wird geleert…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Effacement de %@…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جاري مسح %@…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limpiando %@…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在清除 %@…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 비우는 중…"
           }
         }
       }
@@ -127468,65 +127291,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "지우기"
-          }
-        }
-      }
-    },
-    "cloudTree.renameTerminal.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rename “%@”"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「%@」の名称変更"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重命名“%@”"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "„%@“ umbenennen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Renommer « %@ »"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة تسمية “%@”"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Renombrar “%@”"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新命名「%@」"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“%@” 이름 바꾸기"
           }
         }
       }
@@ -548177,55 +547941,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux paste [flags] [--] [text | -]\n\nيلصق نصًا في سطح طرفية عبر مسار اللصق نفسه الذي يستخدمه Cmd+V. إذا كان البرنامج قيد التشغيل قد فعّل اللصق المحاط (bracketed paste)، يصل النص كلصقة واحدة وتبقى الأسطر الجديدة داخلها؛ وإلا يُرسل كل سطر جديد كضغطة Enter. كما في Cmd+V، تُستبدل أحرف التحكم مثل Esc وBackspace وCtrl-C وCtrl-U بمسافات. لا تُفسَّر تسلسلات الهروب مثل \\n. بدون وسيطة نصية، أو مع - قبل --، يُقرأ النص من stdin. يُرفض النص الذي يتجاوز 15 ميبيبايت بعد ترميز JSON.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     السطح المستهدف (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n  --submit                     يضغط مفتاح الإرسال الخاص بالوكيل بعد اللصق\n\nمثال:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+            "value": "الاستخدام: cmux paste [flags] [--] [text | -]\n\nيلصق نصًا في سطح طرفية عبر مسار اللصق نفسه الذي يستخدمه Cmd+V. إذا كان البرنامج قيد التشغيل قد فعّل اللصق المحاط (bracketed paste)، يصل النص كلصقة واحدة وتبقى الأسطر الجديدة داخلها؛ وإلا يُرسل كل سطر جديد كضغطة Enter. كما في Cmd+V، تُستبدل أحرف التحكم مثل Esc وBackspace وCtrl-C وCtrl-U بمسافات. لا تُفسَّر تسلسلات الهروب مثل \\n. بدون وسيطة نصية، أو مع - قبل --، يُقرأ النص من stdin. يُرفض النص الذي يتجاوز 15 ميبيبايت بعد ترميز JSON.\n\nإذا كانت مطالبة الوكيل في الهدف تحتوي على نص يكتبه شخص ما، أو كان هناك سؤال أو مربع حوار أذونات مفتوح، فلن يُرسل شيء ويفشل الأمر. يرسل --force على أي حال.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     السطح المستهدف (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n  --submit                     يضغط مفتاح الإرسال الخاص بالوكيل بعد اللصق\n  --force                      الإرسال حتى فوق مسودة أو إلى مربع حوار مفتوح\n\nمثال:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux paste [flags] [--] [text | -]\n\nFügt Text über denselben Einfügepfad wie Cmd+V in eine Terminal-Oberfläche ein. Hat das laufende Programm Bracketed Paste aktiviert, kommt der Text als ein einziges Einfügen an und Zeilenumbrüche bleiben darin erhalten; andernfalls wird jeder Zeilenumbruch als Enter gesendet. Wie bei Cmd+V werden Steuerzeichen wie Esc, Rücktaste, Strg-C und Strg-U durch Leerzeichen ersetzt. Escape-Sequenzen wie \\n werden nicht interpretiert. Ohne Textargument oder mit - vor -- wird der Text von stdin gelesen. Text über 15 MiB nach JSON-Escaping wird abgelehnt.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Workspace (Standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Ziel-Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Fensterkontext für Workspace-/Oberflächen-Refs und -Indizes\n  --submit                     Drückt nach dem Einfügen die Absende-Taste des Agenten\n\nBeispiel:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+            "value": "Verwendung: cmux paste [flags] [--] [text | -]\n\nFügt Text über denselben Einfügepfad wie Cmd+V in eine Terminal-Oberfläche ein. Hat das laufende Programm Bracketed Paste aktiviert, kommt der Text als ein einziges Einfügen an und Zeilenumbrüche bleiben darin erhalten; andernfalls wird jeder Zeilenumbruch als Enter gesendet. Wie bei Cmd+V werden Steuerzeichen wie Esc, Rücktaste, Strg-C und Strg-U durch Leerzeichen ersetzt. Escape-Sequenzen wie \\n werden nicht interpretiert. Ohne Textargument oder mit - vor -- wird der Text von stdin gelesen. Text über 15 MiB nach JSON-Escaping wird abgelehnt.\n\nWenn eine Agent-Eingabe im Ziel Text enthält, den jemand gerade tippt, oder eine Frage oder ein Berechtigungsdialog offen ist, wird nichts gesendet und der Befehl schlägt fehl. --force sendet trotzdem.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Workspace (Standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Ziel-Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Fensterkontext für Workspace-/Oberflächen-Refs und -Indizes\n  --submit                     Drückt nach dem Einfügen die Absende-Taste des Agenten\n  --force                      Auch über einen Entwurf oder in einen offenen Dialog senden\n\nBeispiel:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux paste [flags] [--] [text | -]\n\nPaste text into a terminal surface through the same paste path as Cmd+V. If the running program has turned on bracketed paste, the text arrives as one paste and newlines stay inside it; otherwise each newline is sent as Enter. As with Cmd+V, control characters such as Esc, Backspace, Ctrl-C and Ctrl-U are replaced with spaces. Escape sequences such as \\n are not interpreted. With no text argument, or with - before --, the text is read from stdin. Text over 15 MiB after JSON escaping is rejected.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --submit                     Press the agent's submit key after the paste\n\nExample:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+            "value": "Usage: cmux paste [flags] [--] [text | -]\n\nPaste text into a terminal surface through the same paste path as Cmd+V. If the running program has turned on bracketed paste, the text arrives as one paste and newlines stay inside it; otherwise each newline is sent as Enter. As with Cmd+V, control characters such as Esc, Backspace, Ctrl-C and Ctrl-U are replaced with spaces. Escape sequences such as \\n are not interpreted. With no text argument, or with - before --, the text is read from stdin. Text over 15 MiB after JSON escaping is rejected.\n\nIf an agent prompt in the target holds text someone is typing, or a question or permission dialog is open, nothing is sent and the command fails. --force sends anyway.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --submit                     Press the agent's submit key after the paste\n  --force                      Send even over a draft or into an open dialog\n\nExample:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux paste [flags] [--] [text | -]\n\nPega texto en una superficie de terminal por la misma ruta de pegado que Cmd+V. Si el programa en ejecución activó el pegado entre corchetes (bracketed paste), el texto llega como un único pegado y los saltos de línea se conservan dentro; si no, cada salto de línea se envía como Intro. Igual que con Cmd+V, los caracteres de control como Esc, Retroceso, Ctrl-C y Ctrl-U se sustituyen por espacios. Las secuencias de escape como \\n no se interpretan. Sin argumento de texto, o con - antes de --, el texto se lee de stdin. Se rechaza el texto de más de 15 MiB tras el escapado JSON.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Superficie de destino (predeterminada: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices de espacio de trabajo/superficie\n  --submit                     Pulsa la tecla de envío del agente después del pegado\n\nEjemplo:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+            "value": "Uso: cmux paste [flags] [--] [text | -]\n\nPega texto en una superficie de terminal por la misma ruta de pegado que Cmd+V. Si el programa en ejecución activó el pegado entre corchetes (bracketed paste), el texto llega como un único pegado y los saltos de línea se conservan dentro; si no, cada salto de línea se envía como Intro. Igual que con Cmd+V, los caracteres de control como Esc, Retroceso, Ctrl-C y Ctrl-U se sustituyen por espacios. Las secuencias de escape como \\n no se interpretan. Sin argumento de texto, o con - antes de --, el texto se lee de stdin. Se rechaza el texto de más de 15 MiB tras el escapado JSON.\n\nSi el prompt de un agente en el destino contiene texto que alguien está escribiendo, o hay una pregunta o un diálogo de permisos abierto, no se envía nada y el comando falla. --force lo envía de todos modos.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Superficie de destino (predeterminada: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices de espacio de trabajo/superficie\n  --submit                     Pulsa la tecla de envío del agente después del pegado\n  --force                      Enviar aunque haya un borrador o un diálogo abierto\n\nEjemplo:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux paste [flags] [--] [text | -]\n\nColle du texte dans une surface de terminal par le même chemin de collage que Cmd+V. Si le programme en cours a activé le collage entre crochets (bracketed paste), le texte arrive en un seul collage et les retours à la ligne y restent ; sinon, chaque retour à la ligne est envoyé comme Entrée. Comme avec Cmd+V, les caractères de contrôle tels que Échap, Retour arrière, Ctrl-C et Ctrl-U sont remplacés par des espaces. Les séquences d’échappement comme \\n ne sont pas interprétées. Sans argument texte, ou avec - avant --, le texte est lu depuis stdin. Un texte de plus de 15 Mio après échappement JSON est refusé.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface cible (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d’espace de travail/surface\n  --submit                     Appuie sur la touche d’envoi de l’agent après le collage\n\nExemple :\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+            "value": "Utilisation : cmux paste [flags] [--] [text | -]\n\nColle du texte dans une surface de terminal par le même chemin de collage que Cmd+V. Si le programme en cours a activé le collage entre crochets (bracketed paste), le texte arrive en un seul collage et les retours à la ligne y restent ; sinon, chaque retour à la ligne est envoyé comme Entrée. Comme avec Cmd+V, les caractères de contrôle tels que Échap, Retour arrière, Ctrl-C et Ctrl-U sont remplacés par des espaces. Les séquences d’échappement comme \\n ne sont pas interprétées. Sans argument texte, ou avec - avant --, le texte est lu depuis stdin. Un texte de plus de 15 Mio après échappement JSON est refusé.\n\nSi l'invite d'un agent dans la cible contient du texte en cours de saisie, ou si une question ou une boîte de dialogue d'autorisation est ouverte, rien n'est envoyé et la commande échoue. --force envoie quand même.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface cible (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d’espace de travail/surface\n  --submit                     Appuie sur la touche d’envoi de l’agent après le collage\n  --force                      Envoyer même par-dessus un brouillon ou dans une boîte de dialogue ouverte\n\nExemple :\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux paste [flags] [--] [text | -]\n\nCmd+V と同じ貼り付け経路で、ターミナルサーフェスにテキストを貼り付けます。実行中のプログラムがブラケットペースト（bracketed paste）を有効にしている場合、テキストは 1 回の貼り付けとして届き、改行はその中に残ります。そうでない場合、各改行は Enter として送信されます。Cmd+V と同様に、Esc、Backspace、Ctrl-C、Ctrl-U などの制御文字は空白に置き換えられます。\\n などのエスケープシーケンスは解釈されません。テキスト引数がない場合や -- より前に - を指定した場合は、stdin からテキストを読み取ります。JSON エスケープ後に 15 MiB を超えるテキストは拒否されます。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --submit                     貼り付け後にエージェントの送信キーを押す\n\n例:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+            "value": "使用方法: cmux paste [flags] [--] [text | -]\n\nCmd+V と同じ貼り付け経路で、ターミナルサーフェスにテキストを貼り付けます。実行中のプログラムがブラケットペースト（bracketed paste）を有効にしている場合、テキストは 1 回の貼り付けとして届き、改行はその中に残ります。そうでない場合、各改行は Enter として送信されます。Cmd+V と同様に、Esc、Backspace、Ctrl-C、Ctrl-U などの制御文字は空白に置き換えられます。\\n などのエスケープシーケンスは解釈されません。テキスト引数がない場合や -- より前に - を指定した場合は、stdin からテキストを読み取ります。JSON エスケープ後に 15 MiB を超えるテキストは拒否されます。\n\n対象のエージェントのプロンプトに誰かが入力中のテキストがある場合、または質問や権限ダイアログが開いている場合は、何も送信されずコマンドは失敗します。--force を指定すると送信します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --submit                     貼り付け後にエージェントの送信キーを押す\n  --force                      下書きや開いているダイアログがあっても送信します\n\n例:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux paste [flags] [--] [text | -]\n\nCmd+V와 같은 붙여넣기 경로로 터미널 서피스에 텍스트를 붙여넣습니다. 실행 중인 프로그램이 브래킷 붙여넣기(bracketed paste)를 켰다면 텍스트는 하나의 붙여넣기로 도착하고 줄바꿈이 그 안에 유지됩니다. 그렇지 않으면 각 줄바꿈이 Enter로 전송됩니다. Cmd+V와 마찬가지로 Esc, Backspace, Ctrl-C, Ctrl-U 같은 제어 문자는 공백으로 바뀝니다. \\n 같은 이스케이프 시퀀스는 해석되지 않습니다. 텍스트 인수가 없거나 -- 앞에 -를 주면 stdin에서 텍스트를 읽습니다. JSON 이스케이프 후 15MiB를 넘는 텍스트는 거부됩니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     대상 서피스 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      워크스페이스/서피스 참조와 인덱스에 사용할 창 컨텍스트\n  --submit                     붙여넣은 뒤 에이전트의 제출 키를 누릅니다\n\n예:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+            "value": "사용법: cmux paste [flags] [--] [text | -]\n\nCmd+V와 같은 붙여넣기 경로로 터미널 서피스에 텍스트를 붙여넣습니다. 실행 중인 프로그램이 브래킷 붙여넣기(bracketed paste)를 켰다면 텍스트는 하나의 붙여넣기로 도착하고 줄바꿈이 그 안에 유지됩니다. 그렇지 않으면 각 줄바꿈이 Enter로 전송됩니다. Cmd+V와 마찬가지로 Esc, Backspace, Ctrl-C, Ctrl-U 같은 제어 문자는 공백으로 바뀝니다. \\n 같은 이스케이프 시퀀스는 해석되지 않습니다. 텍스트 인수가 없거나 -- 앞에 -를 주면 stdin에서 텍스트를 읽습니다. JSON 이스케이프 후 15MiB를 넘는 텍스트는 거부됩니다.\n\n대상의 에이전트 프롬프트에 누군가 입력 중인 텍스트가 있거나 질문 또는 권한 대화상자가 열려 있으면 아무것도 보내지 않고 명령이 실패합니다. --force를 지정하면 그래도 보냅니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     대상 서피스 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      워크스페이스/서피스 참조와 인덱스에 사용할 창 컨텍스트\n  --submit                     붙여넣은 뒤 에이전트의 제출 키를 누릅니다\n  --force                      초안이 있거나 대화상자가 열려 있어도 보냅니다\n\n예:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux paste [flags] [--] [text | -]\n\n通过与 Cmd+V 相同的粘贴路径，将文本粘贴到终端表面。如果正在运行的程序已启用括号粘贴（bracketed paste），文本会作为一次粘贴到达，换行保留在其中；否则每个换行都会作为 Enter 发送。与 Cmd+V 一样，Esc、Backspace、Ctrl-C、Ctrl-U 等控制字符会被替换为空格。不会解析 \\n 等转义序列。未提供文本参数，或在 -- 之前使用 - 时，从 stdin 读取文本。经 JSON 转义后超过 15 MiB 的文本会被拒绝。\n\n标志：\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目标表面（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n  --submit                     粘贴后按下代理的提交键\n\n示例：\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+            "value": "用法：cmux paste [flags] [--] [text | -]\n\n通过与 Cmd+V 相同的粘贴路径，将文本粘贴到终端表面。如果正在运行的程序已启用括号粘贴（bracketed paste），文本会作为一次粘贴到达，换行保留在其中；否则每个换行都会作为 Enter 发送。与 Cmd+V 一样，Esc、Backspace、Ctrl-C、Ctrl-U 等控制字符会被替换为空格。不会解析 \\n 等转义序列。未提供文本参数，或在 -- 之前使用 - 时，从 stdin 读取文本。经 JSON 转义后超过 15 MiB 的文本会被拒绝。\n\n如果目标中的代理提示里有人正在输入文本，或有问题或权限对话框处于打开状态，则不会发送任何内容，命令会失败。使用 --force 可强制发送。\n\n标志：\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目标表面（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n  --submit                     粘贴后按下代理的提交键\n  --force                      即使有草稿或对话框打开也发送\n\n示例：\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux paste [flags] [--] [text | -]\n\n透過與 Cmd+V 相同的貼上路徑，將文字貼到終端機表面。如果執行中的程式已啟用括號貼上（bracketed paste），文字會以單次貼上送達，換行會保留在其中；否則每個換行都會以 Enter 送出。與 Cmd+V 相同，Esc、Backspace、Ctrl-C、Ctrl-U 等控制字元會被替換為空格。不會解讀 \\n 等跳脫序列。未提供文字參數，或在 -- 之前使用 - 時，會從 stdin 讀取文字。經 JSON 跳脫後超過 15 MiB 的文字會被拒絕。\n\n旗標：\n  --workspace <id|ref|index>   目標工作區（預設：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目標表面（預設：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作區／表面參照與索引所用的視窗上下文\n  --submit                     貼上後按下代理程式的送出鍵\n\n範例：\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+            "value": "用法：cmux paste [flags] [--] [text | -]\n\n透過與 Cmd+V 相同的貼上路徑，將文字貼到終端機表面。如果執行中的程式已啟用括號貼上（bracketed paste），文字會以單次貼上送達，換行會保留在其中；否則每個換行都會以 Enter 送出。與 Cmd+V 相同，Esc、Backspace、Ctrl-C、Ctrl-U 等控制字元會被替換為空格。不會解讀 \\n 等跳脫序列。未提供文字參數，或在 -- 之前使用 - 時，會從 stdin 讀取文字。經 JSON 跳脫後超過 15 MiB 的文字會被拒絕。\n\n如果目標中的代理程式提示裡有人正在輸入文字，或有問題或權限對話框開啟，則不會傳送任何內容，指令會失敗。使用 --force 可強制傳送。\n\n旗標：\n  --workspace <id|ref|index>   目標工作區（預設：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目標表面（預設：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作區／表面參照與索引所用的視窗上下文\n  --submit                     貼上後按下代理程式的送出鍵\n  --force                      即使有草稿或對話框開啟也傳送\n\n範例：\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
           }
         }
       }
@@ -551127,55 +550891,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux send [flags] [--] <text>\n\nيرسل نصًا إلى سطح طرفية كضغطات مفاتيح. تسلسلات الهروب: \\n و\\r ترسلان Enter، و\\t ترسل Tab.\n\nللنصوص الكبيرة (مثلًا أكثر من 4 كيلوبايت، أو عدة أسطر موجهة إلى وكيل)، استخدم --paste أو cmux paste. تضغط ضغطات المفاتيح Enter عند كل سطر جديد، مما قد يرسل كل سطر بمفرده.\n\nمع --paste، يمر النص دون تغيير عبر مسار اللصق نفسه الذي يستخدمه cmux paste وCmd+V: لا تُفسَّر تسلسلات الهروب مثل \\n، وتُستبدل أحرف التحكم مثل Esc وCtrl-C بمسافات. يجب أن يأتي --paste قبل النص.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     السطح المستهدف (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n  --paste                      يلصق النص بدلًا من كتابته\n\nمثال:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "الاستخدام: cmux send [flags] [--] <text>\n\nيرسل نصًا إلى سطح طرفية كضغطات مفاتيح. تسلسلات الهروب: \\n و\\r ترسلان Enter، و\\t ترسل Tab.\n\nللنصوص الكبيرة (مثلًا أكثر من 4 كيلوبايت، أو عدة أسطر موجهة إلى وكيل)، استخدم --paste أو cmux paste. تضغط ضغطات المفاتيح Enter عند كل سطر جديد، مما قد يرسل كل سطر بمفرده.\n\nمع --paste، يمر النص دون تغيير عبر مسار اللصق نفسه الذي يستخدمه cmux paste وCmd+V: لا تُفسَّر تسلسلات الهروب مثل \\n، وتُستبدل أحرف التحكم مثل Esc وCtrl-C بمسافات. يجب أن يأتي --paste قبل النص.\n\nإذا كانت مطالبة الوكيل في الهدف تحتوي على نص يكتبه شخص ما، أو كان هناك سؤال أو مربع حوار أذونات مفتوح، فلن يُرسل شيء ويفشل الأمر. يرسل --force على أي حال.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     السطح المستهدف (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n  --paste                      يلصق النص بدلًا من كتابته\n  --force                      الإرسال حتى فوق مسودة أو إلى مربع حوار مفتوح\n\nمثال:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux send [flags] [--] <text>\n\nSendet Text als Tastatureingaben an eine Terminal-Oberfläche. Escape-Sequenzen: \\n und \\r senden Enter, \\t sendet Tab.\n\nFür große Texte (zum Beispiel über 4 KB oder mehrere Zeilen an einen Agenten) --paste oder cmux paste verwenden. Tastatureingaben drücken bei jedem Zeilenumbruch Enter, wodurch jede Zeile einzeln abgesendet werden kann.\n\nMit --paste geht der Text unverändert über denselben Einfügepfad wie cmux paste und Cmd+V: Escape-Sequenzen wie \\n werden nicht interpretiert, und Steuerzeichen wie Esc und Strg-C werden durch Leerzeichen ersetzt. --paste muss vor dem Text stehen.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Workspace (Standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Ziel-Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Fensterkontext für Workspace-/Oberflächen-Refs und -Indizes\n  --paste                      Fügt den Text ein, statt ihn zu tippen\n\nBeispiel:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "Verwendung: cmux send [flags] [--] <text>\n\nSendet Text als Tastatureingaben an eine Terminal-Oberfläche. Escape-Sequenzen: \\n und \\r senden Enter, \\t sendet Tab.\n\nFür große Texte (zum Beispiel über 4 KB oder mehrere Zeilen an einen Agenten) --paste oder cmux paste verwenden. Tastatureingaben drücken bei jedem Zeilenumbruch Enter, wodurch jede Zeile einzeln abgesendet werden kann.\n\nMit --paste geht der Text unverändert über denselben Einfügepfad wie cmux paste und Cmd+V: Escape-Sequenzen wie \\n werden nicht interpretiert, und Steuerzeichen wie Esc und Strg-C werden durch Leerzeichen ersetzt. --paste muss vor dem Text stehen.\n\nWenn eine Agent-Eingabe im Ziel Text enthält, den jemand gerade tippt, oder eine Frage oder ein Berechtigungsdialog offen ist, wird nichts gesendet und der Befehl schlägt fehl. --force sendet trotzdem.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Workspace (Standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Ziel-Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Fensterkontext für Workspace-/Oberflächen-Refs und -Indizes\n  --paste                      Fügt den Text ein, statt ihn zu tippen\n  --force                      Auch über einen Entwurf oder in einen offenen Dialog senden\n\nBeispiel:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux send [flags] [--] <text>\n\nSend text to a terminal surface as keystrokes. Escape sequences: \\n and \\r send Enter, \\t sends Tab.\n\nFor large text (for example over 4 KB, or several lines going to an agent), use --paste or cmux paste. Keystrokes press Enter at every newline, which can submit each line on its own.\n\nWith --paste, the text goes through the same paste path as cmux paste and Cmd+V, unchanged: escape sequences such as \\n are not interpreted, and control characters such as Esc and Ctrl-C are replaced with spaces. --paste must come before the text.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --paste                      Paste the text instead of typing it\n\nExample:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "Usage: cmux send [flags] [--] <text>\n\nSend text to a terminal surface as keystrokes. Escape sequences: \\n and \\r send Enter, \\t sends Tab.\n\nFor large text (for example over 4 KB, or several lines going to an agent), use --paste or cmux paste. Keystrokes press Enter at every newline, which can submit each line on its own.\n\nWith --paste, the text goes through the same paste path as cmux paste and Cmd+V, unchanged: escape sequences such as \\n are not interpreted, and control characters such as Esc and Ctrl-C are replaced with spaces. --paste must come before the text.\n\nIf an agent prompt in the target holds text someone is typing, or a question or permission dialog is open, nothing is sent and the command fails. --force sends anyway.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --paste                      Paste the text instead of typing it\n  --force                      Send even over a draft or into an open dialog\n\nExample:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux send [flags] [--] <text>\n\nEnvía texto a una superficie de terminal como pulsaciones de teclas. Secuencias de escape: \\n y \\r envían Intro, \\t envía Tab.\n\nPara textos grandes (por ejemplo, más de 4 KB o varias líneas dirigidas a un agente), usa --paste o cmux paste. Las pulsaciones presionan Intro en cada salto de línea, lo que puede enviar cada línea por separado.\n\nCon --paste, el texto pasa sin cambios por la misma ruta de pegado que cmux paste y Cmd+V: las secuencias de escape como \\n no se interpretan y los caracteres de control como Esc y Ctrl-C se reemplazan por espacios. --paste debe ir antes del texto.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Superficie de destino (predeterminada: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices de espacio de trabajo/superficie\n  --paste                      Pega el texto en lugar de escribirlo\n\nEjemplo:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "Uso: cmux send [flags] [--] <text>\n\nEnvía texto a una superficie de terminal como pulsaciones de teclas. Secuencias de escape: \\n y \\r envían Intro, \\t envía Tab.\n\nPara textos grandes (por ejemplo, más de 4 KB o varias líneas dirigidas a un agente), usa --paste o cmux paste. Las pulsaciones presionan Intro en cada salto de línea, lo que puede enviar cada línea por separado.\n\nCon --paste, el texto pasa sin cambios por la misma ruta de pegado que cmux paste y Cmd+V: las secuencias de escape como \\n no se interpretan y los caracteres de control como Esc y Ctrl-C se reemplazan por espacios. --paste debe ir antes del texto.\n\nSi el prompt de un agente en el destino contiene texto que alguien está escribiendo, o hay una pregunta o un diálogo de permisos abierto, no se envía nada y el comando falla. --force lo envía de todos modos.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Superficie de destino (predeterminada: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices de espacio de trabajo/superficie\n  --paste                      Pega el texto en lugar de escribirlo\n  --force                      Enviar aunque haya un borrador o un diálogo abierto\n\nEjemplo:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux send [flags] [--] <text>\n\nEnvoie du texte à une surface de terminal sous forme de frappes. Séquences d’échappement : \\n et \\r envoient Entrée, \\t envoie Tab.\n\nPour un texte volumineux (par exemple plus de 4 Ko, ou plusieurs lignes destinées à un agent), utilisez --paste ou cmux paste. Les frappes appuient sur Entrée à chaque saut de ligne, ce qui peut envoyer chaque ligne séparément.\n\nAvec --paste, le texte passe tel quel par le même chemin de collage que cmux paste et Cmd+V : les séquences d’échappement comme \\n ne sont pas interprétées, et les caractères de contrôle comme Échap et Ctrl-C sont remplacés par des espaces. --paste doit précéder le texte.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface cible (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d’espace de travail/surface\n  --paste                      Colle le texte au lieu de le taper\n\nExemple :\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "Utilisation : cmux send [flags] [--] <text>\n\nEnvoie du texte à une surface de terminal sous forme de frappes. Séquences d’échappement : \\n et \\r envoient Entrée, \\t envoie Tab.\n\nPour un texte volumineux (par exemple plus de 4 Ko, ou plusieurs lignes destinées à un agent), utilisez --paste ou cmux paste. Les frappes appuient sur Entrée à chaque saut de ligne, ce qui peut envoyer chaque ligne séparément.\n\nAvec --paste, le texte passe tel quel par le même chemin de collage que cmux paste et Cmd+V : les séquences d’échappement comme \\n ne sont pas interprétées, et les caractères de contrôle comme Échap et Ctrl-C sont remplacés par des espaces. --paste doit précéder le texte.\n\nSi l'invite d'un agent dans la cible contient du texte en cours de saisie, ou si une question ou une boîte de dialogue d'autorisation est ouverte, rien n'est envoyé et la commande échoue. --force envoie quand même.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface cible (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d’espace de travail/surface\n  --paste                      Colle le texte au lieu de le taper\n  --force                      Envoyer même par-dessus un brouillon ou dans une boîte de dialogue ouverte\n\nExemple :\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux send [flags] [--] <text>\n\nテキストをキー入力としてターミナルサーフェスに送信します。エスケープシーケンス: \\n と \\r は Enter、\\t は Tab を送信します。\n\n大きなテキスト（たとえば 4 KB を超えるもの、またはエージェントに送る複数行）には --paste または cmux paste を使ってください。キー入力では改行ごとに Enter が押されるため、各行が個別に送信されることがあります。\n\n--paste を使うと、テキストはそのまま cmux paste や Cmd+V と同じ貼り付け経路で送られます。\\n などのエスケープシーケンスは解釈されず、Esc や Ctrl-C などの制御文字はスペースに置き換えられます。--paste はテキストより前に指定してください。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --paste                      テキストを入力する代わりに貼り付けます\n\n例:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "使用方法: cmux send [flags] [--] <text>\n\nテキストをキー入力としてターミナルサーフェスに送信します。エスケープシーケンス: \\n と \\r は Enter、\\t は Tab を送信します。\n\n大きなテキスト（たとえば 4 KB を超えるもの、またはエージェントに送る複数行）には --paste または cmux paste を使ってください。キー入力では改行ごとに Enter が押されるため、各行が個別に送信されることがあります。\n\n--paste を使うと、テキストはそのまま cmux paste や Cmd+V と同じ貼り付け経路で送られます。\\n などのエスケープシーケンスは解釈されず、Esc や Ctrl-C などの制御文字はスペースに置き換えられます。--paste はテキストより前に指定してください。\n\n対象のエージェントのプロンプトに誰かが入力中のテキストがある場合、または質問や権限ダイアログが開いている場合は、何も送信されずコマンドは失敗します。--force を指定すると送信します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --paste                      テキストを入力する代わりに貼り付けます\n  --force                      下書きや開いているダイアログがあっても送信します\n\n例:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux send [flags] [--] <text>\n\n텍스트를 키 입력으로 터미널 서피스에 보냅니다. 이스케이프 시퀀스: \\n과 \\r은 Enter, \\t는 Tab을 보냅니다.\n\n큰 텍스트(예: 4 KB 초과 또는 에이전트로 보내는 여러 줄)에는 --paste 또는 cmux paste를 사용하세요. 키 입력은 줄바꿈마다 Enter를 누르므로 각 줄이 따로 제출될 수 있습니다.\n\n--paste를 쓰면 텍스트가 변경 없이 cmux paste 및 Cmd+V와 같은 붙여넣기 경로로 전달됩니다. \\n 같은 이스케이프 시퀀스는 해석되지 않으며, Esc와 Ctrl-C 같은 제어 문자는 공백으로 바뀝니다. --paste는 텍스트보다 앞에 와야 합니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     대상 서피스 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      워크스페이스/서피스 참조와 인덱스에 사용할 창 컨텍스트\n  --paste                      텍스트를 입력하는 대신 붙여넣습니다\n\n예:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "사용법: cmux send [flags] [--] <text>\n\n텍스트를 키 입력으로 터미널 서피스에 보냅니다. 이스케이프 시퀀스: \\n과 \\r은 Enter, \\t는 Tab을 보냅니다.\n\n큰 텍스트(예: 4 KB 초과 또는 에이전트로 보내는 여러 줄)에는 --paste 또는 cmux paste를 사용하세요. 키 입력은 줄바꿈마다 Enter를 누르므로 각 줄이 따로 제출될 수 있습니다.\n\n--paste를 쓰면 텍스트가 변경 없이 cmux paste 및 Cmd+V와 같은 붙여넣기 경로로 전달됩니다. \\n 같은 이스케이프 시퀀스는 해석되지 않으며, Esc와 Ctrl-C 같은 제어 문자는 공백으로 바뀝니다. --paste는 텍스트보다 앞에 와야 합니다.\n\n대상의 에이전트 프롬프트에 누군가 입력 중인 텍스트가 있거나 질문 또는 권한 대화상자가 열려 있으면 아무것도 보내지 않고 명령이 실패합니다. --force를 지정하면 그래도 보냅니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     대상 서피스 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      워크스페이스/서피스 참조와 인덱스에 사용할 창 컨텍스트\n  --paste                      텍스트를 입력하는 대신 붙여넣습니다\n  --force                      초안이 있거나 대화상자가 열려 있어도 보냅니다\n\n예:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux send [flags] [--] <text>\n\n以按键方式将文本发送到终端表面。转义序列：\\n 和 \\r 发送 Enter，\\t 发送 Tab。\n\n对于大量文本（例如超过 4 KB，或要发给代理的多行文本），请使用 --paste 或 cmux paste。按键方式会在每个换行处按下 Enter，可能让每一行单独提交。\n\n使用 --paste 时，文本会原样通过与 cmux paste 和 Cmd+V 相同的粘贴路径发送：不会解释 \\n 等转义序列，Esc 和 Ctrl-C 等控制字符会被替换为空格。--paste 必须放在文本之前。\n\n标志：\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目标表面（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n  --paste                      粘贴文本，而不是逐键输入\n\n示例：\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "用法：cmux send [flags] [--] <text>\n\n以按键方式将文本发送到终端表面。转义序列：\\n 和 \\r 发送 Enter，\\t 发送 Tab。\n\n对于大量文本（例如超过 4 KB，或要发给代理的多行文本），请使用 --paste 或 cmux paste。按键方式会在每个换行处按下 Enter，可能让每一行单独提交。\n\n使用 --paste 时，文本会原样通过与 cmux paste 和 Cmd+V 相同的粘贴路径发送：不会解释 \\n 等转义序列，Esc 和 Ctrl-C 等控制字符会被替换为空格。--paste 必须放在文本之前。\n\n如果目标中的代理提示里有人正在输入文本，或有问题或权限对话框处于打开状态，则不会发送任何内容，命令会失败。使用 --force 可强制发送。\n\n标志：\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目标表面（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n  --paste                      粘贴文本，而不是逐键输入\n  --force                      即使有草稿或对话框打开也发送\n\n示例：\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux send [flags] [--] <text>\n\n以按鍵方式將文字傳送到終端機表面。跳脫序列：\\n 和 \\r 送出 Enter，\\t 送出 Tab。\n\n若是大量文字（例如超過 4 KB，或要送給代理的多行文字），請使用 --paste 或 cmux paste。按鍵方式會在每個換行處按下 Enter，可能讓每一行各自送出。\n\n使用 --paste 時，文字會原封不動地透過與 cmux paste 和 Cmd+V 相同的貼上路徑送出：不會解譯 \\n 等跳脫序列，Esc 和 Ctrl-C 等控制字元會被替換為空格。--paste 必須放在文字之前。\n\n旗標：\n  --workspace <id|ref|index>   目標工作區（預設：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目標表面（預設：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作區／表面參照與索引所用的視窗上下文\n  --paste                      貼上文字，而不是逐鍵輸入\n\n範例：\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "用法：cmux send [flags] [--] <text>\n\n以按鍵方式將文字傳送到終端機表面。跳脫序列：\\n 和 \\r 送出 Enter，\\t 送出 Tab。\n\n若是大量文字（例如超過 4 KB，或要送給代理的多行文字），請使用 --paste 或 cmux paste。按鍵方式會在每個換行處按下 Enter，可能讓每一行各自送出。\n\n使用 --paste 時，文字會原封不動地透過與 cmux paste 和 Cmd+V 相同的貼上路徑送出：不會解譯 \\n 等跳脫序列，Esc 和 Ctrl-C 等控制字元會被替換為空格。--paste 必須放在文字之前。\n\n如果目標中的代理程式提示裡有人正在輸入文字，或有問題或權限對話框開啟，則不會傳送任何內容，指令會失敗。使用 --force 可強制傳送。\n\n旗標：\n  --workspace <id|ref|index>   目標工作區（預設：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目標表面（預設：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作區／表面參照與索引所用的視窗上下文\n  --paste                      貼上文字，而不是逐鍵輸入\n  --force                      即使有草稿或對話框開啟也傳送\n\n範例：\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         }
       }
@@ -590453,6 +590217,596 @@
           "stringUnit": {
             "state": "translated",
             "value": "terminal.predictiveLocalEcho 予測ローカルエコー 入力 遅延 ラグ ssh リモート 投機的 mosh 往復 下線"
+          }
+        }
+      }
+    },
+    "cloud.operation.failure.machineAsleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine is asleep. Wake it to connect."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الجهاز في وضع السكون. أوقظه للاتصال."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Maschine ist im Ruhezustand. Wecken Sie sie auf, um eine Verbindung herzustellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina está en reposo. Actívala para conectarte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette machine est en veille. Réveillez-la pour vous connecter."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンはスリープ中です。接続するには起動してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신은 잠자기 상태입니다. 연결하려면 깨우세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此机器处于睡眠状态。唤醒它以连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這部機器目前處於睡眠狀態。喚醒它以連線。"
+          }
+        }
+      }
+    },
+    "cloud.operation.failure.machineUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cannot reach the Cloud service for this machine right now."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتعذر على cmux الوصول إلى خدمة Cloud لهذه الآلة في الوقت الحالي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann den Cloud-Dienst für diese Maschine derzeit nicht erreichen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede acceder al servicio Cloud para esta máquina en este momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas joindre le service Cloud pour cette machine pour le moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は現在、このマシンの Cloud サービスに接続できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 현재 이 머신의 Cloud 서비스에 연결할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 目前无法连接到此机器的 Cloud 服务。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 目前無法連線到這部機器的 Cloud 服務。"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称変更…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重命名…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umbenennen…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renommer…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة التسمية…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renombrar…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新命名…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 바꾸기…"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renaming %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の名称を変更しています…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重命名 %@…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wird umbenannt…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renommage de %@…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جاري إعادة تسمية %@…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renombrando %@…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重新命名 %@…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 이름 바꾸는 중…"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.clearName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clearing %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のカスタム名をクリアしています…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在清空 %@…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wird geleert…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacement de %@…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جاري مسح %@…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limpiando %@…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在清除 %@…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 비우는 중…"
+          }
+        }
+      }
+    },
+    "cloudTree.rename.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」の名称変更"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重命名“%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ umbenennen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renommer « %@ »"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تسمية “%@”"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renombrar “%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新命名「%@」"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 이름 바꾸기"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameNoRemoteTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab is not open in a remote workspace."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة التبويب هذه ليست مفتوحة في مساحة عمل بعيدة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Tab ist in keinem Remote-Arbeitsbereich geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta pestaña no está abierta en un espacio de trabajo remoto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet onglet n’est pas ouvert dans un espace de travail distant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブはリモートワークスペースで開かれていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 탭은 원격 작업 공간에 열려 있지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此标签页未在任何远程工作区中打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此標籤頁未在遠端工作區中開啟。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameTabUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The current state for tab %@ is unavailable. Refresh and retry before renaming."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der aktuelle Zustand von Tab %@ ist nicht verfügbar. Aktualisieren Sie die Ansicht und versuchen Sie die Umbenennung erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’état actuel de l’onglet %@ n’est pas disponible. Actualisez la page et réessayez de le renommer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحالة الحالية لعلامة التبويب %@ غير متاحة. حدّث الصفحة وحاول إعادة التسمية مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El estado actual de la pestaña %@ no está disponible. Actualiza la página y vuelve a intentar cambiarle el nombre."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標籤頁 %@ 的目前狀態無法使用。請重新整理後再試一次重新命名。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页 %@ 的当前状态不可用。请刷新后重试重命名。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 %@의 현재 상태를 사용할 수 없습니다. 새로 고친 후 이름을 다시 바꾸십시오."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ %@ の現在の状態を取得できません。更新してから名前の変更をもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cli.send.error.dialogOpen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ is waiting on a question or dialog, so nothing was sent. Retry once it is answered, or pass --force to send anyway."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: ينتظر %2$@ إجابة على سؤال أو مربع حوار، لذا لم يُرسل شيء. أعد المحاولة بعد الإجابة، أو مرّر --force للإرسال على أي حال."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ wartet auf eine Frage oder einen Dialog, daher wurde nichts gesendet. Versuche es erneut, sobald sie beantwortet ist, oder übergib --force, um trotzdem zu senden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ está esperando una pregunta o un diálogo, así que no se envió nada. Vuelve a intentarlo cuando se responda, o pasa --force para enviarlo de todos modos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : %2$@ attend la réponse à une question ou à une boîte de dialogue, rien n'a donc été envoyé. Réessayez une fois la réponse donnée, ou passez --force pour envoyer quand même."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ は質問またはダイアログへの応答を待っているため、何も送信しませんでした。応答後に再試行するか、--force を指定して送信してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@에서 질문 또는 대화상자가 응답을 기다리고 있어 아무것도 보내지 않았습니다. 응답한 후 다시 시도하거나 --force를 지정해 그래도 보내세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@ 正在等待问题或对话框的回应，因此未发送任何内容。请在回应后重试，或传入 --force 强制发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@ 正在等待問題或對話框的回應，因此未傳送任何內容。請在回應後重試，或傳入 --force 強制傳送。"
+          }
+        }
+      }
+    },
+    "cli.send.error.draftPresent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: the agent prompt in %2$@ holds text someone is typing, so nothing was sent. Retry when the prompt is clear, or pass --force to send anyway."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: تحتوي مطالبة الوكيل في %2$@ على نص يكتبه شخص ما، لذا لم يُرسل شيء. أعد المحاولة عندما تصبح المطالبة فارغة، أو مرّر --force للإرسال على أي حال."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: Die Agent-Eingabe in %2$@ enthält Text, den jemand gerade tippt, daher wurde nichts gesendet. Versuche es erneut, wenn die Eingabe leer ist, oder übergib --force, um trotzdem zu senden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: el prompt del agente en %2$@ contiene texto que alguien está escribiendo, así que no se envió nada. Vuelve a intentarlo cuando el prompt esté vacío, o pasa --force para enviarlo de todos modos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : l'invite de l'agent dans %2$@ contient du texte en cours de saisie, rien n'a donc été envoyé. Réessayez quand l'invite est vide, ou passez --force pour envoyer quand même."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ のエージェントのプロンプトに誰かが入力中のテキストがあるため、何も送信しませんでした。プロンプトが空になってから再試行するか、--force を指定して送信してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@의 에이전트 프롬프트에 누군가 입력 중인 텍스트가 있어 아무것도 보내지 않았습니다. 프롬프트가 비면 다시 시도하거나 --force를 지정해 그래도 보내세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@ 中的代理提示里有人正在输入文本，因此未发送任何内容。请在提示清空后重试，或传入 --force 强制发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@ 中的代理程式提示裡有人正在輸入文字，因此未傳送任何內容。請在提示清空後重試，或傳入 --force 強制傳送。"
           }
         }
       }
