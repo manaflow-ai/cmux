@@ -658,8 +658,7 @@ mod tests {
     /// Writes an executable (0755) script, creating its parent directory.
     fn write_executable(path: &Path, content: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, content).unwrap();
-        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(path, content);
     }
 
     /// The permission bits of `path`.
