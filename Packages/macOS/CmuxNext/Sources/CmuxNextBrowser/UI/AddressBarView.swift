@@ -59,6 +59,9 @@ public final class AddressBarView: NSView {
         field.onPasteAndGo = { [weak self] in self?.pasteAndGo() }
         field.pasteAndGoTitle = { [weak self] in self?.pasteAndGoTitle() }
         field.setAccessibilityLabel(Strings.omnibarPlaceholder)
+        // A long URL truncates; it never widens the toolbar or the pane.
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         for view in [backdrop, pill, chip, field] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false

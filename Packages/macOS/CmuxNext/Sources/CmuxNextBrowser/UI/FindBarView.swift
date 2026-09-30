@@ -47,8 +47,11 @@ final class FindBarView: NSView {
             glass.topAnchor.constraint(equalTo: topAnchor),
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.findBarHeight },
-            density.bind(field.widthAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.findFieldWidth },
-            density.bind(countLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) { BrowserMetrics.findCountWidth },
+            // Preferred widths: a narrow pane narrows the field and the count.
+            density.bind(field.widthAnchor.constraint(equalToConstant: 0).prioritized(.init(450))) { BrowserMetrics.findFieldWidth },
+            density.bind(countLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 0).prioritized(.init(450))) {
+                BrowserMetrics.findCountWidth
+            },
         ])
         density.update { [countLabel] in
             icon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?

@@ -45,7 +45,8 @@ final class PromptBarView: NSView {
             glass.topAnchor.constraint(equalTo: topAnchor),
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
             density.bind(widthAnchor.constraint(lessThanOrEqualToConstant: 0)) { BrowserMetrics.promptMaxWidth },
-            density.bind(widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) { BrowserMetrics.promptMinWidth },
+            // Preferred minimum: a pane narrower than it narrows the bar.
+            density.bind(widthAnchor.constraint(greaterThanOrEqualToConstant: 0).prioritized(.init(450))) { BrowserMetrics.promptMinWidth },
             density.bind(inputField.widthAnchor.constraint(equalTo: stack.widthAnchor)) { -BrowserMetrics.overlayPadding * 2 },
             density.bind(inputField.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight },
         ])

@@ -202,7 +202,14 @@ public final class BrowserChromeView: NSView {
             density.bind(extensionSlot.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -OmnibarStyle.toolbarInset },
             extensionSlot.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
             density.bind(extensionSlot.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
-            density.bind(addressBar.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) { BrowserMetrics.minimumAddressWidth },
+            // Soft minimums below the window's stay-put priority (500): the
+            // omnibar never widens the pane or the window.
+            density.bind(addressBar.widthAnchor.constraint(greaterThanOrEqualToConstant: 0).prioritized(.init(490))) {
+                BrowserMetrics.minimumAddressWidth
+            },
+            density.bind(addressBar.widthAnchor.constraint(greaterThanOrEqualToConstant: 0).prioritized(.init(480))) {
+                OmnibarStyle.buttonSize
+            },
 
             separator.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -226,6 +233,7 @@ public final class BrowserChromeView: NSView {
 
             density.bind(findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
             density.bind(findBar.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor)) { -BrowserMetrics.overlayInset },
+            density.bind(findBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor)) { BrowserMetrics.overlayInset },
 
             density.bind(promptBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
             promptBar.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor),
