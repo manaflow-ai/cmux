@@ -4,6 +4,18 @@ Hand-maintained from `web/data/cmux.schema.json` and known to lag it. The schema
 authoritative; `cmux-settings list-supported` enumerates what the helper accepts. For the
 rendered docs, see `https://cmux.com/docs/configuration`.
 
+## focused-pane marker
+
+Focused-pane feedback uses a separate visual channel from the blue unread ring.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `focusMarkerStyle` | `"edge"` or `"dim-others"` or `"glow"` or `"none"` | `"edge"` | Marker style for the focused pane in split workspaces. |
+| `focusMarkerColor` | color hex or null | `null` | Explicit marker color; null follows the terminal theme foreground. |
+| `focusMarkerThickness` | number (1..6) | `2` | Edge or glow thickness in points. |
+| `focusMarkerIntensity` | number (0.05..0.8) | `0.24` | Marker or dimming strength. |
+| `focusMarkerVisibility` | `"persistent"` or `"on-change"` | `"persistent"` | Keep the marker visible or show it briefly when focus changes. |
+
 ## app
 
 General app preferences from Settings > App.

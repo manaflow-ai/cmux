@@ -85,6 +85,47 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
     }
 
     @Test
+    func settingsFileStoreAppliesFocusMarkerSettings() throws {
+        let defaults = UserDefaults.standard
+        let keys = [
+            PaneChromeSettings.focusMarkerStyleKey,
+            PaneChromeSettings.focusMarkerColorKey,
+            PaneChromeSettings.focusMarkerThicknessKey,
+            PaneChromeSettings.focusMarkerIntensityKey,
+            PaneChromeSettings.focusMarkerVisibilityKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]
+        try preservingDefaults(keys: keys) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "focusMarkerStyle": "dim-others",
+              "focusMarkerColor": "#123456",
+              "focusMarkerThickness": 4,
+              "focusMarkerIntensity": 0.4,
+              "focusMarkerVisibility": "on-change"
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.string(forKey: PaneChromeSettings.focusMarkerStyleKey) == "dim-others")
+            #expect(defaults.string(forKey: PaneChromeSettings.focusMarkerColorKey) == "#123456")
+            #expect(PaneChromeSettings.focusMarkerThickness() == 4)
+            #expect(PaneChromeSettings.focusMarkerIntensity() == 0.4)
+            #expect(defaults.string(forKey: PaneChromeSettings.focusMarkerVisibilityKey) == "on-change")
+        }
+    }
+
+    @Test
     func malformedPaneFlashColorDoesNotSkipLaterNotificationSettings() throws {
         let defaults = UserDefaults.standard
         let notifications = NotificationsCatalogSection()

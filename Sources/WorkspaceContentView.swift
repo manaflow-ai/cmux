@@ -109,6 +109,15 @@ final class TmuxWorkspacePaneOverlayModel {
     private(set) var flashRect: CGRect?
     private(set) var activePaneBorderRect: CGRect?
     private(set) var activePaneBorderColorHex: String?
+    private(set) var focusMarkerRect: CGRect?
+    private(set) var focusMarkerVisibility = "persistent"
+    private(set) var focusMarkerDimRects: [CGRect] = []
+    private(set) var focusMarkerStyle = "none"
+    private(set) var focusMarkerColorHex: String?
+    private(set) var focusMarkerThickness = 2.0
+    private(set) var focusMarkerIntensity = 0.24
+    private(set) var focusMarkerPulseStartedAt: Date?
+    private var currentFocusMarkerPaneID: UUID?
     private(set) var flashStartedAt: Date?
     private(set) var flashReason: WorkspaceAttentionFlashReason?
     private(set) var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
@@ -124,10 +133,27 @@ final class TmuxWorkspacePaneOverlayModel {
         flashRect = state.flashRect
         activePaneBorderRect = state.activePaneBorderRect
         activePaneBorderColorHex = state.activePaneBorderColorHex
+        focusMarkerRect = state.focusMarkerRect
+        focusMarkerVisibility = state.focusMarkerVisibility
+        focusMarkerDimRects = state.focusMarkerDimRects
+        focusMarkerStyle = state.focusMarkerStyle
+        focusMarkerColorHex = state.focusMarkerColorHex
+        focusMarkerThickness = state.focusMarkerThickness
+        focusMarkerIntensity = state.focusMarkerIntensity
         flashReason = state.flashReason
         workspaceAttentionColor = state.workspaceAttentionColor
 
         let didChangeWorkspace = currentWorkspaceId != state.workspaceId
+        if didChangeWorkspace {
+            focusMarkerPulseStartedAt = nil
+        } else if state.focusMarkerVisibility == "on-change",
+                  let previousPaneID = currentFocusMarkerPaneID,
+                  let paneID = state.focusMarkerPaneID,
+                  previousPaneID != paneID,
+                  state.focusMarkerStyle != "none" {
+            focusMarkerPulseStartedAt = now()
+        }
+        currentFocusMarkerPaneID = state.focusMarkerPaneID
         let previousFlashToken = lastFlashTokenByWorkspaceId[state.workspaceId]
         let didChangeFlashToken = previousFlashToken.map { state.flashToken != $0 } ?? (state.flashToken > 0)
         if didChangeFlashToken,
@@ -149,6 +175,15 @@ final class TmuxWorkspacePaneOverlayModel {
         flashRect = nil
         activePaneBorderRect = nil
         activePaneBorderColorHex = nil
+        focusMarkerRect = nil
+        currentFocusMarkerPaneID = nil
+        focusMarkerVisibility = "persistent"
+        focusMarkerDimRects = []
+        focusMarkerStyle = "none"
+        focusMarkerColorHex = nil
+        focusMarkerThickness = 2
+        focusMarkerIntensity = 0.24
+        focusMarkerPulseStartedAt = nil
         flashStartedAt = nil
         flashReason = nil
         workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)

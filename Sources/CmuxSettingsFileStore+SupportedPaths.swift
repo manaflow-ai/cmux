@@ -9,6 +9,11 @@ extension CmuxSettingsFileStore {
     static let supportedSettingsJSONPaths: Set<String> = [
         PaneChromeSettings.paneBorderColorKey,
         PaneChromeSettings.activePaneBorderColorKey,
+        PaneChromeSettings.focusMarkerStyleKey,
+        PaneChromeSettings.focusMarkerColorKey,
+        PaneChromeSettings.focusMarkerThicknessKey,
+        PaneChromeSettings.focusMarkerIntensityKey,
+        PaneChromeSettings.focusMarkerVisibilityKey,
         "app.language",
         "app.appearance",
         "app.accentColor",

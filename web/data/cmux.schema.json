@@ -33,6 +33,42 @@
       "descriptionKey": "schemaDescriptions.activePaneBorderColor",
       "description": "Optional border color drawn around the focused cmux pane in split workspaces."
     },
+    "focusMarkerStyle": {
+      "x-cmux-scopes": ["global"],
+      "type": "string",
+      "enum": ["edge", "dim-others", "glow", "none"],
+      "default": "edge",
+      "description": "Focused-pane marker style. The marker uses a theme-derived foreground color unless focusMarkerColor is set."
+    },
+    "focusMarkerColor": {
+      "x-cmux-scopes": ["global"],
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "description": "Focused-pane marker color. Null follows the terminal theme foreground."
+    },
+    "focusMarkerThickness": {
+      "x-cmux-scopes": ["global"],
+      "type": "number",
+      "minimum": 1,
+      "maximum": 6,
+      "default": 2,
+      "description": "Focused-pane edge or glow thickness in points."
+    },
+    "focusMarkerIntensity": {
+      "x-cmux-scopes": ["global"],
+      "type": "number",
+      "minimum": 0.05,
+      "maximum": 0.8,
+      "default": 0.24,
+      "description": "Focused-pane marker intensity."
+    },
+    "focusMarkerVisibility": {
+      "x-cmux-scopes": ["global"],
+      "type": "string",
+      "enum": ["persistent", "on-change"],
+      "default": "persistent",
+      "description": "Keep the focused-pane marker visible, or show it only briefly when focus changes."
+    },
     "packs": {
       "title": "packs",
       "descriptionKey": "schemaDescriptions.packs.description",
