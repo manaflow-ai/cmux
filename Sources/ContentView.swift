@@ -930,6 +930,7 @@ struct ContentView: View {
     @State private var selectedTabIds: Set<UUID> = []
     @State private var mountedWorkspaceIds: [UUID] = []
     @State private var settledSessionCount = 0
+    @State private var settledSessionCountsByWorkspaceId: [UUID: Int] = [:]
     @State private var lastReconciledPortalRenderingStatesByWorkspaceId: [UUID: Bool] = [:]
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
@@ -11499,6 +11500,11 @@ extension SidebarDragState {
 /// the underlying row's shortcut badges (which would be visible around the
 /// open context menu). All other rows transition live.
 struct VerticalTabsSidebar: View, Equatable {
+    private static let settledSessionRefreshTimer = Timer.publish(
+        every: 60,
+        on: .main,
+        in: .common
+    ).autoconnect()
     @Environment(\.cmuxAccentColor) private var cmuxAccent
     // Equatable gates only parent-driven re-evaluation: closures and
     // Bindings are excluded on purpose (recreated per parent eval but
@@ -12131,7 +12137,8 @@ struct VerticalTabsSidebar: View, Equatable {
             if isPresented && settledSessionCount > 0 {
                 Button {
                     _ = AppDelegate.shared?.closeSettledSessions()
-                    refreshSettledSessionCount()
+                    refreshSettledSessionCounts()
+                    refreshWorkspaceSnapshots()
                 } label: {
                     Label(
                         String(localized: "sidebar.closeSettledSessions", defaultValue: "Close settled sessions") + " (\(settledSessionCount))",
@@ -12144,7 +12151,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .padding(.leading, 8)
-                .padding(.bottom, 30)
+                .padding(.bottom, SidebarFooterButtonMetrics.settledActionBottomPadding)
                 .accessibilityIdentifier("SidebarCloseSettledSessions")
             }
         }
@@ -12165,7 +12172,7 @@ struct VerticalTabsSidebar: View, Equatable {
         .onAppear {
             if isPresented {
                 activateSidebarInteractions()
-                refreshSettledSessionCount()
+                refreshSettledSessionCounts()
             }
         }
         .onDisappear {
@@ -12223,8 +12230,16 @@ struct VerticalTabsSidebar: View, Equatable {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func refreshSettledSessionCount() {
-        settledSessionCount = AppDelegate.shared?.settledSessionCloseCandidates().count ?? 0
+    private func refreshSettledSessionCounts() {
+        let counts = AppDelegate.shared?.settledSessionCloseCandidateCounts() ?? [:]
+        settledSessionCountsByWorkspaceId = counts
+        settledSessionCount = counts.values.reduce(0, +)
+    }
+
+    private func scheduleSettledSessionSnapshotRefresh() {
+        workspaceSnapshotRefreshCoalescer.schedule(workspaceIds: tabManager.tabs.map(\.id)) { workspaceIds in
+            refreshWorkspaceSnapshots(workspaceIds: workspaceIds)
+        }
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
@@ -12283,16 +12298,13 @@ struct VerticalTabsSidebar: View, Equatable {
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: AgentChatTranscriptService.sessionsDidChangeNotification)) { notification in
+        .onReceive(NotificationCenter.default.publisher(for: AgentChatTranscriptService.sessionsDidChangeNotification)) { _ in
             guard isPresented else { return }
-            refreshSettledSessionCount()
-            if let raw = notification.userInfo?["workspace_id"] as? String,
-               let workspaceId = UUID(uuidString: raw),
-               renderContext.workspaceIds.contains(workspaceId) {
-                scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
-            } else {
-                refreshWorkspaceSnapshots()
-            }
+            scheduleSettledSessionSnapshotRefresh()
+        }
+        .onReceive(Self.settledSessionRefreshTimer) { _ in
+            guard isPresented else { return }
+            scheduleSettledSessionSnapshotRefresh()
         }
         .onAppear {
             if isPresented {
@@ -13316,6 +13328,7 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private func refreshWorkspaceSnapshots(workspaceIds: Set<UUID>) {
         guard !workspaceIds.isEmpty else { return }
+        refreshSettledSessionCounts()
         let workspaceById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
@@ -13329,6 +13342,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func refreshWorkspaceSnapshots() {
+        refreshSettledSessionCounts()
         let tabs = tabManager.tabs
         let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         let settings = tabItemSettingsStore.snapshot
@@ -13360,7 +13374,8 @@ struct VerticalTabsSidebar: View, Equatable {
         return SidebarWorkspaceSnapshotFactory(
             workspace: workspace,
             settings: settings,
-            showsAgentActivity: showsAgentActivity
+            showsAgentActivity: showsAgentActivity,
+            settledSessionCount: settledSessionCountsByWorkspaceId[workspace.id, default: 0]
         ).makeSnapshot()
     }
 

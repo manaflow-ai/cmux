@@ -8,9 +8,6 @@ import SwiftUI
 /// the JSON-backed Resume Commands editor.
 @MainActor
 public struct TerminalSection: View {
-    private static let agentHibernationSettingsDidChange = Notification.Name(
-        "cmux.agentHibernationSettingsDidChange"
-    )
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
@@ -289,7 +286,7 @@ public struct TerminalSection: View {
                     set: {
                         settledAutoClose.set($0) {
                             NotificationCenter.default.post(
-                                name: Self.agentHibernationSettingsDidChange,
+                                name: CmuxSettingsNotifications.agentHibernationSettingsDidChange,
                                 object: nil
                             )
                         }
@@ -311,7 +308,7 @@ public struct TerminalSection: View {
                     set: {
                         settledAutoCloseHours.set($0) {
                             NotificationCenter.default.post(
-                                name: Self.agentHibernationSettingsDidChange,
+                                name: CmuxSettingsNotifications.agentHibernationSettingsDidChange,
                                 object: nil
                             )
                         }

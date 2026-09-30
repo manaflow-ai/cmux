@@ -101005,55 +101005,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n       cmux sessions tail <session|surface> [-n <lines>]\n\nPrint saved agent session records from ~/.cmuxterm/*-hook-sessions.json.\nThis command does not require a running cmux socket.\n\nFor what is happening right now, use `cmux sessions live` instead: it asks\nthe running app, so it knows each session's current state, how long it has\nheld it, and the conversation title. Saved records know none of those.\nBy default, broad output shows active, restorable, or transcript-backed records.\nPass --all to inspect every saved hook record.\n\nOptions:\n  --agent <name>        Filter to one agent, for example codex or claude\n  --session <id>        Filter to one agent session id\n  --workspace <id>      Filter to one saved workspace id\n  --surface <id>        Filter to one saved surface id\n  --cwd <text>          Filter by saved cwd or launch working directory\n  --state-dir <path>    Override hook state directory\n  --codex-home <path>   Override the default Codex home used for transcript checks\n  --limit <n>           Limit text output (default: 100)\n  --all                 Print all matches\n  --json                Print structured JSON\n\nCodex rows include whether the saved id exists in CODEX_HOME/session_index.jsonl\nand whether a matching transcript file exists under CODEX_HOME/sessions or\nCODEX_HOME/archived_sessions.\n\nCompatibility aliases:\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  Live agent sessions from the running app, ordered for triage: sessions\n  waiting on you first (longest wait first), then running (longest first),\n  then idle and ended (most recent first). Requires a running cmux.\n\n  --needs-me            Only sessions waiting on a human\n  --state <name>        Only needs-input, working, idle or ended\n  --agent <name>        Only one agent, for example codex or claude\n  --limit <n>           Limit rows shown (default: 100)\n  --all                 Print all matches\n  --tail [n]            Print newest cleaned output lines under each row (default: 3)\n  --settled             Only sessions that finished, are idle for 2h, and have no open PR\n  --idle-for <duration> Only sessions idle at least this long (for example 2h)\n\ncmux sessions tail <session|surface> [-n <lines>]\n  Read one session's terminal tail through the same scoped read-only\n  surface path as read-screen.\n  --json                Print structured JSON, with total_matches and limit\n                        alongside the rows"
+            "value": "Usage: cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n       cmux sessions tail <session|surface> [-n <lines>]\n\nPrint saved agent session records from ~/.cmuxterm/*-hook-sessions.json.\nThis command does not require a running cmux socket.\n\nFor what is happening right now, use `cmux sessions live` instead: it asks\nthe running app, so it knows each session's current state, how long it has\nheld it, and the conversation title. Saved records know none of those.\nBy default, broad output shows active, restorable, or transcript-backed records.\nPass --all to inspect every saved hook record.\n\nOptions:\n  --agent <name>        Filter to one agent, for example codex or claude\n  --session <id>        Filter to one agent session id\n  --workspace <id>      Filter to one saved workspace id\n  --surface <id>        Filter to one saved surface id\n  --cwd <text>          Filter by saved cwd or launch working directory\n  --state-dir <path>    Override hook state directory\n  --codex-home <path>   Override the default Codex home used for transcript checks\n  --limit <n>           Limit text output (default: 100)\n  --all                 Print all matches\n  --json                Print structured JSON\n\nCodex rows include whether the saved id exists in CODEX_HOME/session_index.jsonl\nand whether a matching transcript file exists under CODEX_HOME/sessions or\nCODEX_HOME/archived_sessions.\n\nCompatibility aliases:\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  Live agent sessions from the running app, ordered for triage: sessions\n  waiting on you first (longest wait first), then running (longest first),\n  then idle and ended (most recent first). Requires a running cmux.\n\n  --needs-me            Only sessions waiting on a human\n  --state <name>        Only needs-input, working, idle or ended\n  --agent <name>        Only one agent, for example codex or claude\n  --limit <n>           Limit rows shown (default: 100)\n  --all                 Print all matches\n  --tail [n]            Print newest cleaned output lines under each row (default: 3)\n  --settled             Only sessions that finished, are idle for 2h, and have no open PR\n  --idle-for <duration> Only sessions idle at least this long (for example 2h)\n  --json                Print structured JSON, with total_matches and limit\n                        alongside the rows\n\ncmux sessions tail <session|surface> [-n <lines>]\n  Read one session's terminal tail through the same scoped read-only\n  surface path as read-screen.\n  --json                Print structured JSON with session_id, surface_id\n                        and last_output"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n\n~/.cmuxterm/*-hook-sessions.json から保存済みエージェントセッション記録を表示します。\nこのコマンドは実行中の cmux ソケットを必要としません。\n\n現在の状況を知るには、代わりに `cmux sessions live` を使ってください。実行中の\nアプリに問い合わせるため、各セッションの現在の状態、その状態が続いている時間、\n会話のタイトルが分かります。保存済み記録にはどれもありません。\n既定では、広範な出力にはアクティブ、復元可能、またはトランスクリプト付きの記録だけを表示します。\n保存済みフック記録をすべて確認するには --all を指定します。\n\nオプション:\n  --agent <name>        1 つのエージェントに絞り込みます。例: codex または claude\n  --session <id>        1 つのエージェントセッション ID に絞り込みます\n  --workspace <id>      保存済みワークスペース ID に絞り込みます\n  --surface <id>        保存済みサーフェス ID に絞り込みます\n  --cwd <text>          保存済み cwd または起動時の作業ディレクトリで絞り込みます\n  --state-dir <path>    フック状態ディレクトリを上書きします\n  --codex-home <path>   トランスクリプト確認に使う既定の Codex ホームを上書きします\n  --limit <n>           テキスト出力の件数を制限します（既定: 100）\n  --all                 すべての一致を表示します\n  --json                構造化 JSON を出力します\n\nCodex 行には、保存済み ID が CODEX_HOME/session_index.jsonl に存在するか、\n一致するトランスクリプトファイルが CODEX_HOME/sessions または\nCODEX_HOME/archived_sessions に存在するかが含まれます。\n\n互換エイリアス:\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  実行中のアプリから取得したライブのエージェントセッションを、対応すべき順に\n  並べます。まず入力を待っているセッション（待ち時間が長い順）、次に実行中の\n  セッション（長い順）、次に待機中と終了済み（最近の活動順）。実行中の cmux が必要です。\n\n  --needs-me            人の応答を待っているセッションのみ\n  --state <name>        needs-input、working、idle、ended のみ\n  --agent <name>        1 つのエージェントのみ。例: codex または claude\n  --limit <n>           表示する行数を制限します（既定: 100）\n  --all                 すべての一致を表示します\n  --json                構造化 JSON を出力します。行に加えて total_matches と\n                        limit も含みます\n\n\n\n\n\n\n\n"
+            "value": "使用方法: cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n\n~/.cmuxterm/*-hook-sessions.json から保存済みエージェントセッション記録を表示します。\nこのコマンドは実行中の cmux ソケットを必要としません。\n\n現在の状況を知るには、代わりに `cmux sessions live` を使ってください。実行中の\nアプリに問い合わせるため、各セッションの現在の状態、その状態が続いている時間、\n会話のタイトルが分かります。保存済み記録にはどれもありません。\n既定では、広範な出力にはアクティブ、復元可能、またはトランスクリプト付きの記録だけを表示します。\n保存済みフック記録をすべて確認するには --all を指定します。\n\nオプション:\n  --agent <name>        1 つのエージェントに絞り込みます。例: codex または claude\n  --session <id>        1 つのエージェントセッション ID に絞り込みます\n  --workspace <id>      保存済みワークスペース ID に絞り込みます\n  --surface <id>        保存済みサーフェス ID に絞り込みます\n  --cwd <text>          保存済み cwd または起動時の作業ディレクトリで絞り込みます\n  --state-dir <path>    フック状態ディレクトリを上書きします\n  --codex-home <path>   トランスクリプト確認に使う既定の Codex ホームを上書きします\n  --limit <n>           テキスト出力の件数を制限します（既定: 100）\n  --all                 すべての一致を表示します\n  --json                構造化 JSON を出力します\n\nCodex 行には、保存済み ID が CODEX_HOME/session_index.jsonl に存在するか、\n一致するトランスクリプトファイルが CODEX_HOME/sessions または\nCODEX_HOME/archived_sessions に存在するかが含まれます。\n\n互換エイリアス:\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  実行中のアプリから取得したライブのエージェントセッションを、対応すべき順に\n  並べます。まず入力を待っているセッション（待ち時間が長い順）、次に実行中の\n  セッション（長い順）、次に待機中と終了済み（最近の活動順）。実行中の cmux が必要です。\n\n  --needs-me            人の応答を待っているセッションのみ\n  --state <name>        needs-input、working、idle、ended のみ\n  --agent <name>        1 つのエージェントのみ。例: codex または claude\n  --limit <n>           表示する行数を制限します（既定: 100）\n  --all                 すべての一致を表示します\n  --all                 Print all matches\n  --tail [n]            Print newest cleaned output lines under each row (default: 3)\n  --settled             Only sessions that finished, are idle for 2h, and have no open PR\n  --idle-for <duration> Only sessions idle at least this long (for example 2h)\n  --json                Print structured JSON, with total_matches and limit\n                        alongside the rows\n\ncmux sessions tail <session|surface> [-n <lines>]\n  Read one session's terminal tail through the same scoped read-only\n  surface path as read-screen.\n  --json                Print structured JSON with session_id, surface_id\n                        and last_output"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n\n输出 ~/.cmuxterm/*-hook-sessions.json 中保存的代理会话记录。\n此命令不需要正在运行的 cmux socket。\n\n若要了解当前的情况，请改用 `cmux sessions live`：它会询问正在运行的应用，\n因此知道每个会话当前的状态、已保持多久以及对话标题。\n已保存的记录都不知道这些信息。\n默认情况下，宽泛输出会显示活动的、可恢复的或有转写记录支撑的记录。\n传入 --all 可查看每一条已保存的 hook 记录。\n\n选项:\n  --agent <name>        仅筛选一个代理，例如 codex 或 claude\n  --session <id>        仅筛选一个代理会话 id\n  --workspace <id>      仅筛选一个已保存的工作区 id\n  --surface <id>        仅筛选一个已保存的表面 id\n  --cwd <text>          按已保存的 cwd 或启动工作目录筛选\n  --state-dir <path>    覆盖 hook 状态目录\n  --codex-home <path>   覆盖用于转写检查的默认 Codex home\n  --limit <n>           限制文本输出（默认：100）\n  --all                 输出所有匹配项\n  --json                输出结构化 JSON\n\nCodex 行会显示已保存的 id 是否存在于 CODEX_HOME/session_index.jsonl，\n以及在 CODEX_HOME/sessions 或 CODEX_HOME/archived_sessions 下\n是否存在匹配的转写文件。\n\n兼容别名:\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  来自正在运行的应用的实时代理会话，按处理顺序排列：先是正在等你的会话\n  （等待最久的优先），然后是正在运行的（最久的优先），再是空闲和已结束的\n  （最近活动的优先）。需要正在运行的 cmux。\n\n  --needs-me            仅等待人工回应的会话\n  --state <name>        仅 needs-input、working、idle 或 ended\n  --agent <name>        仅一个代理，例如 codex 或 claude\n  --limit <n>           限制显示的行数（默认：100）\n  --all                 输出所有匹配项\n  --json                输出结构化 JSON，在行旁附带 total_matches\n                        与 limit\n\n\n\n\n\n\n\n"
+            "value": "用法：cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n\n输出 ~/.cmuxterm/*-hook-sessions.json 中保存的代理会话记录。\n此命令不需要正在运行的 cmux socket。\n\n若要了解当前的情况，请改用 `cmux sessions live`：它会询问正在运行的应用，\n因此知道每个会话当前的状态、已保持多久以及对话标题。\n已保存的记录都不知道这些信息。\n默认情况下，宽泛输出会显示活动的、可恢复的或有转写记录支撑的记录。\n传入 --all 可查看每一条已保存的 hook 记录。\n\n选项:\n  --agent <name>        仅筛选一个代理，例如 codex 或 claude\n  --session <id>        仅筛选一个代理会话 id\n  --workspace <id>      仅筛选一个已保存的工作区 id\n  --surface <id>        仅筛选一个已保存的表面 id\n  --cwd <text>          按已保存的 cwd 或启动工作目录筛选\n  --state-dir <path>    覆盖 hook 状态目录\n  --codex-home <path>   覆盖用于转写检查的默认 Codex home\n  --limit <n>           限制文本输出（默认：100）\n  --all                 输出所有匹配项\n  --json                输出结构化 JSON\n\nCodex 行会显示已保存的 id 是否存在于 CODEX_HOME/session_index.jsonl，\n以及在 CODEX_HOME/sessions 或 CODEX_HOME/archived_sessions 下\n是否存在匹配的转写文件。\n\n兼容别名:\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  来自正在运行的应用的实时代理会话，按处理顺序排列：先是正在等你的会话\n  （等待最久的优先），然后是正在运行的（最久的优先），再是空闲和已结束的\n  （最近活动的优先）。需要正在运行的 cmux。\n\n  --needs-me            仅等待人工回应的会话\n  --state <name>        仅 needs-input、working、idle 或 ended\n  --agent <name>        仅一个代理，例如 codex 或 claude\n  --limit <n>           限制显示的行数（默认：100）\n  --all                 输出所有匹配项\n  --all                 Print all matches\n  --tail [n]            Print newest cleaned output lines under each row (default: 3)\n  --settled             Only sessions that finished, are idle for 2h, and have no open PR\n  --idle-for <duration> Only sessions idle at least this long (for example 2h)\n  --json                Print structured JSON, with total_matches and limit\n                        alongside the rows\n\ncmux sessions tail <session|surface> [-n <lines>]\n  Read one session's terminal tail through the same scoped read-only\n  surface path as read-screen.\n  --json                Print structured JSON with session_id, surface_id\n                        and last_output"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux sessions list [Optionen]\n       cmux sessions [Optionen]\n       cmux sessions live [Optionen]\n\nGespeicherte Agenten-Sitzungsdatensätze aus ~/.cmuxterm/*-hook-sessions.json ausgeben.\nDieser Befehl erfordert kein laufendes cmux-Socket.\n\nFür den aktuellen Stand verwenden Sie stattdessen `cmux sessions live`: Der Befehl\nfragt die laufende App und kennt daher den aktuellen Zustand jeder Sitzung, wie\nlange sie ihn hält, und den Gesprächstitel. Gespeicherte Datensätze wissen davon nichts.\nStandardmäßig zeigt die ausführliche Ausgabe aktive, wiederherstellbare oder durch ein Transkript gesicherte Datensätze an.\nÜbergeben Sie --all, um jeden gespeicherten Hook-Datensatz zu untersuchen.\n\nOptionen:\n  --agent <name>        Auf einen Agenten filtern, zum Beispiel codex oder claude\n  --session <id>        Auf eine Agenten-Sitzungs-ID filtern\n  --workspace <id>      Auf eine gespeicherte Arbeitsbereichs-ID filtern\n  --surface <id>        Auf eine gespeicherte Oberflächen-ID filtern\n  --cwd <text>          Nach gespeicherter cwd oder dem Start-Arbeitsverzeichnis filtern\n  --state-dir <path>    Hook-Statusverzeichnis überschreiben\n  --codex-home <path>   Das für Transkriptprüfungen verwendete Standard-Codex-Home überschreiben\n  --limit <n>           Textausgabe begrenzen (Standard: 100)\n  --all                 Alle Treffer ausgeben\n  --json                Strukturiertes JSON ausgeben\n\nCodex-Zeilen enthalten Angaben darüber, ob die gespeicherte ID in CODEX_HOME/session_index.jsonl existiert\nund ob eine passende Transkriptdatei unter CODEX_HOME/sessions oder\nCODEX_HOME/archived_sessions existiert.\n\nKompatibilitäts-Aliase:\n  cmux sessions debug [Optionen]\n  cmux session-debug [Optionen]\n\ncmux sessions live [Optionen]\n  Live-Agenten-Sitzungen aus der laufenden App, nach Triage geordnet: Sitzungen,\n  die auf Sie warten, zuerst (längste Wartezeit zuerst), dann laufende (längste\n  zuerst), dann untätige und beendete (neueste zuerst). Erfordert ein laufendes cmux.\n\n  --needs-me            Nur Sitzungen, die auf einen Menschen warten\n  --state <name>        Nur needs-input, working, idle oder ended\n  --agent <name>        Nur ein Agent, zum Beispiel codex oder claude\n  --limit <n>           Angezeigte Zeilen begrenzen (Standard: 100)\n  --all                 Alle Treffer ausgeben\n  --json                Strukturiertes JSON ausgeben, mit total_matches und limit\n                        neben den Zeilen\n\n\n\n\n\n\n\n"
+            "value": "Verwendung: cmux sessions list [Optionen]\n       cmux sessions [Optionen]\n       cmux sessions live [Optionen]\n\nGespeicherte Agenten-Sitzungsdatensätze aus ~/.cmuxterm/*-hook-sessions.json ausgeben.\nDieser Befehl erfordert kein laufendes cmux-Socket.\n\nFür den aktuellen Stand verwenden Sie stattdessen `cmux sessions live`: Der Befehl\nfragt die laufende App und kennt daher den aktuellen Zustand jeder Sitzung, wie\nlange sie ihn hält, und den Gesprächstitel. Gespeicherte Datensätze wissen davon nichts.\nStandardmäßig zeigt die ausführliche Ausgabe aktive, wiederherstellbare oder durch ein Transkript gesicherte Datensätze an.\nÜbergeben Sie --all, um jeden gespeicherten Hook-Datensatz zu untersuchen.\n\nOptionen:\n  --agent <name>        Auf einen Agenten filtern, zum Beispiel codex oder claude\n  --session <id>        Auf eine Agenten-Sitzungs-ID filtern\n  --workspace <id>      Auf eine gespeicherte Arbeitsbereichs-ID filtern\n  --surface <id>        Auf eine gespeicherte Oberflächen-ID filtern\n  --cwd <text>          Nach gespeicherter cwd oder dem Start-Arbeitsverzeichnis filtern\n  --state-dir <path>    Hook-Statusverzeichnis überschreiben\n  --codex-home <path>   Das für Transkriptprüfungen verwendete Standard-Codex-Home überschreiben\n  --limit <n>           Textausgabe begrenzen (Standard: 100)\n  --all                 Alle Treffer ausgeben\n  --json                Strukturiertes JSON ausgeben\n\nCodex-Zeilen enthalten Angaben darüber, ob die gespeicherte ID in CODEX_HOME/session_index.jsonl existiert\nund ob eine passende Transkriptdatei unter CODEX_HOME/sessions oder\nCODEX_HOME/archived_sessions existiert.\n\nKompatibilitäts-Aliase:\n  cmux sessions debug [Optionen]\n  cmux session-debug [Optionen]\n\ncmux sessions live [Optionen]\n  Live-Agenten-Sitzungen aus der laufenden App, nach Triage geordnet: Sitzungen,\n  die auf Sie warten, zuerst (längste Wartezeit zuerst), dann laufende (längste\n  zuerst), dann untätige und beendete (neueste zuerst). Erfordert ein laufendes cmux.\n\n  --needs-me            Nur Sitzungen, die auf einen Menschen warten\n  --state <name>        Nur needs-input, working, idle oder ended\n  --agent <name>        Nur ein Agent, zum Beispiel codex oder claude\n  --limit <n>           Angezeigte Zeilen begrenzen (Standard: 100)\n  --all                 Alle Treffer ausgeben\n  --all                 Print all matches\n  --tail [n]            Print newest cleaned output lines under each row (default: 3)\n  --settled             Only sessions that finished, are idle for 2h, and have no open PR\n  --idle-for <duration> Only sessions idle at least this long (for example 2h)\n  --json                Print structured JSON, with total_matches and limit\n                        alongside the rows\n\ncmux sessions tail <session|surface> [-n <lines>]\n  Read one session's terminal tail through the same scoped read-only\n  surface path as read-screen.\n  --json                Print structured JSON with session_id, surface_id\n                        and last_output"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux sessions list [options]\n              cmux sessions [options]\n              cmux sessions live [options]\n\nAfficher les enregistrements de session d'agent sauvegardés depuis ~/.cmuxterm/*-hook-sessions.json.\nCette commande ne requiert pas de socket cmux en cours d'exécution.\n\nPour l'état actuel, utilisez plutôt `cmux sessions live` : cette commande interroge\nl'application en cours d'exécution et connaît donc l'état actuel de chaque session,\ndepuis combien de temps elle le conserve et le titre de la conversation. Les enregistrements sauvegardés l'ignorent.\nPar défaut, l'affichage détaillé présente les enregistrements actifs, restaurables ou sauvegardés par transcription.\nPassez --all pour inspecter chaque enregistrement de hook sauvegardé.\n\nOptions :\n  --agent <nom>         Filtrer par agent, par exemple codex ou claude\n  --session <id>        Filtrer par identifiant de session d'agent\n  --workspace <id>      Filtrer par identifiant d'espace de travail sauvegardé\n  --surface <id>        Filtrer par identifiant de surface d’affichage sauvegardé\n  --cwd <texte>         Filtrer par cwd sauvegardé ou par répertoire de travail de lancement\n  --state-dir <chemin>  Surcharger le répertoire d'état du hook\n  --codex-home <chemin> Surcharger le répertoire personnel Codex par défaut utilisé pour les vérifications de transcription\n  --limit <n>           Limiter l'affichage textuel (par défaut : 100)\n  --all                 Afficher toutes les correspondances\n  --json                Afficher au format JSON structuré\n\nLes lignes Codex indiquent si l'identifiant sauvegardé existe dans CODEX_HOME/session_index.jsonl\net si un fichier de transcription correspondant existe sous CODEX_HOME/sessions ou\nCODEX_HOME/archived_sessions.\n\nAlias de compatibilité :\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  Sessions d'agent en direct depuis l'application en cours d'exécution, classées par\n  priorité : d'abord celles qui vous attendent (attente la plus longue en premier),\n  puis celles en cours (la plus longue en premier), puis inactives et terminées (les plus récentes en premier). Requiert un cmux en cours d'exécution.\n\n  --needs-me            Uniquement les sessions qui attendent un humain\n  --state <nom>         Uniquement needs-input, working, idle ou ended\n  --agent <nom>         Un seul agent, par exemple codex ou claude\n  --limit <n>           Limiter les lignes affichées (par défaut : 100)\n  --all                 Afficher toutes les correspondances\n  --json                Afficher au format JSON structuré, avec total_matches et limit\n                        à côté des lignes\n\n\n\n\n\n\n\n"
+            "value": "Utilisation : cmux sessions list [options]\n              cmux sessions [options]\n              cmux sessions live [options]\n\nAfficher les enregistrements de session d'agent sauvegardés depuis ~/.cmuxterm/*-hook-sessions.json.\nCette commande ne requiert pas de socket cmux en cours d'exécution.\n\nPour l'état actuel, utilisez plutôt `cmux sessions live` : cette commande interroge\nl'application en cours d'exécution et connaît donc l'état actuel de chaque session,\ndepuis combien de temps elle le conserve et le titre de la conversation. Les enregistrements sauvegardés l'ignorent.\nPar défaut, l'affichage détaillé présente les enregistrements actifs, restaurables ou sauvegardés par transcription.\nPassez --all pour inspecter chaque enregistrement de hook sauvegardé.\n\nOptions :\n  --agent <nom>         Filtrer par agent, par exemple codex ou claude\n  --session <id>        Filtrer par identifiant de session d'agent\n  --workspace <id>      Filtrer par identifiant d'espace de travail sauvegardé\n  --surface <id>        Filtrer par identifiant de surface d’affichage sauvegardé\n  --cwd <texte>         Filtrer par cwd sauvegardé ou par répertoire de travail de lancement\n  --state-dir <chemin>  Surcharger le répertoire d'état du hook\n  --codex-home <chemin> Surcharger le répertoire personnel Codex par défaut utilisé pour les vérifications de transcription\n  --limit <n>           Limiter l'affichage textuel (par défaut : 100)\n  --all                 Afficher toutes les correspondances\n  --json                Afficher au format JSON structuré\n\nLes lignes Codex indiquent si l'identifiant sauvegardé existe dans CODEX_HOME/session_index.jsonl\net si un fichier de transcription correspondant existe sous CODEX_HOME/sessions ou\nCODEX_HOME/archived_sessions.\n\nAlias de compatibilité :\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  Sessions d'agent en direct depuis l'application en cours d'exécution, classées par\n  priorité : d'abord celles qui vous attendent (attente la plus longue en premier),\n  puis celles en cours (la plus longue en premier), puis inactives et terminées (les plus récentes en premier). Requiert un cmux en cours d'exécution.\n\n  --needs-me            Uniquement les sessions qui attendent un humain\n  --state <nom>         Uniquement needs-input, working, idle ou ended\n  --agent <nom>         Un seul agent, par exemple codex ou claude\n  --limit <n>           Limiter les lignes affichées (par défaut : 100)\n  --all                 Afficher toutes les correspondances\n  --all                 Print all matches\n  --tail [n]            Print newest cleaned output lines under each row (default: 3)\n  --settled             Only sessions that finished, are idle for 2h, and have no open PR\n  --idle-for <duration> Only sessions idle at least this long (for example 2h)\n  --json                Print structured JSON, with total_matches and limit\n                        alongside the rows\n\ncmux sessions tail <session|surface> [-n <lines>]\n  Read one session's terminal tail through the same scoped read-only\n  surface path as read-screen.\n  --json                Print structured JSON with session_id, surface_id\n                        and last_output"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n\nطباعة سجلات جلسات الوكيل المحفوظة من ~/.cmuxterm/*-hook-sessions.json.\nلا يتطلب هذا الأمر مقبس cmux نشط.\n\nلمعرفة ما يجري الآن، استخدم `cmux sessions live` بدلاً من ذلك: فهو يسأل التطبيق\nقيد التشغيل، وبذلك يعرف الحالة الحالية لكل جلسة، ومدة بقائها في تلك الحالة،\nوعنوان المحادثة. السجلات المحفوظة لا تعرف أيًّا من ذلك.\nبشكل افتراضي، يعرض المخرج العام السجلات النشطة، أو القابلة للاستعادة، أو المدعومة بنسخة مكتوبة (transcript-backed).\nمرر --all لفحص كل سجل خطاف محفوظ.\n\nالخيارات:\n  --agent <name>        التصفية لوكيل واحد، على سبيل المثال codex أو claude\n  --session <id>        التصفية لمعرف جلسة وكيل واحد\n  --workspace <id>      التصفية لمعرف مساحة عمل محفوظة واحدة\n  --surface <id>        التصفية لمعرف سطح محفوظ واحد\n  --cwd <text>          التصفية حسب دليل العمل الحالي المحفوظ (cwd) أو دليل العمل المستهدف للتشغيل\n  --state-dir <path>    تجاوز دليل حالة الخطاف\n  --codex-home <path>   تجاوز مسار Codex الرئيسي الافتراضي المستخدم لفحوصات النسخة المكتوبة\n  --limit <n>           تحديد كمية المخرجات النصية (الافتراضي: 100)\n  --all                 طباعة كافة التطابقات\n  --json                طباعة JSON منظم\n\nتتضمن صفوف Codex ما إذا كان المعرف المحفوظ موجودًا في CODEX_HOME/session_index.jsonl\nوما إذا كان ملف نسخة مكتوبة مطابقة موجودًا تحت CODEX_HOME/sessions أو\nCODEX_HOME/archived_sessions.\n\nالأسماء المستعارة للتوافق:\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  جلسات الوكيل الحية من التطبيق قيد التشغيل، مرتبة للفرز: الجلسات التي تنتظرك\n  أولاً (الأطول انتظارًا أولاً)، ثم الجلسات العاملة (الأطول أولاً)، ثم الخاملة\n  والمنتهية (الأحدث أولاً). يتطلب cmux قيد التشغيل.\n\n  --needs-me            الجلسات التي تنتظر إنسانًا فقط\n  --state <name>        فقط needs-input أو working أو idle أو ended\n  --agent <name>        وكيل واحد فقط، على سبيل المثال codex أو claude\n  --limit <n>           تحديد عدد الصفوف المعروضة (الافتراضي: 100)\n  --all                 طباعة كافة التطابقات\n  --json                طباعة JSON منظم، مع total_matches و limit\n                        إلى جانب الصفوف\n\n\n\n\n\n\n\n"
+            "value": "الاستخدام: cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n\nطباعة سجلات جلسات الوكيل المحفوظة من ~/.cmuxterm/*-hook-sessions.json.\nلا يتطلب هذا الأمر مقبس cmux نشط.\n\nلمعرفة ما يجري الآن، استخدم `cmux sessions live` بدلاً من ذلك: فهو يسأل التطبيق\nقيد التشغيل، وبذلك يعرف الحالة الحالية لكل جلسة، ومدة بقائها في تلك الحالة،\nوعنوان المحادثة. السجلات المحفوظة لا تعرف أيًّا من ذلك.\nبشكل افتراضي، يعرض المخرج العام السجلات النشطة، أو القابلة للاستعادة، أو المدعومة بنسخة مكتوبة (transcript-backed).\nمرر --all لفحص كل سجل خطاف محفوظ.\n\nالخيارات:\n  --agent <name>        التصفية لوكيل واحد، على سبيل المثال codex أو claude\n  --session <id>        التصفية لمعرف جلسة وكيل واحد\n  --workspace <id>      التصفية لمعرف مساحة عمل محفوظة واحدة\n  --surface <id>        التصفية لمعرف سطح محفوظ واحد\n  --cwd <text>          التصفية حسب دليل العمل الحالي المحفوظ (cwd) أو دليل العمل المستهدف للتشغيل\n  --state-dir <path>    تجاوز دليل حالة الخطاف\n  --codex-home <path>   تجاوز مسار Codex الرئيسي الافتراضي المستخدم لفحوصات النسخة المكتوبة\n  --limit <n>           تحديد كمية المخرجات النصية (الافتراضي: 100)\n  --all                 طباعة كافة التطابقات\n  --json                طباعة JSON منظم\n\nتتضمن صفوف Codex ما إذا كان المعرف المحفوظ موجودًا في CODEX_HOME/session_index.jsonl\nوما إذا كان ملف نسخة مكتوبة مطابقة موجودًا تحت CODEX_HOME/sessions أو\nCODEX_HOME/archived_sessions.\n\nالأسماء المستعارة للتوافق:\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  جلسات الوكيل الحية من التطبيق قيد التشغيل، مرتبة للفرز: الجلسات التي تنتظرك\n  أولاً (الأطول انتظارًا أولاً)، ثم الجلسات العاملة (الأطول أولاً)، ثم الخاملة\n  والمنتهية (الأحدث أولاً). يتطلب cmux قيد التشغيل.\n\n  --needs-me            الجلسات التي تنتظر إنسانًا فقط\n  --state <name>        فقط needs-input أو working أو idle أو ended\n  --agent <name>        وكيل واحد فقط، على سبيل المثال codex أو claude\n  --limit <n>           تحديد عدد الصفوف المعروضة (الافتراضي: 100)\n  --all                 طباعة كافة التطابقات\n  --all                 Print all matches\n  --tail [n]            Print newest cleaned output lines under each row (default: 3)\n  --settled             Only sessions that finished, are idle for 2h, and have no open PR\n  --idle-for <duration> Only sessions idle at least this long (for example 2h)\n  --json                Print structured JSON, with total_matches and limit\n                        alongside the rows\n\ncmux sessions tail <session|surface> [-n <lines>]\n  Read one session's terminal tail through the same scoped read-only\n  surface path as read-screen.\n  --json                Print structured JSON with session_id, surface_id\n                        and last_output"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n\nImprimir los registros de sesiones de agentes guardados desde ~/.cmuxterm/*-hook-sessions.json.\nEste comando no requiere un socket de cmux en ejecución.\n\nPara saber qué está ocurriendo ahora, use `cmux sessions live`: consulta la\naplicación en ejecución, por lo que conoce el estado actual de cada sesión, cuánto\ntiempo lo lleva manteniendo y el título de la conversación. Los registros guardados no saben nada de eso.\nPor defecto, la salida general muestra registros activos, restaurables o respaldados por transcripciones.\nPase --all para inspeccionar cada registro de hook guardado.\n\nOpciones:\n  --agent <name>        Filtrar por un agente, por ejemplo codex o claude\n  --session <id>        Filtrar por un ID de sesión de agente\n  --workspace <id>      Filtrar por un ID de espacio de trabajo guardado\n  --surface <id>        Filtrar por un ID de superficie guardado\n  --cwd <text>          Filtrar por el cwd guardado o el directorio de trabajo de inicio\n  --state-dir <path>    Sobrescribir el directorio de estado del hook\n  --codex-home <path>   Sobrescribir el Codex home predeterminado utilizado para comprobaciones de transcripción\n  --limit <n>           Limitar la salida de texto (por defecto: 100)\n  --all                 Imprimir todas las coincidencias\n  --json                Imprimir JSON estructurado\n\nLas filas de Codex incluyen si el id guardado existe en CODEX_HOME/session_index.jsonl\ny si existe un archivo de transcripción coincendente en CODEX_HOME/sessions o\nCODEX_HOME/archived_sessions.\n\nAlias de compatibilidad:\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  Sesiones de agente en vivo desde la aplicación en ejecución, ordenadas para el\n  triaje: primero las que esperan por usted (la espera más larga primero), luego las\n  que están trabajando (la más larga primero), luego inactivas y terminadas (la más reciente primero). Requiere un cmux en ejecución.\n\n  --needs-me            Solo sesiones que esperan a una persona\n  --state <name>        Solo needs-input, working, idle o ended\n  --agent <name>        Solo un agente, por ejemplo codex o claude\n  --limit <n>           Limitar las filas mostradas (por defecto: 100)\n  --all                 Imprimir todas las coincidencias\n  --json                Imprimir JSON estructurado, con total_matches y limit\n                        junto a las filas\n\n\n\n\n\n\n\n"
+            "value": "Uso: cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n\nImprimir los registros de sesiones de agentes guardados desde ~/.cmuxterm/*-hook-sessions.json.\nEste comando no requiere un socket de cmux en ejecución.\n\nPara saber qué está ocurriendo ahora, use `cmux sessions live`: consulta la\naplicación en ejecución, por lo que conoce el estado actual de cada sesión, cuánto\ntiempo lo lleva manteniendo y el título de la conversación. Los registros guardados no saben nada de eso.\nPor defecto, la salida general muestra registros activos, restaurables o respaldados por transcripciones.\nPase --all para inspeccionar cada registro de hook guardado.\n\nOpciones:\n  --agent <name>        Filtrar por un agente, por ejemplo codex o claude\n  --session <id>        Filtrar por un ID de sesión de agente\n  --workspace <id>      Filtrar por un ID de espacio de trabajo guardado\n  --surface <id>        Filtrar por un ID de superficie guardado\n  --cwd <text>          Filtrar por el cwd guardado o el directorio de trabajo de inicio\n  --state-dir <path>    Sobrescribir el directorio de estado del hook\n  --codex-home <path>   Sobrescribir el Codex home predeterminado utilizado para comprobaciones de transcripción\n  --limit <n>           Limitar la salida de texto (por defecto: 100)\n  --all                 Imprimir todas las coincidencias\n  --json                Imprimir JSON estructurado\n\nLas filas de Codex incluyen si el id guardado existe en CODEX_HOME/session_index.jsonl\ny si existe un archivo de transcripción coincendente en CODEX_HOME/sessions o\nCODEX_HOME/archived_sessions.\n\nAlias de compatibilidad:\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  Sesiones de agente en vivo desde la aplicación en ejecución, ordenadas para el\n  triaje: primero las que esperan por usted (la espera más larga primero), luego las\n  que están trabajando (la más larga primero), luego inactivas y terminadas (la más reciente primero). Requiere un cmux en ejecución.\n\n  --needs-me            Solo sesiones que esperan a una persona\n  --state <name>        Solo needs-input, working, idle o ended\n  --agent <name>        Solo un agente, por ejemplo codex o claude\n  --limit <n>           Limitar las filas mostradas (por defecto: 100)\n  --all                 Imprimir todas las coincidencias\n  --all                 Print all matches\n  --tail [n]            Print newest cleaned output lines under each row (default: 3)\n  --settled             Only sessions that finished, are idle for 2h, and have no open PR\n  --idle-for <duration> Only sessions idle at least this long (for example 2h)\n  --json                Print structured JSON, with total_matches and limit\n                        alongside the rows\n\ncmux sessions tail <session|surface> [-n <lines>]\n  Read one session's terminal tail through the same scoped read-only\n  surface path as read-screen.\n  --json                Print structured JSON with session_id, surface_id\n                        and last_output"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n\n從 ~/.cmuxterm/*-hook-sessions.json 列印已儲存的代理程式工作階段紀錄。\n此指令不需要執行中的 cmux socket。\n\n若要了解目前的狀況，請改用 `cmux sessions live`：它會詢問執行中的應用程式，\n因此知道每個工作階段目前的狀態、已維持多久，以及對話標題。\n已儲存的紀錄都不知道這些資訊。\n預設情況下，寬格式輸出會顯示作用中、可還原或有逐字稿備份的紀錄。\n傳遞 --all 以檢查每個儲存的勾點紀錄。\n\n選項：\n  --agent <name>        篩選單一代理程式，例如 codex 或 claude\n  --session <id>        篩選單一代理程式工作階段 id\n  --workspace <id>      篩選單一已儲存的工作區 id\n  --surface <id>        篩選單一已儲存的介面 id\n  --cwd <text>          依已儲存的 cwd 或啟動工作目錄進行篩選\n  --state-dir <path>    覆寫勾點狀態目錄\n  --codex-home <path>   覆寫用於逐字稿檢查的預設 Codex 家目錄\n  --limit <n>           限制文字輸出 (預設值：100)\n  --all                 列印所有相符項\n  --json                列印結構化 JSON\n\nCodex 資料列包含儲存的 id 是否存在於 CODEX_HOME/session_index.jsonl\n中，以及 CODEX_HOME/sessions 或\n CODEX_HOME/archived_sessions 下是否存在相符的逐字稿檔案。\n\n相容性別名：\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  來自執行中應用程式的即時代理程式工作階段，依處理順序排列：先是正在等你的\n  工作階段 (等待最久者優先)，接著是執行中的 (最久者優先)，然後是閒置與已結束的\n  (最近活動者優先)。需要執行中的 cmux。\n\n  --needs-me            僅等待人工回應的工作階段\n  --state <name>        僅 needs-input、working、idle 或 ended\n  --agent <name>        僅單一代理程式，例如 codex 或 claude\n  --limit <n>           限制顯示的資料列 (預設值：100)\n  --all                 列印所有相符項\n  --json                列印結構化 JSON，資料列旁附上 total_matches\n                        與 limit\n\n\n\n\n\n\n\n"
+            "value": "用法：cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n\n從 ~/.cmuxterm/*-hook-sessions.json 列印已儲存的代理程式工作階段紀錄。\n此指令不需要執行中的 cmux socket。\n\n若要了解目前的狀況，請改用 `cmux sessions live`：它會詢問執行中的應用程式，\n因此知道每個工作階段目前的狀態、已維持多久，以及對話標題。\n已儲存的紀錄都不知道這些資訊。\n預設情況下，寬格式輸出會顯示作用中、可還原或有逐字稿備份的紀錄。\n傳遞 --all 以檢查每個儲存的勾點紀錄。\n\n選項：\n  --agent <name>        篩選單一代理程式，例如 codex 或 claude\n  --session <id>        篩選單一代理程式工作階段 id\n  --workspace <id>      篩選單一已儲存的工作區 id\n  --surface <id>        篩選單一已儲存的介面 id\n  --cwd <text>          依已儲存的 cwd 或啟動工作目錄進行篩選\n  --state-dir <path>    覆寫勾點狀態目錄\n  --codex-home <path>   覆寫用於逐字稿檢查的預設 Codex 家目錄\n  --limit <n>           限制文字輸出 (預設值：100)\n  --all                 列印所有相符項\n  --json                列印結構化 JSON\n\nCodex 資料列包含儲存的 id 是否存在於 CODEX_HOME/session_index.jsonl\n中，以及 CODEX_HOME/sessions 或\n CODEX_HOME/archived_sessions 下是否存在相符的逐字稿檔案。\n\n相容性別名：\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  來自執行中應用程式的即時代理程式工作階段，依處理順序排列：先是正在等你的\n  工作階段 (等待最久者優先)，接著是執行中的 (最久者優先)，然後是閒置與已結束的\n  (最近活動者優先)。需要執行中的 cmux。\n\n  --needs-me            僅等待人工回應的工作階段\n  --state <name>        僅 needs-input、working、idle 或 ended\n  --agent <name>        僅單一代理程式，例如 codex 或 claude\n  --limit <n>           限制顯示的資料列 (預設值：100)\n  --all                 列印所有相符項\n  --all                 Print all matches\n  --tail [n]            Print newest cleaned output lines under each row (default: 3)\n  --settled             Only sessions that finished, are idle for 2h, and have no open PR\n  --idle-for <duration> Only sessions idle at least this long (for example 2h)\n  --json                Print structured JSON, with total_matches and limit\n                        alongside the rows\n\ncmux sessions tail <session|surface> [-n <lines>]\n  Read one session's terminal tail through the same scoped read-only\n  surface path as read-screen.\n  --json                Print structured JSON with session_id, surface_id\n                        and last_output"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n\n~/.cmuxterm/*-hook-sessions.json에서 저장된 에이전트 세션 기록을 출력합니다.\n이 명령어는 실행 중인 cmux 소켓을 필요로 하지 않습니다.\n\n지금 무슨 일이 일어나고 있는지 보려면 `cmux sessions live`를 사용하세요. 실행 중인\n앱에 질의하므로 각 세션의 현재 상태, 그 상태를 유지한 시간, 대화 제목을 알 수\n있습니다. 저장된 기록은 이 가운데 아무것도 알지 못합니다.\n기본적으로 전체 출력은 활성, 복구 가능 또는 트랜스크립트 기반 기록을 보여줍니다.\n모든 저장된 훅 기록을 검사하려면 --all을 전달하세요.\n\n옵션:\n  --agent <name>        특정 에이전트(예: codex 또는 claude)로 필터링\n  --session <id>        특정 에이전트 세션 ID로 필터링\n  --workspace <id>      특정 저장된 작업 공간 ID로 필터링\n  --surface <id>        특정 저장된 화면 ID로 필터링\n  --cwd <text>          저장된 cwd 또는 실행 작업 디렉토리로 필터링\n  --state-dir <path>    훅 상태 디렉토리 재정의\n  --codex-home <path>   트랜스크립트 검사에 사용되는 기본 Codex 홈 재정의\n  --limit <n>           텍스트 출력 제한 (기본값: 100)\n  --all                 모든 일치 항목 출력\n  --json                구조화된 JSON 출력\n\nCodex 행에는 저장된 ID가 CODEX_HOME/session_index.jsonl에 존재하는지 여부와\n일치하는 트랜스크립트 파일이 CODEX_HOME/sessions 또는\nCODEX_HOME/archived_sessions 아래에 존재하는지 여부가 포함됩니다.\n\n호환성 별칭:\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  실행 중인 앱에서 가져온 실시간 에이전트 세션으로, 처리 순서대로 정렬됩니다.\n  사용자를 기다리는 세션이 먼저(가장 오래 기다린 것부터), 그다음 작업 중인 세션\n  (가장 오래된 것부터), 그다음 유휴와 종료 세션(최근 활동 순). 실행 중인 cmux가 필요합니다.\n\n  --needs-me            사람의 응답을 기다리는 세션만\n  --state <name>        needs-input, working, idle 또는 ended만\n  --agent <name>        특정 에이전트만(예: codex 또는 claude)\n  --limit <n>           표시할 행 수 제한 (기본값: 100)\n  --all                 모든 일치 항목 출력\n  --json                구조화된 JSON 출력, 행과 함께 total_matches와\n                        limit 포함\n\n\n\n\n\n\n\n"
+            "value": "사용법: cmux sessions list [options]\n       cmux sessions [options]\n       cmux sessions live [options]\n\n~/.cmuxterm/*-hook-sessions.json에서 저장된 에이전트 세션 기록을 출력합니다.\n이 명령어는 실행 중인 cmux 소켓을 필요로 하지 않습니다.\n\n지금 무슨 일이 일어나고 있는지 보려면 `cmux sessions live`를 사용하세요. 실행 중인\n앱에 질의하므로 각 세션의 현재 상태, 그 상태를 유지한 시간, 대화 제목을 알 수\n있습니다. 저장된 기록은 이 가운데 아무것도 알지 못합니다.\n기본적으로 전체 출력은 활성, 복구 가능 또는 트랜스크립트 기반 기록을 보여줍니다.\n모든 저장된 훅 기록을 검사하려면 --all을 전달하세요.\n\n옵션:\n  --agent <name>        특정 에이전트(예: codex 또는 claude)로 필터링\n  --session <id>        특정 에이전트 세션 ID로 필터링\n  --workspace <id>      특정 저장된 작업 공간 ID로 필터링\n  --surface <id>        특정 저장된 화면 ID로 필터링\n  --cwd <text>          저장된 cwd 또는 실행 작업 디렉토리로 필터링\n  --state-dir <path>    훅 상태 디렉토리 재정의\n  --codex-home <path>   트랜스크립트 검사에 사용되는 기본 Codex 홈 재정의\n  --limit <n>           텍스트 출력 제한 (기본값: 100)\n  --all                 모든 일치 항목 출력\n  --json                구조화된 JSON 출력\n\nCodex 행에는 저장된 ID가 CODEX_HOME/session_index.jsonl에 존재하는지 여부와\n일치하는 트랜스크립트 파일이 CODEX_HOME/sessions 또는\nCODEX_HOME/archived_sessions 아래에 존재하는지 여부가 포함됩니다.\n\n호환성 별칭:\n  cmux sessions debug [options]\n  cmux session-debug [options]\n\ncmux sessions live [options]\n  실행 중인 앱에서 가져온 실시간 에이전트 세션으로, 처리 순서대로 정렬됩니다.\n  사용자를 기다리는 세션이 먼저(가장 오래 기다린 것부터), 그다음 작업 중인 세션\n  (가장 오래된 것부터), 그다음 유휴와 종료 세션(최근 활동 순). 실행 중인 cmux가 필요합니다.\n\n  --needs-me            사람의 응답을 기다리는 세션만\n  --state <name>        needs-input, working, idle 또는 ended만\n  --agent <name>        특정 에이전트만(예: codex 또는 claude)\n  --limit <n>           표시할 행 수 제한 (기본값: 100)\n  --all                 모든 일치 항목 출력\n  --all                 Print all matches\n  --tail [n]            Print newest cleaned output lines under each row (default: 3)\n  --settled             Only sessions that finished, are idle for 2h, and have no open PR\n  --idle-for <duration> Only sessions idle at least this long (for example 2h)\n  --json                Print structured JSON, with total_matches and limit\n                        alongside the rows\n\ncmux sessions tail <session|surface> [-n <lines>]\n  Read one session's terminal tail through the same scoped read-only\n  surface path as read-screen.\n  --json                Print structured JSON with session_id, surface_id\n                        and last_output"
           }
         }
       }
@@ -588957,6 +588957,301 @@
           "stringUnit": {
             "state": "translated",
             "value": "一個或多個工作區或 Dock 表面有正在執行的程序；請使用 --force 重試"
+          }
+        }
+      }
+    },
+    "cli.sessions.live.error.invalidIdleFor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions live: --idle-for expects a duration such as 2h"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions live: --idle-for erwartet eine Dauer wie 2h"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions live : --idle-for attend une durée telle que 2h"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions live: يتوقع --idle-for مدة مثل 2h"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions live: --idle-for espera una duración como 2h"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions live: --idle-for 需要像 2h 這樣的持續時間"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions live：--idle-for 需要类似 2h 的时长"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions live: --idle-for에는 2h와 같은 기간이 필요합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions live: --idle-for には 2h のような期間を指定してください"
+          }
+        }
+      }
+    },
+    "cli.sessions.tail.error.expectedTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: expected a session or surface"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: eine Sitzung oder Oberfläche erwartet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail : une session ou une surface est requise"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: يتوقع جلسة أو سطحًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: se esperaba una sesión o superficie"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: 需要工作階段或介面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail：需要会话或界面"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: 세션 또는 표면이 필요합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: セッションまたはサーフェスを指定してください"
+          }
+        }
+      }
+    },
+    "cli.sessions.tail.error.invalidLines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: -n requires a positive integer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: -n muss eine positive Ganzzahl sein"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail : -n doit être un entier positif"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: يجب أن يكون الخيار -n عددًا صحيحًا موجبًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: -n debe ser un entero positivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: -n 必須為正整數"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail：-n 必须是正整数"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: -n은 양의 정수여야 합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: -n には正の整数を指定してください"
+          }
+        }
+      }
+    },
+    "cli.sessions.tail.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: session or surface not found"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: Sitzung oder Oberfläche nicht gefunden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail : session ou surface introuvable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: لم يتم العثور على الجلسة أو السطح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: no se encontró la sesión o superficie"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: 找不到工作階段或介面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail：找不到会话或界面"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: 세션 또는 표면을 찾을 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: セッションまたはサーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "cli.sessions.tail.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: unexpected argument '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: unerwartetes Argument „%@“"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail : argument inattendu '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: وسيط غير متوقع '%@'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: argumento inesperado '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: 未預期的引數「%@」"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail：意外参数“%@”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: 예기치 않은 인수 '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions tail: 予期しない引数 '%@'"
           }
         }
       }

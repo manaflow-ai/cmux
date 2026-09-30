@@ -16,6 +16,7 @@ struct SidebarWorkspaceSnapshotFactory {
     let workspace: Workspace
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
+    let settledSessionCount: Int = 0
 
     /// Creates the current immutable presentation snapshot for the workspace row.
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -166,18 +167,6 @@ struct SidebarWorkspaceSnapshotFactory {
             compactStatusIcons: settings.compactStatusIcons,
             visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails
         )
-    }
-
-    private var settledSessionCount: Int {
-        guard let service = TerminalController.shared.agentChatTranscriptService else { return 0 }
-        let now = Date()
-        let threshold = AgentSessionListPayload.defaultSettledIdleThreshold
-        return service.sessionRecords(workspaceID: workspace.id.uuidString).filter { record in
-            guard let surfaceID = record.surfaceID.flatMap(UUID.init(uuidString:)),
-                  workspace.panels[surfaceID] is TerminalPanel else { return false }
-            let idleFor = AgentSessionListPayload.idleForSeconds(record: record, now: now)
-            return AgentSessionListPayload.isSettled(record: record, idleFor: idleFor, threshold: threshold)
-        }.count
     }
 
     private var visibleCustomDescription: String? {

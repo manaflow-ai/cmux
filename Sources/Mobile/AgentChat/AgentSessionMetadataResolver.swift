@@ -79,8 +79,10 @@ actor AgentSessionMetadataResolver {
     }
 
     private static func repository(from remote: String) -> (owner: String, name: String)? {
-        let value = remote.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: ".git", with: "")
+        var value = remote.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasSuffix(".git") {
+            value.removeLast(4)
+        }
         let path = value.components(separatedBy: ":").last ?? value
         let parts = path.split(separator: "/")
         guard parts.count >= 2 else { return nil }
@@ -91,12 +93,21 @@ actor AgentSessionMetadataResolver {
         let unique = Dictionary(grouping: records, by: { $0.directory + "\n" + $0.branch })
         let bodies = aliases.sorted { $0.key < $1.key }.compactMap { alias, key -> String? in
             guard let item = unique[key]?.first else { return nil }
-            let owner = item.repo.owner.replacingOccurrences(of: "\"", with: "")
-            let name = item.repo.name.replacingOccurrences(of: "\"", with: "")
-            let branch = item.branch.replacingOccurrences(of: "\"", with: "")
-            return "\(alias): repository(owner: \"\(owner)\", name: \"\(name)\") { pullRequests(first: 20, states: [OPEN, CLOSED, MERGED], headRefName: \"\(branch)\") { nodes { number state title } } }"
+            let owner = Self.graphQLString(item.repo.owner)
+            let name = Self.graphQLString(item.repo.name)
+            let branch = Self.graphQLString(item.branch)
+            return "\(alias): repository(owner: \(owner), name: \(name)) { pullRequests(first: 20, states: [OPEN, CLOSED, MERGED], headRefName: \(branch)) { nodes { number state title } } }"
         }
         return "query { \(bodies.joined(separator: " ")) }"
+    }
+
+    private static func graphQLString(_ value: String) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
+              let encoded = String(data: data, encoding: .utf8),
+              encoded.count >= 2 else {
+            return "\"\""
+        }
+        return encoded
     }
 
     private static func pullRequests(from value: Any?) -> [AgentSessionPullRequest] {

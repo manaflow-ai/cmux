@@ -372,12 +372,14 @@ extension CMUXCLI {
           --tail [n]            Print newest cleaned output lines under each row (default: 3)
           --settled             Only sessions that finished, are idle for 2h, and have no open PR
           --idle-for <duration> Only sessions idle at least this long (for example 2h)
+          --json                Print structured JSON, with total_matches and limit
+                                alongside the rows
 
         cmux sessions tail <session|surface> [-n <lines>]
           Read one session's terminal tail through the same scoped read-only
           surface path as read-screen.
-          --json                Print structured JSON, with total_matches and limit
-                                alongside the rows
+          --json                Print structured JSON with session_id, surface_id
+                                and last_output
         """)
     }
 

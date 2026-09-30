@@ -18,10 +18,11 @@ extension CMUXCLI {
 
     /// Prints a bounded tail for one live session or surface through the same
     /// `surface.read_text` path used by `read-screen`.
-    func runSessionsTailCommand(commandArgs: [String], socketPath: String, explicitPassword: String?, jsonOutput: Bool) throws {
+    func runSessionsTailCommand(commandArgs: [String], socketPath: String, explicitPassword: String?, jsonOutput globalJSONOutput: Bool) throws {
         guard let target = commandArgs.dropFirst().first, !target.hasPrefix("-") else {
-            throw CLIError(message: "sessions tail: expected a session or surface")
+            throw CLIError(message: String(localized: "cli.sessions.tail.error.expectedTarget", defaultValue: "sessions tail: expected a session or surface"))
         }
+        var jsonOutput = globalJSONOutput
         var lines = 3
         var index = 1
         while index < commandArgs.count {
@@ -29,11 +30,19 @@ extension CMUXCLI {
             if arg == "-n" || arg == "--lines" {
                 index += 1
                 guard index < commandArgs.count, let value = Int(commandArgs[index]), value > 0 else {
-                    throw CLIError(message: "sessions tail: -n requires a positive integer")
+                    throw CLIError(message: String(localized: "cli.sessions.tail.error.invalidLines", defaultValue: "sessions tail: -n requires a positive integer"))
                 }
                 lines = value
+            } else if arg == "--json" {
+                jsonOutput = true
             } else if arg != target {
-                throw CLIError(message: "sessions tail: unexpected argument '\(arg)'")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.sessions.tail.error.unexpectedArgument",
+                        defaultValue: "sessions tail: unexpected argument '%@'"
+                    ),
+                    arg
+                ))
             }
             index += 1
         }
@@ -56,7 +65,7 @@ extension CMUXCLI {
                 session = ["session_id": target, "surface_id": target]
                 surfaceID = target
             } else {
-                throw CLIError(message: "sessions tail: session or surface not found")
+                throw CLIError(message: String(localized: "cli.sessions.tail.error.notFound", defaultValue: "sessions tail: session or surface not found"))
             }
         }
         let payload = try client.sendV2(method: "surface.read_text", params: [
@@ -122,7 +131,7 @@ extension CMUXCLI {
             case "--idle-for":
                 let value = try sessionsLiveTakeValue(flag: arg, args: args, index: &index)
                 guard let seconds = Self.sessionsLiveDuration(value) else {
-                    throw CLIError(message: "sessions live: --idle-for expects a duration such as 2h")
+                    throw CLIError(message: String(localized: "cli.sessions.live.error.invalidIdleFor", defaultValue: "sessions live: --idle-for expects a duration such as 2h"))
                 }
                 parsed.idleForSeconds = seconds
             case "--state", "--agent", "--limit":

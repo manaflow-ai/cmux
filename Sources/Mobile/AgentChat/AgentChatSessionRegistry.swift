@@ -18,6 +18,8 @@ final class AgentChatSessionRegistry {
     private let metadataResolver: AgentSessionMetadataResolver
     private var metadataRefreshInFlight = false
     private var metadataRefreshPending = false
+    private var metadataRefreshLastStartedAt: Date?
+    private let metadataRefreshMinimumInterval: TimeInterval = 15
 
     /// Called after a record mutation with the previous value (nil for a
     /// brand-new record), so the owner derives state/descriptor deltas in
@@ -189,7 +191,7 @@ final class AgentChatSessionRegistry {
                 }
             }
         }
-        scheduleMetadataRefresh()
+        scheduleMetadataRefresh(force: true)
     }
 
     /// The watched agent exited; verify before ending the session.
@@ -448,7 +450,7 @@ final class AgentChatSessionRegistry {
                 storeRecord(record, replacing: nil)
             }
         }
-        scheduleMetadataRefresh()
+        scheduleMetadataRefresh(force: true)
     }
 
     /// Ingests one hook event: creates or refreshes the session record and
@@ -551,7 +553,14 @@ final class AgentChatSessionRegistry {
         stampLifecycleTransition(previous: previous, current: &record, at: event.receivedAt)
         stampVersion(&record)
         storeRecord(record, replacing: previous)
-        scheduleMetadataRefresh()
+        let checkoutIdentityChanged = previous == nil
+            || previous?.workingDirectory != record.workingDirectory
+            || event.hookEventName == .sessionStart
+            || event.hookEventName == .stop
+            || event.hookEventName == .sessionEnd
+        if checkoutIdentityChanged {
+            scheduleMetadataRefresh()
+        }
         if shouldConsultStore {
             backfillBindingsFromStore(
                 sessionID: sessionID,
@@ -562,13 +571,20 @@ final class AgentChatSessionRegistry {
         return record
     }
 
-    private func scheduleMetadataRefresh() {
+    private func scheduleMetadataRefresh(force: Bool = false) {
         guard !metadataRefreshInFlight else {
+            metadataRefreshPending = true
+            return
+        }
+        if !force,
+           let lastStartedAt = metadataRefreshLastStartedAt,
+           Date().timeIntervalSince(lastStartedAt) < metadataRefreshMinimumInterval {
             metadataRefreshPending = true
             return
         }
         metadataRefreshPending = false
         metadataRefreshInFlight = true
+        metadataRefreshLastStartedAt = Date()
         let snapshot = Array(records.values)
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -587,11 +603,7 @@ final class AgentChatSessionRegistry {
                     continue
                 }
                 if let value = metadata[sessionID] {
-                    guard let branchAtApply = await self.metadataResolver.currentBranch(directory: snapshotDirectory) else {
-                        continue
-                    }
-                    guard branchAtApply == value.branch,
-                          current.branch == nil || current.branch == value.branch else {
+                    guard current.branch == nil || current.branch == value.branch else {
                         self.update(sessionID: sessionID) { record in
                             record.branch = nil
                             record.worktree = nil
@@ -625,7 +637,15 @@ final class AgentChatSessionRegistry {
             }
             self.metadataRefreshInFlight = false
             if self.metadataRefreshPending {
-                self.scheduleMetadataRefresh()
+                let elapsed = self.metadataRefreshLastStartedAt.map { Date().timeIntervalSince($0) } ?? .infinity
+                let delay = max(0, self.metadataRefreshMinimumInterval - elapsed)
+                self.metadataRefreshPending = false
+                Task { @MainActor [weak self] in
+                    if delay > 0 {
+                        try? await Task.sleep(for: .seconds(delay))
+                    }
+                    self?.scheduleMetadataRefresh(force: true)
+                }
             }
         }
     }

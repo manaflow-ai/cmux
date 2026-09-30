@@ -43,6 +43,21 @@ extension AppDelegate {
             return []
         }
         let index = SharedLiveAgentIndex.shared.index ?? .empty
+        let idleHours = AgentHibernationSettings.settledAutoCloseIdleHours()
+        let threshold = max(1, idleHours) * 60 * 60
+        let workspaces = workspacesForRead(tabIds: Set(records.compactMap { $0.workspaceID.flatMap(UUID.init(uuidString:)) }))
+        let prefiltered: [(record: AgentChatSessionRecord, workspace: Workspace, panelID: UUID)] = records.compactMap { record in
+            guard let workspaceID = record.workspaceID.flatMap(UUID.init(uuidString:)),
+                  let surfaceID = record.surfaceID.flatMap(UUID.init(uuidString:)),
+                  let workspace = workspaces[workspaceID],
+                  workspace.panels[surfaceID] is TerminalPanel else { return nil }
+            let idleFor = AgentSessionListPayload.idleForSeconds(record: record, now: now)
+            guard AgentSessionListPayload.isSettled(record: record, idleFor: idleFor, threshold: threshold) else {
+                return nil
+            }
+            return (record, workspace, surfaceID)
+        }
+        guard !prefiltered.isEmpty else { return [] }
         let hibernationRecords = agentHibernationRecords(
             index: index,
             activityByPanel: AgentHibernationController.shared.activityByPanel,
@@ -51,13 +66,11 @@ extension AppDelegate {
         )
         let hibernationByKey = Dictionary(uniqueKeysWithValues: hibernationRecords.map { ($0.key, $0) })
         var candidates: [SettledSessionCloseCandidate] = []
-        let workspaces = workspacesForRead(tabIds: Set(records.compactMap { $0.workspaceID.flatMap(UUID.init(uuidString:)) }))
-        let idleHours = AgentHibernationSettings.settledAutoCloseIdleHours()
-        for record in records {
-            guard let workspaceID = record.workspaceID.flatMap(UUID.init(uuidString:)),
-                  let surfaceID = record.surfaceID.flatMap(UUID.init(uuidString:)),
-                  let workspace = workspaces[workspaceID],
-                  workspace.panels[surfaceID] is TerminalPanel else { continue }
+        for item in prefiltered {
+            let record = item.record
+            let surfaceID = item.panelID
+            let workspace = item.workspace
+            let workspaceID = workspace.id
             let key = AgentHibernationPanelKey(workspaceId: workspaceID, panelId: surfaceID)
             guard SettledSessionClosePolicy.isEligible(
                 record: record,
@@ -70,15 +83,24 @@ extension AppDelegate {
         return candidates
     }
 
+    func settledSessionCloseCandidateCounts(now: Date = Date()) -> [UUID: Int] {
+        Dictionary(grouping: settledSessionCloseCandidates(now: now), by: { $0.workspace.id })
+            .mapValues(\.count)
+    }
+
     @discardableResult
     func closeSettledSessions(now: Date = Date(), automatic: Bool = false) -> Int {
         guard automatic ? AgentHibernationSettings.settledAutoCloseEnabled() : true else { return 0 }
         let candidates = settledSessionCloseCandidates(now: now)
+        let latestCandidates = Dictionary(
+            uniqueKeysWithValues: settledSessionCloseCandidates(now: Date()).map { ($0.id, $0) }
+        )
         var closed: [SettledSessionCloseCandidate] = []
         for candidate in candidates {
-            candidate.workspace.markCloseHistoryEligible(panelId: candidate.panelID)
-            guard candidate.workspace.closePanel(candidate.panelID, force: true) else { continue }
-            closed.append(candidate)
+            guard let latest = latestCandidates[candidate.id] else { continue }
+            latest.workspace.markCloseHistoryEligible(panelId: latest.panelID)
+            guard latest.workspace.closePanel(latest.panelID, force: true) else { continue }
+            closed.append(latest)
         }
         guard !closed.isEmpty else { return 0 }
         let names = closed.map { $0.workspace.title }.joined(separator: ", ")

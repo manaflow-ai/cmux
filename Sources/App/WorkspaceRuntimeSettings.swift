@@ -278,7 +278,7 @@ enum AgentHibernationSettings {
     static let defaultIdleSeconds: TimeInterval = 5
     static let defaultMaxLiveTerminals = 12
     static let defaultConfirmationSeconds: TimeInterval = 60
-    static let didChangeNotification = Notification.Name("cmux.agentHibernationSettingsDidChange")
+    static let didChangeNotification = CmuxSettingsNotifications.agentHibernationSettingsDidChange
     static let settledAutoCloseEnabledKey = "terminal.settledSessionAutoClose.enabled"
     static let settledAutoCloseIdleHoursKey = "terminal.settledSessionAutoClose.idleHours"
     static let settledAutoCloseDefaultIdleHours = 2.0

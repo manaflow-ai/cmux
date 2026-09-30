@@ -193,9 +193,8 @@ final class AgentHibernationController {
     }
 
     /// Keeps the opt-in settled-session cleanup on the same main-thread owner
-    /// as the hibernation controller. The cleanup coordinator performs its own
-    /// safety checks immediately before closing each panel, so a timer tick can
-    /// race with input or process changes without widening the close policy.
+    /// as the hibernation controller. The cleanup coordinator rechecks its
+    /// candidates immediately before closing each panel.
     private func updateSettledAutoCloseTimer() {
         guard AgentHibernationSettings.settledAutoCloseEnabled() else {
             settledAutoCloseTimer?.cancel()

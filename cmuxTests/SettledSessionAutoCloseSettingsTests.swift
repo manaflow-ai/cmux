@@ -4,6 +4,9 @@ final class SettledSessionAutoCloseSettingsTests: XCTestCase {
     func testSettledAutoCloseDefaultsOffAndSanitizesIdleHours() {
         let defaults = UserDefaults(suiteName: "SettledSessionAutoCloseSettingsTests")!
         defaults.removePersistentDomain(forName: "SettledSessionAutoCloseSettingsTests")
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: "SettledSessionAutoCloseSettingsTests")
+        }
         XCTAssertFalse(AgentHibernationSettings.settledAutoCloseEnabled(defaults: defaults))
         XCTAssertEqual(AgentHibernationSettings.settledAutoCloseIdleHours(defaults: defaults), 2)
 
