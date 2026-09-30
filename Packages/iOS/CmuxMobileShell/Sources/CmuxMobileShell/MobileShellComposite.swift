@@ -8872,7 +8872,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminals: [
                 MobileTerminalPreview(
                     id: .init(rawValue: "workspace-\(nextIndex)-terminal-1"),
-                    name: L10n.terminalName(index: 1)
+                    name: L10n.terminalName(index: 1),
+                    canClose: true
                 ),
             ]
         )
@@ -8934,7 +8935,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let terminalIndex = workspace.terminals.count + 1
         let terminal = MobileTerminalPreview(
             id: .init(rawValue: "\(workspace.id.rawValue)-terminal-\(terminalIndex)"),
-            name: L10n.terminalName(index: terminalIndex)
+            name: L10n.terminalName(index: terminalIndex),
+            canClose: true
         )
         mutateForegroundWorkspaces { list in
             if let index = list.firstIndex(where: { $0.id == targetWorkspaceID }) {

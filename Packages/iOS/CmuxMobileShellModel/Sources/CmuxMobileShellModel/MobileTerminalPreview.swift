@@ -44,7 +44,7 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
     ///   - name: The terminal's user-facing display name.
     ///   - isReady: Whether the terminal surface is ready. Defaults to `true`.
     ///   - isFocused: Whether the terminal currently holds focus. Defaults to `false`.
-    ///   - canClose: Whether a non-interactive close request is allowed. Defaults to `true`.
+    ///   - canClose: Whether a non-interactive close request is allowed. Defaults to `false`.
     ///   - viewportFit: The negotiated viewport fit, if any. Defaults to `nil`.
     public init(
         id: ID,
@@ -52,7 +52,7 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
         currentDirectory: String? = nil,
         isReady: Bool = true,
         isFocused: Bool = false,
-        canClose: Bool = true,
+        canClose: Bool = false,
         viewportFit: MobileTerminalViewportFit? = nil
     ) {
         self.id = id
