@@ -12,6 +12,16 @@ import { ShortcutOverlay, useKeymap } from "../hooks/useKeymap";
 import { useAutoGrow } from "../hooks/useAutoGrow";
 import { loadingProviderOptionIds, providerOptionMap, useFileCatalog, useProviderCatalogs, withFileTrigger } from "../hooks/useCatalogs";
 
+const TRANSCRIPT_GUIDE_SEEN_KEY = "agentui.transcriptGuide.seen";
+
+function readTranscriptGuideSeen(): boolean {
+  try {
+    return localStorage.getItem(TRANSCRIPT_GUIDE_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 function usePersistSessionOptions(provider: string | undefined, options: SessionOption[], skip = false) {
   useEffect(() => {
     if (skip || !provider || !options.length) return;
@@ -59,6 +69,8 @@ export function Chat() {
   const [text, setText] = useState("");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [transcriptGuideSeen, setTranscriptGuideSeen] = useState(readTranscriptGuideSeen);
+  const [transcriptGuideOpen, setTranscriptGuideOpen] = useState(false);
   const taRef = useAutoGrow(text, 200);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
@@ -109,6 +121,12 @@ export function Chat() {
     stickRef.current = true;
     if (reply(t)) setText("");
   };
+  const dismissTranscriptGuide = () => {
+    setTranscriptGuideSeen(true);
+    setTranscriptGuideOpen(false);
+    try { localStorage.setItem(TRANSCRIPT_GUIDE_SEEN_KEY, "1"); } catch { /* storage is optional */ }
+  };
+  const showTranscriptGuide = transcriptView && (!transcriptGuideSeen || transcriptGuideOpen);
   const switchHarnessModel = (provider: string, model: string) => {
     if (!session) return;
     if (provider === session.provider) {
@@ -139,6 +157,28 @@ export function Chat() {
   return (
     <section id="chat-view">
       <div id="messages" ref={scrollRef} onScroll={onScroll}>
+        {showTranscriptGuide ? (
+          <aside className="transcript-guide" role="region" aria-labelledby="transcript-guide-title">
+            <div className="transcript-guide-heading">
+              <div>
+                <h2 id="transcript-guide-title">Terminal chat</h2>
+                <p>This view follows the agent already running in your terminal.</p>
+              </div>
+              {transcriptGuideSeen ? (
+                <button className="transcript-guide-close" type="button" aria-label="Close terminal chat guide" onClick={() => setTranscriptGuideOpen(false)}>×</button>
+              ) : null}
+            </div>
+            <ul>
+              <li>Your local Claude or Codex login, settings, and approval mode continue to apply.</li>
+              <li>Send normal prompts here; approvals, questions, and pickers stay in the terminal.</li>
+              <li>When the agent needs input, choose <strong>Answer in terminal</strong> to jump there.</li>
+            </ul>
+            <div className="transcript-guide-actions">
+              <button type="button" onClick={focusTerminal}>Open terminal</button>
+              <button type="button" onClick={dismissTranscriptGuide}>Got it</button>
+            </div>
+          </aside>
+        ) : null}
         <Blocks
           blocks={blocks}
           status={session?.status}
@@ -191,7 +231,10 @@ export function Chat() {
                 <span className={running ? "transcript-dot running" : "transcript-dot"} aria-hidden="true" />
                 <span>{agentChatText(running ? "transcriptViewRunning" : "transcriptViewIdle")}</span>
               </span>
-              {chatActions}
+              <div className="transcript-actions">
+                <button className="transcript-help" type="button" aria-expanded={showTranscriptGuide} onClick={() => setTranscriptGuideOpen((open) => !open)}>Guide</button>
+                {chatActions}
+              </div>
             </div>
           ) : (
             <StatusRow
