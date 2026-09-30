@@ -957,6 +957,39 @@
           }
         }
       ]
+    },
+    {
+      "name": "attach clamps a zero viewport to the smallest grid",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 0,
+              "rows": 0
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 2,
+          "rows": 1,
+          "owners": [
+            "mac"
+          ],
+          "reason": "smallest",
+          "counts": {
+            "mac": true
+          }
+        }
+      ]
     }
   ]
 }
