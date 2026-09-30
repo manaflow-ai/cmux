@@ -18,7 +18,9 @@ public final class CloudProviderRefreshCoordinator {
     private var lifetime: UInt64 = 0
     /// Result of the most recently completed forced pass. This is retained
     /// briefly so callers that were already waiting on an older pass can join
-    /// a trailing pass even if its owner clears `inFlight` first.
+    /// a trailing pass even if its owner clears `inFlight` first. Only the
+    /// pass task writes this value; waiter continuations may resume after an
+    /// invalidation and must never republish an old result.
     private var completedForcedPass: (request: UInt64, lifetime: UInt64, invalidation: UInt64, result: Bool)?
 
     public func refresh(force: Bool, operation: @escaping @MainActor (Bool) async -> Bool) async -> Bool {
