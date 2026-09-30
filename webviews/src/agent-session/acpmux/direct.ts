@@ -188,9 +188,8 @@ export class AcpmuxDirectClient {
     });
   }
 
-  private async attach(sessionId: string, beforeSeq?: number): Promise<void> {
-    this.selectedSessionId = sessionId;
-    const generation = this.selectionGeneration;
+  private async attach(sessionId: string, beforeSeq?: number, generation = this.selectionGeneration): Promise<void> {
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
     const params: Record<string, unknown> = { sessionId, limit: 400, kinds: ["transcript"], eventStream: true };
     if (beforeSeq !== undefined) params.beforeSeq = beforeSeq;
     const result = await this.request("_acpmux/attach", params);
@@ -339,7 +338,7 @@ export class AcpmuxDirectClient {
     this.streamingActivity = undefined;
     this.pendingPermission = undefined;
     if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
-    await this.attach(sessionId);
+    await this.attach(sessionId, undefined, generation);
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
   async create(harness?: string): Promise<string | undefined> { const result = await this.request("session/new", { mcpServers: [], _meta: { acpmux: { harness } } }); if (result?.sessionId) return this.select(String(result.sessionId)); return undefined; }
