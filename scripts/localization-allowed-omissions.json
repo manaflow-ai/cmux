@@ -3514,5 +3514,17 @@
       "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
       "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
     }
+  },
+  "actions.discovery.dialogTitle": {
+    "source": "Actions · cmux.json",
+    "identityLocales": {
+      "fr": "\"Actions\" is the correct French word and cmux.json is a file name, so the French title matches English."
+    }
+  },
+  "actions.discovery.menuTitle": {
+    "source": "Actions · cmux.json…",
+    "identityLocales": {
+      "fr": "\"Actions\" is the correct French word and cmux.json is a file name, so the French title matches English."
+    }
   }
 }
