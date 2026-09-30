@@ -14,6 +14,24 @@ enum ConfirmationStrings {
         String(localized: "confirm.button.delete", defaultValue: "Delete", table: "Handlers", bundle: .module)
     }
 
+    static var quit: String {
+        String(localized: "confirm.button.quit", defaultValue: "Quit", table: "Handlers", bundle: .module)
+    }
+
+    static var closeIncognitoWindowTitle: String {
+        String(localized: "confirm.closeIncognitoWindow.title", defaultValue: "Close this incognito window?", table: "Handlers", bundle: .module)
+    }
+
+    static var quitIncognitoTitle: String {
+        String(localized: "confirm.quitIncognito.title", defaultValue: "Quit and close incognito windows?", table: "Handlers", bundle: .module)
+    }
+
+    static func incognitoBody(_ programs: String) -> String {
+        String(localized: "confirm.incognito.body",
+               defaultValue: "Still running: \(programs). Closing ends these processes and deletes the incognito browser data.",
+               table: "Handlers", bundle: .module)
+    }
+
     static func closeWorkspaceTitle(_ name: String) -> String {
         String(localized: "confirm.closeWorkspace.title", defaultValue: "Close “\(name)”?", table: "Handlers", bundle: .module)
     }

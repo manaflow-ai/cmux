@@ -139,9 +139,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let services else { return .terminateNow }
         // Quit (menu, Cmd-Q, socket) never waits on an open sheet.
         SheetDismissal.endAll()
-        Task {
-            await services.windows.prepareForTermination()
-            sender.reply(toApplicationShouldTerminate: true)
+        // Quitting closes incognito windows' workspaces: ask first while a
+        // terminal in one runs a program (IncognitoCloseConfirmation).
+        let windows = services.windows!
+        let incognito = windows.registry.value.windows.map(\.id).filter(windows.isIncognito(window:))
+        let sheetWindow = incognito.lazy.compactMap { windows.controller(for: $0)?.window }.first
+        IncognitoCloseConfirmation.confirm(windows: incognito, quitting: true, sheetOn: sheetWindow, services) { ok in
+            guard ok else { return sender.reply(toApplicationShouldTerminate: false) }
+            Task {
+                await windows.prepareForTermination()
+                sender.reply(toApplicationShouldTerminate: true)
+            }
         }
         return .terminateLater
     }

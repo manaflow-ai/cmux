@@ -229,6 +229,22 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowDidMove(_ notification: Notification) { services.windows.stateDidChange(state) }
     func windowDidEndLiveResize(_ notification: Notification) { services.windows.stateDidChange(state) }
 
+    /// Set once closing this incognito window was confirmed (or needed no
+    /// confirmation).
+    private var closeConfirmed = false
+
+    /// An incognito window closes its workspaces: it asks first while one
+    /// of its terminals runs a program (`IncognitoCloseConfirmation`).
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard !closeConfirmed, services.windows.isIncognito(window: state.id) else { return true }
+        IncognitoCloseConfirmation.confirm(windows: [state.id], quitting: false, sheetOn: sender, services) { [weak self, weak sender] ok in
+            guard ok, let self else { return }
+            closeConfirmed = true
+            sender?.close()
+        }
+        return false
+    }
+
     func windowWillClose(_ notification: Notification) {
         services.windows.windowWillClose(self)
     }
