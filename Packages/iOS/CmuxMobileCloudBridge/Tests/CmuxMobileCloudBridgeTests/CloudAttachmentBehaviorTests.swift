@@ -116,11 +116,14 @@ struct CloudAttachmentBehaviorTests {
 
     private final class FakeLinkProvider: CloudMachineLinkProviding {
         var linksByMachineID: [String: FakeMachineLink] = [:]
+        private(set) var linkRequestCount = 0
+
         func resetLink(for machine: CloudMachine) {}
         /// When false, the tunnel is treated as not ready.
         var isReady = true
 
         func link(for machine: CloudMachine) -> (any CloudMachineLinking)? {
+            linkRequestCount += 1
             guard isReady else { return nil }
             return linksByMachineID[machine.id]
         }
@@ -134,14 +137,9 @@ struct CloudAttachmentBehaviorTests {
         CloudAddress(machineID: machineID, component: terminal).identifier
     }
 
-    /// Lets queued main-actor work and the bridge's attach task run.
-    ///
-    /// A fixed yield count is a race under load, so a wait for something to
-    /// happen polls its own condition and only gives up after a bound that is
-    /// far past any real scheduling delay. Waits that assert nothing happens
-    /// still need a plain settle, which is why both exist.
+    /// Lets queued main-actor work run until the state under test is visible.
     private func settle(
-        until condition: () -> Bool = { false },
+        until condition: () -> Bool,
         timeout: Duration = .seconds(10)
     ) async {
         let deadline = ContinuousClock.now.advanced(by: timeout)
@@ -161,7 +159,6 @@ struct CloudAttachmentBehaviorTests {
         provider.linksByMachineID["vm-1"] = link
         let bridge = CloudWorkspaceBridge(links: provider)
         bridge.setAdmittedMachines([Self.machine()])
-        await settle()
         return (bridge, provider, link)
     }
 
@@ -173,7 +170,7 @@ struct CloudAttachmentBehaviorTests {
         // The view is on screen and the user types before the attach finishes.
         bridge.externalHostSendInput("ec", surfaceID: surface)
         bridge.externalHostSendInput("ho hi\r", surfaceID: surface)
-        await settle()
+        await settle(until: { link.attachCount == 1 })
         #expect(link.terminalLink.sent.isEmpty, "nothing can be sent before the link exists")
 
         // Let the attach complete.
@@ -190,7 +187,7 @@ struct CloudAttachmentBehaviorTests {
 
         bridge.externalHostRequestReplay(surfaceID: surface)
         bridge.externalHostReportViewport(surfaceID: surface, columns: 96, rows: 30)
-        await settle()
+        await settle(until: { link.attachCount == 1 })
         #expect(link.terminalLink.resizes.isEmpty)
 
         link.attachGate?.finish()
@@ -208,7 +205,7 @@ struct CloudAttachmentBehaviorTests {
         bridge.externalHostRequestReplay(surfaceID: surface)
         bridge.externalHostRequestReplay(surfaceID: surface)
         bridge.externalHostRequestReplay(surfaceID: surface)
-        await settle()
+        await settle(until: { link.attachCount == 1 })
 
         #expect(link.attachCount == 1)
         #expect(link.terminalLink.detachCount == 0)
@@ -237,7 +234,7 @@ struct CloudAttachmentBehaviorTests {
 
     @Test("Switching terminals mid-attach hands the slot over in order")
     func supersededAttachHandsOverInOrder() async {
-        let (bridge, _, link) = await makeBridge(gateAttach: true)
+        let (bridge, provider, link) = await makeBridge(gateAttach: true)
         let first = Self.surfaceID(terminal: "t-1")
         let second = Self.surfaceID(terminal: "t-2")
 
@@ -245,9 +242,10 @@ struct CloudAttachmentBehaviorTests {
         await settle(until: { link.attachedTerminalIDs == ["t-1"] })
 
         // Supersede while the first dial is still blocked in the library.
+        let linkRequestsBeforeSecond = provider.linkRequestCount
         bridge.externalHostRequestReplay(surfaceID: second)
         // The successor must NOT dial concurrently; it waits out the first.
-        await settle()
+        await settle(until: { provider.linkRequestCount == linkRequestsBeforeSecond + 1 })
         #expect(link.attachedTerminalIDs == ["t-1"])
 
         // Releasing the first dial lets it finish as superseded: it frees the
@@ -270,16 +268,15 @@ struct CloudAttachmentBehaviorTests {
         let surface = Self.surfaceID()
 
         bridge.externalHostSendInput("ls\r", surfaceID: surface)
-        await settle()
+        await settle(until: { link.attachCount == 1 })
 
         bridge.setAdmittedMachines([])
         link.attachGate?.finish()
-        await settle()
+        await settle(until: { link.terminalLink.detachCount == 1 })
 
         // The surface is no longer owned, so nothing more can be routed to it.
         #expect(!bridge.externalHostOwnsSurface(surface))
         bridge.externalHostSendInput("more\r", surfaceID: surface)
-        await settle()
         #expect(!link.terminalLink.sentText.contains("more"))
     }
 
@@ -302,7 +299,6 @@ struct CloudAttachmentBehaviorTests {
 
         // Typing now must not be handed to the dead attachment.
         bridge.externalHostSendInput("lost\r", surfaceID: surface)
-        await settle()
         #expect(!link.terminalLink.sentText.contains("lost"))
 
         // Once the tunnel is back, the next interaction attaches again and the
@@ -329,7 +325,6 @@ struct CloudAttachmentBehaviorTests {
         provider.isReady = false
         let bridge = CloudWorkspaceBridge(links: provider)
         bridge.setAdmittedMachines([Self.machine()])
-        await settle()
 
         #expect(link.attachCount == 0)
         #expect(bridge.admittedMachines.map(\.id) == ["vm-1"])

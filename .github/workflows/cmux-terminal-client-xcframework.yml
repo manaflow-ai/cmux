@@ -32,6 +32,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      source_sha: ${{ steps.version.outputs.source_sha }}
     steps:
       - name: Checkout dispatched ref
         if: inputs.ref == ''
@@ -90,6 +91,7 @@ jobs:
           else
             version="${crate_version}+${short_sha}"
           fi
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=cmux-terminal-client-v$version" >> "$GITHUB_OUTPUT"
 
@@ -295,14 +297,23 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.build.outputs.tag }}
           VERSION: ${{ needs.build.outputs.version }}
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
           checksum="$(cat assets/CmuxTerminalClient.xcframework.zip.sha256)"
           notes="cmux-terminal-client $VERSION as CmuxTerminalClient.xcframework (static frameworks: iOS arm64, iOS simulator arm64, macOS arm64). Source ${SOURCE_SHA}. SwiftPM binaryTarget checksum: ${checksum}"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" assets/CmuxTerminalClient.xcframework.zip assets/CmuxTerminalClient.xcframework.zip.sha256 assets/SHA256SUMS --clobber
+            existing="$(mktemp -d)"
+            gh release download "$TAG" \
+              --pattern "CmuxTerminalClient.xcframework.zip.sha256" \
+              --dir "$existing"
+            published_checksum="$(cat "$existing/CmuxTerminalClient.xcframework.zip.sha256")"
+            if [[ "$published_checksum" != "$checksum" ]]; then
+              echo "::error::release $TAG already exists with checksum $published_checksum, expected $checksum; use a new tag" >&2
+              exit 1
+            fi
+            echo "release $TAG already contains the matching immutable artifact"
           else
             gh release create "$TAG" assets/CmuxTerminalClient.xcframework.zip assets/CmuxTerminalClient.xcframework.zip.sha256 assets/SHA256SUMS \
               --target "$SOURCE_SHA" --title "$TAG" --notes "$notes" --prerelease
