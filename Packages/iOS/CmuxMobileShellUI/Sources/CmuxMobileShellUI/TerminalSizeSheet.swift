@@ -13,6 +13,8 @@ struct TerminalSizeSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var isConfirmingDisconnectOthers = false
+    /// The Mac row awaiting its disconnect confirmation.
+    @State private var pendingMacDisconnect: TerminalSizingParticipantState?
     @State private var actionFailed = false
     @State private var fixedColumns = 80
     @State private var fixedRows = 24
@@ -116,6 +118,23 @@ struct TerminalSizeSheet: View {
         }
         .listStyle(.insetGrouped)
         .scrollDismissesKeyboard(.interactively)
+        .confirmationDialog(
+            pendingMacDisconnect.flatMap(presentation.disconnectConfirmation(for:))
+                .map(TerminalSizingText.disconnectMacTitle) ?? "",
+            isPresented: Binding(
+                get: { pendingMacDisconnect != nil },
+                set: { if !$0 { pendingMacDisconnect = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingMacDisconnect
+        ) { row in
+            Button(TerminalSizingText.disconnect(), role: .destructive) {
+                run { await store.disconnectTerminalParticipant(row.id, surfaceID: surfaceID) }
+            }
+            .accessibilityIdentifier("MobileTerminalSizingDisconnectMacConfirm")
+        } message: { _ in
+            Text(TerminalSizingText.disconnectMacMessage())
+        }
         .onAppear {
             let fixed = presentation.policy.fixed ?? presentation.grid
             fixedColumns = fixed.cols
@@ -208,9 +227,9 @@ struct TerminalSizeSheet: View {
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(isSelf ? "MobileTerminalSizingSelfRow" : "MobileTerminalSizingParticipantRow")
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if !isSelf {
+            if presentation.canDisconnect(row) {
                 Button(TerminalSizingText.disconnect(), role: .destructive) {
-                    run { await store.disconnectTerminalParticipant(row.id, surfaceID: surfaceID) }
+                    requestDisconnect(row, presentation: presentation)
                 }
             }
         }
@@ -218,13 +237,26 @@ struct TerminalSizeSheet: View {
             if isSelf {
                 // The Mac RPC sets the counts override for this phone only.
                 Toggle(TerminalSizingText.countsToggle(), isOn: countsBinding(row))
-            } else {
+            } else if presentation.canDisconnect(row) {
                 Button(role: .destructive) {
-                    run { await store.disconnectTerminalParticipant(row.id, surfaceID: surfaceID) }
+                    requestDisconnect(row, presentation: presentation)
                 } label: {
                     Label(TerminalSizingText.disconnect(), systemImage: "xmark.circle")
                 }
             }
+        }
+    }
+
+    /// Disconnects a phone at once; a Mac first confirms, naming that Mac,
+    /// because its window loses the terminal (HIG: Alerts, destructive actions).
+    private func requestDisconnect(
+        _ row: TerminalSizingParticipantState,
+        presentation: MobileTerminalSizingPresentation
+    ) {
+        if presentation.disconnectConfirmation(for: row) != nil {
+            pendingMacDisconnect = row
+        } else {
+            run { await store.disconnectTerminalParticipant(row.id, surfaceID: surfaceID) }
         }
     }
 

@@ -1712,6 +1712,124 @@
         }
       }
     },
+    "mobile.terminal.sizing.sheet.disconnectMac.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect %@?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を切断しますか？"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ trennen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecter %@ ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد قطع اتصال %@؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Desconectar %@?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要中斷 %@ 的連線嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要断开 %@ 吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 연결을 끊을까요?"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sizing.sheet.disconnectMac.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That Mac stops showing this terminal until someone reattaches it there. The terminal keeps running, and this iPhone stays connected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのMacでだれかが再接続するまで、このターミナルは表示されなくなります。ターミナルは動作し続け、このiPhoneの接続も維持されます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac zeigt das Terminal nicht mehr an, bis es dort jemand wieder verbindet. Das Terminal läuft weiter, und dieses iPhone bleibt verbunden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’affiche plus ce terminal tant que personne ne le rattache sur ce Mac. Le terminal continue de fonctionner et cet iPhone reste connecté."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتوقف ذلك الـ Mac عن عرض هذه الطرفية حتى يعيد أحدهم إرفاقها عليه. تظل الطرفية قيد التشغيل ويظل هذا الـ iPhone متصلًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese Mac deja de mostrar este terminal hasta que alguien lo vuelva a conectar allí. El terminal sigue en ejecución y este iPhone sigue conectado."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在有人於該 Mac 上重新連線之前，它不會再顯示此終端機。終端機會繼續執行，這部 iPhone 也會保持連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在有人于该 Mac 上重新连接之前，它不再显示此终端。终端会继续运行，这台 iPhone 也保持连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "누군가 그 Mac에서 다시 연결할 때까지 그 Mac에는 이 터미널이 표시되지 않습니다. 터미널은 계속 실행되고 이 iPhone도 연결된 상태로 유지됩니다."
+          }
+        }
+      }
+    },
     "mobile.terminal.sizing.sheet.done": {
       "extractionState": "manual",
       "localizations": {

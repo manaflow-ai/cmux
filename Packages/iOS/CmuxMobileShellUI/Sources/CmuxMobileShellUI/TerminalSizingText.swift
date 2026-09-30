@@ -243,6 +243,19 @@ struct TerminalSizingText {
         L10n.string("mobile.terminal.sizing.sheet.disconnect", defaultValue: "Disconnect")
     }
 
+    /// "Disconnect Lawrence's MacBook Pro?"
+    static func disconnectMacTitle(_ mac: MobileTerminalSizingOwnerLabel) -> String {
+        let name = owner(mac)
+        return L10n.string("mobile.terminal.sizing.sheet.disconnectMac.title", defaultValue: "Disconnect \(name)?")
+    }
+
+    static func disconnectMacMessage() -> String {
+        L10n.string(
+            "mobile.terminal.sizing.sheet.disconnectMac.message",
+            defaultValue: "That Mac stops showing this terminal until someone reattaches it there. The terminal keeps running, and this iPhone stays connected."
+        )
+    }
+
     static func disconnectOthers() -> String {
         L10n.string("mobile.terminal.sizing.sheet.disconnectOthers", defaultValue: "Disconnect Others")
     }
