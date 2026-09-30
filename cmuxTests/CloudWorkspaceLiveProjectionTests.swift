@@ -273,6 +273,7 @@ struct CloudWorkspaceLiveProjectionTests {
         install(try graph(["first": "a"], revision: 1), catalog: catalog)
         await fixture.coordinator.waitForIdle()
         let projection = try #require(catalog.projections.first { $0.workspaceID == fixture.workspace.id })
+        #expect(projection.remoteWorkspaceID == "a" && projection.remoteTabID == "first")
         let view = try #require(try catalog.remoteView(for: projection.resource, tabID: projection.remoteTabID, workspaceID: "a"))
         let version = catalog.projectionVersions[machine]
 

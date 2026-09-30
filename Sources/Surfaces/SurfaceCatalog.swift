@@ -1245,16 +1245,21 @@ final class SurfaceCatalog {
     }
 
     func setRemotePlacement(for source: SurfaceProjection, workspaceID: String?, tabID: String?) {
+        // Only views whose coordinates change; an unchanged placement notifies nobody.
         let matching = projections.filter {
             $0.resource == source.resource && ($0.panelID == source.panelID
                 || (tabID != nil && $0.remoteTabID == tabID))
+                && ($0.remoteWorkspaceID != workspaceID || $0.remoteTabID != tabID)
         }
+        guard !matching.isEmpty else { return }
+        var next = projections
         for var projection in matching {
-            projections.remove(projection)
+            next.remove(projection)
             projection.remoteWorkspaceID = workspaceID
             projection.remoteTabID = tabID
-            projections.insert(projection)
+            next.insert(projection)
         }
+        projections = next
         notifyChange(for: source.resource.machine)
     }
 
