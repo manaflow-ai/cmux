@@ -12,6 +12,8 @@ final class CEFRuntime {
 
     enum State: Equatable {
         case idle
+        /// The shim and the framework are being mapped off the main thread.
+        case loading
         case ready
         case failed(String)
         case shutDown
@@ -40,27 +42,80 @@ final class CEFRuntime {
     private(set) var loadsUnpackedExtensions = false
     private var terminationObserver: (any NSObjectProtocol)?
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
+    /// The off-main library load; every concurrent first tab awaits it.
+    private var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
 
     private init() {}
 
     var forkAPIVersion: Int32 { shim?.forkAPIVersion() ?? 0 }
 
-    /// Loads the shim and the framework and initializes CEF. Idempotent.
-    /// Synchronous on the main thread (about 0.5 s: CEF runs
-    /// `OnContextInitialized` inside `CefInitialize`).
+    /// Starts CEF for the first tab without blocking the main thread on the
+    /// library load: `dlopen` of the shim and the 367 MiB framework (seconds
+    /// on a cold disk or after a rebuild, when the code signature is checked
+    /// again) runs on a background thread. Only `CefInitialize`, which Chromium
+    /// requires on the main thread, runs here. Idempotent; concurrent callers
+    /// share one load.
     func start(
         layout candidate: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
         environment: [String: String] = ProcessInfo.processInfo.environment
-    ) throws(BrowserEngineError) {
-        switch state {
-        case .ready: return
-        case .failed(let reason): throw .engineUnavailable(.cef, reason: reason)
-        case .shutDown: throw .engineUnavailable(.cef, reason: Strings.cefUnavailable)
-        case .idle: break
+    ) async throws(BrowserEngineError) {
+        if let error = startError() { throw error }
+        if state == .ready { return }
+        let task: Task<Result<CEFLoadedLibrary, BootError>, Never>
+        if let loadTask {
+            task = loadTask
+        } else {
+            state = .loading
+            task = Task.detached(priority: .userInitiated) { CEFRuntime.loadLibrary(candidate) }
+            loadTask = task
         }
+        // A utility-priority preload may still be running; the await below
+        // raises its priority to this task's.
+        let loaded = await task.value
+        // Another awaiter finished first, or the app began to quit.
+        if let error = startError() { throw error }
+        if state == .ready { return }
+        try finishStart(loaded, environment: environment)
+    }
+
+    /// Starts mapping the shim and the framework in the background without
+    /// initializing CEF, so a later first tab skips the load. For a moment
+    /// that predicts a Chromium tab (the "+" menu or palette entry opening).
+    func preload(layout candidate: CEFRuntimeLayout? = CEFRuntimeLayout.locate()) {
+        guard state == .idle, loadTask == nil else { return }
+        state = .loading
+        loadTask = Task.detached(priority: .utility) { CEFRuntime.loadLibrary(candidate) }
+    }
+
+    /// Synchronous start for the debug window (loads on the main thread).
+    func startBlocking(
+        layout candidate: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws(BrowserEngineError) {
+        if let error = startError() { throw error }
+        if state == .ready { return }
+        try finishStart(Self.loadLibrary(candidate), environment: environment)
+    }
+
+    private func startError() -> BrowserEngineError? {
+        switch state {
+        case .failed(let reason): .engineUnavailable(.cef, reason: reason)
+        case .shutDown: .engineUnavailable(.cef, reason: Strings.cefUnavailable)
+        case .idle, .loading, .ready: nil
+        }
+    }
+
+    private func finishStart(
+        _ loaded: Result<CEFLoadedLibrary, BootError>,
+        environment: [String: String]
+    ) throws(BrowserEngineError) {
         do {
-            try boot(candidate, environment: environment)
+            let library = try loaded.get()
+            let clock = ContinuousClock()
+            let started = clock.now
+            try initialize(library, environment: environment)
             state = .ready
+            logger.notice("CEF ready fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
             let reason = "\(Strings.cefUnavailable) (\(error))"
             logger.error("CEF start failed: \(String(describing: error), privacy: .public)")
@@ -69,7 +124,7 @@ final class CEFRuntime {
         }
     }
 
-    private enum BootError: Error, CustomStringConvertible {
+    enum BootError: Error, CustomStringConvertible {
         case notEmbedded
         case shim(CEFShimLibrary.LoadError)
         case framework(String)
@@ -88,14 +143,26 @@ final class CEFRuntime {
         }
     }
 
-    private func boot(_ candidate: CEFRuntimeLayout?, environment: [String: String]) throws(BootError) {
-        guard let layout = candidate else { throw .notEmbedded }
+    /// Maps the shim and the framework (`cef_load_library`, fork API lookup).
+    /// Thread-safe: plain `dlopen`/`dlsym`, no Chromium code runs yet.
+    nonisolated static func loadLibrary(_ candidate: CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError> {
+        guard let layout = candidate else { return .failure(.notEmbedded) }
+        let clock = ContinuousClock()
+        let started = clock.now
         let shim: CEFShimLibrary
-        do { shim = try CEFShimLibrary.open(layout.shim) } catch { throw .shim(error) }
+        do { shim = try CEFShimLibrary.open(layout.shim) } catch { return .failure(.shim(error)) }
         var message = [CChar](repeating: 0, count: 512)
         guard shim.load(layout.frameworkBinary.path, &message, message.count) == 1 else {
-            throw .framework(String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self))
+            let text = String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            return .failure(.framework(text))
         }
+        return .success(CEFLoadedLibrary(shim: shim, layout: layout, loadDuration: clock.now - started))
+    }
+
+    /// The main-thread part: NSApp check, message pump, `CefInitialize`.
+    private func initialize(_ library: CEFLoadedLibrary, environment: [String: String]) throws(BootError) {
+        let shim = library.shim
+        let layout = library.layout
         // The app's NSApplication subclass must conform (CmuxApplication);
         // the shim no longer patches NSApp at runtime.
         guard shim.prepareApplication() == 1 else { throw .application }
@@ -131,7 +198,6 @@ final class CEFRuntime {
             pump.stop()
             throw .initialize
         }
-        logger.info("CEF ready fork_api=\(shim.forkAPIVersion()) root=\(self.storage.root.path, privacy: .public)")
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in

@@ -141,6 +141,11 @@ extension CEFRuntime {
     /// CefShutdown. The App awaits this from `applicationShouldTerminate`
     /// (terminate-later), so the run loop keeps pumping CEF meanwhile.
     func shutdown(timeout: Duration) async {
+        if state == .loading {
+            // The library is still mapping: never initialize after quit began.
+            state = .shutDown
+            return
+        }
         guard state == .ready, let shim else { return }
         var sequence = CEFShutdownSequence(liveBrowsers: tabsByBrowser.count, windows: Int(shim.windowCount()))
         sequence.begin()
