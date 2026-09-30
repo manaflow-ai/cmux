@@ -139,4 +139,21 @@ describe("invite email", () => {
     expect(email.subject).toBe("A teammate invited you to Acme on cmux");
     expect(email.text).not.toContain("as an admin");
   });
+
+  test("control characters and oversized names never reach the subject or body", () => {
+    const email = buildTeamInviteEmail({
+      from: "cmux <invites@cmux.com>",
+      to: "new@example.com",
+      teamName: "Acme\r\nBcc: victim@example.com",
+      inviterName: "A".repeat(200) + "\u202e",
+      role: "member",
+      acceptUrl: "https://cmux.com/en/join/tok",
+      expiresAt: new Date("2026-10-07T00:00:00Z"),
+    });
+    expect(email.subject).not.toMatch(/[\r\n]/);
+    expect(email.subject).toContain("Acme Bcc: victim@example.com on cmux");
+    expect(email.subject.length).toBeLessThan(140);
+    expect(email.text).not.toContain("\u202e");
+    expect(Object.keys(email.headers)).toEqual(["Auto-Submitted"]);
+  });
 });

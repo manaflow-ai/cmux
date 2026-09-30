@@ -32,17 +32,25 @@ export type TeamInviteMailer = {
   send(input: TeamInviteEmailInput): Promise<void>;
 };
 
+/** One line of display text for a subject or greeting: no control characters, bounded length. */
+function displayText(value: string | null | undefined, fallback: string, max = 80): string {
+  const cleaned = (value ?? "").replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim();
+  if (!cleaned) return fallback;
+  return cleaned.length > max ? `${cleaned.slice(0, max - 1)}…` : cleaned;
+}
+
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!));
 }
 
 export function buildTeamInviteEmail(params: TeamInviteEmailInput & { readonly from: string }): TeamInviteEmail {
-  const inviter = params.inviterName?.trim() || "A teammate";
+  const inviter = displayText(params.inviterName, "A teammate");
+  const teamName = displayText(params.teamName, "a cmux team", 120);
   const download = params.downloadUrl ?? CMUX_DOWNLOAD_URL;
   const expires = params.expiresAt.toISOString().slice(0, 10);
   const roleLine = params.role === "admin" ? " as an admin" : "";
   const text = [
-    `${inviter} invited you to ${params.teamName} on cmux${roleLine}.`,
+    `${inviter} invited you to ${teamName} on cmux${roleLine}.`,
     "",
     `Accept: ${params.acceptUrl}`,
     "",
@@ -53,7 +61,7 @@ export function buildTeamInviteEmail(params: TeamInviteEmailInput & { readonly f
     `The link expires on ${expires}. If you were not expecting this, ignore this email.`,
   ].join("\n");
   const html = [
-    `<p>${escapeHtml(inviter)} invited you to <strong>${escapeHtml(params.teamName)}</strong> on cmux${roleLine}.</p>`,
+    `<p>${escapeHtml(inviter)} invited you to <strong>${escapeHtml(teamName)}</strong> on cmux${roleLine}.</p>`,
     `<p><a href="${escapeHtml(params.acceptUrl)}">Accept the invitation</a></p>`,
     "<p>Members share the team's Cloud machines. Your own Mac stays private.</p>",
     `<p>New to cmux? <a href="${escapeHtml(download)}">Download it for Mac</a>, sign in with this address (${escapeHtml(params.to)}), then open the link above.</p>`,
@@ -62,11 +70,12 @@ export function buildTeamInviteEmail(params: TeamInviteEmailInput & { readonly f
   return {
     from: params.from,
     to: [params.to],
-    subject: `${inviter} invited you to ${params.teamName} on cmux`,
+    subject: `${inviter} invited you to ${teamName} on cmux`,
     text,
     html,
-    // Transactional mail: never batch-classified, never tracked.
-    headers: { "X-Entity-Ref-ID": params.acceptUrl.slice(-16), "Auto-Submitted": "auto-generated" },
+    // Transactional mail, one message per invitation. The token stays in the
+    // body only: no header, log line or subject carries it.
+    headers: { "Auto-Submitted": "auto-generated" },
   };
 }
 
