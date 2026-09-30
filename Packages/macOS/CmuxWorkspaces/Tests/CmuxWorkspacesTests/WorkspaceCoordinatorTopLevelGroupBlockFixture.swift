@@ -43,14 +43,11 @@ struct WorkspaceCoordinatorTopLevelGroupBlockFixture {
             loose2,
             loose3,
         ]
-        let group1Id = try #require(groups.createWorkspaceGroup(
-            name: "G1",
-            childWorkspaceIds: [group1Child1.id, group1Child2.id]
-        ))
-        let group2Id = try #require(groups.createWorkspaceGroup(
-            name: "G2",
-            childWorkspaceIds: [group2Child.id]
-        ))
+        let group1Id = try #require(groups.createWorkspaceGroup(name: "G1"))
+        groups.addWorkspaceToGroup(workspaceId: group1Child1.id, groupId: group1Id)
+        groups.addWorkspaceToGroup(workspaceId: group1Child2.id, groupId: group1Id)
+        let group2Id = try #require(groups.createWorkspaceGroup(name: "G2"))
+        groups.addWorkspaceToGroup(workspaceId: group2Child.id, groupId: group2Id)
         let anchor1Id = try #require(
             model.workspaceGroups.first { $0.id == group1Id }?.anchorWorkspaceId
         )

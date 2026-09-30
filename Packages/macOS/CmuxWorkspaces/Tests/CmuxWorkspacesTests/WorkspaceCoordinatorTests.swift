@@ -1068,7 +1068,9 @@ struct WorkspaceCoordinatorTests {
         let a = CoordinatorStubTab()
         let b = CoordinatorStubTab()
         model.tabs = [a, b]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: a.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: b.id, groupId: groupId)
 
         let closed = groups.deleteWorkspaceGroup(groupId: groupId)
 
@@ -1264,7 +1266,9 @@ struct WorkspaceCoordinatorTests {
         let b = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [a, b, outside]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: a.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: b.id, groupId: groupId)
 
         // Snapshot the confirmation while the original synthetic anchor is live.
         let confirmation = try #require(groups.deletionConfirmation(groupId: groupId))
