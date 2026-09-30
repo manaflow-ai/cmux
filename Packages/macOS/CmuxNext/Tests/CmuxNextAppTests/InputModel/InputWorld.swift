@@ -199,11 +199,20 @@ final class InputWorld {
     func setKey(_ new: KeyHolder, byClick: Bool = false) {
         let old = key
         guard old != new else { return }
+        // Only the active app has a key window: a click into an inactive
+        // app activates it first (didBecomeActive before didBecomeKey).
+        if new != .none, !appActive {
+            appActive = true
+            windows.forEach { $0.focus.send(.appActive(true)) }
+        }
         key = new
         // `PaletteController`: the palette closes when it resigns key (a
         // click elsewhere) and reports it at once; the clicked window keeps
         // the keys.
         if old == .palette, paletteOpen { closePaletteOverlay() }
+        // A palette open without the keys closes when another window takes
+        // them (`PaletteController.observeKeyElsewhere`).
+        if paletteOpen, new != .palette, new != .none { closePaletteOverlay() }
         switch old {
         case .window(let index):
             windows[index].focus.send(.windowKey(false))

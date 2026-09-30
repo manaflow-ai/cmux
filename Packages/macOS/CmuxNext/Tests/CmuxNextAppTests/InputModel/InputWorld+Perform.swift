@@ -137,15 +137,19 @@ extension InputWorld {
             windows.forEach { $0.focus.send(.appActive(on)) }
             if on, let active { setKey(windows[active].hasSheet ? .sheet(active) : .window(active)) } else if !on { setKey(.none) }
         case .openPalette:
-            guard !paletteOpen, !isSheetKey, appActive, let active else { return }
+            guard !paletteOpen, !isSheetKey, let active else { return }
             paletteOpen = true
-            paletteReturn = key
+            // `PaletteController`: the panel takes the keys only while the
+            // app is active (a CLI request or a no-activate run never takes
+            // the keyboard from the user's frontmost app).
+            paletteReturn = appActive ? key : .window(active)
             windows[active].focus.send(.overlayOpened(.palette))
-            setKey(.palette)
+            if appActive { setKey(.palette) }
         case .closePalette:
             guard paletteOpen else { return }
+            let hadKey = key == .palette
             closePaletteOverlay()
-            setKey(paletteOwner.map { .window($0) } ?? .none)
+            if hadKey { setKey(paletteOwner.map { .window($0) } ?? .none) }
         case .paletteFocusPane(let n):
             guard paletteOpen, let active, let pane = pane(n, in: windows[active]) else { return }
             windows[active].focus.send(.focusPane(pane.id, source: .palette))

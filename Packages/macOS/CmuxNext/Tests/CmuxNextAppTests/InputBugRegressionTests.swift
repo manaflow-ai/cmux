@@ -116,7 +116,7 @@ struct InputBugRegressionTests {
         world.perform(.closePalette)
         #expect(!world.paletteOpen)
         #expect(world.key == .none)
-        #expect(Self.noViolation([.appActive(false), .openPalette, .frame, .clickPane(window: 0, pane: 0), .closePalette]) == nil)
+        let v = Self.noViolation([.appActive(false), .openPalette, .frame, .clickPane(window: 0, pane: 0), .closePalette]); #expect(v == nil, "\(String(describing: v))")
     }
 
     // MARK: F4 chrome target normalization
