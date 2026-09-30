@@ -265,7 +265,7 @@ class SeedDerivedData(unittest.TestCase):
         del os.environ["CMUX_SEED_LOCAL_CACHE"]
         self.assertIsNone(seed.cached("p-j6-base"))
 
-    def test_the_local_cache_keeps_only_the_newest_seeds(self):
+    def test_the_local_cache_keeps_only_the_newest_seeds_on_a_short_disk(self):
         cache = self.root / "seeds"
         os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
         (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
@@ -286,7 +286,11 @@ class SeedDerivedData(unittest.TestCase):
         os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
         (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
         (self.derived / seed.MANIFEST).write_text("{}")
-        with mock.patch.object(seed, "free_bytes", return_value=seed.LOCAL_KEEP_MIN_FREE_BYTES + 1):
+        roomy_free_bytes = 400 * 1024**3
+        self.assertGreater(seed.LOCAL_KEEP_MIN_FREE_BYTES, 0)
+        self.assertGreater(roomy_free_bytes, seed.LOCAL_KEEP_MIN_FREE_BYTES)
+        # Keep this absolute so a zeroed production floor cannot make the test stay green.
+        with mock.patch.object(seed, "free_bytes", return_value=roomy_free_bytes):
             for index, key in enumerate(("k-1", "k-2", "k-3", "k-4")):
                 seed.stash(self.derived, key)
                 os.utime(cache / key, (1000 + index, 1000 + index))
