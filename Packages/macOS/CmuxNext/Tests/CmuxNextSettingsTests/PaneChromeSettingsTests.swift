@@ -72,6 +72,7 @@ extension SettingsControllerTests {
         try await controller.setPaneBorder(nil)
         try await controller.setPaneCornerRadius(nil)
         try await eventually(controller) { design.paneChrome == PaneChromeOverrides() }
+        #expect(try String(contentsOf: url, encoding: .utf8).contains("layout") == false)
     }
 }
 
