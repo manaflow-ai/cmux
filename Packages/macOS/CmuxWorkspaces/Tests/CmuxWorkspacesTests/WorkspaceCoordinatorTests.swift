@@ -412,10 +412,10 @@ struct WorkspaceCoordinatorTests {
         let child2 = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [dragged, child1, child2, outside]
-        let groupId = try #require(groups.createWorkspaceGroup(
-            name: "G",
-            childWorkspaceIds: [child1.id, child2.id]
-        ))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: child1.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: child2.id, groupId: groupId)
+        let anchorId = try #require(model.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId)
         let moved = reorder.reorderSidebarWorkspace(
             tabId: dragged.id,
             toIndex: 3,
@@ -424,6 +424,7 @@ struct WorkspaceCoordinatorTests {
         #expect(moved)
         #expect(dragged.groupId == nil)
         #expect(model.tabs.map(\.id) == [
+            anchorId,
             child1.id,
             child2.id,
             dragged.id,
@@ -728,10 +729,10 @@ struct WorkspaceCoordinatorTests {
         let outside1 = CoordinatorStubTab()
         let outside2 = CoordinatorStubTab()
         model.tabs = [child1, child2, outside1, outside2]
-        _ = try #require(groups.createWorkspaceGroup(
-            name: "G",
-            childWorkspaceIds: [child1.id, child2.id]
-        ))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: child1.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: child2.id, groupId: groupId)
+        let anchorId = try #require(model.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId)
         // Grabbed child1; index 2 in the top-level rows without it
         // ([anchor, outside1, outside2]) is the gap above outside2.
         #expect(reorder.reorderSidebarWorkspaces(
@@ -744,6 +745,7 @@ struct WorkspaceCoordinatorTests {
         #expect(child1.groupId == nil)
         #expect(child2.groupId == nil)
         #expect(model.tabs.map(\.id) == [
+            anchorId,
             outside1.id,
             child1.id,
             child2.id,
