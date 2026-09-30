@@ -137,7 +137,7 @@ describe("Cloud VM database schema", () => {
           insert into cloud_vm_observed_destroy_cleanups (vm_id, provider, cleanup)
           values (
             ${`00000000-0000-4000-8000-${String(180 + index).padStart(12, "0")}`},
-            'freestyle', ${JSON.stringify(cleanup)}::jsonb
+            'freestyle', ${sql.json(cleanup as never)}
           )
         `;
       } catch (error) {

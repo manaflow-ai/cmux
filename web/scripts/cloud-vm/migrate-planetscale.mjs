@@ -23,9 +23,51 @@ try {
       }
     } else {
       const requireFromWeb = createRequire(path.join(webDir, "package.json"));
-      const { drizzle } = requireFromWeb("drizzle-orm/node-postgres");
-      const { migrate } = requireFromWeb("drizzle-orm/node-postgres/migrator");
-      await migrate(drizzle({ client: pool }), { migrationsFolder: path.join(webDir, "db/migrations") });
+      const { readMigrationFiles } = requireFromWeb("drizzle-orm/migrator");
+      const { getMigrationsToRun } = requireFromWeb("drizzle-orm/migrator.utils");
+      const migrationsFolder = path.join(webDir, "db/migrations");
+      const migrations = readMigrationFiles({ migrationsFolder });
+
+      // Drizzle wraps all migrations in one transaction. PostgreSQL forbids
+      // CREATE INDEX CONCURRENTLY in a transaction, so run each migration in
+      // its own transaction and leave concurrent-index migrations outside one.
+      await pool.query("CREATE SCHEMA IF NOT EXISTS drizzle");
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
+          id SERIAL PRIMARY KEY,
+          hash text NOT NULL,
+          created_at bigint,
+          name text,
+          applied_at timestamp with time zone DEFAULT now()
+        )
+      `);
+      const applied = await pool.query("select id, hash, created_at, name from drizzle.__drizzle_migrations");
+      const pending = getMigrationsToRun({ localMigrations: migrations, dbMigrations: applied.rows });
+      for (const migration of pending) {
+        const run = async (client) => {
+          for (const statement of migration.sql) await client.query(statement);
+          await client.query(
+            "insert into drizzle.__drizzle_migrations (hash, created_at, name) values ($1, $2, $3)",
+            [migration.hash, migration.folderMillis, migration.name ?? null],
+          );
+        };
+        const concurrent = migration.sql.some((statement) => /CREATE\s+INDEX\s+CONCURRENTLY/i.test(statement));
+        if (concurrent) {
+          await run(pool);
+          continue;
+        }
+        const client = await pool.connect();
+        try {
+          await client.query("begin");
+          await run(client);
+          await client.query("commit");
+        } catch (error) {
+          await client.query("rollback");
+          throw error;
+        } finally {
+          client.release();
+        }
+      }
     }
   } finally {
     await pool.end();

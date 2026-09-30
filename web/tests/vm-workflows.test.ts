@@ -6216,7 +6216,7 @@ describe("VM Effect workflows", () => {
         await tx`
           insert into cloud_vm_observed_destroy_cleanups (vm_id, provider, cleanup, updated_at)
           values (
-            ${vmId}, 'freestyle', ${JSON.stringify(malformedCleanups[index])}::jsonb,
+            ${vmId}, 'freestyle', ${sql.json(malformedCleanups[index] as never)},
             now() - interval '2 days' + ${index} * interval '1 second'
           )
         `;
@@ -8425,6 +8425,34 @@ describe("status read that observes a gone machine", () => {
     await Effect.runPromise(reconcileVmProviderStatuses({ modelPlane }).pipe(Effect.provide(layer)));
     expect(revokeCalls).toBe(2);
     expect(volumeDeleteCalls).toBe(2);
+  });
+
+  test("defers cleanup steps when their provider capability is unavailable", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000176",
+      providerVmId: "provider-observed-destroy-capability-gap",
+      status: "destroyed",
+      destroyedAt: new Date(),
+    });
+    const pending = { modelPlane: true as const, homeVolume: "cmux-home-capability-gap" };
+    const deferred: string[] = [];
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm }),
+      observedDestroyCleanupCandidates: () => Effect.succeed([{
+        ...vm,
+        providerMetadata: { [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: pending },
+      }]),
+      deferObservedDestroyCleanup: ({ step }) => Effect.sync(() => {
+        deferred.push(step);
+        return true;
+      }),
+    };
+
+    await Effect.runPromise(
+      reconcileVmProviderStatuses({}).pipe(Effect.provide(workflowLayer(repo, providerGone))),
+    );
+
+    expect(deferred).toEqual(["modelPlane", "homeVolume"]);
   });
 
   test("retained account-deletion cleanup stays pending when legacy volume deletion is unsupported and completes later", async () => {

@@ -799,8 +799,10 @@ function drainObservedDestroyCleanup(
   cleanup: PendingObservedDestroyCleanup,
 ): Effect.Effect<void, never> {
   return Effect.gen(function* () {
-    if (cleanup.modelPlane && modelPlane) {
-      const revoked = yield* attemptModelPlaneRevoke(modelPlane, vm.id);
+    if (cleanup.modelPlane) {
+      const revoked = modelPlane
+        ? yield* attemptModelPlaneRevoke(modelPlane, vm.id)
+        : false;
       if (revoked) yield* completeObservedDestroyCleanupStep(repo, vm.id, "modelPlane");
       else yield* deferObservedDestroyCleanupStep(repo, vm.id, "modelPlane");
     }
@@ -824,6 +826,8 @@ function drainObservedDestroyCleanup(
       );
       if (deleted) yield* completeObservedDestroyCleanupStep(repo, vm.id, "homeVolume");
       else yield* deferObservedDestroyCleanupStep(repo, vm.id, "homeVolume");
+    } else if (cleanup.homeVolume) {
+      yield* deferObservedDestroyCleanupStep(repo, vm.id, "homeVolume");
     }
   });
 }
