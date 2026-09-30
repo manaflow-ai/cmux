@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
+import contextlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -528,6 +530,53 @@ def test_inventory_refuses_hung_or_empty_enumeration() -> None:
                 assert expected in str(error), error
             else:
                 raise AssertionError(f"inventory accepted {payload}")
+
+
+def test_unreadable_json_input_names_the_file() -> None:
+    """An empty typed result must not be reported as a bare decoder message.
+
+    PR #15409's shard 8 aborted on the app-host restart budget, and the last
+    line the step printed before `exit 123` was
+    "Expecting value: line 1 column 1 (char 0)": no file, no subcommand, no
+    hint that the batch had been killed before xcodebuild wrote its result.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        inventory = root / "inventory.json"
+        inventory.write_text(json.dumps({"tests": ["FooTests/testOne()"]}), encoding="utf-8")
+        selectors = root / "selectors.txt"
+        selectors.write_text("FooTests\n", encoding="utf-8")
+        known = root / "known.json"
+        known.write_text(json.dumps({"version": 1, "tests": {}}), encoding="utf-8")
+        log = root / "batch.log"
+        log.write_text("** TEST SUCCEEDED **\n", encoding="utf-8")
+
+        for name, payload in (("empty.tests.json", ""), ("truncated.tests.json", '{"values": [')):
+            tests_json = root / name
+            tests_json.write_text(payload, encoding="utf-8")
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                status = accounting.main(
+                    [
+                        "check-run",
+                        "--inventory",
+                        str(inventory),
+                        "--selectors",
+                        str(selectors),
+                        "--known",
+                        str(known),
+                        "--log",
+                        str(log),
+                        "--xcode-status",
+                        "0",
+                        "--tests-json",
+                        str(tests_json),
+                    ]
+                )
+            assert status == 2
+            reported = stderr.getvalue()
+            assert name in reported, reported
+            assert "empty file" in reported or "not valid JSON" in reported, reported
 
 
 if __name__ == "__main__":
