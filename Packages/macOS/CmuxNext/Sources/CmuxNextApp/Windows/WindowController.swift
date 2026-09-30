@@ -288,6 +288,16 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         return super.performKeyEquivalent(with: event)
     }
 
+    /// The Chromium fork adds each page window as a child ordered above
+    /// everything, the overlay panel included. Lift the overlay (and the app
+    /// panels above it) in the same call, before the window server shows a
+    /// frame with the page over the focus ring; the notifications that
+    /// follow the page would come a frame late.
+    override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        super.addChildWindow(childWin, ordered: place)
+        if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
+    }
+
     // MARK: OverlayPlaneHosting
 
     func adoptPlane(_ plane: OverlayPlane) { overlayLayer.adopt(plane) }

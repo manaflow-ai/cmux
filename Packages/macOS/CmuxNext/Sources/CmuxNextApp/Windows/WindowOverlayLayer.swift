@@ -47,6 +47,8 @@ final class WindowOverlayLayer {
     let catchers: DividerMouseCatchers
     private var observers: [any NSObjectProtocol] = []
     private var isEvaluating = false
+    /// Set by `teardown` (the window is closing): nothing is placed again.
+    private var isTornDown = false
     /// A window geometry change whose layout pass has not run yet.
     private var pageUpdateAfterLayout = false
     /// Reorders done (for `debug.layers`).
@@ -90,6 +92,7 @@ final class WindowOverlayLayer {
     }
 
     func teardown() {
+        isTornDown = true
         catchers.teardown()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
@@ -187,7 +190,7 @@ final class WindowOverlayLayer {
     /// Moves the planes to where they draw above content, and restores the
     /// child window order when a page window was added above the overlay.
     func evaluate() {
-        guard !isEvaluating else { return }
+        guard !isEvaluating, !isTornDown else { return }
         isEvaluating = true
         defer { isEvaluating = false }
         let wanted: Placement = window.isVisible && !Self.contentChildWindows(of: window).isEmpty ? .overlayWindow : .inWindow
