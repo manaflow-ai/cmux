@@ -616,3 +616,24 @@ Release `cef-154.0.28-cmux.11` (fork `cmux/8037-ext` at `70c063382`, `CMUX_CEF_A
 - **Extension New Tab footer kept.** Chrome's footer on extension New Tab pages (extension name, customize button) is the only place for those actions; cmux has no other entry for them, so the footer stays (the decision required full parity to hide it).
 
 Suite results on the final build (`brw2`, pinned `cmux.11`): API 140 checks, 133 pass, 3 fail, 2 unverified (`action.openPopup` needs an active window), 2 unsupported. Fails: `windows.create_mapped` (pre-existing: the moved tab is not in the cmux snapshot within 3 s), `windows.create_popup_mapped` (in the suite the popup panel never appears and the fork logs no foreign popup, while the same call from a test extension works by hand; not diagnosed), `sidePanel.page_loaded` (pre-existing, above). Unsupported: `identity.getAuthToken` (the fixture's client id is fake, so Google answers `invalid_client`; the fallback reports that as designed) and `omnibox.onInputEntered` (passed on the cmux.10 run; the classification text predates the keyword mode; not diagnosed). Store: a 7-extension subset plus a re-run of 4 (19 of 23 checks pass, then 13 of 14): AdGuard's first toolbar click opened no popup (the known first-popup-of-a-launch issue). The store harness now opens `chrome://extensions` in the pane tabs' browser context: the default context has no cmux window since the incognito work, so cmux refused the tab ("Failed to open a new tab"). `check-no-chrome-windows.py`: pass.
+
+## Browser profiles: opening links (2026-09-30)
+
+Owners: `CmuxNextApp/BrowserProfiles/BrowserProfileLinkMenu.swift`,
+`TerminalHostDelegate`, `BrowserPageRequests`; action `browserProfile.openLink`.
+
+- Terminal Cmd-click on a web link: a browser tab in the focused pane, in the
+  workspace's browser profile (the cascade, data-model.md 5).
+- Terminal Cmd-Option-click: `browserProfile.openLink` without a profile, so
+  the palette asks which profile (only while more than one exists).
+- Terminal right-click on a link Ghostty underlines (`hoveredLink`) and a
+  page's right-click on a link: "Open Link in Browser Profile ▸" with one
+  item per profile, before the other items.
+- Links, popups and Chromium window requests a page opens stay in that
+  page's profile.
+
+TODO: the `link` menu context (`openLinkInNewTab`, `openLinkInDefaultBrowser`)
+still receives no link (MiscHandlerStrings.linkTarget) and is not shown by
+any surface. When a surface passes a link to actions, add
+`browserProfile.openLink` to `ContextMenuCatalog.link` and remove the
+`hoveredLink` special case in `TerminalHostDelegate`.

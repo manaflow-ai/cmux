@@ -23,11 +23,28 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// the right-clicked terminal's tab.
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu? {
         guard let services else { return nil }
-        return services.registry.makeContextMenu(for: .terminalSelection, target: target(of: session, in: services))
+        let target = target(of: session, in: services)
+        let menu = services.registry.makeContextMenu(for: .terminalSelection, target: target)
+        // A right-click on a link Ghostty underlines offers its browser
+        // profiles first (Open Link in Browser Profile ▸).
+        let link = session.model.hoveredLink.flatMap(URL.init(string:))
+        for (index, item) in BrowserProfileLinkMenu.items(for: link, target: target, services: services).enumerated() {
+            menu.insertItem(item, at: index)
+        }
+        return menu
     }
 
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
-        openLink(url)
+        // Cmd-Option-click asks which browser profile opens the link
+        // (`browserProfile.openLink` without a profile: the palette lists
+        // them); a plain Cmd-click uses the workspace's profile.
+        if let services, url.scheme == "http" || url.scheme == "https",
+           NSApp.currentEvent?.modifierFlags.contains(.option) == true, services.browserProfiles.ordered.count > 1 {
+            services.registry.perform("browserProfile.openLink", invocation: ActionInvocation(
+                target: target(of: session, in: services), arguments: ["url": .string(url.absoluteString)]))
+            return true
+        }
+        return openLink(url)
     }
 
     /// Cmd-click on a web URL: a browser tab in the focused pane on the
