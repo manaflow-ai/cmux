@@ -56,6 +56,10 @@ final class FakeDaemonServer: Sendable {
             while true {
                 let client = accept(fd, nil, nil)
                 guard client >= 0 else { return }
+                // A client that disconnects mid-reply must not kill the test
+                // process with SIGPIPE.
+                var on: Int32 = 1
+                setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
                 box.fd.withLock { if $0 < 0 { $0 = client } }
                 Thread { Self.serve(client, handler: handler) }.start()
             }

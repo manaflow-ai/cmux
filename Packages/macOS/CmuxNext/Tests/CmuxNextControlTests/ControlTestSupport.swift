@@ -27,6 +27,10 @@ final class LineClient {
 
     init(path: String) throws {
         descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        // A server that closes first (isolation, limits tests) must not end
+        // the test process with SIGPIPE on the next write.
+        var on: Int32 = 1
+        setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         withUnsafeMutableBytes(of: &address.sun_path) { buffer in

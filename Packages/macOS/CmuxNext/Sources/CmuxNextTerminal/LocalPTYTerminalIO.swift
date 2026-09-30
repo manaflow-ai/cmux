@@ -59,6 +59,9 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         let pid = forkpty(&master, nil, nil, &size)
         if pid == 0 {
             _ = chdir(directory)
+            // The app ignores SIGPIPE (CmuxNextApp.main) and an ignored
+            // signal stays ignored across exec: give the shell the default.
+            _ = signal(SIGPIPE, SIG_DFL)
             execve(path, argv.pointer, envp.pointer)
             _exit(127)
         }

@@ -31,6 +31,12 @@ final class SocketWriter: Sendable {
         self.fd = fd
         self.limit = limit
         self.queue = DispatchQueue(label: label)
+        // A write to a closed peer must fail with EPIPE, not raise SIGPIPE
+        // (whose default action ends the process), whatever the caller set.
+        // The option fails (EINVAL) once the peer is gone, so writes also
+        // pass MSG_NOSIGNAL.
+        var on: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
     }
 
     /// Appends `bytes` after everything written before. Returns an error
@@ -94,10 +100,11 @@ final class SocketWriter: Sendable {
             var remaining = raw.count
             while remaining > 0 {
                 // concurrency-allow: runs only on this writer's private serial queue, never the main thread or the cooperative pool.
-                let written = Darwin.write(fd, pointer, remaining)
+                let written = Darwin.send(fd, pointer, remaining, MSG_NOSIGNAL)
                 if written < 0 {
-                    if errno == EINTR { continue }
-                    return .errno(errno)
+                    let code = errno
+                    if code == EINTR { continue }
+                    return code == EPIPE || code == ECONNRESET ? .peerClosed : .errno(code)
                 }
                 // A blocking write returns 0 only when it cannot progress;
                 // retrying would loop without writing anything.

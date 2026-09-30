@@ -193,7 +193,7 @@ final class ControlConnection: @unchecked Sendable {
     private func flush() {
         while outboxOffset < outbox.count {
             let written = outbox.withUnsafeBytes { raw in
-                write(descriptor, raw.baseAddress! + outboxOffset, raw.count - outboxOffset)
+                Darwin.send(descriptor, raw.baseAddress! + outboxOffset, raw.count - outboxOffset, MSG_NOSIGNAL)
             }
             if written > 0 {
                 outboxOffset += written
@@ -204,6 +204,8 @@ final class ControlConnection: @unchecked Sendable {
                 armWriteSource()
                 return
             }
+            // EPIPE/ECONNRESET: the client went away (MSG_NOSIGNAL and the
+            // server's SO_NOSIGPIPE keep that from raising SIGPIPE).
             closeNow()
             return
         }
