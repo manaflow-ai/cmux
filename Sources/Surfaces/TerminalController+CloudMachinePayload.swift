@@ -21,6 +21,10 @@ extension TerminalController {
         case .ssh: kind = "ssh"
         case .device: kind = "device"
         }
+        let linkErrorMessage: Any = {
+            guard case .cloud = info.id, info.linkState != .connected else { return NSNull() }
+            return info.linkFailureMessage
+        }()
         return [
             "id": info.id.rawValue,
             "local": info.id.isLocal,
@@ -35,6 +39,7 @@ extension TerminalController {
             "disk_mb": info.diskMb ?? NSNull(),
             "link_state": info.linkState.rawValue,
             "link_error": info.linkError ?? NSNull(),
+            "link_error_message": linkErrorMessage,
             "cpu_percent": info.cpuPercent ?? NSNull(),
             "memory_used_mb": info.memoryUsedMb ?? NSNull(),
             "disk_used_mb": info.diskUsedMb ?? NSNull(),
