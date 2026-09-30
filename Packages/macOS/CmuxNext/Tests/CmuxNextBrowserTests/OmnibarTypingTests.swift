@@ -67,8 +67,8 @@ import Testing
         let editor = try #require(h.editor)
         #expect(editor.string == "google.com")
         #expect(editor.selectedRange() == NSRange(location: 10, length: 0))
-        #expect(h.bar.model.userText == "google.com")
-        #expect(h.bar.model.suggestions.first?.title == "google.com")
+        #expect(h.bar.state.edit.userText == "google.com")
+        #expect(h.bar.state.popup.rows.first?.title == "google.com")
     }
 
     @Test func inlineCompletionIsASelectedSuffixAndBackspaceRemovesIt() async throws {
@@ -85,7 +85,7 @@ import Testing
         await h.type("th")
         #expect(editor.string == "github.com")
         #expect(editor.selectedRange() == NSRange(location: 4, length: 6))
-        #expect(h.bar.model.userText == "gith")
+        #expect(h.bar.state.edit.userText == "gith")
 
         // Backspace removes the completion and does not re-add it.
         await h.backspace()
@@ -111,11 +111,11 @@ import Testing
     }
 
     @Test func clampingKeepsACaretWhereItIs() {
-        #expect(AddressBarView.clampedSelection(NSRange(location: 3, length: 0), length: 3) == NSRange(location: 3, length: 0))
-        #expect(AddressBarView.clampedSelection(NSRange(location: 1, length: 0), length: 5) == NSRange(location: 1, length: 0))
-        #expect(AddressBarView.clampedSelection(NSRange(location: 2, length: 8), length: 10) == NSRange(location: 2, length: 8))
-        #expect(AddressBarView.clampedSelection(NSRange(location: 4, length: 9), length: 6) == NSRange(location: 4, length: 2))
-        #expect(AddressBarView.clampedSelection(NSRange(location: 9, length: 0), length: 6) == NSRange(location: 6, length: 0))
-        #expect(AddressBarView.clampedSelection(NSRange(location: NSNotFound, length: 0), length: 6) == NSRange(location: 6, length: 0))
+        #expect(OmnibarRules.clamped(NSRange(location: 3, length: 0), length: 3) == NSRange(location: 3, length: 0))
+        #expect(OmnibarRules.clamped(NSRange(location: 1, length: 0), length: 5) == NSRange(location: 1, length: 0))
+        #expect(OmnibarRules.clamped(NSRange(location: 2, length: 8), length: 10) == NSRange(location: 2, length: 8))
+        #expect(OmnibarRules.clamped(NSRange(location: 4, length: 9), length: 6) == NSRange(location: 4, length: 2))
+        #expect(OmnibarRules.clamped(NSRange(location: 9, length: 0), length: 6) == NSRange(location: 6, length: 0))
+        #expect(OmnibarRules.clamped(NSRange(location: NSNotFound, length: 0), length: 6) == NSRange(location: 6, length: 0))
     }
 }

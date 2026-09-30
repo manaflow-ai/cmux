@@ -295,3 +295,116 @@ when toggled off or when the tab closes or leaves the window.
   (`debug.focus.windows[].topology`).
 - Out of scope here, owned by drag-panes: `PaneContentView.show` removes its previous
   content view even after another pane adopted it (R7 blank pane).
+
+## 7. Omnibar
+
+Status: implemented 2026-09-29 (`CmuxNextBrowser/Omnibox/Omnibar*`, `UI/OmnibarController.swift`,
+`UI/OmnibarEffectApplier.swift`, `UI/OmnibarFieldEditor.swift`). It replaces `OmniboxEditModel`
+and the flags in `AddressBarView` (`isApplying`, `pendingDeletion`, `keepCaret`). Those flags
+caused the reversed typing of #15796: a suggestion result rewrote the caret that a keystroke
+had just moved.
+
+The omnibar is one state machine inside the pane's keyboard target `addressBar(pane, tab)`.
+The `FocusCoordinator` decides *whether* the omnibar has the keyboard. The omnibar machine
+decides what the field shows and what each key and click means.
+
+### State (`OmnibarState`, one value, never persisted)
+
+| Phase | Field shows | Entered by |
+| --- | --- | --- |
+| `idle` | compact page URL (host at full strength), or `retainedText` (plain) | start, focus lost, second Escape |
+| `focused` | full page URL, all selected on entry; page URL changes replace it | focus gained, first Escape, undo to the untouched text |
+| `editing` | `userText + inlineCompletion`, or the arrowed row's text | any edit, focus gained with retained text |
+| `committing(display)` | compact URL of `display` while focus returns to the page | Enter, row click, Paste and Go |
+
+`editing` data: `userText` (marked IME text included), `inlineCompletion` (the selected suffix),
+`selection` (UTF-16, as `NSTextView` reports it), `marked` (the IME composition range),
+`suppressCompletion`. Popup data: `rows`, `selected` (keyboard highlight: this row drives the field text and
+Enter), `hover`, `source` (keyboard or mouse), `pointer` (last pointer location over the rows),
+`stale` (rows belong to older text). There is one query `generation`, a focusing-click
+count, and an undo and a redo stack owned by the machine. The field editor's AppKit undo is off.
+
+### Events (`OmnibarInput`)
+
+- Focus: `focusGained(mouse | keyboard | programmatic)`, `focusLost`. They come from AppKit
+  responder changes. Only the coordinator moves the responder
+  (`FocusEffectApplier` calls `AddressBarView.focus()`; a click in the field is AppKit's own
+  mouse-down, which the coordinator observes through `ShellWindow.makeFirstResponder`).
+- Field editor: `fieldChanged(text, selection, marked, kind)`. `kind` is `insert`, `delete` or `paste`
+  for a text edit (typing, Backspace and Delete, cut, paste, IME composition start, update and
+  commit). It is nil for a selection-only change (caret moves, drag selections, Cmd-A). If you type the next
+  character of a selected inline completion, the text does not change, but the event is still an edit and re-queries.
+- Keys taken before the field editor's default: `up`, `down`, `tab`, `backTab`,
+  `enter(currentTab | newBackgroundTab (Cmd) | newForegroundTab (Shift-Cmd, Option) | newWindow (Shift))`,
+  `escape`, `selectAll` (Cmd-L when the field already has focus), `undo`, `redo`.
+- Mouse: `fieldMouseDown(clickCount)`, `fieldMouseUp`, `rowHover(row?, pointer)`,
+  `rowClick(row, disposition)`, `popupScroll`.
+- Async and page: `suggestions(generation, rows)`, `pageURLChanged`, `searchEngineChanged`,
+  `pasteAndGo(text)`.
+
+### Rules
+
+- Focus shows the full URL, all selected. A single click that focuses the field selects
+  everything on mouse-up, unless the click dragged its own selection. Later clicks place the caret.
+  A double-click selects a word and a triple-click selects all (the field editor does this; the
+  machine records the selection). Cmd-L while focused selects all again.
+- Focus lost (a click outside, Tab, another pane) never commits. It closes the card and keeps
+  the typed text in the idle field (Chrome). The next focus restores it, all selected. A page
+  navigation replaces the retained text.
+- Typing asks for suggestions with a new generation. Results with any other generation, or
+  results that arrive after editing ended, are dropped. The popup rows stay on screen but are `stale` until fresh
+  rows arrive. If rows are stale, Enter resolves the typed text and does not pick a stale row.
+- Inline completion only follows an insertion at the end of the text, never a deletion, a
+  paste, an edit in the middle, or IME composition. If you type the next characters of a shown
+  completion, the rest of the completion stays on screen at once. Any caret move (Right, Left, End, a click, Cmd-A)
+  makes the completion typed text.
+- Up and Down move the keyboard highlight, clamp at the ends, and show the row's text. Row 0
+  shows the typed text again. Tab and Shift-Tab move the same way, but past either end they are not handled,
+  so focus leaves the field. When the card is closed, arrows and Tab belong to the field editor.
+- The mouse and keyboard highlights are one highlighted row. A hover takes the highlight only after the
+  pointer moves: a card that opens, or rows that update, under a pointer that does not move
+  take nothing. A keyboard move takes the highlight back until the pointer moves again. A hover never changes the
+  field text, and Enter commits what the field shows. A row click commits that row with the
+  click's modifiers. The card has at most 8 rows and never scrolls; the wheel over it is swallowed.
+- If results arrive while the user arrows through rows, the chosen row stays selected. If the chosen
+  row is not in the new results, the machine keeps the old rows.
+- Escape once reverts to the page URL (`focused`, all selected; Cmd-Z brings the text back).
+  Escape with nothing to revert ends editing (`.cancel`) and the chrome returns focus to the
+  page through the coordinator (`onReturnFocusToPage`).
+- IME: while marked text is pending, suggestions still update, but nothing completes. Arrows, Tab,
+  Enter and Escape go to the input method, and the applier never writes the field. A row
+  click or Paste and Go first commits the marked text (`unmarkText`).
+- Page URL changes: `focused` follows them (all-selected stays all-selected), `editing` never
+  changes the typed text (Escape reverts to the new URL), and `committing` shows the new page.
+- Undo: consecutive edits of one kind share an entry, paste and IME composition each start one,
+  and the first entry is the untouched URL. Undo and redo re-query.
+- Paste turns line breaks into spaces. Paste and Go resolves the clipboard and commits.
+- A search engine switch re-queries and keeps an arrowed row.
+- Enter with modifiers reports `.open(url, disposition)`, and the page stays. The chrome calls
+  `onOpenURL` (the App must wire it; until then, the current tab loads the URL).
+
+### Effects and the applier
+
+`OmnibarReducer.reduce(state, input, resolver) -> (state, effects, handled)` is pure. `handled`
+false lets the field editor run its default. The effects are `query(generation, text)`, `cancelQuery`,
+`beep`, `began` and `ended(commit | open | cancel | blur)`. `OmnibarController` reduces inputs
+first in, first out (inputs raised while a step runs are queued). It then applies
+`OmnibarPresentation(state)` through `OmnibarEffectApplier` and runs the effects. The applier is the only
+writer of the field and the card. It writes text, style and selection only when they differ from
+the field. It never writes while the field editor has marked text. Its own writes are echoes
+and are dropped (`isApplying`). The field editor reports selection changes only when a drag
+ends and outside an edit, so an edit reaches the machine as one event with its final text and caret.
+
+### Verification
+
+- `OmnibarKeyboardTests` and `OmnibarMouseAndAsyncTests`: table tests through the reducer and
+  the real applier on a fake field. They include the reversed-typing regression (with and without
+  suggestions between keys), mouse-then-keyboard highlight conflicts, stale results, Japanese
+  IME with completion suppressed, and navigation during an edit.
+- `OmnibarStressTests`: 8 seeds x 3,000 random events. After every step the test checks:
+  field text == model text, the caret is within bounds, the field selection == the model selection, at most one
+  highlighted row, suggestions are closed when not editing, and no completion and no field write
+  happen while composing.
+- `OmnibarTypingTests`, `OmnibarViewTests` and `OmnibarFieldEditorTests` use the real
+  `BrowserChromeView` offscreen and the omnibar's own field editor. They cover marked text, undo, Cmd-Return,
+  row hover and click, focus loss and navigation while typing.

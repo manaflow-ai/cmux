@@ -1,11 +1,22 @@
 import AppKit
 
-/// The omnibar text field: a first click selects the whole URL (later
-/// clicks place the caret), and the edit menu offers Paste and Go.
-final class AddressField: ChromeTextField {
+/// The omnibar text field. It uses its own field editor
+/// (`OmnibarFieldEditor`) and is the only `OmnibarFieldSurface`: the effect
+/// applier writes it, nothing else does.
+final class AddressField: ChromeTextField, OmnibarFieldSurface {
     var onFocus: (() -> Void)?
     var onPasteAndGo: (() -> Void)?
     var pasteAndGoTitle: (() -> String?)?
+    weak var sink: (any OmnibarFieldEditorSink)? {
+        didSet { (cell as? AddressFieldCell)?.editor.sink = sink }
+    }
+
+    override class var cellClass: AnyClass? {
+        get { AddressFieldCell.self }
+        set {}
+    }
+
+    var editor: OmnibarFieldEditor? { currentEditor() as? OmnibarFieldEditor }
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
@@ -17,11 +28,51 @@ final class AddressField: ChromeTextField {
     }
 
     override func mouseDown(with event: NSEvent) {
-        // Chrome: clicking an unfocused omnibox selects everything instead
-        // of placing the caret where the click landed.
-        guard currentEditor() == nil, event.clickCount == 1 else { return super.mouseDown(with: event) }
-        window?.makeFirstResponder(self)
+        // AppKit focuses the field and forwards the click to the field
+        // editor (which reports the up); the focus coordinator sees the
+        // responder change. Chrome's select-all on the focusing click is a
+        // state machine rule.
+        sink?.fieldEditorMouseDown(clickCount: event.clickCount)
+        super.mouseDown(with: event)
+        sink?.fieldEditorMouseUp()
     }
+
+    // MARK: OmnibarFieldSurface
+
+    var isFieldEditorActive: Bool { currentEditor() != nil }
+    var currentText: String { currentEditor()?.string ?? stringValue }
+    var currentSelection: NSRange { currentEditor()?.selectedRange ?? NSRange(location: 0, length: 0) }
+    var hasMarkedText: Bool { (currentEditor() as? NSTextView)?.hasMarkedText() ?? false }
+
+    func write(_ text: String, style: OmnibarPresentation.Style) {
+        let font = font ?? OmnibarStyle.font
+        if let editor = currentEditor() as? NSTextView {
+            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: OmnibarStyle.textPrimary]
+            editor.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: attributes))
+            editor.typingAttributes = attributes
+            return
+        }
+        switch style {
+        case .plain:
+            attributedStringValue = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: OmnibarStyle.textPrimary])
+        case .compactURL(let url):
+            let attributed = NSMutableAttributedString(string: text, attributes: [
+                .font: font,
+                .foregroundColor: OmnibarStyle.textSecondary,
+            ])
+            let host = BrowserURLDisplay.hostRange(in: text, for: url) ?? NSRange(location: 0, length: (text as NSString).length)
+            attributed.addAttribute(.foregroundColor, value: OmnibarStyle.textPrimary, range: host)
+            attributedStringValue = attributed
+        }
+    }
+
+    func select(_ range: NSRange) {
+        guard let editor = currentEditor() as? NSTextView else { return }
+        editor.setSelectedRange(range)
+        if range.length == 0 { editor.scrollRangeToVisible(range) }
+    }
+
+    // MARK: Paste and Go
 
     /// The field editor's context menu (the field is its delegate).
     @objc func textView(_ textView: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
