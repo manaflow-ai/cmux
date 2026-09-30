@@ -24,8 +24,15 @@ extension RemoteTerminalService {
             registry.refuse(RemoteStrings.moveBrowserAcrossMachines)
             return completion(false)
         }
-        guard let target = Self.landingPane(in: workspace), let sourceConnection = source.connection,
-              let destinationConnection = destination.connection else { return completion(false) }
+        guard let target = Self.landingPane(in: workspace) else {
+            // An empty workspace (no pane yet) cannot hold the tab.
+            registry.refuse(RefusalStrings.noPaneID(workspace.displayName))
+            return completion(false)
+        }
+        guard let sourceConnection = source.connection, let destinationConnection = destination.connection else {
+            registry.refuse(WorkspaceVerbStrings.machineNotConnected)
+            return completion(false)
+        }
         let targetHandle = target.handle
         let surface = tab.surface
         let title = tab.displayTitle.isEmpty ? nil : tab.displayTitle
@@ -44,10 +51,6 @@ extension RemoteTerminalService {
                         return ActionWorkFailure(RemoteStrings.machineHasNoTerminal)
                     }
                     _ = try await destinationConnection.projectTerminal(resource, into: path, index: index, name: name)
-                    // `terminal.project` (resource API) sends no raw tree
-                    // delta to this subscription (seen on an SSH session):
-                    // refetch so the tab shows.
-                    await destination.reconcile()
                     _ = try? await destinationConnection.setTerminalKeep(.terminal(ref.terminalID), keep: false)
                     try await sourceConnection.closeTab(surface)
                     self?.forget(tabID: tab.id)
@@ -96,29 +99,40 @@ extension RemoteTerminalService {
     }
 
     /// A new terminal on `machine` shown as a remote-terminal tab in
-    /// `pane` (whose workspace is homed on `home`). The terminal gets no tab
-    /// on `machine`: created in one of its workspaces (a new one when it has
-    /// none) with `keep`, then that tab closes (cmux-tui has no
-    /// placement-free create).
+    /// `pane` (whose workspace is homed on `home`). The terminal has no tab
+    /// on `machine`: `create-terminal {detached}` (`detached-terminals-v1`),
+    /// else created in one of the machine's workspaces (a scratch one when
+    /// it has none) and that tab closed.
     func openTerminal(on machine: DaemonService, in pane: PaneModel, home: DaemonService, cwd: String?) -> ActionWorkFailure? {
-        guard home.supports(DaemonCapabilities.remoteTerminalTabs) else { return ActionWorkFailure(RemoteStrings.needsRemoteTerminalTabs) }
+        // Only the tab's session stores the reference; the terminal's session
+        // needs no new capability.
+        guard home.supports(DaemonCapabilities.remoteTerminalTabs) else {
+            return ActionWorkFailure(RemoteStrings.needsRemoteTerminalTabs)
+        }
         guard let machineConnection = machine.connection, let homeConnection = home.connection,
               let session = machine.identity?.sessionID else { return ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected) }
-        let existing = machine.store.workspaces.first { $0.key != nil }?.key
         let name = sessionName(of: machine)
         let paneHandle = pane.handle
+        let detached = machine.supports(DaemonCapabilities.detachedTerminals)
+        let existing = machine.store.workspaces.first { $0.key != nil }?.key
         services.registry.track(Task { [weak self] in
             do {
-                var key = existing
-                var scratch: WorkspaceKey?
-                if key == nil {
-                    let created = try await machineConnection.createWorkspace(name: name)
-                    key = created.key
-                    scratch = created.key
+                let terminal: TerminalID
+                let resource: ResourceID?
+                if detached {
+                    let created = try await machineConnection.createDetachedTerminal(cwd: cwd)
+                    (terminal, resource) = (created.terminalID, created.terminalResourceID)
+                } else {
+                    var key = existing
+                    var scratch: WorkspaceKey?
+                    if key == nil {
+                        let created = try await machineConnection.createWorkspace(name: name)
+                        (key, scratch) = (created.key, created.key)
+                    }
+                    guard let key else { return ActionWorkFailure("open terminal on machine: no workspace") }
+                    (terminal, resource) = try await machineConnection.createUnplacedTerminal(in: key, cwd: cwd)
+                    if let scratch { _ = try? await machineConnection.closeWorkspace(scratch) }
                 }
-                guard let key else { return ActionWorkFailure("open terminal on machine: no workspace") }
-                let (terminal, resource) = try await machineConnection.createUnplacedTerminal(in: key, cwd: cwd)
-                if let scratch { _ = try? await machineConnection.closeWorkspace(scratch) }
                 let ref = RemoteTerminalRef(sessionID: session, terminalID: terminal, sessionName: name)
                 if let resource { self?.remember(ref, resource: resource) }
                 _ = try await homeConnection.newRemoteTerminalTab(ref, in: paneHandle, title: RemoteStrings.terminalOn(name))

@@ -12,6 +12,9 @@ extension SocketClient {
         deadline: Date? = nil
     ) throws -> [String: Any] {
         var tracedParams = params
+        if Self.allSessions, CmuxCLISessionScope.applies(toMethod: method), tracedParams["all_sessions"] == nil {
+            tracedParams["all_sessions"] = true
+        }
         if let session = Self.sessionScope {
             if CmuxCLISessionScope.applies(toMethod: method), tracedParams["session"] == nil {
                 tracedParams["session"] = session

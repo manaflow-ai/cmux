@@ -74,7 +74,7 @@ enum CompatNotificationMethods {
     static func clear(_ call: CompatCall) async throws -> JSON {
         let world = try await call.world()
         let target = call.target(world)
-        var scope = Array(world.surfaces.values)
+        var scope = world.scopedWorkspaces.flatMap(world.orderedSurfaces(in:))
         var workspace: CompatWorld.Workspace?
         var surface: CompatWorld.Surface?
         if call.bool("caller") == true || target.string("workspace_id") != nil || target.string("tab_id") != nil {

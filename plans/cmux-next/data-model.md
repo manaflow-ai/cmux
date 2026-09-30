@@ -399,12 +399,12 @@ away, saves the screen from the local mirror when the session drops and
 before quit, and saves the title. `tab move-to-workspace` across sessions
 moves the reference (keep, `new-remote-terminal-tab`, close the old tab; back
 home through `terminal.project`); "Open Terminal on Machine Here…"
-(`remote.openTerminalHere`) creates a kept terminal on the machine (in one of
-its workspaces, then closes that tab: cmux-tui has no placement-free create)
-and references it. Closing a remote-terminal tab lets the terminal's session
-reap it (`keep: false`). Not built: drag of a tab onto a pane of another
-session, browser tabs across sessions, `send`/`read-screen` through a
-remote-terminal tab.
+(`remote.openTerminalHere`) creates a kept terminal with no tab on the
+machine (`create-terminal {detached}`) and references it. Closing a
+remote-terminal tab ends its terminal when that has no tab on its session.
+`send`, `send-key` and `read-screen` on a remote-terminal tab reach the
+terminal on its session by its `term_` id (resource API). Not built: drag of
+a tab onto a pane of another session, browser tabs across sessions.
 
 The app work already written for rooms (dots, swipe, window switching,
 actions) carries over; its membership test changes from a workspace tag to

@@ -16,7 +16,7 @@ enum CompatTerminalMethods {
         let world = try await call.world()
         let target = call.target(world)
         let surface = try target.surface()
-        guard surface.isTerminal else { throw CompatErrors.invalid(ControlStrings.text("control.error.surfaceNotTerminal", "Surface is not a terminal")) }
+        guard surface.isTerminal || surface.isRemoteTerminal else { throw CompatErrors.invalid(ControlStrings.text("control.error.surfaceNotTerminal", "Surface is not a terminal")) }
         return (world, surface, target)
     }
 
@@ -30,7 +30,13 @@ enum CompatTerminalMethods {
         guard let text = call.params["text"]?.stringValue else { throw CompatErrors.invalid(ControlStrings.text("control.error.missingText", "Missing text")) }
         let (world, surface, target) = try await terminal(call)
         let handle = surface.handle
-        try await call.service.daemon("send", session: surface.sessionID, mutates: false) { try await $0.send(handle, text: text, paste: paste) }
+        if surface.isRemoteTerminal {
+            // Paste mode needs a surface; the terminal gets the plain text.
+            let (connection, resource) = try await remoteTerminal(surface, service: call.service)
+            try await CompatDeadline.run("terminal.input.write") { try await connection.writeTerminal(resource, text: text) }
+        } else {
+            try await call.service.daemon("send", session: surface.sessionID, mutates: false) { try await $0.send(handle, text: text, paste: paste) }
+        }
         var result = ids(world, surface, target)
         result["queued"] = false
         return .object(result)
@@ -48,7 +54,12 @@ enum CompatTerminalMethods {
         }
         let (world, surface, target) = try await terminal(call)
         let handle = surface.handle
-        try await call.service.daemon("send-key", session: surface.sessionID, mutates: false) { try await $0.sendKeys(handle, [chord]) }
+        if surface.isRemoteTerminal {
+            let (connection, resource) = try await remoteTerminal(surface, service: call.service)
+            try await CompatDeadline.run("terminal.input.keys") { try await connection.sendTerminalKeys(resource, keys: [chord]) }
+        } else {
+            try await call.service.daemon("send-key", session: surface.sessionID, mutates: false) { try await $0.sendKeys(handle, [chord]) }
+        }
         var result = ids(world, surface, target)
         result["queued"] = false
         return .object(result)
@@ -62,8 +73,16 @@ enum CompatTerminalMethods {
         let scrollback = lines != nil || call.bool("scrollback") == true
         let (world, surface, target) = try await terminal(call)
         let handle = surface.handle
-        var text = try await call.service.daemon("read-screen", session: surface.sessionID, mutates: false) { try await $0.request(CompatReadScreenRequest(surface: handle)).text }
-        if scrollback {
+        var text: String
+        if surface.isRemoteTerminal {
+            // The viewport only: history of a tab-less terminal comes as
+            // styled rows (`terminal.history.read`), not text.
+            let (connection, resource) = try await remoteTerminal(surface, service: call.service)
+            text = try await CompatDeadline.run("terminal.screen.read") { try await connection.readTerminalScreen(resource).text }
+        } else {
+            text = try await call.service.daemon("read-screen", session: surface.sessionID, mutates: false) { try await $0.request(CompatReadScreenRequest(surface: handle)).text }
+        }
+        if scrollback, !surface.isRemoteTerminal {
             let history = try await readHistory(handle, session: surface.sessionID, lastLines: lines, service: call.service)
             if !history.isEmpty { text = history + "\n" + text }
         }
@@ -90,8 +109,27 @@ enum CompatTerminalMethods {
         return page.text
     }
 
+    /// The session and public id of the terminal a remote-terminal tab
+    /// shows (data-model.md 1.2b); `set-terminal-keep` names it (the
+    /// terminal stays kept, as it already is).
+    static func remoteTerminal(_ surface: CompatWorld.Surface, service: CompatService) async throws -> (DaemonConnection, ResourceID) {
+        guard let sessionID = surface.tab.remoteSessionID, let terminal = surface.tab.remoteTerminalID else {
+            throw CompatErrors.invalid(ControlStrings.text("control.error.surfaceNotTerminal", "Surface is not a terminal"))
+        }
+        let home = service.router?.snapshots.current.topology.homeSession?.id
+        let connection = try service.connection(session: sessionID == home ? nil : sessionID)
+        let id = TerminalID(rawValue: terminal)
+        guard let resource = try await CompatDeadline.run("set-terminal-keep", { try await connection.keepTerminal(id) }) else {
+            throw CompatErrors.unsupported(ControlStrings.text("control.error.remoteTerminalUnnamed", "the terminal's machine runs a cmux-tui that cannot name it; update it"))
+        }
+        return (connection, resource)
+    }
+
     static func clearHistory(_ call: CompatCall) async throws -> JSON {
         let (world, surface, target) = try await terminal(call)
+        if surface.isRemoteTerminal {
+            throw CompatErrors.unsupported(ControlStrings.text("control.error.remoteTerminalClearHistory", "clear-history on a terminal of another machine is not supported; clear it on its own session"), method: call.method)
+        }
         let handle = surface.handle
         _ = try await call.service.daemon("clear-history", session: surface.sessionID, mutates: false) { try await $0.request(CompatClearHistoryRequest(surface: handle)) }
         return .object(ids(world, surface, target))

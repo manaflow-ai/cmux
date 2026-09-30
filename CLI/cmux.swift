@@ -2995,6 +2995,9 @@ final class SocketClient {
     /// of every object method (`CmuxCLISessionScope.applies(toMethod:)`).
     /// Set once in `run()` before any request.
     nonisolated(unsafe) static var sessionScope: String?
+    /// The CLI's `--all-sessions`: lists and bulk commands include every
+    /// session (sent as `all_sessions`).
+    nonisolated(unsafe) static var allSessions = false
 
     private struct RelayEndpoint {
         let host: String
@@ -4887,6 +4890,7 @@ struct CMUXCLI {
         var windowId: String? = nil
         var socketPasswordArg: String? = nil
         var sessionScopeArg: String? = nil
+        var allSessionsArg = false
 
         var index = 1
         while index < args.count {
@@ -4926,6 +4930,11 @@ struct CMUXCLI {
                 }
                 socketPasswordArg = args[index + 1]
                 index += 2
+                continue
+            }
+            if arg == CmuxCLISessionScope.allSessionsFlag {
+                allSessionsArg = true
+                index += 1
                 continue
             }
             if CmuxCLISessionScope.optionNames.contains(arg) {
@@ -4998,9 +5007,10 @@ struct CMUXCLI {
         }
         // `--session`/`--machine` (cmux-next federation): global before the
         // command, taken after it only by commands that target app objects.
-        let sessionScope = CmuxCLISessionScope.extract(command: command, arguments: presentationOptions.remaining)
+        let sessionScope = CmuxCLISessionScope.extractScope(command: command, arguments: presentationOptions.remaining)
         let commandArgs = sessionScope.remaining
         SocketClient.sessionScope = sessionScope.session ?? sessionScopeArg
+        SocketClient.allSessions = sessionScope.allSessions || allSessionsArg
         if try runGuideCommand(command: command, commandArgs: commandArgs, jsonOutput: jsonOutput) {
             return
         }
@@ -9312,6 +9322,7 @@ struct CMUXCLI {
 
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return nil }
+        if CmuxCLISessionScope.isQualifiedRef(trimmed) { return trimmed }
         if isUUID(trimmed) || isHandleRef(trimmed) {
             if let windowHandle {
                 return try validatePaneHandleInWindow(
@@ -9436,6 +9447,7 @@ struct CMUXCLI {
 
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return nil }
+        if CmuxCLISessionScope.isQualifiedRef(trimmed) { return trimmed }
         if isUUID(trimmed) || isHandleRef(trimmed) {
             if let windowHandle {
                 return try validateSurfaceHandleInWindow(
@@ -17773,7 +17785,7 @@ struct CMUXCLI {
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil
     ) throws -> String {
-        if let raw, isUUID(raw) {
+        if let raw, isUUID(raw) || CmuxCLISessionScope.isQualifiedRef(raw) {
             return raw
         }
         if let raw, isHandleRef(raw) {

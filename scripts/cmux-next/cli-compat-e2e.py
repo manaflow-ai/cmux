@@ -79,6 +79,33 @@ def teardown(cli: str, socket_path: str) -> tuple[bool, str]:
     return ok, json.dumps(result)
 
 
+def remote_terminal_cases(r: Runner, session: dict, marker: str) -> None:
+    """A terminal of the remote session in a local pane: send and read-screen reach it."""
+    home = r.json(["list-workspaces"]).get("workspaces", [])
+    ws = home[0]["ref"] if home else "workspace:1"
+    pane = (r.json(["list-panes", "--workspace", ws]).get("panes") or [{"ref": "pane:1"}])[0]["ref"]
+    before = {s["ref"] for s in r.json(["list-panels", "--workspace", ws]).get("surfaces", [])}
+    r.check("open-terminal-here", ["remote", "open-terminal-here", "--target", pane, "--machine", f"machine:{session['machine_id']}"],
+            lambda o: o.startswith("OK"))
+    tab = None
+    for _ in range(40):
+        tab = next((s for s in r.json(["list-panels", "--workspace", ws]).get("surfaces", [])
+                    if s["ref"] not in before and s.get("type") == "remote-terminal"), None)
+        if tab:
+            break
+        time.sleep(0.5)
+    r.results.append(("remote-terminal tab in a local pane", tab is not None, json.dumps(tab)[:140]))
+    print(f"{'PASS' if tab else 'FAIL'}  remote-terminal tab in a local pane  -> {tab and tab['ref']}", flush=True)
+    if not tab:
+        return
+    r.check("send to remote-terminal tab", ["send", "--workspace", ws, "--surface", tab["ref"], f"echo {marker}-rt-out\\n"],
+            lambda o: o.startswith("OK"))
+    time.sleep(0.8)
+    r.check("read-screen remote-terminal tab", ["read-screen", "--workspace", ws, "--surface", tab["ref"]],
+            lambda o: f"{marker}-rt-out" in o)
+    r.check("close remote-terminal tab", ["close-surface", "--workspace", ws, "--surface", tab["ref"]], lambda o: o.startswith("OK"))
+
+
 def remote_cases(r: Runner, args, marker: str) -> None:
     """Session-qualified ids against a second cmux-tui session (an SSH machine)."""
     connect = ["remote", "connect", "--destination", args.remote_destination, "--session", args.remote_session]
@@ -104,7 +131,9 @@ def remote_cases(r: Runner, args, marker: str) -> None:
     created = r.check("new-workspace --session", ["--session", q, "new-workspace", "--cwd", "/tmp"],
                       lambda o: re.match(rf"OK {re.escape(q)}:workspace:\d+", o))
     rws = created.split()[1] if created.startswith("OK ") else f"{q}:workspace:0"
-    r.check("list-workspaces qualified", ["list-workspaces"], lambda o: rws in o and "workspace:" in o)
+    # Lists act on this Mac unless --session or --all-sessions is given.
+    r.check("list-workspaces is local", ["list-workspaces"], lambda o: rws not in o)
+    r.check("list-workspaces --all-sessions", ["list-workspaces", "--all-sessions"], lambda o: rws in o and "workspace:" in o)
     r.check("list-workspaces --machine", ["list-workspaces", "--machine", q],
             lambda o: all(line.strip().split()[0].startswith(q + ":") for line in o.splitlines() if line.strip()))
     listed = r.json(["list-workspaces", "--session", q]).get("workspaces", [])
@@ -122,7 +151,10 @@ def remote_cases(r: Runner, args, marker: str) -> None:
     r.check("new-split remote", ["new-split", "right", "--workspace", rws], lambda o: re.match(rf"OK {re.escape(q)}:surface:\d+", o))
     r.check("tab action qualified target", ["tab", "rename", "--target", rsurface, "--name", f"{marker}-rt"], lambda o: o.startswith("OK"))
     r.check("list-panels title remote", ["list-panels", "--workspace", rws], lambda o: f"{marker}-rt" in o)
-    r.check("tree names remote", ["tree"], lambda o: rws in o)
+    r.check("tree --all-sessions names remote", ["tree", "--all-sessions"], lambda o: rws in o)
+    r.check("tree is local", ["tree"], lambda o: rws not in o)
+    if args.remote_terminal_tabs:
+        remote_terminal_cases(r, session, marker)
     r.check("move across sessions is typed", ["move-surface", "--surface", rsurface, "--pane", "pane:1"],
             lambda o: "another session" in o, expect_fail=True)
     r.check("close-workspace remote", ["close-workspace", "--workspace", rws], lambda o: o.startswith("OK"))
@@ -139,6 +171,8 @@ def main() -> int:
     parser.add_argument("--remote-session", default="compatremote", help="cmux-tui session name on the remote machine")
     parser.add_argument("--remote-binary", help="cmux-tui path on the remote machine (no spaces)")
     parser.add_argument("--remote-state-dir", help="cmux-tui state directory on the remote machine")
+    parser.add_argument("--remote-terminal-tabs", action="store_true",
+                        help="also check a remote-terminal tab (both daemons need remote-terminal-tabs-v1)")
     args = parser.parse_args()
     if os.path.realpath(args.socket) in {"/tmp/cmux-debug.sock", "/private/tmp/cmux-debug.sock"}:
         print("refusing the default socket", file=sys.stderr)

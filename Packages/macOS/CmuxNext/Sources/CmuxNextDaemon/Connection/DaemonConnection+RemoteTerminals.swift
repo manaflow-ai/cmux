@@ -33,11 +33,23 @@ extension DaemonConnection {
         return try await request(RemoteTerminalSnapshotRequest(surface: surface)).snapshot
     }
 
-    /// A new kept terminal with no tab on this session (its only view will
-    /// live in another session's layout): created in workspace `key` with
-    /// `keep`, then its tab closes, which never ends a kept terminal. The
-    /// daemon has no placement-free create (creation is bound to a
-    /// workspace), so the tab exists for one round trip.
+    /// A new kept terminal with no tab on this session (its only view
+    /// lives in another session's layout): `create-terminal {detached}`.
+    public func createDetachedTerminal(cwd: String? = nil, size: CellSize? = nil) async throws -> CreateDetachedTerminalRequest.Response {
+        guard identity?.supports(DaemonCapabilities.detachedTerminals) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapabilities.detachedTerminals])
+        }
+        let terminal = TerminalID.generate()
+        var env = await terminalEnvironment(nil)
+        if identity?.supports(DaemonCapabilities.terminalEnv) == true {
+            env = (env ?? [:]).merging(Self.placementEnvironment(workspace: nil, terminal: terminal)) { _, placement in placement }
+        }
+        return try await request(CreateDetachedTerminalRequest(cwd: cwd, size: size, terminalID: terminal, env: env, mutation: mutation()))
+    }
+
+    /// A kept terminal with no tab on a daemon without
+    /// `detached-terminals-v1`: created in workspace `key` with `keep`, then
+    /// its tab closes (the tab exists for one round trip).
     public func createUnplacedTerminal(in key: WorkspaceKey, cwd: String? = nil,
                                        size: CellSize? = nil) async throws -> (terminal: TerminalID, resource: ResourceID?) {
         guard identity?.supports(DaemonCapabilities.terminalReap) == true else {
@@ -45,8 +57,7 @@ extension DaemonConnection {
         }
         let created = try await createTerminal(in: key, cwd: cwd, size: size, keep: true)
         if let surface = created.surface { try await closeTab(surface) }
-        let kept = try await keepTerminal(created.terminalID)
-        return (created.terminalID, kept)
+        return (created.terminalID, try await keepTerminal(created.terminalID))
     }
 
     /// Marks `terminal` kept (a view in another session's layout is its

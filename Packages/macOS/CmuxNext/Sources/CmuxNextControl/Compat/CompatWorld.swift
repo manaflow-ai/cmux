@@ -95,6 +95,7 @@ struct CompatWorld: Sendable {
         var session: Session? = nil
 
         var isTerminal: Bool { tab.kind == "terminal" }
+        var isRemoteTerminal: Bool { tab.kind == "remote-terminal" && tab.remoteTerminalID != nil }
         var isBrowser: Bool { tab.kind == "browser" }
         var typeName: String { tab.kind }
         var title: String { tab.title }
@@ -111,6 +112,9 @@ struct CompatWorld: Sendable {
         var pinned: Bool
         var dead: Bool
         var unread: Bool
+        /// A remote-terminal tab's terminal session and host id.
+        var remoteSessionID: String? = nil
+        var remoteTerminalID: String? = nil
     }
 
     var windows: [Window] = []
@@ -119,6 +123,11 @@ struct CompatWorld: Sendable {
     /// The session unqualified refs, indexes, lists and creation address
     /// (the request's `session` param); nil is the home session.
     var scope: Session?
+    /// The request's `all_sessions` (the CLI's `--all-sessions`): lists and
+    /// bulk commands include every session. Off by default, so a script that
+    /// lists or clears acts on this Mac only; a qualified ref still names an
+    /// object on any session.
+    var includesAllSessions = false
     var workspaces: [Workspace] = []
     var panes: [String: Pane] = [:]
     var surfaces: [String: Surface] = [:]
@@ -142,11 +151,20 @@ struct CompatWorld: Sendable {
     /// The session scope as a session id (nil: home).
     var scopeID: String? { scope.flatMap { $0.isHome ? nil : $0.id } }
 
-    /// Workspaces of the scope session, in world order; every workspace
-    /// when the request names no session.
+    /// The workspaces lists and bulk commands act on, in world order: the
+    /// named session's, every session's with `all_sessions`, else the home
+    /// session's.
     var scopedWorkspaces: [Workspace] {
-        guard let scope else { return workspaces }
-        return workspaces.filter { $0.sessionID == (scope.isHome ? nil : scope.id) }
+        if let scope { return workspaces.filter { $0.sessionID == (scope.isHome ? nil : scope.id) } }
+        if includesAllSessions { return workspaces }
+        return workspaces.filter { $0.sessionID == nil }
+    }
+
+    /// Every workspace `window` lists, on any session (navigation).
+    func allWorkspaces(in window: Window?) -> [Workspace] {
+        guard let window, !window.workspaceUUIDs.isEmpty else { return workspaces }
+        let members = Set(window.workspaceUUIDs)
+        return workspaces.filter { members.contains($0.uuid) }
     }
 
     func workspace(_ uuid: String?) -> Workspace? {

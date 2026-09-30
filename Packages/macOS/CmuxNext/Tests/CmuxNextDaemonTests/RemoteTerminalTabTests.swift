@@ -52,6 +52,19 @@ import Testing
         #expect(read["surface"] == .number(9))
     }
 
+    @Test func aDetachedTerminalHasNoTab() throws {
+        let json = try object(CreateDetachedTerminalRequest(cwd: "/srv", terminalID: Self.terminal,
+                                                            mutation: MutationIdentity(origin: "o", mutationID: "m")))
+        #expect(json["cmd"] == .string("create-terminal"))
+        #expect(json["detached"] == .bool(true) && json["keep"] == .bool(true))
+        #expect(json["key"] == nil && json["workspace"] == nil)
+        #expect(json["terminal_id"] == .string(Self.terminal.rawValue))
+        #expect(json["origin"] == .string("o") && json["mutation_id"] == .string("m"))
+        let line = #"{"ok":true,"data":{"surface":null,"pane":null,"terminal_id":"0123456789abcdef0123456789abcdef","terminal_resource_id":"term_aa","lifecycle":"running"}}"#
+        let reply = try WireCoding.decodeResponse(CreateDetachedTerminalRequest.Response.self, from: Data(line.utf8))
+        #expect(reply.terminalResourceID == "term_aa" && reply.terminalID == Self.terminal)
+    }
+
     @Test func snapshotsAreBoundedToTheDaemonLimit() {
         let line = String(repeating: "é", count: 40) + "\n"
         let text = String(repeating: line, count: 2_000)

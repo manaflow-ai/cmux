@@ -19388,6 +19388,268 @@
           }
         }
       }
+    },
+    "control.error.remoteTerminalUnnamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the terminal's machine runs a cmux-tui that cannot name it; update it"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يشغّل جهاز الطرفية cmux-tui لا يستطيع تحديدها؛ حدّثه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "mašina terminala pokreće cmux-tui koji ga ne može imenovati; ažurirajte ga"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "terminalens maskine kører en cmux-tui, der ikke kan navngive den; opdater den"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "der Rechner des Terminals nutzt ein cmux-tui, das es nicht benennen kann; aktualisiere es"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la máquina del terminal ejecuta un cmux-tui que no puede identificarlo; actualízalo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la machine du terminal exécute un cmux-tui qui ne peut pas l'identifier ; mettez-le à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la macchina del terminale esegue un cmux-tui che non può identificarlo; aggiornalo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルのマシンの cmux-tui はそのターミナルを特定できません。更新してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនរបស់ស្ថានីយដំណើរការ cmux-tui ដែលមិនអាចដាក់ឈ្មោះវាបាន; សូមធ្វើបច្ចុប្បន្នភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널의 컴퓨터가 터미널을 식별할 수 없는 cmux-tui를 실행합니다. 업데이트하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "terminalens maskin kjører en cmux-tui som ikke kan navngi den; oppdater den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "komputer terminala ma cmux-tui, który nie potrafi go wskazać; zaktualizuj go"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "a máquina do terminal roda um cmux-tui que não consegue identificá-lo; atualize-o"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "на машине терминала cmux-tui, который не может его назвать; обновите его"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องของเทอร์มินัลใช้ cmux-tui ที่ระบุเทอร์มินัลไม่ได้ อัปเดตก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "terminalin makinesi onu adlandıramayan bir cmux-tui çalıştırıyor; güncelleyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "машина термінала має cmux-tui, який не може його назвати; оновіть його"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "máy của terminal chạy cmux-tui không xác định được nó; hãy cập nhật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该终端所在机器的 cmux-tui 无法识别它；请更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該終端機所在機器的 cmux-tui 無法識別它；請更新"
+          }
+        }
+      }
+    },
+    "control.error.remoteTerminalClearHistory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear-history on a terminal of another machine is not supported; clear it on its own session"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يدعم clear-history طرفية جهاز آخر؛ امسحها في جلستها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "clear-history na terminalu druge mašine nije podržan; očistite ga u njegovoj sesiji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "clear-history på en terminal fra en anden maskine understøttes ikke; ryd den i dens egen session"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "clear-history für ein Terminal eines anderen Rechners wird nicht unterstützt; leere es in seiner eigenen Sitzung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "clear-history en un terminal de otra máquina no está admitido; bórralo en su propia sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "clear-history sur un terminal d'une autre machine n'est pas pris en charge ; effacez-le dans sa propre session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "clear-history su un terminale di un'altra macchina non è supportato; cancellalo nella sua sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "別のマシンのターミナルでは clear-history を使えません。そのターミナルのセッションで消去してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "clear-history លើស្ថានីយរបស់ម៉ាស៊ីនផ្សេងមិនត្រូវបានគាំទ្រ; សូមសម្អាតវានៅក្នុងវគ្គរបស់វា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 컴퓨터의 터미널에는 clear-history를 쓸 수 없습니다. 해당 세션에서 지우세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "clear-history på en terminal fra en annen maskin støttes ikke; tøm den i dens egen økt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "clear-history dla terminala z innego komputera nie jest obsługiwane; wyczyść go w jego sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "clear-history em um terminal de outra máquina não é suportado; limpe-o na própria sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "clear-history для терминала другой машины не поддерживается; очистите его в его сеансе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่รองรับ clear-history บนเทอร์มินัลของเครื่องอื่น ให้ล้างในเซสชันของมันเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "başka bir makinenin terminalinde clear-history desteklenmiyor; kendi oturumunda temizleyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "clear-history для термінала іншої машини не підтримується; очистьте його в його сеансі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "không hỗ trợ clear-history trên terminal của máy khác; hãy xóa trong phiên của nó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不支持对其他机器的终端使用 clear-history；请在其所在会话中清除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不支援對其他機器的終端機使用 clear-history；請在其所在工作階段中清除"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

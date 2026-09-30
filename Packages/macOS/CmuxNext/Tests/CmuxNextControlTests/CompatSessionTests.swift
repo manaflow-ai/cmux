@@ -94,13 +94,34 @@ import Testing
     }
 
     @Test func scopeFiltersListsAndPicksTheSessionsCurrentWorkspace() throws {
-        let all = try Self.world()
+        // Without a session, lists and bulk commands act on this Mac only;
+        // `all_sessions` (the CLI's `--all-sessions`) includes every session.
+        var all = try Self.world()
+        #expect(all.workspaces(in: nil).map(\.title) == ["alpha", "Beta!"])
+        all.includesAllSessions = true
         #expect(all.workspaces(in: nil).count == 3)
+        #expect(try Self.world().allWorkspaces(in: nil).count == 3)
         let remote = try Self.world(scope: "build-box")
         #expect(remote.workspaces(in: nil).map(\.title) == ["remote"])
         #expect(remote.currentWorkspace(window: nil)?.modelID == Self.remoteKey)
         let home = try Self.world(scope: "home")
         #expect(home.workspaces(in: nil).map(\.title) == ["alpha", "Beta!"])
+    }
+
+    /// A remote-terminal tab names its terminal's session and id, so `send`
+    /// and `read-screen` can reach it there.
+    @Test func remoteTerminalTabsCarryTheirTerminal() throws {
+        var topology = Self.topology()
+        var tab = ControlTabInfo(id: "tab_000000000000000000000000000000c1", surface: "31", kind: "remote-terminal", title: "htop")
+        tab.remoteSessionID = Self.remoteID
+        tab.remoteTerminalID = "cccccccccccccccccccccccccccccccc"
+        topology.workspaces[0].screens[0].panes[0].tabs.append(tab)
+        let world = CompatWorld(topology: topology, refs: CompatRefRegistry())
+        let surface = try #require(world.surfaces.values.first { $0.modelID == tab.id })
+        #expect(surface.isRemoteTerminal && !surface.isTerminal)
+        let json = CompatJSON.surface(surface, in: world)
+        #expect(json["remote"]?["session_id"] == .string(Self.remoteID))
+        #expect(json["remote"]?["terminal_id"] == "cccccccccccccccccccccccccccccccc")
     }
 
     @Test func handlesAreLookedUpPerSession() throws {

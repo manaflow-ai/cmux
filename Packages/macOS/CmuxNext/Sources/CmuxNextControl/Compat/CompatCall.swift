@@ -33,8 +33,9 @@ struct CompatCall: Sendable {
     }
 
     func scoped(_ world: CompatWorld) throws -> CompatWorld {
-        guard let raw = sessionParam else { return world }
         var world = world
+        world.includesAllSessions = bool("all_sessions") == true
+        guard let raw = sessionParam else { return world }
         world.scope = try world.resolveSession(raw)
         return world
     }

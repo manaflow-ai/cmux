@@ -51,10 +51,13 @@ enum CompatFreshTopology {
         case .remoteTerminal: "remote-terminal"
         case .other(let value): value
         }
-        return ControlTabInfo(
+        var info = ControlTabInfo(
             id: tab.tabResourceID?.rawValue ?? tab.terminalID.map { "terminal:\($0.rawValue)" } ?? "surface:\(tab.surface.rawValue)",
             surface: tab.surface.description, kind: kind, title: tab.displayTitle, name: tab.name, terminalID: tab.terminalID?.rawValue,
             columns: tab.size?.cols, rows: tab.size?.rows, cwd: tab.cwd, url: tab.url, gitBranch: tab.gitBranch, isPinned: tab.pinned,
             isDead: tab.dead, hasUnread: tab.notification?.unread ?? false, tabGroupID: tab.tabGroup?.rawValue)
+        info.remoteSessionID = tab.remote?.sessionID
+        info.remoteTerminalID = tab.remote?.terminalID.rawValue
+        return info
     }
 }

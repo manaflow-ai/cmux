@@ -104,7 +104,7 @@ enum CompatV1 {
 
     static func clearNotifications(_ line: CompatV1Line, _ service: CompatService) async throws -> String {
         let world = try await service.world()
-        var scope = Array(world.surfaces.values)
+        var scope = world.scopedWorkspaces.flatMap(world.orderedSurfaces(in:))
         if let tab = line.option("tab") {
             let workspace = try world.resolveWorkspace(tab, refs: service.refs)
             scope = world.orderedSurfaces(in: workspace)

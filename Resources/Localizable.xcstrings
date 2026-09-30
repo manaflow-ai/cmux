@@ -250417,6 +250417,137 @@
           }
         }
       }
+    },
+    "cli.usage.targets.allSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lists and bulk commands (list-workspaces, tree, clear-notifications) act on this Mac unless you pass --session or --all-sessions; a qualified ref works on any session."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل القوائم والأوامر المجمّعة (list-workspaces وtree وclear-notifications) على هذا الـ Mac ما لم تمرّر --session أو --all-sessions؛ ويعمل المرجع المؤهّل على أي جلسة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liste i skupne komande (list-workspaces, tree, clear-notifications) rade na ovom Macu osim ako proslijedite --session ili --all-sessions; kvalifikovana referenca radi na bilo kojoj sesiji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lister og massekommandoer (list-workspaces, tree, clear-notifications) virker på denne Mac, medmindre du angiver --session eller --all-sessions; en kvalificeret reference virker i enhver session."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Listen und Sammelbefehle (list-workspaces, tree, clear-notifications) wirken auf diesen Mac, außer du gibst --session oder --all-sessions an; eine qualifizierte Referenz wirkt in jeder Sitzung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las listas y los comandos masivos (list-workspaces, tree, clear-notifications) actúan en este Mac salvo que pases --session o --all-sessions; una referencia calificada funciona en cualquier sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les listes et commandes groupées (list-workspaces, tree, clear-notifications) agissent sur ce Mac sauf si vous passez --session ou --all-sessions ; une référence qualifiée fonctionne dans toute session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elenchi e comandi di massa (list-workspaces, tree, clear-notifications) agiscono su questo Mac a meno che non passi --session o --all-sessions; un riferimento qualificato funziona in qualsiasi sessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一覧と一括コマンド (list-workspaces、tree、clear-notifications) は、--session か --all-sessions を渡さない限りこの Mac だけを対象にします。修飾された参照はどのセッションでも使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ជី និងពាក្យបញ្ជាជាក្រុម (list-workspaces, tree, clear-notifications) ធ្វើការលើ Mac នេះ លុះត្រាតែអ្នកបញ្ជូន --session ឬ --all-sessions; ឯកសារយោងដែលមានគុណវុឌ្ឍិធ្វើការលើវគ្គណាមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "목록과 일괄 명령(list-workspaces, tree, clear-notifications)은 --session 또는 --all-sessions를 주지 않으면 이 Mac에만 적용됩니다. 한정된 참조는 모든 세션에서 작동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lister og massekommandoer (list-workspaces, tree, clear-notifications) virker på denne Macen med mindre du angir --session eller --all-sessions; en kvalifisert referanse virker i alle økter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Listy i polecenia zbiorcze (list-workspaces, tree, clear-notifications) działają na tym Macu, chyba że podasz --session lub --all-sessions; kwalifikowane odwołanie działa w każdej sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Listas e comandos em massa (list-workspaces, tree, clear-notifications) agem neste Mac, a menos que você passe --session ou --all-sessions; uma referência qualificada funciona em qualquer sessão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Списки и массовые команды (list-workspaces, tree, clear-notifications) действуют на этом Mac, если не указать --session или --all-sessions; уточнённая ссылка работает в любом сеансе."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รายการและคำสั่งแบบกลุ่ม (list-workspaces, tree, clear-notifications) ทำงานบน Mac เครื่องนี้ เว้นแต่คุณส่ง --session หรือ --all-sessions การอ้างอิงแบบระบุเต็มใช้ได้กับทุกเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Listeler ve toplu komutlar (list-workspaces, tree, clear-notifications), --session veya --all-sessions vermediğiniz sürece bu Mac'te çalışır; nitelenmiş bir başvuru her oturumda çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Списки й масові команди (list-workspaces, tree, clear-notifications) діють на цьому Mac, якщо не передати --session або --all-sessions; кваліфіковане посилання працює в будь-якому сеансі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Danh sách và lệnh hàng loạt (list-workspaces, tree, clear-notifications) chỉ tác động lên máy Mac này trừ khi bạn truyền --session hoặc --all-sessions; tham chiếu có định danh hoạt động ở mọi phiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "列表和批量命令（list-workspaces、tree、clear-notifications）只作用于此 Mac，除非传入 --session 或 --all-sessions；限定的引用可用于任何会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "清單和批次指令（list-workspaces、tree、clear-notifications）只作用於此 Mac，除非傳入 --session 或 --all-sessions；限定的參照可用於任何工作階段。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

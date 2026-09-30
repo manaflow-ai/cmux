@@ -127,7 +127,8 @@ enum CompatWorkspaceMethods {
     static func step(_ call: CompatCall, by offset: Int) async throws -> JSON {
         let world = try await call.world()
         let window = try call.target(world).window()
-        let peers = world.workspaces(in: window)
+        // Navigation follows the sidebar: every session's workspaces.
+        let peers = world.scope == nil ? world.allWorkspaces(in: window) : world.workspaces(in: window)
         guard let current = world.currentWorkspace(window: window), let position = peers.firstIndex(where: { $0.uuid == current.uuid }) else {
             throw CompatErrors.notFound("workspace", "selected")
         }

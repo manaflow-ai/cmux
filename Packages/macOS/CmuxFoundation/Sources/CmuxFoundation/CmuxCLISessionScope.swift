@@ -9,6 +9,9 @@
 public enum CmuxCLISessionScope {
     /// The flag names.
     public static let optionNames: Set<String> = ["--session", "--machine"]
+    /// Lists and bulk commands include SSH and Cloud sessions; without it (and
+    /// without a session) they act on this Mac only.
+    public static let allSessionsFlag = "--all-sessions"
 
     /// Commands whose `--session`/`--machine` after the command is the scope.
     public static let objectCommands: Set<String> = [
@@ -32,8 +35,15 @@ public enum CmuxCLISessionScope {
     ///
     /// - Returns: The last scope given, and the remaining arguments.
     public static func extract(command: String, arguments: [String]) -> (session: String?, remaining: [String]) {
-        guard objectCommands.contains(command) else { return (nil, arguments) }
+        let result = extractScope(command: command, arguments: arguments)
+        return (result.session, result.remaining)
+    }
+
+    /// `extract` plus `--all-sessions`.
+    public static func extractScope(command: String, arguments: [String]) -> (session: String?, allSessions: Bool, remaining: [String]) {
+        guard objectCommands.contains(command) else { return (nil, false, arguments) }
         var session: String?
+        var allSessions = false
         var remaining: [String] = []
         var index = 0
         while index < arguments.count {
@@ -41,6 +51,11 @@ public enum CmuxCLISessionScope {
             if argument == "--" {
                 remaining.append(contentsOf: arguments[index...])
                 break
+            }
+            if argument == allSessionsFlag {
+                allSessions = true
+                index += 1
+                continue
             }
             if optionNames.contains(argument), index + 1 < arguments.count {
                 session = arguments[index + 1]
@@ -55,7 +70,7 @@ public enum CmuxCLISessionScope {
             remaining.append(argument)
             index += 1
         }
-        return (session.flatMap { $0.isEmpty ? nil : $0 }, remaining)
+        return (session.flatMap { $0.isEmpty ? nil : $0 }, allSessions, remaining)
     }
 
     /// An `action.run` target with the scope as its qualifier: `surface:3`
@@ -78,6 +93,13 @@ public enum CmuxCLISessionScope {
         guard ["window", "workspace", "pane", "surface"].contains(kind) else { return false }
         if pieces.count == 3, kind == "window" { return false }
         return Int(pieces[pieces.count - 1]) != nil
+    }
+
+    /// Whether `value` is a session-qualified ref (`build-box:workspace:3`).
+    /// The app resolves these itself, on any session, so the CLI passes them
+    /// through instead of matching them against a (local-only) list.
+    public static func isQualifiedRef(_ value: String) -> Bool {
+        isHandleRef(value) && value.split(separator: ":", omittingEmptySubsequences: false).count == 3
     }
 
     /// Whether a listed object's ref names the ref a user typed. With a

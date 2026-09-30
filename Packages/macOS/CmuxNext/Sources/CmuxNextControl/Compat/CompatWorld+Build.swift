@@ -98,7 +98,8 @@ extension CompatWorld {
 
     static func facts(_ tab: ControlTabInfo) -> Tab {
         Tab(kind: tab.kind, title: tab.title, terminalID: tab.terminalID, cwd: tab.cwd, url: tab.url, gitBranch: tab.gitBranch,
-            pinned: tab.isPinned, dead: tab.isDead, unread: tab.hasUnread)
+            pinned: tab.isPinned, dead: tab.isDead, unread: tab.hasUnread, remoteSessionID: tab.remoteSessionID,
+            remoteTerminalID: tab.remoteTerminalID)
     }
 
     static func workspaceUUID(modelID: String) -> String {

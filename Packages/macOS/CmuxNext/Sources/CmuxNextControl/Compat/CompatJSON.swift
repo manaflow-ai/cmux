@@ -109,6 +109,10 @@ enum CompatJSON {
             "exited": .bool(surface.tab.dead),
         ]
         item.merge(sessionFields(surface.session)) { _, new in new }
+        if let terminal = surface.tab.remoteTerminalID {
+            // The terminal a remote-terminal tab shows runs on this session.
+            item["remote"] = ["session_id": surface.tab.remoteSessionID.map(JSON.string) ?? .null, "terminal_id": .string(terminal)]
+        }
         return item
     }
 

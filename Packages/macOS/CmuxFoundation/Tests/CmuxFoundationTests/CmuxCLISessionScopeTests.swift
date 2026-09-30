@@ -64,3 +64,20 @@ struct CmuxCLIScopedRefMatchTests {
         #expect(!CmuxCLISessionScope.ref("build-box:workspace:12", matches: "workspace:2", scoped: true))
     }
 }
+
+@Suite("cmux CLI all-sessions and qualified refs")
+struct CmuxCLIAllSessionsTests {
+    @Test("--all-sessions is taken by object commands")
+    func allSessionsFlag() {
+        let tree = CmuxCLISessionScope.extractScope(command: "tree", arguments: ["--all-sessions", "--json"])
+        #expect(tree.allSessions && tree.remaining == ["--json"])
+        let vm = CmuxCLISessionScope.extractScope(command: "vm", arguments: ["--all-sessions"])
+        #expect(!vm.allSessions && vm.remaining == ["--all-sessions"])
+    }
+
+    @Test("qualified refs pass through CLI-side matching")
+    func qualifiedRefs() {
+        #expect(CmuxCLISessionScope.isQualifiedRef("build-box:workspace:1"))
+        #expect(!CmuxCLISessionScope.isQualifiedRef("workspace:1"))
+    }
+}
