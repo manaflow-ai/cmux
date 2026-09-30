@@ -3924,8 +3924,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let liveForegroundKey = foregroundMacKey
         let reconciled = workspacesByMac.filter { key, state in
             key == Self.demonstrationPairingKey
-                || (key == liveForegroundKey || liveControlKeys.contains(key))
-                && state.status == .connected
+                || key == liveForegroundKey
+                || (liveControlKeys.contains(key) && state.status == .connected)
                 || visibleKeys.contains(key)
                 // Older sessions key their shared physical workspace state by
                 // device ID alone. Keep that state while any tagged instance
