@@ -586585,55 +586585,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Create persistent cloud computers whose files stay available when they sleep."
+            "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أنشئ أجهزة كمبيوتر سحابية دائمة، وتظل ملفاتها متاحة أثناء السكون."
+            "value": "أجهزة كمبيوتر Linux دائمة في السحابة تُفتح كمساحات عمل cmux عادية."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Erstelle dauerhafte Cloud-Computer, deren Dateien auch im Ruhezustand verfügbar bleiben."
+            "value": "Dauerhafte Linux-Computer in der Cloud, die sich als normale cmux-Workspaces öffnen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crea ordenadores Cloud persistentes cuyos archivos siguen disponibles cuando están en reposo."
+            "value": "Ordenadores Linux persistentes en la nube que se abren como espacios de trabajo normales de cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Créez des ordinateurs Cloud persistants dont les fichiers restent disponibles pendant la veille."
+            "value": "Des ordinateurs Linux persistants dans le cloud qui s’ouvrent comme des espaces de travail cmux ordinaires."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スリープ中もファイルを利用できる永続的な Cloud コンピュータを作成します。"
+            "value": "通常の cmux ワークスペースとして開く、クラウド上の永続的な Linux コンピュータです。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "파일을 절전 상태에서도 사용할 수 있는 영구 클라우드 컴퓨터를 만드세요."
+            "value": "일반 cmux 워크스페이스로 열리는 클라우드의 영구 Linux 컴퓨터입니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "创建持久的云电脑，即使休眠时文件仍可用。"
+            "value": "云端的持久 Linux 电脑，会以普通的 cmux 工作区打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "建立持久的雲端電腦，即使休眠時檔案仍可使用。"
+            "value": "雲端上的持久 Linux 電腦，會以一般的 cmux 工作區開啟。"
           }
         }
       }
@@ -587113,6 +587113,242 @@
           "stringUnit": {
             "state": "translated",
             "value": "在預設瀏覽器中開啟連結"
+          }
+        }
+      }
+    },
+    "cloud.enable.benefit.agents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and terminals keep running after you close your laptop."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستمر الوكلاء والطرفيات في العمل بعد إغلاق حاسوبك المحمول."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten und Terminals laufen weiter, auch wenn du deinen Laptop zuklappst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes y las terminales siguen ejecutándose después de cerrar tu portátil."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents et les terminaux continuent de tourner quand vous fermez votre ordinateur portable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノートパソコンを閉じても、エージェントとターミナルは動き続けます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트북을 닫아도 에이전트와 터미널이 계속 실행됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合上笔记本电脑后，智能体和终端仍会继续运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合上筆電後，代理程式和終端機仍會繼續執行。"
+          }
+        }
+      }
+    },
+    "cloud.enable.benefit.files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and installed tools stay on the machine between sessions."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى الملفات والأدوات المثبتة على الجهاز بين الجلسات."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateien und installierte Tools bleiben zwischen Sitzungen auf der Maschine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los archivos y las herramientas instaladas permanecen en la máquina entre sesiones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fichiers et les outils installés restent sur la machine d’une session à l’autre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルとインストールしたツールは、セッションをまたいでマシンに残ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일과 설치한 도구가 세션 사이에도 머신에 그대로 남아 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件和已安装的工具会在各次会话之间保留在机器上。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案和已安裝的工具會在各次工作階段之間保留在機器上。"
+          }
+        }
+      }
+    },
+    "cloud.enable.benefit.reattach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up where you left off from any Mac you sign in on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تابع من حيث توقفت من أي جهاز Mac تسجّل الدخول عليه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mach auf jedem Mac, auf dem du angemeldet bist, dort weiter, wo du aufgehört hast."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retoma tu trabajo donde lo dejaste desde cualquier Mac en el que inicies sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprenez là où vous vous étiez arrêté depuis n’importe quel Mac sur lequel vous êtes connecté."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインしているどの Mac からでも、中断したところから再開できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인한 어떤 Mac에서든 하던 작업을 이어서 할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在任何已登录的 Mac 上，从上次离开的地方继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在任何已登入的 Mac 上，從上次離開的地方繼續。"
+          }
+        }
+      }
+    },
+    "cloud.enable.planNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a paid cmux plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب خطة cmux مدفوعة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfordert einen kostenpflichtigen cmux-Tarif."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requiere un plan de pago de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite une offre cmux payante."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の有料プランが必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유료 cmux 요금제가 필요합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要付费的 cmux 套餐。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要付費的 cmux 方案。"
           }
         }
       }

@@ -16,7 +16,11 @@ extension MachinesPanelView {
                 }
             }
         case .disabled, .enabling, .failed, .cancelled, .unavailable:
-            CloudMachinesEnablementView(coordinator: activationCoordinator, accountFlow: accountFlow)
+            CloudMachinesEnablementView(
+                coordinator: activationCoordinator,
+                accountFlow: accountFlow,
+                chromeBackgroundColor: chromeBackgroundColor
+            )
         }
     }
 }
