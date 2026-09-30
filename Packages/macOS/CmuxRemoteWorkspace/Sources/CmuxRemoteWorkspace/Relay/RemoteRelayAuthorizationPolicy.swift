@@ -22,6 +22,9 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
     private static let tmuxCompatibleMethods: Set<String> = [
         "surface.close",
         "surface.send_text",
+        "surface.send_key",
+        "surface.input_state",
+        "terminal.paste",
         "surface.report_tty",
         "surface.report_pwd",
         "surface.report_git_branch",
@@ -55,6 +58,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "workspace.remote.terminal_session_end",
         "surface.read_text",
         "surface.read_selection",
+        "surface.input_state",
         "notification.create_for_target",
         "surface.report_tty",
         "surface.report_pwd",
@@ -64,12 +68,16 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.ports_kick",
         "surface.close",
         "surface.send_text",
+        "surface.send_key",
+        "terminal.paste",
         "agent.hook.enqueue",
     ]
 
     private static let exactSurfaceSelectorMethods: Set<String> = [
         "surface.close",
         "surface.send_text",
+        "surface.send_key",
+        "terminal.paste",
         "surface.report_tty",
         "surface.report_pwd",
         "surface.report_git_branch",
@@ -243,6 +251,25 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
                 return .denied(
                     code: "remote_relay_method_denied",
                     message: "Relay delivery resolution requires the authenticated TTY path"
+                )
+            }
+        }
+        if method == "surface.send_key" {
+            guard let key = parameters["key"] as? String,
+                  ["return", "enter", "tab", "ctrl+enter"].contains(key.lowercased()) else {
+                return .denied(
+                    code: "remote_relay_method_denied",
+                    message: "Relay submit keys are limited to return, enter, tab, and ctrl+enter"
+                )
+            }
+        }
+        if method == "terminal.paste" {
+            guard parameters["text"] is String,
+                  let submitKey = parameters["submit_key"] as? String,
+                  submitKey == "none" else {
+                return .denied(
+                    code: "remote_relay_method_denied",
+                    message: "Relay terminal paste requires text and submit_key none"
                 )
             }
         }

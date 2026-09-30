@@ -141,6 +141,42 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    @Test("terminal.paste to an owned remote surface is forwarded")
+    func allowsAliasedTerminalPaste() throws {
+        let workspace = UUID()
+        let surface = UUID()
+        try withServer(workspaceAliases: [workspace: workspace], surfaceAliases: [surface: surface]) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"paste","method":"terminal.paste","params":{"workspace_id":"\(workspace.uuidString)","surface_id":"\(surface.uuidString)","text":"line one\\nline two","submit_key":"none"}}
+                """
+            )
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+        }
+    }
+
+    @Test("terminal.paste rejects command parameters and arbitrary submit keys")
+    func deniesUnsafeTerminalPaste() throws {
+        let workspace = UUID()
+        let surface = UUID()
+        try withServer(workspaceAliases: [workspace: workspace], surfaceAliases: [surface: surface]) { port, unixServer in
+            for params in [
+                #"{"workspace_id":"\#(workspace.uuidString)","surface_id":"\#(surface.uuidString)","text":"x","submit_key":"none","command":"id"}"#,
+                #"{"workspace_id":"\#(workspace.uuidString)","surface_id":"\#(surface.uuidString)","text":"x","submit_key":"ctrl+enter"}"#,
+                #"{"workspace_id":"\#(workspace.uuidString)","surface_id":"\#(surface.uuidString)","text":"x"}"#,
+            ] {
+                let request = #"{"id":"paste-deny","method":"terminal.paste","params":#(params)}"#
+                let exchange = try runPolicyRelayExchange(port: port, relayID: relayID,
+                    tokenHex: tokenHex, commandLine: request)
+                expectDenial(exchange, unixServer, request)
+            }
+        }
+    }
+
     @Test("methods outside the relay allowlist are denied")
     func deniesNonAllowlistedMethod() throws {
         try withServer { port, unixServer in

@@ -15834,6 +15834,32 @@ class TerminalController {
         let surfaceId = resolved.surfaceID
         let terminalTarget = resolved.target
         let terminalPanel = terminalTarget.panel
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: v2HasNonNullParam(params, "window_id"),
+            windowID: v2UUID(params, "window_id"),
+            groupID: v2UUID(params, "group_id"),
+            workspaceID: v2UUID(params, "workspace_id"),
+            surfaceID: v2UUID(params, "surface_id")
+                ?? v2UUID(params, "terminal_id")
+                ?? v2UUID(params, "tab_id"),
+            paneID: v2UUID(params, "pane_id"),
+            remoteRelayOwnerWorkspaceID: v2UUID(
+                params,
+                WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey
+            ),
+            remoteRelayConnectionID: v2UUID(
+                params,
+                WorkspaceRemoteRelayCommandRewriter.connectionIDKey
+            )
+        )
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: resolved.workspace,
+            surfaceID: surfaceId
+        ) else {
+            return mobileInputNotFound(params: params)
+        }
+        let remotePane = resolved.workspace.remoteTmuxControlPane(surfaceID: surfaceId)
         let delivery = mobileInputDelivery(params: params)
         if let answer = mobileInputAdmissionAnswer(delivery, workspaceID: resolved.workspace.id, surfaceID: surfaceId) {
             return answer
@@ -16037,7 +16063,11 @@ class TerminalController {
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
         // hibernated agent terminal the same way local typing does, so a mobile
         // composer submit cannot write into a cold surface.
-        let textResult = terminalTarget.sendTextResult(text)
+        let textResult: TerminalSurface.TextSendResult = if let remotePane {
+            remotePane.sendPaste(text) ? .sent : .surfaceUnavailable
+        } else {
+            terminalTarget.sendTextResult(text)
+        }
         // The paste and its submit key are one unit: once the text is
         // accepted the unit counts as applied, even if the submit key fails
         // (reported below), so a resend never pastes the block twice.
@@ -16066,22 +16096,38 @@ class TerminalController {
         var submitted = false
         var submitError: String?
         if let submitKeyName {
-            let keyResult = terminalTarget.sendNamedKeyResult(submitKeyName)
-            if keyResult.accepted {
+            let keyAccepted: Bool
+            let keyFailure: String?
+            if let remotePane {
+                switch remotePane.sendKey(submitKeyName) {
+                case .sent:
+                    keyAccepted = true
+                    keyFailure = nil
+                case .rejected:
+                    keyAccepted = false
+                    keyFailure = "surface_unavailable"
+                case .unknownKey:
+                    keyAccepted = false
+                    keyFailure = "unknown_key"
+                }
+            } else {
+                let keyResult = terminalTarget.sendNamedKeyResult(submitKeyName)
+                keyAccepted = keyResult.accepted
+                if keyResult.accepted {
+                    keyFailure = nil
+                } else {
+                    switch keyResult {
+                    case .inputQueueFull: keyFailure = "input_queue_full"
+                    case .surfaceUnavailable: keyFailure = "surface_unavailable"
+                    case .processExited: keyFailure = "process_exited"
+                    case .unknownKey, .sent, .queued: keyFailure = "unknown_key"
+                    }
+                }
+            }
+            if keyAccepted {
                 submitted = true
             } else {
-                switch keyResult {
-                case .inputQueueFull:
-                    submitError = "input_queue_full"
-                case .surfaceUnavailable:
-                    submitError = "surface_unavailable"
-                case .processExited:
-                    submitError = "process_exited"
-                case .unknownKey, .sent, .queued:
-                    // .sent / .queued are accepted results and unreachable in this
-                    // else-branch; grouped here only to keep the switch exhaustive.
-                    submitError = "unknown_key"
-                }
+                submitError = keyFailure
             }
         }
 

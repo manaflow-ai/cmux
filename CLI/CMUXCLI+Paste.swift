@@ -114,6 +114,7 @@ extension CMUXCLI {
     /// targets and report delivery the same way. `command` names the caller
     /// in the size-limit error. Unless `force` is set, refuses to paste over
     /// a draft or into an open dialog (see ``ensureAgentPromptIsFree``).
+    @discardableResult
     func deliverTerminalPaste(
         text: String,
         command: String,
@@ -124,16 +125,10 @@ extension CMUXCLI {
         force: Bool,
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
-    ) throws {
+        idFormat: CLIIDFormat,
+        emitOutput: Bool = true
+    ) throws -> [String: Any] {
         try Self.ensureTextFitsSocketRequest(text, command: command)
-
-        let workspaceArg = workspace
-            ?? Self.callerWorkspaceForSurfaceHandle(surface, windowRaw: windowRaw)
-        let surfaceArg = surface
-            ?? (workspace == nil && windowRaw == nil
-                ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
-                : nil)
 
         var params: [String: Any] = [
             "text": text,
@@ -141,18 +136,19 @@ extension CMUXCLI {
             // example ctrl+enter for a multi-line Claude Code prompt).
             "submit_key": submit ? "return" : "none",
         ]
-        let winId = try normalizeWindowHandle(windowRaw, client: client)
-        if let winId { params["window_id"] = winId }
-        let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
-        if let wsId { params["workspace_id"] = wsId }
-        let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
-        if let sfId { params["surface_id"] = sfId }
+        let target = try terminalTargetParams(
+            workspace: workspace,
+            surface: surface,
+            windowRaw: windowRaw,
+            client: client
+        )
+        params.merge(target) { _, new in new }
         if !force {
             try ensureAgentPromptIsFree(for: .text, command: command, target: params, client: client)
         }
 
         let payload = try client.sendV2(method: "terminal.paste", params: params)
-        if submit, (payload["submitted"] as? Bool) != true {
+        if emitOutput, submit, (payload["submitted"] as? Bool) != true {
             // The text is already at the prompt, so this is a warning rather
             // than a failure: a caller that retried would paste it twice.
             let reason = (payload["submit_error"] as? String) ?? "unknown"
@@ -165,12 +161,285 @@ extension CMUXCLI {
             )
             FileHandle.standardError.write(Data((warning + "\n").utf8))
         }
-        printV2Payload(
-            payload,
-            jsonOutput: jsonOutput,
-            idFormat: idFormat,
-            fallbackText: pasteSummary(payload, idFormat: idFormat)
+        if emitOutput {
+            printV2Payload(
+                payload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: pasteSummary(payload, idFormat: idFormat)
+            )
+        }
+        return payload
+    }
+
+    /// Builds the resolved target shared by paste, submit, and the screen/state
+    /// probes. The resulting UUID selectors are also the selectors accepted by
+    /// the SSH relay, so submit does not need a local-only focus operation.
+    private func terminalTargetParams(
+        workspace: String?,
+        surface: String?,
+        windowRaw: String?,
+        client: SocketClient
+    ) throws -> [String: Any] {
+        let workspaceArg = workspace
+            ?? Self.callerWorkspaceForSurfaceHandle(surface, windowRaw: windowRaw)
+        let surfaceArg = surface
+            ?? (workspace == nil && windowRaw == nil
+                ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+                : nil)
+        var params: [String: Any] = [:]
+        let winId = try normalizeWindowHandle(windowRaw, client: client)
+        if let winId { params["window_id"] = winId }
+        let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
+        if let wsId { params["workspace_id"] = wsId }
+        let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
+        if let sfId { params["surface_id"] = sfId }
+        return params
+    }
+
+    /// Implements `cmux send --submit` as two writes: a bracketed paste with
+    /// submit disabled, followed by a named key event. The post-key probe is
+    /// deliberately bounded so a stuck agent cannot leave the CLI hanging.
+    func deliverSendSubmit(
+        text: String,
+        command: String,
+        workspace: String?,
+        surface: String?,
+        windowRaw: String?,
+        force: Bool,
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        try Self.ensureTextFitsSocketRequest(text, command: command)
+        let target = try terminalTargetParams(
+            workspace: workspace,
+            surface: surface,
+            windowRaw: windowRaw,
+            client: client
         )
+
+        var state: [String: Any]?
+        if !force {
+            state = try ensureAgentPromptIsFree(
+                for: .text,
+                command: command,
+                target: target,
+                client: client
+            )
+        }
+        var screen: String?
+        if let payload = try? client.sendV2(method: "surface.read_text", params: target) {
+            screen = payload["text"] as? String
+        }
+        if (state == nil || force), let screen,
+           let fallback = Self.submitInputStateFromScreen(screen) {
+            if !force {
+                try throwIfAgentPromptBlocks(fallback, kind: .text, command: command, target: target)
+            }
+            if state == nil { state = fallback }
+        }
+
+        var pasteParams = target
+        pasteParams["text"] = text
+        pasteParams["submit_key"] = "none"
+        _ = try client.sendV2(method: "terminal.paste", params: pasteParams)
+        // Ghostty queues paste bytes before the next key event. A short settle
+        // window prevents Return from racing the bracketed-paste terminator.
+        Thread.sleep(forTimeInterval: 0.05)
+
+        let agent = (state?["agent"] as? Bool) == true
+        let busyCodex = agent
+            && ((state?["busy"] as? Bool) == true || (state?["lifecycle"] as? String) == "running")
+            && Self.stateOrScreenLooksLikeCodex(state, screen: screen)
+        let key: String
+        if busyCodex {
+            key = "tab"
+        } else if (state?["agent_kind"] as? String)?.lowercased().contains("claude") == true,
+                  text.contains(where: { $0 == "\n" || $0 == "\r" }) {
+            key = "ctrl+enter"
+        } else {
+            key = "return"
+        }
+        let maxAttempts = 3
+        let minimumAttempts = key == "return"
+            && ((state?["slash_command_popup"] as? Bool) == true || Self.screenShowsSlashPopup(screen)) ? 2 : 1
+        var lastState = state
+        for attempt in 0..<maxAttempts {
+            var keyParams = target
+            keyParams["key"] = key
+            _ = try client.sendV2(method: "surface.send_key", params: keyParams)
+            Thread.sleep(forTimeInterval: 0.05 * Double(attempt + 1))
+
+            // Plain shells have no composer to inspect. The separate key was
+            // accepted by the socket, which is the complete shell contract.
+            if !agent {
+                return printSubmitResult(
+                    status: "submitted",
+                    payload: target,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
+            }
+            lastState = try? client.sendV2(method: "surface.input_state", params: target)
+            if lastState == nil,
+               let refreshed = try? client.sendV2(method: "surface.read_text", params: target),
+               let refreshedText = refreshed["text"] as? String {
+                screen = refreshedText
+                lastState = Self.submitInputStateFromScreen(refreshedText)
+            }
+            let popupStillVisible = (lastState?["slash_command_popup"] as? Bool) == true
+                || Self.screenShowsSlashPopup(screen)
+            if let lastState,
+                ((lastState["state"] as? String) == "empty"
+                    || (lastState["state"] as? String) == "queued"
+                    || (lastState["queued"] as? Bool) == true),
+                (attempt + 1 >= minimumAttempts || !popupStillVisible) {
+                return printSubmitResult(
+                    status: key == "tab" || (lastState["state"] as? String) == "queued"
+                        || (lastState["queued"] as? Bool) == true ? "queued" : "submitted",
+                    payload: lastState,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
+            }
+            if let refreshed = try? client.sendV2(method: "surface.read_text", params: target),
+               let refreshedText = refreshed["text"] as? String {
+                screen = refreshedText
+            }
+            if attempt + 1 < maxAttempts {
+                continue
+            }
+        }
+
+        let reason: String
+        if (lastState?["state"] as? String) == "dialog" {
+            reason = "the target opened a dialog while submitting"
+        } else {
+            reason = "the agent composer still contains the message after \(maxAttempts) submit attempts"
+        }
+        throw CLIError(message: String(
+            format: String(
+                localized: "cli.send.error.submitUnconfirmed",
+                defaultValue: "%@: %@; nothing was confirmed as submitted"
+            ),
+            command,
+            reason
+        ))
+    }
+
+    private func printSubmitResult(
+        status: String,
+        payload: [String: Any],
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) {
+        var result = payload
+        result["status"] = status
+        result["submitted"] = status == "submitted"
+        result["queued"] = status == "queued"
+        printV2Payload(result, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: status)
+    }
+
+    private func throwIfAgentPromptBlocks(
+        _ state: [String: Any],
+        kind: TerminalInputWriteKind,
+        command: String,
+        target: [String: Any]
+    ) throws {
+        let dialog = state["state"] as? String == "dialog" && (state["agent"] as? Bool) == true
+        let blocks: Bool
+        switch kind {
+        case .text:
+            blocks = (state["blocks_typing"] as? Bool) == true
+        case .key:
+            blocks = dialog
+        }
+        guard blocks else { return }
+        let surface = (target["surface_id"] as? String) ?? (state["surface_id"] as? String) ?? "?"
+        if dialog {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.send.error.dialogOpen",
+                    defaultValue: "%1$@: %2$@ is waiting on a question or dialog, so nothing was sent. Retry once it is answered, or pass --force to send anyway."
+                ),
+                command,
+                surface
+            ))
+        }
+        throw CLIError(message: String(
+            format: String(
+                localized: "cli.send.error.draftPresent",
+                defaultValue: "%1$@: the agent prompt in %2$@ holds text someone is typing, so nothing was sent. Retry when the prompt is clear, or pass --force to send anyway."
+            ),
+            command,
+            surface
+        ))
+    }
+
+    private static func screenLooksLikeCodex(_ screen: String?) -> Bool {
+        guard let screen else { return false }
+        return screen.split(separator: "\n").contains { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return trimmed.hasPrefix("›") || trimmed.hasPrefix("> ")
+        }
+    }
+
+    private static func stateOrScreenLooksLikeCodex(
+        _ state: [String: Any]?,
+        screen: String?
+    ) -> Bool {
+        if let kind = state?["agent_kind"] as? String,
+           kind.lowercased().contains("codex") {
+            return true
+        }
+        return screenLooksLikeCodex(screen)
+    }
+
+    private static func screenShowsSlashPopup(_ screen: String?) -> Bool {
+        guard let screen else { return false }
+        let lines = screen.split(separator: "\n", omittingEmptySubsequences: false)
+        guard let prompt = lines.last(where: { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return trimmed.hasPrefix("❯") || trimmed.hasPrefix("›")
+        }) else { return false }
+        let promptText = String(prompt.drop(while: { $0 == "❯" || $0 == "›" }))
+            .trimmingCharacters(in: .whitespaces)
+        guard promptText.hasPrefix("/") else { return false }
+        return lines.contains { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return trimmed.hasPrefix("/") && trimmed != promptText
+        }
+    }
+
+    /// Conservative text-only fallback for relay clients that cannot ask for
+    /// `surface.input_state`. It recognizes the same prompt glyphs as the app
+    /// detector and only blocks when visible text or a dialog hint is present.
+    private static func submitInputStateFromScreen(_ screen: String) -> [String: Any]? {
+        let lines = screen.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let promptIndex = lines.lastIndex(where: { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return trimmed.hasPrefix("❯") || trimmed.hasPrefix("›") || trimmed.hasPrefix("│ ❯") || trimmed.hasPrefix("│ ›")
+        })
+        let dialogRows = promptIndex.map { Array(lines.dropFirst($0 + 1)) } ?? lines
+        let loweredDialog = dialogRows.joined(separator: "\n").lowercased()
+        if ["esc to cancel", "esc to go back", "press enter to", "enter to confirm", "enter to select"]
+            .contains(where: loweredDialog.contains) {
+            return ["state": "dialog", "agent": true, "blocks_typing": true]
+        }
+        for line in lines.reversed() {
+            var trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("│") { trimmed = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces) }
+            if trimmed.hasPrefix("❯") || trimmed.hasPrefix("›") {
+                let body = trimmed.dropFirst().trimmingCharacters(in: .whitespaces)
+                return [
+                    "state": body.isEmpty ? "empty" : "draft",
+                    "agent": true,
+                    "blocks_typing": !body.isEmpty,
+                ]
+            }
+        }
+        return ["state": "unknown", "agent": false, "blocks_typing": false]
     }
 
     private func pasteSummary(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
@@ -322,12 +591,13 @@ extension CMUXCLI {
     ///
     /// An app that can't answer `surface.input_state` (an older build, or a
     /// remote relay that doesn't forward it) keeps the previous behavior.
+    @discardableResult
     func ensureAgentPromptIsFree(
         for kind: TerminalInputWriteKind,
         command: String,
         target: [String: Any],
         client: SocketClient
-    ) throws {
+    ) throws -> [String: Any]? {
         var params: [String: Any] = [:]
         for key in ["window_id", "workspace_id", "surface_id"] {
             if let value = target[key] { params[key] = value }
@@ -336,37 +606,10 @@ extension CMUXCLI {
         do {
             state = try client.sendV2(method: "surface.input_state", params: params)
         } catch {
-            return
+            return nil
         }
-        let dialog = state["state"] as? String == "dialog" && (state["agent"] as? Bool) == true
-        let blocks: Bool
-        switch kind {
-        case .text:
-            blocks = (state["blocks_typing"] as? Bool) == true
-        case .key:
-            blocks = dialog
-        }
-        guard blocks else { return }
-
-        let surface = (target["surface_id"] as? String) ?? (state["surface_id"] as? String) ?? "?"
-        if dialog {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.send.error.dialogOpen",
-                    defaultValue: "%1$@: %2$@ is waiting on a question or dialog, so nothing was sent. Retry once it is answered, or pass --force to send anyway."
-                ),
-                command,
-                surface
-            ))
-        }
-        throw CLIError(message: String(
-            format: String(
-                localized: "cli.send.error.draftPresent",
-                defaultValue: "%1$@: the agent prompt in %2$@ holds text someone is typing, so nothing was sent. Retry when the prompt is clear, or pass --force to send anyway."
-            ),
-            command,
-            surface
-        ))
+        try throwIfAgentPromptBlocks(state, kind: kind, command: command, target: target)
+        return state
     }
 
     // MARK: - cmux send --paste
@@ -375,15 +618,18 @@ extension CMUXCLI {
     /// text arguments. Only flags before the text count, so
     /// `cmux send echo --paste` and `cmux send -- --paste` still type
     /// `--paste` as text, as before.
-    static func splitSendPasteFlag(_ args: [String]) -> (usesPaste: Bool, force: Bool, textArgs: [String]) {
+    static func splitSendPasteFlag(_ args: [String]) -> (usesPaste: Bool, submit: Bool, force: Bool, textArgs: [String]) {
         var rest = args[...]
         var usesPaste = false
+        var submit = false
         var force = false
-        while let flag = rest.first, flag == "--paste" || flag == "--force" {
-            if flag == "--paste" { usesPaste = true } else { force = true }
+        while let flag = rest.first, flag == "--paste" || flag == "--submit" || flag == "--force" {
+            if flag == "--paste" { usesPaste = true }
+            if flag == "--submit" { submit = true }
+            if flag == "--force" { force = true }
             rest = rest.dropFirst()
         }
-        return (usesPaste, force, Array(rest))
+        return (usesPaste, submit, force, Array(rest))
     }
 
     /// `cmux send` without `--paste` suggests the paste path when the text is
@@ -428,6 +674,7 @@ extension CMUXCLI {
           --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
           --window <id|ref|index>      Window context for workspace/surface refs and indexes
           --paste                      Paste the text instead of typing it
+          --submit                     Paste, then submit with a separate key event and verify delivery
           --force                      Send even over a draft or into an open dialog
 
         Example:

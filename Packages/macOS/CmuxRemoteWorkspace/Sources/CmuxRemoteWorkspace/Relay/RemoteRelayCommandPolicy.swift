@@ -101,6 +101,19 @@ public struct RemoteRelayCommandPolicy: Sendable {
                 return .deny(reason: "agent delivery resolution requires the authenticated TTY path")
             }
         }
+        if method == "surface.send_key" {
+            guard let key = params["key"] as? String,
+                  ["return", "enter", "tab", "ctrl+enter"].contains(key.lowercased()) else {
+                return .deny(reason: "relay submit keys are limited to return, enter, tab, and ctrl+enter")
+            }
+        }
+        if method == "terminal.paste" {
+            guard params["text"] is String,
+                  let submitKey = params["submit_key"] as? String,
+                  submitKey == "none" else {
+                return .deny(reason: "terminal.paste requires text and submit_key none")
+            }
+        }
 
         if let malformedSelector = malformedSelector(in: params, key: nil) {
             return .deny(reason: "selector '\(malformedSelector)' is invalid")

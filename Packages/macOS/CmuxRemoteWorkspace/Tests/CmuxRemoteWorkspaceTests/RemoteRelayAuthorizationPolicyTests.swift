@@ -48,6 +48,29 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
     }
 
+    @Test("terminal paste is scoped to one exact remote surface")
+    func terminalPasteScope() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let base: [String: Any] = [
+            "workspace_id": workspaceID.uuidString,
+            "surface_id": surfaceID.uuidString,
+            "text": "first line\nsecond line",
+            "submit_key": "none",
+        ]
+        #expect(policy.validate(method: "terminal.paste", parameters: base,
+            ownerWorkspaceID: workspaceID, surfaceIDs: [surfaceID]) == .allowed)
+        #expect(policy.validate(method: "terminal.paste", parameters:
+            base.merging(["surface_id": UUID().uuidString]) { _, new in new },
+            ownerWorkspaceID: workspaceID, surfaceIDs: [surfaceID]) != .allowed)
+        for submitKey in ["enter", "ctrl+enter", ""] {
+            #expect(policy.validate(method: "terminal.paste",
+                parameters: base.merging(["submit_key": submitKey]) { _, new in new },
+                ownerWorkspaceID: workspaceID, surfaceIDs: [surfaceID]) != .allowed)
+        }
+    }
+
     @Test("selectors cannot cross the authenticated workspace")
     func crossWorkspaceSelectorIsDenied() {
         let policy = RemoteRelayAuthorizationPolicy()
