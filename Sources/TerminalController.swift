@@ -277,6 +277,7 @@ class TerminalController {
     /// the clear+re-apply resize flap (issue 13474).
     private static let mobileViewportUncapApplyStabilityWindow: Duration = .seconds(3)
     var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]; private var mobileViewportGenerationsBySurfaceID: [UUID: [String: UInt64]] = [:]
+    private var mobileTerminalPasteInFlightSurfaceIDs: Set<UUID> = []
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
     var mobileViewportApplyGovernorsBySurfaceID: [UUID: MobileViewportApplyGovernor] = [:]
     /// Shared-sizing hosts of local terminals (docs/shared-terminal-sizing.md).
@@ -1324,7 +1325,7 @@ class TerminalController {
                     await self.v2SurfaceReadSelection(params: parsedRequest.params)
                 }
             }
-            if ["mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt"].contains(request.method) {
+            if ["mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt", "mobile.terminal.paste", "terminal.paste"].contains(request.method) {
                 return v2AsyncResultCall(
                     id: request.id,
                     timeoutSeconds: 7
@@ -6338,7 +6339,11 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2FeedPermissionReply(params: [String: Any]) -> V2CallResult {
+    // The three feed reply handlers are internal (not private) because the
+    // mobile data plane dispatches the same bodies from
+    // `TerminalController+MobileFeed.swift`'s verb family; every entrypoint
+    // resolves through the single `FeedCoordinator.deliverReply` path.
+    nonisolated func v2FeedPermissionReply(params: [String: Any]) -> V2CallResult {
         guard let requestId = params["request_id"] as? String else {
             return .err(
                 code: "invalid_params",
@@ -6362,7 +6367,7 @@ class TerminalController {
         return .ok(["delivered": true])
     }
 
-    private nonisolated func v2FeedQuestionReply(params: [String: Any]) -> V2CallResult {
+    nonisolated func v2FeedQuestionReply(params: [String: Any]) -> V2CallResult {
         guard let requestId = params["request_id"] as? String else {
             return .err(
                 code: "invalid_params",
@@ -6384,7 +6389,7 @@ class TerminalController {
         return .ok(["delivered": true])
     }
 
-    private nonisolated func v2FeedExitPlanReply(params: [String: Any]) -> V2CallResult {
+    nonisolated func v2FeedExitPlanReply(params: [String: Any]) -> V2CallResult {
         guard let requestId = params["request_id"] as? String else {
             return .err(
                 code: "invalid_params",
@@ -15024,7 +15029,7 @@ class TerminalController {
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
         case "mobile.terminal.paste", "terminal.paste":
-            result = v2MobileTerminalPaste(params: request.params)
+            result = await v2MobileTerminalPaste(params: request.params)
         case "mobile.terminal.paste_image", "terminal.paste_image":
             result = v2MobileTerminalPasteImage(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
@@ -15105,6 +15110,19 @@ class TerminalController {
                 params: request.params,
                 responseID: request.id.map { String(describing: $0) }
             )
+        case "feed.list":
+            result = await v2MobileFeedList(
+                params: request.params,
+                responseID: request.id.map { String(describing: $0) }
+            )
+        case "feed.text":
+            result = v2MobileFeedText(params: request.params)
+        case "feed.permission.reply":
+            result = v2FeedPermissionReply(params: request.params)
+        case "feed.question.reply":
+            result = v2FeedQuestionReply(params: request.params)
+        case "feed.exit_plan.reply":
+            result = v2FeedExitPlanReply(params: request.params)
         case "notification.feed.mark_read":
             result = v2MobileNotificationFeedMarkRead(params: request.params)
         case "notification.feed.mark_unread":
@@ -16035,7 +16053,7 @@ class TerminalController {
     ///
     /// `submit_key` is optional: `return`/`enter` (default) or `ctrl+enter`
     /// submit; `none` pastes without submitting so the composer can keep editing.
-    func v2MobileTerminalPaste(params: [String: Any]) -> V2CallResult {
+    func v2MobileTerminalPaste(params: [String: Any]) async -> V2CallResult {
         guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
         }
@@ -16074,6 +16092,11 @@ class TerminalController {
         if let answer = mobileInputAdmissionAnswer(delivery, workspaceID: resolved.workspace.id, surfaceID: surfaceId) {
             return answer
         }
+
+        guard mobileTerminalPasteInFlightSurfaceIDs.insert(surfaceId).inserted else {
+            return .err(code: "busy", message: "A prompt is already being submitted to this terminal", data: nil)
+        }
+        defer { mobileTerminalPasteInFlightSurfaceIDs.remove(surfaceId) }
 
         // Mirror the macOS TextBox composer's submit-key selection
         // (`TextBoxInput.dispatchEvents`): Claude Code needs `ctrl+enter` to
@@ -16124,7 +16147,35 @@ class TerminalController {
         var submitted = false
         var submitError: String?
         if let submitKeyName {
-            let keyResult = terminalTarget.sendNamedKeyResult(submitKeyName)
+            // Gemini's editor treats Enter during its 40 ms paste-protection
+            // window as a newline. React-based editors can also process paste
+            // and Enter in one render with a stale, empty input buffer. Keep a
+            // separate input turn, with margin for the documented cooldown,
+            // and await it before acknowledging submission to the phone.
+            let generation = terminalTarget.surface.runtimeSurfaceGeneration
+            do {
+                try await Task.sleep(for: .milliseconds(150))
+            } catch {
+                return .ok([
+                    "workspace_id": resolved.workspace.id.uuidString,
+                    "surface_id": surfaceId.uuidString,
+                    "submitted": false,
+                    "submit_error": "cancelled",
+                ])
+            }
+            // Closing/replacing a terminal during the suspension must never
+            // send Enter into a different process or a newly created surface.
+            guard let current = mobileCanonicalTerminalTarget(params: params)?.target,
+                  current.surface === terminalTarget.surface,
+                  current.surface.runtimeSurfaceGeneration == generation else {
+                return .ok([
+                    "workspace_id": resolved.workspace.id.uuidString,
+                    "surface_id": surfaceId.uuidString,
+                    "submitted": false,
+                    "submit_error": "surface_changed",
+                ])
+            }
+            let keyResult = current.sendNamedKeyResult(submitKeyName)
             if keyResult.accepted {
                 submitted = true
             } else {
@@ -16144,6 +16195,12 @@ class TerminalController {
         }
 
         terminalTarget.forceRefresh(reason: "mobileHost.terminalPaste")
+
+        if submitted,
+           let rawEventID = v2String(params, "feed_event_id"),
+           let eventID = UUID(uuidString: rawEventID) {
+            _ = FeedCoordinator.shared.store?.recordTerminalReply(eventID, text: text)
+        }
 
         #if DEBUG
         cmuxDebugLog(
