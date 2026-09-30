@@ -398,11 +398,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let timeout = Self.timeout(params)
         let started = ContinuousClock.now
         attachment(panel).rememberCredentials(in: url)
+        _ = attachment(panel).takeAuthenticationFailure()
         let ticket = panel.beginAutomationNavigation(to: url, recordTypedNavigation: false)
         let outcome = try await withTimeoutThrowing(milliseconds: timeout, what: "navigating to \"\(raw)\"") {
             await panel.finishAutomationNavigation(ticket)
         }
-        try Self.check(outcome, url: raw)
+        do {
+            try Self.check(outcome, url: raw)
+        } catch {
+            if let reason = attachment(panel).takeAuthenticationFailure() { throw Self.error("invalid", reason) }
+            throw error
+        }
         try await waitForLoadState(
             panel,
             Self.waitUntil(params),
@@ -1066,6 +1072,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let modifiers = BrowserReplKeyStroke.modifierFlags(named: params["modifiers"] as? [String] ?? [])
         let x = (params["x"] as? NSNumber)?.doubleValue
         let y = (params["y"] as? NSNumber)?.doubleValue
+        await attachment.waitForPointer(sessionID: sessionID)
+        if type == "down" { attachment.pointerPressed(sessionID: sessionID) }
+        defer { if type == "up" { attachment.pointerReleased(sessionID: sessionID) } }
         if let x, let y { attachment.mousePosition = CGPoint(x: x, y: y) }
         let css = attachment.mousePosition
         try await withWindow(panel) { [self] webView, window in

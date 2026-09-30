@@ -1669,7 +1669,7 @@
       ]
     },
     "BeforeUnloadDialog.type": {
-      "cmux": "page.dialog().type after page.close({ runBeforeUnload: true })",
+      "cmux": "page.dialog().type is \"beforeunload\" when WebKit raises the prompt; navigations the agent starts leave without one, as ChatGPT's Chrome accepts it itself",
       "note": "Same held-dialog path as the other types. Playwright's headless WebKit (the dev driver) never fires beforeunload, so this type is unproven outside the app.",
       "cases": [
         "dialogs.beforeunload"

@@ -121,7 +121,7 @@ const ERROR_CLASSES = [
   ["disabled", /not enabled|is disabled|element is disabled/i],
   ["not-editable", /not editable|readonly|read-only/i],
   ["dialog", /dialog is open|blocked by (a|the) (javascript )?dialog/i],
-  ["auth", /\b401\b|authenticat/i],
+  ["auth", /\b401\b|authenticat|AUTH_CREDENTIALS/i],
   ["tls", /certificate|SSL|TLS|ERR_CERT|secure connection/i],
   ["dns", /ERR_NAME_NOT_RESOLVED|server with the specified hostname could not be found|NSURLErrorCannotFindHost|cannot find host|could not resolve|getaddrinfo/i],
   ["refused", /ERR_CONNECTION_REFUSED|Could not connect|NSURLErrorCannotConnectToHost|connection refused|ECONNREFUSED/i],
@@ -274,14 +274,19 @@ export function verdictFor(c, ref, cmuxRes, refRes) {
 }
 
 // Results: results/<backend>.json { meta, cases: { id: { value, uncaught, ms } } }.
+// DIFF_RESULTS_DIR stages a run outside the checkout (for example a run on
+// an app build still being checked), so shared working trees and the gate
+// only ever read committed evidence.
+const resultsDir = () => process.env.DIFF_RESULTS_DIR || path.join(here, "results");
+
 export function readResults(backend) {
-  const f = path.join(here, "results", `${backend}.json`);
+  const f = path.join(resultsDir(), `${backend}.json`);
   return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : { meta: {}, cases: {} };
 }
 
 export function writeResults(backend, data) {
-  fs.mkdirSync(path.join(here, "results"), { recursive: true });
-  fs.writeFileSync(path.join(here, "results", `${backend}.json`), JSON.stringify(data, null, 1) + "\n");
+  fs.mkdirSync(resultsDir(), { recursive: true });
+  fs.writeFileSync(path.join(resultsDir(), `${backend}.json`), JSON.stringify(data, null, 1) + "\n");
 }
 
 // The cmux evidence for verdicts: the app's result when it ran the case,

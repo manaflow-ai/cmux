@@ -594,7 +594,8 @@
 
     async function pageById(id) {
       if (id instanceof core.Page) return id;
-      const list = await session.call("tabs.list", {});
+      // Any tab tabs.list({ all: true }) lists can be attached (a claim).
+      const list = await session.call("tabs.list", { all: true });
       if (!list.some((t) => t.targetId === String(id))) throw new Error(`No open tab with id ${JSON.stringify(String(id))}; see tabs.list()`);
       const page = session.pageFor(String(id));
       await page._syncInfo().catch(() => {});

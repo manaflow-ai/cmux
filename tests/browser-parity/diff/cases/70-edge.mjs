@@ -24,7 +24,8 @@ return { result: out ?? "pending", settledMs: Date.now() - t0, dialog: false };`
   compare: ["result"],
   better: Object.fromEntries(["aside", "chatgpt"].map((ref) => [ref, {
     reason: "a driven tab answers the permission request at once (denied) instead of leaving a prompt nobody can answer",
-    check: (c, r) => c.result !== "pending" && r.result === "pending",
+    // "error 3" is the page giving up after 3 s on a prompt nobody answered.
+    check: (c, r) => c.result !== "pending" && c.result !== "error 3" && (r.result === "pending" || r.result === "error 3"),
   }])),
 });
 
@@ -46,11 +47,11 @@ return { noCreds: noCreds.value ?? noCreds, noCredsMs: noCreds.ms, withCreds: wi
     compare: { aside: ["noCreds", "noCredsMs", "withCreds"], chatgpt: ["noCredsMs", "withCreds"] },
     better: {
       aside: {
-        reason: "a Basic challenge without credentials ends at once on the 401 page, and user:pass@ in the URL signs in; Aside errors without credentials and times out with them",
-        check: (c, r) => Array.isArray(c.noCreds) && c.noCreds[0] === 401 && c.withCreds === 'Authed as parity' && r.withCreds !== 'Authed as parity',
+        reason: "user:pass@ in the URL answers a Basic challenge; Aside's navigation with credentials times out",
+        check: (c, r) => c.withCreds === 'Authed as parity' && r.withCreds !== 'Authed as parity',
       },
     },
-    expect: { noCreds: [401, "401 basic"], noCredsMs: "instant", withCreds: "Authed as parity" },
+    expect: { noCreds: { error: "auth" }, noCredsMs: "instant", withCreds: "Authed as parity" },
   },
   {
     id: "edge.auth-digest",
@@ -69,11 +70,11 @@ return { noCreds: noCreds.value ?? noCreds, withCreds: withCreds.value ?? withCr
     compare: { aside: ["noCreds", "withCreds"], chatgpt: ["withCreds"] },
     better: {
       aside: {
-        reason: "a Digest challenge without credentials ends on the 401 page the agent can read; Aside's navigation fails",
-        check: (c, r) => Array.isArray(c.noCreds) && c.noCreds[0] === 401 && c.withCreds === r.withCreds,
+        reason: "user:pass@ in the URL answers a Digest challenge",
+        check: (c, r) => c.withCreds === 'Digest authed as parity' && r.withCreds !== c.withCreds,
       },
     },
-    expect: { noCreds: [401, "401 digest"], withCreds: "Digest authed as parity" },
+    expect: { noCreds: { error: "auth" }, withCreds: "Digest authed as parity" },
   },
   permission("geolocation", "geo"),
   permission("notifications", "notify"),

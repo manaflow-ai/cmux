@@ -18,8 +18,8 @@ processes or on a person's window run in the cmux app only.
 
 | Id | Scenario | cmux behavior | Case |
 | --- | --- | --- | --- |
-| `auth-basic` | HTTP Basic challenge, with and without credentials in the URL | Without credentials the navigation ends at once on the 401 page (no prompt blocks the tab); `user:pass@` in the URL answers the challenge | `edge.auth-basic` |
-| `auth-digest` | HTTP Digest challenge | Same as Basic; credentials in the URL answer the digest challenge | `edge.auth-digest` |
+| `auth-basic` | HTTP Basic challenge, with and without credentials in the URL | Without credentials `goto` fails at once and names the challenge (no prompt blocks the tab); `user:pass@` in the URL answers it | `edge.auth-basic` |
+| `auth-digest` | HTTP Digest challenge | Same as Basic; `user:pass@` in the URL answers the digest challenge | `edge.auth-digest` |
 | `tls-self-signed` | HTTPS with a self-signed certificate | `goto` rejects with a certificate error; the tab is not left on an interstitial | `edge.tls-self-signed` |
 | `nav-dns` | Host that does not resolve | `goto` rejects with a DNS error and the tab stays on the previous page | `edge.nav-dns` |
 | `nav-refused` | Port with nothing listening | `goto` rejects with a connection-refused error, quickly | `edge.nav-refused` |
@@ -28,7 +28,7 @@ processes or on a person's window run in the cmux app only.
 | `nav-aborted` | A second `goto` while the first is loading | The first rejects as interrupted; the second wins | `edge.nav-aborted` |
 | `nav-redirect-loop` | A URL that redirects to itself | `goto` rejects with a too-many-redirects error | `edge.nav-redirect-loop` |
 | `slow-load` | A document that takes 3 s | `goto` waits for load and resolves | `edge.slow-load` |
-| `never-finishing-load` | A body that never ends | `waitUntil: "commit"` resolves and the partial page is usable; `load` times out at the given timeout | `edge.never-finishing-load` |
+| `never-finishing-load` | A body that never ends (a streamed page) | `waitUntil: "commit"` resolves and the partial page is usable; `load` times out at the given timeout. WebKit keeps a nearly empty partial page blank and holds input until it has content, so the fixture streams paragraphs | `edge.never-finishing-load` |
 | `spa-route-wait` | Client-side route change with delayed rendering | `waitForURL` matches the pushed URL; locator waits find the new view | `edge.spa-route-wait` |
 | `service-worker` | A page controlled by a service worker | The worker registers, controls the page and answers its fetch | `edge.service-worker` |
 | `websocket` | WebSocket echo | The page's socket opens and echoes | `edge.websocket` |
@@ -90,7 +90,7 @@ processes or on a person's window run in the cmux app only.
 | `window-open-features` | `window.open(url, name, "width=...")` | A `popup` event with a page that has an opener | `edge.window-open` |
 | `window-open-noopener` | `window.open(url, "_blank", "noopener")` | A `popup` event; the popup has no opener | `edge.window-open` |
 | `window-close` | A popup calls `window.close()` | The page emits `close` and leaves `tabs.list()` | `edge.window-open` |
-| `beforeunload` | Leaving a page with a beforeunload handler | A navigation the agent starts leaves without a prompt, as in both references; `page.close({ runBeforeUnload: true })` holds the prompt for the agent (`page.dialog()`) and dismissing it keeps the tab | `dialogs.beforeunload` |
+| `beforeunload` | Leaving a page with a beforeunload handler | A navigation the agent starts leaves without a prompt, as in both references (Chrome accepts the prompt itself); a prompt WebKit does raise is held in `page.dialog()` | `dialogs.beforeunload` |
 | `alert-during-navigation` | `alert()` while the document loads | The dialog is held; answering it lets the navigation finish | `edge.alert-during-navigation` |
 | `large-page` | 5,000 rows with 10,000 controls | The snapshot value holds everything; locators act on any row | `edge.large-page` |
 | `main-thread-blocked` | A click handler that blocks the main thread for 2.5 s | Calls wait for the page and then succeed | `edge.main-thread-blocked` |

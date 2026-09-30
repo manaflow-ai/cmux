@@ -839,6 +839,7 @@
         else {
           if (r && r.done) return r.value;
           if (r && r.log) lastLog = r.log;
+          if (r && r.now && session.now() < deadline) continue;
         }
       } catch (e) {
         if (!["stale", "not_found"].includes(driverErrorCode(e))) throw e;
@@ -1227,7 +1228,12 @@
         }
         if (!options.force && !options.trial) {
           const hit = await frame._agent("hitTarget", handle, point, "button-link");
-          if (hit !== "done") return { log: `${hit} intercepts pointer events` };
+          if (hit !== "done") {
+            // A target the page replaced meanwhile (a re-render) is looked up
+            // again at once instead of after a back-off.
+            if (!(await frame._agent("rect", handle).catch(() => null))) return { log: "element was detached from the DOM, retrying", now: true };
+            return { log: `${hit} intercepts pointer events` };
+          }
         }
         const offset = await frame._viewportOffset();
         return { done: true, value: { frame, handle, local: point, x: point.x + offset.x, y: point.y + offset.y } };
@@ -1249,6 +1255,12 @@
         if (options.force) break;
         const hit = await target.frame._agent("hitTarget", target.handle, target.local, "button-link").catch(() => "error:notconnected");
         if (hit === "done") break;
+        // Replaced by a re-render since the check: find it again at once.
+        if (hit === "error:notconnected" || !(await target.frame._agent("rect", target.handle).catch(() => null))) {
+          if (this._session.now() >= deadline) throw new TimeoutError(`${title}: Timeout ${this._timeout(options)}ms exceeded.\n  - element was detached from the DOM`);
+          attempt--;
+          continue;
+        }
         if (this._session.now() >= deadline) throw new TimeoutError(`${title}: Timeout ${this._timeout(options)}ms exceeded.\n  - ${hit} intercepts pointer events`);
         await this._session.sleep([20, 50, 100, 100, 500][Math.min(attempt, 4)]);
       }
@@ -2497,7 +2509,17 @@
       return status === undefined ? null : new Response(this, { url: this._url, status }, null);
     }
     async reload(options) {
-      const r = await this._navigate("tab.reload", {}, options);
+      const recovering = this._crashed;
+      let r;
+      try {
+        r = await this._navigate("tab.reload", {}, options);
+      } catch (e) {
+        // After a crash cmux reloads the tab itself when it shows it; that
+        // load replacing ours is the recovery we asked for.
+        if (!recovering || !/interrupted by another navigation/.test(String(e && e.message))) throw e;
+        await this.waitForLoadState("load", options);
+        return null;
+      }
       const status = r && r.status;
       return status === undefined ? null : new Response(this, { url: this._url, status }, null);
     }

@@ -114,7 +114,10 @@ function handler(ctx) {
     if (p === "/hang") {
       // Headers and a heading arrive, the body never ends: load never fires.
       res.writeHead(200, { "content-type": TYPES[".html"], "cache-control": "no-store" });
-      res.write('<!doctype html><meta charset="utf-8"><title>Hanging</title><h1>Partial content</h1><button id="b" onclick="this.textContent=\'pressed\'">Press</button>');
+      // Enough content for WebKit to paint the partial document (it keeps a
+      // nearly empty page blank, and holds input, until it has content).
+      const filler = Array.from({ length: 12 }, (_, i) => `<p>Streamed paragraph ${i + 1}: the rest of this page is still arriving from the server.</p>`).join("");
+      res.write(`<!doctype html><meta charset="utf-8"><title>Hanging</title><h1>Partial content</h1><button id="b" onclick="this.textContent='pressed'">Press</button>${filler}`);
       ctx.hanging.add(res);
       req.on("close", () => ctx.hanging.delete(res));
       return;

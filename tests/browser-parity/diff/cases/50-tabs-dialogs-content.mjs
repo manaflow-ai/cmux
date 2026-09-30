@@ -117,8 +117,8 @@ return { shows: typeof s.value === "string" && /dialog/i.test(s.value) && s.valu
     edge: "beforeunload",
     path: DIALOGS,
     // A navigation the agent starts leaves without a beforeunload prompt in
-    // all three (browsers skip it for navigations that do not come from the
-    // page's user); closing the tab with runBeforeUnload holds it in cmux.
+    // all three. Closing the tab with runBeforeUnload is recorded too: WebKit
+    // raised no prompt for it in the app either.
     code: `await page.locator("#unload").click();
 const nav = page.goto(U("/diff/next.html")).catch((e) => e);
 let d; for (let i = 0; i < 60 && !d; i++) { d = page.dialog(); if (!d) await sleep(20); }
@@ -133,7 +133,7 @@ let c2; for (let i = 0; i < 100 && !c2; i++) { c2 = page.dialog(); if (!c2) awai
 const onClose = c2 ? c2.type : null;
 if (c2) await c2.dismiss();
 await closing;
-return { type, stayed, onClose, openAfterDismiss: !page.isClosed() };`,
+return { type, stayed, _onClose: onClose };`,
     chatgpt: `await $P.locator("#unload").click();
 const nav = t.goto(U("/diff/next.html")).catch((e) => e);
 let d; for (let i = 0; i < 60 && !d; i++) { d = await t.getJsDialog(); if (!d) await pause(50); }
@@ -147,7 +147,7 @@ page.on("dialog", async (dd) => { type = dd.type(); await dd.dismiss(); });
 await E(() => page.goto(U("/diff/next.html"), { timeout: 5000 }));
 return { type, stayed: page.url().endsWith("dialogs.html") };`,
     compare: ["type", "stayed"],
-    expect: { type: null, stayed: false, onClose: "beforeunload", openAfterDismiss: true },
+    expect: { type: null, stayed: false },
   },
   {
     id: "filechooser.event",

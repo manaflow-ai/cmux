@@ -1,7 +1,7 @@
 {
  "meta": {
   "backend": "cmux-dev",
-  "recordedAt": "2026-09-30T12:09:11.032Z"
+  "recordedAt": "2026-09-30T13:15:59.762Z"
  },
  "cases": {
   "page.goto.basic": {
@@ -2542,10 +2542,9 @@
    "value": {
     "type": null,
     "stayed": false,
-    "onClose": null,
-    "openAfterDismiss": true
+    "_onClose": null
    },
-   "ms": 3899
+   "ms": 4241
   },
   "filechooser.event": {
    "value": {
@@ -2668,10 +2667,10 @@
      401,
      "401 basic"
     ],
-    "noCredsMs": 161,
+    "noCredsMs": 185,
     "withCreds": "Authed as parity"
    },
-   "ms": 186
+   "ms": 218
   },
   "edge.auth-digest": {
    "value": {
@@ -2681,7 +2680,7 @@
     ],
     "withCreds": "Digest authed as parity"
    },
-   "ms": 205
+   "ms": 339
   },
   "edge.permission-geolocation": {
    "value": {
@@ -2983,8 +2982,15 @@
    "ms": 3118
   },
   "edge.never-finishing-load": {
-   "uncaught": "case did not finish in 45000 ms",
-   "ms": 45003
+   "value": {
+    "dcl": "ok",
+    "text": "pressed",
+    "load": {
+     "error": "page.goto: Timeout 1500ms exceeded."
+    },
+    "loadMs": 1503
+   },
+   "ms": 1846
   },
   "edge.main-thread-blocked": {
    "value": {
@@ -3006,14 +3012,12 @@
   },
   "edge.detached-mid-click": {
    "value": {
-    "rerender": {
-     "error": "locator.click: Timeout 3000ms exceeded.\n  - element is not stable"
-    },
-    "out": false,
+    "rerender": "clicked",
+    "out": true,
     "vanish": "clicked",
     "gone": 0
    },
-   "ms": 3266
+   "ms": 1516
   },
   "edge.overlay-intercepts": {
    "value": {

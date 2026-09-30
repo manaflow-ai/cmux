@@ -93,6 +93,27 @@ final class BrowserReplTabAttachment {
 
     /// Mouse buttons held by automation, for drag event types.
     var mouseState = BrowserReplMouseState()
+    /// The session whose press is in progress: from its button down to its
+    /// button up no other session's mouse event reaches the page, so two
+    /// sessions clicking one tab at once make two clicks, not one.
+    private var pointerOwner: String?
+    private var pointerWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitForPointer(sessionID: String) async {
+        while let owner = pointerOwner, owner != sessionID {
+            await withCheckedContinuation { pointerWaiters.append($0) }
+        }
+    }
+
+    func pointerPressed(sessionID: String) { pointerOwner = sessionID }
+
+    func pointerReleased(sessionID: String) {
+        guard pointerOwner == sessionID else { return }
+        pointerOwner = nil
+        let waiters = pointerWaiters
+        pointerWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
     /// The drag in progress, between a left press and its release.
     var drag: DragState?
     /// Last automated mouse position in CSS pixels.
@@ -105,6 +126,14 @@ final class BrowserReplTabAttachment {
     /// `host:port`. HTTP auth challenges in a driven tab answer from these
     /// instead of showing a prompt nobody can answer.
     private var httpCredentials: [String: URLCredential] = [:]
+
+    private var authenticationFailure: String?
+
+    /// Why the last navigation was refused by an HTTP auth challenge, once.
+    func takeAuthenticationFailure() -> String? {
+        defer { authenticationFailure = nil }
+        return authenticationFailure
+    }
 
     func rememberCredentials(in url: URL) {
         guard let user = url.user, !user.isEmpty, let host = url.host else { return }
@@ -133,10 +162,12 @@ final class BrowserReplTabAttachment {
         if challenge.previousFailureCount == 0, let credential = httpCredentials[key] {
             return (.useCredential, credential)
         }
-        // No credential: load the 401 response. (Rejecting the protection
-        // space would stick for the session and ignore credentials given in
-        // a later URL.)
-        return (.useCredential, nil)
+        // No credential, or a wrong one: the navigation fails and names the
+        // challenge (see `takeAuthenticationFailure`). Cancelling, unlike
+        // loading the page without credentials, leaves the protection space
+        // free to accept credentials given in a later URL.
+        authenticationFailure = "HTTP authentication (\(space.authenticationMethod == NSURLAuthenticationMethodHTTPDigest ? "Digest" : "Basic")) required by \(space.host):\(space.port)\(space.realm.map { " realm \"\($0)\"" } ?? "")\(challenge.previousFailureCount > 0 ? "; the credentials were rejected" : ""); give them in the URL: http://user:password@host/..."
+        return (.cancelAuthenticationChallenge, nil)
     }
     /// Finished downloads by id.
     private(set) var downloadPaths: [String: String] = [:]
@@ -317,6 +348,7 @@ final class BrowserReplTabAttachment {
     }
 
     func removeSink(sessionID: String) {
+        pointerReleased(sessionID: sessionID)
         sinks.removeValue(forKey: sessionID)
         if sinks.isEmpty { detachAll() }
     }
