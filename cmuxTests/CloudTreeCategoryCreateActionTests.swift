@@ -57,6 +57,30 @@ struct CloudTreeCategoryCreateActionTests {
         })
     }
 
+    @Test("A pending Cloud machine suppresses the no-machine workspace fallback")
+    func pendingMachineSuppressesResolvedWorkspaceAction() throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+        let request = MachineCreateRequest(
+            mode: .newMachine,
+            kind: .desktop,
+            name: "pending-machine",
+            arguments: ["vm", "new"]
+        )
+        let pending = MachineCreateOperation(id: UUID(), request: request, startedAt: Date())
+        fixture.apply(machines: [], pendingCreates: [pending])
+
+        let section = try #require(fixture.cloudSection)
+        #expect(section.children.contains { node in
+            if case .pendingMachine = node.kind { return true }
+            return false
+        })
+        #expect(section.children.allSatisfy { node in
+            if case .createAction(.newWorkspaceOnResolvedMachine) = node.kind { return false }
+            return true
+        })
+    }
+
     @Test("Each Cloud machine's Workspaces category ends with New Workspace")
     func workspacesCategoryHasPersistentWorkspaceAction() throws {
         let fixture = Fixture()
@@ -214,7 +238,11 @@ struct CloudTreeCategoryCreateActionTests {
             container.frame = NSRect(x: 0, y: 0, width: 320, height: 420)
         }
 
-        func apply(machines: [MachineSnapshot], canCreateCloudMachine: Bool = true) {
+        func apply(
+            machines: [MachineSnapshot],
+            pendingCreates: [MachineCreateOperation] = [],
+            canCreateCloudMachine: Bool = true
+        ) {
             let snapshot = SurfaceCatalogSnapshot(
                 machines: machines.map { machine in
                     SurfaceMachineInfo(
@@ -227,6 +255,7 @@ struct CloudTreeCategoryCreateActionTests {
             )
             coordinator.update(inputs: CloudTreeBuildInputs(
                 machines: machines,
+                pendingCreates: pendingCreates,
                 snapshot: snapshot,
                 localWorkspaces: [],
                 includeLocalMachine: false,

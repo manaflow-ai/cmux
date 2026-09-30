@@ -12,7 +12,11 @@ enum CloudTreeCreateActionBuilder {
                     if case .machine(let machine, _) = child.kind { return !machine.id.isEmpty }
                     return false
                 }
-                if canCreateMachine && !hasCloudMachine && !node.children.contains(where: { $0.id == "cloud-machines-section/new-workspace" }) {
+                let hasPendingMachine = node.children.contains { child in
+                    if case .pendingMachine = child.kind { return true }
+                    return false
+                }
+                if canCreateMachine && !hasCloudMachine && !hasPendingMachine && !node.children.contains(where: { $0.id == "cloud-machines-section/new-workspace" }) {
                     node.children.append(CloudTreeNode(id: "cloud-machines-section/new-workspace", kind: .createAction(.newWorkspaceOnResolvedMachine)))
                 }
             case .workspacesGroup(let machine)
