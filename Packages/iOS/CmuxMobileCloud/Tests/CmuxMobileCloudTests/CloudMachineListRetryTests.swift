@@ -137,8 +137,6 @@ import Testing
             CloudVMService(
                 baseURL: "https://cmux.invalid",
                 tokens: CloudAPITokenSource(
-                    accessToken: { nil },
-                    refreshToken: { nil },
                     coherentTokenPair: pair
                 ),
                 deviceID: { "device" }

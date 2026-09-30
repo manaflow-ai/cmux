@@ -17,8 +17,7 @@ The app builds one controller and mounts the section:
 ```swift
 let controller = CloudSessionController(
     service: CloudVMService(baseURL: apiBaseURL, tokens: .init(
-        accessToken: { try? await coordinator.accessToken() },
-        refreshToken: { await coordinator.refreshToken() })),
+        coherentTokenPair: { try? await coordinator.coherentTokenPair() })),
     identityStore: KeychainCloudDeviceIdentityStore(
         service: appNamespace.keychainService(base: "com.cmuxterm.cloud.wireguard.v1"),
         accessGroup: keychainAccessGroup),

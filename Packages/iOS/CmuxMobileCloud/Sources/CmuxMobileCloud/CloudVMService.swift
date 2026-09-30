@@ -189,25 +189,18 @@ public actor CloudVMService: CloudVMServing {
     }
 
     private func credentials() async throws -> (String, String) {
-        if let coherentTokenPair = tokens.coherentTokenPair {
-            let readPair: CloudAPITokenSource.TokenPair?
-            do {
-                readPair = try await coherentTokenPair()
-            } catch {
-                throw CloudAPIError.sessionUnavailable
-            }
-            guard let pair = readPair,
-                  !pair.accessToken.isEmpty,
-                  !pair.refreshToken.isEmpty else {
-                throw CloudAPIError.notSignedIn
-            }
-            return pair
+        let readPair: CloudAPITokenSource.TokenPair?
+        do {
+            readPair = try await tokens.coherentTokenPair()
+        } catch {
+            throw CloudAPIError.sessionUnavailable
         }
-        guard let access = await tokens.accessToken(), !access.isEmpty,
-              let refresh = await tokens.refreshToken(), !refresh.isEmpty else {
+        guard let pair = readPair,
+              !pair.accessToken.isEmpty,
+              !pair.refreshToken.isEmpty else {
             throw CloudAPIError.notSignedIn
         }
-        return (access, refresh)
+        return pair
     }
 
     public func pauseMachine(id: String) async throws {

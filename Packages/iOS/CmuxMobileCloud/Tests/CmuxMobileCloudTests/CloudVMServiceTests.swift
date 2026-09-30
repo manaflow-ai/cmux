@@ -174,8 +174,6 @@ struct CloudVMServiceTests {
         let service = CloudVMService(
             baseURL: "https://cmux.example",
             tokens: CloudAPITokenSource(
-                accessToken: { nil },
-                refreshToken: { nil },
                 coherentTokenPair: { (accessToken: "coherent-access", refreshToken: "coherent-refresh") }
             ),
             deviceID: { "saved-phone-id" },
@@ -195,8 +193,6 @@ struct CloudVMServiceTests {
         let service = CloudVMService(
             baseURL: "https://cmux.example",
             tokens: CloudAPITokenSource(
-                accessToken: { "independent-access" },
-                refreshToken: { "independent-refresh" },
                 coherentTokenPair: { nil }
             ),
             deviceID: { "saved-phone-id" },

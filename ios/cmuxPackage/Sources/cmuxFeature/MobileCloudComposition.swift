@@ -97,9 +97,6 @@ struct MobileCloudComposition {
         return CloudVMService(
             baseURL: baseURL,
             tokens: CloudAPITokenSource(
-                accessToken: { try? await coordinator.accessToken() },
-                refreshToken: { await coordinator.refreshToken() },
-                teamID: { await coordinator.resolvedTeamID },
                 coherentTokenPair: {
                     // Only a rejected session is a sign-out. Anything else (a
                     // refresh or sign-in step still in flight, no network) is
@@ -109,7 +106,8 @@ struct MobileCloudComposition {
                     } catch AuthError.unauthorized {
                         return nil
                     }
-                }
+                },
+                teamID: { await coordinator.resolvedTeamID }
             ),
             deviceID: deviceID
         )
