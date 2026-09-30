@@ -6,10 +6,13 @@ nonisolated struct CEFPlacement: Equatable, Sendable {
     var disposition: BrowserNewTabDisposition
     var bounds: CGRect?
 
-    /// The popup features to use: the window request's bounds, else the
-    /// features Chromium reported at creation.
+    /// The popup features to use: the renderer's (OnBeforePopup, reported
+    /// at creation), whose zero x and y mean the page gave no position,
+    /// else the window request's bounds (`chrome.windows.create`, where
+    /// Chromium has no renderer features). The request's own x and y are
+    /// always set: Chromium fills in a default position.
     static func resolvedBounds(request: CGRect?, created: CGRect?) -> CGRect? {
-        request ?? created
+        created ?? request
     }
 }
 
