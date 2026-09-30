@@ -125,7 +125,6 @@ class RunWithTimeoutProcessTreeTests(unittest.TestCase):
                 helper, command_pid = tree["helper"], tree["command"]
                 os.kill(runner.pid, signal.SIGINT)
                 # A repeated cancellation signal must not recurse into cleanup.
-                time.sleep(0.1)
                 os.kill(runner.pid, signal.SIGTERM)
                 self.assertEqual(runner.wait(timeout=7), 130)
                 self.assertTrue(wait_for_exit(helper))
