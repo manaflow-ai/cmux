@@ -12,10 +12,22 @@ public actor CmuxConfigFile {
         self.url = url
     }
 
-    /// The conventional location: `<home>/.config/cmux/cmux.json`.
-    public static func defaultURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        home.appending(path: ".config/cmux/cmux.json")
+    /// The conventional location, `<home>/.config/cmux/cmux.json`, unless
+    /// `CMUX_NEXT_CONFIG_FILE` names another file. The override keeps test
+    /// launches of tagged builds from reading or writing the user's file
+    /// (`home` is the account's home, which ignores `$HOME`).
+    public static func defaultURL(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        if let path = environment[overrideKey], !path.isEmpty {
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        }
+        return home.appending(path: ".config/cmux/cmux.json")
     }
+
+    /// Environment variable that replaces the settings file path.
+    public static let overrideKey = "CMUX_NEXT_CONFIG_FILE"
 
     public enum Failure: Error, Sendable, CustomStringConvertible {
         case unreadable(String)

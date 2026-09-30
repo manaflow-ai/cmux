@@ -74,3 +74,12 @@ extension SettingsControllerTests {
         try await eventually(controller) { design.paneChrome == PaneChromeOverrides() }
     }
 }
+
+@Suite struct ConfigFileLocationTests {
+    @Test func overrideReplacesTheHomeFile() {
+        let home = URL(fileURLWithPath: "/Users/someone")
+        #expect(CmuxConfigFile.defaultURL(home: home, environment: [:]).path == "/Users/someone/.config/cmux/cmux.json")
+        #expect(CmuxConfigFile.defaultURL(home: home, environment: [CmuxConfigFile.overrideKey: ""]).path == "/Users/someone/.config/cmux/cmux.json")
+        #expect(CmuxConfigFile.defaultURL(home: home, environment: [CmuxConfigFile.overrideKey: "/tmp/t/cmux.json"]).path == "/tmp/t/cmux.json")
+    }
+}
