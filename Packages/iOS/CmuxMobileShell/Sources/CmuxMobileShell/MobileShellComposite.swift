@@ -3956,16 +3956,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // new scope if sign-out or team switching wins the race.
         let sourceGeneration = secondaryAggregationScopeGeneration
         let sourceUserID = identityProvider?.currentUserID
-        let sourceStateRevision = foregroundWorkspaceStateRevision
-        Task { @MainActor [weak self] in
+        // The captured value is a complete authenticated snapshot. Do not
+        // discard it merely because another update arrived while this task was
+        // queued: that turns normal event coalescing into a lost persistence
+        // write and makes the next launch wait for the live list. A newer full
+        // snapshot will overwrite an older one naturally.
+        Task(priority: .userInitiated) { @MainActor [weak self] in
             guard let self,
                   self.secondaryAggregationScopeGeneration == sourceGeneration,
                   self.identityProvider?.currentUserID == sourceUserID,
                   let scope = await self.currentScopeSnapshot(),
                   await self.isScopeCurrent(scope),
                   self.secondaryAggregationScopeGeneration == sourceGeneration,
-                  self.identityProvider?.currentUserID == sourceUserID,
-                  self.foregroundWorkspaceStateRevision == sourceStateRevision else { return }
+                  self.identityProvider?.currentUserID == sourceUserID else { return }
             workspaceSnapshotStore.save(
                 state: state,
                 userID: scope.userID,
