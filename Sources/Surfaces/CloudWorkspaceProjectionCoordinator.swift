@@ -67,20 +67,26 @@ final class CloudWorkspaceProjectionCoordinator {
         tasks[machine] = CloudWorkspaceProjectionTask(id: id, task: task)
     }
 
-    private var reportedNonConvergence: [SurfaceMachineID: CloudVMState] = [:]
+    /// Daemon generation last reported per machine. A persistent re-requester
+    /// would otherwise report once for every graph revision.
+    private var reportedNonConvergence: [SurfaceMachineID: String] = [:]
 
-    /// Reports each non-converging graph once, so a trigger outside this loop
-    /// that keeps restarting it cannot flood crash reporting.
+    /// Reports non-convergence once per daemon generation, so a trigger outside
+    /// this loop that keeps restarting it cannot flood crash reporting.
     private func reportNonConvergence(machine: SurfaceMachineID, state: CloudVMState, budget: CloudWorkspaceReconcileBudget) {
 #if DEBUG
         cmuxDebugLog("cloudWorkspace.projection.nonConvergent machine=\(machine.rawValue) passes=\(budget.passes) idle=\(budget.idlePasses)")
 #endif
-        guard reportedNonConvergence[machine] != state else { return }
-        reportedNonConvergence[machine] = state
+        let generation = state.cursor?.generation ?? ""
+        guard reportedNonConvergence[machine] != generation else { return }
+        reportedNonConvergence[machine] = generation
         sentryCaptureWarning(
             "Cloud workspace projection did not converge",
             category: "cloud.projection",
-            data: ["passes": budget.passes, "idlePasses": budget.idlePasses]
+            data: [
+                "passes": budget.passes, "idlePasses": budget.idlePasses,
+                "generation": generation, "revision": state.cursor?.revision ?? 0,
+            ]
         )
     }
 
@@ -123,6 +129,7 @@ final class CloudWorkspaceProjectionCoordinator {
         tasks.removeValue(forKey: machine)?.task.cancel()
         requested.remove(machine)
         localMutations[machine] = nil
+        reportedNonConvergence[machine] = nil
         let bindings = environment.bindings()
         failures = failures.filter { bindings[$0.key]?.vmID != machine.rawValue }
     }
