@@ -7662,6 +7662,10 @@ struct CMUXCLI {
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let keyArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
             guard let key = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
+            if keyArgs.count > 1 {
+                let trailing = keyArgs.dropFirst().joined(separator: " ")
+                throw CLIError(message: "send-key: unexpected arguments: \(trailing)")
+            }
             var params: [String: Any] = ["key": key]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
@@ -7706,6 +7710,10 @@ struct CMUXCLI {
             let skpArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
             let key = skpArgs.first ?? ""
             guard !key.isEmpty else { throw CLIError(message: "send-key-panel requires a key") }
+            if skpArgs.count > 1 {
+                let trailing = skpArgs.dropFirst().joined(separator: " ")
+                throw CLIError(message: "send-key-panel: unexpected arguments: \(trailing)")
+            }
             var params: [String: Any] = ["key": key]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
