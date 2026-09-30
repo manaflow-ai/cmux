@@ -74,6 +74,8 @@ Mechanisms:
 
 Mechanisms: event-driven only (daemon deltas, AppKit events, file watchers); display link runs only while an animation or scroll is active and stops itself; delta coalescing per frame; JSON decode off main; git/cwd/agent status computed by the daemon, not the app.
 
+Nothing polls (user requirement 2026-09-30). The only ways to wake up are the CmuxNextWakeups primitives: one `FrameScheduler` per window whose display link runs only while a `FrameClient` is active, one-shot `DemandTimer` deadlines, `Backoff` spacing after a real failure, and IO that blocks or awaits readiness and ends on EOF. `check-concurrency.sh` refuses timers, raw display links, sleeps and spin-prone loops elsewhere without a reviewed `// wakeup-allow:` reason. `debug.wakeups`, busy records in `debug.hangs` and `scripts/cmux-next/bench-idle.sh` measure it (plans/cmux-next/idle-wakeups.md).
+
 ## 5a. Concurrency: no hangs, no UI lag (user requirement 2026-09-29)
 
 The old app hangs and lags under CLI load. The new app must never block the main thread, and heavy CLI traffic must not drop frames.

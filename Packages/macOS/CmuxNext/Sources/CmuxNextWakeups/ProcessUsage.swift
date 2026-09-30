@@ -91,12 +91,13 @@ public struct ProcessUsage: Sendable, Equatable {
 
     /// Every process of this user whose executable path starts with `prefix`.
     public static func processes(pathPrefix prefix: String) -> [pid_t] {
-        let count = proc_listallpids(nil, 0)
+        let uid = UInt32(getuid())
+        let count = proc_listpids(UInt32(PROC_UID_ONLY), uid, nil, 0)
         guard count > 0 else { return [] }
-        var pids = [pid_t](repeating: 0, count: Int(count) + 64)
-        let filled = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
-        guard filled > 0 else { return [] }
-        return pids.prefix(Int(filled)).filter { $0 > 0 && (path(of: $0)?.hasPrefix(prefix) ?? false) }
+        var pids = [pid_t](repeating: 0, count: Int(count) / MemoryLayout<pid_t>.size + 64)
+        let bytes = proc_listpids(UInt32(PROC_UID_ONLY), uid, &pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+        guard bytes > 0 else { return [] }
+        return pids.prefix(Int(bytes) / MemoryLayout<pid_t>.size).filter { $0 > 0 && (path(of: $0)?.hasPrefix(prefix) ?? false) }
     }
 
     private static let timebase: mach_timebase_info_data_t = {

@@ -12,10 +12,17 @@ import Darwin
 ///   with a rate over the last 10 complete seconds.
 /// - `frame_schedulers`: each window's display link and its active clients.
 /// - `processes`: cumulative CPU time and wakeups per process (diff two
-///   calls for rates; `scripts/cmux-next/bench-idle.py` does).
-@MainActor
+///   calls for rates; `scripts/cmux-next/bench-idle.py` does), sampled off
+///   the main actor.
 enum DebugWakeups {
-    static func report(_ params: [String: JSONValue]) -> JSONValue {
+    static func report(_ params: [String: JSONValue]) async -> JSONValue {
+        var object = await MainActor.run { mainActorPart(params) }
+        object["processes"] = .array(AppProcesses.sample().map(\.json))
+        return .object(object)
+    }
+
+    @MainActor
+    private static func mainActorPart(_ params: [String: JSONValue]) -> [String: JSONValue] {
         if params["reset"]?.boolValue == true { WakeupLedger.shared.reset() }
         let ledger = WakeupLedger.shared.snapshot()
         let schedulers = FrameScheduler.all.map { scheduler -> JSONValue in
@@ -40,7 +47,6 @@ enum DebugWakeups {
             }),
             "frame_schedulers": .array(schedulers),
             "active_frame_clients": .array(FrameScheduler.all.flatMap(\.activeClients).map { .string($0) }),
-            "processes": .array(AppProcesses.sample().map(\.json)),
         ]
     }
 }

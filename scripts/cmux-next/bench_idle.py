@@ -46,7 +46,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from daemon_teardown import end_terminals  # noqa: E402
 
-STATIC_PAGE = "data:text/html,<title>idle</title><h1>static page</h1><p>no script, no animation</p>"
+STATIC_PAGE_HTML = "<!doctype html><title>idle</title><h1>static page</h1><p>no script, no animation</p>"
 
 # ---------------------------------------------------------------------------
 # Process usage (proc_pid_rusage, RUSAGE_INFO_V4)
@@ -110,28 +110,34 @@ def classify(app_pid: int, bundle: str):
 class Client:
     def __init__(self, path, timeout=10.0):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.timeout = timeout
         self.sock.settimeout(timeout)
         self.sock.connect(path)
         self.buffer = b""
         self.next_id = 1
 
-    def call(self, method, params=None):
+    def call(self, method, params=None, timeout=None):
         request_id = self.next_id
         self.next_id += 1
+        self.sock.settimeout(timeout or self.timeout)
         self.sock.sendall((json.dumps({"id": request_id, "method": method, "params": params or {}}) + "\n").encode())
-        while b"\n" not in self.buffer:
-            chunk = self.sock.recv(1 << 20)
-            if not chunk:
-                raise ConnectionError("socket closed")
-            self.buffer += chunk
-        line, self.buffer = self.buffer.split(b"\n", 1)
-        return json.loads(line)
+        while True:
+            while b"\n" not in self.buffer:
+                chunk = self.sock.recv(1 << 20)
+                if not chunk:
+                    raise ConnectionError("socket closed")
+                self.buffer += chunk
+            line, self.buffer = self.buffer.split(b"\n", 1)
+            message = json.loads(line)
+            # A late answer to an earlier request that timed out: skip it.
+            if message.get("id") == request_id:
+                return message
 
-    def action(self, name, **args):
+    def action(self, name, timeout=None, **args):
         params = {"action": name}
         if args:
             params["args"] = args
-        return self.call("action.run", params)
+        return self.call("action.run", params, timeout=timeout)
 
 
 def wait_for_socket(path, limit_s=60):
@@ -170,7 +176,7 @@ def measure(app_pid, bundle, seconds, control):
         })
     diag = {}
     try:
-        report = control.call("debug.wakeups").get("result")
+        report = control.call("debug.wakeups", timeout=30).get("result")
         if report:
             diag["ledger"] = [e for e in report.get("ledger", []) if e.get("per_second", 0) > 0][:12]
             diag["active_frame_clients"] = report.get("active_frame_clients", [])
@@ -183,6 +189,35 @@ def measure(app_pid, bundle, seconds, control):
     except (OSError, ValueError):
         pass
     return {"wall_s": round(wall, 1), "processes": rows, **diag}
+
+
+def wait_for(condition, limit_s):
+    deadline = time.monotonic() + limit_s
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.5)  # test script: waiting for Chromium helpers to appear
+    return False
+
+
+def prepare(scenario, control, args, app_pid, bundle):
+    """Sets the scenario up; returns a skip reason or None."""
+    def refused(response):
+        if response.get("ok") is False or "error" in response:
+            return response.get("error") or "refused"
+        return None
+
+    if scenario == "chromium-static":
+        # The first Chromium tab starts CEF (slow on a loaded machine).
+        reason = refused(control.action("openBrowser.chromium", timeout=90, url=args.url))
+        if reason is None and not wait_for(lambda: "cef-renderer" in classify(app_pid, bundle).values(), 90):
+            reason = "no Chromium renderer appeared within 90 s"
+        return reason
+    if scenario == "chromium-hidden":
+        return refused(control.action("workspace new"))
+    if scenario == "minimized":
+        return refused(control.action("minimizeWindow"))
+    return None
 
 
 def criteria(scenario, result, args):
@@ -213,7 +248,7 @@ def main():
     parser.add_argument("--measure", type=float, default=60)
     parser.add_argument("--settle", type=float, default=20)
     parser.add_argument("--scenarios", default="terminals,chromium-static,chromium-hidden,minimized")
-    parser.add_argument("--url", default=STATIC_PAGE)
+    parser.add_argument("--url", help="page for the Chromium scenarios (default: a static local file)")
     parser.add_argument("--out")
     parser.add_argument("--label", default="run")
     parser.add_argument("--max-cpu", type=float, default=0.5)
@@ -239,6 +274,11 @@ def main():
         "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
         "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
     }
+    if not args.url:
+        page = os.path.join(scratch, "static.html")
+        with open(page, "w") as handle:
+            handle.write(STATIC_PAGE_HTML)
+        args.url = "file://" + page
     app = subprocess.Popen([binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     socket_path = f"/tmp/cmux-debug-{tag}.sock"
     report = {"tag": tag, "sha": args.sha, "label": args.label, "app": bundle, "scenarios": {}}
@@ -247,20 +287,16 @@ def main():
         control = wait_for_socket(socket_path)
         identity = control.call("system.identify").get("result", {})
         app_pid = identity.get("pid", app.pid)
-        report["has_debug_wakeups"] = "error" not in control.call("debug.wakeups")
+        report["has_debug_wakeups"] = "error" not in control.call("debug.wakeups", timeout=30)
         for scenario in args.scenarios.split(","):
-            if scenario == "chromium-static":
-                response = control.action("openBrowser.chromium", url=args.url)
-                if response.get("ok") is False:
-                    report["scenarios"][scenario] = {"skipped": response.get("error")}
-                    continue
-            elif scenario == "chromium-hidden":
-                control.action("workspace new")
-            elif scenario == "minimized":
-                response = control.action("minimizeWindow")
-                if response.get("ok") is False or "error" in response:
-                    report["scenarios"][scenario] = {"skipped": response.get("error")}
-                    continue
+            try:
+                skipped = prepare(scenario, control, args, app_pid, bundle)
+            except (OSError, ValueError) as error:
+                skipped = f"setup failed: {error}"
+            if skipped is not None:
+                report["scenarios"][scenario] = {"skipped": skipped}
+                print(f"== {scenario}: skipped ({skipped})")
+                continue
             time.sleep(args.settle)  # test script: let the scenario settle
             result = measure(app_pid, bundle, args.measure, control)
             report["scenarios"][scenario] = result

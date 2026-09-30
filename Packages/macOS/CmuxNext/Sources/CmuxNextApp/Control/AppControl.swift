@@ -68,7 +68,7 @@ final class AppControl {
                 return .value(SurfaceDiagnosticsReport.make(services))
             },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
-            .mainActor("debug.wakeups") { call in .value(DebugWakeups.report(call.params)) },
+            .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
             .mainActor("debug.cef") { [weak services] _ in
                 guard let services else { return .value(.null) }
