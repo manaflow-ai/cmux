@@ -34,7 +34,7 @@
     {"shot": "conversations-claude-filter"},
     {"click": {"label": "Filter sessions", "type": "button"}},
     {"click": {"label": "All agents", "type": "menuItem"}},
-    {"click": {"labelContains": "Dock route", "type": "button"}},
+    {"click": {"labelContains": "Codex", "type": "button"}},
     {"wait": 1},
     {"tree": "conversations-dock-focused"},
     {"shot": "conversations-dock-focused"}

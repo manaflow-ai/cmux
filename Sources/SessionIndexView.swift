@@ -102,15 +102,20 @@ enum SessionEntryResumeCoordinator {
             : SharedLiveAgentIndex.shared.index
         guard let index = liveIndex else { return targets }
 
-        var workspaceIDsByPanelID: [UUID: UUID] = [:]
+        var workspacePanelIDsByWorkspaceID: [UUID: Set<UUID>] = [:]
         for workspace in tabManager.tabs {
-            for panelID in workspace.panels.keys {
-                workspaceIDsByPanelID[panelID] = workspace.id
-            }
+            workspacePanelIDsByWorkspaceID[workspace.id] = Set(workspace.panels.keys)
         }
         var dockPanelIDs: Set<UUID> = []
         for dock in DockSplitStore.liveStores {
             dockPanelIDs.formUnion(dock.panels.keys)
+            dockPanelIDs.formUnion(dock.surfaceIdToPanelId.keys.map(\.uuid))
+            for (panelID, panel) in dock.panels {
+                if let terminal = panel as? TerminalPanel {
+                    dockPanelIDs.insert(terminal.surface.id)
+                }
+                dockPanelIDs.insert(panelID)
+            }
         }
         for (panelKey, observation) in index.forkValidationEntries() {
             guard observation.processLiveness == .running else { continue }
@@ -121,8 +126,8 @@ enum SessionEntryResumeCoordinator {
             guard requestedKeys.contains(key), targets[key] == nil else { continue }
             if dockPanelIDs.contains(panelKey.panelId) {
                 targets[key] = .dock(panelID: panelKey.panelId)
-            } else if let workspaceID = workspaceIDsByPanelID[panelKey.panelId] {
-                targets[key] = .workspace(workspaceID: workspaceID, surfaceID: panelKey.panelId)
+            } else if workspacePanelIDsByWorkspaceID[panelKey.workspaceId]?.contains(panelKey.panelId) == true {
+                targets[key] = .workspace(workspaceID: panelKey.workspaceId, surfaceID: panelKey.panelId)
             }
         }
         return targets
