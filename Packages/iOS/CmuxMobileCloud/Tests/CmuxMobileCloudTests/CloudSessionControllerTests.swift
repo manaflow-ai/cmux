@@ -5,14 +5,19 @@ import Testing
 @MainActor
 @Suite struct CloudSessionControllerTests {
     private func makeController(
-        service: FakeCloudVMService = FakeCloudVMService(),
+        service: FakeCloudVMService? = nil,
         store: InMemoryCloudDeviceIdentityStore = InMemoryCloudDeviceIdentityStore(),
         starter: FakeTunnelStarter = FakeTunnelStarter(),
         connector: FakeConnector = FakeConnector(),
         clock: TestClock = TestClock()
     ) -> CloudSessionController {
-        CloudSessionController(
-            service: service,
+        let selectedService = service ?? {
+            let service = FakeCloudVMService()
+            service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])
+            return service
+        }()
+        return CloudSessionController(
+            service: selectedService,
             identityStore: store,
             tunnelStarter: starter,
             connector: connector,
@@ -37,8 +42,8 @@ import Testing
         let controller = makeController(service: service, store: store, starter: starter)
 
         controller.sectionDidAppear()
-        #expect(controller.tunnel == .starting)
         await settle { controller.machines == .loaded([CloudMachine(id: "vm1", provider: "freestyle", status: "running")]) }
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
 
         let storedIdentity = await store.stored
         let identity = try #require(storedIdentity)
@@ -67,6 +72,20 @@ import Testing
         await settle { service.calls.list == 1 }
         #expect(controller.isCreatingMachine == false)
         #expect(controller.lastCreateFailure == nil)
+    }
+
+    @Test func cloudScreenWithNoMachinesDoesNotEnrollATunnel() async {
+        let service = FakeCloudVMService()
+        service.machines = .success([])
+        let starter = FakeTunnelStarter()
+        let controller = makeController(service: service, starter: starter)
+
+        controller.sectionDidAppear()
+        await settle { controller.machines == .loaded([]) }
+
+        #expect(controller.tunnel == .idle)
+        #expect(starter.startedConfigs.isEmpty)
+        #expect(service.calls.enroll.isEmpty)
     }
 
     @Test func signOutCancelsAnInFlightCreateAndDropsItsLateResult() async {
@@ -163,7 +182,6 @@ import Testing
         #expect(!controller.sectionIsVisible)
 
         controller.setShellLease(true)
-        #expect(controller.tunnel == .starting)
         await settle { if case .ready = controller.tunnel { return true }; return false }
         if case .ready = controller.tunnel {} else { Issue.record("tunnel not ready: \(controller.tunnel)") }
 
@@ -225,12 +243,13 @@ import Testing
 
     @Test func enrollFailureBecomesFailedPhaseAndRetryReenrolls() async {
         let service = FakeCloudVMService()
+        service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])
         service.enrollment = .failure(CloudAPIError.httpStatus(503, message: "provider down", action: nil))
         let controller = makeController(service: service)
         controller.sectionDidAppear()
         await settle { if case .failed = controller.tunnel { return true } else { return false } }
         #expect(controller.tunnel == .failed(CloudSessionFailure(kind: .controlPlane(status: 503), detail: "provider down")))
-        #expect(controller.machines == .idle, "no machine list without a tunnel")
+        #expect(controller.machines == .loaded([CloudMachine(id: "vm1", provider: "freestyle", status: "running")]))
 
         service.enrollment = .success(Fixtures.enrollment)
         controller.retryTunnel()
@@ -274,6 +293,7 @@ import Testing
 
     @Test func signedOutIsClassified() async {
         let service = FakeCloudVMService()
+        service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])
         service.enrollment = .failure(CloudAPIError.notSignedIn)
         let controller = makeController(service: service)
         controller.sectionDidAppear()
@@ -294,8 +314,10 @@ import Testing
     }
 
     @Test func tunnelStartupTimeoutBecomesRetryableFailure() async {
+        let service = FakeCloudVMService()
+        service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])
         let controller = CloudSessionController(
-            service: FakeCloudVMService(),
+            service: service,
             identityStore: InMemoryCloudDeviceIdentityStore(),
             tunnelStarter: HangingTunnelStarter(),
             connector: FakeConnector(),
@@ -319,6 +341,7 @@ import Testing
     @Test func lockedIdentityStoreNeverMintsAndReportsIdentityFailure() async {
         let store = InMemoryCloudDeviceIdentityStore(unavailable: true)
         let service = FakeCloudVMService()
+        service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])
         let controller = makeController(service: service, store: store)
         controller.sectionDidAppear()
         await settle { if case .failed = controller.tunnel { return true } else { return false } }
@@ -330,8 +353,10 @@ import Testing
 
     @Test func disappearDuringStartDiscardsTheLateTunnel() async {
         let gate = GatedTunnelStarter()
+        let service = FakeCloudVMService()
+        service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])
         let controller = CloudSessionController(
-            service: FakeCloudVMService(),
+            service: service,
             identityStore: InMemoryCloudDeviceIdentityStore(),
             tunnelStarter: gate,
             connector: FakeConnector(),
@@ -350,6 +375,7 @@ import Testing
 
     @Test func connectionOpensLinkWithInvitationApprovalAndReusesSession() async throws {
         let service = FakeCloudVMService()
+        service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])
         service.attach = .success(CloudAttachEndpoint(
             route: "ws://[fd00::10]:1337/v1/link", session: "s1",
             invitation: .init(uri: "cmux-remote+invite://abc", invitationId: "inv1")
@@ -397,6 +423,7 @@ import Testing
 
     @Test func firstUseOfTrustedCloudMachineDoesNotRequireInvitation() async throws {
         let service = FakeCloudVMService()
+        service.machines = .success([CloudMachine(id: "vm-new", provider: "freestyle", status: "running")])
         // Current Cloud servers authenticate through the private network and
         // explicitly return trustedCarrier without minting an invitation.
         service.attach = .success(try CloudAPIResponseDecoding().attachEndpoint(from: Data(#"{"transport":"cmux-remote","route":"ws://[fd00::10]:1337/v1/link","session":"cmux","trustedCarrier":true}"#.utf8)))

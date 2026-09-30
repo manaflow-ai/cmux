@@ -120,6 +120,9 @@ public final class CloudSessionController {
     /// A Cloud screen (section, catalog, or terminal) came on screen.
     public func sectionDidAppear() {
         visibleScreenCount += 1
+        if case .idle = machines {
+            refreshMachines()
+        }
         reconcile()
     }
 
@@ -153,6 +156,9 @@ public final class CloudSessionController {
     public func setShellLease(_ active: Bool) {
         guard shellLeaseActive != active else { return }
         shellLeaseActive = active
+        if active, case .idle = machines {
+            refreshMachines()
+        }
         reconcile()
     }
 
@@ -293,7 +299,9 @@ public final class CloudSessionController {
         connections.removeValue(forKey: machineID)?.close()
     }
 
-    private var wantsTunnel: Bool { (sectionIsVisible || shellLeaseActive) && isForeground }
+    private var wantsTunnel: Bool {
+        (shellLeaseActive || (sectionIsVisible && !machines.elements.isEmpty)) && isForeground
+    }
 
     private func reconcile() {
         if wantsTunnel {
@@ -342,7 +350,6 @@ public final class CloudSessionController {
                 self.identity = identity
                 self.liveTunnel = live
                 self.tunnel = .ready(fingerprint: identity.fingerprint)
-                self.refreshMachines()
             case .failure(let failure):
                 self.tunnel = .failed(failure)
             }
@@ -409,6 +416,7 @@ public final class CloudSessionController {
                 )
                 self.machines = .loaded(liveMachines)
                 self.scheduleProvisioningPollIfNeeded()
+                self.reconcile()
             } catch {
                 guard !Task.isCancelled else { return }
                 let failure = CloudSessionFailure.classify(error, stage: .list)
