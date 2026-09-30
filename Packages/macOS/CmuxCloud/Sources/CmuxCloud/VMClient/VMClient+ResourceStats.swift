@@ -2,12 +2,13 @@ import Foundation
 
 extension VMClient {
     /// All callers share revisioned resource state, including CLI and sidebar reads.
-    public func stats(id: String) async throws -> VMStats {
+    /// `teamID` names the machine's owning team (nil: the selected team).
+    public func stats(id: String, teamID: String? = nil) async throws -> VMStats {
         let read = await resourceStats.beginRead(machineID: id)
         do {
             let stats = try await withOperation(.stats, foreground: false) {
                 let encodedID = try pathSegment(id, fieldName: "vm id")
-                let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/stats", timeoutSeconds: 30)
+                let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/stats", timeoutSeconds: 30, teamID: teamID)
                 try ensureOK(http, data: data)
                 return VMStats(json: try decodeJSONObject(data))
             }

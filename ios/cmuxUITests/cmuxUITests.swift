@@ -12,6 +12,173 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testFeedStartsBelowToolbar() {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+        let firstAuthor = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Codex")
+        ).firstMatch
+        XCTAssertTrue(firstAuthor.waitForExistence(timeout: 10))
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.exists)
+        let gap = firstAuthor.frame.minY - settings.frame.maxY
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "feed-first-row-spacing"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        XCTAssertGreaterThanOrEqual(gap, 0, "The first row must remain below the toolbar")
+        XCTAssertLessThanOrEqual(gap, 32, "Feed must not reserve an empty large-title area")
+    }
+
+    @MainActor
+    func testFeedRowTapOpensItsDestination() {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+        let row = app.descendants(matching: .any)["MobileAgentFeedRow-short-text-preview"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        // Tap the author line, not a button, link, or See more.
+        let author = row.staticTexts.matching(NSPredicate(format: "label == %@", "Codex")).firstMatch
+        XCTAssertTrue(author.exists)
+        author.tap()
+        XCTAssertTrue(app.staticTexts["Opened preview tab"].waitForExistence(timeout: 5))
+        let opened = XCTAttachment(screenshot: app.screenshot())
+        opened.name = "feed-row-tap-opened-destination"
+        opened.lifetime = .keepAlways
+        add(opened)
+    }
+
+    @MainActor
+    func testFeedFullTextReadingAndRetry() {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
+            "CMUX_UITEST_FEED_FULL_TEXT_FAIL_ONCE": "1",
+        ])
+        defer { app.terminate() }
+        let open = app.buttons["MobileAgentFeedFullText-full-text-preview"]
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        XCTAssertEqual(open.label, "See more")
+        XCTAssertFalse(app.buttons["MobileAgentFeedFullText-short-text-preview"].exists)
+        let preview = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Markdown preview with emphasis, inline code, and a link.")).firstMatch
+        XCTAssertTrue(preview.exists)
+        XCTAssertFalse(preview.label.contains("**"))
+        XCTAssertFalse(preview.label.contains("https://example.com"))
+        XCTAssertFalse(preview.label.contains("##"))
+        XCTAssertTrue(preview.label.contains("• First item"))
+        for identifier in ["MobileWorkspaceSettingsMenu", "MobileWorkspaceMacPicker", "MobileWorkspaceDevicesButton"] {
+            XCTAssertTrue(app.buttons[identifier].exists, identifier)
+        }
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "feed-full-text-entry"
+        before.lifetime = .keepAlways
+        add(before)
+        open.tap()
+        let retry = app.buttons["Try again"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 5))
+        retry.tap()
+        let heading = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Implementation notes")).firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 15))
+        let formatted = XCTAttachment(screenshot: app.screenshot())
+        formatted.name = "feed-markdown-heading-list-code"
+        formatted.lifetime = .keepAlways
+        add(formatted)
+        let finalParagraph = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "FINAL PARAGRAPH: The complete response ends here.")).firstMatch
+        for _ in 0..<16 where !finalParagraph.isHittable { app.swipeUp() }
+        XCTAssertTrue(finalParagraph.isHittable)
+        let after = XCTAttachment(screenshot: app.screenshot())
+        after.name = "feed-full-text-final-paragraph"
+        after.lifetime = .keepAlways
+        add(after)
+        app.buttons["MobileAgentFeedFullTextClose"].tap()
+        XCTAssertTrue(open.waitForExistence(timeout: 5))
+        XCTAssertTrue(open.isHittable)
+        let longRow = app.descendants(matching: .any)["MobileAgentFeedRow-full-text-preview"]
+        let reply = longRow.buttons["MobileAgentFeedReplyButton"]
+        XCTAssertTrue(reply.waitForExistence(timeout: 5))
+        reply.tap()
+        let composeSeeMore = app.buttons["MobileAgentFeedComposeSeeMore"]
+        XCTAssertTrue(composeSeeMore.waitForExistence(timeout: 5))
+        composeSeeMore.tap()
+        let composeFinalParagraph = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "FINAL PARAGRAPH: The complete response ends here.")
+        ).firstMatch
+        XCTAssertTrue(composeFinalParagraph.waitForExistence(timeout: 10))
+        app.buttons["Cancel"].tap()
+        let shortText = app.textViews.matching(NSPredicate(format: "label == %@", "Stopped.")).firstMatch
+        XCTAssertTrue(shortText.exists)
+        shortText.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["Open"].waitForExistence(timeout: 3))
+        app.buttons["Open"].tap()
+        XCTAssertTrue(app.staticTexts["Opened preview tab"].waitForExistence(timeout: 3))
+        app.navigationBars.buttons.firstMatch.tap()
+        app.tabBars.buttons["Search"].tap()
+        let search = app.searchFields["Search Feed"]
+        XCTAssertTrue(search.waitForExistence(timeout: 3))
+        search.tap()
+        search.typeText("Stopped")
+        XCTAssertTrue(shortText.waitForExistence(timeout: 3))
+        XCTAssertFalse(open.exists)
+        let scopedSearch = XCTAttachment(screenshot: app.screenshot())
+        scopedSearch.name = "feed-scoped-search-and-toolbar"
+        scopedSearch.lifetime = .keepAlways
+        add(scopedSearch)
+    }
+
+    @MainActor
+    func testAgentFeedDecisionPreviewPagesAndScrolls() {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_DECISION_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let questionRow = app.descendants(matching: .any)["MobileAgentFeedRow-question-preview"]
+        XCTAssertTrue(questionRow.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedRow-empty-assistant"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedRow-empty-stop"].exists)
+
+        let questionPager = questionRow.descendants(matching: .scrollView).firstMatch
+        XCTAssertTrue(questionPager.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Question 1 of 2"].exists)
+        let otherAnswer = app.buttons["MobileAgentFeedQuestionOther-deploy"]
+        XCTAssertTrue(otherAnswer.waitForExistence(timeout: 5))
+        XCTAssertTrue(otherAnswer.isHittable)
+        questionPager.swipeLeft()
+        XCTAssertTrue(app.staticTexts["Question 2 of 2"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Select all that apply"].exists)
+        app.buttons["MobileAgentFeedQuestionOption-events-build"].tap()
+
+        questionPager.swipeRight()
+        XCTAssertTrue(app.staticTexts["Question 1 of 2"].waitForExistence(timeout: 5))
+        app.buttons["MobileAgentFeedQuestionOption-deploy-production"].tap()
+        questionPager.swipeLeft()
+        XCTAssertTrue(app.buttons["MobileAgentFeedQuestionSubmit"].waitForExistence(timeout: 5))
+        app.buttons["MobileAgentFeedQuestionSubmit"].tap()
+        XCTAssertTrue(app.staticTexts["Question reply accepted"].waitForExistence(timeout: 3))
+
+        let allow = app.buttons["MobileAgentFeedPermissionAllow"]
+        let always = app.buttons["MobileAgentFeedPermissionAlways"]
+        let more = app.buttons["MobileAgentFeedPermissionMore"]
+        for _ in 0..<10 where !allow.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(allow.waitForExistence(timeout: 5))
+        XCTAssertTrue(always.exists)
+        XCTAssertTrue(more.exists)
+        XCTAssertTrue(more.isHittable)
+        XCTAssertEqual(allow.frame.width, more.frame.width, accuracy: 6)
+        XCTAssertEqual(allow.frame.height, more.frame.height, accuracy: 6)
+
+        for _ in 0..<8 { app.swipeDown() }
+        let proof = XCTAttachment(screenshot: app.screenshot())
+        proof.name = "feed-decision-controls-and-scroll"
+        proof.lifetime = .keepAlways
+        add(proof)
+    }
+
+    @MainActor
     func testForegroundRemovesOnlyReadDeliveredNotifications() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()

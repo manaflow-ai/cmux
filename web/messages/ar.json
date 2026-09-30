@@ -353,7 +353,7 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "نظرة عامة",
       "team": "الفريق",
       "mobileDevices": "الأجهزة المحمولة",
@@ -361,7 +361,7 @@
       "teams": "الفرق"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "توجيه طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام.",
       "coderouterLink": "فتح coderouter",
       "iosAppName": "تطبيق iOS",
@@ -369,9 +369,9 @@
       "iosLink": "فتح تطبيق iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "إدارة حسابات الذكاء الاصطناعي المشتركة وتوجيه الطلبات باستخدام coderouter.",
-      "title": "coderouter",
+      "title": "Coderouter",
       "description": "يوجّه coderouter طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام.",
       "machines": {
         "title": "الأجهزة",
@@ -407,7 +407,8 @@
       "signingOut": "جارٍ تسجيل الخروج…",
       "signOutError": "تعذّر تسجيل الخروج. حاول مرة أخرى.",
       "organizationSwitchError": "تعذّر تبديل المؤسسة. حاول مرة أخرى.",
-      "signIn": "تسجيل الدخول"
+      "signIn": "تسجيل الدخول",
+      "upgrade": "ترقية"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "إنشاء فريق"
+      },
+      "title": "الخطة والفوترة",
+      "picker": {
+        "current": "الخطة الحالية",
+        "upgradeTo": "الترقية إلى {plan}",
+        "switchTo": "التبديل إلى {plan}",
+        "cancelPlan": "إلغاء الخطة",
+        "resume": "استئناف {plan}",
+        "renewsOn": "تتجدد في {date}",
+        "endsOn": "تنتهي في {date}",
+        "perMonth": "شهريًا",
+        "perSeatMonth": "لكل مقعد شهريًا",
+        "paymentMethod": "إدارة طريقة الدفع",
+        "invoices": "الفواتير",
+        "heading": "الخطط",
+        "actionError": "تعذّر تغيير الخطة. حاول مرة أخرى.",
+        "unavailable": {
+          "cancelScheduled": "استأنف خطتك لتتمكن من تغييرها.",
+          "granted": "منحتها cmux. لا يوجد ما يمكن تغييره.",
+          "adminOnly": "يمكن لمسؤولي الفريق فقط تغيير الخطة."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "طرفية cmux الكاملة لنظام macOS",
+            "أي وكيل CLI بمفاتيحك الخاصة",
+            "سجل الجلسات المحلي"
+          ],
+          "go": [
+            "جهاز Cloud VM نشط واحد",
+            "40 ساعة VM شهريًا",
+            "جهازا VM محفوظان"
+          ],
+          "pro": [
+            "وكلاء سحابيون على Cloud VMs",
+            "24 غيغابايت RAM و6 vCPU مشتركة بين الأجهزة",
+            "تطبيق cmux لنظام iOS"
+          ],
+          "max": [
+            "64 غيغابايت RAM و16 vCPU مشتركة بين الأجهزة",
+            "أحجام أجهزة أكبر",
+            "كل ما في Pro"
+          ],
+          "team": [
+            "كل ما في Pro لكل عضو",
+            "فاتورة واحدة للفريق كله",
+            "دعم ذو أولوية"
+          ]
+        },
+        "billedAnnually": "تُدفع سنويًا"
+      },
+      "change": {
+        "title": "التبديل إلى {plan}؟",
+        "upgradeBody": "تبدأ {plan} الآن. تدفع اليوم {amount} مقابل ما تبقى من فترة الفوترة هذه. ومن {date} تدفع {price} شهريًا.",
+        "downgradeBody": "تبدأ {plan} الآن. يُضاف الجزء غير المستخدم من خطتك الحالية، {credit}، رصيدًا إلى فواتيرك القادمة. فاتورتك القادمة في {date} قيمتها {amount}.",
+        "confirm": "التبديل إلى {plan}",
+        "keep": "الإبقاء على الخطة الحالية",
+        "switching": "جارٍ التبديل…",
+        "previewError": "تعذّر حساب السعر. حاول مرة أخرى.",
+        "paymentFailed": "رُفضت بطاقتك. حدّث طريقة الدفع ثم حاول مرة أخرى.",
+        "error": "تعذّر تبديل الخطة. حاول مرة أخرى."
+      },
+      "cancelDialog": {
+        "title": "إلغاء {plan}؟",
+        "body": "تبقى لديك {plan} حتى {date}. بعد ذلك ستفقد:",
+        "bodyNoDate": "تبقى لديك {plan} حتى نهاية فترة الفوترة هذه. بعد ذلك ستفقد:",
+        "reasonLabel": "لماذا تلغي؟ (اختياري)",
+        "otherPlaceholder": "أخبرنا بالمزيد (اختياري)",
+        "confirm": "إلغاء الخطة",
+        "keep": "الإبقاء على {plan}",
+        "error": "تعذّر إلغاء الخطة. حاول مرة أخرى.",
+        "resumeError": "تعذّر استئناف الخطة. حاول مرة أخرى.",
+        "reasons": {
+          "too_expensive": "باهظة الثمن",
+          "missing_feature": "تنقصها ميزة أحتاجها",
+          "not_using": "لا أستخدمها بما يكفي",
+          "other": "سبب آخر"
+        }
+      },
+      "welcome": {
+        "title": "مرحبًا بك في {plan}",
+        "body": "خطتك نشطة. جرّب هذه أولًا:",
+        "ios": "ثبّت تطبيق iOS",
+        "cloud": "افتح Cloud",
+        "team": "أنشئ فريقًا",
+        "banner": "أنت الآن على {plan}.",
+        "bannerLink": "الخطة والفوترة"
       }
     },
     "mobileDevices": {
@@ -488,7 +582,10 @@
         "account": "الحساب",
         "billing": "الفوترة",
         "teamsGroup": "الفرق",
-        "createTeam": "إنشاء فريق"
+        "createTeam": "إنشاء فريق",
+        "accountGroup": "الحساب",
+        "billingGroup": "الفوترة",
+        "planBilling": "الخطة والفوترة"
       },
       "ui": {
         "save": "حفظ",
@@ -1030,7 +1127,9 @@
       "apiKeyUsageUnavailable": "الاستخدام غير متاح",
       "revokeApiKeyConfirmBody": "سيتوقف العملاء الذين يستخدمون هذا المفتاح عن المصادقة فورًا.",
       "apiKeysEmptyTitle": "لا توجد مفاتيح API بعد",
-      "apiKeysEmptyHint": "أنشئ مفتاحًا لمصادقة عميل CodeRouter."
+      "apiKeysEmptyHint": "أنشئ مفتاحًا لمصادقة عميل CodeRouter.",
+      "unavailableTitle": "الحسابات المشتركة غير متاحة",
+      "unavailableBody": "لا يستطيع cmux الوصول إلى خدمة الحسابات المشتركة الآن. الحسابات المضافة عبر cr add وحسابات Anthropic وBedrock تعمل كالمعتاد."
     },
     "notFound": {
       "title": "الصفحة غير موجودة",
@@ -1050,6 +1149,14 @@
       },
       "retry": "حاول مرة أخرى",
       "retrying": "جارٍ إعادة المحاولة…"
+    },
+    "upgrade": {
+      "title": "يتطلب Pro",
+      "cloud": "أجهزة Cloud VMs والوكلاء السحابيون جزء من Pro.",
+      "testflight": "تطبيق cmux لنظام iOS جزء من Pro.",
+      "mobileDevices": "ربط هاتفك وجهازك اللوحي جزء من Pro.",
+      "action": "الترقية إلى Pro",
+      "comparePlans": "مقارنة الخطط"
     }
   },
   "community": {
@@ -1926,7 +2033,8 @@
           "ampIntegration": "يشغّل hooks الخاصة بـ cmux لـ Amp أو يوقفها. عند إيقافها يبقى المكوّن الإضافي المضمَّن مثبتًا لكنه خامل.",
           "suppressSubagentNotifications": "قم بإخفاء إشعارات الإكمال المرئية وتغييرات الحالة من وكلاء Codex أو Claude الفرعيين المتداخلين مع إبقاء أحداثهم في قياسات Feed.",
           "workspaceAutoNaming": "تسمية تلقائية اختيارية بالذكاء الاصطناعي لمساحات العمل وعلامات التبويب من محتوى محادثات الوكيل. عند التفعيل، يلخّص cmux جلسات الوكلاء المدعومة إلى عناوين قصيرة باستخدام الملف الثنائي الخاص بكل وكيل؛ وتظل عمليات إعادة التسمية اليدوية لها الأولوية دائمًا.",
-          "autoNamingAgent": "أي وكيل يُنشئ الأسماء التلقائية لكل جلسة. \"auto\" (الافتراضي) يُسمّي كل جلسة بوكيلها الخاص؛ وأي معرّف وكيل (claude، codex، grok، opencode، pi، omp، …) يتجاوز التسمية لجميع الجلسات، حتى جلسات الوكلاء الآخرين. الوكلاء غير القابلين للتشغيل أو غير المثبَّتين يعودون إلى وكيل الجلسة نفسه، لذا لا تتعطل التسمية أبدًا."
+          "autoNamingAgent": "أي وكيل يُنشئ الأسماء التلقائية لكل جلسة. \"auto\" (الافتراضي) يُسمّي كل جلسة بوكيلها الخاص؛ وأي معرّف وكيل (claude، codex، grok، opencode، pi، omp، …) يتجاوز التسمية لجميع الجلسات، حتى جلسات الوكلاء الآخرين. الوكلاء غير القابلين للتشغيل أو غير المثبَّتين يعودون إلى وكيل الجلسة نفسه، لذا لا تتعطل التسمية أبدًا.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "يتحكم في وقت طلب cmux التأكيد قبل الإنهاء. تنتهي إصدارات DEV فوراً دائماً بغض النظر عن هذا الإعداد. يظل app.warnBeforeQuit القديم مقبولاً كخيار احتياطي منطقي.",
@@ -2046,6 +2154,12 @@
       "actionTypeCommand": "يشغّل نصا طرفيا. استخدم target لاختيار الطرفية الحالية أو تبويب جديد في اللوحة الحالية.",
       "actionTypeAgent": "يشغّل وكيل برمجة مدعوما. يدعم اليوم codex و claude، مع وسائط اختيارية.",
       "actionTypeWorkspaceCommand": "يشغّل تعريف مساحة عمل مسمى من commands. استخدمه للتخطيطات متعددة اللوحات، ومجلدات العمل المخصصة، وأوامر البدء.",
+      "actionTypeSetting": "يغيّر إعدادًا واحدًا في ملف cmux.json العام، مثل تبديل إعداد true/false أو التنقل بين قائمة من القيم. راجع إجراءات الإعدادات أدناه.",
+      "actionTypeSettingPreset": "يطبّق مجموعة مسماة من الإعدادات من settingPresets دفعة واحدة.",
+      "settingActions": "إجراءات الإعدادات",
+      "settingActionsDesc": "يحدد إجراء الإعداد <path>path</path> للإعداد وواحدًا فقط من: <set>set</set> (يكتب قيمة)، أو <toggle>toggle: true</toggle> (يقلب إعداد true/false)، أو <cycle>cycle</cycle> (ينتقل إلى القيمة التالية في قائمة ويعود إلى أولها بعد آخرها)، أو <unset>unset: true</unset> (يحذف المفتاح من cmux.json لتُطبَّق القيمة من نافذة الإعدادات أو القيمة الافتراضية). يبدأ toggle و cycle من القيمة التي يستخدمها cmux حاليًا، بما في ذلك قيمة ضبطتها في نافذة الإعدادات. يطبّق إجراء settingPreset إدخالًا من <presets>settingPresets</presets>، وهو ملف cmux.json جزئي تُدمج كائناته المتداخلة مفتاحًا بمفتاح. يتحقق cmux من كل تغيير وفق المخطط قبل الحفظ، ويحافظ على تعليقاتك والمفاتيح الأخرى، ويطبّق التغيير فورًا. لا تعمل إجراءات الإعدادات والإعدادات المسبقة إلا من ملف cmux.json العام والحزم التي يشير إليها؛ ولا يمكن لإعدادات المشروع تعريفها.",
+      "settingActionsCli": "تعمل التغييرات نفسها من الطرفية: <set>cmux config set terminal.scrollSpeed 1.4</set>، و<toggle>cmux config toggle fileEditor.wordWrap</toggle>، و<preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "مع <confirm>confirm: true</confirm>، يسأل cmux قبل الحفظ ويعرض أمر cmux config المكافئ. تُقسَّم المسارات عند كل \".\"، لذا لا يمكن بهذه الطريقة تغيير مفتاح يحتوي هو نفسه على \".\" (مثل إدخال <byCwd>workspaceGroups.byCwd</byCwd> لـ ~/src/app.web). عدّله مباشرة في cmux.json.",
       "actionFields": "حقول الإجراء",
       "actionFieldTitle": "عنوان صف لوحة الأوامر، وتسمية زر السطح، وعنوان عنصر القائمة، وعنوان طلب الثقة ما لم يستبدله إدخال آخر.",
       "actionFieldSubtitle": "النص الثانوي في لوحة الأوامر. يقبل description كاسم بديل لـ subtitle.",
