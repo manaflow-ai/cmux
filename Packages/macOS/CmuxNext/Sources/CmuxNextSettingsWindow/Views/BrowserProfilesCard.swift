@@ -1,4 +1,3 @@
-import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import SwiftUI
@@ -15,8 +14,7 @@ struct BrowserProfilesCard: View {
         SettingsCard(title: SettingsWindowStrings.browserProfilesTitle) {
             ForEach(rows) { row in
                 BrowserProfileRowView(model: model, row: row, isExpanded: expanded == row.id) {
-                    let motion: Animation? = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .easeOut(duration: 0.18)
-                    withAnimation(motion) { expanded = expanded == row.id ? nil : row.id }
+                    expanded = expanded == row.id ? nil : row.id
                 }
             }
         }
@@ -58,6 +56,7 @@ private struct BrowserProfileRowView: View {
             .accessibilityIdentifier("cmux.settings.browserProfile.\(row.id)")
             if isExpanded { form }
         }
+        .animation(Motion.animation(.fadeIn), value: isExpanded)
         .padding(.horizontal, Metrics.space5)
         .onAppear { reset() }
         .onChange(of: row) { reset() }
