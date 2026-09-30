@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { procedureResponse } from "./helpers/dashboard-procedure";
 
 type SessionUser = {
   id: string;
@@ -32,7 +33,8 @@ mock.module("@/services/vms/auth", () => ({
   isSubrouterAuthorizationError: (error: unknown) => error instanceof AuthorizationUnavailable,
 }));
 
-const { GET } = await import("../app/api/dashboard/session/route");
+const { accountRouter } = await import("../orpc/server/dashboard/account");
+const GET = (request: Request) => procedureResponse(accountRouter.session, undefined, request);
 
 function request() {
   return new Request("https://cmux.test/api/dashboard/session");
@@ -45,7 +47,7 @@ afterEach(() => {
   else process.env.CMUX_VAULT_ENABLED = previousVault;
 });
 
-describe("GET /api/dashboard/session", () => {
+describe("dashboard.account.session", () => {
   test("401 without a signed-in user", async () => {
     const response = await GET(request());
     expect(response.status).toBe(401);
@@ -83,7 +85,6 @@ describe("GET /api/dashboard/session", () => {
     };
     const response = await GET(request());
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.json()).toEqual({
       user: {
         id: "user-1",

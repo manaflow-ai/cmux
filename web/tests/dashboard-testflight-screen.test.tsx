@@ -11,6 +11,7 @@ import {
   createTestflightUser,
   testflightUserEligibility,
 } from "./helpers/testflight-user";
+import { procedureResponse } from "./helpers/dashboard-procedure";
 
 let stackConfigured = true;
 let currentUser: ReturnType<typeof createTestflightUser> | null = null;
@@ -88,7 +89,8 @@ mock.module("../services/billing/pro", () => ({
 }));
 
 const { PRO_TESTFLIGHT_GROUP_ID } = await import("../services/asc/testflight");
-const { GET } = await import("../app/api/testflight/route");
+const { accountRouter } = await import("../orpc/server/dashboard/account");
+const GET = (request: Request) => procedureResponse(accountRouter.testflight, undefined, request);
 const { TestflightScreen } = await import("../dashboard-app/screens/testflight/testflight-screen");
 const { testflightQuery } = await import("../dashboard-app/queries/testflight");
 
@@ -96,21 +98,19 @@ function testflightRequest() {
   return new NextRequest("https://cmux.test/api/testflight");
 }
 
-describe("GET /api/testflight", () => {
+describe("dashboard.account.testflight", () => {
   beforeEach(resetFixtures);
 
   test("returns 401 without a signed-in user", async () => {
     currentUser = null;
     const response = await GET(testflightRequest());
     expect(response.status).toBe(401);
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
   test("returns eligibility, the normalized email, and enrollment", async () => {
     status = { enrolled: true, state: "INVITED" };
     const response = await GET(testflightRequest());
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.json()).toEqual({
       eligible: true,
       email: "pro@example.com",

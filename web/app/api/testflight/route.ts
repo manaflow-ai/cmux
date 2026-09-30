@@ -18,16 +18,9 @@ import {
 import { captureAscError } from "../../../services/errors";
 import { withAccountDeletionUserMutation } from "../../../services/account/deletionLock";
 import { browserMutationOriginAllowed } from "../../../services/vms/routeHelpers";
-import { loadDashboardTestflight } from "../../../services/billing/dashboardTestflight";
-import { withDashboardSessionUser } from "../../../services/billing/dashboardSessionRoute";
 
 
 type TestflightAction = "join" | "leave";
-
-/** Entitlement and enrollment for the dashboard TestFlight screen. */
-export async function GET(request: NextRequest): Promise<Response> {
-  return withDashboardSessionUser(request, loadDashboardTestflight);
-}
 
 export async function POST(request: NextRequest) {
   let stackUserId: string | undefined;

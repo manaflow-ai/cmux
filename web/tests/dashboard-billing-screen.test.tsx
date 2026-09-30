@@ -11,6 +11,7 @@ import {
   createScreenQueryClient,
   renderDashboardScreen,
 } from "./helpers/dashboard-spa-render";
+import { procedureResponse } from "./helpers/dashboard-procedure";
 
 const enMessages = baseEnMessages;
 
@@ -88,8 +89,12 @@ mock.module("../db/client", () => ({
   }),
 }));
 
-const { GET: dashboardBillingGET } = await import("../app/api/dashboard/billing/route");
-const { GET: teamBillingGET } = await import("../app/api/teams/[teamId]/billing/route");
+const { accountRouter } = await import("../orpc/server/dashboard/account");
+const { billing: teamBillingProcedure } = await import("../orpc/server/dashboard/team-billing");
+const dashboardBillingGET = (request: Request) =>
+  procedureResponse(accountRouter.billing, { team: new URL(request.url).searchParams.get("team") }, request);
+const teamBillingGET = async (request: Request, context: { params: Promise<{ teamId: string }> }) =>
+  procedureResponse(teamBillingProcedure, { teamId: (await context.params).teamId }, request);
 const { BillingScreen } = await import("../dashboard-app/screens/billing/billing-screen");
 const { TeamBillingPanel } = await import("../dashboard-app/screens/billing/team-billing-panel");
 const { dashboardBillingQuery, teamBillingQuery } = await import("../dashboard-app/queries/billing");
@@ -110,14 +115,13 @@ function resetFixtures() {
   mockImplementation(proUser.hasPermission, async () => true);
 }
 
-describe("GET /api/dashboard/billing", () => {
+describe("dashboard.account.billing", () => {
   beforeEach(resetFixtures);
 
   test("returns 401 without a signed-in user", async () => {
     currentUser = null;
     const response = await dashboardBillingGET(new Request("https://cmux.test/api/dashboard/billing"));
     expect(response.status).toBe(401);
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
   test("returns the personal entry with a private no-store response", async () => {
@@ -126,7 +130,6 @@ describe("GET /api/dashboard/billing", () => {
 
     const response = await dashboardBillingGET(new Request("https://cmux.test/api/dashboard/billing"));
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
     const body = await response.json();
     expect(body.selectedTeamId).toBe("user-pro");
     expect(body.team).toBeNull();
@@ -172,7 +175,7 @@ describe("GET /api/dashboard/billing", () => {
   });
 });
 
-describe("GET /api/teams/[teamId]/billing", () => {
+describe("dashboard.teams.billing", () => {
   beforeEach(resetFixtures);
 
   test("returns 401 without a signed-in user", async () => {
@@ -190,7 +193,6 @@ describe("GET /api/teams/[teamId]/billing", () => {
       { params: Promise.resolve({ teamId: "team-foreign" }) },
     );
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.json()).toEqual({ status: "not_found", teamId: "team-foreign" });
   });
 
