@@ -53,6 +53,7 @@ actor LivenessHostRouter {
     private var probeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var heldProbeRequestNumbers: Set<Int> = []
+    private var delayedProbeRequestNumbers: Set<Int> = []
     private var delayedSubscribeRequestNumbers: Set<Int> = []
     private var invalidSubscribeRequestNumbers: Set<Int> = []
     private var subscribeErrorCodesByRequestNumber: [Int: String] = [:]
@@ -429,6 +430,11 @@ actor LivenessHostRouter {
         heldProbeRequestNumbers.insert(number)
     }
 
+    /// Delay a read-only probe until released, then answer normally.
+    func delayProbeRequest(number: Int) {
+        delayedProbeRequestNumbers.insert(number)
+    }
+
     /// Delay a subscribe acknowledgement until released, then return the
     /// ordinary successful payload.
     func delaySubscribeRequest(number: Int) {
@@ -496,6 +502,7 @@ actor LivenessHostRouter {
         heldWorkspaceListRequestNumbers = []
         heldSubscribeRequestNumbers = []
         heldProbeRequestNumbers = []
+        delayedProbeRequestNumbers = []
         delayedSubscribeRequestNumbers = []
         heldUnsubscribeRequestNumbers = []
         heldNotificationFeedRequestNumbers = []
@@ -631,6 +638,9 @@ actor LivenessHostRouter {
             if heldProbeRequestNumbers.contains(probeRequestCount) {
                 await park()
                 return nil
+            }
+            if delayedProbeRequestNumbers.contains(probeRequestCount) {
+                await park()
             }
             return try? Self.resultFrame(id: id, result: [
                 "stream_id": streamID ?? "",
@@ -817,6 +827,7 @@ struct LivenessTransportFactory: CmxByteTransportFactory {
     let router: LivenessHostRouter
     let box: TransportBox
     var closeGate: LivenessTransportCloseGate?
+    var observesTransportLiveness = true
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         let transport = LivenessTransport(
@@ -824,6 +835,9 @@ struct LivenessTransportFactory: CmxByteTransportFactory {
             closeGate: closeGate
         )
         box.set(transport)
+        if !observesTransportLiveness {
+            return UnobservedLivenessTransport(base: transport)
+        }
         return transport
     }
 }
@@ -834,6 +848,8 @@ actor LivenessTransport: CmxByteTransport, CmxByteTransportLivenessObserving {
     private var pendingFrames: [Data] = []
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
     private var isClosed = false
+    private var shouldHoldLivenessCheck = false
+    private var heldLivenessCheck: CheckedContinuation<Void, Never>?
 
     init(
         router: LivenessHostRouter,
@@ -924,7 +940,24 @@ actor LivenessTransport: CmxByteTransport, CmxByteTransportLivenessObserving {
     }
 
     func isTransportClosed() async -> Bool {
-        isClosed
+        if shouldHoldLivenessCheck {
+            shouldHoldLivenessCheck = false
+            await withCheckedContinuation { heldLivenessCheck = $0 }
+        }
+        return isClosed
+    }
+
+    func holdNextLivenessCheck() {
+        shouldHoldLivenessCheck = true
+    }
+
+    func hasHeldLivenessCheck() -> Bool {
+        heldLivenessCheck != nil
+    }
+
+    func releaseHeldLivenessCheck() {
+        heldLivenessCheck?.resume()
+        heldLivenessCheck = nil
     }
 
     /// Deliver a frame to the client's read loop. Also used by tests to push
@@ -1036,11 +1069,15 @@ func makeConnectedStore(
     box: TransportBox,
     clock: TestClock,
     probeTimeoutNanoseconds: UInt64 = 200_000_000,
+    observesTransportLiveness: Bool = true,
     inputAckRetryClock: any Clock<Duration> = ContinuousClock(),
     controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock()
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
-        transportFactory: LivenessTransportFactory(router: router, box: box),
+        transportFactory: LivenessTransportFactory(
+            router: router, box: box,
+            observesTransportLiveness: observesTransportLiveness
+        ),
         now: { clock.now },
         livenessProbeTimeoutNanoseconds: probeTimeoutNanoseconds
     )

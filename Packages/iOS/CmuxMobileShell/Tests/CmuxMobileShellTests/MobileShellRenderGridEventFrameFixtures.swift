@@ -60,6 +60,17 @@ func terminalBytesEventFrame(surfaceID: String, seq: UInt64, text: String) throw
     return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
 }
 
+func terminalEventHeartbeatFrame() throws -> Data {
+    let envelope: [String: Any] = [
+        "kind": "event",
+        "topic": "terminal.events.heartbeat",
+        "payload": [
+            "sent_at_ms": Int(Date().timeIntervalSince1970 * 1000),
+        ],
+    ]
+    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+}
+
 func emptyRenderGridEventFrame(
     surfaceID: String,
     seq: UInt64,
