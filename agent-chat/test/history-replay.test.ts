@@ -27,7 +27,7 @@ const events: AgentEvent[] = [];
 const expected: Block[] = [];
 for (let index = 0; index < turns; index++) {
   const entries = [{ text: `step ${index}`, status: "pending" as const }];
-  const files = [{ path: `file-${index}.ts`, status: "modified" }];
+  const files = [{ path: `file-${index}.ts`, status: "modified", adds: 1, dels: 0 }];
   events.push(
     { kind: "user", text: `prompt ${index}` },
     { kind: "thinking", text: `reason ${index}` },
@@ -58,7 +58,7 @@ function record(array: any[]) {
   if (array[0]?.kind === "user") visits += array.length;
 }
 try {
-  const { useSession } = await import("../src/session");
+  const { useSession, foldEvent, foldEvents } = await import("../src/session");
   let state: ReturnType<typeof useSession>;
   function Harness() { state = useSession(); return null; }
   await act(async () => { renderer = create(createElement(Harness)); });
@@ -87,6 +87,49 @@ try {
   assert.deepEqual(state.blocks, expected, "history replay must preserve all displayed blocks and file revisions");
   console.log(`history fixture: ${events.length} events, ${state.blocks.length} blocks, ${visits} array references traversed, ${elapsed.toFixed(1)}ms`);
   assert.ok(visits <= events.length * 8, "history replay must not repeatedly copy or scan its growing transcript prefix");
+
+  const seed: Block[] = [
+    { kind: "tool", toolId: "reused", name: "Read", status: "running" },
+    { kind: "files", files: [], revision: "1" },
+    { kind: "user", text: "seed" },
+    { kind: "plan", entries: [{ text: "old plan", status: "pending" }] },
+    { kind: "assistant", text: "prefix", open: true },
+  ];
+  const seedSnapshot = JSON.stringify(seed);
+  seed.forEach(Object.freeze);
+  Object.freeze(seed);
+  const update: AgentEvent[] = [
+    { kind: "tool-end", toolId: "reused", ok: false, detail: "first failure" },
+    { kind: "tool-start", toolId: "reused", name: "Bash", detail: "input" },
+    { kind: "tool-end", toolId: "reused", ok: true, detail: "final output" },
+    { kind: "plan", entries: [{ text: "updated plan", status: "in_progress" }] },
+    { kind: "delta", text: "hi" }, { kind: "delta", text: " there" },
+    { kind: "thinking", text: "reason" },
+    { kind: "assistant", text: "final" }, { kind: "done", stats: "done" },
+    { kind: "user", text: "next turn" },
+    { kind: "plan", entries: [{ text: "next plan", status: "pending" }] },
+    { kind: "files-changed", files: [] }, { kind: "files-changed", files: [] },
+    { kind: "status", text: "status" }, { kind: "error", message: "error" },
+  ];
+  const folded = foldEvents(seed, update);
+  assert.deepEqual(folded, [
+    { kind: "tool", toolId: "reused", name: "Read", status: "ok", out: "final output" },
+    { kind: "files", files: [], revision: "1" }, { kind: "user", text: "seed" },
+    { kind: "plan", entries: [{ text: "updated plan", status: "in_progress" }] },
+    { kind: "assistant", text: "prefix", open: false },
+    { kind: "tool", toolId: "reused", name: "Bash", detail: "input", status: "ok", out: "final output" },
+    { kind: "assistant", text: "hi there", open: false },
+    { kind: "thinking", text: "reason", open: false },
+    { kind: "assistant", text: "final", open: false }, { kind: "footer", text: "done" },
+    { kind: "user", text: "next turn" },
+    { kind: "plan", entries: [{ text: "next plan", status: "pending" }] },
+    { kind: "files", files: [], revision: "2" }, { kind: "files", files: [], revision: "3" },
+    { kind: "status", text: "status" }, { kind: "error", text: "error" },
+  ]);
+  assert.deepEqual(update.reduce(foldEvent, seed), folded, "live and batch folding must share the same displayed behavior");
+  assert.equal(JSON.stringify(seed), seedSnapshot, "neither replay nor live folding may mutate prior state");
+  assert.equal(foldEvents(seed, []), seed);
+  assert.equal(foldEvents(seed, [{ kind: "meta", model: "ignored" }]), seed);
 } finally {
   Array.prototype[Symbol.iterator] = originalIterator;
   Array.prototype.map = originalMap;
