@@ -32,30 +32,6 @@ final class MachinesPanelModelTests: XCTestCase {
             Date(timeIntervalSince1970: 1_787_400_000)
         )
     }
-
-    func testSnapshotSurfacesRecordedCmuxTuiContractStatus() {
-        let current = MachineSnapshotBuilder.snapshot(from: VMSummary(
-            id: "current-vm",
-            provider: "freestyle",
-            status: "running",
-            image: "cmux-devbox",
-            createdAt: 1,
-            base: nil,
-            cmuxTuiContract: "snapshot-v2"
-        ))
-        let stale = MachineSnapshotBuilder.snapshot(from: VMSummary(
-            id: "stale-vm",
-            provider: "freestyle",
-            status: "running",
-            image: "cmux-devbox",
-            createdAt: 1,
-            base: nil,
-            cmuxTuiContract: nil
-        ))
-
-        XCTAssertEqual(current.cmuxTuiContractStatus, .current)
-        XCTAssertEqual(stale.cmuxTuiContractStatus, .stale(nil))
-    }
     func testDesktopImageDetection() {
         let desktop = MachineSnapshotBuilder.snapshot(from: VMSummary(
             id: "noble-dolphin",

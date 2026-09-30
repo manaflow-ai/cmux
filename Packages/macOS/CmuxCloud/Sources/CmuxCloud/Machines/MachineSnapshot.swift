@@ -19,7 +19,6 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         usage: MachineUsageSnapshot? = nil,
         privateAddress: String? = nil,
         cmuxTuiContract: String? = nil,
-        cmuxTuiContractWasReported: Bool = false,
         isPinned: Bool = false
     ) {
         self.id = id
@@ -37,7 +36,6 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         self.usage = usage
         self.privateAddress = privateAddress
         self.cmuxTuiContract = cmuxTuiContract
-        self.cmuxTuiContractWasReported = cmuxTuiContractWasReported || cmuxTuiContract != nil
         self.isPinned = isPinned
     }
 
@@ -62,22 +60,6 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         case active(daysLeft: Int)
         /// Past the window: preserved but locked until the plan is upgraded.
         case expired
-    }
-
-    /// Whether the control plane has recorded the attach contract for this
-    /// machine. This is create-time rollout metadata, not a live daemon probe.
-    public enum CmuxTuiContractStatus: Equatable, Sendable {
-        /// The current private-network listener contract was recorded.
-        case current
-        /// The VM API reported this machine, but its contract is absent or old.
-        case stale(String?)
-        /// The surface catalog found this machine before the VM API did.
-        case notReported
-
-        public var isStale: Bool {
-            if case .stale = self { return true }
-            return false
-        }
     }
 
     public let id: String
@@ -106,23 +88,11 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     /// created before private networking. v4 preferred for copy (pasteable
     /// anywhere), v6 is the fallback.
     public var privateAddress: String?
-    /// The attach contract recorded by the Cloud control plane.
+    /// Recorded attach-contract metadata, not a live daemon version probe.
+    /// Nil can mean missing metadata or an older API; it does not prove staleness.
     public let cmuxTuiContract: String?
-    /// True when the VM API supplied contract metadata, including an explicit
-    /// null for a pre-contract machine. Catalog-only rows leave this false.
-    public let cmuxTuiContractWasReported: Bool
     /// True when the user explicitly pinned this machine in the Cloud tree.
     public var isPinned: Bool = false
-
-    public static let currentCmuxTuiContract = "snapshot-v2"
-
-    public var cmuxTuiContractStatus: CmuxTuiContractStatus {
-        guard cmuxTuiContractWasReported else { return .notReported }
-        guard cmuxTuiContract == Self.currentCmuxTuiContract else {
-            return .stale(cmuxTuiContract)
-        }
-        return .current
-    }
 
     /// The label when set, else the generated name, else the machine id.
     public var displayName: String {

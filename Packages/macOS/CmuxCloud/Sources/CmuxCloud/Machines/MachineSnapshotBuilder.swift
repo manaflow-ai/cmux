@@ -51,8 +51,7 @@ public enum MachineSnapshotBuilder: Sendable {
             freeAccess: freeAccess,
             stats: summary.capabilities.stats ? previousStats : nil,
             privateAddress: summary.preferredPrivateAddress,
-            cmuxTuiContract: summary.cmuxTuiContract,
-            cmuxTuiContractWasReported: true
+            cmuxTuiContract: summary.cmuxTuiContract
         )
     }
 

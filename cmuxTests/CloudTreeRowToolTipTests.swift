@@ -256,22 +256,23 @@ struct CloudTreeRowToolTipTests {
         #expect(content.toolTip.contains("build box"))
     }
 
-    @Test("A pre-contract machine explains the Cloud replay recovery path")
-    func staleCmuxTuiContractIsVisibleInRowDetails() {
+    @Test("Recorded attach metadata remains diagnostic, including missing and unknown markers",
+          arguments: [nil, "", "snapshot-v2", "snapshot-v1", "snapshot-v3"] as [String?])
+    func machineContractDiagnostics(contract: String?) {
         let summary = VMSummary(
-            id: "vm-stale",
-            provider: "freestyle",
-            status: "running",
-            image: "devbox",
-            createdAt: 1_700_000_000_000,
-            base: nil,
-            cmuxTuiContract: nil
+            id: "vm-contract", provider: "freestyle", status: "running",
+            image: "devbox", createdAt: 0, cmuxTuiContract: contract
         )
         let machine = MachineSnapshotBuilder.snapshot(from: summary)
-        let content = CloudTreeMachineRowContent(machine: machine, style: .defaultStyle)
+        let content = CloudTreeMachineRowContent(machine: machine)
 
-        #expect(content.toolTip.contains("Older Cloud daemon contract recorded"))
-        #expect(content.accessibilityLabel.contains("recreate this machine"))
+        #expect(machine.cmuxTuiContract == contract)
+        let expected = contract.flatMap { $0.isEmpty ? nil : $0 } ?? "Not recorded"
+        #expect(content.toolTip.contains("Recorded attach contract: \(expected)"))
+        #expect(content.accessibilityLabel.contains("Recorded attach contract: \(expected)"))
+        #expect(content.contractDiagnostics.contains("not a live daemon version"))
+        #expect(content.toolTip.contains("recreate") == false)
+        #expect(machine.activity == .ready)
     }
 
     /// `CloudTreeBrowserDetail.text` returns the URL host, else the local
