@@ -245,11 +245,15 @@ impl SshBootstrapper {
                 stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
             });
         }
-        let actual = String::from_utf8_lossy(&output.stdout)
-            .split_whitespace()
-            .next()
-            .unwrap_or_default()
-            .to_ascii_lowercase();
+        let Some(actual) = pinned_package_digest(&output.stdout) else {
+            self.cleanup_remote_staging(&temporary_dir, deadline).await;
+            return Err(BootstrapError::Install {
+                status: output.status,
+                stderr: format!(
+                    "the remote host did not report one SHA-256 digest for {package}; the download was removed"
+                ),
+            });
+        };
         if actual != platform.sha256 {
             self.cleanup_remote_staging(&temporary_dir, deadline).await;
             return Err(BootstrapError::ChecksumMismatch { package });
@@ -776,10 +780,32 @@ fn pinned_package_command(temporary_dir: &str, package: &str) -> String {
          mv package/bin/cmux-tui payload && chmod 755 payload; rc=$?; \
          rm -f {tarball} package/bin/cmux-tui; rmdir package/bin package 2>/dev/null; \
          [ \"$rc\" -eq 0 ] || exit \"$rc\"; \
-         sha256sum payload 2>/dev/null || shasum -a 256 payload 2>/dev/null || \
-         openssl dgst -sha256 -r payload 2>/dev/null || \
-         {{ echo \"cannot verify the npm package: the remote host has no sha256sum, shasum or openssl\" >&2; exit 1; }}"
+         digest=$(sha256sum payload 2>/dev/null || shasum -a 256 payload 2>/dev/null || \
+         openssl dgst -sha256 -r payload 2>/dev/null) || \
+         {{ echo \"cannot verify the npm package: the remote host has no sha256sum, shasum or openssl\" >&2; exit 1; }}; \
+         echo \"{PINNED_DIGEST_MARKER}${{digest%% *}}\""
     )
+}
+
+/// Prefix of the one stdout line on which [`pinned_package_command`]
+/// reports the payload's SHA-256. npm or the remote shell can print notices
+/// on stdout too, so only this line is read.
+const PINNED_DIGEST_MARKER: &str = "cmux-sha256 ";
+
+/// The digest [`pinned_package_command`] reported: exactly one marker line
+/// carrying 64 lowercase hex digits. Anything else is `None`, and the
+/// download is refused.
+fn pinned_package_digest(stdout: &[u8]) -> Option<String> {
+    let stdout = std::str::from_utf8(stdout).ok()?;
+    let mut digests = stdout.lines().filter_map(|line| line.strip_prefix(PINNED_DIGEST_MARKER));
+    let digest = digests.next()?.trim_end_matches('\r');
+    if digests.next().is_some()
+        || digest.len() != 64
+        || !digest.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return None;
+    }
+    Some(digest.to_owned())
 }
 
 /// Compressed upload bytes, in order, or the read error that ended them.
@@ -1089,10 +1115,9 @@ mod tests {
             .unwrap();
 
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-        let reported = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
-            reported.split_whitespace().next(),
-            Some(format!("{:x}", Sha256::digest(binary.as_bytes())).as_str())
+            pinned_package_digest(&output.stdout),
+            Some(format!("{:x}", Sha256::digest(binary.as_bytes())))
         );
         let entries = fs::read_dir(&staging)
             .unwrap()
@@ -1105,6 +1130,36 @@ mod tests {
             0o755
         );
         assert!(!marker.exists(), "the downloaded package ran before verification");
+    }
+
+    /// Only one marker line with a full lowercase SHA-256 is a digest;
+    /// notices around it are ignored and anything ambiguous fails closed.
+    #[test]
+    fn pinned_package_digest_reads_only_one_marker_line() {
+        let digest = "0123456789abcdef".repeat(4);
+        assert_eq!(
+            pinned_package_digest(
+                format!("npm notice New major version of npm available!\ncmux-sha256 {digest}\nnpm notice done\n")
+                    .as_bytes()
+            ),
+            Some(digest.clone())
+        );
+        assert_eq!(
+            pinned_package_digest(format!("cmux-sha256 {digest}\r\n").as_bytes()),
+            Some(digest.clone())
+        );
+        for rejected in [
+            String::new(),
+            format!("{digest}  payload\n"),
+            format!("cmux-sha256 {digest}\ncmux-sha256 {digest}\n"),
+            format!("cmux-sha256 {}\n", digest.to_ascii_uppercase()),
+            format!("cmux-sha256 {}\n", &digest[1..]),
+            format!("cmux-sha256 {digest}0\n"),
+            format!("cmux-sha256 {digest} payload\n"),
+            format!("cmux-sha256 {}g\n", &digest[1..]),
+        ] {
+            assert_eq!(pinned_package_digest(rejected.as_bytes()), None, "{rejected:?}");
+        }
     }
 
     /// The login shell must see exactly `sh`, `-c` and the unchanged script,

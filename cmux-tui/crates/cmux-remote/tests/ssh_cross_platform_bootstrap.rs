@@ -143,7 +143,7 @@ impl NpmFixture {
             &script,
             format!(
                 r#"#!/bin/sh
-digest() {{ sha256sum "$1" 2>/dev/null || shasum -a 256 "$1"; }}
+digest() {{ set -- $(sha256sum "$1" 2>/dev/null || shasum -a 256 "$1"); printf 'cmux-sha256 %s\n' "$1"; }}
 case "$*" in
   *"uname -s -m"*) printf '%s\n' 'Linux aarch64' ;;
   *"mkdir -p "*|*"mkdir -m 700 "*) exit 0 ;;
