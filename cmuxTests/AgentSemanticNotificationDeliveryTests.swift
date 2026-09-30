@@ -153,7 +153,7 @@ extension AgentNotificationRegressionTests {
             workspaceId: fixture.source.id.uuidString,
             surfaceId: fixture.panelId.uuidString,
             toolName: "Bash",
-            extraFieldsJSON: #"{"_hook_sent_at_ms":9_999_999_999_999,"_cmux_ordered_hook":true,"tool_use_id":"next-tool"}"#
+            extraFieldsJSON: #"{"_hook_sent_at_ms":9999999999999,"_cmux_ordered_hook":true,"tool_use_id":"next-tool"}"#
         )
         FeedCoordinator.shared.clearAgentPromptNotificationsSuperseded(by: progressed)
 
