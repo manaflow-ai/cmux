@@ -13,7 +13,7 @@ import SwiftUI
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
 /// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
-    @StateObject private var viewModel: MachinesPanelViewModel
+    @StateObject var viewModel: MachinesPanelViewModel
     @State private var devicesModel: DevicesPanelViewModel
     @State private var discoveryManaged = ManagedDevicePolicy().isDeviceDiscoveryDisabled
     @State private var incomingAccessManaged = ManagedDevicePolicy().isIncomingDeviceAccessDisabled
@@ -55,7 +55,7 @@ struct MachinesPanelView: View {
         _devicesModel = State(initialValue: devicesModel ?? DevicesPanelViewModel())
     }
 
-    private var accountFlow: HostAccountFlow? {
+    var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
     }
 
