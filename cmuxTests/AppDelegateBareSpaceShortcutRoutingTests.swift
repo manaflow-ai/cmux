@@ -186,6 +186,42 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(window.frame.height, savedFrame.height, accuracy: 1)
     }
 
+    /// Closing a main window saves its size, and a later window with no source
+    /// window opens at it. A test that left a 560 pt window behind gave every
+    /// later test's window a 320 pt terminal area, too narrow for a split
+    /// (#15488). XCTest runs these two in name order; the second must still
+    /// split, because a test's saved geometry does not outlive it.
+    func testWindowGeometryIsolation1ClosesNarrowWindow() throws {
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousShared }
+
+        let windowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        XCTAssertEqual(appDelegate.resizeMainWindow(windowId: windowId, width: 560, height: 420)?.width, 560)
+        closeWindow(withId: windowId)
+
+        XCTAssertNotNil(
+            UserDefaults.standard.data(forKey: AppDelegate.debugPersistedWindowGeometryDefaultsKey),
+            "closing the window saves its geometry for the next window"
+        )
+    }
+
+    func testWindowGeometryIsolation2NextTestWindowStillSplits() throws {
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousShared }
+
+        let windowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        defer { closeWindow(withId: windowId) }
+        let workspace = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        XCTAssertNotNil(
+            workspace.newTerminalSplit(from: panelId, orientation: .horizontal, focus: false),
+            "a window opened at an earlier test's 560 pt size has no room for a split"
+        )
+    }
+
     private func makeKeyDownEvent(
         key: String,
         keyCode: UInt16,
