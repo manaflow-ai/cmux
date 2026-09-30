@@ -135,4 +135,3 @@ export function planCardPrice(
   const annual = currentPrice.interval === "year";
   return { amount: `$${formatUsd(annual ? currentPrice.amountUsd / 12 : currentPrice.amountUsd)}`, unit, annual };
 }
-

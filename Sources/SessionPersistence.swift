@@ -18,14 +18,17 @@ enum SessionSnapshotSchema {
 }
 
 enum SessionPersistencePolicy {
-    static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
+    // The left sidebar minimum-width policy (`sidebar.leftMinWidth`) lives in
+    // CmuxSettings' `LeftSidebarWidthSettings`, shared with the catalog, the
+    // cmux.json loader, and the Settings pane.
+    static let sidebarMinimumWidthKey = LeftSidebarWidthSettings.minimumWidthKey
     // Keep the default equal to the minimum so a fresh sidebar starts at the minimum width.
     // The titlebar title tracks the sidebar's actual width only when it is wider than the
     // minimum, so a default above the minimum would make the folder/title shift when toggling the sidebar at the default width.
-    static let defaultSidebarWidth: Double = 240
-    static let defaultMinimumSidebarWidth: Double = 240
-    static let minimumSidebarWidth: Double = 240
-    static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
+    static let defaultSidebarWidth: Double = LeftSidebarWidthSettings.defaultMinimumWidth
+    static let defaultMinimumSidebarWidth: Double = LeftSidebarWidthSettings.defaultMinimumWidth
+    static let minimumSidebarWidth: Double = LeftSidebarWidthSettings.defaultMinimumWidth
+    static let sidebarMinimumWidthRange: ClosedRange<Double> = LeftSidebarWidthSettings.range
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
     // Below ~400pt the chrome cannot lay out without overlap: the sidebar
@@ -56,8 +59,23 @@ enum SessionPersistencePolicy {
     }
 
     static func sanitizedMinimumSidebarWidth(_ candidate: Double) -> Double {
-        guard candidate.isFinite else { return defaultMinimumSidebarWidth }
-        return min(max(candidate, sidebarMinimumWidthRange.lowerBound), sidebarMinimumWidthRange.upperBound)
+        LeftSidebarWidthSettings().clampedMinimumWidth(candidate)
+    }
+
+    /// Rewrites a string-typed `sidebarMinimumWidth` (for example from
+    /// `defaults write <bundle> sidebarMinimumWidth 180`, which stores a string
+    /// unless `-float` is passed) as a number, so the window layout, the
+    /// Settings slider and the `cmux.json` restore path all read the same value.
+    /// Runs at launch before the settings file store takes its backups.
+    /// Unparseable or non-finite strings are removed, so they resolve to the
+    /// default everywhere instead of being backed up as 0.
+    static func normalizeLegacySidebarMinimumWidthIfNeeded(defaults: UserDefaults = .standard) {
+        guard let raw = defaults.object(forKey: sidebarMinimumWidthKey) as? String else { return }
+        if let value = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)), value.isFinite {
+            defaults.set(value, forKey: sidebarMinimumWidthKey)
+        } else {
+            defaults.removeObject(forKey: sidebarMinimumWidthKey)
+        }
     }
 
     private static func storedSidebarMinimumWidth(defaults: UserDefaults) -> Double? {

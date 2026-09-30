@@ -26,6 +26,7 @@ private enum SettingsJSONPathFallbackCatalog {
 }
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
+typealias LeftSidebarWidthSettings = CmuxSettings.LeftSidebarWidthSettings
 
 enum SidebarWorkspaceDetailDefaults {
     private static let sidebar = SidebarCatalogSection()

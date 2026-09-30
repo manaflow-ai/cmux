@@ -179,6 +179,9 @@ struct cmuxApp: App {
         )
         let computerUseRuntimeService = ComputerUseRuntimeService(paths: computerUsePaths)
         self.computerUseRuntimeService = computerUseRuntimeService
+        // Before the settings file store applies cmux.json, so its backup of a
+        // user's sidebarMinimumWidth is the normalized number.
+        SessionPersistencePolicy.normalizeLegacySidebarMinimumWidthIfNeeded(defaults: .standard)
         _ = KeyboardShortcutSettings.settingsFileStore
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.loaded")
 
