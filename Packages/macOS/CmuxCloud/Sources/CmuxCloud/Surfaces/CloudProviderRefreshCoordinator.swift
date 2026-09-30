@@ -77,6 +77,12 @@ public final class CloudProviderRefreshCoordinator {
                completedForcedPass.request >= request {
                 return completedForcedPass.result
             }
+            // Capture the newest request represented by this pass. A waiter
+            // may have an older request number while another forced reader
+            // joins the burst before this task is installed; publishing the
+            // caller's number would make that newer reader start a duplicate
+            // trailing pass.
+            let passRequest = latestRequest
             let task = Task { @MainActor [weak self] in
                 while let self, !Task.isCancelled, epoch == self.lifetime {
                     let revision = self.invalidation
@@ -89,7 +95,7 @@ public final class CloudProviderRefreshCoordinator {
                     if revision == self.invalidation {
                         if force {
                             self.completedForcedPass = (
-                                request: request,
+                                request: passRequest,
                                 lifetime: epoch,
                                 invalidation: revision,
                                 result: result
@@ -102,7 +108,7 @@ public final class CloudProviderRefreshCoordinator {
             }
             // Covers all forced readers already waiting, so a burst shares
             // one trailing pass instead of issuing one snapshot per waiter.
-            inFlight = Entry(request: latestRequest, forced: force, task: task)
+            inFlight = Entry(request: passRequest, forced: force, task: task)
         }
         return false
     }

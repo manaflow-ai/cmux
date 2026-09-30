@@ -131,26 +131,36 @@ struct CloudProviderRefreshCoordinatorTests {
         let coordinator = CloudProviderRefreshCoordinator()
         let started = CloudLinkFirstValue<Bool>()
         let release = CloudLinkFirstValue<Bool>()
+        let operationReturned = CloudLinkFirstValue<Bool>()
+        let allowOperationToReturn = CloudLinkFirstValue<Bool>()
         var calls = 0
         let operation: @MainActor (Bool) async -> Bool = { _ in
             calls += 1
             if calls == 1 {
                 started.resolve(true)
                 _ = await release.result
+                // Hold the pass owner after its I/O has completed. The test
+                // can now invalidate at a known point before the owner
+                // publishes or resumes any waiter.
+                operationReturned.resolve(true)
+                _ = await allowOperationToReturn.result
             }
             return true
         }
 
         let first = Task { await coordinator.refresh(force: true, operation: operation) }
         _ = await started.result
-        let second = Task { await coordinator.refresh(force: true, operation: operation) }
         release.resolve(true)
-        // Let the pass finish, then invalidate before either waiter is
-        // guaranteed to resume. A waiter must not republish that old result.
+        _ = await operationReturned.result
+        // Invalidate while the pass owner is held after the operation has
+        // completed. A stale result must not be published or reused.
         coordinator.invalidate()
+        allowOperationToReturn.resolve(true)
         #expect(await first.value)
-        #expect(await second.value)
 
+        // The invalidation forced a new operation. Invalidate once more so
+        // this read cannot reuse the current completion either.
+        coordinator.invalidate()
         #expect(await coordinator.refresh(force: true, operation: operation))
         #expect(calls == 3)
     }
