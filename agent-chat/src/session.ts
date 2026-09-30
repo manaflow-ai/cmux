@@ -164,6 +164,14 @@ export interface SessionSummary {
   /** What that agent is waiting on in the terminal (permission, question). */
   attention?: string | null;
 }
+
+/** Whether a terminal-backed chat must be answered in the terminal itself. */
+export function transcriptComposerLocked(
+  session: Pick<SessionSummary, "mode" | "attention"> | null,
+): boolean {
+  return session?.mode === "transcript" && Boolean(session.attention?.trim());
+}
+
 export type CtrlJMode = "newline" | "menu";
 
 function closeStreaming(blocks: Block[]): Block[] {

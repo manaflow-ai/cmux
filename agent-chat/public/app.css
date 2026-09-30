@@ -713,6 +713,7 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   color: var(--text); font-family: var(--font-sans); font-size: var(--font-size-base); line-height: 1.5; padding: 9px 8px; min-height: 24px; max-height: 200px;
 }
 #chat-input::placeholder { color: var(--text-faint); }
+#chat-input:disabled { color: var(--text-faint); cursor: default; }
 .chat-text-wrap { width: 100%; }
 .chat-actions { display: flex; align-items: center; gap: 6px; padding-bottom: 1px; }
 #stop-btn {
