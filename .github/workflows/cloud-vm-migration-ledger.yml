@@ -48,8 +48,9 @@ jobs:
   ledger:
     # The required context. Keep it literal.
     name: Migration ledger
-    # Reads untrusted bytes with a secret in scope: GitHub-hosted only.
-    runs-on: ubuntu-24.04
+    # Reads untrusted bytes with a secret in scope, so it never honors a
+    # repository variable that could select a persistent host.
+    runs-on: ubuntu-24.04 # github-hosted-required
     timeout-minutes: 10
     environment: cloud-vm-migration-ledger
     outputs:
@@ -162,7 +163,7 @@ jobs:
     if: >-
       always() && github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' || github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read

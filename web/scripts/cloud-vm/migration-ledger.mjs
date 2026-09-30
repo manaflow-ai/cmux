@@ -41,6 +41,8 @@ export function readLocalMigrations(migrationsDir) {
  *
  * `baseNames`, when given, marks which pending migrations the change itself
  * introduces; without it `introduced` is null.
+ * @param {{ local: Array<{ name: string, hash: string }>,
+ *   applied: Array<{ name: string | null, hash: string }>, baseNames?: string[] }} input
  */
 export function compareLedger({ local, applied, baseNames }) {
   const appliedByName = new Map();
@@ -89,7 +91,10 @@ function pendingLabel(migration) {
   return migration.name;
 }
 
-/** The operator sequence that makes the check pass, in the order it must run. */
+/**
+ * The operator sequence that makes the check pass, in the order it must run.
+ * @param {{ sourceRef?: string, repository?: string }} input
+ */
 export function operatorSequence({ sourceRef, repository }) {
   const source = sourceRef ?? "<pull request head SHA or number>";
   const repo = repository ? ` --repo ${repository}` : "";
@@ -107,6 +112,11 @@ export function operatorSequence({ sourceRef, repository }) {
   ];
 }
 
+/**
+ * @param {{ target: string, result: { pending: Array<{ name: string, introduced: boolean | null }>,
+ *   hashMismatches: string[], appliedOnly: string[] }, verdict: { status: string },
+ *   sourceRef?: string, repository?: string }} input
+ */
 export function formatLedgerReport({ target, result, verdict, sourceRef, repository }) {
   const lines = [];
   if (result.pending.length === 0) {

@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 
 import {
@@ -14,7 +15,7 @@ import {
   readLocalMigrations,
 } from "../scripts/cloud-vm/migration-ledger.mjs";
 
-const webDir = path.resolve(import.meta.dir, "..");
+const webDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkerCli = path.join(webDir, "scripts/cloud-vm/check-migration-ledger.mjs");
 const stageCli = path.join(webDir, "scripts/cloud-vm/stage-migration-source.mjs");
 
@@ -193,7 +194,7 @@ describe("migration overlay", () => {
 
 describe("check-migration-ledger CLI", () => {
   function run(args: string[], env: Record<string, string> = {}) {
-    const childEnv: Record<string, string> = { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", CMUX_CLOUD_VM_ENV_SOURCE: "process", ...env };
+    const childEnv: NodeJS.ProcessEnv = { NODE_ENV: "test", PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", CMUX_CLOUD_VM_ENV_SOURCE: "process", ...env };
     return spawnSync("bun", [checkerCli, ...args], { cwd: webDir, env: childEnv, encoding: "utf8" });
   }
 
@@ -237,7 +238,6 @@ describe("stage-migration-source CLI", () => {
     writeMigration(migrations, "m1", "select 1;");
     git(dir, "add", ".");
     git(dir, "commit", "-q", "-m", "base");
-    const base = git(dir, "rev-parse", "HEAD");
     git(dir, "checkout", "-q", "-b", "feature");
     for (const [name, sql] of Object.entries(sourceSql)) writeMigration(migrations, name, sql);
     git(dir, "add", ".");
