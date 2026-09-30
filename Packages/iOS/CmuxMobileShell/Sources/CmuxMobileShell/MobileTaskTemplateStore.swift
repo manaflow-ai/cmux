@@ -132,11 +132,13 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
         setOptional(id, forKey: Self.lastMacDeviceIDKey)
     }
 
+    /// Returns the last picker values saved for one paired Mac.
     public func composerPickerPreferences(macPairingID: String) -> MobileTaskComposerPickerPreferences? {
         guard let data = defaults.data(forKey: Self.pickerPreferencesPrefix + macPairingID) else { return nil }
         return try? decoder.decode(MobileTaskComposerPickerPreferences.self, from: data)
     }
 
+    /// Stores the picker values for one paired Mac.
     public func setComposerPickerPreferences(
         _ preferences: MobileTaskComposerPickerPreferences, macPairingID: String
     ) {

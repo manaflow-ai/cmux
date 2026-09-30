@@ -3,20 +3,6 @@ import Testing
 @testable import CmuxMobileShell
 import CmuxMobileShellModel
 
-private actor MobileTaskModelPrefetchCatalogProbe {
-    let data: Data
-    private(set) var requestCount = 0
-
-    init(data: Data) {
-        self.data = data
-    }
-
-    func load() -> Data {
-        requestCount += 1
-        return data
-    }
-}
-
 @MainActor
 struct MobileTaskModelPrefetchTests {
     @Test func sharesInFlightDiscoveryAndReusesTheWarmHostCatalog() async throws {

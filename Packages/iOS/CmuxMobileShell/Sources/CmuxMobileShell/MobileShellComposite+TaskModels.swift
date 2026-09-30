@@ -1,4 +1,5 @@
 internal import CmuxMobileRPC
+internal import CmuxMobilePairedMac
 public import CmuxMobileShellModel
 import Foundation
 
@@ -14,6 +15,39 @@ private struct MobileTaskModelRequestContext {
 }
 
 extension MobileShellComposite {
+    /// Removes model state for pairing rows that are no longer available.
+    /// A removed row must also cancel an in-flight refresh so its completion
+    /// cannot repopulate the cache after the pairing list changes.
+    func pruneTaskModelStateToPairedMacs() {
+        let validPairingIDs = Set(taskComposerPairedMacs.map(\.id))
+        for key in taskModelRefreshRequests.keys
+            where !validPairingIDs.contains(
+                MobilePairedMac.pairingID(
+                    macDeviceID: key.macDeviceID,
+                    instanceTag: key.instanceTag
+                )
+            ) {
+            taskModelRefreshRequests[key]?.cancel()
+            taskModelRefreshRequests[key] = nil
+        }
+        taskModelCache = taskModelCache.filter { key, _ in
+            validPairingIDs.contains(
+                MobilePairedMac.pairingID(
+                    macDeviceID: key.macDeviceID,
+                    instanceTag: key.instanceTag
+                )
+            )
+        }
+        taskModelSuccessfulConnections = taskModelSuccessfulConnections.filter { key, _ in
+            validPairingIDs.contains(
+                MobilePairedMac.pairingID(
+                    macDeviceID: key.macDeviceID,
+                    instanceTag: key.instanceTag
+                )
+            )
+        }
+    }
+
     /// Identity of the live read connection currently serving one paired Mac.
     ///
     /// The identity stays stable when the same client moves between focused

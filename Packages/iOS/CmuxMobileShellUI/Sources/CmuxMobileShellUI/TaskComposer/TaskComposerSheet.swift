@@ -53,6 +53,7 @@ struct TaskComposerSheet: View {
     @State var failureTitleStyle: TaskComposerFailureTitleStyle = .launchFailed
     @State private var isEditorPresented = false
     @State var shouldPersistDraftOnDisappear = true
+    @State var shouldPersistPickerPreferencesOnDisappear = true
     @State var submissionIdentity: MobileTaskSubmissionIdentity
     @State private var activeSubmissionSnapshot: MobileTaskSubmissionSnapshot?
     @State var completedOperationRecovery: TaskComposerCompletedOperationRecovery?
@@ -441,7 +442,9 @@ struct TaskComposerSheet: View {
                 )
             }
             .onDisappear {
-                persistPickerPreferences()
+                if shouldPersistPickerPreferencesOnDisappear {
+                    persistPickerPreferences()
+                }
                 store.recordAppEvent(
                     .taskComposerClosed,
                     correlationID: submissionIdentity.id.uuidString
@@ -1079,10 +1082,12 @@ struct TaskComposerSheet: View {
     private func resumeDraft(_ id: UUID) {
         guard let onSwitchDraft else { return }
         guard persistDraftContent(base: draftSnapshot()) else { return }
+        persistPickerPreferences()
         // The replaced view's onDisappear must not persist again: state
         // storage is already torn down by the identity switch, so that late
-        // persist reads initial values and its empty snapshot would delete
-        // the draft that was just saved.
+        // persist reads initial values and would overwrite the next composer's
+        // picker choices.
+        shouldPersistPickerPreferencesOnDisappear = false
         shouldPersistDraftOnDisappear = false
         onSwitchDraft(.resume(id))
     }
@@ -1092,7 +1097,10 @@ struct TaskComposerSheet: View {
     private func startNewDraft() {
         guard let onSwitchDraft else { return }
         guard persistDraftContent(base: draftSnapshot()) else { return }
-        // See resumeDraft: block the torn-down view's late empty persist.
+        // See resumeDraft: save the picker snapshot before the identity switch
+        // and block the torn-down view's late callback.
+        persistPickerPreferences()
+        shouldPersistPickerPreferencesOnDisappear = false
         shouldPersistDraftOnDisappear = false
         onSwitchDraft(.new)
     }

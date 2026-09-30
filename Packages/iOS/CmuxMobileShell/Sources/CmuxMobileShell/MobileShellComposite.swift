@@ -3739,6 +3739,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // workspace event.
             if oldValue != pairedMacs {
                 recomputeDerivedWorkspaceState()
+                pruneTaskModelStateToPairedMacs()
             }
             guard oldValue.count != pairedMacs.count else { return }
             analytics.setSuperProperties(["paired_mac_count": .int(pairedMacs.count)])
