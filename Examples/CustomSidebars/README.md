@@ -10,9 +10,24 @@ Start with one of the six curated built-in templates from the app or CLI:
 
 ```bash
 cmux sidebar templates
+cmux sidebar try agents-board
 cmux sidebar new agents-board --from agents-board
 cmux sidebar open agents-board
 ```
+
+In the app, right-click the sidebar toggle button and choose **Browse Sidebar Templates…**
+to see the gallery. Try a template before keeping it, or use it and edit the file later.
+
+The curated previews are also shown in the [custom-sidebar guide](../../docs/custom-sidebars.md#curated-gallery).
+
+| Template | Light | Dark |
+| --- | --- | --- |
+| Workspaces | ![Workspaces](../../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/workspaces-light.png) | ![Workspaces dark](../../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/workspaces-dark.png) |
+| Agents Board | ![Agents Board](../../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/agents-board-light.png) | ![Agents Board dark](../../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/agents-board-dark.png) |
+| Panel Sessions | ![Panel Sessions](../../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-sessions-light.png) | ![Panel Sessions dark](../../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-sessions-dark.png) |
+| Panel Subagents | ![Panel Subagents](../../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-subagents-light.png) | ![Panel Subagents dark](../../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-subagents-dark.png) |
+| btop Agents | ![btop Agents](../../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/btop-agents-light.png) | ![btop Agents dark](../../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/btop-agents-dark.png) |
+| Panel Todo | ![Panel Todo](../../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-todo-light.png) | ![Panel Todo dark](../../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-todo-dark.png) |
 
 You can also copy any source file from this directory into
 `~/.config/cmux/sidebars/`. Enable **Settings -> Beta features -> Custom sidebars**

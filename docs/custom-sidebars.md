@@ -21,18 +21,32 @@ It is a beta, on by default. Turn it off in **Settings → Custom Sidebars**
 
 ## Start from a template
 
-Six curated custom sidebars are available as built-in templates while the Custom Sidebars beta is enabled: Workspaces, Agents Board, Panel Sessions, Panel Subagents, btop Agents, and Panel Todo. Right-click the sidebar toggle button, choose **New from Template…**, then pick a template. cmux copies an editable file into `~/.config/cmux/sidebars/`, opens it in your preferred editor, and selects it in the sidebar.
+Six curated custom sidebars are available as built-in templates while the Custom Sidebars beta is enabled: Workspaces, Agents Board, Panel Sessions, Panel Subagents, btop Agents, and Panel Todo. Right-click the sidebar toggle button, choose **Browse Sidebar Templates…**, and open the gallery. Each card shows a preview, placement, and description. **Try** temporarily selects it in the sidebar; use **Keep** or **Revert** in the gallery bar. **Use** installs an editable file and offers **Edit** in your preferred editor.
 
 The same templates are available from the CLI:
 
 ```bash
 cmux sidebar templates
 cmux sidebar templates --json
+cmux sidebar try agents-board
 cmux sidebar new agents-board --from agents-board
 cmux sidebar open agents-board
 ```
 
-`cmux sidebar new` accepts kebab-case names and will not replace an existing file unless you add `--force`. The template list includes the intended placement for each file: left sidebar, right panel, or both. The six bundled source files and manifest are mirrored from `Examples/CustomSidebars/`. The remaining examples stay there as authoring references, so you can copy or adapt them into your dotfiles.
+`cmux sidebar try` creates a temporary preview file and prints the command to open and remove it. `cmux sidebar new` accepts kebab-case names and will not replace an existing file unless you add `--force`. The template list includes the intended placement for each file: left sidebar, right panel, or both. The six bundled source files and manifest are mirrored from `Examples/CustomSidebars/`. The remaining examples stay there as authoring references, so you can copy or adapt them into your dotfiles.
+
+Preview cards ship with the app bundle. Regenerate them after changing the curated set with `python3 scripts/generate-sidebar-template-previews.py`.
+
+### Curated gallery
+
+| Template | Use it for | Placement | Preview |
+| --- | --- | --- | --- |
+| Workspaces | A straightforward live workspace list. | Left sidebar | ![Workspaces preview](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/workspaces-light.png) / [dark](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/workspaces-dark.png) |
+| Agents Board | A kanban-style board for agent workspaces. | Left sidebar | ![Agents Board preview](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/agents-board-light.png) / [dark](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/agents-board-dark.png) |
+| Panel Sessions | Searchable sessions for this workspace or all workspaces. | Right panel | ![Panel Sessions preview](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-sessions-light.png) / [dark](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-sessions-dark.png) |
+| Panel Subagents | Coding-agent sessions grouped by workspace with live status. | Right panel | ![Panel Subagents preview](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-subagents-light.png) / [dark](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-subagents-dark.png) |
+| btop Agents | A terminal-inspired monitor for agent activity. | Left sidebar | ![btop Agents preview](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/btop-agents-light.png) / [dark](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/btop-agents-dark.png) |
+| Panel Todo | An interactive scratch checklist for the current workspace. | Right panel | ![Panel Todo preview](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-todo-light.png) / [dark](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-todo-dark.png) |
 
 ## If you are an agent building this for someone
 

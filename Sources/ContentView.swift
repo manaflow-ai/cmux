@@ -8796,6 +8796,9 @@ struct ContentView: View {
 
     /// Registers runnable handlers for every built-in command-palette contribution.
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        registry.register(commandId: "palette.browseSidebarTemplates") {
+            CmuxExtensionSidebarSelection.browseTemplates()
+        }
         registry.register(commandId: "palette.findWork") {
             guard let service = AppDelegate.shared?.currentWorkQueryService() else {
                 NSSound.beep()
@@ -11299,12 +11302,14 @@ enum CmuxExtensionSidebarSelection {
         defaults.set(legacyProviderId, forKey: defaultsKey)
     }
 
-    private static func localizedTemplateName(_ template: CustomSidebarTemplateDescriptor) -> String {
-        String(localized: template.displayNameKey, defaultValue: template.displayName)
-    }
-
-    private static func localizedTemplateDescription(_ template: CustomSidebarTemplateDescriptor) -> String {
-        String(localized: template.descriptionKey, defaultValue: template.description)
+    @MainActor
+    static func browseTemplates() {
+        guard customSidebarsEnabled else { return }
+        AppDelegate.shared?.openPreferencesWindow(
+            debugSource: "sidebar.browseTemplates",
+            navigationTarget: .customSidebars
+        )
+        SettingsNavigationRequest.post(.customSidebars, anchorID: "setting:customSidebars:templates", highlight: true)
     }
 
     @MainActor
@@ -11333,23 +11338,11 @@ enum CmuxExtensionSidebarSelection {
         if customSidebarsEnabled {
             menu.addItem(.separator())
             let templatesItem = NSMenuItem(
-                title: String(localized: "sidebar.menu.newFromTemplate", defaultValue: "New from Template…"),
-                action: nil,
+                title: String(localized: "sidebar.menu.browseTemplates", defaultValue: "Browse Sidebar Templates…"),
+                action: #selector(CmuxExtensionSidebarMenuTarget.browseTemplates),
                 keyEquivalent: ""
             )
-            let templatesMenu = NSMenu()
-            for template in CustomSidebarTemplateCatalog().templates {
-                let item = NSMenuItem(
-                    title: localizedTemplateName(template),
-                    action: #selector(CmuxExtensionSidebarMenuTarget.installTemplate(_:)),
-                    keyEquivalent: ""
-                )
-                item.toolTip = localizedTemplateDescription(template)
-                item.representedObject = template.id
-                item.target = CmuxExtensionSidebarMenuTarget.shared
-                templatesMenu.addItem(item)
-            }
-            templatesItem.submenu = templatesMenu
+            templatesItem.target = CmuxExtensionSidebarMenuTarget.shared
             menu.addItem(templatesItem)
         }
         menu.popUp(
@@ -11369,14 +11362,8 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
         CmuxExtensionSidebarSelection.setProviderId(providerId)
     }
 
-    @objc func installTemplate(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String,
-              let hostActions = AppDelegate.shared?.settingsRuntime?.hostActions else { return }
-        let result = hostActions.installCustomSidebarTemplate(id: id)
-        if case .created = result {
-            return
-        }
-        NSSound.beep()
+    @objc func browseTemplates() {
+        CmuxExtensionSidebarSelection.browseTemplates()
     }
 }
 

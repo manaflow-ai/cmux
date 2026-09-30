@@ -1,0 +1,89 @@
+{
+  "paths": [
+    "Sources/ContentView.swift",
+    "Sources/HostSettingsActions.swift",
+    "Packages/macOS/CmuxSettingsUI/**",
+    "CLI/**",
+    "docs/custom-sidebars.md"
+  ],
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Agents",
+        "initial_input": "printf 'agent-board ready\\n'; sleep 60\\n",
+        "focus": true
+      },
+      "save": "agents"
+    },
+    {
+      "wait": 1
+    },
+    {
+      "key": "p",
+      "modifiers": [
+        "command",
+        "shift"
+      ]
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "type": "Browse Sidebar Templates"
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "key": "return"
+    },
+    {
+      "wait": 1
+    },
+    {
+      "shot": "template-gallery-dark"
+    },
+    {
+      "click": {
+        "id": "SettingsCustomSidebarTemplateTry-agents-board"
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "shot": "template-agents-board-dark"
+    },
+    {
+      "click": {
+        "id": "SettingsCustomSidebarTemplateRevert"
+      }
+    },
+    {
+      "click": {
+        "id": "SettingsCustomSidebarTemplateTry-workspaces"
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "shot": "template-workspaces-dark"
+    },
+    {
+      "click": {
+        "id": "SettingsCustomSidebarTemplateKeep"
+      },
+      "wait": 1
+    },
+    {
+      "shot": "template-kept-dark",
+      "screen": true
+    }
+  ],
+  "launchArguments": [
+    "-appearanceMode",
+    "light"
+  ]
+}

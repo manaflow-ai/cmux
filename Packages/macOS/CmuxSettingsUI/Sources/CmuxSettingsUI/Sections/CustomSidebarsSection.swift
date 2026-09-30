@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSettings
 import SwiftUI
 
@@ -7,12 +8,12 @@ import SwiftUI
 @MainActor
 public struct CustomSidebarsSection: View {
     private let hostActions: SettingsHostActions
-    private let onboardingAssets = CustomSidebarOnboardingAssets()
 
     @State private var enabled: DefaultsValueModel<Bool>
     @State private var renderer: JSONValueModel<CustomSidebarRendererMode>
     @State private var discoveredSidebars: [String] = []
     @State private var operationMessage: String?
+    @State private var galleryPresented = false
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -51,6 +52,11 @@ public struct CustomSidebarsSection: View {
 
             onboardingCard
             discoveredSidebarsCard
+        }
+        .sheet(isPresented: $galleryPresented) {
+            CustomSidebarTemplateGallery(hostActions: hostActions) {
+                galleryPresented = false
+            }
         }
         .task {
             startObservingSettings()
@@ -124,24 +130,16 @@ public struct CustomSidebarsSection: View {
                 configurationReview: .action,
                 String(localized: "settings.customSidebars.newFromTemplate", defaultValue: "New from Template…", bundle: .module)
             ) {
-                Menu {
-                    ForEach(onboardingAssets.templates) { template in
-                        Button {
-                            applyOnboardingResult(hostActions.installCustomSidebarTemplate(id: template.id))
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(String(localized: template.displayNameKey, defaultValue: template.displayName, bundle: .module))
-                                Text(String(localized: template.descriptionKey, defaultValue: template.description, bundle: .module))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
+                Button {
+                    galleryPresented = true
                 } label: {
-                    Text(String(localized: "settings.customSidebars.newFromTemplate", defaultValue: "New from Template…", bundle: .module))
+                    Label(
+                        String(localized: "settings.customSidebars.browseTemplates", defaultValue: "Browse Templates…", bundle: .module),
+                        systemImage: "square.grid.2x2"
+                    )
                 }
                 .controlSize(.small)
-                .accessibilityIdentifier("SettingsCustomSidebarsTemplatesMenu")
+                .accessibilityIdentifier("SettingsCustomSidebarsTemplatesGalleryButton")
             }
 
             SettingsCardDivider()
@@ -191,6 +189,20 @@ public struct CustomSidebarsSection: View {
                     .monospacedDigit()
             }
 
+            if discoveredSidebars.isEmpty {
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .action,
+                    String(localized: "settings.customSidebars.empty.title", defaultValue: "Start with a template")
+                ) {
+                    Button(String(localized: "settings.customSidebars.browseTemplates", defaultValue: "Browse Templates…", bundle: .module)) {
+                        galleryPresented = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+
             ForEach(discoveredSidebars, id: \.self) { name in
                 SettingsCardDivider()
                 SettingsCardRow(
@@ -229,5 +241,131 @@ public struct CustomSidebarsSection: View {
                 defaultValue: "Could not create the sidebar. Check folder permissions and free disk space, then try again."
             )
         }
+    }
+}
+
+@MainActor
+private struct CustomSidebarTemplateGallery: View {
+    let hostActions: SettingsHostActions
+    let onClose: () -> Void
+    private let assets = CustomSidebarOnboardingAssets()
+    @State private var previewingID: String?
+    @State private var installedName: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(String(localized: "settings.customSidebars.gallery.title", defaultValue: "Sidebar Templates", bundle: .module))
+                        .font(.title2.weight(.semibold))
+                    Text(String(localized: "settings.customSidebars.gallery.subtitle", defaultValue: "Try a curated sidebar before you install it.", bundle: .module))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(String(localized: "common.close", defaultValue: "Close")) {
+                    hostActions.revertCustomSidebarPreview()
+                    onClose()
+                }
+            }
+
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
+                    ForEach(assets.templates) { template in
+                        templateCard(template)
+                    }
+                }
+            }
+
+            if previewingID != nil {
+                HStack {
+                    Label(String(localized: "settings.customSidebars.gallery.previewing", defaultValue: "Previewing in your sidebar", bundle: .module), systemImage: "eye")
+                    Spacer()
+                    Button(String(localized: "settings.customSidebars.gallery.revert", defaultValue: "Revert", bundle: .module)) {
+                        hostActions.revertCustomSidebarPreview()
+                        previewingID = nil
+                    }
+                    .accessibilityIdentifier("SettingsCustomSidebarTemplateRevert")
+                    .keyboardShortcut(.escape, modifiers: [])
+                    Button(String(localized: "settings.customSidebars.gallery.keep", defaultValue: "Keep", bundle: .module)) {
+                        hostActions.keepCustomSidebarPreview()
+                        previewingID = nil
+                        onClose()
+                    }
+                    .accessibilityIdentifier("SettingsCustomSidebarTemplateKeep")
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(10)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            }
+
+            if let installedName {
+                HStack {
+                    Text(String(format: String(localized: "settings.customSidebars.gallery.installed", defaultValue: "Installed %@", bundle: .module), installedName))
+                    Spacer()
+                    Button(String(localized: "settings.common.edit", defaultValue: "Edit")) {
+                        hostActions.openCustomSidebarInExternalEditor(named: installedName)
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 680, minHeight: 500)
+        .onDisappear {
+            if previewingID != nil {
+                hostActions.revertCustomSidebarPreview()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func templateCard(_ template: CustomSidebarTemplateDescriptor) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.accentColor.opacity(0.12))
+                .overlay {
+                    let theme = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua ? "light" : "dark"
+                    if let url = assets.previewImageURL(id: template.id, theme: theme), let image = NSImage(contentsOf: url) {
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .clipped()
+                    } else {
+                        Image(systemName: template.kind == .right ? "sidebar.right" : "sidebar.left")
+                            .font(.title2)
+                    }
+                }
+                .frame(height: 105)
+            Text(String(localized: template.displayNameKey, defaultValue: template.displayName, bundle: .module))
+                .font(.headline)
+            Text(String(localized: template.descriptionKey, defaultValue: template.description, bundle: .module))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Text(String(
+                localized: template.kind == .right ? "settings.customSidebars.gallery.rightPanel" : "settings.customSidebars.gallery.leftSidebar",
+                defaultValue: template.kind == .right ? "Right panel" : "Left sidebar",
+                bundle: .module
+            ))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            HStack {
+                Button(String(localized: "settings.customSidebars.gallery.try", defaultValue: "Try", bundle: .module)) {
+                    if case .created = hostActions.previewCustomSidebarTemplate(id: template.id) {
+                        previewingID = template.id
+                    }
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("SettingsCustomSidebarTemplateTry-\(template.id)")
+                Button(String(localized: "settings.customSidebars.gallery.use", defaultValue: "Use", bundle: .module)) {
+                    if case let .created(name) = hostActions.useCustomSidebarTemplate(id: template.id) {
+                        installedName = name
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("SettingsCustomSidebarTemplateUse-\(template.id)")
+            }
+        }
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 }

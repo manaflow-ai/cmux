@@ -60,6 +60,16 @@ public protocol SettingsHostActions: AnyObject {
     /// Copies one bundled template into the custom-sidebar directory, selects it, and opens it.
     func installCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
 
+    /// Installs a template and selects it without opening the editor.
+    func useCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
+
+    /// Temporarily selects a template for gallery preview.
+    func previewCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
+
+    /// Keeps or discards the active gallery preview.
+    func keepCustomSidebarPreview()
+    func revertCustomSidebarPreview()
+
     /// Copies one bundled example into the custom-sidebar directory and opens it.
     func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult
 
@@ -547,6 +557,16 @@ public extension SettingsHostActions {
         _ = id
         return .writeFailed
     }
+    func useCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        _ = id
+        return .writeFailed
+    }
+    func previewCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        _ = id
+        return .writeFailed
+    }
+    func keepCustomSidebarPreview() {}
+    func revertCustomSidebarPreview() {}
 
     func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
         installCustomSidebarTemplate(id: id)

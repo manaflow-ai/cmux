@@ -55,6 +55,7 @@ final class HostSettingsActions: SettingsHostActions {
     /// the old one and closing Settings does not leave an untracked playback
     /// task behind.
     private var notificationSoundPreviewTask: Task<Void, Never>?
+    private var customSidebarPreview: (id: String, name: String, previousProviderId: String)?
 
     init(
         configFileURL: URL,
@@ -333,13 +334,22 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func installCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        installCustomSidebarTemplate(id: id, openEditor: true)
+    }
+
+    func useCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        installCustomSidebarTemplate(id: id, openEditor: false)
+    }
+
+    private func installCustomSidebarTemplate(id: String, openEditor: Bool) -> CustomSidebarOnboardingResult {
         guard let template = CustomSidebarOnboardingAssets().exampleTemplate(id: id) else {
             return .templateUnavailable
         }
         let result = installCustomSidebarTemplate(
             template,
             name: template.suggestedName,
-            uniquingIfNeeded: true
+            uniquingIfNeeded: true,
+            openEditor: openEditor
         )
         if case let .created(name) = result {
             UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
@@ -353,6 +363,63 @@ final class HostSettingsActions: SettingsHostActions {
             )
         }
         return result
+    }
+
+    func previewCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        revertCustomSidebarPreview()
+        guard let template = CustomSidebarOnboardingAssets().exampleTemplate(id: id) else {
+            return .templateUnavailable
+        }
+        let previous = UserDefaults.standard.string(forKey: CmuxExtensionSidebarSelection.defaultsKey)
+            ?? CmuxExtensionSidebarSelection.defaultProviderId
+        let name = ".cmux-preview-\(id)-\(UUID().uuidString.prefix(8).lowercased())"
+        switch CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: name,
+            fileExtension: template.fileExtension,
+            source: template.source,
+            uniquingIfNeeded: false,
+            sidebarsDirectory: CmuxExtensionSidebarSelection.customSidebarsDirectory
+        ) {
+        case .created:
+            customSidebarPreview = (id: id, name: name, previousProviderId: previous)
+            UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
+            CmuxExtensionSidebarSelection.setProviderId(
+                CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+            )
+            NotificationCenter.default.post(
+                name: .customSidebarReloadRequested,
+                object: nil,
+                userInfo: ["names": [name]]
+            )
+            return .created(name: name)
+        case .invalidTemplate:
+            return .templateUnavailable
+        case .invalidName, .alreadyExists, .failed:
+            return .writeFailed
+        }
+    }
+
+    func keepCustomSidebarPreview() {
+        guard let preview = customSidebarPreview else { return }
+        _ = useCustomSidebarTemplate(id: preview.id)
+        removeCustomSidebarPreviewFile(preview.name)
+        customSidebarPreview = nil
+    }
+
+    func revertCustomSidebarPreview() {
+        guard let preview = customSidebarPreview else { return }
+        removeCustomSidebarPreviewFile(preview.name)
+        CmuxExtensionSidebarSelection.setProviderId(preview.previousProviderId)
+        NotificationCenter.default.post(name: .customSidebarReloadRequested, object: nil)
+        customSidebarPreview = nil
+    }
+
+    private func removeCustomSidebarPreviewFile(_ name: String) {
+        for ext in ["js", "swift", "json"] {
+            let url = CmuxExtensionSidebarSelection.customSidebarsDirectory
+                .appendingPathComponent("\(name).\(ext)")
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
@@ -380,7 +447,8 @@ final class HostSettingsActions: SettingsHostActions {
     private func installCustomSidebarTemplate(
         _ template: CustomSidebarTemplate,
         name: String,
-        uniquingIfNeeded: Bool
+        uniquingIfNeeded: Bool,
+        openEditor: Bool = true
     ) -> CustomSidebarOnboardingResult {
         switch CmuxExtensionSidebarSelection.writeCustomSidebar(
             named: name,
@@ -390,7 +458,9 @@ final class HostSettingsActions: SettingsHostActions {
             sidebarsDirectory: CmuxExtensionSidebarSelection.customSidebarsDirectory
         ) {
         case let .created(createdName, fileURL):
-            PreferredEditorService(defaults: .standard).open(fileURL)
+            if openEditor {
+                PreferredEditorService(defaults: .standard).open(fileURL)
+            }
             return .created(name: createdName)
         case .invalidTemplate:
             return .templateUnavailable
