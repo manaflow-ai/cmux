@@ -7,14 +7,18 @@ import Testing
     private static let running = CloudMachine(id: "vm-1", provider: "freestyle", status: "running", displayName: "otter")
     private static let paused = CloudMachine(id: "vm-1", provider: "freestyle", status: "paused", displayName: "otter")
 
-    private func makeController(service: FakeCloudVMService) -> CloudSessionController {
+    private func makeController(
+        service: FakeCloudVMService,
+        visibilityDefaults: UserDefaults = .standard
+    ) -> CloudSessionController {
         CloudSessionController(
             service: service,
             identityStore: InMemoryCloudDeviceIdentityStore(),
             tunnelStarter: FakeTunnelStarter(),
             connector: FakeConnector(),
             stateDirectory: Fixtures.stateDirectory(),
-            deviceName: "iPhone"
+            deviceName: "iPhone",
+            visibilityDefaults: visibilityDefaults
         )
     }
 
@@ -104,6 +108,34 @@ import Testing
         // Exactly one delete reaches the server, however the two interleave.
         #expect(service.calls.delete == ["vm-1"])
         #expect(results.filter { $0 }.count == 1)
+    }
+
+    @Test func refreshRemovesConnectionsAndHiddenIDsForMissingMachines() async throws {
+        let suite = "cmux-cloud-visibility-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["vm-1", "vm-deleted"], forKey: "mobile.cloud.hiddenMachineIDs.v2")
+
+        let service = FakeCloudVMService()
+        service.machines = .success([Self.running])
+        let controller = makeController(service: service, visibilityDefaults: defaults)
+        controller.sectionDidAppear()
+        await settle {
+            guard case .ready = controller.tunnel else { return false }
+            return controller.machines.elements == [Self.running]
+        }
+        #expect(controller.hiddenMachineIDs == ["vm-1"])
+
+        let oldConnection = try #require(controller.connection(for: Self.running))
+        let replacement = CloudMachine(id: "vm-2", provider: "freestyle", status: "running")
+        service.machines = .success([replacement])
+        controller.refreshMachines()
+        await settle { controller.machines.elements == [replacement] }
+
+        #expect(controller.hiddenMachineIDs.isEmpty)
+        let newConnection = try #require(controller.connection(for: Self.running))
+        #expect(newConnection !== oldConnection)
+        controller.sectionDidDisappear()
     }
 
     @Test func aProvisioningMachineIsReReadUntilItSettles() async {

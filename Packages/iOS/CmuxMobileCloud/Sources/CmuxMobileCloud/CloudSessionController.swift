@@ -364,6 +364,7 @@ public final class CloudSessionController {
         if resetProvisioningPollBudget {
             provisioningPollCount = 0
         }
+        let previouslyKnownMachineIDs = Set(machines.elements.map(\.id))
         listTask?.cancel()
         machines = .loading(previous: machines.elements)
         listTask = Task { [weak self] in
@@ -375,7 +376,12 @@ public final class CloudSessionController {
                 self.availableMachineKinds = catalog.availableKinds
                 self.machineLimits = catalog.limits
                 // A destroyed machine is gone; no screen should list it.
-                self.machines = .loaded(catalog.machines.filter { $0.lifecycle != .destroyed })
+                let liveMachines = catalog.machines.filter { $0.lifecycle != .destroyed }
+                self.reconcileConnectionsAndVisibility(
+                    for: liveMachines,
+                    previouslyKnownMachineIDs: previouslyKnownMachineIDs
+                )
+                self.machines = .loaded(liveMachines)
                 self.scheduleProvisioningPollIfNeeded()
             } catch {
                 guard !Task.isCancelled else { return }
@@ -394,6 +400,24 @@ public final class CloudSessionController {
                 }
             }
         }
+    }
+
+    private func reconcileConnectionsAndVisibility(
+        for machines: [CloudMachine],
+        previouslyKnownMachineIDs: Set<String>
+    ) {
+        let liveMachineIDs = Set(machines.map(\.id))
+        let staleConnectionIDs = connections.keys.filter {
+            previouslyKnownMachineIDs.contains($0) && !liveMachineIDs.contains($0)
+        }
+        for id in staleConnectionIDs {
+            connections.removeValue(forKey: id)?.close()
+        }
+
+        let storedHiddenIDs = hiddenMachineIDs
+        let reconciledHiddenIDs = storedHiddenIDs.intersection(liveMachineIDs)
+        guard storedHiddenIDs != reconciledHiddenIDs else { return }
+        visibilityDefaults.set(Array(reconciledHiddenIDs).sorted(), forKey: visibilityDefaultsKey)
     }
 
     /// Schedules one more list read while any machine is still provisioning

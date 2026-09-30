@@ -241,7 +241,16 @@ final class OutputBox: @unchecked Sendable {
     }
 }
 
-private let outputTrampoline: CmuxTerminalClientOutputCallback = { context, kind, bytes, length, cols, rows in
+private typealias OutputCallback = @convention(c) (
+    UnsafeMutableRawPointer?,
+    UInt32,
+    UnsafePointer<UInt8>?,
+    Int,
+    UInt16,
+    UInt16
+) -> Void
+
+private let outputTrampoline: OutputCallback = { context, kind, bytes, length, cols, rows in
     guard let context else { return }
     let box = Unmanaged<OutputBox>.fromOpaque(context).takeUnretainedValue()
     let data = (bytes != nil && length > 0) ? Data(bytes: bytes!, count: length) : Data()
