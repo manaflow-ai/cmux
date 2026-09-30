@@ -124,6 +124,18 @@ struct WorktreeSeedRepositoryTests {
         #expect(entry.escapesRepository)
     }
 
+    @Test func aValidSymlinkChainCanRevisitAnAlias() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        let directory = try tree.directory("real")
+        try tree.file("real/file")
+        try tree.symlink("alias", to: directory)
+        try tree.symlink("real/redirect", to: tree.root.appendingPathComponent("alias/file"))
+        try tree.symlink("selected", to: tree.root.appendingPathComponent("alias/redirect"))
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "selected" })
+        #expect(!entry.escapesRepository)
+    }
+
     @Test func aDanglingSymlinkInsideTheRepositoryIsNotAnEscape() throws {
         let tree = try WorktreeSeedTemporaryTree()
         let target = tree.root.appendingPathComponent("future/secret")
