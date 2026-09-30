@@ -89,6 +89,7 @@ public actor DaemonConnection {
         self.configuration = configuration
         self.clock = clock
         self.endpointProvider = endpointProvider
+        // concurrency-allow: drained at once by the store pump into the bounded EventInbox
         (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)
     }
 
@@ -192,6 +193,7 @@ public actor DaemonConnection {
                     gate.deliver(envelope) { continuation.yield($0) }
                 },
                 onClose: { [weak self] reason in
+                    // task-owner: hop onto the actor; transportClosed ignores a stale serial
                     Task { await self?.transportClosed(serial: serial, reason: reason) }
                 }
             )

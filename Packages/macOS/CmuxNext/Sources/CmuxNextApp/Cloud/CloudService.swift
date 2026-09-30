@@ -91,6 +91,7 @@ final class CloudService {
         for observer in observers { observer.cancel() }
         observers.removeAll()
         for session in machines.cloud { session.disconnect() }
+        // task-owner: teardown hop at quit; hub.stop() is idempotent
         if let hub { Task { await hub.stop() } }
     }
 

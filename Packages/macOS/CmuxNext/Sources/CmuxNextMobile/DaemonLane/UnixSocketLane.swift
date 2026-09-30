@@ -24,6 +24,7 @@ public final class UnixSocketLane: MobileByteLane {
         let queue = DispatchQueue(label: "cmux.next.mobile.unix-lane")
         let connection = NWConnection(to: .unix(path: path), using: .tcp)
         let lane = UnixSocketLane(connection: connection, queue: queue)
+        // concurrency-allow: on timeout the catch cancels the NWConnection, which resumes waitUntilReady
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask { try await lane.waitUntilReady(path: path) }
             group.addTask {

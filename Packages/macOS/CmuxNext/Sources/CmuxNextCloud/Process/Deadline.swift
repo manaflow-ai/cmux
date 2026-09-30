@@ -10,6 +10,7 @@ public struct DeadlineExceeded: Error, Sendable, CustomStringConvertible {
 /// outlives `duration`.
 func withDeadline<T: Sendable>(_ duration: Duration, label: String,
                                _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+    // concurrency-allow: callers pass cancellation-aware work (URLSession, AsyncStream iteration)
     try await withThrowingTaskGroup(of: T.self) { group in
         group.addTask { try await operation() }
         group.addTask {

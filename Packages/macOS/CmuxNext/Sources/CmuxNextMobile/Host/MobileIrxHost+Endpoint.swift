@@ -82,6 +82,7 @@ extension MobileIrxHost {
                 }
                 switch inbound {
                 case .irx(let connection):
+                    // task-owner: one per phone connection; ends when teardown closes the registry's sessions
                     Task { [weak self] in
                         await self?.supervise(connection, judgment: judgment, admission: admission, registry: registry)
                     }

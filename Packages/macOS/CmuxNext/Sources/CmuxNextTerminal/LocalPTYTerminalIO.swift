@@ -68,6 +68,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         masterFD = master
         _ = fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK)
 
+        // concurrency-allow: debug-only local PTY (CMUX_NEXT_DEBUG_TERMINAL), not the daemon path
         let (stream, continuation) = AsyncStream<TerminalIOEvent>.makeStream(bufferingPolicy: .unbounded)
         events = stream
         self.continuation = continuation

@@ -124,6 +124,7 @@ extension DaemonStore {
         guard let driver, !isResyncing else { return }
         isResyncing = true
         driver.inbox.hold()
+        // task-owner: at most one resync at a time (isResyncing); its snapshot request has a deadline
         Task { @MainActor in
             do {
                 let (tree, barrier) = try await driver.connection.snapshot()

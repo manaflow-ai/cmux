@@ -289,20 +289,12 @@ final class DaemonService {
         }
     }
 
-    /// Asks for a fresh snapshot (after commands whose effect has no delta).
-    func refresh() {
-        guard let connection else { return }
-        let store = store
-        Task {
-            if let (tree, _) = try? await connection.snapshot() { store.apply(snapshot: tree) }
-        }
-    }
-
     func shutdownConnection() {
         startupDeadlineTask?.cancel()
         startupDeadlineTask = nil
         runTask?.cancel()
         runTask = nil
+        // task-owner: teardown hop; close() is idempotent and finishes the store pump
         if let connection { Task { await connection.close() } }
         connection = nil
     }

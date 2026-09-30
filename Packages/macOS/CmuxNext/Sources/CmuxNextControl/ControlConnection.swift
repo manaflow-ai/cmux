@@ -55,6 +55,7 @@ final class ControlConnection: @unchecked Sendable {
 
     func start(consume: @escaping @Sendable (AsyncStream<String>) async -> Void) {
         // The stream never exceeds `maxQueuedLines`: reading pauses first.
+        // concurrency-allow: bounded by maxQueuedLines; the read source suspends before the stream exceeds it
         let (stream, continuation) = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
         queue.async { [self] in
             self.continuation = continuation
