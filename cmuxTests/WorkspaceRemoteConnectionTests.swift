@@ -2834,6 +2834,24 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    func testRejectsUnknownEternalTerminalLongOptionWithEqualsValue() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "--definitely-unknown=value",
+                    "example.com",
+                ],
+            ]
+        )
+
+        XCTAssertNil(session)
+    }
+
     func testDetectsEternalTerminalSessionWithoutTreatingETPortAsSSHPort() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
