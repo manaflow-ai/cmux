@@ -316,6 +316,14 @@
     "source": "OK %@ [%@] %@",
     "class": "format"
   },
+  "cli.usage.record": {
+    "class": "syntax",
+    "source": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+  },
+  "cli.usage.shot": {
+    "class": "syntax",
+    "source": "shot [--format png|jpg] [--jpg] [--scale <n>] [--max-width <n>] [--quality <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--caption <text>] [--window <id|ref|index>]"
+  },
   "cli.usage.readScreen": {
     "class": "syntax",
     "source": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
@@ -3444,6 +3452,28 @@
     "source": "cmux layout delete <name>",
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cloudMenu.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Standard German UI term with the same spelling."
+    }
+  },
+  "cloudMenu.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Product name cmux Cloud keeps its English spelling in this language.",
+      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
+      "es": "Product name cmux Cloud keeps its English spelling in this language."
+    }
+  },
+  "menu.cloud.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Product name cmux Cloud keeps its English spelling in this language.",
+      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
+      "es": "Product name cmux Cloud keeps its English spelling in this language."
+    }
   },
   "sidebar.agentStatus.glyph.tooltip": {
     "source": "%1$@: %2$@",

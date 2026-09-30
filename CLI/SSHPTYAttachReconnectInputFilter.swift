@@ -104,6 +104,7 @@ final class SSHPTYAttachReconnectInputFilter {
         var reconnectInputFilter = reconnectInputFilterState.map(SSHPTYAttachReconnectInputFilter.init(state:))
         var stopSignalFD = initialStopSignalFD
         var stopAcknowledgementFD = initialStopAcknowledgementFD
+        var reconnectStopAcknowledged = false
         var buffer = [UInt8](repeating: 0, count: 8192)
         defer {
             if let stopSignalFD {
@@ -164,6 +165,15 @@ final class SSHPTYAttachReconnectInputFilter {
             defer {
                 acknowledgeStopFiltering()
                 closeStopSignal()
+                reconnectStopAcknowledged = true
+            }
+            // Callers flush pending probe bytes before stopping, so only a
+            // clipboard reply that is mid-discard can remain. Keep routing
+            // input through the filter until that reply's terminator (or the
+            // reconnect deadline) so its tail never reaches the remote PTY.
+            if let filter = reconnectInputFilter {
+                _ = filter.stopFiltering()
+                if filter.isFilteringActive { return true }
             }
             reconnectInputFilter = nil
             return true
@@ -172,13 +182,14 @@ final class SSHPTYAttachReconnectInputFilter {
         func finishStdin() {
             // Reconnect input can disappear with the old bridge during wake.
             // It is not an intentional EOF for the newly attached remote PTY.
-            guard reconnectInputFilter == nil else { return }
+            guard reconnectInputFilter == nil || reconnectStopAcknowledged else { return }
             _ = shutdown(fd, SHUT_WR)
         }
 
         func stopReconnectFilteringAtDeadline() async -> Bool {
             guard let filter = reconnectInputFilter else { return true }
-            guard await writeOrShutdown(filter.stopFiltering()) else { return false }
+            guard await writeOrShutdown(filter.stopFilteringAtDeadline()) else { return false }
+            reconnectInputFilter = nil
             return stopReconnectFiltering()
         }
 
@@ -273,7 +284,7 @@ final class SSHPTYAttachReconnectInputFilter {
 
     func filter(_ data: Data) -> Data {
         if isDeadlineReached {
-            var output = stopFiltering()
+            var output = stopFilteringAtDeadline()
             output.append(data)
             return output
         }
@@ -286,6 +297,10 @@ final class SSHPTYAttachReconnectInputFilter {
 
     func stopFiltering() -> Data {
         byteFilter.stopFiltering()
+    }
+
+    func stopFilteringAtDeadline() -> Data {
+        byteFilter.stopFilteringAtDeadline()
     }
 
     var hasPendingInput: Bool {
