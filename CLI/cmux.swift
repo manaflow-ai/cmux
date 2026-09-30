@@ -29210,7 +29210,13 @@ struct CMUXCLI {
             // hook set it to Running) and the app suppresses this banner. Skip the
             // "Needs input" pill/lifecycle so the idle nag can't undo the Running
             // status; the app still gates the (tagged) notification itself.
-            let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
+            // A completed Claude turn stays idle when the delayed waiting nag
+            // arrives. Permission prompts and errors still carry their own state.
+            let idleReminderForCompletedSession = notifyCategory == .idleReminder
+                && classifiedSubtitle != "Error"
+                && mappedSession?.agentLifecycle == .idle
+            let suppressNeedsInputState = notifyCategory == .idleReminder
+                && (notifyPending || idleReminderForCompletedSession)
 
             // `.other` remains ungated. Error alerts carry a contextual
             // `errorStalled` sound type; other uncategorized alerts omit the
@@ -38148,32 +38154,6 @@ export default {
                     .turnCompleted,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
-                )
-                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-                print("{}")
-                return
-            }
-
-            // Claude periodically repeats a generic waiting reminder after a
-            // completed turn. If the durable session is already idle, this
-            // delayed reminder must not resurrect Needs input on the pane.
-            let staleWaitingReminderAfterIdleSession = summary.status == .needsInput
-                && summary.notifyCategory == .idleReminder
-                && mapped?.runtimeStatus == .idle
-                && mapped?.agentLifecycle == .idle
-            if staleWaitingReminderAfterIdleSession {
-#if DEBUG
-                agentHookDebugLog(
-                    "agentHook.notification.skip agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=staleWaitingReminderAfterIdleSession workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
-                    socketPath: client.socketPath,
-                    env: env
-                )
-#endif
-                emitJournal(
-                    .stateChanged,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    detail: "stale-idle-reminder"
                 )
                 sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
                 print("{}")
