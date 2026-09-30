@@ -15657,6 +15657,10 @@ mod loopback_forward_tests;
 mod image_paste_tests;
 
 #[cfg(test)]
+#[path = "server/session_identity_tests.rs"]
+mod session_identity_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
