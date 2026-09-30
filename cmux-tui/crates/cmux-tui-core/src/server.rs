@@ -23032,6 +23032,46 @@ mod tests {
         assert_eq!(response["data"]["accepted"], true);
     }
 
+    /// Replies can arrive out of order, so a client matches every reply to
+    /// its request by id. A request the server cannot decode must still echo
+    /// the id it carried, or the client hands the error to the wrong request.
+    #[test]
+    fn undecodable_requests_reply_with_their_request_id() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+
+        for (message, id) in [
+            (json!({"id": 41, "cmd": "no-such-command"}).to_string(), json!(41)),
+            (
+                json!({"id": "text-id", "cmd": "new-tab", "pane": "not-a-number"}).to_string(),
+                json!("text-id"),
+            ),
+            (
+                json!({"id": {"nested": [1, 2]}, "cmd": "rename-workspace"}).to_string(),
+                json!({"nested": [1, 2]}),
+            ),
+        ] {
+            assert!(handle_connection_message(&mux, client, &message, &writer, &scheduler));
+            let reply = pop_json(&outbound);
+            assert_eq!(reply["ok"], false, "{reply}");
+            assert!(reply["error"].as_str().unwrap().starts_with("bad request:"), "{reply}");
+            assert_eq!(reply["id"], id, "an undecodable request lost its id: {reply}");
+        }
+
+        // Without a readable id (not JSON, or no id member) the reply keeps
+        // the null id, as before.
+        for message in ["{not json", r#"{"cmd":"no-such-command"}"#, r#"[1,2]"#] {
+            assert!(handle_connection_message(&mux, client, message, &writer, &scheduler));
+            let reply = pop_json(&outbound);
+            assert_eq!(reply["ok"], false, "{reply}");
+            assert!(reply["id"].is_null(), "{reply}");
+        }
+    }
+
     #[test]
     fn shutdown_requester_waits_for_owner_eof_and_rejects_pipelined_mutations() {
         let mux = test_mux();
