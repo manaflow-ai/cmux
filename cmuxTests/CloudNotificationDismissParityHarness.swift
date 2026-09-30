@@ -175,6 +175,7 @@ final class CloudNotificationDismissParityHarness {
         )
         let delivery = CloudNotificationLocalDelivery(
             machineID: machine.rawValue,
+            origin: .cloudVM(machineID: machine.rawValue),
             store: { [store] in store },
             admit: { [hub, machine] in hub.admit($0, machineID: machine.rawValue) },
             machineName: { "Fixture" },

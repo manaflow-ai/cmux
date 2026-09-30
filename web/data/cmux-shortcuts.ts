@@ -409,6 +409,12 @@ export const shortcutCategories: ShortcutCategory[] = [
         },
       },
       {
+        id: "sizeTerminalToMyWindow",
+        combos: [["⌃", "⌥", "⌘", "="]],
+        description: { en: "Size shared terminal to my window", ja: "共有ターミナルを自分のウィンドウに合わせる" },
+        note: { en: "when a terminal is shared with phones or other clients, makes this Mac's window set its grid", ja: "ターミナルがスマートフォンや他のクライアントと共有されているとき、このMacのウィンドウでグリッドサイズを決めます" },
+      },
+      {
         id: "pasteLastScreenshot",
         combos: [],
         description: {"en": "Paste last screenshot", "ja": "最新のスクリーンショットを貼り付け", "de": "Letzten Screenshot einfügen", "fr": "Coller la dernière capture d’écran", "ar": "لصق آخر لقطة شاشة", "es": "Pegar la última captura de pantalla", "zh-TW": "貼上最新的螢幕截圖", "zh-CN": "粘贴最新的截图", "ko": "마지막 스크린샷 붙여넣기", "bs": "Zalijepi posljednji snimak ekrana", "da": "Indsæt seneste skærmbillede", "it": "Incolla l’ultimo screenshot", "km": "បិទភ្ជាប់រូបថតអេក្រង់ចុងក្រោយ", "no": "Lim inn siste skjermbilde", "pl": "Wklej ostatni zrzut ekranu", "pt-BR": "Colar a última captura de tela", "ru": "Вставить последний снимок экрана", "th": "วางภาพหน้าจอล่าสุด", "tr": "Son ekran görüntüsünü yapıştır", "uk": "Вставити останній знімок екрана"},
@@ -677,6 +683,20 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Jump to previous diff file", ja: "前の差分ファイルへ移動" },
         note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
         configValue: '["[", "f"]]',
+      },
+      {
+        id: "diffViewerNextHunk",
+        combos: [["N"]],
+        description: { en: "Jump to next hunk", ja: "次のハンクへ移動" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        configValue: '"n"',
+      },
+      {
+        id: "diffViewerPreviousHunk",
+        combos: [["P"]],
+        description: { en: "Jump to previous hunk", ja: "前のハンクへ移動" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        configValue: '"p"',
       },
     ],
   },

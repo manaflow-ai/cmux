@@ -3,6 +3,7 @@ import SwiftUI
 enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
     case app
+    case themes
     case terminal
     case textBox
     case sleepyMode
@@ -36,10 +37,12 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.account", defaultValue: "Account")
         case .app:
             return String(localized: "settings.section.app", defaultValue: "App")
+        case .themes:
+            return String(localized: "settings.section.themes", defaultValue: "Themes")
         case .terminal:
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
         case .textBox:
-            return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
+            return String(localized: "settings.section.textBox", defaultValue: "TextBox")
         case .sleepyMode:
             return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile:
@@ -85,6 +88,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "person.crop.circle"
         case .app:
             return "gearshape"
+        case .themes:
+            return "paintbrush"
         case .terminal:
             return "terminal"
         case .textBox:
@@ -133,11 +138,13 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .account:
             return "\(title) sign in team sync"
         case .app:
-            return "\(title) appearance language workspace notifications menu bar telemetry default terminal"
+            return "\(title) language workspace notifications menu bar telemetry default terminal"
+        case .themes:
+            return "\(title) theme themes color scheme palette ghostty terminal colors appearance light dark accent browser"
         case .terminal:
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
         case .textBox:
-            return "\(title) textbox text box rich input prompt beta new terminal workspace split tab focus height"
+            return "\(title) textbox text box rich input prompt new terminal workspace split tab focus height"
         case .sleepyMode:
             return "\(title) sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile:
@@ -161,7 +168,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .computerUse:
             return "\(title) computer use cua accessibility screen recording permissions cursor mcp agents driver menu bar onboarding"
         case .browser:
-            return "\(title) search engine links history theme"
+            return "\(title) search engine links history"
         case .browserImport:
             return "\(title) browser import data bookmarks history cookies"
         case .globalHotkey:

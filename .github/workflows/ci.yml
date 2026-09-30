@@ -714,7 +714,6 @@ jobs:
         # Fail-safe: any error leaves the outputs empty, which is today's route.
         # Main's full-suite dispatch (ci-main-full-suite.yml) is routed too,
         # onto the owned pools only, placed like a pull request unless
-        # CI_OWNED_MAIN_RESERVE holds machines back for pull requests
         # (pr_runner_pool.py, "Main's full suite"); ci-macos.yml already reads
         # these outputs for a workflow_dispatch on main.
         continue-on-error: true
@@ -742,7 +741,6 @@ jobs:
           # 0 keeps GUI jobs (app-host shards, tests-build-and-lag) off them.
           POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
           # Machines and root runners main's dispatch leaves free (default 0).
-          OWNED_MAIN_RESERVE: ${{ vars.CI_OWNED_MAIN_RESERVE }}
           CMUX_CI_XCODE_APP_PR: ${{ (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CMUX_CI_XCODE_APP_PR || '' }}
           # Handed to the macOS 15 pool's jobs only when the run lands there.
           CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -1066,6 +1064,7 @@ jobs:
             scripts/ci/choose_ci_suite.py \
             scripts/ci/cmux_unit_test_shard.py \
             scripts/ci/test_impact.py \
+            scripts/ci/ui_tests_dispatch.py \
             scripts/ci/cmux-unit-test-timings.json \
             | tar -x -C "$out/trusted" 2>/dev/null; then
             echo "The base revision has no reverse test impact selector; nothing to report."
@@ -1563,7 +1562,13 @@ jobs:
           exit 1
 
   # The UI test classes a pull request changes, run once on its head through
-  # test-e2e.yml: no pull request job executes cmuxUITests/ otherwise. The run
+  # test-e2e.yml: no pull request job executes cmuxUITests/ otherwise. A diff
+  # that touches what the UI fuzzer's checked-in repros exercise (the sidebar,
+  # splits and panes, the main window's size, the fuzzer) also asks for
+  # cmuxUITests/FuzzRegressions, which replays them against the same app
+  # (choose_ci_suite.fuzz_regression_selectors).
+  #
+  # The test run
   # adopts the app-host product this run compiles for the merge, waiting for
   # it, so this costs a test run, not a second compile, and routes to an owned
   # Mac (e2e_runner_pool.py). It waits for the admission gate: the gate holds
@@ -1575,8 +1580,10 @@ jobs:
   # Dispatching takes actions: write, which no job in this file holds: a
   # pull_request run takes this file from the pull request. This job validates
   # the selectors and uploads them as a request; ci-ui-tests.yml, which always
-  # runs from the default branch, picks the request up, runs main's dispatcher
-  # on it, and cancels the dispatched run if this run ends first. This job then
+  # runs from the default branch and which the build controller dispatches when
+  # this job starts (it matches the job name `ui-tests`: keep this id and add
+  # no `name:`), picks the request up, runs main's dispatcher on it, and
+  # cancels the dispatched run if this run ends first. This job then
   # reports that run's verdict, so the result stays on the pull request and
   # under ci-status. A fork's request is refused here: ci-ui-tests.yml serves
   # only same-repository pull requests, so a maintainer runs its classes with

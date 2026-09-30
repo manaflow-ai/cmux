@@ -6123,131 +6123,6 @@
         }
       }
     },
-    "settings.terminal.themeGallery.truncated": {
-      "extractionState": "manual",
-      "localizations": {
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ci sono altri temi corrispondenti. Continua a digitare per restringere l’elenco."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Postoji još tema koje odgovaraju. Nastavite kucati da suzite listu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flere temaer matcher. Skriv videre for at indsnævre listen."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មានស្បែកផ្សេងទៀតដែលត្រូវគ្នា។ បន្តវាយដើម្បីបង្រួមបញ្ជី។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flere temaer samsvarer. Skriv videre for å snevre inn listen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pasuje więcej motywów. Pisz dalej, aby zawęzić listę."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mais temas correspondem. Continue digitando para refinar a lista."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подходят и другие темы. Продолжайте вводить, чтобы сузить список."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ยังมีธีมที่ตรงกันอีก พิมพ์ต่อเพื่อจำกัดรายการ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eşleşen başka temalar da var. Listeyi daraltmak için yazmaya devam edin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Є й інші відповідні теми. Продовжуйте вводити, щоб звузити список."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "More themes match. Keep typing to narrow the list."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "هناك سمات أخرى مطابقة. تابع الكتابة لتضييق القائمة."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Es gibt weitere Treffer. Tippe weiter, um die Liste einzugrenzen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hay más temas que coinciden. Sigue escribiendo para acotar la lista."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "D’autres thèmes correspondent. Continuez à taper pour affiner la liste."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ほかにも一致するテーマがあります。入力を続けて絞り込んでください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "일치하는 테마가 더 있습니다. 계속 입력해 목록을 좁히세요."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "还有更多匹配的主题。继续输入以缩小列表范围。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "還有更多相符的主題。繼續輸入以縮小清單範圍。"
-          }
-        }
-      }
-    },
     "settings.terminal.themeGallery.writeFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -8219,6 +8094,242 @@
           "stringUnit": {
             "state": "translated",
             "value": "在新增分頁與分割按鈕旁顯示麥克風按鈕。"
+          }
+        }
+      }
+    },
+    "settings.terminal.themeGallery.darkGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dark Themes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السمات الداكنة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dunkle Designs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temas oscuros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thèmes sombres"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダークテーマ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다크 테마"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "深色主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "深色主題"
+          }
+        }
+      }
+    },
+    "settings.terminal.themeGallery.lightGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light Themes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السمات الفاتحة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Helle Designs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temas claros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thèmes clairs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライトテーマ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이트 테마"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浅色主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "淺色主題"
+          }
+        }
+      }
+    },
+    "devices.discovery.stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop discovering other Macs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف اكتشاف أجهزة Mac الأخرى"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andere Macs nicht mehr finden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dejar de descubrir otros Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter de rechercher d’autres Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかのMacの検出を停止"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac 검색 중지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止发现其他 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止尋找其他 Mac"
+          }
+        }
+      }
+    },
+    "devices.incoming.hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide this Mac from My Devices"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء جهاز Mac هذا من أجهزتي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Mac aus „Meine Geräte“ ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar este Mac de Mis dispositivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer ce Mac de « Mes appareils »"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacをマイデバイスから隠す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기에서 이 Mac 가리기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从“我的设备”中隐藏此 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從「我的裝置」隱藏此 Mac"
           }
         }
       }

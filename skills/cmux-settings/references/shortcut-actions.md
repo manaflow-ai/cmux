@@ -176,6 +176,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.hideFind`
 - `shortcuts.bindings.pasteLastScreenshot`
 - `shortcuts.bindings.sendCtrlFToTerminal`
+- `shortcuts.bindings.sizeTerminalToMyWindow`
 - `shortcuts.bindings.useSelectionForFind`
 
 ## Files and React Grab
@@ -190,8 +191,10 @@ Values for `shortcuts.bindings.<action>`:
 ## Markdown and diff viewer
 
 - `shortcuts.bindings.diffViewerNextFile`
+- `shortcuts.bindings.diffViewerNextHunk`
 - `shortcuts.bindings.diffViewerOpenFileSearch`
 - `shortcuts.bindings.diffViewerPreviousFile`
+- `shortcuts.bindings.diffViewerPreviousHunk`
 - `shortcuts.bindings.diffViewerScrollDown`
 - `shortcuts.bindings.diffViewerScrollDownEmacs`
 - `shortcuts.bindings.diffViewerScrollHalfPageDown`

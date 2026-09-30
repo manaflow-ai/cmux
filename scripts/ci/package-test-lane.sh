@@ -78,6 +78,7 @@ select_packages() {
     CMUXAuthCore
     CmuxBrowser
     CmuxCanvasUI
+    CmuxCloud
     CmuxCloudMachines
     CmuxCloudTui
     CmuxComputerUse
@@ -172,7 +173,7 @@ select_packages() {
   output "selected_packages=$selected"
   output "selected_count=$count"
 
-  if grep -qxE 'CmuxTerminal|CmuxTerminalCore|CmuxCloudTui' "$selected"; then
+  if grep -qxE 'CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud' "$selected"; then
     needs_ghosttykit=true
   else
     needs_ghosttykit=false
@@ -225,6 +226,20 @@ ensure_ghosttykit() {
     export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
   fi
   ./scripts/download-prebuilt-ghosttykit.sh
+}
+
+# Compile-avoidance shadow (RFC #15391): classify whether the pull request's
+# package edits keep every importer-visible interface. Observation only; the
+# script never fails and macOS status reads its receipt line.
+interface_fingerprint() {
+  case "$event" in
+    pull_request|merge_group) ;;
+    *) return 0 ;;
+  esac
+  [ -s "$changed" ] || return 0
+  echo "::group::Package interface fingerprint"
+  python3 scripts/ci/package_interface_fingerprint.py --changed-files "$changed" || true
+  echo "::endgroup::"
 }
 
 install_rust() {
@@ -388,7 +403,7 @@ run_package_tests() {
     CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
-    CmuxTerminal|CmuxTerminalCore|CmuxCloudTui)
+    CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud)
       run_swift_test
       if [ "$test_status" -ne 0 ]; then
         if [ "$test_status" -eq 1 ] \
@@ -495,6 +510,7 @@ case "$phase" in
     # needs the files.
     GITHUB_OUTPUT="" select_packages
     select_xcode
+    interface_fingerprint
     if [ "$needs_ghosttykit" = true ]; then
       ensure_ghosttykit
     fi
