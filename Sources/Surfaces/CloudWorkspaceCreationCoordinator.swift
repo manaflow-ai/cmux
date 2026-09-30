@@ -74,10 +74,10 @@ final class CloudWorkspaceCreationCoordinator {
         }) {
             let projections = catalog.projections.filter { $0.workspaceID == existing.key }
             if !projections.isEmpty {
-                if focus, let local = Workspace.liveWorkspace(id: existing.key) {
-                    host.manager.selectWorkspace(local)
+                if focus, let local = Workspace.liveWorkspace(id: existing.key), let manager = host.manager {
+                    manager.selectWorkspace(local)
                 }
-                return (existing.key, projections)
+                return (existing.key, Array(projections))
             }
         }
         if let pending = operations.values.first(where: {
