@@ -110,8 +110,17 @@ extension CMUXCLI {
             arguments: ["sr"] + arguments,
             timeout: 30
         )
-        guard !result.timedOut, result.status == 0 else {
-            throw CLIError(message: result.timedOut ? "sr recover timed out" : "sr recover failed: \(result.stderr)")
+        if result.timedOut {
+            throw CLIError(message: String(
+                localized: "cli.recover.error.timeout",
+                defaultValue: "sr recover timed out. Try again."
+            ))
+        }
+        guard result.status == 0 else {
+            throw CLIError(message: String(
+                localized: "cli.recover.error.failed",
+                defaultValue: "sr recover failed. Check that Subrouter is installed and try again."
+            ))
         }
         return Data(result.stdout.utf8)
     }

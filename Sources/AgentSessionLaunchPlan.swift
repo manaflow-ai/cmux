@@ -1,24 +1,29 @@
 import Foundation
 import CmuxSettings
 
-enum AgentSessionScratchDirectory {
-    private static let rootName = "agent-artifacts"
+struct AgentSessionScratchDirectory {
+    private let root: URL
+    private let fileManager: FileManager
 
-    static func prepare(
+    init(fileManager: FileManager = .default, root: URL? = nil) {
+        self.fileManager = fileManager
+        self.root = root ?? CmuxStateDirectory.url(homeDirectory: fileManager.homeDirectoryForCurrentUser)
+            .appendingPathComponent("agent-artifacts", isDirectory: true)
+    }
+
+    func prepare(
         sessionID: String,
-        provider: AgentSessionProviderID,
-        fileManager: FileManager = .default
+        provider: AgentSessionProviderID
     ) throws -> URL {
-        let root = CmuxStateDirectory.url(homeDirectory: fileManager.homeDirectoryForCurrentUser)
-            .appendingPathComponent(rootName, isDirectory: true)
+        let directory = root
             .appendingPathComponent(provider.rawValue, isDirectory: true)
             .appendingPathComponent(sessionID, isDirectory: true)
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        let manifest = root.appendingPathComponent(".cmux-owned", isDirectory: false)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let manifest = directory.appendingPathComponent(".cmux-owned", isDirectory: false)
         if !fileManager.fileExists(atPath: manifest.path) {
             try Data("cmux-agent-artifact-v1\n".utf8).write(to: manifest, options: .atomic)
         }
-        return root
+        return directory
     }
 }
 

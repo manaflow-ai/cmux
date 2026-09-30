@@ -2298,7 +2298,11 @@ struct ContentView: View {
                     title: String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab"),
                     systemImage: "globe",
                     shortcut: "2",
-                    action: { _ = AppDelegate.shared?.openBrowserAndFocusAddressBar() }
+                    action: {
+                        performNewBrowserTabAction {
+                            _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
+                        }
+                    }
                 ),
                 .init(
                     id: "command-palette",
@@ -8994,13 +8998,12 @@ struct ContentView: View {
                 }
                 return
             }
-            if executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newBrowser.configID) {
-                return
-            }
-            // Let command-palette dismissal complete first so omnibar focus
-            // is not blocked by the palette visibility guard.
-            DispatchQueue.main.async {
-                _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
+            performNewBrowserTabAction {
+                // Let command-palette dismissal complete first so omnibar focus
+                // is not blocked by the palette visibility guard.
+                DispatchQueue.main.async {
+                    _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
+                }
             }
         }
         registry.registerNewSimulatorPane(tabManager: tabManager, windowId: windowId)
@@ -9674,6 +9677,12 @@ struct ContentView: View {
             return
         }
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: sourcePath))
+    }
+
+    private func performNewBrowserTabAction(fallback: () -> Void) {
+        if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newBrowser.configID) {
+            fallback()
+        }
     }
 
     @discardableResult

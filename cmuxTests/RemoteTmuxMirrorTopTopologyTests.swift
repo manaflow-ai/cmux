@@ -14,6 +14,7 @@ struct RemoteTmuxMirrorTopTopologyTests {
     /// mirror topology. `system.top` and `system.tree` must expose the same
     /// actionable pane and surface identities.
     @Test func topUsesTreeTopologyForMirrorWorkspaces() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness()
         defer { harness.tearDown() }
 

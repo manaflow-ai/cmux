@@ -10,7 +10,7 @@ cmux recover --session SESSION_ID --focus
 cmux recover --session SESSION_ID --json
 ```
 
-The exact-session form creates a new isolated workspace. Its initial command is
+Without `--json`, the exact-session form creates a new isolated workspace. Its initial command is
 `sr codex` with a bounded continuation prompt, so account routing and Codex's
 cmux hooks remain active. The recovery command strips cmux control-plane
 environment variables before invoking `sr`; credentials and transcript bodies
