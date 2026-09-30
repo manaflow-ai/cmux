@@ -79,6 +79,26 @@ describe("team invite link claims", () => {
     expect(row!.use_count).toBe(1);
   });
 
+  dbTest("forgetting a departed member's redemptions keeps the spent use", async () => {
+    const created = await link({ maxUses: 1 });
+    const otherTeam = await store.createLink({
+      stackTeamId: "22222222-2222-4222-8222-222222222222",
+      tokenHash: hash("z"),
+      createdByUserId: "admin",
+      expiresAt: null,
+      maxUses: null,
+    });
+    expect(await store.claimLink(created.id, "u1")).toBe("claimed");
+    expect(await store.claimLink(otherTeam.id, "u1")).toBe("claimed");
+    await store.forgetLinkRedemptions(TEAM, "u1");
+    // The single use stays spent, so the departed member cannot claim again.
+    expect(await store.claimLink(created.id, "u1")).toBe("unavailable");
+    // Another team's redemption is untouched.
+    expect(await store.claimLink(otherTeam.id, "u1")).toBe("already_redeemed");
+    const [row] = await sql!`select use_count from team_invite_links where id = ${created.id}`;
+    expect(row!.use_count).toBe(1);
+  });
+
   dbTest("expired and revoked links are neither found nor claimable", async () => {
     const expired = await link({ seed: "b", expiresAt: new Date(Date.now() - 1000) });
     expect(await store.findActiveLinkByTokenHash(hash("b"))).toBeNull();

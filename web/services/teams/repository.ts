@@ -55,6 +55,11 @@ export type TeamInviteStore = {
   claimLink(linkId: string, userId: string): Promise<LinkClaimResult>;
   /** Undo a claim whose Stack membership write failed. */
   releaseLinkClaim(linkId: string, userId: string): Promise<void>;
+  /**
+   * Drop a departing member's redemptions of the team's links. The spent uses
+   * stay counted, so rejoining through a link claims a new use.
+   */
+  forgetLinkRedemptions(stackTeamId: string, userId: string): Promise<void>;
 };
 
 class ClaimUnavailable extends Error {
@@ -221,6 +226,19 @@ export const databaseTeamInviteStore: TeamInviteStore = {
         .set({ useCount: sql`greatest(${teamInviteLinks.useCount} - 1, 0)` })
         .where(eq(teamInviteLinks.id, linkId));
     });
+  },
+
+  async forgetLinkRedemptions(stackTeamId, userId) {
+    const db = cloudDb();
+    await db
+      .delete(teamInviteLinkRedemptions)
+      .where(and(
+        eq(teamInviteLinkRedemptions.userId, userId),
+        inArray(
+          teamInviteLinkRedemptions.linkId,
+          db.select({ id: teamInviteLinks.id }).from(teamInviteLinks).where(eq(teamInviteLinks.stackTeamId, stackTeamId)),
+        ),
+      ));
   },
 };
 

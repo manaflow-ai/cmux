@@ -315,6 +315,13 @@ export class MemoryInviteStore implements TeamInviteStore {
     link.useCount = Math.max(link.useCount - 1, 0);
     this.events.push(`release:${userId}`);
   }
+
+  async forgetLinkRedemptions(stackTeamId: string, userId: string) {
+    for (const link of this.links) {
+      if (link.stackTeamId === stackTeamId) this.redemptions.delete(`${link.id}:${userId}`);
+    }
+    this.events.push(`forget-redemptions:${userId}`);
+  }
 }
 
 /** A no-op advisory lock for member mutations. */

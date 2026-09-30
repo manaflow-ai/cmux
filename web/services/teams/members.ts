@@ -1,13 +1,14 @@
 import { adminCount, loadTeamAccess, memberRole, type TeamAccess } from "./access";
 import { TeamApiError } from "./errors";
 import { TEAM_ADMIN_PERMISSION } from "./permissions";
-import { withTeamAdminLock } from "./repository";
+import { databaseTeamInviteStore, type TeamInviteStore, withTeamAdminLock } from "./repository";
 import { defaultTeamStackApp, withStackDeadline, type TeamStackApp } from "./stack";
 import type { TeamRole } from "./types";
 
 export type MemberMutationDependencies = {
   readonly stack?: TeamStackApp;
   readonly lock?: <T>(teamId: string, operation: () => Promise<T>) => Promise<T>;
+  readonly store?: TeamInviteStore;
 };
 
 /**
@@ -80,6 +81,9 @@ export async function removeMember(
       throw new TeamApiError("member_not_found", 404);
     }
     assertNotLastAdmin(fresh, targetUserId);
+    // Before the Stack removal: a failure here leaves them a member, never a
+    // former member who can reopen a link they already used.
+    await (dependencies.store ?? databaseTeamInviteStore).forgetLinkRedemptions(fresh.team.id, targetUserId);
     await withStackDeadline(() => fresh.team.removeUser(targetUserId));
   });
 }
