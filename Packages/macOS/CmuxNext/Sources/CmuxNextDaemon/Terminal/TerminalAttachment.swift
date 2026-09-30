@@ -244,16 +244,18 @@ public actor TerminalAttachment: TerminalByteChannel {
         var colors: TerminalColors?
         var kittyImageAliases: [KittyImageAlias]?
         var kittyGraphicsState: KittyGraphicsState?
+        var pending: Data?
 
         enum CodingKeys: String, CodingKey {
-            case surface, cols, rows, data, replay, colors
+            case surface, cols, rows, data, replay, colors, pending
             case kittyImageAliases = "kitty_image_aliases"
             case kittyGraphicsState = "kitty_graphics_state"
         }
 
         var terminalReplay: TerminalReplay {
             TerminalReplay(cols: cols, rows: rows, data: replay ?? data ?? Data(), colors: colors,
-                           kittyImageAliases: kittyImageAliases ?? [], kittyGraphicsState: kittyGraphicsState)
+                           kittyImageAliases: kittyImageAliases ?? [], kittyGraphicsState: kittyGraphicsState,
+                           pending: pending ?? Data())
         }
     }
 

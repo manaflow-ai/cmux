@@ -17,6 +17,17 @@ import Testing
         #expect(TerminalStreamPlan.steps(for: .replay(replay)) == [.grid(columns: 120, rows: 40), .replay(replay)])
     }
 
+    /// A replay taken inside an escape sequence: the unfinished bytes follow
+    /// it, so the next live chunk completes the sequence in the mirror.
+    @Test func pendingSequenceFollowsTheInitialReplay() {
+        var inside = replay
+        inside.pending = Data("\u{1B}[1;3".utf8)
+        #expect(TerminalStreamPlan.steps(for: .replay(inside))
+            == [.grid(columns: 120, rows: 40), .replay(inside), .output(Data("\u{1B}[1;3".utf8))])
+        // The mirror parsed those bytes from the live stream already.
+        #expect(TerminalStreamPlan.steps(for: .resized(inside)) == [.grid(columns: 120, rows: 40)])
+    }
+
     @Test func outputAndLifecycle() {
         let bytes = Data("ls\r\n".utf8)
         #expect(TerminalStreamPlan.steps(for: .output(bytes, colors: nil)) == [.output(bytes)])

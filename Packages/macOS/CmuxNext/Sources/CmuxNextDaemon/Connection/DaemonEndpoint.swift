@@ -67,9 +67,15 @@ public enum DaemonCapabilities {
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
     public static let personalOnHome: [String] = [workspaceGroups, savedTabGroups]
+    /// A replay taken inside an escape sequence carries the unfinished bytes
+    /// in `pending` (main PR 15533). Without it, cmux-tui ends a view's attach
+    /// stream whenever a PTY resize happens mid-sequence (a relaunch resizes
+    /// every restored terminal), and the view freezes.
+    public static let terminalPendingSequence = "terminal-pending-sequence-v1"
     public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles]
+                                            terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalPendingSequence]
 
     /// Capabilities the app already speaks but the pinned cmux-tui does not
     /// serve yet. They are advertised, so a daemon that has them enables them,
