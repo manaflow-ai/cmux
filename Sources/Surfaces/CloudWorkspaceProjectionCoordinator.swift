@@ -136,10 +136,23 @@ final class CloudWorkspaceProjectionCoordinator {
                         if !Task.isCancelled { requested.insert(machine) }
                         return
                     }
-                    let view = try catalog.remoteView(
-                        for: placement,
-                        fallbackWorkspaceID: remoteID
-                    )
+                    let view: SurfaceRemoteView?
+                    do {
+                        view = try catalog.remoteView(
+                            for: placement,
+                            fallbackWorkspaceID: remoteID
+                        )
+                    } catch {
+                        // A port or Desktop preview is a local projection. If the
+                        // remote graph has no membership/view for this workspace,
+                        // there is nothing safe to materialize here. Keep
+                        // reconciliation moving so obsolete panes and layout can
+                        // still converge; a later accepted membership will retry.
+                        if Self.shouldSkipMissingLocalPreview(placement, error: error) {
+                            continue
+                        }
+                        throw error
+                    }
                     _ = try await catalog.project(placement.resource, into: .workspace(id: workspaceID, placement: .tab),
                                                   focus: false, reuseExisting: true, reuseInWorkspace: workspaceID, remoteView: view)
                 }
@@ -168,5 +181,15 @@ final class CloudWorkspaceProjectionCoordinator {
         }
         let live = Set(environment.bindings().keys)
         failures = failures.filter { live.contains($0.key) }
+    }
+
+    static func shouldSkipMissingLocalPreview(
+        _ placement: SurfaceResourcePlacement,
+        error: Error
+    ) -> Bool {
+        guard placement.resource.kind == .display || placement.resource.isForwardedPort else { return false }
+        guard let catalogError = error as? SurfaceCatalogError,
+              case .unavailable = catalogError else { return false }
+        return true
     }
 }

@@ -14,6 +14,57 @@ import WebKit
 struct CloudWorkspaceLiveProjectionTests {
     private let machine = SurfaceMachineID.cloud("live-fixture")
 
+    @Test("A missing preview membership does not wedge Cloud reconciliation")
+    func missingPreviewMembershipIsSkipped() async throws {
+        let display = SurfaceResourcePlacement(
+            resource: SurfaceResourceID(machine: machine, kind: .display, key: "display:1"),
+            remoteWorkspaceID: "workspace-b"
+        )
+        let error = SurfaceCatalogError.unavailable(
+            display.resource,
+            reason: "remote placement data is unavailable"
+        )
+
+        #expect(CloudWorkspaceProjectionCoordinator.shouldSkipMissingLocalPreview(display, error: error))
+        #expect(!CloudWorkspaceProjectionCoordinator.shouldSkipMissingLocalPreview(
+            SurfaceResourcePlacement(
+                resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-1"),
+                remoteWorkspaceID: "workspace-b"
+            ),
+            error: error
+        ))
+
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let first = live.id()
+        let second = live.id()
+        let bindings = [
+            first: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a"),
+            second: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "b")
+        ]
+        let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(bindings: { bindings }))
+        let catalog = SurfaceCatalog(
+            live: live,
+            cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { bindings[$0] }),
+            cloudWorkspaceProjectionCoordinator: coordinator
+        )
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+        var preview = CmuxTuiSnapshotParser.display(machine: machine)
+        preview.remoteWorkspace = SurfaceRemoteWorkspace(id: "b", name: "Workspace b", index: 1, focused: false)
+        install(try graph(["first": "a"], revision: 1), catalog: catalog, extraResources: [preview])
+        catalog.record(SurfaceProjection(
+            resource: preview.id,
+            workspaceID: first,
+            panelID: UUID(),
+            remoteWorkspaceID: "a"
+        ))
+
+        await coordinator.waitForIdle()
+        #expect(coordinator.failures.isEmpty)
+        #expect(catalog.projections.count == 1)
+    }
+
     private func graph(_ placement: [String: String], revision: Int, generation: String = "live") throws -> CloudVMState {
         let tabs = placement.keys.sorted()
         let document: [String: Any] = [
