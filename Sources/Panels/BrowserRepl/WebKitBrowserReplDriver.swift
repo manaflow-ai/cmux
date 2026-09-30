@@ -688,14 +688,19 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let webView = panel.webView
         // Names are read all at once: frames in other web processes answer
         // in parallel instead of one after another (401 frames, 100 ms).
+        // WebKit drops the completion of a script whose document a navigation
+        // replaces (a click on a link, then frames.list), so a read that does
+        // not answer falls back to the tree's name, as tab.info does.
         let names = frames.map { frame in
-            Task { @MainActor in
-                (try? await webView.callAsyncJavaScript(
-                    "return window.name;",
-                    arguments: [:],
-                    in: frame.info,
-                    contentWorld: BrowserReplAgentWorld.world
-                )) as? String
+            Task { @MainActor [self] in
+                await withTimeout(milliseconds: 2_000) {
+                    (try? await webView.callAsyncJavaScript(
+                        "return window.name;",
+                        arguments: [:],
+                        in: frame.info,
+                        contentWorld: BrowserReplAgentWorld.world
+                    )) as? String
+                } ?? nil
             }
         }
         var result: [[String: Any]] = []
