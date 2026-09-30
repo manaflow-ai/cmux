@@ -1730,6 +1730,20 @@ class TerminalController {
                 )
             }
             return v2Ok(id: request.id, result: ["completed": true])
+        case "window.record.start", "window.record.stop", "window.record.status",
+             "window.record.note", "window.record.list":
+            return v2Result(
+                id: request.id,
+                v2WindowRecordingCommandOnSocketWorker(
+                    method: request.method,
+                    params: request.params
+                )
+            )
+        case "window.screenshot":
+            return v2Result(
+                id: request.id,
+                v2WindowScreenshotOnSocketWorker(params: request.params)
+            )
         case "browser.download.list", "browser.download.wait":
             return v2Result(id: request.id, request.method == "browser.download.list" ? v2BrowserDownloadListOnSocketWorker(params: request.params) : v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
