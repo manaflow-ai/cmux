@@ -593,3 +593,90 @@ Decisions:
   rewrite? Recommended: no.
 - **Q6.** Minimum iOS version policy for retiring the shim (P4): time-based or
   install-share-based?
+
+## 5. Remote daemon compatibility (2026-09-30)
+
+A Cloud machine keeps the cmux-tui its image baked until someone upgrades it
+in place, so the Mac talks to daemons of many builds at once. This section is
+the contract for that.
+
+### 5.1 Negotiation
+
+The attach reply is the remote daemon's own `identify`: the headless
+`remote connect` link forwards every line unchanged, so the app reads the VM's
+`protocol`, `version`, `build_commit`, `capabilities`, `session` (name) and
+`registry_id` (the session UUID, created once in the session's SQLite `meta`
+table and stable across restarts, upgrades and host adoption; every deployed
+build reports it). `generation` fences one boot and is not an identity.
+
+`DaemonCompatibility` (CmuxNextDaemon) turns that into one level per machine:
+
+| Level | Meaning | App |
+| --- | --- | --- |
+| current | every capability the app uses | normal |
+| limited | the 7 required capabilities, some of `DaemonCapabilities.optional` missing | features behind the missing ones are off; header "Update available", tooltip lists build and missing capabilities; a refused action says "update this Cloud machine" |
+| incompatible | a required capability, the protocol or the app is wrong | header "Update needed" with the reason; the connect loop waits for an event (app activation, network change, the link socket changing) and connects to the updated build behind the same link; no timer |
+
+`cloud.machines` (control socket) and Cloud Diagnostics report session id,
+session name, protocol, version, commit, level and missing capabilities per
+machine. `MachineRegistry.daemon(session:)` finds a daemon by session UUID.
+The data-model agent owns the later `session-identity-v1` alias and qualified
+IDs (`plans/cmux-next/data-model.md`); the app works without them.
+
+### 5.2 Inventory
+
+Local = the pinned cmux-tui (`scripts/cmux-next/cmux-tui.pin`, `51b6863`
+on 2026-09-30). Cloud today = image `tui3412812` (this branch's web) or
+`tui02dac3c` (main's web, the production default since 2026-09-30). Cloud
+after = in-place upgrade to the pin (5.3).
+
+| Feature | Daemon dependence | Local | Cloud today | Cloud after |
+| --- | --- | --- | --- | --- |
+| Attach, tree, terminals, splits, columns, undo | 7 required capabilities | yes | yes | yes |
+| Session identity | `registry_id` in `identify` | yes | yes | yes |
+| Parallel host start | 8-worker pool, no capability | yes | no: serial launch; a burst can hit the 5 s start deadline (typed `terminal may appear`) | yes |
+| Typed start deadline | app only | yes | yes | yes |
+| Latest active client holds geometry | `set-client-sizing exclusive`, `view-attachment-lease-v1` | yes | 3412812 yes; 02dac3c maps the claim onto its shared-sizing reducer (`use_only_client_size`), not verified end to end | yes |
+| Reply order (a later request may answer before `new-tab`) | app matches replies by id; the link uses one lane | yes | yes | yes |
+| Window records, a window has a workspace | app only, local personal projection | yes | not sent to remote | not sent to remote |
+| Closing the last tab closes the workspace | app (drag path `close-workspace`, empty-workspace repair) | yes | yes | yes |
+| Reopen Closed Tab (terminal kept 30 s) | `terminal-reap-v1`, `terminal.project` | yes | no: a close ends the terminal, reopen starts a new shell | yes |
+| Agent roster fenced by hook session | daemon only | yes | no | yes |
+| Workspace groups, metadata, tab metadata (pin), app browser tabs, tab drag, notification ack, tab groups, saved tab groups, terminal env, placement env, batch close | optional capabilities | yes | no, gated per capability | yes |
+| Per-terminal resource queries | none yet (`process-info` only) | no | no | no |
+| `loopback-forward-v1` (in progress, another agent) | optional capability | when landed | no | after the next pin |
+
+iOS in cmux-next splices only to the Mac's local daemon (`DaemonLanePolicy`,
+resource `local`); it does not reach a Cloud daemon yet.
+
+### 5.3 Version and update path
+
+- A new machine runs its image's cmux-tui (`cmuxTuiCommit` in
+  `web/services/vms/images/manifest.json`); nothing installs one at create.
+  Matching the pin for new machines needs a bake from the pin.
+- A running machine takes the pin in place without losing terminals:
+
+  ```bash
+  cd web
+  FREESTYLE_API_KEY=... bun scripts/upgrade-fleet-cmux-tui.ts --vm <vm-id> \
+    --commit "$(awk -F= '$1=="commit"{print $2}' ../scripts/cmux-next/cmux-tui.pin)"
+  ```
+
+  The guest script SIGTERMs only the daemon; the supervisor starts the new
+  binary, which adopts every `__terminal-host`. Cost: the link drops and
+  resumes, bytes written while no daemon runs come back as a snapshot (not
+  byte-exact), per-connection geometry claims and attach leases are
+  re-established by the app on reconnect, and reap and idle clocks restart
+  (a close can be late, never early). The script rolls back when the new
+  daemon does not serve. The pin and main both use registry schema 15 (the
+  pin adds tables); that a main build opens a registry the pin has written
+  is not tested, so treat the upgrade as one-way.
+- The pin lacks main's 18 cmux-tui commits after `fde44232` (shared terminal
+  sizing, replay resume inside escape sequences, SSH hardening), and main
+  lacks the branch's. Upgrading a machine that legacy Macs also use drops
+  those for them. Converge cmux-tui (merge main's `cmux-tui/` into this
+  branch, then re-pin) before any production machine takes the pin.
+- `files.cmux.com` serves binaries with `cf-cache-status: DYNAMIC` (no edge
+  cache); on 2026-09-30 a VM fetched the 42 MB musl binary at 6-130 KB/s and
+  one run failed with an HTTP/2 stream error (the script left the machine
+  unchanged). Fleet upgrades need an edge cache rule or a resumable fetch.
