@@ -20828,6 +20828,10 @@ struct CMUXCLI {
             Usage: cmux sidebar <templates|try|new|validate|reload|select|open> [name|--all] [--json]
             Validate, reload, select, or open custom sidebars from ~/.config/cmux/sidebars.
             Commands:
+              templates [--json] List the curated built-in templates
+              try <template>    Create a temporary preview file and show open/remove commands
+              new <name> --from <template> [--force]
+                                 Install an editable sidebar from a template
               validate [name]   Validate all custom sidebars, or one named sidebar
               reload [name]     Validate all sidebars, then reload every valid one
               select <name>     Activate one custom sidebar

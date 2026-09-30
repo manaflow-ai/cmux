@@ -102768,55 +102768,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]\n\nValidate, reload, select, or open custom sidebars from ~/.config/cmux/sidebars.\nSwift files win over JSON files with the same base name.\n\nCommands:\n  validate [name]   Validate all custom sidebars, or one named sidebar\n  reload [name]     Validate all sidebars, then reload every valid one\n  select <name>     Validate and activate one custom sidebar\n  open <name>       Open one custom sidebar as a Bonsplit pane\n\nExamples:\n  cmux sidebar validate\n  cmux sidebar reload --all\n  cmux sidebar select finder.tree\n  cmux sidebar open finder.tree"
+            "value": "Usage: cmux sidebar <templates|try|new|validate|reload|select|open> [name|--all] [--json]\nValidate, reload, select, or open custom sidebars from ~/.config/cmux/sidebars.\nCommands:\n  templates [--json] List the curated built-in templates\n  try <template>    Create a temporary preview file and show open/remove commands\n  new <name> --from <template> [--force]\n                     Install an editable sidebar from a template\n  validate [name]   Validate all custom sidebars, or one named sidebar\n  reload [name]     Validate all sidebars, then reload every valid one\n  select <name>     Activate one custom sidebar\n  open <name>       Open one custom sidebar as a Bonsplit pane"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux sidebar <validate|reload|select|open> [name|--all] [--json]\n\n~/.config/cmux/sidebars のカスタムサイドバーを検証、再読み込み、選択、または開きます。\n同じベース名の JSON ファイルより Swift ファイルが優先されます。\n\nコマンド:\n  validate [name]   すべてのカスタムサイドバー、または指定したサイドバーを検証します\n  reload [name]     すべてのサイドバーを検証して、有効なものを再読み込みします\n  select <name>     指定したカスタムサイドバーを検証して有効化します\n  open <name>       指定したカスタムサイドバーを Bonsplit ペインとして開きます\n\n例:\n  cmux sidebar validate\n  cmux sidebar reload --all\n  cmux sidebar select finder.tree\n  cmux sidebar open finder.tree"
+            "value": "使い方: cmux sidebar <templates|try|new|validate|reload|select|open> [name|--all] [--json]\nカスタムサイドバーを検証、再読み込み、選択、または開きます。\nコマンド:\n  templates [--json] 厳選した組み込みテンプレートを一覧表示\n  try <template>    一時プレビューを作成し、開く/削除コマンドを表示\n  new <name> --from <template> [--force]\n                     テンプレートから編集可能なサイドバーをインストール\n  validate [name]   すべてのカスタムサイドバーまたは指定したものを検証\n  reload [name]     検証して有効なサイドバーを再読み込み\n  select <name>     カスタムサイドバーを有効化\n  open <name>       カスタムサイドバーをBonsplitペインで開く"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux sidebar <validate|reload|select|open> [name|--all] [--json]\n\n校验、重新加载、选择或打开 ~/.config/cmux/sidebars 中的自定义侧边栏。\n同名情况下，Swift 文件优先于 JSON 文件。\n\n命令:\n  validate [name]   校验所有自定义侧边栏，或校验指定名称的一个\n  reload [name]     校验所有侧边栏，然后重新加载每一个有效的侧边栏\n  select <name>     校验并激活一个自定义侧边栏\n  open <name>       将一个自定义侧边栏作为 Bonsplit 窗格打开\n\n示例:\n  cmux sidebar validate\n  cmux sidebar reload --all\n  cmux sidebar select finder.tree\n  cmux sidebar open finder.tree"
+            "value": "用法：cmux sidebar <templates|try|new|validate|reload|select|open> [name|--all] [--json]\n校验、重新加载、选择或打开自定义侧边栏。\n命令：\n  templates [--json] 列出精选内置模板\n  try <template>    创建临时预览并显示打开和删除命令\n  new <name> --from <template> [--force]\n                     从模板安装可编辑的侧边栏\n  validate [name]   校验所有自定义侧边栏或指定侧边栏\n  reload [name]     校验后重新加载每个有效侧边栏\n  select <name>     激活自定义侧边栏\n  open <name>       将自定义侧边栏作为 Bonsplit 窗格打开"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux sidebar <validate|reload|select|open> [name|--all] [--json]\n\nBenutzerdefinierte Seitenleisten aus ~/.config/cmux/sidebars validieren, neu laden, auswählen oder öffnen.\nSwift-Dateien haben Vorrang vor JSON-Dateien mit demselben Basisnamen.\n\nBefehle:\n  validate [name]   Alle benutzerdefinierten Seitenleisten oder eine benannte Seitenleiste validieren\n  reload [name]     Alle Seitenleisten validieren, dann jede gültige neu laden\n  select <name>     Eine benutzerdefinierte Seitenleiste validieren und aktivieren\n  open <name>       Eine benutzerdefinierte Seitenleiste als Bonsplit-Teilfenster öffnen\n\nBeispiele:\n  cmux sidebar validate\n  cmux sidebar reload --all\n  cmux sidebar select finder.tree\n  cmux sidebar open finder.tree"
+            "value": "Verwendung: cmux sidebar <templates|try|new|validate|reload|select|open> [name|--all] [--json]\nBenutzerdefinierte Seitenleisten aus ~/.config/cmux/sidebars validieren, neu laden, auswählen oder öffnen.\nBefehle:\n  templates [--json] Kuratierte integrierte Vorlagen auflisten\n  try <template>    Temporäre Vorschau erstellen und Befehle zum Öffnen/Entfernen anzeigen\n  new <name> --from <template> [--force]\n                     Eine bearbeitbare Seitenleiste aus einer Vorlage installieren\n  validate [name]   Alle benutzerdefinierten Seitenleisten oder eine benannte Seitenleiste validieren\n  reload [name]     Alle Seitenleisten validieren, dann jede gültige neu laden\n  select <name>     Eine benutzerdefinierte Seitenleiste aktivieren\n  open <name>       Eine benutzerdefinierte Seitenleiste als Bonsplit-Teilfenster öffnen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]\n\nValider, recharger, sélectionner ou ouvrir des barres latérales personnalisées depuis ~/.config/cmux/sidebars.\nLes fichiers Swift l'emportent sur les fichiers JSON ayant le même nom de base.\n\nCommandes:\n  validate [name]   Valider toutes les barres latérales personnalisées, ou une barre latérale nommée\n  reload [name]     Valider toutes les barres latérales, puis recharger chaque barre valide\n  select <name>     Valider et activer une barre latérale personnalisée\n  open <name>       Ouvrir une barre latérale personnalisée en tant que volet Bonsplit\n\nExemples:\n  cmux sidebar validate\n  cmux sidebar reload --all\n  cmux sidebar select finder.tree\n  cmux sidebar open finder.tree"
+            "value": "Utilisation : cmux sidebar <templates|try|new|validate|reload|select|open> [name|--all] [--json]\nValider, recharger, sélectionner ou ouvrir des barres latérales personnalisées.\nCommandes :\n  templates [--json] Lister les modèles intégrés sélectionnés\n  try <template>    Créer un aperçu temporaire et afficher les commandes d’ouverture/suppression\n  new <name> --from <template> [--force]\n                     Installer une barre latérale modifiable depuis un modèle\n  validate [name]   Valider toutes les barres latérales ou une barre nommée\n  reload [name]     Valider puis recharger chaque barre valide\n  select <name>     Activer une barre latérale personnalisée\n  open <name>       Ouvrir une barre latérale comme volet Bonsplit"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux sidebar <validate|reload|select|open> [name|--all] [--json]\n\nالتحقق من صحة الأشرطة الجانبية المخصصة من ~/.config/cmux/sidebars أو إعادة تحميلها أو تحديدها أو فتحها.\nتكون لملفات Swift الأولوية على ملفات JSON التي تحمل الاسم الأساسي نفسه.\n\nالأوامر:\n  validate [name]   التحقق من صحة جميع الأشرطة الجانبية المخصصة، أو شريط جانبي مسمى واحد\n  reload [name]     التحقق من صحة جميع الأشرطة الجانبية، ثم إعادة تحميل كل شريط صالح\n  select <name>     التحقق من صحة شريط جانبي مخصص واحد وتنشيطه\n  open <name>       فتح شريط جانبي مخصص واحد كجزء Bonsplit\n\nأمثلة:\n  cmux sidebar validate\n  cmux sidebar reload --all\n  cmux sidebar select finder.tree\n  cmux sidebar open finder.tree"
+            "value": "الاستخدام: cmux sidebar <templates|try|new|validate|reload|select|open> [name|--all] [--json]\nتحقق من الأشرطة الجانبية المخصصة أو أعد تحميلها أو اخترها أو افتحها.\nالأوامر:\n  templates [--json] سرد القوالب المضمنة المنتقاة\n  try <template>    إنشاء معاينة مؤقتة وعرض أوامر الفتح والإزالة\n  new <name> --from <template> [--force]\n                     تثبيت شريط جانبي قابل للتحرير من قالب\n  validate [name]   التحقق من كل الأشرطة الجانبية أو واحد محدد\n  reload [name]     التحقق ثم إعادة تحميل كل شريط صالح\n  select <name>     تفعيل شريط جانبي مخصص\n  open <name>       فتح شريط جانبي كلوحة Bonsplit"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux sidebar <validate|reload|select|open> [name|--all] [--json]\n\nValidar, recargar, seleccionar o abrir barras laterales personalizadas desde ~/.config/cmux/sidebars.\nLos archivos Swift tienen prioridad sobre los archivos JSON con el mismo nombre base.\n\nComandos:\n  validate [name]   Validar todas las barras laterales personalizadas, o una barra lateral nombrada\n  reload [name]     Validar todas las barras laterales, luego recargar cada una que sea válida\n  select <name>     Validar y activar una barra lateral personalizada\n  open <name>       Abrir una barra lateral personalizada como un panel Bonsplit\n\nEjemplos:\n  cmux sidebar validate\n  cmux sidebar reload --all\n  cmux sidebar select finder.tree\n  cmux sidebar open finder.tree"
+            "value": "Uso: cmux sidebar <templates|try|new|validate|reload|select|open> [name|--all] [--json]\nValidar, recargar, seleccionar o abrir barras laterales personalizadas.\nComandos:\n  templates [--json] Listar las plantillas integradas seleccionadas\n  try <template>    Crear una vista previa temporal y mostrar comandos para abrir/eliminar\n  new <name> --from <template> [--force]\n                     Instalar una barra lateral editable desde una plantilla\n  validate [name]   Validar todas las barras laterales o una con nombre\n  reload [name]     Validar y recargar cada barra válida\n  select <name>     Activar una barra lateral personalizada\n  open <name>       Abrir una barra lateral como panel Bonsplit"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux sidebar <validate|reload|select|open> [name|--all] [--json]\n\n驗證、重新載入、選取或開啟來自 ~/.config/cmux/sidebars 的自訂側邊欄。\n具有相同主檔名的 Swift 檔案優先於 JSON 檔案。\n\n指令：\n  validate [name]   驗證所有自訂側邊欄，或一個指定的側邊欄\n  reload [name]     驗證所有側邊欄，然後重新載入每個有效的側邊欄\n  select <name>     驗證並啟用一個自訂側邊欄\n  open <name>       將一個自訂側邊欄開啟為 Bonsplit 窗格\n\n範例：\n  cmux sidebar validate\n  cmux sidebar reload --all\n  cmux sidebar select finder.tree\n  cmux sidebar open finder.tree"
+            "value": "用法：cmux sidebar <templates|try|new|validate|reload|select|open> [name|--all] [--json]\n驗證、重新載入、選取或開啟自訂側邊欄。\n指令：\n  templates [--json] 列出精選內建範本\n  try <template>    建立暫時預覽並顯示開啟與移除指令\n  new <name> --from <template> [--force]\n                     從範本安裝可編輯的側邊欄\n  validate [name]   驗證所有自訂側邊欄或指定側邊欄\n  reload [name]     驗證後重新載入每個有效側邊欄\n  select <name>     啟用自訂側邊欄\n  open <name>       將自訂側邊欄開啟為 Bonsplit 窗格"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux sidebar <validate|reload|select|open> [name|--all] [--json]\n\n~/.config/cmux/sidebars에서 사용자 정의 사이드바를 검증, 재로드, 선택 또는 엽니다.\n기본 이름이 같은 경우 Swift 파일이 JSON 파일보다 우선합니다.\n\n명령어:\n  validate [name]   모든 사용자 정의 사이드바 또는 지정된 이름의 사이드바를 검증합니다\n  reload [name]     모든 사이드바를 검증한 다음 유효한 모든 사이드바를 재로드합니다\n  select <name>     하나의 사용자 정의 사이드바를 검증하고 활성화합니다\n  open <name>       하나의 사용자 정의 사이드바를 Bonsplit 분할 창으로 엽니다\n\n예시:\n  cmux sidebar validate\n  cmux sidebar reload --all\n  cmux sidebar select finder.tree\n  cmux sidebar open finder.tree"
+            "value": "사용법: cmux sidebar <templates|try|new|validate|reload|select|open> [name|--all] [--json]\n사용자 정의 사이드바를 검증, 재로드, 선택 또는 엽니다.\n명령어:\n  templates [--json] 엄선된 기본 템플릿 나열\n  try <template>    임시 미리보기를 만들고 열기/삭제 명령 표시\n  new <name> --from <template> [--force]\n                     템플릿에서 편집 가능한 사이드바 설치\n  validate [name]   모든 사용자 정의 사이드바 또는 지정된 사이드바 검증\n  reload [name]     모든 사이드바를 검증하고 유효한 항목 재로드\n  select <name>     사용자 정의 사이드바 활성화\n  open <name>       사용자 정의 사이드바를 Bonsplit 창으로 열기"
           }
         }
       }
