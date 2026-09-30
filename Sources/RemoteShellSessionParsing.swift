@@ -218,7 +218,8 @@ enum RemoteShellSessionParsing {
                     }
                     continue
                 }
-                if eternalTerminalLongNoArgumentOptions.contains(optionName) || parts.count == 2 {
+                if eternalTerminalLongNoArgumentOptions.contains(optionName) {
+                    guard parts.count == 1 else { return nil }
                     index += 1
                     continue
                 }
