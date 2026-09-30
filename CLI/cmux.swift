@@ -4343,6 +4343,18 @@ struct CMUXCLI {
     }
 
     static let claudeCodeStatusKey = "claude_code"
+    /// The SF Symbol a running-with-subagents row shows: several connected
+    /// points, distinct from the git-branch symbol the sidebar already uses.
+    static let subagentsStatusIcon = "point.3.filled.connected.trianglepath.dotted"
+
+    /// Whether a PreToolUse tool name is Claude Code's subagent spawn.
+    /// Claude Code renamed the spawn tool "Task" -> "Agent" (2.x); both names
+    /// remain on the wire depending on CLI version, so both must count (see
+    /// `AgentChatSessionRegistry.isTaskSpawn`, which says the same thing for
+    /// the mobile child-run tracker).
+    static func spawnsSubagents(toolName: String?) -> Bool {
+        toolName == "Task" || toolName == "Agent"
+    }
 
     private static func agentNotificationMeta(
         category: AgentHookNotifyCategory,
@@ -7542,6 +7554,22 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 windowOverride: windowId,
                 includeContextInPlainOutput: true
+            )
+
+        case "record":
+            try runRecordCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowId
+            )
+
+        case "shot", "screenshot":
+            try runShotCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowId
             )
 
         case "read-screen":
@@ -20571,6 +20599,10 @@ struct CMUXCLI {
             return Self.readSelectionHelp
         case "read-screen":
             return Self.readScreenHelp
+        case "record":
+            return Self.recordHelp
+        case "shot", "screenshot":
+            return Self.shotHelp
         case "paste":
             return Self.pasteHelp
         case "send":
@@ -28624,9 +28656,11 @@ struct CMUXCLI {
                 // to the app so it can suppress the done-ping until work truly drains.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
                 // Claude sets stop_hook_active on a re-entry after a Stop hook
-                // blocked once. That flag describes hook recursion, not work
-                // still running; only authoritative background-work signals
-                // should keep the sidebar in Running.
+                // blocked once. That flag describes hook recursion, not pending
+                // work: it must not mark the turn pending, but it does keep the
+                // sidebar pill in Running. Only authoritative background-work
+                // signals mark the turn pending and show Waiting.
+                let isReentrantStop = parsedInput.rawObject?["stop_hook_active"] as? Bool == true
                 let hasUnsettledWork = stopFailure == nil && hasPendingBackgroundWork
 
                 // Update session with transcript summary and send completion notification.
@@ -28686,18 +28720,34 @@ struct CMUXCLI {
                 )
                 if let stopFailure {
                     try? setClaudeStopFailureStatus(stopFailure, client: client, workspaceId: workspaceId, surfaceId: surfaceId)
-                } else if hasUnsettledWork {
+                } else if hasPendingBackgroundWork {
                     // The turn ended but a background task or scheduled wakeup is
                     // still live, so the pane is not idle — show it as still
                     // running rather than the misleading "Idle". Reuse the shared
                     // generic-agent status strings so the pill stays localized.
+                    //
+                    // A background task or cron is a deterministic wakeup the pane
+                    // is parked on, which reads as Waiting. A re-entrant Stop
+                    // (`stop_hook_active`) keeps the pill on Running separately
+                    // because it does not represent pending background work.
+                    try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: String(localized: "agent.generic.status.waiting", defaultValue: "Waiting"),
+                        icon: "hourglass",
+                        color: "#8E8E93",
+                        workState: .waiting
+                    )
+                } else if isReentrantStop {
                     try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
                         icon: "bolt.fill",
-                        color: "#4C8DFF"
+                        color: "#4C8DFF",
+                        workState: .running
                     )
                 } else {
                     try? setClaudeStatus(
@@ -28892,7 +28942,8 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: "Running",
                 icon: "bolt.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF",
+                workState: .running
             )
             printClaudeHookAck()
 
@@ -29587,10 +29638,28 @@ struct CMUXCLI {
                 telemetry: telemetry
             )
 
+            // A spawn call blocks the parent inside the tool until its
+            // subagents finish, so no other parent hook can fire meanwhile:
+            // the subagent state holds for exactly that span, and the next
+            // parent PreToolUse or Stop clears it. No counter to drift.
+            let runsSubagents = Self.spawnsSubagents(
+                toolName: parsedInput.object?["tool_name"] as? String
+            )
+            let waits = Self.waitsOnDeterministicEvent(
+                toolName: parsedInput.object?["tool_name"] as? String,
+                toolInput: parsedInput.object?["tool_input"]
+            )
             let statusValue: String
-            if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
-               let toolStatus = describeToolUse(parsedInput.object) {
+            if waits {
+                statusValue = String(localized: "agent.generic.status.waiting", defaultValue: "Waiting")
+            } else if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
+                      let toolStatus = describeToolUse(parsedInput.object) {
                 statusValue = toolStatus
+            } else if runsSubagents {
+                statusValue = String(
+                    localized: "agent.generic.status.runningSubagents",
+                    defaultValue: "Running subagents"
+                )
             } else {
                 statusValue = "Running"
             }
@@ -29599,9 +29668,10 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 value: statusValue,
-                icon: "bolt.fill",
+                icon: runsSubagents ? Self.subagentsStatusIcon : (waits ? "hourglass" : "bolt.fill"),
                 color: "#4C8DFF",
-                pid: claudePid
+                pid: claudePid,
+                workState: runsSubagents ? .subagents : (waits ? .waiting : .running)
             )
             printClaudeHookAck()
 
@@ -40966,6 +41036,7 @@ export default {
             "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
+            "_cmux_ordered_hook": true,
         ]
         if agentPid > 0 { eventDict["_ppid"] = agentPid }
         if let workspaceId = validatedCodexFeedTarget?.workspaceId ?? claimedWorkspaceId {
@@ -41055,11 +41126,24 @@ export default {
             "method": "feed.push",
             "params": params,
         ]
-        if waitTimeout > 0 || shouldAwaitTelemetryIngestion {
+        // Codex progress hooks must use the ordered request lane so the host
+        // can retire the prompt only after this event is accepted. Detached
+        // wrapper telemetry does not carry this marker or send stamp.
+        let isOrderedCodexProgress = source == "codex" && !isActionable && [
+            "PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "Stop", "SessionEnd"
+        ].contains(hookEventName)
+        if isOrderedCodexProgress {
+            eventDict["_hook_sent_at_ms"] = Self.feedHookSentAtMs()
+            request["params"] = [
+                "event": eventDict,
+                "wait_timeout_seconds": waitTimeout,
+            ]
+        }
+        if waitTimeout > 0 || shouldAwaitTelemetryIngestion || isOrderedCodexProgress {
             request["id"] = UUID().uuidString
         }
 
-        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
+        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion && !isOrderedCodexProgress {
             let payload = try JSONSerialization.data(withJSONObject: request)
             let line = String(data: payload, encoding: .utf8) ?? "{}"
             // Codex-style agents block in their own approval UI while this
