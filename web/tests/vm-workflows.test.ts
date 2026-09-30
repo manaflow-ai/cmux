@@ -55,6 +55,7 @@ import {
   destroyVm,
   execVm,
   forkVm,
+  getVm,
   homeVolumeNameForUser,
   listUserVms,
   approveVmCmuxRemoteEnrollment,
@@ -7844,6 +7845,114 @@ describe("destroyVm home volume cleanup", () => {
   });
 });
 
+describe("status read that observes a gone machine", () => {
+  // `resume` has to exist or the access preflight returns before it probes.
+  const providerGone: VmProviderGatewayShape = {
+    ...unusedProviderGateway(),
+    getStatus: () => Effect.succeed("destroyed" as const),
+    resume: () => Effect.succeed(testVmHandle({ providerVmId: "noble-wren" })),
+  };
+
+  function goneMachine(userId: string, id: string): CloudVmRow {
+    // No `homeVolume`, so observedDbStatus maps a provider 404 straight to the
+    // terminal status. A row with a durable home maps to `paused` instead, on
+    // every entrypoint: see the stats case in vm-stats-not-found.test.ts.
+    return testCloudVmRow({
+      id,
+      userId,
+      provider: "freestyle",
+      providerVmId: "noble-wren",
+      status: "running",
+      providerMetadata: {},
+    });
+  }
+
+  test("revokes the model plane and records vm.destroyed, like the cron reconcile does", async () => {
+    const userId = "user-status-read-gone";
+    const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000150");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    const revokedVmIds: string[] = [];
+
+    const entry = await Effect.runPromise(
+      getVm({
+        userId,
+        providerVmId: "noble-wren",
+        modelPlane: {
+          revoke: async (cloudVmId: string) => {
+            revokedVmIds.push(cloudVmId);
+          },
+        },
+      }).pipe(Effect.provide(workflowLayer(repo, providerGone))),
+    );
+
+    expect(entry.status).toBe("destroyed");
+    expect(observedStatuses.map((update) => update.status)).toEqual(["destroyed"]);
+    // The row is terminal now, so `destroyVm` can never reach it again and the
+    // cron's candidate query skips it. Both of these have to happen here.
+    expect(revokedVmIds).toEqual([vm.id]);
+    expect(usageEvents.map((event) => event.eventType)).toEqual(["vm.destroyed"]);
+    expect(usageEvents[0]).toMatchObject({
+      vmId: vm.id,
+      provider: vm.provider,
+      metadata: { source: "provider_status_read" },
+    });
+  });
+
+  test("does not revoke or record when another writer already finalized the row", async () => {
+    const userId = "user-status-read-lost-race";
+    const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000151");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({
+      vm,
+      usageEvents,
+      markProviderObservedStatus: () => Effect.succeed(false),
+    });
+    const revokedVmIds: string[] = [];
+
+    const entry = await Effect.runPromise(
+      getVm({
+        userId,
+        providerVmId: "noble-wren",
+        modelPlane: {
+          revoke: async (cloudVmId: string) => {
+            revokedVmIds.push(cloudVmId);
+          },
+        },
+      }).pipe(Effect.provide(workflowLayer(repo, providerGone))),
+    );
+
+    expect(entry.status).toBe("running");
+    expect(revokedVmIds).toEqual([]);
+    expect(usageEvents).toEqual([]);
+  });
+
+  test("an access preflight that retires the row records vm.destroyed too", async () => {
+    const userId = "user-access-preflight-gone";
+    const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000152");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+
+    const error = await Effect.runPromise(
+      openVmCmuxRemote({ userId, providerVmId: "noble-wren" }).pipe(
+        Effect.flip,
+        Effect.provide(workflowLayer(repo, {
+          ...providerGone,
+          openCmuxRemote: () => {
+            throw new Error("must not attach to a machine the provider has dropped");
+          },
+        })),
+      ),
+    );
+
+    expect(error).toBeInstanceOf(VmNotFoundError);
+    expect(observedStatuses.map((update) => update.status)).toEqual(["destroyed"]);
+    expect(usageEvents.map((event) => event.eventType)).toEqual(["vm.destroyed"]);
+    expect(usageEvents[0]).toMatchObject({ metadata: { source: "provider_status_access" } });
+  });
+});
 
 describe("private SCP workflow", () => {
   test("returns the private endpoint without revoking another transfer or recording a bearer lease", async () => {

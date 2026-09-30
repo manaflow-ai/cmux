@@ -57,6 +57,7 @@ struct CloudTreeNodeActions {
     /// Copy the machine port's private URL without changing network state.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
+    var discoverPorts: @MainActor (SurfaceMachineID) -> Void = { _ in }
     var setDeviceDiscovery: @MainActor (Bool) -> Void = { _ in }
     var setDeviceIncomingAccess: @MainActor (Bool) -> Void = { _ in }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
@@ -454,15 +455,19 @@ struct CloudTreeNodeActions {
         )
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
+        actions.discoverPorts = refreshMachine
         actions.newDisplay = { machine in
-            let target = Result { try destination(.split) }
+            let target = try? destination(.split)
             run(String(format: String(localized: "cloud.display.creating", defaultValue: "Creating a display on %@…"), machineName(machine))) { catalog in
                 do {
-                    try await catalog.createDisplay(on: machine, into: target.get())
+                    try await catalog.createDisplay(on: machine, into: target)
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
-                    throw SurfaceCatalogError.unsupported(String(localized: "cloud.display.creationFailed", defaultValue: "The new display could not start. Refresh Displays, then retry. Existing displays are unchanged."))
+                    throw SurfaceCatalogError.unsupported(String(
+                        localized: "cloud.display.creationFailed",
+                        defaultValue: "The new display could not start. Refresh Displays, then retry. Existing displays are unchanged."
+                    ))
                 }
             }
         }

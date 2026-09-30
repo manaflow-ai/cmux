@@ -253,6 +253,9 @@ The repo includes ready-to-copy sidebars in `Examples/CustomSidebars/`:
   review, progress, research, and done.
 - `finder.swift` shows a macOS Finder-style workspace browser with a source
   list, selected workspace details, and tabs.
+- `btop-agents.js` is a btop-style agent activity list: a braille sparkline
+  of recent agent activity per workspace, state glyphs, a small progress meter,
+  and a header graph of busy workspaces.
 
 Install one from a cmux checkout:
 

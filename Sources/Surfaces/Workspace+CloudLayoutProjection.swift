@@ -33,20 +33,22 @@ extension Workspace {
         // The existing remote-projection transaction preserves window/workspace
         // focus and suppresses activation while tabs move. It is shared with SSH.
         performRemoteTmuxMirrorMutation {
-            let wasProgrammatic = isProgrammaticSplit
-            isProgrammaticSplit = true
-            defer { isProgrammaticSplit = wasProgrammatic }
-            guard let root = bonsplitController.allPaneIds.first else { return }
-            let originalRootTabs = Set(bonsplitController.tabs(inPane: root).map(\.id))
-            for placement in layout.placements {
-                guard let tab = tabs[placement] else { continue }
-                if !originalRootTabs.contains(tab) {
-                    _ = bonsplitController.moveTab(tab, toPane: root)
+            withSplitSpaceAdmissionBypass {
+                let wasProgrammatic = isProgrammaticSplit
+                isProgrammaticSplit = true
+                defer { isProgrammaticSplit = wasProgrammatic }
+                guard let root = bonsplitController.allPaneIds.first else { return }
+                let originalRootTabs = Set(bonsplitController.tabs(inPane: root).map(\.id))
+                for placement in layout.placements {
+                    guard let tab = tabs[placement] else { continue }
+                    if !originalRootTabs.contains(tab) {
+                        _ = bonsplitController.moveTab(tab, toPane: root)
+                    }
                 }
+                buildCloudLayout(layout, in: root, tabs: tabs)
+                applyCloudDividerRatios(layout, live: bonsplitController.treeSnapshot())
+                if let focused, bonsplitController.tab(focused) != nil { bonsplitController.selectTab(focused) }
             }
-            buildCloudLayout(layout, in: root, tabs: tabs)
-            applyCloudDividerRatios(layout, live: bonsplitController.treeSnapshot())
-            if let focused, bonsplitController.tab(focused) != nil { bonsplitController.selectTab(focused) }
         }
         scheduleTerminalGeometryReconcile()
     }

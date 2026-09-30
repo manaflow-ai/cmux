@@ -365,7 +365,7 @@ cmux miễn phí và mã nguồn mở, và sẽ luôn như vậy. Nếu bạn mu
 
 ### Tôi có yêu cầu tính năng hoặc tìm thấy lỗi?
 
-Chúng tôi rất muốn nghe. Mở một [issue](https://github.com/manaflow-ai/cmux/issues) hoặc [pull request](https://github.com/manaflow-ai/cmux/pulls) trên GitHub, hoặc [gửi email cho chúng tôi](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Chúng tôi rất muốn nghe. Mở một [issue](https://github.com/manaflow-ai/cmux/issues) hoặc [pull request](https://github.com/manaflow-ai/cmux/pulls) trên GitHub, hoặc [gửi email cho chúng tôi](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Lịch sử sao
 
@@ -418,4 +418,4 @@ cmux miễn phí, mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muố
 
 cmux là mã nguồn mở theo [GPL-3.0-or-later](LICENSE). Phần mềm máy chủ của cmux (`web/`, các Cloudflare worker và các dịch vụ relay liệt kê trong [LICENSE](LICENSE)) thay vào đó dùng [Business Source License 1.1](web/LICENSE): bạn có thể đọc, sửa đổi và chạy cho mục đích không phải production; sử dụng production hoặc tự host cần giấy phép thương mại.
 
-Nếu tổ chức của bạn không thể tuân thủ GPL, giấy phép thương mại có sẵn. Liên hệ [founders@manaflow.com](mailto:founders@manaflow.com) để biết chi tiết.
+Nếu tổ chức của bạn không thể tuân thủ GPL, giấy phép thương mại có sẵn. Liên hệ [founders@cmux.com](mailto:founders@cmux.com) để biết chi tiết.

@@ -17,6 +17,15 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: CmuxAccentColorMode.userDefaultsKey
     )
 
+    /// `#RRGGBB` color drawn when ``accentColor`` is
+    /// ``CmuxAccentColorMode/custom``. cmux.json sets it through a hex
+    /// `app.accentColor` value.
+    public let accentColorCustomHex = DefaultsKey<String>(
+        id: "app.accentColorCustomHex",
+        defaultValue: "",
+        userDefaultsKey: CmuxAccentColorMode.customHexUserDefaultsKey
+    )
+
     public let language = DefaultsKey<AppLanguage>(
         id: "app.language",
         defaultValue: .system,
@@ -157,6 +166,15 @@ public struct AppCatalogSection: SettingCatalogSection {
         id: "app.sendAnonymousTelemetry",
         defaultValue: true,
         userDefaultsKey: "sendAnonymousTelemetry"
+    )
+
+    /// Whether updates download in the background and install at a quiet moment. The updater
+    /// registers the default per release channel (on for nightly), so this fallback applies
+    /// only where the updater never ran.
+    public let installUpdatesAutomatically = DefaultsKey<Bool>(
+        id: "app.installUpdatesAutomatically",
+        defaultValue: false,
+        userDefaultsKey: "updateInstallAutomatically"
     )
 
     public let confirmQuitMode = DefaultsKey<ConfirmQuitMode>(

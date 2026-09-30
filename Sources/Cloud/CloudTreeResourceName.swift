@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -32,8 +33,17 @@ enum CloudTreeResourceName {
 
     static func display(resource: SurfaceResource, remoteView: SurfaceRemoteView?) -> String {
         chosenName(remoteView: remoteView)
+            ?? generatedDisplayTitle(resource)
             ?? trimmedNonEmpty(resource.title)
             ?? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop")
+    }
+
+    private static func generatedDisplayTitle(_ resource: SurfaceResource) -> String? {
+        let prefix = "display:"
+        guard resource.id.key.hasPrefix(prefix),
+              let number = Int(resource.id.key.dropFirst(prefix.count))
+        else { return nil }
+        return CloudGuestDisplay.title(for: number)
     }
 
     static func browser(resource: SurfaceResource, remoteView: SurfaceRemoteView?) -> String {
