@@ -69,6 +69,18 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
         }
     }
 
+    nonisolated func controlMobileChatSend(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        await MainActor.run { record("chat.send", params) }
+    }
+
+    nonisolated func controlMobileChatInterrupt(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        await MainActor.run { record("chat.interrupt", params) }
+    }
+
     func controlMobileChatSessionsDump() -> ControlCallResult {
         record("chat.sessions.dump", [:])
     }
@@ -125,6 +137,18 @@ struct ControlCommandCoordinatorMobileHostTests {
                 request("mobile.task.models.list", params)
             ) == nil
         )
+    }
+
+    @Test func workerSurfaceRoutesChatSendAndInterruptThroughAsyncSeam() async {
+        let (coordinator, context) = makeCoordinator()
+        let params: [String: JSONValue] = ["session_id": .string("abc"), "text": .string("hi")]
+        #expect(await coordinator.handleMobileHostAsync(request("mobile.chat.send", params), context: context) != nil)
+        #expect(context.lastMarker == "chat.send")
+        #expect(context.lastParams == params)
+        #expect(await coordinator.handleMobileHostAsync(request("mobile.chat.interrupt"), context: context) != nil)
+        #expect(context.lastMarker == "chat.interrupt")
+        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.chat.send") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.chat.interrupt") == .socketWorker(mainThreadCallable: false))
     }
 
     @Test func v2SurfaceUsesPrivateHostStatusVariant() {

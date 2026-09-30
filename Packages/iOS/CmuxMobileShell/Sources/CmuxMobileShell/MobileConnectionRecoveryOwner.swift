@@ -25,6 +25,11 @@ final class MobileConnectionRecoveryOwner {
         case probing(Attempt)
         case redialing(Attempt)
         case validatingReplacement(Attempt, connectionGeneration: UUID)
+        /// The attempt lost its reconnect to a newer in-flight reconnect and
+        /// stood down without touching that attempt's connection. It stays
+        /// here until the newer reconnects settle: completed when one
+        /// connected, failed when none did.
+        case supersededAwaitingOwner(Attempt)
         case failed(Attempt)
     }
 
@@ -36,7 +41,7 @@ final class MobileConnectionRecoveryOwner {
         case .probing(let attempt), .redialing(let attempt),
              .validatingReplacement(let attempt, _), .failed(let attempt):
             attempt
-        case .idle:
+        case .idle, .supersededAwaitingOwner:
             nil
         }
     }
@@ -50,7 +55,7 @@ final class MobileConnectionRecoveryOwner {
         switch phase {
         case .probing, .redialing, .validatingReplacement:
             true
-        case .idle, .failed:
+        case .idle, .supersededAwaitingOwner, .failed:
             false
         }
     }
@@ -59,7 +64,7 @@ final class MobileConnectionRecoveryOwner {
         switch phase {
         case .redialing, .validatingReplacement:
             true
-        case .idle, .probing, .failed:
+        case .idle, .probing, .supersededAwaitingOwner, .failed:
             false
         }
     }
@@ -155,6 +160,26 @@ final class MobileConnectionRecoveryOwner {
         return true
     }
 
+    /// Stands the current attempt down in favor of a newer reconnect.
+    func standDownForNewerOwner(_ attempt: Attempt) -> Bool {
+        guard isCurrent(attempt) else { return false }
+        task = nil
+        phase = .supersededAwaitingOwner(attempt)
+        return true
+    }
+
+    /// Settles a stood-down attempt once no newer reconnect remains: idle if
+    /// one connected, failed (returned for reporting) if none did.
+    func settleStoodDownAttempt(connected: Bool) -> Attempt? {
+        guard case .supersededAwaitingOwner(let attempt) = phase else { return nil }
+        if connected {
+            phase = .idle
+            return nil
+        }
+        phase = .failed(attempt)
+        return attempt
+    }
+
     func fail(_ attempt: Attempt) -> Bool {
         guard isCurrent(attempt) else { return false }
         phase = .failed(attempt)
@@ -166,7 +191,7 @@ final class MobileConnectionRecoveryOwner {
         switch phase {
         case .redialing(let active), .validatingReplacement(let active, _):
             attempt = active
-        case .idle, .probing, .failed:
+        case .idle, .probing, .supersededAwaitingOwner, .failed:
             return nil
         }
         task?.cancel()
@@ -185,7 +210,7 @@ final class MobileConnectionRecoveryOwner {
         case .probing(let active), .redialing(let active),
              .validatingReplacement(let active, _), .failed(let active):
             active.id == attempt.id
-        case .idle:
+        case .idle, .supersededAwaitingOwner:
             false
         }
     }

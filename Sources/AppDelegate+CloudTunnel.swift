@@ -1,18 +1,82 @@
+import CmuxCloud
+import CmuxSettings
 import AppKit
 
 /// Composition of the app-managed Cloud tunnel: built once at startup next to
-/// the other Cloud clients, handed to ``VMClient`` as the private-network gate
-/// and to ``TerminalController`` for the `vm.tunnel_*` socket verbs.
+/// the other Cloud clients, and handed to ``TerminalController`` for the
+/// explicit `vm.tunnel_*` socket verbs.
+///
+/// ``CloudActivationPolicy`` is the one decision every tunnel consumer flows
+/// through: it is built here from local state only, gates every start inside
+/// the coordinator, decides whether the NetworkExtension controller may exist
+/// at launch, and brings the tunnel down when Cloud Machines is turned off.
 extension AppDelegate {
+    /// Opens Cloud VPN setup as a pane in its own workspace, or focuses the one
+    /// already open. Ports and Settings both call this; only the pane's
+    /// controls activate the VPN. Settings passes `bringWindowForward` because
+    /// it runs in its own window.
+    @MainActor
+    @discardableResult
+    func openCloudVPNSetup(preferredWindow: NSWindow? = nil, bringWindowForward: Bool = false) -> CloudVPNSetupPanel? {
+        guard !ManagedDevicePolicy().isEnforced(.disableCloud),
+              let manager = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow) else {
+            return nil
+        }
+        if bringWindowForward {
+            guard let context = mainWindowContext(for: manager),
+                  let window = resolvedWindow(for: context),
+                  focusWindowForAppActivation(window, reason: .workspaceCreation) else {
+                return nil
+            }
+        }
+        for workspace in manager.tabs {
+            guard let panel = workspace.panels.values.lazy.compactMap({ $0 as? CloudVPNSetupPanel }).first else {
+                continue
+            }
+            if let cloudTunnelCoordinator { panel.model.attachIfNeeded(cloudTunnelCoordinator) }
+            manager.selectedTabId = workspace.id
+            workspace.focusPanel(panel.id)
+            return panel
+        }
+
+        guard let workspace = manager.addWorkspaceIfActive(
+            title: String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN"),
+            select: true,
+            eagerLoadTerminal: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false,
+            allowTextBoxFocusDefault: false
+        ) else {
+            return nil
+        }
+        guard let initialPanelID = workspace.focusedPanelId,
+              let paneID = workspace.paneId(forPanelId: initialPanelID),
+              let panel = workspace.newCloudVPNSetupSurface(
+                inPane: paneID, coordinator: cloudTunnelCoordinator, focus: true) else {
+            manager.closeWorkspace(workspace, recordHistory: false)
+            return nil
+        }
+        _ = workspace.closePanel(initialPanelID, force: true)
+        return panel
+    }
+
     @MainActor
     func makeCloudTunnelCoordinator() -> CloudTunnelCoordinator {
-        CloudTunnelCoordinator.live(
-            consumers: CloudTunnelAppConsumers(
-                cloudBrowserCount: { [weak self] in
-                    self?.cloudVMBrowserCount() ?? 0
-                }
-            )
+        let tunnelManager = VMTunnelManager()
+        let activation = CloudActivationPolicy.live(
+            browserTunnel: tunnelManager,
+            remoteEnabled: { CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.cloudMachinesFlag) }
         )
+        let coordinator = CloudTunnelCoordinator.live(
+            consumers: CloudTunnelAppConsumers(),
+            tunnelManager: tunnelManager,
+            activation: activation
+        )
+        cloudTunnelActivationObserver = CloudTunnelActivationObserver(
+            isStartRefused: { activation.tunnelStartRefusal() != nil },
+            bringDown: { await coordinator.requestDown() }
+        )
+        return coordinator
     }
 
     /// Signing out ends every Cloud session at once; the tunnel goes with it.
@@ -20,43 +84,15 @@ extension AppDelegate {
     func cloudTunnelAccessDidEnd() {
         VMTunnelManager(purpose: .browser).removeLocalCredentials()
         VMTunnelManager(purpose: .terminal).removeLocalCredentials()
+        // The next account starts from "no machine known": nothing Cloud runs
+        // at launch until it opts in or this Mac lists its fleet again.
+        CloudMachineCache().clear()
         guard let coordinator = cloudTunnelCoordinator else { return }
-        cloudTunnelTeardownTask?.cancel()
+        let previous = cloudTunnelTeardownTask
         cloudTunnelTeardownTask = Task {
+            await previous?.value
             try? await coordinator.revoke()
         }
     }
 
-    /// Workspaces bound to a Cloud machine across every window: attached
-    /// panes, `cmux vm tui` and `vm ssh` terminals the app hosts. Each one is a
-    /// live consumer of the private network for the idle policy.
-    @MainActor
-    func cloudVMWorkspaceCount() -> Int {
-        var managers: [TabManager] = mainWindowContexts.values.map(\.tabManager)
-        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
-            managers.append(tabManager)
-        }
-        var count = 0
-        for manager in managers {
-            for workspace in manager.workspacesById.values where workspace.isManagedCloudVMWorkspace {
-                count += 1
-            }
-        }
-        return count
-    }
-
-    /// Browser panels on Cloud machines are the only long-lived consumers of
-    /// the system Network Extension. Terminal panels use the user-space hub.
-    @MainActor
-    func cloudVMBrowserCount() -> Int {
-        var managers: [TabManager] = mainWindowContexts.values.map(\.tabManager)
-        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
-            managers.append(tabManager)
-        }
-        return managers.reduce(into: 0) { count, manager in
-            for workspace in manager.workspacesById.values where workspace.isManagedCloudVMWorkspace {
-                count += workspace.panels.values.filter { $0.panelType == .browser }.count
-            }
-        }
-    }
 }

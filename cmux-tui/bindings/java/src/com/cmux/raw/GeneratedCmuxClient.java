@@ -193,6 +193,11 @@ public abstract class GeneratedCmuxClient {
         return FrontendProjection.fromWire(result);
     }
 
+    public final GetSizeStateResult getSizeState(GetSizeStateRequest request) throws CmuxException {
+        Object result = execute(Commands.GET_SIZE_STATE, request.toWire());
+        return GetSizeStateResult.fromWire(result);
+    }
+
     public final IdentifyResult identify() throws CmuxException {
         Object result = execute(Commands.IDENTIFY, Map.of());
         return IdentifyResult.fromWire(result);
@@ -258,6 +263,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final EmptyResult moveTabToWorkspace(MoveTabToWorkspaceRequest request) throws CmuxException {
+        Object result = execute(Commands.MOVE_TAB_TO_WORKSPACE, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
     public final MoveTerminalResult moveTerminal(MoveTerminalRequest request) throws CmuxException {
         Object result = execute(Commands.MOVE_TERMINAL, request.toWire());
         return MoveTerminalResult.fromWire(result);
@@ -298,6 +308,11 @@ public abstract class GeneratedCmuxClient {
         return SurfaceResult.fromWire(result);
     }
 
+    public final NoteSizeActivityResult noteSizeActivity(NoteSizeActivityRequest request) throws CmuxException {
+        Object result = execute(Commands.NOTE_SIZE_ACTIVITY, request.toWire());
+        return NoteSizeActivityResult.fromWire(result);
+    }
+
     public final NotifyResult notify(NotifyRequest request) throws CmuxException {
         Object result = execute(Commands.NOTIFY, request.toWire());
         return NotifyResult.fromWire(result);
@@ -311,6 +326,11 @@ public abstract class GeneratedCmuxClient {
     public final PaneNeighborResult paneNeighbor(PaneNeighborRequest request) throws CmuxException {
         Object result = execute(Commands.PANE_NEIGHBOR, request.toWire());
         return PaneNeighborResult.fromWire(result);
+    }
+
+    public final PasteImageResult pasteImage(PasteImageRequest request) throws CmuxException {
+        Object result = execute(Commands.PASTE_IMAGE, request.toWire());
+        return PasteImageResult.fromWire(result);
     }
 
     public final PingResult ping() throws CmuxException {
@@ -473,9 +493,24 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final SetSizeCountsResult setSizeCounts(SetSizeCountsRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_SIZE_COUNTS, request.toWire());
+        return SetSizeCountsResult.fromWire(result);
+    }
+
+    public final SetSizePolicyResult setSizePolicy(SetSizePolicyRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_SIZE_POLICY, request.toWire());
+        return SetSizePolicyResult.fromWire(result);
+    }
+
     public final EmptyResult setSplitRatio(SetSplitRatioRequest request) throws CmuxException {
         Object result = execute(Commands.SET_SPLIT_RATIO, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final SetTerminalIdlePolicyResult setTerminalIdlePolicy(SetTerminalIdlePolicyRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_TERMINAL_IDLE_POLICY, request.toWire());
+        return SetTerminalIdlePolicyResult.fromWire(result);
     }
 
     public final EmptyResult setViewportPaneWidth(SetViewportPaneWidthRequest request) throws CmuxException {
@@ -525,6 +560,25 @@ public abstract class GeneratedCmuxClient {
     public final BrowserProviderUnregisterResult unregisterBrowserProvider() throws CmuxException {
         Object result = execute(Commands.UNREGISTER_BROWSER_PROVIDER, Map.of());
         return BrowserProviderUnregisterResult.fromWire(result);
+    }
+
+    public final GuestUrlOpenResult urlOpen(UrlOpenRequest request) throws CmuxException {
+        Object result = execute(Commands.URL_OPEN, request.toWire());
+        return GuestUrlOpenResult.fromWire(result);
+    }
+
+    public final GuestUrlClaimResult urlOpenClaim(UrlOpenClaimRequest request) throws CmuxException {
+        Object result = execute(Commands.URL_OPEN_CLAIM, request.toWire());
+        return GuestUrlClaimResult.fromWire(result);
+    }
+
+    public final GuestUrlAcknowledgeResult urlOpenResult(UrlOpenResultRequest request) throws CmuxException {
+        Object result = execute(Commands.URL_OPEN_RESULT, request.toWire());
+        return GuestUrlAcknowledgeResult.fromWire(result);
+    }
+
+    public final CmuxStream<ProtocolEvent> urlOpenSubscribe(UrlOpenSubscribeRequest request) throws CmuxException {
+        return openStream(Commands.URL_OPEN_SUBSCRIBE, request.toWire());
     }
 
     public final VtStateResult vtState(VtStateRequest request) throws CmuxException {

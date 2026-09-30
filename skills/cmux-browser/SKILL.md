@@ -133,6 +133,20 @@ cmux browser --surface "$SURFACE" click e2 --snapshot-after
 cmux browser --surface "$SURFACE" snapshot --interactive
 ```
 
+After a browser download finishes, inspect the same surface's bounded history
+without opening the file or consuming a waiter:
+
+```bash
+cmux browser --surface "$SURFACE" download list
+cmux browser --surface "$SURFACE" download list --limit 5 --json
+```
+
+The JSON records expose the stable `download_id`, filename, actual saved path
+when known, status (`downloading`, `saved`, or `failed`), byte count when
+known, and whether a known path still exists. Listing is newest first and
+repeatable; it remains scoped to the requested surface. Use `download wait` to
+keep the existing event-wait workflow.
+
 The `open` response contains the new surface ref; in a script, extract it from
 the JSON response instead of printing the full response. If `get url` is empty
 or `about:blank`, navigate first instead of waiting on load state. Re-snapshot

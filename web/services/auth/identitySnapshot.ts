@@ -1,3 +1,4 @@
+import { canonicalizeEmailForMatching } from "../billing/emailMatching";
 import { eq, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
@@ -162,4 +163,41 @@ export async function deleteIdentitySnapshot(
   } catch {
     // Best effort: the snapshot expires on its own within the TTL.
   }
+}
+
+/**
+ * Snapshot user ids whose primary email is the same mailbox as `email` under
+ * Gmail's dot-insensitive rules. The SQL filter is over-inclusive on purpose
+ * (dots stripped everywhere, case folded); the exact canonical comparison runs
+ * here. A read failure is an empty result, never an error, for the same reason
+ * `readIdentitySnapshot` returns null: the snapshot is an index, not authority.
+ */
+export async function findIdentitySnapshotUserIdsByEmail(
+  email: string,
+  db?: SnapshotDb,
+): Promise<readonly string[]> {
+  const canonical = canonicalizeEmailForMatching(email);
+  const at = canonical.lastIndexOf("@");
+  if (at <= 0) return [];
+  const undottedLocal = canonical.slice(0, at).replaceAll(".", "");
+  const domain = canonical.slice(at + 1);
+  let rows: Array<Pick<typeof stackIdentitySnapshots.$inferSelect, "userId" | "primaryEmail">>;
+  try {
+    rows = await (db ?? cloudDb())
+      .select({
+        userId: stackIdentitySnapshots.userId,
+        primaryEmail: stackIdentitySnapshots.primaryEmail,
+      })
+      .from(stackIdentitySnapshots)
+      .where(
+        sql`replace(split_part(lower(${stackIdentitySnapshots.primaryEmail}), '@', 1), '.', '') = ${undottedLocal}
+          and split_part(lower(${stackIdentitySnapshots.primaryEmail}), '@', 2) in (${domain}, 'googlemail.com')`,
+      )
+      .limit(50);
+  } catch {
+    return [];
+  }
+  return rows
+    .filter((row) => row.primaryEmail && canonicalizeEmailForMatching(row.primaryEmail) === canonical)
+    .map((row) => row.userId);
 }

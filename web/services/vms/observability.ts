@@ -1,3 +1,4 @@
+import { retainCloudServerError } from "../observability/cloudServerError";
 import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 import { trace, type Span } from "@opentelemetry/api";
@@ -41,11 +42,30 @@ const EXPECTED_5XX_VM_ERROR_CODES: ReadonlySet<string> = new Set([
   "vm_operation_unsupported",
 ]);
 
+/**
+ * Permanent client-state errors: the caller addresses a machine, snapshot,
+ * tunnel or grant that does not exist, was revoked, or cannot serve the
+ * requested shape. Retrying the same request can never succeed and no
+ * operator action fixes it, so these are never operator faults, whatever
+ * status a route answers them with. A client that loops on one of them shows
+ * up as one `vm_id` and one distinct id with a high count (see the README).
+ */
+const CLIENT_STATE_VM_ERROR_CODES: ReadonlySet<string> = new Set([
+  "vm_not_found",
+  "vm_snapshot_not_found",
+  "vm_tunnel_not_found",
+  "vm_access_revoked",
+  "vm_access_grant_not_found",
+  "vm_attach_transport_unsupported",
+  "vm_memory_size_unknown",
+]);
+
 export function isOperatorFaultVmError(input: {
   readonly error: string;
   readonly status: number;
 }): boolean {
   if (EXPECTED_5XX_VM_ERROR_CODES.has(input.error)) return false;
+  if (CLIENT_STATE_VM_ERROR_CODES.has(input.error)) return false;
   return input.status >= 500 || OPERATOR_FAULT_VM_ERROR_CODES.has(input.error);
 }
 
@@ -86,6 +106,7 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
   if (activeSpan) annotateVmErrorSpan(activeSpan, input);
   const context = currentVmRequestContext();
   if (context) context.lastError = input;
+  retainCloudServerError(input, context);
   const diagnostics = input.diagnostics ?? {};
   const provider = stringOrUndefined(diagnostics.provider);
   const operatorFault = isOperatorFaultVmError(input);
@@ -98,11 +119,7 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
       phase: input.phase ?? "unknown",
       operator_fault: operatorFault,
       reason: input.reason ?? input.message,
-      operation: context?.operation,
-      route: context?.route,
-      user_id: context?.userId,
-      client: context?.client,
-      vercel_request_id: context?.vercelRequestId,
+      ...vmErrorRequestContext(context),
       ...(input.details ?? {}),
       ...diagnostics,
     },
@@ -114,15 +131,40 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
         "vm.phase": input.phase ?? "unknown",
         "vm.status": input.status,
         "vm.operator_fault": operatorFault,
-        "vm.operation": context?.operation,
         "vm.provider": provider,
-        "client.name": context?.client.name,
-        "client.version": context?.client.version,
-        "client.channel": context?.client.channel,
-        user_id: context?.userId,
+        ...vmErrorRequestTags(context),
       },
     },
   );
+}
+
+function vmErrorRequestContext(context: VmRequestContext | undefined): Record<string, unknown> {
+  if (!context) return {};
+  return {
+    operation: context.operation,
+    route: context.route,
+    vm_id: context.vmId,
+    user_id: context.userId,
+    client: context.client,
+    vercel_request_id: context.vercelRequestId,
+  };
+}
+
+/**
+ * Searchable request tags. `vm_id` and `client.request_id` separate one
+ * client retrying a permanent error from many machines failing at once.
+ */
+function vmErrorRequestTags(context: VmRequestContext | undefined): Record<string, string | undefined> {
+  if (!context) return {};
+  return {
+    "vm.operation": context.operation,
+    "client.name": context.client.name,
+    "client.version": context.client.version,
+    "client.channel": context.client.channel,
+    "client.request_id": context.client.requestId,
+    vm_id: context.vmId,
+    user_id: context.userId,
+  };
 }
 
 /**
@@ -219,6 +261,24 @@ function requestTelemetryProperties(
  * and an Axiom trace of one failure share one key. Reads only the status
  * and the `x-cmux-vm-error` header, never the body stream.
  */
+function addMemoryUpgradeProperties(requestProperties: PostHogProperties, errorCode: string | undefined, lastError: VmErrorResponseInput | undefined) {
+  if (errorCode === "vm_memory_requires_plan") {
+    requestProperties.requested_memory_mb = typeof lastError?.details?.requestedMemoryMb === "number" ? lastError.details.requestedMemoryMb : 0;
+    requestProperties.max_memory_mb = typeof lastError?.details?.maxMemoryMb === "number" ? lastError.details.maxMemoryMb : 0;
+    requestProperties.upgrade_plan = typeof lastError?.details?.upgradePlanId === "string" ? lastError.details.upgradePlanId : "max";
+  }
+}
+
+function requestAnalyticsBatch(requestProperties: PostHogProperties, errorCode: string | undefined) {
+  const batch: Array<{ event: string; properties: PostHogProperties }> = [
+    { event: VM_REQUEST_POSTHOG_EVENT, properties: requestProperties },
+  ];
+  if (errorCode === "vm_memory_requires_plan") {
+    batch.push({ event: "cmux_vm_size_upgrade_required", properties: { ...requestProperties, $insert_id: randomUUID() } });
+  }
+  return batch;
+}
+
 export function captureVmRequestOutcome(
   input: {
     readonly context: VmRequestContext;
@@ -244,10 +304,13 @@ export function captureVmRequestOutcome(
       "cmux.vm.request_duration_ms": durationMs,
       "cmux.vm.request_error_code": code,
       "cmux.user_id": context.userId,
+      "cmux.vm.id": context.vmId,
       "cmux.client.name": context.client.name,
       "cmux.client.version": context.client.version,
       "cmux.client.build": context.client.build,
-      "cmux.client.channel": context.client.channel,
+      "cmux.client.channel": normalizedCloudClientChannel(context.client.channel),
+      "cmux.client.revision": context.client.revision,
+      "cmux.operation_id": context.operationId,
       "cmux.client.request_id": context.client.requestId,
       "cmux.client.trace_id": context.client.traceId,
       "cmux.vercel.request_id": context.vercelRequestId,
@@ -276,12 +339,11 @@ export function captureVmRequestOutcome(
   if (errorCode) requestProperties.error_code = errorCode;
   if (lastError?.phase) requestProperties.error_phase = lastError.phase;
   if (lastError?.retryable !== undefined) requestProperties.retryable = lastError.retryable;
+  addMemoryUpgradeProperties(requestProperties, errorCode, lastError);
   const provider = stringOrUndefined(lastError?.diagnostics?.provider);
   if (provider) requestProperties.provider = provider;
   const timestamp = new Date().toISOString();
-  const batch: Array<{ event: string; properties: PostHogProperties }> = [
-    { event: VM_REQUEST_POSTHOG_EVENT, properties: requestProperties },
-  ];
+  const batch = requestAnalyticsBatch(requestProperties, errorCode);
   if (!success) {
     const reason = scrubForAnalytics(lastError?.reason ?? lastError?.message ?? `HTTP ${status}`);
     batch.push({
@@ -567,4 +629,8 @@ export function captureVmProvisionOutcome(
 
 function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function normalizedCloudClientChannel(channel: string | undefined): string | undefined {
+  return channel === "stable" ? "production" : channel;
 }

@@ -700,6 +700,8 @@ type VerifyIdentityOptions = {
    * immediately. Use for sensitive, low-volume operations.
    */
   readonly requireStackSession?: boolean;
+  /** High-volume native routes reject invalid tokens locally instead of asking Stack. */
+  readonly allowStackFallback?: boolean;
   /** Test seam for the local token verifier. */
   readonly verifyAccessToken?: (
     accessToken: string,
@@ -738,6 +740,7 @@ export async function verifyRequestIdentity(
       return { id: local.userId, source: "access_token" };
     }
   }
+  if (options.allowStackFallback === false && !options.requireStackSession) return null;
   const user = await verifyRequest(request, { allowCookie: options.allowCookie });
   return user ? { id: user.id, source: "stack" } : null;
 }

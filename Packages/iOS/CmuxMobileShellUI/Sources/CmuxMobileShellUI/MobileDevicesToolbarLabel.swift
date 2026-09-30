@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -7,34 +8,43 @@ import SwiftUI
 /// standard SF Symbol overlay so the action remains recognizable while making
 /// a blocked Mac discoverable before the user opens the Computers sheet.
 struct MobileDevicesToolbarLabel: View {
+    @Environment(MobileMacListAuthState.self) private var listAuthState: MobileMacListAuthState?
     /// Macs whose last authenticated attempt was rejected by the version gate.
-    let gateWarningDeviceIDs: Set<String>
+    let gateWarningPairingIDs: Set<String>
     /// The physical Macs represented by the Computers sheet opened by this
     /// button. List-auth state is filtered to this set so an unrelated stale
-    /// entry cannot light the toolbar badge.
-    let computerDeviceIDs: Set<String>
+    /// entry cannot light the toolbar badge. SSH computers are dropped: they
+    /// have no Mac version, so the Mac floor would read them as outdated.
+    let computerPairingIDs: Set<String>
 
     private var showsWarning: Bool {
-        let listAuth = MobileMacListAuthState.shared
-        let hasOutdatedListAuth = computerDeviceIDs.contains { deviceID in
-            listAuth.entry(deviceID: deviceID)?.isOutdated == true
+        let listAuth = listAuthState
+        let hasOutdatedListAuth = computerPairingIDs.contains { pairingID in
+            listAuth?.compatibilityEntry(pairingID: pairingID).isOutdated == true
         }
         return Self.warningVisible(
-            hasGateWarning: !gateWarningDeviceIDs.isDisjoint(with: computerDeviceIDs),
+            hasGateWarning: !gateWarningPairingIDs.isDisjoint(with: computerPairingIDs),
             hasOutdatedListAuth: hasOutdatedListAuth,
-            hasComputers: !computerDeviceIDs.isEmpty
+            hasComputers: !computerPairingIDs.isEmpty
         )
     }
 
     init(
-        gateWarningDeviceIDs: Set<String> = [],
-        computerDeviceIDs: Set<String> = []
+        gateWarningPairingIDs: Set<String> = [],
+        computerPairingIDs: Set<String> = []
     ) {
-        self.gateWarningDeviceIDs = gateWarningDeviceIDs
-        self.computerDeviceIDs = computerDeviceIDs
+        self.gateWarningPairingIDs = gateWarningPairingIDs
+        self.computerPairingIDs = Self.macPairingIDs(computerPairingIDs)
     }
 
-    static func warningVisible(
+    /// The paired-Mac ids among the computers a button represents. Pure and
+    /// nonisolated: the view's inferred main-actor isolation would otherwise
+    /// make the filter closure trap when called off the main actor.
+    nonisolated static func macPairingIDs(_ computerIDs: Set<String>) -> Set<String> {
+        computerIDs.filter { !MobileShellComposite.isSSHComputerID($0) }
+    }
+
+    nonisolated static func warningVisible(
         hasGateWarning: Bool,
         hasOutdatedListAuth: Bool,
         hasComputers: Bool = true

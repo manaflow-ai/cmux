@@ -362,14 +362,14 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard let index = model.workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
-        guard model.workspaceGroups[index].name != trimmed else { return }
+        let group = model.workspaceGroups[index]
+        guard group.name != trimmed else { return }
         model.workspaceGroups[index].name = trimmed
-        // The group's name is the single source of truth for its anchor's
-        // displayed title (see `resolvedWorkspaceDisplayTitle(for:)`). The
-        // sidebar re-reads `group.name` via the published array, but the
-        // imperatively-cached window-chrome surfaces (custom title bar,
-        // toolbar command label) need an explicit nudge, and NSWindow.title
-        // is refreshed inline by the host.
+        if group.anchorWorkspaceProvenance == .generated,
+           let anchorWorkspaceId = group.liveAnchorWorkspaceId,
+           let anchor = model.tabs.first(where: { $0.id == anchorWorkspaceId }) {
+            host?.workspaceGroupGeneratedAnchorNameDidChange(anchor, name: trimmed)
+        }
         host?.workspaceGroupNameDidChange()
     }
 

@@ -91,7 +91,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let select: (WorkspaceMacSelection) -> Void
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
-    var gateWarningDeviceIDs: Set<String> = []
+    var gateWarningPairingIDs: Set<String> = []
     var statusLine: WorkspaceConnectionStatusLine?
 
     private var titlePlacement: ToolbarItemPlacement {
@@ -135,7 +135,6 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     addDevice: showAddDevice
                 )
             )
-            .equatable()
             .frame(
                 minHeight: horizontalSizeClass == .regular
                     ? WorkspaceRootToolbarSizing.controlHeight
@@ -145,8 +144,8 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
         ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
             Button(action: openDevices) {
                 MobileDevicesToolbarLabel(
-                    gateWarningDeviceIDs: gateWarningDeviceIDs,
-                    computerDeviceIDs: Set(machines.map(\.macDeviceID).filter { !$0.isEmpty })
+                    gateWarningPairingIDs: gateWarningPairingIDs,
+                    computerPairingIDs: Set(machines.map(\.id))
                 )
             }
             .frame(
@@ -171,7 +170,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
-    var gateWarningDeviceIDs: Set<String> = []
+    var gateWarningPairingIDs: Set<String> = []
 
     var body: some ToolbarContent {
         WorkspaceRootToolbarContent(
@@ -183,7 +182,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             select: select,
             machines: renderContext.machines,
             showAddDevice: showAddDevice,
-            gateWarningDeviceIDs: gateWarningDeviceIDs,
+            gateWarningPairingIDs: gateWarningPairingIDs,
             statusLine: renderContext.statusLine
         )
     }
@@ -201,6 +200,9 @@ private struct WorkspaceShellRenderPresentation {
 #endif
 
 struct WorkspaceShellView: View {
+    #if os(iOS) && DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
     @Bindable var store: CMUXMobileShellStore
     let signOut: @MainActor @Sendable () -> Void
     var isInitialConnectionLoading = false
@@ -214,6 +216,8 @@ struct WorkspaceShellView: View {
     var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
+    /// Present the SSH computer form (PRD D6). `nil` hides SSH add actions.
+    var showAddSSHComputer: (() -> Void)? = nil
     var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
@@ -270,7 +274,7 @@ struct WorkspaceShellView: View {
     /// sidebar it actually renders in, not the full screen.
     @State private var splitSidebarWidth: CGFloat = 0
     #endif
-    @State private var macSelection: WorkspaceMacSelection = .all
+    @AppStorage(WorkspaceMacSelection.storageKey) private var macSelection: WorkspaceMacSelection = .all
     /// Legacy fallback while the toast presenter is disabled: the old
     /// dismissible bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?
@@ -450,7 +454,7 @@ struct WorkspaceShellView: View {
                             createWorkspace: createWorkspaceInCompactStack,
                             canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                         )
-                        .toolbarVisibility(.hidden, for: .tabBar)
+                        .mobileToolbarVisibility(.hidden, for: .tabBar)
                 }
             }
             .onAppear {
@@ -463,12 +467,8 @@ struct WorkspaceShellView: View {
             .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
                 consumePendingPrimarySearchNavigation(for: .notifications)
             }
-        } workspaceSearch: {
-            workspaceSearchTabContent(
-                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
-            )
-        } notificationSearch: {
-            notificationSearchTabContent(presentation: presentation)
+        } search: {
+            primarySearchTabContent(presentation: presentation)
         }
     }
     #endif
@@ -489,42 +489,59 @@ struct WorkspaceShellView: View {
     }
     #endif
 
-    private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
+    private var primarySearchNavigationPath: Binding<[MobileWorkspacePreview.ID]> {
+        primarySearchCoordinator.scope == .workspaces
+            ? $workspaceSearchNavigationPath
+            : $notificationSearchNavigationPath
+    }
+
+    private func primarySearchTabContent(
+        presentation: WorkspaceShellRenderPresentation
+    ) -> some View {
         workspaceActionToastOverlay {
-            NavigationStack(path: $workspaceSearchNavigationPath) {
-                MobilePrimaryWorkspaceSearchContentHost(
-                    searchCoordinator: primarySearchCoordinator
-                ) { searchText in
-                    workspaceList(
-                        navigationStyle: .push,
-                        searchText: searchText,
-                        canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
-                        showsNavigationToolbar: true,
-                        selectWorkspaceAction: selectWorkspaceFromSearch,
-                        createWorkspaceAction: createWorkspaceFromSearch,
-                        createWorkspaceInGroupAction: createWorkspaceInGroupFromSearchClosure,
-                        createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
-                    )
+            MobilePrimarySearchNavigationStack(
+                path: primarySearchNavigationPath,
+                selection: $selectedPrimaryTab,
+                searchCoordinator: primarySearchCoordinator
+            ) {
+                Group {
+                    switch primarySearchCoordinator.scope {
+                    case .workspaces:
+                        MobilePrimaryWorkspaceSearchContentHost(
+                            searchCoordinator: primarySearchCoordinator
+                        ) { searchText in
+                            workspaceList(
+                                navigationStyle: .push,
+                                searchText: searchText,
+                                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection,
+                                showsNavigationToolbar: true,
+                                selectWorkspaceAction: selectWorkspaceFromSearch,
+                                createWorkspaceAction: createWorkspaceFromSearch,
+                                createWorkspaceInGroupAction: createWorkspaceInGroupFromSearchClosure,
+                                createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
+                            )
+                        }
+                    case .notifications:
+                        NotificationFeedStoreView(
+                            store: store,
+                            items: presentation.notificationFeedItems,
+                            status: presentation.notificationFeedStatus,
+                            projection: notificationFeedProjection,
+                            selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs
+                        )
+                    }
                 }
                 .toolbar {
-                    if workspaceSearchNavigationPath.isEmpty {
+                    if primarySearchNavigationPath.wrappedValue.isEmpty {
                         rootToolbarContent
                     }
                 }
-                // Selecting a search result opens the workspace inside the
-                // search tab's own stack, exactly like notification search.
-                // Transitioning to the Workspaces tab and pushing on its stack
-                // from here raced the search-field dismissal and could record
-                // the push without performing it, stranding the list with no
-                // tab bar (the "stuck after selecting from search" bug).
-                .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                    workspaceDestination(
-                        for: workspaceID,
-                        createWorkspace: createWorkspaceInCompactStack,
-                        canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
-                    )
-                    .toolbarVisibility(.hidden, for: .tabBar)
-                }
+            } destination: { workspaceID in
+                workspaceDestination(
+                    for: workspaceID,
+                    createWorkspace: createWorkspaceInCompactStack,
+                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                )
             }
         }
     }
@@ -547,33 +564,6 @@ struct WorkspaceShellView: View {
                 .padding(.bottom, 12)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .accessibilityIdentifier("MobileWorkspaceActionToast")
-            }
-        }
-    }
-
-    private func notificationSearchTabContent(
-        presentation: WorkspaceShellRenderPresentation
-    ) -> some View {
-        NavigationStack(path: $notificationSearchNavigationPath) {
-            NotificationFeedStoreView(
-                store: store,
-                items: presentation.notificationFeedItems,
-                status: presentation.notificationFeedStatus,
-                projection: notificationFeedProjection,
-                selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs
-            )
-            .toolbar {
-                if notificationSearchNavigationPath.isEmpty {
-                    rootToolbarContent
-                }
-            }
-            .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                workspaceDestination(
-                    for: workspaceID,
-                    createWorkspace: createWorkspaceInCompactStack,
-                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
-                )
-                .toolbarVisibility(.hidden, for: .tabBar)
             }
         }
     }
@@ -623,13 +613,9 @@ struct WorkspaceShellView: View {
                 submitTaskComposer: submitTaskComposerFromShell
             )
         }
-        // One-time What's New notice. Only users who already HAVE Computers
-        // see it (fresh installs learn the same things in onboarding). The
-        // gate first answers from the cached remote list, then refreshes the
-        // list and re-checks. The shell can restore straight into cached
-        // workspaces without ever loading the paired-Mac list (it normally
-        // loads on the Computers sheet or a reconnect pass), so load it here
-        // and re-check, otherwise the has-Computers gate never answers.
+        // Wait for the first remote-list attempt before presenting, so a
+        // cached native page cannot overtake a newer remote announcement.
+        // A failed fetch still permits the cached/offline pages.
         .onAppear {
             presentWhatsNewIfNeeded()
         }
@@ -666,8 +652,8 @@ struct WorkspaceShellView: View {
             whatsNewWebLoads = [:]
         }) {
             // Presentation sizing lives inside the sheet: fitted to content
-            // for the common single-page case, full height only for web
-            // pages, multi-page catch-up, and accessibility type.
+            // for each selected native page, full height for web pages and
+            // accessibility type.
             MobileWhatsNewSheet(
                 pages: whatsNewSheetPages,
                 allowedWebHosts: whatsNewCenter?.allowedWebHosts ?? [],
@@ -701,18 +687,18 @@ struct WorkspaceShellView: View {
     /// that miss it are dropped unacknowledged and try again next launch.
     private static let whatsNewPreloadDeadline: Duration = .seconds(10)
 
-    /// Stages the one-time What's New sheet when there are unseen pages and
-    /// the device already has Computers. Staging is not presenting: the
-    /// preload gate (`preloadAndPresentWhatsNew`) presents only once every
-    /// page in the sheet renders immediately. Acknowledgement happens in the
-    /// sheet content's `onAppear` (first actual presentation, not on
-    /// dismiss): early enough that a kill mid-presentation cannot re-show
-    /// the sheet forever, late enough that a swallowed presentation (a
-    /// state-restored sheet already occupying the presenter) never marks
-    /// pages as seen.
+    /// Stages the one-time What's New sheet when there are unseen pages.
+    /// Pairing requirements must be visible before the first Mac is
+    /// discovered, so this gate cannot depend on a nonempty computer list.
+    /// Staging is not presenting: the preload gate
+    /// (`preloadAndPresentWhatsNew`) presents only once every page in the
+    /// sheet renders immediately. Acknowledgement happens in the sheet
+    /// content's `onAppear` (first actual presentation, not on dismiss):
+    /// early enough that a kill mid-presentation cannot re-show the sheet
+    /// forever, late enough that a swallowed presentation (a state-restored
+    /// sheet already occupying the presenter) never marks pages as seen.
     private func presentWhatsNewIfNeeded() {
-        guard let whatsNewCenter,
-              !store.pairedMacs.isEmpty,
+        guard let whatsNewCenter, whatsNewCenter.hasCompletedInitialRefresh,
               !showsWhatsNewSheet else { return }
         let pages = whatsNewCenter.unseenPages
         guard !pages.isEmpty else { return }
@@ -756,15 +742,14 @@ struct WorkspaceShellView: View {
         }
         guard !Task.isCancelled else { return }
         whatsNewCandidatePages = nil
-        // The gate conditions can drift during the bounded preload window (a
-        // refresh can withdraw a page, the last Computer can disappear), so
-        // re-check them now instead of trusting the staging-time snapshot.
-        guard let whatsNewCenter, !store.pairedMacs.isEmpty else { return }
+        // The remote list can change during the bounded preload window, so
+        // re-check visibility now instead of trusting the staging snapshot.
+        guard let whatsNewCenter else { return }
         let stillUnseen = Set(whatsNewCenter.unseenPages.map(\.listID))
         let readyPages = pages.filter { page in
             guard stillUnseen.contains(page.listID) else { return false }
             switch page.body {
-            case .features:
+            case .features, .pairingSetup:
                 return true
             case .web:
                 return loads[page.listID]?.phase == .loaded
@@ -806,7 +791,7 @@ struct WorkspaceShellView: View {
                     )
                 )
                     #if os(iOS)
-                    .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
+                    .mobileToolbarVisibility(.hidden, for: .tabBar, .bottomBar)
                     #endif
                     // Only on the pushed compact stack (where a back button
                     // exists): replace the system back button with a custom one
@@ -857,6 +842,11 @@ struct WorkspaceShellView: View {
         }
         .onAppear {
             workspacesStackIsOnScreen = true
+            #if os(iOS) && DEBUG
+            if let releaseGateUIProbe, releaseGateUIProbe.awaitsVisibleRows {
+                releaseGateUIProbe.closeWorkspace = { popCompactStack() }
+            }
+            #endif
             autoOpenSelectedWorkspaceForSoakIfNeeded()
             consumePendingPrimarySearchNavigation(for: .workspaces)
         }
@@ -873,7 +863,8 @@ struct WorkspaceShellView: View {
     }
 
     private var taskComposerAction: (() -> Void)? {
-        guard store.supportsTaskComposer else { return nil }
+        // The task composer creates workspaces through a Mac.
+        guard store.supportsTaskComposer, selectedSSHHostID == nil else { return nil }
         return openTaskComposer
     }
 
@@ -909,6 +900,16 @@ struct WorkspaceShellView: View {
         .navigationSplitViewStyle(.balanced)
         .onAppear {
             hasPresentedSplitDetail = true
+            #if os(iOS) && DEBUG
+            if let releaseGateUIProbe, releaseGateUIProbe.awaitsVisibleRows {
+                releaseGateUIProbe.closeWorkspace = {
+                    withAnimation {
+                        store.selectedWorkspaceID = nil
+                        splitColumnVisibility = .all
+                    }
+                }
+            }
+            #endif
         }
     }
     #else
@@ -1010,7 +1011,7 @@ struct WorkspaceShellView: View {
         // Keep the sidebar's navigation container opaque through the status
         // bar. A plain view background only paints the list's content bounds,
         // leaving the top safe area to the split view's default system color.
-        .containerBackground(Color(uiColor: .systemGroupedBackground), for: .navigation)
+        .mobileNavigationContainerBackground(Color(uiColor: .systemGroupedBackground))
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
         } action: { width in
@@ -1264,6 +1265,15 @@ struct WorkspaceShellView: View {
             createWorkspace: resolvedCreateWorkspace,
             createWorkspaceInGroup: resolvedCreateWorkspaceInGroup,
             createWorkspaceGroup: resolvedCreateWorkspaceGroup,
+            newWorkspaceComputerTargets: newWorkspaceComputerTargets,
+            createWorkspaceOnComputer: { target, kind in
+                createWorkspace(on: target, kind: kind, create: resolvedCreateWorkspace)
+            },
+            sshNewWorkspaceKinds: sshNewWorkspaceKinds,
+            createSSHWorkspace: sshCreateHostID.map { hostID in
+                { kind in createSSHWorkspace(hostID: hostID, kind: kind) }
+            },
+            sshCreateHostID: sshCreateHostID,
             canCreateWorkspace: canCreateWorkspaceForSelection,
             macSelection: $macSelection,
             switchMac: { macDeviceID, instanceTag in
@@ -1274,6 +1284,8 @@ struct WorkspaceShellView: View {
             },
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
+            isRecoveringWorkspaceList: store.isRecoveringWorkspaceList,
+            cancelRefresh: cancelRefreshWorkspaces,
             signOut: signOut,
             reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure,
             tailscalePairingRequired: tailscalePairingRequired,
@@ -1302,6 +1314,13 @@ struct WorkspaceShellView: View {
             filterState: workspaceListFilterState,
             searchText: searchText
         )
+        #if os(iOS)
+        .sshWorkspaceListPanel(
+            sshWorkspaceListPanel,
+            installingCmuxTUI: !store.sshComputers.installingCmuxTUIHosts.isEmpty,
+            actions: sshWorkspaceListPanelActions
+        )
+        #endif
     }
 
     #if os(iOS)
@@ -1313,7 +1332,7 @@ struct WorkspaceShellView: View {
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
-            gateWarningDeviceIDs: store.macVersionUpdateRequiredDeviceIDs
+            gateWarningPairingIDs: store.macVersionUpdateRequiredPairingIDs
         )
     }
 
@@ -1322,11 +1341,17 @@ struct WorkspaceShellView: View {
     /// connection story: reauth and initial restore render their own chrome,
     /// transient degradation renders only this line.
     private var toolbarConnectionStatusLine: WorkspaceConnectionStatusLine? {
-        WorkspaceListConnectionChrome(
+        // An SSH computer reports its own connection, the same way; the Mac
+        // connection's status line would describe a different computer.
+        if selectedSSHHostID != nil {
+            return sshWorkspaceListPanel?.statusLine
+        }
+        return WorkspaceListConnectionChrome(
             hasStore: true,
             connectionRequiresReauth: store.connectionRequiresReauth,
             connectionRecoveryFailed: store.connectionRecoveryFailed,
             isRecoveringConnection: store.isRecoveringConnection,
+            isRecoveringWorkspaceList: store.isRecoveringWorkspaceList,
             connectionStatus: listConnectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
@@ -1373,8 +1398,16 @@ struct WorkspaceShellView: View {
         if let buildScope = MobileIOSBuildScope.current() {
             names = names.mapValues(buildScope.computerDisplayName)
         }
+        // After the build-scope mapping: the dev tag suffix names a cmux Mac
+        // build, and an SSH host is not one.
+        for host in store.sshComputers.hosts {
+            names[store.sshComputerDeviceID(hostID: host.id)] = host.name
+        }
 
-        let buildLabelsByID = store.pairedMacBuildLabelsByEntryID()
+        let buildLabelsByID = WorkspaceMacBuildLabelResolver().labels(
+            workspaces: store.workspaces,
+            existing: store.pairedMacBuildLabelsByEntryID()
+        )
         let toolbarMachineSnapshots = WorkspaceMachineSnapshots(
             workspaces: store.workspaces,
             filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
@@ -1390,10 +1423,9 @@ struct WorkspaceShellView: View {
             notificationFeedStatus: store.notificationFeedStatus(scopedTo: selectedMachineIDs),
             selectedNotificationFeedMacDeviceIDs: selectedMachineIDs,
             toolbarMachineSnapshots: toolbarMachineSnapshots,
-            canCreateWorkspaceForSelection: scope.canCreateWorkspace(
-                base: canCreateWorkspace,
-                switchPending: pendingMacSwitchID != nil
-            )
+            // The shared gate also covers SSH computers and the computer
+            // menu, which the Mac-only selection scope cannot see.
+            canCreateWorkspaceForSelection: canCreateWorkspaceForMacSelection
         )
     }
 
@@ -1488,6 +1520,7 @@ struct WorkspaceShellView: View {
                 selectedTab: selectedPrimaryTab
             ) {
             case .mountedNotificationSearch:
+                primarySearchCoordinator.deactivateCurrentSearch()
                 if notificationSearchNavigationPath.last != workspaceID {
                     notificationSearchNavigationPath = [workspaceID]
                 }
@@ -1652,10 +1685,20 @@ struct WorkspaceShellView: View {
     /// reference) is what crosses into the `List`-hosting view.
     private var refreshWorkspacesClosure: @Sendable () async -> Void {
         let store = store
+        // An SSH computer's pull-to-refresh is its explicit reconnect (and
+        // relist), which also resumes automatic connects it had paused.
+        if let hostID = selectedSSHHostID {
+            return { await store.openSSHComputer(hostID: hostID) }
+        }
         // Reconnect-or-refresh: when offline, pull-to-refresh re-attempts the saved
         // active Mac or the visible unavailable workspace owner instead of
         // no-opping, so the offline list can recover itself.
-        return { await store.reconnectOrRefresh() }
+        return { await store.runPreparedWorkspaceListRecovery() }
+    }
+
+    private var cancelRefreshWorkspaces: () -> Void {
+        let store = store
+        return { store.cancelWorkspaceListRecovery() }
     }
 
     /// Manual reconnect for the offline status row's Reconnect button.
@@ -1669,14 +1712,57 @@ struct WorkspaceShellView: View {
     }
 
     var canCreateWorkspaceForMacSelection: Bool {
-        macSelectionScope.canCreateWorkspace(
+        if sshCreateHostID != nil || newWorkspaceComputerTargets.count > 1 {
+            return pendingMacSwitchID == nil
+        }
+        return macSelectionScope.canCreateWorkspace(
             base: canCreateWorkspace,
             switchPending: pendingMacSwitchID != nil
         )
     }
 
+    /// The SSH computer the workspace list is scoped to, if any.
+    var selectedSSHHostID: UUID? {
+        guard case .machine(let id) = macSelection,
+              let hostID = store.sshHostID(computerDeviceID: id),
+              store.sshComputers.host(id: hostID) != nil else { return nil }
+        return hostID
+    }
+
+    /// Where New Workspace goes when it targets an SSH computer: the selected
+    /// one, or the only one when no Mac is connected.
+    var sshCreateHostID: UUID? {
+        if let selectedSSHHostID { return selectedSSHHostID }
+        guard store.connectionState != .connected,
+              case .all = macSelectionScope.visibleSelection,
+              store.sshComputers.hosts.count == 1 else { return nil }
+        return store.sshComputers.hosts.first?.id
+    }
+
+    /// Status and empty state for the selected SSH computer.
+    private var sshWorkspaceListPanel: SSHWorkspaceListPanel? {
+        guard let hostID = selectedSSHHostID,
+              store.sshComputers.host(id: hostID) != nil else { return nil }
+        let deviceID = store.sshComputerDeviceID(hostID: hostID)
+        return SSHWorkspaceListPanel(
+            hostID: hostID,
+            status: store.sshComputers.statusByHost[hostID] ?? .idle,
+            hasWorkspaces: store.workspaces.contains { $0.macDeviceID == deviceID },
+            willAutoConnect: store.sshComputers.canAutoConnect(hostID: hostID)
+        )
+    }
+
+    private var sshWorkspaceListPanelActions: SSHWorkspaceListPanelActions {
+        let store = store
+        return SSHWorkspaceListPanelActions(
+            refresh: { hostID in await store.openSSHComputer(hostID: hostID) },
+            autoConnect: { hostID in store.autoConnectSSHComputer(hostID: hostID) },
+            refreshConnected: { store.sshComputers.refreshConnectedHosts() }
+        )
+    }
+
     @MainActor
-    private func switchMacFromWorkspacePicker(
+    func switchMacFromWorkspacePicker(
         macDeviceID: String,
         instanceTag: String?
     ) async -> Bool {
@@ -1704,7 +1790,7 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private var macSelectionScope: WorkspaceMacSelectionScope {
+    var macSelectionScope: WorkspaceMacSelectionScope {
         WorkspaceMacSelectionScope(
             selection: macSelection,
             workspaces: store.workspaces,
@@ -1712,6 +1798,7 @@ struct WorkspaceShellView: View {
             notificationFeedItems: store.notificationFeedItems,
             foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
             foregroundInstanceTag: store.connectedMacInstanceTag,
+            locallyServedMachineIDs: Set(store.sshComputers.hosts.map { store.sshComputerDeviceID(hostID: $0.id) }),
             aliasesFor: {
                 store.pairedMacAliasIDs(for: $0, instanceTag: $1)
             }

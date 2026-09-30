@@ -255,9 +255,10 @@ extension AppDelegate {
     /// Deliberately unconditional: window close is the containing lifecycle,
     /// and a busy Dock panel does not veto it — exactly like the window's
     /// workspace surfaces, which get no per-process veto on this path either.
-    /// The menu close path shows the unconditional "Close window?" dialog, and
+    /// The Close Window command asks "Close window?" when a workspace or this
+    /// Dock needs close confirmation (see `closeWindowWithConfirmation`), and
     /// the last-window/quit path is gated by
-    /// `hasQuitConfirmationDirtyWorkspaces()`, which counts window Docks.
+    /// `hasQuitConfirmationDirtyWorkspaces()`, which also counts window Docks.
     func teardownWindowDock(forWindowId windowId: UUID) {
         mainWindowContext(forWindowId: windowId)?.teardownWindowDock()
     }

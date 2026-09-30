@@ -1,33 +1,34 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
 /// Supplies a timestamped aggregate process-memory sample.
-nonisolated protocol MemoryPressureAggregateSampling: Sendable {
-    func sample(at sampledAt: Date) -> MemoryPressureAggregateSample
+protocol MemoryPressureAggregateSampling: Sendable {
+    func sample(at sampledAt: Date) async -> MemoryPressureAggregateSample
 }
 
 /// Coalition usage returned by the optional macOS coalition ABI.
-nonisolated struct MemoryPressureCoalitionUsage: Equatable, Sendable {
+struct MemoryPressureCoalitionUsage: Equatable, Sendable {
     let physicalFootprintBytes: UInt64
 }
 
 /// Injectable seam for coalition accounting; unavailable platforms return nil.
-nonisolated protocol MemoryPressureCoalitionSampling: Sendable {
+protocol MemoryPressureCoalitionSampling: Sendable {
     func usage(forProcessID processID: Int) -> MemoryPressureCoalitionUsage?
 }
 
 /// Captures cmux plus all unique descendants, preferring the resource coalition.
-nonisolated struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
+struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
     private let processID: Int
-    private let snapshotProvider: @Sendable () -> CmuxTopProcessSnapshot
+    private let snapshotProvider: @Sendable () async -> CmuxTopProcessSnapshot
     private let coalitionSampler: any MemoryPressureCoalitionSampling
     private let physicalMemoryProvider: @Sendable () -> UInt64
     private let availableMemoryProvider: @Sendable () -> UInt64?
 
     init(
         processID: Int = Int(getpid()),
-        snapshotProvider: @escaping @Sendable () -> CmuxTopProcessSnapshot = {
-            CmuxTopProcessSnapshot.captureCached(
+        snapshotProvider: @escaping @Sendable () async -> CmuxTopProcessSnapshot = {
+            await CmuxTopProcessSnapshot.captureCached(
                 includeProcessDetails: false,
                 includeCMUXScope: false,
                 maximumAge: 15
@@ -39,7 +40,7 @@ nonisolated struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregate
             ProcessInfo.processInfo.physicalMemory
         },
         availableMemoryProvider: @escaping @Sendable () -> UInt64? = {
-            DarwinMemoryPressureAvailableMemory.bytes()
+            DarwinSystemMemorySnapshot()?.availableBytes
         }
     ) {
         self.processID = processID
@@ -49,13 +50,22 @@ nonisolated struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregate
         self.availableMemoryProvider = availableMemoryProvider
     }
 
-    func sample(at sampledAt: Date) -> MemoryPressureAggregateSample {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    func sample(at sampledAt: Date) async -> MemoryPressureAggregateSample {
         let physicalMemoryBytes = physicalMemoryProvider()
         let availableMemoryBytes = availableMemoryProvider()
         if let coalitionUsage = coalitionSampler.usage(forProcessID: processID),
            coalitionUsage.physicalFootprintBytes > 0,
            physicalMemoryBytes > 0,
-           coalitionUsage.physicalFootprintBytes <= physicalMemoryBytes {
+           coalitionUsage.physicalFootprintBytes <= UInt64(Int64.max) {
+            // XNU sums current task phys_footprint ledgers, including compressed
+            // memory. Installed RAM is not an upper bound. Falling back here
+            // would lose coalition members reparented after their parent exited.
+            // Reject only values outside the kernel's signed ledger domain.
             // Coalition accounting already covers cmux and its descendants;
             // avoid a full process-table walk on the normal path. The count is
             // intentionally zero because no descendant enumeration occurred.
@@ -70,14 +80,11 @@ nonisolated struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregate
             )
         }
 
-        let snapshot = snapshotProvider()
-        let descendantPIDs = snapshot.descendantPIDs(
-            rootPID: processID,
-            includeRoot: true
-        )
+        let snapshot = await snapshotProvider()
+        let descendantPIDs = snapshot.expandedPIDs(rootPIDs: [processID])
         var processFootprints: [MemoryPressureAggregateProcessFootprint] = []
         processFootprints.reserveCapacity(descendantPIDs.count)
-        var missingProcessCount = 0
+        var missingProcessCount = snapshot.enumerationMissingProcessCount
 
         for pid in descendantPIDs {
             guard let process = snapshot.process(pid: pid),
@@ -96,7 +103,8 @@ nonisolated struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregate
 
         let accounting = MemoryPressureAggregateAccounting().summarize(processFootprints)
 
-        guard !descendantPIDs.isEmpty, missingProcessCount == 0 else {
+        guard snapshot.enumerationIsComplete,
+              !descendantPIDs.isEmpty, missingProcessCount == 0 else {
             return MemoryPressureAggregateSample(
                 source: .unavailable,
                 aggregateBytes: nil,
@@ -121,7 +129,7 @@ nonisolated struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregate
 }
 
 /// Reads the resource-coalition footprint when the running OS exports it.
-nonisolated struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
+struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
     private static let coalitionInfoFlavor: Int32 = 20
 
     /// Returns whether this process is running on an OS whose private
@@ -233,39 +241,5 @@ nonisolated struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalition
         var aneMachTime: UInt64 = 0
         var aneEnergy: UInt64 = 0
         var physicalFootprint: UInt64 = 0
-    }
-}
-
-/// Conservative available-memory estimate used only as coalition corroboration.
-private nonisolated struct DarwinMemoryPressureAvailableMemory: Sendable {
-    static func bytes() -> UInt64? {
-        var statistics = vm_statistics64_data_t()
-        var count = mach_msg_type_number_t(
-            MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size
-        )
-        let result = withUnsafeMutablePointer(to: &statistics) { pointer in
-            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { rebound in
-                host_statistics64(
-                    mach_host_self(),
-                    HOST_VM_INFO64,
-                    rebound,
-                    &count
-                )
-            }
-        }
-        guard result == KERN_SUCCESS, count > 0 else { return nil }
-
-        let pages = [
-            UInt64(statistics.free_count),
-            UInt64(statistics.inactive_count),
-            UInt64(statistics.speculative_count)
-        ].reduce(into: UInt64(0)) { total, pageCount in
-            let (sum, overflow) = total.addingReportingOverflow(pageCount)
-            total = overflow ? UInt64.max : sum
-        }
-        let pageSize = UInt64(vm_kernel_page_size)
-        guard pageSize > 0 else { return nil }
-        let (bytes, overflow) = pages.multipliedReportingOverflow(by: pageSize)
-        return overflow ? UInt64.max : bytes
     }
 }

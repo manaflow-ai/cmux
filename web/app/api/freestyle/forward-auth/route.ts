@@ -12,6 +12,7 @@ import {
   type PublicationRequestEvaluation,
 } from "../../../../services/vm-publications/auth";
 import type { CloudVmPublicationTarget } from "../../../../services/vm-publications/repository";
+import { tracePublicationAuthOperation, withPublicationAuthRequest } from "../../../../services/vm-publications/requestTelemetry";
 import {
   PUBLICATION_CALLBACK_PATH,
   PUBLICATION_SESSION_COOKIE,
@@ -58,14 +59,14 @@ const liveDependencies: ForwardAuthHandlerDependencies = {
   serviceSecret: env.CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET,
   authPageOrigin: normalizePublicationAuthOrigin(env.CMUX_VM_PUBLICATION_AUTH_ORIGIN) ??
     undefined,
-  resolve: (input) => runPublicationAuth(resolvePublicationForRequest(input)),
-  evaluate: (input) => runPublicationAuth(evaluatePublicationRequest(input)),
-  rateLimit: (input) => enforcePublicationSignInRateLimit({
+  resolve: (input) => tracePublicationAuthOperation("resolve_publication", () => runPublicationAuth(resolvePublicationForRequest(input))),
+  evaluate: (input) => tracePublicationAuthOperation("evaluate_access", () => runPublicationAuth(evaluatePublicationRequest(input))),
+  rateLimit: (input) => tracePublicationAuthOperation("rate_limit", () => enforcePublicationSignInRateLimit({
     ...input,
     ruleId: env.CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID,
-  }),
-  begin: (input) => runPublicationAuth(beginPublicationAuthorization(input)),
-  complete: (input) => runPublicationAuth(completePublicationAuthorization(input)),
+  })),
+  begin: (input) => tracePublicationAuthOperation("begin_sign_in", () => runPublicationAuth(beginPublicationAuthorization(input))),
+  complete: (input) => tracePublicationAuthOperation("complete_sign_in", () => runPublicationAuth(completePublicationAuthorization(input))),
 };
 
 /**
@@ -102,7 +103,7 @@ export async function enforcePublicationSignInRateLimit(input: {
  * this route acts on is read from the resolved publication row instead.
  */
 export async function GET(request: Request): Promise<Response> {
-  return handleForwardAuthRequest(request, liveDependencies);
+  return withPublicationAuthRequest(request, () => handleForwardAuthRequest(request, liveDependencies));
 }
 
 /** Test seam for the trusted-edge HTTP contract; production uses `GET`. */

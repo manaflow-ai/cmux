@@ -691,7 +691,7 @@ impl DaemonServices {
     ) -> Result<tokio::net::UnixStream, ServicesError> {
         // The control socket only brokers a one-use renderer grant. The
         // durable terminal-host owner token never crosses the remote session.
-        let mut mux = tokio::net::UnixStream::connect(mux_path).await?;
+        let mut mux = connect_owned_unix_socket(mux_path).await?;
         let request = serde_json::to_vec(&serde_json::json!({
             "id": 1,
             "cmd": "mint-terminal-renderer-by-terminal",
@@ -746,7 +746,7 @@ impl DaemonServices {
             return Err(ServicesError::Remote("renderer grant lacks renderer rights".into()));
         }
 
-        let mut terminal = tokio::net::UnixStream::connect(endpoint).await?;
+        let mut terminal = connect_owned_unix_socket(endpoint).await?;
         let hello = ClientHello {
             min_version: PROTOCOL_VERSION,
             max_version: PROTOCOL_VERSION,
@@ -801,7 +801,7 @@ impl DaemonServices {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
-        let socket = tokio::net::UnixStream::connect(path).await?;
+        let socket = connect_owned_unix_socket(path).await?;
         let stream = Arc::new(stream);
         send_opened(&stream, Lane::Interactive).await?;
         let (reader, writer) = socket.into_split();
@@ -1518,6 +1518,18 @@ fn workspace_rpc_metadata(
         }
     };
     Ok((lane, purpose))
+}
+
+/// Connect to a local mux or terminal-host socket. Both run as this daemon's
+/// user, so refuse any other listener before a request or token is written.
+#[cfg(unix)]
+async fn connect_owned_unix_socket(
+    path: impl AsRef<std::path::Path>,
+) -> Result<tokio::net::UnixStream, ServicesError> {
+    let stream = tokio::net::UnixStream::connect(path).await?;
+    crate::admin::verify_unix_peer_owner(&stream)
+        .map_err(|error| ServicesError::Unavailable(error.to_string()))?;
+    Ok(stream)
 }
 
 #[derive(Debug)]

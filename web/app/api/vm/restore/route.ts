@@ -1,22 +1,22 @@
-import { unauthorized, verifyRequest, type AuthedUser } from "../../../../services/vms/auth";
+import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, vmCapabilitiesFor } from "../../../../services/vms/drivers";
 import { isVmCreateDisabledError } from "../../../../services/vms/errors";
 import { captureVmProvisionOutcome } from "../../../../services/vms/observability";
 import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGateway";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
-  vmCreateLikeErrorResponse,
+  vmCreateLikeErrorResponders,
   vmErrorResponse,
   withAuthedVmApiRoute,
   resolveVmProvisioningAccountScope,
+  reverifyVmRequestForTeam,
 } from "../../../../services/vms/routeHelpers";
+import { runVmRoute } from "../../../../services/vms/routeWorkflow";
 import { setSpanAttributes } from "../../../../services/telemetry";
-import { restoreVm, runVmWorkflow } from "../../../../services/vms/workflows";
+import { restoreVm } from "../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
-import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
-import { vmRequestLocale } from "../../../../services/vms/vmErrorMessages";
 import {
   idempotencyKeyFromRequest,
   parseRequiredObjectBody,
@@ -67,18 +67,15 @@ export async function POST(request: Request): Promise<Response> {
       }
       const providerResult = providerField(body);
       if (!providerResult.ok) return providerResult.response;
-      let user: AuthedUser = initialUser;
       const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
-      if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-        let refreshedUser: AuthedUser | null;
-        try {
-          refreshedUser = await verifyRequest(request, { requestedTeamId: requestedBillingTeamId });
-        } catch (error) {
-          return authProviderErrorResponse(error, "/api/vm.restore.team-auth");
-        }
-        if (!refreshedUser) return unauthorized();
-        user = refreshedUser;
-      }
+      const reverified = await reverifyVmRequestForTeam({
+        request,
+        user: initialUser,
+        requestedBillingTeamId,
+        authErrorLabel: "/api/vm.restore.team-auth",
+      });
+      if (!reverified.ok) return reverified.response;
+      const user = reverified.user;
       const account = await resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId });
       if (!account.ok) return account.response;
       const entitlements = account.entitlements;
@@ -109,41 +106,41 @@ export async function POST(request: Request): Promise<Response> {
         "cmux.vm.provider": provider,
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
-      try {
-        const restored = await runVmWorkflow(restoreVm({
-          userId: user.id,
-          billingCustomerType: entitlements.billingCustomerType,
-          billingTeamId: entitlements.billingTeamId,
-          billingPlanId: entitlements.planId,
-          maxActiveVms: entitlements.maxActiveVms,
-          provider,
-          snapshotId,
-          idempotencyKey,
-          // The restored machine is a new row: it gets its own token and edge rule.
-          modelPlane: vmModelPlaneGatewayFor({
-            teamId: entitlements.billingTeamId,
-            stackUserId: user.id,
-          }),
-          timing,
-        }));
-        return jsonResponse({
-          id: restored.providerVmId,
-          provider: restored.provider,
-          image: restored.image,
-          imageVersion: restored.imageVersion,
-          status: restored.status,
-          createdAt: restored.createdAt,
-        });
-      } catch (err) {
-        const response = await vmCreateLikeErrorResponse(err, {
+      const run = await runVmRoute(restoreVm({
+        userId: user.id,
+        billingCustomerType: entitlements.billingCustomerType,
+        billingTeamId: entitlements.billingTeamId,
+        billingPlanId: entitlements.planId,
+        maxActiveVms: entitlements.maxActiveVms,
+        provider,
+        snapshotId,
+        idempotencyKey,
+        // The restored machine is a new row: it gets its own token and edge rule.
+        teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
+        modelPlane: vmModelPlaneGatewayFor({
+          teamId: entitlements.billingTeamId,
+          stackUserId: user.id,
+        }),
+        timing,
+      }), {
+        request,
+        onError: vmCreateLikeErrorResponders({
           operation: "restore",
           planId: entitlements.planId,
           retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before restoring another.",
-          locale: vmRequestLocale(request),
-        });
-        if (response) return response;
-        throw err;
-      }
+        }),
+      });
+      if (!run.ok) return run.response;
+      const restored = run.value;
+      return jsonResponse({
+        id: restored.providerVmId,
+        provider: restored.provider,
+        image: restored.image,
+        imageVersion: restored.imageVersion,
+        status: restored.status,
+        createdAt: restored.createdAt,
+        capabilities: vmCapabilitiesFor(restored.provider),
+      });
     },
   );
 }

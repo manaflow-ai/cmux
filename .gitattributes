@@ -1,8 +1,22 @@
-Resources/markdown-viewer/diff-viewer/**/*.mjs -whitespace
-
 # Resources/markdown-viewer holds vendored third-party runtime bundles (mermaid,
-# vega, highlight.js, the Pierre/Shiki diff renderer + per-language grammars and
-# WASM) plus the generated diff-viewer React app build. They are not authored
-# source, so exclude them from GitHub Linguist's language stats.
+# vega, highlight.js) plus the generated webviews React app build (the diff
+# viewer, its highlight worker and the lazy Shiki grammar/theme/WASM chunks).
+# They are not authored source, so exclude them from GitHub Linguist's
+# language stats.
 Resources/markdown-viewer/** linguist-vendored
-Resources/markdown-viewer/diff-viewer-app/** linguist-generated
+Resources/markdown-viewer/webviews-app/** linguist-generated
+
+# Xcode string catalogs are one large JSON object keyed by string id. Two
+# branches that each add a different key collide positionally, producing dozens
+# of conflict hunks with no semantic disagreement. scripts/merge-xcstrings.py
+# merges per key and defers to the default driver whenever both sides changed
+# the same key. Register it with scripts/install-git-hooks.sh (run by setup.sh);
+# without that config git silently uses the default driver.
+*.xcstrings merge=xcstrings-v2
+
+# The Xcode project file collides the same way, and for a sharper reason: no
+# target here is filesystem-synchronized, so adding one source file writes four
+# entries, and two branches adding different files append to all four of the
+# same regions. scripts/merge-pbxproj.py takes the union of entries each side
+# added and defers whenever a hunk is anything else. Same registration.
+cmux.xcodeproj/project.pbxproj merge=pbxproj-v1

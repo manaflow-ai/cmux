@@ -1,7 +1,7 @@
 import Foundation
 
 /// Errors reported while loading, validating, or updating automation rules.
-nonisolated enum AutomationConfigStoreError: Error, LocalizedError, Equatable {
+enum AutomationConfigStoreError: Error, LocalizedError, Equatable {
     case unsupportedVersion(Int)
     case ruleNotFound(String)
     case invalidRule(String)

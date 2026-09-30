@@ -46,7 +46,7 @@ private struct FixedMemoryPressureFootprintSampler: MemoryPressureFootprintSampl
 private struct FixedMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
     let sample: MemoryPressureAggregateSample
 
-    func sample(at sampledAt: Date) -> MemoryPressureAggregateSample {
+    func sample(at sampledAt: Date) async -> MemoryPressureAggregateSample {
         sample.withSampledAt(sampledAt)
     }
 }
@@ -223,7 +223,7 @@ struct MemoryPressureStateTrackerTests {
         ))
     }
 
-    @Test func coalitionSamplingSkipsDescendantEnumeration() {
+    @Test func coalitionSamplingSkipsDescendantEnumeration() async {
         let sampler = DarwinMemoryPressureAggregateSampler(
             processID: 42,
             snapshotProvider: {
@@ -234,7 +234,7 @@ struct MemoryPressureStateTrackerTests {
             availableMemoryProvider: { 2_000 }
         )
 
-        let sample = sampler.sample(at: Date(timeIntervalSince1970: 21))
+        let sample = await sampler.sample(at: Date(timeIntervalSince1970: 21))
 
         #expect(sample.source == .coalition)
         #expect(sample.aggregateBytes == 5_000)
@@ -242,7 +242,7 @@ struct MemoryPressureStateTrackerTests {
         #expect(sample.missingProcessCount == 0)
     }
 
-    @Test func implausibleCoalitionFootprintFallsBackToCompleteTree() {
+    @Test func zeroCoalitionFootprintFallsBackToCompleteTree() async {
         let process = CmuxTopProcessInfo(
             pid: 42,
             parentPID: 1,
@@ -271,12 +271,12 @@ struct MemoryPressureStateTrackerTests {
         let sampler = DarwinMemoryPressureAggregateSampler(
             processID: 42,
             snapshotProvider: { snapshot },
-            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: 9_000),
+            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: 0),
             physicalMemoryProvider: { 8_000 },
             availableMemoryProvider: { nil }
         )
 
-        let sample = sampler.sample(at: Date(timeIntervalSince1970: 1))
+        let sample = await sampler.sample(at: Date(timeIntervalSince1970: 1))
 
         #expect(sample.source == .descendantProcessTree)
         #expect(sample.aggregateBytes == 4_000)

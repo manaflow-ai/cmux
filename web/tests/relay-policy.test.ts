@@ -13,7 +13,11 @@ import {
   relayPolicySigningKey,
   signRelayPolicy,
 } from "../services/relay/catalog";
-import { RelayCatalogIntegrityError } from "../services/relay/errors";
+import {
+  RelayCatalogIntegrityError,
+  RelayDatabaseError,
+  relayDatabaseFailureMetadata,
+} from "../services/relay/errors";
 import { relayErrorResponse } from "../services/relay/http";
 import {
   assertManagedSelectionExists,
@@ -105,6 +109,49 @@ describe("signed relay policy", () => {
         "relay.policy.unexpected",
         { failure: "unexpected" },
       ]]);
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
+  test("returns a safe retry floor and bounded Aurora failure metadata", async () => {
+    const error = new RelayDatabaseError({
+      operation: "getPreference",
+      cause: {
+        name: "ConnectionError",
+        code: "ETIMEDOUT",
+        message: "postgres://secret-user:secret@aurora.example timed out",
+      },
+    });
+    expect(relayDatabaseFailureMetadata(error)).toEqual({
+      operation: "getPreference",
+      category: "timeout",
+      code: "ETIMEDOUT",
+      retryable: true,
+    });
+    const originalConsoleError = console.error;
+    const calls: unknown[][] = [];
+    console.error = (...args: unknown[]) => { calls.push(args); };
+    try {
+      const response = relayErrorResponse(error, { requestId: "req-test" });
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("15");
+      expect(response.headers.get("x-cmux-request-id")).toBe("req-test");
+      expect(await response.json()).toEqual({
+        error: "relay_policy_unavailable",
+        requestId: "req-test",
+      });
+      expect(calls).toEqual([[
+        "relay.policy.database_unavailable",
+        {
+          operation: "getPreference",
+          category: "timeout",
+          code: "ETIMEDOUT",
+          retryable: true,
+          requestId: "req-test",
+        },
+      ]]);
+      expect(JSON.stringify(calls)).not.toContain("secret-user");
     } finally {
       console.error = originalConsoleError;
     }

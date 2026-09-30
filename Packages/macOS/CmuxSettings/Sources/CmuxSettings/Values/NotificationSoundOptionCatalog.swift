@@ -1,7 +1,7 @@
 import Foundation
 
 /// The localized catalog shared by notification sound settings controls.
-nonisolated public struct NotificationSoundOptionCatalog: Sendable {
+public struct NotificationSoundOptionCatalog: Sendable {
     /// Picker options in their stable user-facing order.
     public let options: [NotificationSoundOptionDescriptor]
 

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxFoundation
 import WebKit
 
@@ -174,7 +175,7 @@ final class MarkdownWebRenderingCoordinator {
 }
 
 @MainActor
-final class MarkdownWebView: WKWebView {
+final class MarkdownWebView: CmuxUndoableWebView {
     var onPointerDown: (() -> Void)?
     /// Invoked after this view is attached to a window. Keep this separate
     /// from pointer focus so a panel can complete a focus request made before
@@ -205,6 +206,10 @@ final class MarkdownWebView: WKWebView {
         Self.installEditableFocusTracking(on: configuration.userContentController)
         super.init(frame: frame, configuration: configuration)
         renderingCoordinator = makeRenderingCoordinator(initialBoundsSize: bounds.size)
+    }
+
+    override func isWebContentUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
+        event.cmuxIsUndoRedoCommandEquivalent
     }
 
     required init?(coder: NSCoder) {

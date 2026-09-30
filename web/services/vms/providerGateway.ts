@@ -13,20 +13,25 @@ import {
   type ProviderId,
   type ProviderNetwork,
   type ProviderTunnel,
+  type ProviderTunnelAttachment,
   type ProviderTunnelCreateResult,
   type RestoreOptions,
   type SnapshotRef,
   type SSHEndpoint,
+  type SCPEndpoint,
   type VMHandle,
   type VMVolumeInventory,
   type VMVolumeListOptions,
   type VMStatus,
   type VMStats,
+  type VMResourceStatsResult,
   type VMResizeOptions,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
+  type VmCapabilities,
+  vmCapabilitiesFor,
 } from "./drivers";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
 
@@ -46,6 +51,7 @@ export type VmProviderGatewayShape = {
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly setRuntimeBudget?: (provider: ProviderId, vmId: string, remainingSeconds: number | null) => Effect.Effect<void, VmProviderOperationError>;
   readonly snapshot?: (
     provider: ProviderId,
     vmId: string,
@@ -56,7 +62,20 @@ export type VmProviderGatewayShape = {
     snapshotId: string,
     options?: RestoreOptions,
   ) => Effect.Effect<VMHandle, VmProviderOperationError>;
+  /** Every snapshot taken from the machine, newest first (`cmux vm snapshot ls`). */
+  readonly listSnapshots?: (
+    provider: ProviderId,
+    vmId: string,
+  ) => Effect.Effect<SnapshotRef[], VmProviderOperationError>;
+  /** Delete one snapshot taken from the machine (`cmux vm snapshot rm`). */
+  readonly deleteSnapshot?: (
+    provider: ProviderId,
+    vmId: string,
+    snapshotId: string,
+  ) => Effect.Effect<void, VmProviderOperationError>;
   readonly fork?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
+  /** Driver capabilities. Optional for compatibility with older test doubles. */
+  readonly capabilities?: (provider: ProviderId) => VmCapabilities;
   readonly exec: (
     provider: ProviderId,
     vmId: string,
@@ -67,14 +86,15 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
     port: number,
-  ) => Effect.Effect<
-    { url: string; token: string; openUrl: string; expiresAtMs?: number },
-    VmProviderOperationError | VmOperationUnsupportedError
-  >;
+  ) => Effect.Effect<{ url: string; token: string; openUrl: string; expiresAtMs?: number }, VmProviderOperationError>;
   readonly getStats?: (
     provider: ProviderId,
     vmId: string,
   ) => Effect.Effect<VMStats, VmProviderOperationError>;
+  readonly getResourceStats?: (
+    provider: ProviderId,
+    vmId: string,
+  ) => Effect.Effect<VMResourceStatsResult | null, VmProviderOperationError>;
   readonly resize?: (
     provider: ProviderId,
     vmId: string,
@@ -98,6 +118,7 @@ export type VmProviderGatewayShape = {
     invitationId: string,
     options?: CmuxRemoteApprovalOptions,
   ) => Effect.Effect<CmuxRemoteApprovalResult, VmProviderOperationError>;
+  readonly prepareSCP?: (provider: ProviderId, vmId: string, publicKey: string) => Effect.Effect<SCPEndpoint, VmProviderOperationError>;
   readonly openSSH: (provider: ProviderId, vmId: string) => Effect.Effect<SSHEndpoint, VmProviderOperationError>;
   readonly revokeSSHIdentity: (
     provider: ProviderId,
@@ -115,12 +136,12 @@ export type VmProviderGatewayShape = {
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
-    options: { slug: string; displayName?: string; heal?: boolean },
+    options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean },
   ) => Effect.Effect<ProviderNetwork, VmProviderOperationError>;
-  /** Read a provider network without creating or repairing it. */
+  /** Read a provider network by id or slug without creating or repairing it. */
   readonly getNetwork?: (
     provider: ProviderId,
-    networkId: string,
+    networkIdOrSlug: string,
   ) => Effect.Effect<ProviderNetwork | null, VmProviderOperationError>;
   readonly deleteNetwork?: (
     provider: ProviderId,
@@ -145,6 +166,9 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     tunnelId: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
+  readonly attachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<ProviderTunnelAttachment, VmProviderOperationError>;
+  readonly detachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly listNetworkTunnelIds?: (provider: ProviderId, networkId: string) => Effect.Effect<string[], VmProviderOperationError>;
 };
 
 export class VmProviderGateway extends Context.Tag("cmux/VmProviderGateway")<
@@ -206,10 +230,33 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
   pause: (provider, vmId) =>
     providerEffect(provider, "pause", () => getProvider(provider).pause(vmId)),
+  setRuntimeBudget: (provider, vmId, remainingSeconds) => providerEffect(provider, "setRuntimeBudget", async () => {
+    const driver = getProvider(provider);
+    if (!driver.setRuntimeBudget) throw new Error("Provider runtime caps are unavailable");
+    await driver.setRuntimeBudget(vmId, remainingSeconds);
+  }),
   snapshot: (provider, vmId, name) =>
     providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),
   restore: (provider, snapshotId, options) =>
     providerEffect(provider, "restore", () => getProvider(provider).restore(snapshotId, options)),
+  capabilities: (provider) => vmCapabilitiesFor(provider),
+  listSnapshots: (provider, vmId) =>
+    providerEffect(provider, "listSnapshots", async () => {
+      const impl = getProvider(provider);
+      if (!impl.listSnapshots) {
+        // Typed, so the route answers 501 (cannot) rather than a retryable 502.
+        throw new VmOperationUnsupportedError({ provider, operation: "listSnapshots" });
+      }
+      return await impl.listSnapshots(vmId);
+    }),
+  deleteSnapshot: (provider, vmId, snapshotId) =>
+    providerEffect(provider, "deleteSnapshot", async () => {
+      const impl = getProvider(provider);
+      if (!impl.deleteSnapshot) {
+        throw new VmOperationUnsupportedError({ provider, operation: "deleteSnapshot" });
+      }
+      await impl.deleteSnapshot(vmId, snapshotId);
+    }),
   fork: (provider, vmId) =>
     providerEffect(provider, "fork", async () => {
       const driver = getProvider(provider);
@@ -220,43 +267,50 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     }),
   exec: (provider, vmId, command, options) =>
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
-  openPort: (provider, vmId, port) => {
-    const impl = getProvider(provider);
-    if (!impl.openPort) {
-      // Keep the capability failure outside `providerEffect`: that adapter
-      // intentionally wraps provider failures as retryable service errors,
-      // while an absent method must reach the 501 non-retryable response.
-      return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "openPort" }));
-    }
-    // Keep the method receiver intact: Freestyle's implementation reads its
-    // injected client/exec helpers through `this`.
-    return providerEffect(provider, "openPort", () => impl.openPort!(vmId, port));
-  },
+  openPort: (provider, vmId, port) =>
+    providerEffect(provider, "openPort", async () => {
+      const impl = getProvider(provider);
+      if (!impl.openPort) {
+        throw new VmOperationUnsupportedError({ provider, operation: "openPort" });
+      }
+      return await impl.openPort(vmId, port);
+    }),
   getStats: (provider, vmId) =>
-    providerEffect(provider, "getStats", () => {
+    providerEffect(provider, "getStats", async () => {
       const impl = getProvider(provider);
       if (!impl.getStats) {
         // Typed, so the route answers "unsupported" (non-retryable) instead of
         // a retryable 502 the activity panel would poll forever.
         throw new VmOperationUnsupportedError({ provider, operation: "getStats" });
       }
-      return impl.getStats(vmId);
+      return await impl.getStats(vmId);
     }),
+  getResourceStats: (provider, vmId) => providerEffect(provider, "getResourceStats", async () => {
+    const impl = getProvider(provider);
+    if (!impl.getResourceStats) {
+      throw new VmOperationUnsupportedError({ provider, operation: "getResourceStats" });
+    }
+    return await impl.getResourceStats(vmId);
+  }),
   resize: (provider, vmId, options) => {
     const impl = getProvider(provider);
-    if (!impl.resize) {
-      return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "resize" }));
-    }
+    if (!impl.resize) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "resize" }));
     return providerEffect(provider, "resize", () => impl.resize!(vmId, options));
   },
   attachTransports: (provider) => getProvider(provider).attachTransports,
   openAttach: (provider, vmId, options) =>
-    providerEffect(provider, "openAttach", () => getProvider(provider).openAttach(vmId, options)),
+    providerEffect(provider, "openAttach", async () => {
+      const impl = getProvider(provider);
+      if (!impl.openAttach) {
+        throw new VmOperationUnsupportedError({ provider, operation: "openAttach" });
+      }
+      return await impl.openAttach(vmId, options);
+    }),
   openCmuxRemote: (provider, vmId, options) =>
     providerEffect(provider, "openCmuxRemote", () => {
       const impl = getProvider(provider);
       if (!impl.openCmuxRemote) {
-        throw new Error(`provider ${provider} does not run the cmux-tui remote daemon yet`);
+        throw new VmOperationUnsupportedError({ provider, operation: "openCmuxRemote" });
       }
       return impl.openCmuxRemote(vmId, options);
     }),
@@ -264,16 +318,33 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "approveCmuxRemoteEnrollment", () => {
       const impl = getProvider(provider);
       if (!impl.approveCmuxRemoteEnrollment) {
-        throw new Error(`provider ${provider} does not run the cmux-tui remote daemon yet`);
+        throw new VmOperationUnsupportedError({ provider, operation: "approveCmuxRemoteEnrollment" });
       }
       return impl.approveCmuxRemoteEnrollment(vmId, invitationId, options);
     }),
+  prepareSCP: (provider, vmId, publicKey) =>
+    providerEffect(provider, "prepareSCP", async () => {
+      const impl = getProvider(provider);
+      if (!impl.prepareSCP) throw new VmOperationUnsupportedError({ provider, operation: "prepareSCP" });
+      return impl.prepareSCP(vmId, publicKey);
+    }),
   openSSH: (provider, vmId) =>
-    providerEffect(provider, "openSSH", () => getProvider(provider).openSSH(vmId)),
-  revokeSSHIdentity: (provider, identityHandle) =>
-    providerEffect(provider, "revokeSSHIdentity", () =>
-      getProvider(provider).revokeSSHIdentity(identityHandle)
-    ),
+    providerEffect(provider, "openSSH", async () => {
+      const impl = getProvider(provider);
+      if (!impl.openSSH) {
+        throw new VmOperationUnsupportedError({ provider, operation: "openSSH" });
+      }
+      return await impl.openSSH(vmId);
+    }),
+  revokeSSHIdentity: (provider, identityHandle) => {
+    const driver = getProvider(provider);
+    // A driver without openSSH never minted an identity; revocation is a no-op.
+    if (!driver.openSSH) return Effect.void;
+    return providerEffect(provider, "revokeSSHIdentity", async () => {
+      if (!driver.revokeSSHIdentity) throw new VmOperationUnsupportedError({ provider, operation: "revokeSSHIdentity" });
+      await driver.revokeSSHIdentity(identityHandle);
+    });
+  },
   revokeEndpointLeases: (provider, vmId) => {
     const driver = getProvider(provider);
     if (!driver.revokeEndpointLeases) return Effect.void;
@@ -308,4 +379,22 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "deleteTunnel", () =>
       privateNetworking(provider).deleteTunnel(tunnelId)
     ),
+  attachTunnelNetwork: (provider, tunnelId, networkId) =>
+    providerEffect(provider, "attachTunnelNetwork", async () => {
+      const networking = privateNetworking(provider);
+      if (!networking.attachTunnelNetwork) throw new VmOperationUnsupportedError({ provider, operation: "attachTunnelNetwork" });
+      return await networking.attachTunnelNetwork(tunnelId, networkId);
+    }),
+  detachTunnelNetwork: (provider, tunnelId, networkId) =>
+    providerEffect(provider, "detachTunnelNetwork", async () => {
+      const networking = privateNetworking(provider);
+      if (!networking.detachTunnelNetwork) throw new VmOperationUnsupportedError({ provider, operation: "detachTunnelNetwork" });
+      await networking.detachTunnelNetwork(tunnelId, networkId);
+    }),
+  listNetworkTunnelIds: (provider, networkId) =>
+    providerEffect(provider, "listNetworkTunnelIds", async () => {
+      const networking = privateNetworking(provider);
+      if (!networking.listNetworkTunnelIds) throw new VmOperationUnsupportedError({ provider, operation: "listNetworkTunnelIds" });
+      return await networking.listNetworkTunnelIds(networkId);
+    }),
 });

@@ -15,7 +15,7 @@ usage: $0 [--start <state-file> | --finish <state-file>] <signed-host-app> <host
 
 Without a phase flag, submit, wait, staple, and reseal synchronously.
 --start uploads the signed helper and returns after persisting its submission.
---finish waits for that exact helper CDHash, staples it, and reseals the host.
+--finish waits for that exact helper slice set, staples it, and reseals the host.
 EOF
 }
 
@@ -47,18 +47,29 @@ DITTO_TOOL="${CMUX_DITTO_TOOL:-/usr/bin/ditto}"
 XCRUN_TOOL="${CMUX_XCRUN_TOOL:-xcrun}"
 CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"
 SPCTL_TOOL="${CMUX_SPCTL_TOOL:-spctl}"
+# shellcheck source=lib/notarization-ticket.sh
+source "$ROOT_DIR/scripts/ci/lib/notarization-ticket.sh"
 # Gatekeeper learns about a fresh notarization ticket from Apple's CDN, which
-# lags the notarytool "Accepted" status by up to a few minutes. A stapled,
-# valid helper can therefore still assess as "Unnotarized Developer ID" right
-# after stapling. Poll until it is accepted or the budget runs out.
-GATEKEEPER_ASSESS_ATTEMPTS="${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-20}"
+# lags the notarytool "Accepted" status: usually by a minute or two, but
+# nightly run 34208928547 (2026-09-08) was still rejected 4m50s after
+# "Accepted" and failed on the previous five-minute budget. A stapled, valid
+# helper can therefore assess as "Unnotarized Developer ID" for a while. Poll
+# until it is accepted or the budget runs out. The default budget is twenty
+# minutes (80 x 15s): a good ticket leaves the loop on its first acceptance,
+# so a larger budget only lengthens how long a genuinely rejected helper takes
+# to fail, whereas a short budget fails good releases whenever the CDN lags.
+# Both knobs stay env-configurable; the calling job's timeout must cover them.
+GATEKEEPER_ASSESS_ATTEMPTS="${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-80}"
 GATEKEEPER_ASSESS_DELAY_SECONDS="${CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS:-15}"
 
 assess_with_gatekeeper() {
   local target="$1" attempt=1
   while :; do
-    if "$SPCTL_TOOL" -a -vv --type execute "$target"; then
+    if "$SPCTL_TOOL" -a -vv --ignore-cache --no-cache --type execute "$target"; then
       return 0
+    fi
+    if [ "$attempt" -eq 1 ]; then
+      echo "Gatekeeper propagation budget: $GATEKEEPER_ASSESS_ATTEMPTS attempts x ${GATEKEEPER_ASSESS_DELAY_SECONDS}s (about $((GATEKEEPER_ASSESS_ATTEMPTS * GATEKEEPER_ASSESS_DELAY_SECONDS / 60)) minutes)"
     fi
     if [ "$attempt" -ge "$GATEKEEPER_ASSESS_ATTEMPTS" ]; then
       echo "Gatekeeper still rejects $target after $attempt attempts" >&2
@@ -106,9 +117,8 @@ HELPER_ZIP="$TMP_DIR/cmux-cua-notary.zip"
 STANDALONE_DIR="$TMP_DIR/standalone"
 STANDALONE_HELPER="$STANDALONE_DIR/cmux Computer Use.app"
 
-helper_cdhash() {
-  "$CODESIGN_TOOL" -d --verbose=4 "$HELPER_PATH" 2>&1 \
-    | awk -F= '/^CDHash=/ { print $2; exit }'
+helper_cdhashes() {
+  slice_cdhashes "$HELPER_PATH" | paste -sd ',' -
 }
 
 submission_value() {
@@ -128,6 +138,11 @@ start_submission() {
     exit 1
   fi
 
+  # A signing timestamp does not change a slice CDHash. Isolate this
+  # submission before signing so thin and universal builds cannot retrieve
+  # each other's notarization tickets through a shared CDHash.
+  isolate_helper_submission "$HELPER_PATH"
+
   # Give the helper its final Developer ID signature before upload. Later host
   # signing must use all-except-computer-use so this exact CDHash survives until
   # finish staples the ticket and re-seals only the outer app.
@@ -139,7 +154,7 @@ start_submission() {
     --entitlements "$HELPER_ENTITLEMENTS" \
     "$HELPER_PATH"
   "$CODESIGN_TOOL" --verify --strict --verbose=2 "$HELPER_PATH"
-  submitted_cdhash="$(helper_cdhash)"
+  submitted_cdhash="$(helper_cdhashes)"
   if [ -z "$submitted_cdhash" ]; then
     echo "Could not resolve Computer Use helper CDHash before notarization" >&2
     exit 1
@@ -162,7 +177,7 @@ start_submission() {
   umask 077
   {
     printf 'submission_id=%s\n' "$submit_id"
-    printf 'cdhash=%s\n' "$submitted_cdhash"
+    printf 'cdhashes=%s\n' "$submitted_cdhash"
   } > "$state_tmp"
   /bin/mv "$state_tmp" "$SUBMISSION_FILE"
   echo "Computer Use helper notarization submitted: $submit_id ($submit_status)"
@@ -175,13 +190,14 @@ finish_submission() {
     exit 1
   fi
   submit_id="$(submission_value submission_id)"
-  submitted_cdhash="$(submission_value cdhash)"
+  submitted_cdhash="$(submission_value cdhashes)"
   if [ -z "$submit_id" ] || [ -z "$submitted_cdhash" ]; then
     echo "Computer Use notarization state is incomplete: $SUBMISSION_FILE" >&2
     exit 1
   fi
 
-  current_cdhash="$(helper_cdhash)"
+  "$CODESIGN_TOOL" --verify --strict --verbose=2 "$HELPER_PATH"
+  current_cdhash="$(helper_cdhashes)"
   if [ "$current_cdhash" != "$submitted_cdhash" ]; then
     echo "Computer Use helper changed after notarization submission" >&2
     echo "  submitted CDHash: $submitted_cdhash" >&2
@@ -214,9 +230,12 @@ finish_submission() {
   "$XCRUN_TOOL" notarytool log "$submit_id" \
     --apple-id "$APPLE_ID" \
     --team-id "$APPLE_TEAM_ID" \
-    --password "$APPLE_APP_SPECIFIC_PASSWORD"
+    --password "$APPLE_APP_SPECIFIC_PASSWORD" > "$TMP_DIR/notary-log.json"
+  cat "$TMP_DIR/notary-log.json"
+  verify_ticket_contents_cover_slices "$TMP_DIR/notary-log.json" "$HELPER_PATH"
   "$XCRUN_TOOL" stapler staple "$HELPER_PATH"
   "$XCRUN_TOOL" stapler validate "$HELPER_PATH"
+  verify_stapled_ticket_covers_slices "$HELPER_PATH"
   "$CODESIGN_TOOL" --verify --strict --verbose=2 "$HELPER_PATH"
 
   # Validate the same shape the runtime launches: a standalone copy outside the
@@ -224,6 +243,7 @@ finish_submission() {
   mkdir -p "$STANDALONE_DIR"
   "$DITTO_TOOL" "$HELPER_PATH" "$STANDALONE_HELPER"
   "$XCRUN_TOOL" stapler validate "$STANDALONE_HELPER"
+  verify_stapled_ticket_covers_slices "$STANDALONE_HELPER"
   "$CODESIGN_TOOL" --verify --strict --verbose=2 "$STANDALONE_HELPER"
   assess_with_gatekeeper "$STANDALONE_HELPER"
 
@@ -233,6 +253,7 @@ finish_submission() {
     "$SIGN_BUNDLE_TOOL" "$APP_PATH" "$APP_ENTITLEMENTS" "$SIGNING_IDENTITY"
   "$CODESIGN_TOOL" --verify --deep --strict --verbose=2 "$APP_PATH"
   "$XCRUN_TOOL" stapler validate "$HELPER_PATH"
+  verify_stapled_ticket_covers_slices "$HELPER_PATH"
   rm -f "$SUBMISSION_FILE"
 
   echo "Computer Use helper notarized and stapled: $HELPER_PATH"

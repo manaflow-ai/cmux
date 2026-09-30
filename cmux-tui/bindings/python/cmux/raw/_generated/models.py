@@ -42,6 +42,7 @@ class AgentReportSource(str, Enum):
     HOOK = 'hook'
 
 class AgentSource(str, Enum):
+    PLUGIN = 'plugin'
     DETECTED = 'detected'
     SOCKET = 'socket'
     HOOK = 'hook'
@@ -66,6 +67,12 @@ class CursorStyle(str, Enum):
     BLOCK = 'block'
     UNDERLINE = 'underline'
     BAR = 'bar'
+
+class DetachReason(str, Enum):
+    NETWORK = 'network'
+    DISCONNECTED_BY = 'disconnected-by'
+    HOST_SHUTDOWN = 'host-shutdown'
+    SUPERSEDED = 'superseded'
 
 class FrontendFocusTarget(str, Enum):
     PANE = 'pane'
@@ -100,6 +107,30 @@ class ServerStatsWriterPhase(str, Enum):
     IDLE = 'idle'
     WAITING_LOCK = 'waiting_lock'
     COMMITTING = 'committing'
+
+class SizeDeviceKind(str, Enum):
+    MAC = 'mac'
+    IPHONE = 'iphone'
+    IPAD = 'ipad'
+    TUI = 'tui'
+    BROWSER = 'browser'
+    UNKNOWN = 'unknown'
+
+class SizeMode(str, Enum):
+    LATEST = 'latest'
+    SMALLEST = 'smallest'
+    LARGEST = 'largest'
+    PRIORITY = 'priority'
+    FIXED = 'fixed'
+
+class SizeReason(str, Enum):
+    LATEST = 'latest'
+    SMALLEST = 'smallest'
+    LARGEST = 'largest'
+    PRIORITY = 'priority'
+    FIXED = 'fixed'
+    HELD = 'held'
+    PRIORITY_FALLBACK = 'priority-fallback'
 
 class SplitDirection(str, Enum):
     RIGHT = 'right'
@@ -274,6 +305,7 @@ class AttachedViewResizeResult:
     accepted: bool
     outcome: ViewAttachmentOutcome
     reservation_id: Union[int, None]
+    participant: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -497,6 +529,37 @@ class GetCellPixelsResult:
 
 
 @dataclass(frozen=True)
+class GetSizeStateResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GetSizeStateResult'
+    self_participant: Union[str, None]
+    state: SizeState
+
+
+@dataclass(frozen=True)
+class GuestUrlAcknowledgeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlAcknowledgeResult'
+    accepted: bool
+
+
+@dataclass(frozen=True)
+class GuestUrlClaimResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlClaimResult'
+    claimed: bool
+
+
+@dataclass(frozen=True)
+class GuestUrlOpenResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlOpenResult'
+    opened: bool
+
+
+@dataclass(frozen=True)
+class GuestUrlSubscribeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlSubscribeResult'
+    url_open_ready: bool
+
+
+@dataclass(frozen=True)
 class IdMapping:
     __cmux_schema_path__: ClassVar[str] = 'types/IdMapping'
     id: Id
@@ -674,6 +737,13 @@ class MoveTerminalResult:
 
 
 @dataclass(frozen=True)
+class NoteSizeActivityResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/NoteSizeActivityResult'
+    changed: bool
+    participant: str
+
+
+@dataclass(frozen=True)
 class NotificationMarker:
     __cmux_schema_path__: ClassVar[str] = 'types/NotificationMarker'
     level: NotificationLevel
@@ -710,6 +780,7 @@ class ProcessInfoResult:
     cwd: Union[str, None]
     pid: Union[int, None]
     foreground_cwd: Union[str, None, MissingType] = field(default=MISSING)
+    foreground_executable: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -992,6 +1063,27 @@ class SetCellPixelsResult:
 
 
 @dataclass(frozen=True)
+class SetSizeCountsResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetSizeCountsResult'
+    outcome: ViewAttachmentOutcome
+    changed: Union[bool, MissingType] = field(default=MISSING)
+    participant: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetSizePolicyResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetSizePolicyResult'
+    state: Union[SizeState, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetTerminalIdlePolicyResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetTerminalIdlePolicyResult'
+    terminal_id: str
+    idle_close_seconds: Union[int, None]
+
+
+@dataclass(frozen=True)
 class ShutdownDaemonResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ShutdownDaemonResult'
     accepted: Literal[True]
@@ -1012,6 +1104,58 @@ class Size:
     __cmux_schema_path__: ClassVar[str] = 'types/Size'
     cols: int
     rows: int
+
+
+@dataclass(frozen=True)
+class SizeDetachActor:
+    __cmux_schema_path__: ClassVar[str] = 'types/SizeDetachActor'
+    device_name: Union[str, None, MissingType] = field(default=MISSING)
+    display_name: Union[str, None, MissingType] = field(default=MISSING)
+    user_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SizeParticipant:
+    __cmux_schema_path__: ClassVar[str] = 'types/SizeParticipant'
+    counts: bool
+    counts_override: Union[bool, None]
+    device_kind: SizeDeviceKind
+    device_name: Union[str, None]
+    display_name: Union[str, None]
+    id: str
+    priority_key: str
+    user_id: Union[str, None]
+    via: Union[str, None]
+    viewport: Union[Size, None]
+
+
+@dataclass(frozen=True)
+class SizePolicy:
+    __cmux_schema_path__: ClassVar[str] = 'types/SizePolicy'
+    fixed: Union[Size, None, MissingType] = field(default=MISSING)
+    mode: Union[SizeMode, MissingType] = field(default=MISSING)
+    priority: Union[List[str], MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SizeState:
+    __cmux_schema_path__: ClassVar[str] = 'types/SizeState'
+    cols: int
+    generation: int
+    owners: List[str]
+    participants: List[SizeParticipant]
+    policy: SizePolicy
+    reason: SizeReason
+    rows: int
+
+
+@dataclass(frozen=True)
+class SizingIdentity:
+    __cmux_schema_path__: ClassVar[str] = 'types/SizingIdentity'
+    device_kind: Union[str, None, MissingType] = field(default=MISSING)
+    device_name: Union[str, None, MissingType] = field(default=MISSING)
+    display_name: Union[str, None, MissingType] = field(default=MISSING)
+    user_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1044,6 +1188,14 @@ class Tab:
 
 
 @dataclass(frozen=True)
+class TerminalColorOverrides:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalColorOverrides'
+    bg: Union[ColorHex, None]
+    cursor: Union[ColorHex, None]
+    fg: Union[ColorHex, None]
+
+
+@dataclass(frozen=True)
 class TerminalColors:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalColors'
     bg: Union[ColorHex, None]
@@ -1053,6 +1205,7 @@ class TerminalColors:
     cursor: Union[ColorHex, None, MissingType] = field(default=MISSING)
     cursor_blink: Union[bool, None, MissingType] = field(default=MISSING)
     cursor_style: Union[CursorStyle, None, MissingType] = field(default=MISSING)
+    overrides: Union[TerminalColorOverrides, MissingType] = field(default=MISSING)
     palette: Union[Dict[str, ColorHex], MissingType] = field(default=MISSING)
 
 
@@ -1236,8 +1389,10 @@ class ApplyLayoutRequest:
 @dataclass(frozen=True)
 class AttachSurfaceRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/attach-surface/request'
-    surface: Id
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
+    expected_generation: Union[str, None, MissingType] = field(default=MISSING)
+    expected_terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
 
@@ -1487,13 +1642,15 @@ class CreateWorkspaceRequest:
 class DetachAttachedViewRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/detach-attached-view/request'
     surface: Id
-    lease: str
+    lease: Union[str, None, MissingType] = field(default=MISSING)
+    view: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
 class DetachClientRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/detach-client/request'
-    client: int
+    client: DetachClientTarget
+    by: Union[SizeDetachActor, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1533,6 +1690,12 @@ class GetFrontendProjectionRequest:
     frontend: str
     scope: str
     subject_key: str
+
+
+@dataclass(frozen=True)
+class GetSizeStateRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/get-size-state/request'
+    surface: Id
 
 
 @dataclass(frozen=True)
@@ -1625,6 +1788,13 @@ class MoveTabRequest:
 
 
 @dataclass(frozen=True)
+class MoveTabToWorkspaceRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-to-workspace/request'
+    surface: Id
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class MoveTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/move-terminal/request'
     terminal_id: str
@@ -1700,6 +1870,13 @@ class NewWorkspaceRequest:
 
 
 @dataclass(frozen=True)
+class NoteSizeActivityRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/note-size-activity/request'
+    surface: Id
+    view: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class NotifyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/notify/request'
     title: str
@@ -1720,6 +1897,26 @@ class PaneNeighborRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/pane-neighbor/request'
     pane: Id
     dir: PaneDirection
+
+
+@dataclass(frozen=True)
+class PasteImageRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/paste-image/request'
+    surface: Id
+    terminal_id: str
+    lease: str
+    op: str
+    upload_id: str
+    data: Union[str, None, MissingType] = field(default=MISSING)
+    mime: Union[str, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    size: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class PasteImageResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/paste-image/result'
+    accepted: bool
 
 
 @dataclass(frozen=True)
@@ -1777,7 +1974,8 @@ class RegisterBrowserProviderRequest:
 class ReleaseAttachedViewSizeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/release-attached-view-size/request'
     surface: Id
-    lease: str
+    lease: Union[str, None, MissingType] = field(default=MISSING)
+    view: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1863,8 +2061,10 @@ class ResizeAttachedViewRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/resize-attached-view/request'
     surface: Id
     cols: int
-    lease: str
     rows: int
+    identity: Union[SizingIdentity, None, MissingType] = field(default=MISSING)
+    lease: Union[str, None, MissingType] = field(default=MISSING)
+    view: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1959,6 +2159,10 @@ class SetClientInfoRequest:
     name: Union[str, None, MissingType] = field(default=MISSING)
     kind: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], None, MissingType] = field(default=MISSING)
+    device_kind: Union[str, None, MissingType] = field(default=MISSING)
+    device_name: Union[str, None, MissingType] = field(default=MISSING)
+    display_name: Union[str, None, MissingType] = field(default=MISSING)
+    user_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1993,11 +2197,38 @@ class SetRatioRequest:
 
 
 @dataclass(frozen=True)
+class SetSizeCountsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-size-counts/request'
+    surface: Id
+    client: Union[int, None, MissingType] = field(default=MISSING)
+    counts: Union[bool, None, MissingType] = field(default=MISSING)
+    lease: Union[str, None, MissingType] = field(default=MISSING)
+    participant: Union[str, None, MissingType] = field(default=MISSING)
+    view: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetSizePolicyRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-size-policy/request'
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    policy: Union[SizePolicy, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetSplitRatioRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-split-ratio/request'
     split: Id
     ratio: float
     transaction: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetTerminalIdlePolicyRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-terminal-idle-policy/request'
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    idle_close_seconds: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2075,6 +2306,32 @@ class UnregisterBrowserProviderRequest:
 
 
 @dataclass(frozen=True)
+class UrlOpenRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/url-open/request'
+    terminal_id: str
+    url: str
+
+
+@dataclass(frozen=True)
+class UrlOpenClaimRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/url-open-claim/request'
+    request_id: str
+
+
+@dataclass(frozen=True)
+class UrlOpenResultRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/url-open-result/request'
+    opened: bool
+    request_id: str
+
+
+@dataclass(frozen=True)
+class UrlOpenSubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/url-open-subscribe/request'
+    terminal_ids: List[str]
+
+
+@dataclass(frozen=True)
 class VtStateRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/vt-state/request'
     surface: Id
@@ -2104,6 +2361,7 @@ class AgentChangedEvent(EventBase):
     source: AgentSource
     state: AgentState
     updated_at_ms: int
+    agent: Union[str, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -2179,6 +2437,7 @@ class ColorsChangedEvent(EventBase):
     cursor: Union[ColorHex, None, MissingType] = field(default=MISSING)
     cursor_blink: Union[bool, None, MissingType] = field(default=MISSING)
     cursor_style: Union[CursorStyle, None, MissingType] = field(default=MISSING)
+    overrides: Union[TerminalColorOverrides, MissingType] = field(default=MISSING)
     palette: Union[Dict[str, ColorHex], MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -2202,6 +2461,9 @@ class DetachedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/detached/payload'
     surface: Id
     event: Literal['detached']
+    by: Union[SizeDetachActor, MissingType] = field(default=MISSING)
+    reason: Union[DetachReason, MissingType] = field(default=MISSING)
+    view: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -2434,6 +2696,16 @@ class ScrollChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class SizeStateEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/size-state/payload'
+    surface: Id
+    event: Literal['size-state']
+    state: SizeState
+    self_participant: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class StatusEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/status/payload'
     event: Literal['status']
@@ -2547,6 +2819,16 @@ class TreeChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class UrlOpenEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/url-open/payload'
+    terminal_id: str
+    event: Literal['url-open']
+    request_id: str
+    url: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class VtStateEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/vt-state/payload'
     surface: Id
@@ -2631,6 +2913,7 @@ class WorkspaceRenamedEvent(EventBase):
 Base64 = str
 ColorHex = str
 DeclarativeLayout = Union[DeclarativeLayoutLeaf, DeclarativeLayoutSplit, DeclarativeLayoutStack]
+DetachClientTarget = Any
 FrontendJournalEvent = Union[FrontendJournalEventFocus, FrontendJournalEventResize, FrontendJournalEventViewport]
 Id = int
 JsonValue = Any
@@ -2639,7 +2922,7 @@ LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -2655,12 +2938,16 @@ __all__ = [
     'BrowserProviderAuthentication',
     'ClientTransport',
     'CursorStyle',
+    'DetachReason',
     'FrontendFocusTarget',
     'NotificationLevel',
     'PaneDirection',
     'RenderGraphicFormat',
     'RenderUnderline',
     'ServerStatsWriterPhase',
+    'SizeDeviceKind',
+    'SizeMode',
+    'SizeReason',
     'SplitDirection',
     'TerminalKey',
     'TerminalKeyAction',
@@ -2695,6 +2982,11 @@ __all__ = [
     'FrontendJournalEventViewport',
     'FrontendProjection',
     'GetCellPixelsResult',
+    'GetSizeStateResult',
+    'GuestUrlAcknowledgeResult',
+    'GuestUrlClaimResult',
+    'GuestUrlOpenResult',
+    'GuestUrlSubscribeResult',
     'IdMapping',
     'IdentifyResult',
     'IdsResult',
@@ -2713,6 +3005,7 @@ __all__ = [
     'MachineUsageResult',
     'MintTerminalRendererResult',
     'MoveTerminalResult',
+    'NoteSizeActivityResult',
     'NotificationMarker',
     'NotifyResult',
     'PaneNeighborResult',
@@ -2743,11 +3036,20 @@ __all__ = [
     'ServerStatsRegistryLock',
     'ServerStatsResult',
     'SetCellPixelsResult',
+    'SetSizeCountsResult',
+    'SetSizePolicyResult',
+    'SetTerminalIdlePolicyResult',
     'ShutdownDaemonResult',
     'SidebarPluginResult',
     'Size',
+    'SizeDetachActor',
+    'SizeParticipant',
+    'SizePolicy',
+    'SizeState',
+    'SizingIdentity',
     'SurfaceResult',
     'Tab',
+    'TerminalColorOverrides',
     'TerminalColors',
     'TerminalEventsResult',
     'TerminalExit',
@@ -2802,6 +3104,7 @@ __all__ = [
     'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
     'GetFrontendProjectionRequest',
+    'GetSizeStateRequest',
     'IdentifyRequest',
     'IdsRequest',
     'JournalFrontendEventRequest',
@@ -2816,6 +3119,7 @@ __all__ = [
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
     'MoveTabRequest',
+    'MoveTabToWorkspaceRequest',
     'MoveTerminalRequest',
     'MoveWorkspaceRequest',
     'NewBrowserTabRequest',
@@ -2824,9 +3128,12 @@ __all__ = [
     'NewScreenRequest',
     'NewTabRequest',
     'NewWorkspaceRequest',
+    'NoteSizeActivityRequest',
     'NotifyRequest',
     'PairingResponseRequest',
     'PaneNeighborRequest',
+    'PasteImageRequest',
+    'PasteImageResult',
     'PingRequest',
     'ProcessInfoRequest',
     'PutFrontendProjectionRequest',
@@ -2860,7 +3167,10 @@ __all__ = [
     'SetClientSizingRequest',
     'SetDefaultColorsRequest',
     'SetRatioRequest',
+    'SetSizeCountsRequest',
+    'SetSizePolicyRequest',
     'SetSplitRatioRequest',
+    'SetTerminalIdlePolicyRequest',
     'SetViewportPaneWidthRequest',
     'SetWindowTitleRequest',
     'ShutdownDaemonRequest',
@@ -2871,6 +3181,10 @@ __all__ = [
     'TerminalEventsRequest',
     'UndoLayoutRequest',
     'UnregisterBrowserProviderRequest',
+    'UrlOpenRequest',
+    'UrlOpenClaimRequest',
+    'UrlOpenResultRequest',
+    'UrlOpenSubscribeRequest',
     'VtStateRequest',
     'WaitForRequest',
     'ZoomPaneRequest',
@@ -2905,6 +3219,7 @@ __all__ = [
     'ScreenClosedEvent',
     'ScreenRenamedEvent',
     'ScrollChangedEvent',
+    'SizeStateEvent',
     'StatusEvent',
     'SurfaceExitedEvent',
     'SurfaceOutputEvent',
@@ -2916,6 +3231,7 @@ __all__ = [
     'TerminalRegistryChangedEvent',
     'TitleChangedEvent',
     'TreeChangedEvent',
+    'UrlOpenEvent',
     'VtStateEvent',
     'WindowTitleRequestedEvent',
     'WorkspaceAddedEvent',
@@ -2925,6 +3241,7 @@ __all__ = [
     'Base64',
     'ColorHex',
     'DeclarativeLayout',
+    'DetachClientTarget',
     'FrontendJournalEvent',
     'Id',
     'JsonValue',

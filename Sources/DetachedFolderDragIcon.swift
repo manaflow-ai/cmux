@@ -117,7 +117,9 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard bounds.contains(point) else { return nil }
+        // `point` is in the superview's coordinate space (AppKit contract), so
+        // the icon's own frame, not its bounds, decides whether it was hit.
+        guard frame.contains(point) else { return nil }
         let hit = super.hitTest(point)
         #if DEBUG
         let hitDesc = hit.map { String(describing: type(of: $0)) } ?? "nil"

@@ -3,7 +3,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import {
-  CloudVmPublicationRepository,
   type CloudVmPublicationRepositoryShape,
 } from "../services/vm-publications/repository";
 import {
@@ -21,6 +20,8 @@ import {
   randomPublicationToken,
 } from "../services/vm-publications/security";
 
+import { PublicationAuthRepository as CloudVmPublicationRepository } from "../services/vm-publications/authRepository";
+
 const now = new Date("2026-09-02T12:00:00.000Z");
 const publication = {
   id: "publication-1",
@@ -36,11 +37,35 @@ const domain = { hostname: "example.com" };
 const target = { publication, domain, vm: { providerVmId: "vm-1", userId: publication.ownerUserId, billingTeamId: publication.ownerUserId } };
 
 describe("Cloud VM publication auth exchange", () => {
+  test("concurrent owner checks use one publication/session read per request", async () => {
+    const sessionToken = randomPublicationToken();
+    const reads: unknown[] = [];
+    const repository = authRepository({
+      findRequestContext: (input) => {
+        reads.push(input);
+        return Effect.succeed({
+          ...target,
+          session: { userId: publication.ownerUserId },
+        } as never);
+      },
+      findActivePublicationForRequest: () => Effect.die("unexpected separate publication read"),
+      findValidSession: () => Effect.die("unexpected separate session read"),
+    });
+    const results = await Promise.all(Array.from({ length: 32 }, () => run(
+      evaluatePublicationRequest({ providerTlsRuleId: "tls-rule-1", method: "GET", sessionToken, now }),
+      repository,
+      { resolve: () => Effect.die("owner access must not call Stack") },
+    )));
+    expect(results).toEqual(Array.from({ length: 32 }, () => ({ kind: "allow" })));
+    expect(reads).toEqual(Array.from({ length: 32 }, () => ({
+      providerTlsRuleId: "tls-rule-1", sessionTokenHash: hashPublicationToken(sessionToken), now,
+    })));
+  });
+
   test("removes a personal-mode owner's team VM session when team membership ends", async () => {
     const teamTarget = { ...target, vm: { ...target.vm, userId: publication.ownerUserId, billingTeamId: "team-1" } };
     const repository = authRepository({
-      findActivePublicationForRequest: () => Effect.succeed(teamTarget as never),
-      findValidSession: () => Effect.succeed({ session: { userId: publication.ownerUserId }, publication, domain } as never),
+      findRequestContext: () => Effect.succeed({ ...teamTarget, session: { userId: publication.ownerUserId } } as never),
       hasEmailGrant: () => Effect.succeed(false),
     });
     let teamIds = ["team-1"];
@@ -75,7 +100,7 @@ describe("Cloud VM publication auth exchange", () => {
   test("starts a PKCE-bound transaction and redirects only safe browser methods", async () => {
     const created: { current: Record<string, unknown> | null } = { current: null };
     const repository = authRepository({
-      findActivePublicationForRequest: () => Effect.succeed(target as never),
+      findRequestContext: () => Effect.succeed({ ...target, session: null } as never),
       createAuthTransaction: (input) => {
         created.current = input as unknown as Record<string, unknown>;
         return Effect.succeed(input as never);
@@ -129,7 +154,7 @@ describe("Cloud VM publication auth exchange", () => {
 
   test("evaluation reports that sign-in is required without minting a transaction", async () => {
     const repository = authRepository({
-      findActivePublicationForRequest: () => Effect.succeed(target as never),
+      findRequestContext: () => Effect.succeed({ ...target, session: null } as never),
       createAuthTransaction: () => Effect.die("evaluation must not write"),
     });
     const evaluation = await run(
@@ -148,12 +173,7 @@ describe("Cloud VM publication auth exchange", () => {
     const sessionToken = randomPublicationToken();
     let transactionCreated = false;
     const personalRepository = authRepository({
-      findActivePublicationForRequest: () => Effect.succeed(target as never),
-      findValidSession: () => Effect.succeed({
-        session: { userId: publication.ownerUserId },
-        publication,
-        domain,
-      } as never),
+      findRequestContext: () => Effect.succeed({ ...target, session: { userId: publication.ownerUserId } } as never),
       createAuthTransaction: () => {
         transactionCreated = true;
         return Effect.die("unexpected transaction");
@@ -180,14 +200,8 @@ describe("Cloud VM publication auth exchange", () => {
       teamId: "team-1",
     };
     const teamRepository = authRepository({
-      findActivePublicationForRequest: () => Effect.succeed({
-        ...target,
-        publication: teamPublication,
-      } as never),
-      findValidSession: () => Effect.succeed({
-        session: { userId: "viewer-1" },
-        publication: teamPublication,
-        domain,
+      findRequestContext: () => Effect.succeed({
+        ...target, publication: teamPublication, session: { userId: "viewer-1" },
       } as never),
       createAuthTransaction: (input) => Effect.succeed(input as never),
     });

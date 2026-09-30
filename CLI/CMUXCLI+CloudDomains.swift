@@ -217,7 +217,7 @@ extension CMUXCLI {
     private static func confirmPublicPublication(_ publication: [String: Any], confirmed: Bool) throws {
         let format = String(localized: "cli.cloud.domains.confirmPublic", defaultValue: "Public access lets anyone open %@ (VM %@, port %@). Continue? [y/N]")
         let warning = String(format: format, publication["hostname"] as? String ?? "?", publication["vmId"] as? String ?? "?", String(Self.intValue(publication["port"]) ?? 0))
-        FileHandle.standardError.write(Data((warning + "\n").utf8))
+        cliWriteStderr(warning + "\n")
         if !confirmed && readLine()?.lowercased() != "y" {
             throw CLIError(message: String(localized: "cli.cloud.domains.publicCancelled", defaultValue: "Public access was not enabled."))
         }

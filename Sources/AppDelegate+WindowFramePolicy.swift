@@ -67,7 +67,8 @@ extension AppDelegate {
     /// Pure and `nonisolated` so it is unit-testable without live `NSScreen`s.
     nonisolated static func reconciledFrameAfterScreenChange(
         frame: CGRect,
-        availableDisplays: [SessionDisplayGeometry]
+        availableDisplays: [SessionDisplayGeometry],
+        topologyTrusted: Bool = true
     ) -> CGRect? {
         guard frame.width.isFinite,
               frame.height.isFinite,
@@ -78,6 +79,7 @@ extension AppDelegate {
               !availableDisplays.isEmpty else {
             return nil
         }
+        guard topologyTrusted else { return nil }
 
         // Already reachable on some display? Leave it untouched so windows on
         // displays the reconfiguration did not affect are not disturbed.

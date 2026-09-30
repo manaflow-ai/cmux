@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileHost
 import Combine
 import CmuxNotifications
 import CmuxSimulator

@@ -1,3 +1,4 @@
+import { runWithCloudDbQueryTags } from "../../db/queryTags";
 import { createHash } from "node:crypto";
 import * as Effect from "effect/Effect";
 import type * as Layer from "effect/Layer";
@@ -30,7 +31,7 @@ export type IrohRouteOperation =
 type RouteDependencies = {
   readonly verify?: (
     request: Request,
-    options: { readonly allowCookie: false; readonly requireStackSession: boolean },
+    options: { readonly allowCookie: false; readonly requireStackSession: boolean; readonly allowStackFallback: false },
   ) => Promise<{ readonly id: string } | null>;
   readonly broker?: IrohTrustBrokerShape;
   readonly runtime?: Layer.Layer<IrohTrustBroker, never, never>;
@@ -43,21 +44,54 @@ type RouteDependencies = {
   ) => void;
 };
 
+/**
+ * Route template for one broker operation, used as the bounded SQLCommenter
+ * `route` tag so PlanetScale Insights can attribute load per operation. Two
+ * operations share the collection route because they differ only by verb.
+ */
+export function irohRouteTemplate(operation: IrohRouteOperation): string {
+  switch (operation) {
+    case "challenge": return "/api/devices/iroh/challenge";
+    case "register": return "/api/devices/iroh/register";
+    case "endpoint_attestation": return "/api/devices/iroh/endpoint-attestations";
+    case "pair_grant": return "/api/devices/iroh/pair-grants";
+    case "relay_token": return "/api/devices/iroh/relay-token";
+    case "discover":
+    case "revoke":
+      return "/api/devices/iroh";
+  }
+}
+
+export function handleTaggedIrohRoute(
+  request: Request,
+  operation: IrohRouteOperation,
+  dependencies: RouteDependencies = {},
+): Promise<Response> {
+  // The broker routes bypass withApiRouteSpan (they verify tokens locally to
+  // stay off Stack's budget), so they set their own Cloud DB query tags here.
+  return runWithCloudDbQueryTags(
+    { source: "app", route: irohRouteTemplate(operation) },
+    async () => await handleIrohRoute(request, operation, dependencies),
+  );
+}
+
 export async function handleIrohRoute(
   request: Request,
   operation: IrohRouteOperation,
   dependencies: RouteDependencies = {},
 ): Promise<Response> {
   // Identity only: the broker needs the user id, and local token verification
-  // keeps the ~100 req/s registration traffic off Stack's per-request API
-  // budget. Pair grants, revocation, and relay tokens are rare and sensitive,
-  // so they still ask Stack and refuse a revoked session immediately.
+  // keeps routine Iroh traffic off Stack's per-request API budget. Pair grants
+  // and revocation still ask Stack and refuse a revoked session immediately.
+  // Relay credentials are short lived and account-scoped by the broker, so a
+  // locally verified access token is the appropriate identity proof there.
   const verify = dependencies.verify ?? verifyRequestIdentity;
   let user: { readonly id: string } | null;
   try {
     user = await verify(request, {
       allowCookie: false,
       requireStackSession: requiresStackSession(operation),
+      allowStackFallback: false,
     });
   } catch (error) {
     // A Stack Auth throttle or outage is not the caller's fault. Answering 401
@@ -219,8 +253,9 @@ export function requiresStackSession(operation: IrohRouteOperation): boolean {
       return false;
     case "revoke":
     case "pair_grant":
-    case "relay_token":
       return true;
+    case "relay_token":
+      return false;
   }
 }
 

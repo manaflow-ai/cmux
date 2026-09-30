@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86.
+// cmux-tui mux protocol 12, IR 70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -10,6 +10,8 @@ use std::collections::BTreeMap;
 pub type Base64 = String;
 #[rustfmt::skip]
 pub type ColorHex = String;
+#[rustfmt::skip]
+pub type DetachClientTarget = serde_json::Value;
 #[rustfmt::skip]
 pub type Id = u64;
 #[rustfmt::skip]
@@ -37,6 +39,8 @@ pub enum AgentReportSource {
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentSource {
+    #[serde(rename = "plugin")]
+    Plugin,
     #[serde(rename = "detected")]
     Detected,
     #[serde(rename = "socket")]
@@ -85,6 +89,8 @@ pub struct AttachedViewOutcomeResult {
 pub struct AttachedViewResizeResult {
     pub accepted: bool,
     pub outcome: ViewAttachmentOutcome,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub participant: Option<String>,
     pub reservation_id: Nullable<u64>,
 }
 
@@ -268,6 +274,19 @@ pub enum DeclarativeLayout {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DetachReason {
+    #[serde(rename = "network")]
+    Network,
+    #[serde(rename = "disconnected-by")]
+    DisconnectedBy,
+    #[serde(rename = "host-shutdown")]
+    HostShutdown,
+    #[serde(rename = "superseded")]
+    Superseded,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct EmptyResult {
 }
@@ -370,6 +389,37 @@ pub struct GetCellPixelsResult {
     pub height_px: u16,
     pub surfaces: Vec<CellPixelSurface>,
     pub width_px: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetSizeStateResult {
+    pub self_participant: Nullable<String>,
+    pub state: SizeState,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuestUrlAcknowledgeResult {
+    pub accepted: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuestUrlClaimResult {
+    pub claimed: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuestUrlOpenResult {
+    pub opened: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuestUrlSubscribeResult {
+    pub url_open_ready: bool,
 }
 
 #[rustfmt::skip]
@@ -576,6 +626,13 @@ pub struct MoveTerminalResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NoteSizeActivityResult {
+    pub changed: bool,
+    pub participant: String,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NotificationLevel {
     #[serde(rename = "info")]
@@ -647,6 +704,9 @@ pub struct ProcessInfoResult {
     /// Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub foreground_cwd: Optional<String>,
+    /// Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub foreground_executable: Optional<String>,
     pub pid: Nullable<u32>,
 }
 
@@ -992,6 +1052,30 @@ pub struct SetCellPixelsResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetSizeCountsResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub changed: Option<bool>,
+    pub outcome: ViewAttachmentOutcome,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub participant: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SetSizePolicyResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub state: Option<SizeState>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTerminalIdlePolicyResult {
+    pub idle_close_seconds: Nullable<u64>,
+    pub terminal_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShutdownDaemonResult {
     pub accepted: bool,
     pub generation: String,
@@ -1011,6 +1095,119 @@ pub struct SidebarPluginResult {
 pub struct Size {
     pub cols: u16,
     pub rows: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SizeDetachActor {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub device_name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub display_name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub user_id: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SizeDeviceKind {
+    #[serde(rename = "mac")]
+    Mac,
+    #[serde(rename = "iphone")]
+    Iphone,
+    #[serde(rename = "ipad")]
+    Ipad,
+    #[serde(rename = "tui")]
+    Tui,
+    #[serde(rename = "browser")]
+    Browser,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SizeMode {
+    #[serde(rename = "latest")]
+    Latest,
+    #[serde(rename = "smallest")]
+    Smallest,
+    #[serde(rename = "largest")]
+    Largest,
+    #[serde(rename = "priority")]
+    Priority,
+    #[serde(rename = "fixed")]
+    Fixed,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SizeParticipant {
+    pub counts: bool,
+    pub counts_override: Nullable<bool>,
+    pub device_kind: SizeDeviceKind,
+    pub device_name: Nullable<String>,
+    pub display_name: Nullable<String>,
+    pub id: String,
+    pub priority_key: String,
+    pub user_id: Nullable<String>,
+    pub via: Nullable<String>,
+    pub viewport: Nullable<Size>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SizePolicy {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub fixed: Optional<Size>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub mode: Option<SizeMode>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub priority: Option<Vec<String>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SizeReason {
+    #[serde(rename = "latest")]
+    Latest,
+    #[serde(rename = "smallest")]
+    Smallest,
+    #[serde(rename = "largest")]
+    Largest,
+    #[serde(rename = "priority")]
+    Priority,
+    #[serde(rename = "fixed")]
+    Fixed,
+    #[serde(rename = "held")]
+    Held,
+    #[serde(rename = "priority-fallback")]
+    PriorityFallback,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SizeState {
+    pub cols: u16,
+    pub generation: u64,
+    pub owners: Vec<String>,
+    pub participants: Vec<SizeParticipant>,
+    pub policy: SizePolicy,
+    pub reason: SizeReason,
+    pub rows: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SizingIdentity {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub device_kind: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub device_name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub display_name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub user_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1093,6 +1290,14 @@ pub struct Tab {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalColorOverrides {
+    pub bg: Nullable<ColorHex>,
+    pub cursor: Nullable<ColorHex>,
+    pub fg: Nullable<ColorHex>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalColors {
     pub bg: Nullable<ColorHex>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1102,6 +1307,8 @@ pub struct TerminalColors {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cursor_style: Optional<CursorStyle>,
     pub fg: Nullable<ColorHex>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub overrides: Option<TerminalColorOverrides>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub palette: Option<BTreeMap<String, ColorHex>>,
     pub selection_bg: Nullable<ColorHex>,

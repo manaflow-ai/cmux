@@ -21,17 +21,11 @@ final class AgentSessionProcessStore {
             throw AgentSessionBridgeError.sessionAlreadyRunning
         }
         let sessionId = UUID().uuidString
-        let process = Process()
         let launchArguments = plan.arguments
         let launchEnvironment = plan.environment(overridingWorkingDirectory: workingDirectory)
-        process.executableURL = plan.executableURL
-        process.arguments = launchArguments
-        process.environment = launchEnvironment
-        if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !workingDirectory.isEmpty {
-            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
-                .standardizedFileURL
-        }
+        let process = try AgentSessionOwnedProcessLauncher().prepare(
+            plan: plan, workingDirectory: workingDirectory, environment: launchEnvironment
+        )
 
         let stdin = Pipe()
         let stdout = Pipe()

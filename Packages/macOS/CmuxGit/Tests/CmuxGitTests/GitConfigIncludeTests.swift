@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxGit
 
-private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
+private struct FixedGitReferenceReader: GitReferenceReading {
     let branchName: String?
 
     func snapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {

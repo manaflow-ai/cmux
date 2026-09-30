@@ -59,12 +59,13 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         return store
     }
 
-    func testMobilePairingActionMetadataNamesTailscale() {
+    func testMobilePairingActionMetadataNamesMobilePairing() {
         let metadata = CmuxSurfaceTabBarBuiltInAction.mobileConnect.resolvedConfigMetadata
 
-        XCTAssertTrue(
-            metadata.title.localizedCaseInsensitiveContains("tailscale"),
-            "The configurable action title should identify the Tailscale pairing flow"
+        XCTAssertEqual(
+            metadata.title,
+            String(localized: "command.mobileConnect.title", defaultValue: "Open Mobile Pairing"),
+            "The configurable action title should identify the mobile pairing flow"
         )
         XCTAssertTrue(
             metadata.keywords.contains("tailscale"),
@@ -120,15 +121,22 @@ final class CmuxConfigContextMenuTests: XCTestCase {
     }
 
     @MainActor
-    func testDefaultNewWorkspaceContextMenuCustomSectionIsNewWorkspaceOnly() throws {
+    func testDefaultNewWorkspaceContextMenuIncludesStandardActionsInOrder() throws {
         let store = try loadStore()
 
-        XCTAssertEqual(store.newWorkspaceContextMenuItems.count, 1)
-        guard store.newWorkspaceContextMenuItems.count == 1 else { return }
-        guard case .action(let first) = store.newWorkspaceContextMenuItems[0] else {
-            return XCTFail("Expected default context menu actions.")
+        let actions = store.newWorkspaceContextMenuItems.compactMap { item -> String? in
+            guard case .action(let action) = item else { return nil }
+            return action.action.id
         }
-        XCTAssertEqual(first.action.id, CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)
+        XCTAssertEqual(store.newWorkspaceContextMenuItems.count, 5)
+        XCTAssertEqual(actions, [
+            CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID,
+            CmuxSurfaceTabBarBuiltInAction.newCloudWorkspace.configID,
+            CmuxSurfaceTabBarBuiltInAction.newCloudMachine.configID,
+            CmuxSurfaceTabBarBuiltInAction.newTerminal.configID,
+            CmuxSurfaceTabBarBuiltInAction.newBrowser.configID,
+        ])
+        XCTAssertFalse(store.newWorkspaceContextMenuIsConfigured)
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 

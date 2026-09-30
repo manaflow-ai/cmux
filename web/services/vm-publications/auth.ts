@@ -4,11 +4,9 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { getStackServerApp } from "../../app/lib/stack";
-import {
-  CloudVmPublicationRepository,
-  CloudVmPublicationRepositoryLive,
-  type CloudVmPublicationAuthTransaction,
-  type CloudVmPublicationTarget,
+import type {
+  CloudVmPublicationAuthTransaction,
+  CloudVmPublicationTarget,
 } from "./repository";
 import {
   type VmPublicationPolicy,
@@ -26,6 +24,9 @@ import {
   randomPublicationToken,
 } from "./security";
 import { normalizePublicationEmail } from "./managedHostnames";
+import { tracePublicationAuthOperation, withPublicationAuthEffectContext } from "./requestTelemetry";
+import { publicationDatabaseRuntime } from "./database";
+import { PublicationAuthRepository, PublicationAuthRepositoryLive } from "./authRepository";
 
 export const PUBLICATION_TRANSACTION_TTL_MS = 10 * 60 * 1_000;
 export const PUBLICATION_AUTH_CODE_TTL_MS = 60 * 1_000;
@@ -53,7 +54,7 @@ export const PublicationViewerResolverLive = Layer.succeed(
   {
     resolve: (userId) =>
       Effect.tryPromise({
-        try: async () => {
+        try: () => tracePublicationAuthOperation("identity", async () => {
           const user = await getStackServerApp().getUser(userId);
           if (!user) return null;
           const teamIds: string[] = [];
@@ -77,7 +78,7 @@ export const PublicationViewerResolverLive = Layer.succeed(
             cursor = nextCursor;
           }
           throw new Error("Stack team pagination exceeded its page limit");
-        },
+        }),
         catch: (cause) => new PublicationIdentityError({
           operation: "resolvePublicationViewer",
           cause,
@@ -87,16 +88,16 @@ export const PublicationViewerResolverLive = Layer.succeed(
 );
 
 export const PublicationAuthRuntime = Layer.merge(
-  CloudVmPublicationRepositoryLive,
+  PublicationAuthRepositoryLive,
   PublicationViewerResolverLive,
 );
 
 export function runPublicationAuth<A, E>(
-  program: Effect.Effect<A, E, CloudVmPublicationRepository | PublicationViewerResolver>,
+  program: Effect.Effect<A, E, PublicationAuthRepository | PublicationViewerResolver>,
 ): Promise<A> {
-  return Effect.runPromise(
-    program.pipe(Effect.provide(PublicationAuthRuntime), Effect.either),
-  ).then((result) => {
+  return publicationDatabaseRuntime().then(runtime => runtime.runPromise(
+    withPublicationAuthEffectContext(program.pipe(Effect.provide(PublicationAuthRuntime), Effect.either)),
+  )).then((result) => {
     if (result._tag === "Left") throw result.left;
     return result.right;
   });
@@ -154,10 +155,17 @@ export function evaluatePublicationRequest(input: {
   readonly now?: Date;
 }) {
   return Effect.gen(function* () {
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     const viewerResolver = yield* PublicationViewerResolver;
-    const target = yield* resolvePublicationForRequest(input);
-    if (!target) return { kind: "not_found" } as const satisfies PublicationRequestEvaluation;
+    const now = input.now ?? new Date();
+    const requestContext = yield* repository.findRequestContext({
+      providerTlsRuleId: input.providerTlsRuleId,
+      sessionTokenHash: isPublicationToken(input.sessionToken)
+        ? hashPublicationToken(input.sessionToken) : null,
+      now,
+    });
+    if (!requestContext) return { kind: "not_found" } as const satisfies PublicationRequestEvaluation;
+    const { session, ...target } = requestContext;
 
     if (target.publication.accessMode === "public") {
       // This can occur briefly during the fail-open-safe half of a protected ->
@@ -165,24 +173,16 @@ export function evaluatePublicationRequest(input: {
       return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
     }
 
-    if (isPublicationToken(input.sessionToken)) {
-      const principal = yield* repository.findValidSession({
-        tokenHash: hashPublicationToken(input.sessionToken),
-        publicationId: target.publication.id,
-        hostname: target.publication.hostname,
-        now: input.now ?? new Date(),
-      });
-      if (principal) {
-        const owningTeamId = publicationOwningTeamId(target.vm);
-        // Only the owner of a personal VM can skip the identity lookup. Team
-        // VM ownership and email grants depend on current Stack identity.
-        const viewer: VmPublicationViewer | null =
-          owningTeamId !== null || principal.publication.accessMode === "team" || principal.session.userId !== principal.publication.ownerUserId
-            ? yield* viewerResolver.resolve(principal.session.userId)
-            : { userId: principal.session.userId, teamIds: [] };
-        if (yield* publicationAllowsViewer(principal.publication, viewer, input.now ?? new Date(), owningTeamId)) {
-          return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
-        }
+    if (session) {
+      const owningTeamId = publicationOwningTeamId(target.vm);
+      // Only the owner of a personal VM can skip the identity lookup. Team
+      // VM ownership and email grants depend on current Stack identity.
+      const viewer: VmPublicationViewer | null =
+        owningTeamId !== null || target.publication.accessMode === "team" || session.userId !== target.publication.ownerUserId
+          ? yield* viewerResolver.resolve(session.userId)
+          : { userId: session.userId, teamIds: [] };
+      if (yield* publicationAllowsViewer(target.publication, viewer, now, owningTeamId)) {
+        return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
       }
     }
 
@@ -206,7 +206,7 @@ export function resolvePublicationForRequest(input: {
   readonly providerTlsRuleId: string;
 }) {
   return Effect.gen(function* () {
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     return yield* repository.findActivePublicationForRequest({
       providerTlsRuleId: input.providerTlsRuleId,
     });
@@ -252,7 +252,7 @@ export function completePublicationAuthorization(input: {
     ) {
       return { kind: "invalid" } as const;
     }
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     const now = input.now ?? new Date();
     const sessionToken = randomPublicationToken();
     const consumed = yield* repository.consumeAuthCodeAndCreateSession({
@@ -284,7 +284,7 @@ export function resolvePublicationAccess(input: {
     if (!isPublicationToken(input.transaction) || !isPublicationToken(input.state)) {
       return { kind: "invalid" } as const;
     }
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     const now = input.now ?? new Date();
     const pending = yield* repository.findPendingAuthTransaction({
       transactionHash: hashPublicationToken(input.transaction),
@@ -354,7 +354,7 @@ function publicationAllowsViewer(publication: VmPublicationPolicy & { readonly i
   return Effect.gen(function* () {
     if (vmPublicationAllowsViewer(publication, viewer, owningTeamId)) return true;
     if (!viewer) return false;
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     for (const value of viewer.verifiedEmails ?? []) {
       const email = normalizePublicationEmail(value);
       if (email && (yield* repository.hasEmailGrant({ publicationId: publication.id, email, now }))) return true;
@@ -371,7 +371,7 @@ export function beginPublicationAuthorization(input: {
   readonly now?: Date;
 }) {
   return Effect.gen(function* () {
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     const transaction = randomPublicationToken();
     const state = randomPublicationToken();
     const verifier = randomPublicationToken();

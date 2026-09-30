@@ -136,6 +136,7 @@ function adminDbMock() {
             }),
           }),
           where: () => ({
+            then: (resolve: (rows: unknown[]) => unknown) => Promise.resolve([]).then(resolve),
             limit: async () => (table === stripeSubscriptions ? [] : []),
             orderBy: () => ({
               limit: async () =>

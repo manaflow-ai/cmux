@@ -197,9 +197,17 @@ Routing: a machine (its `cloud_vms.id`, else the route token) is pinned to one h
 rendezvous hashing so Anthropic's per-organization prompt cache keeps hitting; a 429 cools that
 account down for `retry-after` (else the earliest `anthropic-ratelimit-*-reset`, else 60 s), a 401/403
 for 15 minutes (`invalid_credential`), a 5xx/529 or transport failure for 20 s, and the same request
-is replayed on the next healthy account (up to `MAX_UPSTREAM_ATTEMPTS`, 4). Disabled accounts are
-skipped. When every account is cooling down the client gets 503 `overloaded_error` with the soonest
-`retry-after`; when none exists, 503 with the add instructions. `usage_events.upstream_account_id`
+is replayed on the next healthy account (up to `MAX_UPSTREAM_ATTEMPTS`, 4, per round). Disabled
+accounts are skipped. When a round ends on a transient failure (capacity, 429, 5xx/529, transport),
+the request holds instead of failing: it waits with jittered exponential backoff, honoring the
+soonest account cooldown, then replays the same body and model (`capacityHold.ts`). The hold lasts
+up to `CODEROUTER_CAPACITY_HOLD_MS` (default 20 minutes), bounded by the header budget, and never
+starts after response bytes reach the client. The model is never substituted, because that would
+discard the prompt cache. The client gets 503 `overloaded_error` with the soonest `retry-after` only
+when no account recovers within the hold (a revoked credential, a quota that resets later); when
+none exists, 503 with the add instructions. Codex (`/v1/responses`) holds the same way.
+`route_events.held_ms` and `hold_count` (ClickHouse migration `006`) record the wait, so a capacity
+storm shows up as latency instead of failures. `usage_events.upstream_account_id`
 and `route_events.upstream_account_id` (ClickHouse migration `002`) name the account that served a
 request. PostHog does not receive request-level LLM or token events.
 
@@ -227,8 +235,8 @@ add, enable/disable, and remove. Rows migrated from the single-upstream table ke
 ## Verifying the edge model plane locally
 
 `web/scripts/coderouter/local-edge.mjs` stands in for the Freestyle TLS egress edge: a
-private CA, TLS termination on `127.0.0.1:8443`, the two edge headers overwritten on every
-request (the real edge does the same), and re-origination to any coderouter origin. Real
+private CA, TLS termination on `127.0.0.1:8443`, the bearer plus the two edge headers
+overwritten on every request (the real edge does the same), and re-origination to any coderouter origin. Real
 agent CLIs then run with placeholder keys exactly as a Cloud machine does, against a local
 `bun dev` with a scratch Postgres and the `coderouter_dev` ClickHouse database:
 

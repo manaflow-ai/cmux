@@ -1,0 +1,21 @@
+id = "pi"
+version = "2026.09.14.1"
+min_engine_version = 1
+updated_at = "2026-09-14T00:00:00Z"
+aliases = ["herdr:pi"]
+
+[[rules]]
+id = "working_literal"
+state = "working"
+priority = 100
+region = "whole_recent"
+visible_working = true
+contains = ["Working..."]
+
+[[rules]]
+id = "working_border"
+state = "working"
+priority = 100
+region = "bottom_non_empty_lines(12)"
+visible_working = true
+line_regex = ['^── [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Working ─+$']

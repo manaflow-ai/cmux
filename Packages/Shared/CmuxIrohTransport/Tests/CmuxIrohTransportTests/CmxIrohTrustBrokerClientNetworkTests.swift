@@ -4,7 +4,26 @@ import Testing
 
 extension CmxIrohTrustBrokerClientTests {
     @Test
-    func rateLimitRetainsOnlyBoundedCanonicalRetryAfterSeconds() async throws {
+    func unavailableResponsePreservesServerRetryFloor() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 503,
+                body: #"{"error":"relay_policy_unavailable"}"#,
+                headers: ["Retry-After": "600"]
+            ),
+        ])
+        let client = try makeNetworkClient(transport: transport)
+        await #expect(throws: CmxIrohTrustBrokerClientError.rejectedWithRetryAfter(
+            statusCode: 503,
+            code: "relay_policy_unavailable",
+            retryAfterSeconds: 600
+        )) {
+            _ = try await client.discover()
+        }
+    }
+
+    @Test
+    func rateLimitRetainsEveryValidRetryAfterFloor() async throws {
         for (header, expected) in [
             ("600", CmxIrohTrustBrokerClientError.rateLimited(
                 code: "rate_limited",
@@ -14,17 +33,17 @@ extension CmxIrohTrustBrokerClientTests {
                 code: "rate_limited",
                 retryAfterSeconds: 86_400
             )),
-            ("0", CmxIrohTrustBrokerClientError.rejected(
-                statusCode: 429,
-                code: "rate_limited"
+            ("0", CmxIrohTrustBrokerClientError.rateLimited(
+                code: "rate_limited",
+                retryAfterSeconds: 60
             )),
-            ("86401", CmxIrohTrustBrokerClientError.rejected(
-                statusCode: 429,
-                code: "rate_limited"
+            ("86401", CmxIrohTrustBrokerClientError.rateLimited(
+                code: "rate_limited",
+                retryAfterSeconds: 86_401
             )),
-            ("0600", CmxIrohTrustBrokerClientError.rejected(
-                statusCode: 429,
-                code: "rate_limited"
+            ("0600", CmxIrohTrustBrokerClientError.rateLimited(
+                code: "rate_limited",
+                retryAfterSeconds: 600
             )),
         ] {
             let transport = RecordingBrokerTransport(responses: [

@@ -142,8 +142,7 @@ public final class WorkstreamStore {
     /// Applies an inbound wire frame. Creates or updates a
     /// `WorkstreamItem`, enforces the ring-buffer cap, and appends to
     /// the JSONL log.
-    public func ingest(_ event: WorkstreamEvent) {
-        let item = makeItem(from: event)
+    func ingestPrepared(_ item: WorkstreamItem) {
         insert(item)
         updateContextIndex(with: item)
         if let persistence {
@@ -219,7 +218,7 @@ public final class WorkstreamStore {
         }
     }
 
-    private func makeItem(from event: WorkstreamEvent) -> WorkstreamItem {
+    func makeItem(from event: WorkstreamEvent) -> WorkstreamItem {
         let parsedSource = WorkstreamSource(wireName: event.source)
         let source = parsedSource ?? .claude
         let sourceID = parsedSource == nil ? event.source : nil

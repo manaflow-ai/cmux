@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 
 enum RemoteTmuxControlCommandKind: Equatable {
@@ -12,6 +13,7 @@ enum RemoteTmuxControlCommandKind: Equatable {
     case paneState(Int, UUID)
     case panePath(Int)
     case paneReflow(Int)
+    case paneColorReport(Int, RemoteTmuxPaneColors)
     case paneAltScreen(Int, UUID)
     case activityQuery(UUID)
     case newWindow(UUID)

@@ -1,4 +1,6 @@
+import CmuxCloud
 import CmuxFoundation
+import CmuxCloudMachines
 import CmuxSettings
 import AppKit
 import Foundation
@@ -118,6 +120,11 @@ final class CloudVMActionLauncher {
                     title: String(localized: "command.cloudVM.failed.title.status", defaultValue: "Couldn't Read Machine Status"),
                     action: generic
                 )
+            case "resize":
+                return FailurePresentation(
+                    title: String(localized: "command.cloudVM.failed.title.resize", defaultValue: "Couldn't Resize Machine"),
+                    action: generic
+                )
             case "shell", "desktop", "open":
                 return FailurePresentation(
                     title: String(localized: "command.cloudVM.failed.title.open", defaultValue: "Couldn't Open Machine"),
@@ -225,27 +232,25 @@ final class CloudVMActionLauncher {
 
     /// Best-effort cleanup for a machine that was announced by a cancelled
     /// create. Delete is idempotent at the socket boundary, so a race with the
-    /// create finalizer is safe; the local workspace/catalog cleanup is handled
-    /// by the same destroy path as a user-initiated delete. The auth-transition
-    /// override keeps a late tombstone from opening a sign-in sheet; the socket
-    /// still enforces the account's server-side authorization.
+    /// create finalizer is safe. The machine hides at once, and its local
+    /// workspaces and panes detach when the destroy request starts. The
+    /// auth-transition override keeps a late tombstone from opening a sign-in
+    /// sheet; the socket still enforces the account's server-side authorization.
     func destroyMachineBestEffort(_ machineID: String) {
         let id = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty else { return }
+        guard MachineDeleteCoordinator.shared.canBegin(id) else { return }
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        _ = start(
+        // The socket's destroy retires the machine; an early CLI exit lists it again.
+        if start(
             socketPath: socketPath,
             preferredWindow: nil,
             arguments: ["vm", "rm", id],
             presentsFailureAlert: false,
             allowDuringAuthTransition: true,
-            onCompletion: { completion in
-                guard completion.succeeded || completion.indicatesCloudVMNotFound else { return }
-                AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: id)
-            }
-        )
+            onCompletion: { _ in MachineDeleteCoordinator.shared.launchEnded(id) }
+        ) { MachineDeleteCoordinator.shared.beginCleanup(id) }
     }
 
     @discardableResult
@@ -300,15 +305,21 @@ final class CloudVMActionLauncher {
             return false
         }
 
+        let operationContext = AppDelegate.shared?.cloudOperations?.begin(.resolve(arguments.joined(separator: " ")))
         let process = Process()
         process.executableURL = cliURL
         process.arguments = ["--socket", socketPath, "--id-format", "uuids"] + arguments
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+        // The app launches these for a person's click, so the CLI's opens take focus the
+        // way an interactive run does (its piped stdio would otherwise read as a
+        // script). A background launch passes `--focus false`, which still wins.
+        environment["CMUX_FOCUS_NEW"] = "1"
         for (key, value) in environmentOverrides {
             environment[key] = value
         }
+        if let operationContext { environment.merge(operationContext.environment) { _, new in new } }
         environment.removeValue(forKey: "CMUX_SOCKET")
         process.environment = environment
 
@@ -343,6 +354,11 @@ final class CloudVMActionLauncher {
                     machineId: Self.createdMachineId(from: output),
                     wasCancelled: wasCancelled
                 )
+                if let operationContext {
+                    let diagnosticError: Error? = wasCancelled ? CancellationError()
+                        : terminationStatus == 0 ? nil : CloudMachineLink.LinkError.exited(status: terminationStatus, output: "")
+                    await operationContext.recorder.finish(operationContext, error: diagnosticError)
+                }
                 onCompletion?(completion)
                 if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown, !suppressPresentation, !wasCancelled {
                     Self.shared.presentCommandResult(
@@ -383,6 +399,7 @@ final class CloudVMActionLauncher {
 #endif
             return true
         } catch {
+            if let operationContext { Task { await operationContext.recorder.finish(operationContext, error: error) } }
             outputCollector.cancel()
             if presentsFailureAlert {
                 presentStartFailure(
@@ -421,15 +438,7 @@ final class CloudVMActionLauncher {
     /// `cmux vm new` prints `OK machine=<id>` the moment the machine exists,
     /// before it tries to open it, so a failed open still reports the machine.
     private static func createdMachineId(from output: String) -> String? {
-        for token in output.split(whereSeparator: \.isWhitespace) {
-            let string = String(token)
-            guard string.hasPrefix("machine=") else { continue }
-            let id = String(string.dropFirst("machine=".count))
-            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) {
-                return id
-            }
-        }
-        return nil
+        CloudMachineCreateOutput(legacyCreatedFormat: "").machineID(in: output)
     }
 
     private static func createdWorkspaceId(from output: String) -> UUID? {
@@ -497,6 +506,7 @@ final class CloudVMActionLauncher {
             : CmuxAlertContent(flattenedText: informativeText, separatingScrollableDetails: safeOutput)
         let window = Self.presentationWindow(preferred: preferredWindow, key: NSApp.keyWindow, main: NSApp.mainWindow)
         content.apply(to: alert, presentingWindow: window)
+        CloudErrorCopy.install(in: alert, text: "\(title)\n\(content.flattenedText)")
         if let window {
             alert.beginSheetModal(for: window, completionHandler: nil)
         } else {

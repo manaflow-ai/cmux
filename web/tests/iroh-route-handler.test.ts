@@ -191,7 +191,7 @@ describe("Iroh route boundary", () => {
     expect(called).toBe(false);
   });
 
-  test("only high-volume operations use the local token fast path", async () => {
+  test("routine Iroh operations use the local token fast path", async () => {
     const seen: Array<[IrohRouteOperation, boolean]> = [];
     for (const operation of [
       "challenge", "register", "discover", "endpoint_attestation",
@@ -212,7 +212,7 @@ describe("Iroh route boundary", () => {
       ["endpoint_attestation", false],
       ["revoke", true],
       ["pair_grant", true],
-      ["relay_token", true],
+      ["relay_token", false],
     ]);
     expect(requiresStackSession("pair_grant")).toBe(true);
   });
