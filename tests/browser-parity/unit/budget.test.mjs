@@ -147,3 +147,23 @@ test("repl output: a call over its cap prints the head and spills everything to 
   assert.equal(printed.length, 100);
   fs.rmSync(workDir, { recursive: true, force: true });
 });
+
+test("frames: a frame that never answers is left out and marked, and the rest of the page reads", async () => {
+  const host = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (t) => clearTimeout(t) };
+  const hung = { p: "f1", _detached: false, _agent: () => new Promise(() => {}) };
+  const ok = { p: "f2", _detached: false, _agent: async () => ({ nodes: [{ role: "button", name: "Inside", ref: "e1", act: 1 }], max: 1 }) };
+  const main = {
+    p: "",
+    _agent: async () => ({ nodes: [{ role: "iframe", name: "Hung", ref: "e1", frame: "h1" }, { role: "iframe", name: "Fine", ref: "e2", frame: "h2" }], max: 2 }),
+    _contentFrame: async (handle) => (handle === "h1" ? hung : ok),
+  };
+  const page = { _session: { host }, _refMaxFor: () => 0, _noteRefMax() {}, _prefixFor: (f) => f.p };
+  const t = Date.now();
+  const nodes = await ns.snapshot.frameNodes(page, main, null, { _frameTimeout: 200 }, true);
+  assert.ok(Date.now() - t < 2000);
+  assert.deepEqual(render(shape(nodes, {}), {}), [
+    '- iframe "Hung" [ref=e1] [not read: timed out]',
+    '- iframe "Fine" [ref=e2]:',
+    '  - button "Inside" [ref=f2e1]',
+  ]);
+});
