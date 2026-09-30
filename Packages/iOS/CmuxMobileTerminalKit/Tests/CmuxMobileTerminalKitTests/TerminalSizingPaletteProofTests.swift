@@ -5,8 +5,11 @@ import Testing
 @testable import CmuxMobileTerminalKit
 
 /// Opt-in visual proof: set `CMUX_THEME_PROOF_DIR` to render, per theme, the
-/// iOS surface chrome (border, hatch, chip, cut fade) and a size-sheet avatar
-/// row drawn with ``TerminalSizingPalette``. Geometry mirrors
+/// iOS surface chrome (border, hatch, chip, cut fade) drawn with
+/// ``TerminalSizingChromePalette`` under a navigation-bar hairline in the
+/// same separator, and a size-sheet avatar row drawn with
+/// ``TerminalSizingPalette``. The separator uses `UIColor.separator`'s
+/// light and dark values (see `TerminalSizingChromePaletteTests`). Geometry mirrors
 /// `GhosttySurfaceSharedSizingLayers` (capsule chip, caption2 monospaced
 /// digits, 1 pt border, 8 pt hatch); UIKit itself does not run here.
 @Suite struct TerminalSizingPaletteProofTests {
@@ -24,11 +27,18 @@ import Testing
         guard let directory = ProcessInfo.processInfo.environment["CMUX_THEME_PROOF_DIR"] else { return }
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
         for theme in Self.themes {
-            let palette = TerminalSizingPalette(
-                background: try #require(.init(hex: theme.background)),
-                foreground: try #require(.init(hex: theme.foreground))
+            let background = try #require(TerminalSizingPalette.RGB(hex: theme.background))
+            let separator = TerminalSizingChromePaletteTests.separator(
+                over: background,
+                dark: TerminalSizingChromePalette.usesDarkSeparator(onBackground: background)
             )
-            let data = try #require(Self.render(palette))
+            let palette = TerminalSizingChromePalette(
+                background: background,
+                foreground: try #require(.init(hex: theme.foreground)),
+                line: separator
+            )
+            let foreground = try #require(TerminalSizingPalette.RGB(hex: theme.foreground))
+            let data = try #require(Self.render(palette, foreground: foreground))
             try data.write(to: URL(fileURLWithPath: directory).appendingPathComponent("ios-\(theme.name).png"))
         }
         // The size sheet on system light and dark inset-grouped rows.
@@ -65,18 +75,21 @@ import Testing
         return rep.representation(using: .png, properties: [:])
     }
 
-    private static func render(_ palette: TerminalSizingPalette) -> Data? {
-        let size = NSSize(width: 390, height: 260)
+    private static func render(_ palette: TerminalSizingChromePalette, foreground: TerminalSizingPalette.RGB) -> Data? {
+        let size = NSSize(width: 390, height: 290)
         return png(size: size) {
             color(palette.background).setFill()
             NSRect(origin: .zero, size: size).fill()
-            let grid = NSRect(x: 0, y: 0, width: 390, height: 170)
+            // Navigation bar hairline, the chrome's own separator.
+            color(palette.line).setFill()
+            NSRect(x: 0, y: 29, width: size.width, height: 1).fill()
+            let grid = NSRect(x: 0, y: 30, width: 390, height: 170)
             // Text, with a cut fade on the bottom edge.
             let mono = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
             for (index, line) in ["$ claude", "> Refactor the sizing palette", "  Reading 4 files…", "  Editing Sizing.swift", "  Running tests…", "  All 12 themes pass", "$ git status", "  3 files changed", "$ "].enumerated() {
                 (line as NSString).draw(
-                    at: NSPoint(x: 8, y: 6 + CGFloat(index) * 18),
-                    withAttributes: [.font: mono, .foregroundColor: color(palette.foreground)]
+                    at: NSPoint(x: 8, y: grid.minY + 6 + CGFloat(index) * 18),
+                    withAttributes: [.font: mono, .foregroundColor: color(foreground)]
                 )
             }
             let fadeRect = NSRect(x: grid.minX, y: grid.maxY - 16, width: grid.width, height: 16)
@@ -106,11 +119,11 @@ import Testing
             // Chip under the grid.
             let chipFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
             let title = "118×38 · Maya's Mac Studio" as NSString
-            let attributes: [NSAttributedString.Key: Any] = [.font: chipFont, .foregroundColor: color(palette.glyph)]
+            let attributes: [NSAttributedString.Key: Any] = [.font: chipFont, .foregroundColor: color(palette.text)]
             let textSize = title.size(withAttributes: attributes)
             let chip = NSRect(x: (size.width - textSize.width - 20) / 2, y: grid.maxY + 12, width: textSize.width + 20, height: textSize.height + 10)
             let capsule = NSBezierPath(roundedRect: chip.insetBy(dx: 0.5, dy: 0.5), xRadius: chip.height / 2, yRadius: chip.height / 2)
-            color(palette.fill).setFill()
+            color(palette.chipFill).setFill()
             capsule.fill()
             color(palette.line).setStroke()
             capsule.lineWidth = 1

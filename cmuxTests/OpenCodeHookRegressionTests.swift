@@ -11,7 +11,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
 
     func testOpenCodeFeedPluginEmitsCompletionForBothIdleEventShapes() throws {
         let fileManager = FileManager.default
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let pluginURL = repoRoot.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
