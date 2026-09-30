@@ -28,6 +28,7 @@ import PackageDescription
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
+//   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 
@@ -100,6 +101,7 @@ let package = Package(
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
+                "CmuxNextHistory",
             ],
             resources: [
                 .process("Resources"),
@@ -140,6 +142,22 @@ let package = Package(
         // Resource usage for hover cards and `resources` (CPU and memory per
         // tab, per workspace, shared processes apart). Pure aggregation and a
         // sampler that runs only while a card is open.
+        // History (plans/cmux-next/history.md): the location trail, merged
+        // history entries, search, agent sessions from the session journal,
+        // the per-profile page visit log (SQLite), and the cmux://history page.
+        .target(
+            name: "CmuxNextHistory",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextHistoryTests",
+            dependencies: ["CmuxNextHistory"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextResources",
             dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
