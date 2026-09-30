@@ -104,8 +104,25 @@ extension TerminalController {
                 payload["state"] = "dialog"
                 blocks = hasAgent
             }
-            if let agentKind = snapshot.agentKind?.rawValue {
+            if hasAgent, let agentKind = lifecycleKind?.rawValue {
                 payload["agent_kind"] = agentKind
+            }
+            let exposesComposer: Bool
+            switch screen {
+            case .draft:
+                exposesComposer = true
+            case .dialog:
+                exposesComposer = snapshot.slashCommandPopup
+            case .unknown, .empty:
+                exposesComposer = false
+            }
+            if hasAgent,
+               let composerText = snapshot.composerText,
+               exposesComposer {
+                payload["draft_length"] = composerText.count
+                if let fingerprint = snapshot.composerFingerprint {
+                    payload["composer_fingerprint"] = fingerprint
+                }
             }
             payload["busy"] = snapshot.busy
             payload["queued"] = snapshot.queued

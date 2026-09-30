@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// What an agent TUI's input area holds, read from the terminal's screen.
 ///
@@ -49,6 +50,17 @@ public struct AgentPromptSubmissionSnapshot: Equatable, Sendable {
     public let queued: Bool
     /// True when an agent is showing slash-command suggestions.
     public let slashCommandPopup: Bool
+    /// The normalized text currently in the agent composer, when one is visible.
+    /// Dialogs without a composer return `nil`.
+    public let composerText: String?
+
+    /// SHA-256 of the normalized composer text, suitable for comparing a
+    /// retry against the draft that was just pasted without returning text.
+    public var composerFingerprint: String? {
+        guard let composerText else { return nil }
+        let digest = SHA256.hash(data: Self.normalizeComposerText(composerText).data(using: .utf8)!)
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
 
     /// Creates a snapshot from styled terminal rows.
     ///
@@ -67,6 +79,7 @@ public struct AgentPromptSubmissionSnapshot: Equatable, Sendable {
         busy = result.busy
         queued = result.queued
         slashCommandPopup = result.slashCommandPopup
+        composerText = result.composerText
     }
 
     /// Creates a conservative snapshot from plain terminal text.
@@ -152,6 +165,7 @@ private extension AgentPromptSubmissionSnapshot {
         let busy: Bool
         let queued: Bool
         let slashCommandPopup: Bool
+        let composerText: String?
     }
 
     static func detect(
@@ -176,28 +190,61 @@ private extension AgentPromptSubmissionSnapshot {
             let lowered = row.lowercased()
             return dialogHints.contains { lowered.contains($0) }
         })
+        let composerText = Self.composerText(
+            rows: rows,
+            plainRows: plainRows,
+            promptRow: promptRow,
+            includeContinuation: !hasDialogHint && !slashCommandPopup
+        )
         if hasDialogHint || slashCommandPopup {
             return DetectionResult(
                 state: .dialog,
                 agentKind: detectedKind,
                 busy: isBusy(plainRows),
                 queued: isQueued(plainRows),
-                slashCommandPopup: slashCommandPopup
+                slashCommandPopup: slashCommandPopup,
+                composerText: composerText
             )
         }
 
-        guard let promptRow, let prefix = promptPrefix(in: plainRows[promptRow]) else {
+        guard promptRow != nil else {
             return DetectionResult(
                 state: .unknown,
                 agentKind: detectedKind,
                 busy: isBusy(plainRows),
                 queued: isQueued(plainRows),
-                slashCommandPopup: slashCommandPopup
+                slashCommandPopup: slashCommandPopup,
+                composerText: composerText
             )
         }
 
+        let state: AgentPromptInputState
+        if composerText == nil || isPlaceholder(composerText!, kind: detectedKind) {
+            state = .empty
+        } else {
+            state = .draft(composerText!)
+        }
+        return DetectionResult(
+            state: state,
+            agentKind: detectedKind,
+            busy: isBusy(plainRows),
+            queued: isQueued(plainRows),
+            slashCommandPopup: slashCommandPopup,
+            composerText: composerText
+        )
+    }
+
+    private static func composerText(
+        rows: [[AgentPromptScreenSpan]],
+        plainRows: [String],
+        promptRow: Int?,
+        includeContinuation: Bool
+    ) -> String? {
+        guard let promptRow,
+              let prefix = promptPrefix(in: plainRows[promptRow]) else { return nil }
         var typed = ""
-        for index in promptRow..<rows.count {
+        let end = includeContinuation ? rows.count : min(promptRow + 1, rows.count)
+        for index in promptRow..<end {
             var cells = self.cells(rows[index])
             if index == promptRow {
                 cells = cellsAfterPrompt(prefix, in: cells)
@@ -208,20 +255,16 @@ private extension AgentPromptSubmissionSnapshot {
             }
             typed += String(cells.filter { !$0.faint }.map(\.character))
         }
-        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{00A0}\u{2502}")))
-        let state: AgentPromptInputState
-        if trimmed.isEmpty || isPlaceholder(trimmed, kind: detectedKind) {
-            state = .empty
-        } else {
-            state = .draft(trimmed)
-        }
-        return DetectionResult(
-            state: state,
-            agentKind: detectedKind,
-            busy: isBusy(plainRows),
-            queued: isQueued(plainRows),
-            slashCommandPopup: slashCommandPopup
-        )
+        let trimmed = normalizeComposerText(typed)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\u{00A0}\u{2502}"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func normalizeComposerText(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Private
