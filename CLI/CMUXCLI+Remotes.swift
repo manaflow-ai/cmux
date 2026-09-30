@@ -66,6 +66,11 @@ extension CMUXCLI {
             print(Self.remotesUsage)
 
         case "list", "ls":
+            do {
+                try RemotesArgumentParser.validateList(rest)
+            } catch {
+                throw remotesArgumentCLIError(error, command: "remotes list")
+            }
             let response = try client.sendV2(method: "remotes.list")
             if jsonOutput {
                 print(jsonString(response))
@@ -120,8 +125,13 @@ extension CMUXCLI {
             if let tagOpt, !tagOpt.isEmpty { print("  tag:      \(tagOpt)") }
 
         case "remove", "rm", "delete":
-            let positionals = rest.filter { !$0.hasPrefix("-") }
-            guard let target = positionals.first, !target.isEmpty else {
+            let target: String?
+            do {
+                target = try RemotesArgumentParser.removeTarget(rest)
+            } catch {
+                throw remotesArgumentCLIError(error, command: "remotes remove")
+            }
+            guard let target, !target.isEmpty else {
                 throw CLIError(message: """
                     remotes remove requires a name or deviceId.
 
@@ -250,6 +260,17 @@ extension CMUXCLI {
 
                 \(Self.aiAccountsUsage)
                 """)
+        }
+    }
+
+    private func remotesArgumentCLIError(_ error: Error, command: String) -> CLIError {
+        switch error {
+        case let RemotesArgumentError.unknownFlag(flag):
+            return CLIError(message: "\(command): unknown flag '\(flag)'.\n\n\(Self.remotesUsage)")
+        case let RemotesArgumentError.unexpectedArgument(argument):
+            return CLIError(message: "\(command): unexpected argument '\(argument)'.")
+        default:
+            return CLIError(message: "\(command): invalid arguments.\n\n\(Self.remotesUsage)")
         }
     }
 
