@@ -89,7 +89,10 @@ class GitHub:
                 )
                 run["full_suite"] = any(
                     job.get("name") == "full-suite-coverage"
-                    and job.get("conclusion") not in {"cancelled", "skipped"}
+                    and (
+                        job.get("status") != "completed"
+                        or job.get("conclusion") == "success"
+                    )
                     for job in jobs.get("jobs", [])
                 ) if isinstance(jobs, Mapping) else False
             except (KeyError, OSError, ValueError, TypeError):
