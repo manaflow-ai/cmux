@@ -210,6 +210,7 @@ let fileTheme = resolveGhosttyTheme();
 let cmuxThemeOverride: GhosttyTheme | null = null;
 let currentTheme = fileTheme;
 const startRequests = new Map<string, { promise: Promise<Session>; settledAt?: number; stopped?: boolean; session?: Session }>();
+const startRequestSessions = new Map<string, { session: Session; stopped?: boolean }>();
 const sessionActionRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
 type AttributionMode = "new-turn" | "current-turn";
 type InternalDoneEvent = Extract<AgentEvent, { kind: "done" }> & { generation?: number };
@@ -2377,6 +2378,7 @@ export function handleSessionMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) 
           startRequestId: requestId,
         });
         if (request) request.session = sess;
+        if (requestId) startRequestSessions.set(requestId, { session: sess });
         refreshSession(sess);
         sendPrompt(sess, prompt, requestId ?? crypto.randomUUID());
         return sess;
@@ -2463,11 +2465,16 @@ export function handleSessionMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) 
     case "stop": {
       if (typeof msg.requestId === "string" && !msg.sessionId) {
         const request = startRequests.get(msg.requestId);
+        const sessionRecord = startRequestSessions.get(msg.requestId);
         if (request && !request.stopped) {
           // Creation and the first send run synchronously together. If they
           // won the race, route Stop to the created session's adapter.
           if (request.session) request.session.adapter.stop(request.session);
           request.stopped = true;
+          if (sessionRecord) sessionRecord.stopped = true;
+        } else if (sessionRecord && !sessionRecord.stopped) {
+          sessionRecord.session.adapter.stop(sessionRecord.session);
+          sessionRecord.stopped = true;
         }
         ws.send(JSON.stringify({ kind: "start-stopped", requestId: msg.requestId }));
         break;
@@ -2573,6 +2580,9 @@ export function handleSessionMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) 
       if (!sess) return;
       sess.adapter.dispose(sess);
       sessions.delete(sess.id);
+      if (sess.startRequestId && startRequestSessions.get(sess.startRequestId)?.session === sess) {
+        startRequestSessions.delete(sess.startRequestId);
+      }
       broadcastSessions();
       break;
     }
