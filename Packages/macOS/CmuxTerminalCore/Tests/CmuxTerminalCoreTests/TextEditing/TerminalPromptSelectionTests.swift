@@ -102,6 +102,32 @@ struct TerminalPromptSelectionTests {
         #expect(action == .consume)
     }
 
+    @Test func pasteInvalidatesACollapsedSelectionBeforeTheNextShiftArrow() {
+        var tracking = TerminalPromptSelectionTracker()
+        tracking.record(TerminalPromptSelection(anchor: 2, head: 2))
+        tracking.invalidateForInput()
+
+        let action = terminalPromptSelectionResolve(
+            intent: .extend(.backward, .character),
+            snapshot: snapshot(caret: 5),
+            tracked: tracking.selection
+        )
+        #expect(action == .select(TerminalPromptSelection(anchor: 5, head: 4)))
+    }
+
+    @Test func surfaceReplacementInvalidatesACollapsedSelectionBeforeTheNextShiftArrow() {
+        var tracking = TerminalPromptSelectionTracker()
+        tracking.record(TerminalPromptSelection(anchor: 2, head: 2))
+        tracking.invalidateForSurfaceReplacement()
+
+        let action = terminalPromptSelectionResolve(
+            intent: .extend(.backward, .character),
+            snapshot: snapshot(caret: 5),
+            tracked: tracking.selection
+        )
+        #expect(action == .select(TerminalPromptSelection(anchor: 5, head: 4)))
+    }
+
     /// A collapse point the input has since shrunk past is dropped.
     @Test func collapsePointOutsideTheInputIsIgnored() {
         let collapsed = TerminalPromptSelection(anchor: 7, head: 7)
