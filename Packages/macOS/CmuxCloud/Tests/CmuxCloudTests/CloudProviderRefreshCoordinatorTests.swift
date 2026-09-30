@@ -144,6 +144,7 @@ struct CloudProviderRefreshCoordinatorTests {
                 // publishes or resumes any waiter.
                 operationReturned.resolve(true)
                 _ = await allowOperationToReturn.result
+                return false
             }
             return true
         }
@@ -157,6 +158,7 @@ struct CloudProviderRefreshCoordinatorTests {
         coordinator.invalidate()
         allowOperationToReturn.resolve(true)
         #expect(await first.value)
+        #expect(calls == 2)
 
         // The invalidation forced a new operation. Invalidate once more so
         // this read cannot reuse the current completion either.
