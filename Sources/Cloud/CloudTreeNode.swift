@@ -781,9 +781,9 @@ enum CloudTreeNodeBuilder {
                     ))
                 }
             case .error:
-                children.append(placeholder(machine, text: info.linkError ?? String(localized: "cloudTree.placeholder.linkError", defaultValue: "Link failed"), style: .error))
+                children.append(placeholder(machine, text: info.linkFailureMessage, style: .error))
             case .unavailable:
-                children.append(placeholder(machine, text: info.linkError ?? String(localized: "cloudTree.placeholder.unavailable", defaultValue: "Sessions unavailable on this machine"), style: .dimmed))
+                children.append(placeholder(machine, text: info.linkFailureMessage, style: .dimmed))
             case .offline:
                 children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.deviceOffline", defaultValue: "Offline — its workspaces return when it does"), style: .dimmed))
             case .connected, .notApplicable:

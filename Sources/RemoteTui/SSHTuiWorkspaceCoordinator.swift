@@ -87,7 +87,7 @@ final class SSHTuiWorkspaceCoordinator {
             }
         }
         guard await provider.refreshCurrentGraph(force: false) else {
-            throw CloudMachineLink.LinkError.spawnFailed(provider.info.linkFailureMessage)
+            throw CloudMachineLink.LinkError.failureMessage(provider.info.linkFailureMessage)
         }
         try requireCurrent(workspace: workspace, attemptID: attemptID)
         if !configuration.preserveAfterTerminalExit {
