@@ -10,7 +10,7 @@ import Testing
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/8380.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedMainWindowDefaults)
 struct RemoteTmuxMirrorRenameTests {
     @Test func everyMultiPaneSurfaceRenamesItsOwningTmuxWindow() throws {
         let harness = try RemoteTmuxMirrorRenameHarness()

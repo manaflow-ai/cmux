@@ -13,7 +13,7 @@ private final class WindowKeyFocusableTestView: NSView {
 }
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedMainWindowDefaults)
 struct MainWindowFocusRestoreTests {
     @Test func windowKeyRestoreRefocusesFocusedTerminalAfterResponderClears() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
