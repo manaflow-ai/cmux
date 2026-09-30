@@ -28575,9 +28575,11 @@ struct CMUXCLI {
                 // to the app so it can suppress the done-ping until work truly drains.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
                 // Claude sets stop_hook_active on a re-entry after a Stop hook
-                // blocked once. That flag describes hook recursion, not work
-                // still running; only authoritative background-work signals
-                // should keep the sidebar in Running.
+                // blocked once. That flag describes hook recursion, not pending
+                // work: it must not mark the turn pending, but it does keep the
+                // sidebar pill in Running. Only authoritative background-work
+                // signals mark the turn pending and show Waiting.
+                let isReentrantStop = parsedInput.rawObject?["stop_hook_active"] as? Bool == true
                 let hasUnsettledWork = stopFailure == nil && hasPendingBackgroundWork
 
                 // Update session with transcript summary and send completion notification.
@@ -28637,7 +28639,7 @@ struct CMUXCLI {
                 )
                 if let stopFailure {
                     try? setClaudeStopFailureStatus(stopFailure, client: client, workspaceId: workspaceId, surfaceId: surfaceId)
-                } else if hasUnsettledWork {
+                } else if hasPendingBackgroundWork {
                     // The turn ended but a background task or scheduled wakeup is
                     // still live, so the pane is not idle — show it as still
                     // running rather than the misleading "Idle". Reuse the shared
@@ -28645,18 +28647,26 @@ struct CMUXCLI {
                     //
                     // A background task or cron is a deterministic wakeup the pane
                     // is parked on, which reads as Waiting. A re-entrant Stop
-                    // (`stop_hook_active`) is not: the agent itself is still going.
-                    let isWaitingOnBackgroundWork = hasPendingBackgroundWork
+                    // (`stop_hook_active`) keeps the pill on Running separately
+                    // because it does not represent pending background work.
                     try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        value: isWaitingOnBackgroundWork
-                            ? String(localized: "agent.generic.status.waiting", defaultValue: "Waiting")
-                            : String(localized: "agent.generic.status.running", defaultValue: "Running"),
-                        icon: isWaitingOnBackgroundWork ? "hourglass" : "bolt.fill",
-                        color: isWaitingOnBackgroundWork ? "#8E8E93" : "#4C8DFF",
-                        workState: isWaitingOnBackgroundWork ? .waiting : .running
+                        value: String(localized: "agent.generic.status.waiting", defaultValue: "Waiting"),
+                        icon: "hourglass",
+                        color: "#8E8E93",
+                        workState: .waiting
+                    )
+                } else if isReentrantStop {
+                    try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                        icon: "bolt.fill",
+                        color: "#4C8DFF",
+                        workState: .running
                     )
                 } else {
                     try? setClaudeStatus(
