@@ -78,7 +78,13 @@ public enum SidebarMock {
             _ id: String, _ machine: MachineID, _ title: String, _ subtitle: String?,
             _ icon: WorkspaceIcon = .symbol("terminal"), unread: UnreadState = .none, activity: AgentActivity = .idle
         ) -> SidebarWorkspace {
-            SidebarWorkspace(id: WorkspaceID(id), machineID: machine, title: title, subtitle: subtitle, icon: icon, unread: unread, activity: activity)
+            // Agent lines are live status; everything else is passive detail.
+            let isAgentLine = subtitle.map { $0.hasPrefix("Claude:") || $0.hasPrefix("Codex:") } ?? false
+            return SidebarWorkspace(
+                id: WorkspaceID(id), machineID: machine, title: title,
+                subtitle: isAgentLine ? nil : subtitle, status: isAgentLine ? subtitle : nil,
+                icon: icon, unread: unread, activity: activity
+            )
         }
 
         let pinned = SidebarSection(kind: .pinned, nodes: [

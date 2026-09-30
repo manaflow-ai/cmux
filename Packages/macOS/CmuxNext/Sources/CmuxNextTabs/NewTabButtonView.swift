@@ -48,6 +48,7 @@ final class NewTabButtonView: NSView {
         glyphLayer.frame = bounds
         let arm = Metrics.space2 + Metrics.space1 / 2
         let scale = window?.backingScaleFactor ?? 2
+        glyphLayer.contentsScale = scale
         let center = CGPoint(x: (square.midX * scale).rounded() / scale, y: (square.midY * scale).rounded() / scale)
         let path = CGMutablePath()
         path.move(to: CGPoint(x: center.x - arm, y: center.y))
@@ -60,6 +61,11 @@ final class NewTabButtonView: NSView {
 
     override func updateLayer() {
         updateColors(animated: false)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsLayout = true
     }
 
     override func viewDidChangeEffectiveAppearance() {

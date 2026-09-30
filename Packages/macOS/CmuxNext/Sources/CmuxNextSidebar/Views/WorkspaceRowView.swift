@@ -60,11 +60,13 @@ final class WorkspaceRowView: SidebarRowView {
         title.stringValue = ws.title
         title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
         subtitle.font = SidebarStyle.subtitleFont
-        subtitle.stringValue = ws.subtitle ?? ""
-        hasSubtitle = !(ws.subtitle ?? "").isEmpty
+        // Only live status earns a second line; the cwd stays in the tooltip.
+        subtitle.stringValue = ws.liveDetail ?? ""
+        hasSubtitle = ws.liveDetail != nil
         activity.configure(ws.activity)
-        badge.configure(ws.unread)
-        toolTip = compact ? ws.title : nil
+        // Icons-only rows mark unread with a dot; a count would cover the icon.
+        badge.configure(compact && ws.unread.isUnread ? .dot : ws.unread)
+        toolTip = compact ? ws.title : ws.subtitle.flatMap { $0.isEmpty ? nil : $0 }
         setAccessibilityElement(true)
         setAccessibilityRole(.row)
         setAccessibilityLabel(accessibilityText(ws))
@@ -74,6 +76,7 @@ final class WorkspaceRowView: SidebarRowView {
 
     private func accessibilityText(_ ws: SidebarWorkspace) -> String {
         var parts = [ws.title]
+        if let s = ws.liveDetail { parts.append(s) }
         if let s = ws.subtitle, !s.isEmpty { parts.append(s) }
         switch ws.unread {
         case let .count(n) where n > 0: parts.append(Strings.unreadCount(n))
@@ -104,8 +107,7 @@ final class WorkspaceRowView: SidebarRowView {
 
     override func updateLayer() {
         guard let layer else { return }
-        layer.borderWidth = isDropTarget ? 1 : 0
-        layer.borderColor = resolvedCGColor(Palette.focusRing.withAlphaComponent(0.6))
+        // Fills only, no borders: drop target, multi-selection, hover.
         if isDropTarget {
             layer.backgroundColor = resolvedCGColor(Palette.selectionFill)
         } else if isSecondarySelected {
@@ -118,7 +120,9 @@ final class WorkspaceRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         rail.backgroundColor = groupColor.map { SidebarStyle.color($0).withAlphaComponent(0.85).cgColor }
-        rail.isHidden = !grouped
+        // Grouped rows show membership by indent; the rail only helps in
+        // icons-only mode, where there is no indent.
+        rail.isHidden = !(grouped && compact)
         CATransaction.commit()
     }
 

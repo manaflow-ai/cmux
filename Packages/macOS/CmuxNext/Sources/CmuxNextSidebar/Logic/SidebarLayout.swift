@@ -58,6 +58,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var y = m.topPadding
         var gapY: CGFloat?
         let filtering = o.filterMatches != nil
+        // One machine needs no machine header: its name adds nothing.
+        let machineCount = sections.reduce(0) { $0 + ($1.machine == nil ? 0 : 1) }
 
         func visible(_ ws: SidebarWorkspace) -> Bool {
             !o.excludedWorkspaces.contains(ws.id) && (o.filterMatches?.contains(ws.id) ?? true)
@@ -94,13 +96,17 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
             if !firstSection { y += m.sectionSpacing }
             firstSection = false
-            let collapsed = section.isCollapsed && !filtering
-            rows.append(SidebarRow(
-                key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
-                group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
-                isCollapsed: collapsed, childCount: nodes.count, groupColor: nil
-            ))
-            y += m.sectionHeaderHeight + m.rowSpacing
+            let showsHeader = section.machine == nil || machineCount > 1 || o.showsSoleMachineHeader
+            // Without a header there is nothing to expand it from.
+            let collapsed = showsHeader && section.isCollapsed && !filtering
+            if showsHeader {
+                rows.append(SidebarRow(
+                    key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
+                    group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
+                    isCollapsed: collapsed, childCount: nodes.count, groupColor: nil
+                ))
+                y += m.sectionHeaderHeight + m.rowSpacing
+            }
             if collapsed { continue }
 
             if nodes.isEmpty {

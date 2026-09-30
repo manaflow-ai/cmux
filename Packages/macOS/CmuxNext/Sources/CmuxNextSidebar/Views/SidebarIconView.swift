@@ -13,10 +13,9 @@ final class SidebarIconView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         swatch.cornerCurve = .continuous
-        swatch.borderWidth = 0.5
         layer?.addSublayer(swatch)
         imageView.imageScaling = .scaleProportionallyDown
-        monogram.font = NSFont.systemFont(ofSize: Typography.caption.pointSize, weight: .bold)
+        monogram.font = NSFont.systemFont(ofSize: Typography.caption.pointSize - Metrics.space1, weight: .bold)
         monogram.textColor = .white
         monogram.alignment = .center
         addSubview(imageView)
@@ -39,7 +38,7 @@ final class SidebarIconView: NSView {
             imageView.isHidden = false
             monogram.isHidden = true
         case .swatch:
-            monogram.font = NSFont.systemFont(ofSize: Typography.caption.pointSize, weight: .bold)
+            monogram.font = NSFont.systemFont(ofSize: Typography.caption.pointSize - Metrics.space1, weight: .bold)
             imageView.isHidden = true
             monogram.isHidden = false
             monogram.stringValue = title.first.map { String($0).uppercased() } ?? ""
@@ -54,7 +53,6 @@ final class SidebarIconView: NSView {
         if case let .swatch(color) = icon {
             swatch.isHidden = false
             swatch.backgroundColor = SidebarStyle.color(color).cgColor
-            swatch.borderColor = NSColor(white: 1, alpha: 0.22).cgColor
         } else {
             swatch.isHidden = true
         }
@@ -64,7 +62,7 @@ final class SidebarIconView: NSView {
     override func layout() {
         super.layout()
         imageView.frame = bounds
-        let side = Metrics.iconSize
+        let side = SidebarStyle.swatchSize
         let rect = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
