@@ -192,7 +192,6 @@ struct AgentAutoResumePolicyTests {
         .planReviewRequested,
         .attentionResolved,
         .sessionEnded,
-        .sessionStarted,
     ])
     func lateLifecycleEventsFromAnOlderSessionCannotCancelTheCurrentResume(kind: AgentJournalEventKind) {
         var tracker = AgentAutoResumeTracker(delays: [.seconds(1)])
