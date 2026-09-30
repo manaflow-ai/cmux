@@ -45,10 +45,15 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 	if !force {
 		state, screen, err = inspectSendTarget(socketPath, target, refreshAddr)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "cmux send: refusing to send: %v\n", err)
-			return 1
+			if !submit {
+				fmt.Fprintf(os.Stderr, "cmux send: refusing to send: %v\n", err)
+				return 1
+			}
+			// An older relay may not expose input_state. Submit with Return
+			// and report sent; no screen heuristic can safely claim delivery.
+			state, screen = nil, ""
 		}
-		if sendStateBlocksText(state) {
+		if err == nil && sendStateBlocksText(state) {
 			fmt.Fprintln(os.Stderr, "cmux send: refusing to send: target has a human draft or open dialog (use --force to override)")
 			return 1
 		}
@@ -70,9 +75,8 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 		return 0
 	}
 
-	// --force still needs a snapshot to choose the agent's submit key. If the
-	// snapshot is unavailable, the screen-only classifier safely treats this as
-	// a shell and uses Return.
+	// --force still uses host input_state when available. If it is unavailable,
+	// use Return and report sent because the relay cannot identify an agent.
 	if state == nil {
 		state, screen, _ = inspectSendTarget(socketPath, target, refreshAddr)
 	}
@@ -85,17 +89,22 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 	}
 	agent := sendStateAgent(state)
 	knownAgent := agent && (stateString(state, "agent_kind") == "claude" || stateString(state, "agent_kind") == "codex")
+	queuedBeforePaste := sendStateQueued(state)
 	ownSlashCommand := strings.HasPrefix(strings.TrimSpace(text), "/")
 	if knownAgent {
 		visible := false
 		for probe := 0; probe < sendSubmitAttempts; probe++ {
 			time.Sleep(time.Duration(100*(probe+1)) * time.Millisecond)
 			state, screen = readSendState(socketPath, target, refreshAddr)
-			if sendStateDialog(state) && !sendScreenShowsSlashPopup(screen) {
+			if sendStateDialog(state) && !sendStateSlashPopup(state) {
 				fmt.Fprintln(os.Stderr, "cmux send: text was pasted but the target opened a dialog; nothing was confirmed as submitted")
 				return 1
 			}
-			if stateString(state, "state") == "draft" || boolValue(state, "slash_popup") || sendScreenShowsSlashPopup(screen) {
+			if stateString(state, "state") == "draft" || sendStateSlashPopup(state) {
+				visible = true
+				break
+			}
+			if sendStateQueued(state) && (!queuedBeforePaste || sendComposerMatches(screen, text)) {
 				visible = true
 				break
 			}
@@ -111,26 +120,25 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 	for attempt := 0; attempt < sendSubmitAttempts; attempt++ {
 		if attempt > 0 {
 			state, screen = readSendState(socketPath, target, refreshAddr)
-			if sendStateConfirmed(state, screen) {
+			if sendStateConfirmed(state, screen, queuedBeforePaste, text) {
 				return printSendSubmitResult(sendConfirmedStatus(state), jsonOutput)
 			}
-			if sendStateDialog(state) && !boolValue(state, "slash_popup") && !sendScreenShowsSlashPopup(screen) {
+			if sendStateDialog(state) && !sendStateSlashPopup(state) {
 				return sendSubmitUnconfirmed("target opened a dialog; retry was refused", jsonOutput)
 			}
 			if !sendComposerMatches(screen, text) {
 				return sendSubmitUnconfirmed("composer changed or could not be identified; retry was refused to preserve human input", jsonOutput)
 			}
 		}
-		key := sendSubmitKey(state, screen, text)
+		key := sendSubmitKey(state)
 		keyParams := cloneParams(target)
 		keyParams["key"] = key
 		if _, err := socketRoundTripV2(socketPath, "surface.send_key", keyParams, refreshAddr); err != nil {
-			fmt.Fprintf(os.Stderr, "cmux: submit key failed: %v\n", err)
-			return 1
+			return sendSubmitUnconfirmed(fmt.Sprintf("submit key failed: %v", err), jsonOutput)
 		}
 		time.Sleep(time.Duration(100*(attempt+1)) * time.Millisecond)
 		if !knownAgent {
-			if agent {
+			if state == nil || agent {
 				return printSendSubmitResult("sent", jsonOutput)
 			}
 			return printSendSubmitResult("submitted", jsonOutput)
@@ -140,14 +148,14 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 			if screen == "" {
 				screen, _ = readSendScreen(socketPath, target, refreshAddr)
 			}
-			if !sendScreenShowsSlashPopup(screen) {
+			if !sendStateSlashPopup(lastState) {
 				if ownSlashCommand {
 					return printSendSubmitResult("submitted", jsonOutput)
 				}
 				return sendSubmitUnconfirmed("target opened a dialog while submitting", jsonOutput)
 			}
 		}
-		if sendStateConfirmed(lastState, screen) {
+		if sendStateConfirmed(lastState, screen, queuedBeforePaste, text) {
 			status := "submitted"
 			if sendStateQueued(lastState) {
 				status = "queued"
@@ -161,7 +169,7 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 	// without sending another key.
 	time.Sleep(200 * time.Millisecond)
 	lastState, screen = readSendState(socketPath, target, refreshAddr)
-	if sendStateConfirmed(lastState, screen) {
+	if sendStateConfirmed(lastState, screen, queuedBeforePaste, text) {
 		return printSendSubmitResult(sendConfirmedStatus(lastState), jsonOutput)
 	}
 	return sendSubmitUnconfirmed("submit key was sent but submission was not confirmed after bounded retries", jsonOutput)
@@ -202,37 +210,11 @@ func splitLeadingSendFlags(args []string) (submit, force bool, remaining []strin
 
 func inspectSendTarget(socketPath string, target map[string]any, refreshAddr func() string) (map[string]any, string, error) {
 	state, err := readSendInputState(socketPath, target, refreshAddr)
-	if err == nil {
-		screen, _ := readSendScreen(socketPath, target, refreshAddr)
-		// A relay may answer input_state without hook metadata. Prefer the
-		// visible prompt classifier when it can identify an agent composer, so a
-		// hookless human draft still cannot be overwritten.
-		if screen != "" {
-			fallback := sendStateFromScreen(screen)
-			_, hostReportedAgent := state["agent"]
-			hostStateUnknown := stateString(state, "state") == "" || stateString(state, "state") == "unknown"
-			if (!hostReportedAgent || hostStateUnknown) && sendStateAgent(fallback) && stateString(state, "agent_kind") == "" {
-				state = fallback
-			} else if sendStateAgent(state) {
-				for _, key := range []string{"agent_kind", "busy", "lifecycle", "slash_popup"} {
-					if _, present := state[key]; !present {
-						state[key] = fallback[key]
-					}
-				}
-				if sendStateQueued(fallback) {
-					state["queued"], state["state"] = true, "queued"
-				}
-			}
-		}
-		return state, screen, nil
+	if err != nil {
+		return nil, "", err
 	}
-	// Older relays may not expose input_state. Screen text is a conservative
-	// fallback for hookless SSH panes, and still refuses visible drafts/dialogs.
-	screen, screenErr := readSendScreen(socketPath, target, refreshAddr)
-	if screenErr != nil {
-		return nil, "", fmt.Errorf("cannot inspect target input state: %v", err)
-	}
-	return sendStateFromScreen(screen), screen, nil
+	screen, _ := readSendScreen(socketPath, target, refreshAddr)
+	return state, screen, nil
 }
 
 func readSendInputState(socketPath string, target map[string]any, refreshAddr func() string) (map[string]any, error) {
@@ -266,8 +248,8 @@ func readSendState(socketPath string, target map[string]any, refreshAddr func() 
 	return state, screen
 }
 
-func sendSubmitKey(state map[string]any, screen, text string) string {
-	if sendStateLooksLikeBusyCodex(state, screen) {
+func sendSubmitKey(state map[string]any) string {
+	if sendStateLooksLikeBusyCodex(state) {
 		return "tab"
 	}
 	return "return"
@@ -309,157 +291,43 @@ func sendStateBlocksText(state map[string]any) bool {
 }
 
 func sendStateAgent(state map[string]any) bool {
-	if boolValue(state, "agent") {
-		return true
-	}
-	kind := strings.ToLower(strings.TrimSpace(stateString(state, "agent_kind")))
-	return kind == "claude" || kind == "codex"
+	return boolValue(state, "agent")
 }
+
 func sendStateDialog(state map[string]any) bool {
 	return sendStateAgent(state) && stateString(state, "state") == "dialog"
 }
+
+func sendStateSlashPopup(state map[string]any) bool {
+	return boolValue(state, "slash_popup") || boolValue(state, "slash_command_popup")
+}
+
 func sendStateQueued(state map[string]any) bool {
 	return stateString(state, "state") == "queued" || boolValue(state, "queued")
 }
-func sendStateConfirmed(state map[string]any, screen string) bool {
-	if boolValue(state, "slash_popup") || sendScreenShowsSlashPopup(screen) {
+
+func sendStateConfirmed(state map[string]any, screen string, queuedBeforePaste bool, text string) bool {
+	if sendStateSlashPopup(state) || !sendStateAgent(state) {
 		return false
 	}
-	return sendStateAgent(state) && (stateString(state, "state") == "empty" || sendStateQueued(state))
+	if stateString(state, "state") == "empty" {
+		return true
+	}
+	if !sendStateQueued(state) {
+		return false
+	}
+	return !queuedBeforePaste || sendComposerMatches(screen, text)
 }
 
-func sendStateLooksLikeBusyCodex(state map[string]any, screen string) bool {
-	kind := stateString(state, "agent_kind")
-	if kind != "" && kind != "codex" {
-		return false
-	}
-	if kind == "" {
-		kind = stateString(sendStateFromScreen(screen), "agent_kind")
-	}
-	return kind == "codex" && (stateString(state, "lifecycle") == "running" || boolValue(state, "busy"))
+func sendStateLooksLikeBusyCodex(state map[string]any) bool {
+	return sendStateAgent(state) && stateString(state, "agent_kind") == "codex" &&
+		(stateString(state, "lifecycle") == "running" || boolValue(state, "busy"))
 }
 
 var sendANSISequence = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)`)
 
-func sendStateFromScreen(screen string) map[string]any {
-	clean := sendANSISequence.ReplaceAllString(screen, "")
-	lines := strings.Split(clean, "\n")
-	state := map[string]any{"state": "unknown", "agent": false, "blocks_typing": false}
-	promptIndex := -1
-	kind := ""
-	body := ""
-	for i := len(lines) - 1; i >= 0; i-- {
-		rawLine := strings.TrimLeft(lines[i], " \t│")
-		line := trimSendBox(lines[i])
-		switch {
-		case strings.HasPrefix(rawLine, "❯\u00a0"):
-			promptIndex, kind, body = i, "claude", promptBody(line)
-		case strings.HasPrefix(rawLine, "› "):
-			promptIndex, kind, body = i, "codex", promptBody(line)
-		}
-		if promptIndex >= 0 {
-			break
-		}
-	}
-	if promptIndex < 0 {
-		return state
-	}
-	state["agent"], state["agent_kind"] = true, kind
-	start := maxSend(0, promptIndex-2)
-	end := minSend(len(lines), promptIndex+3)
-	busy := false
-	for _, line := range lines[start:end] {
-		lower := strings.ToLower(strings.TrimSpace(line))
-		if strings.Contains(lower, "esc to interrupt") || strings.Contains(lower, "tab to queue") || strings.Contains(lower, "tab to enqueue") {
-			busy = true
-		}
-	}
-	state["busy"] = busy
-	if busy {
-		state["lifecycle"] = "running"
-	}
-	nonEmpty := 0
-	for i := promptIndex + 1; i < len(lines) && nonEmpty < 6; i++ {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
-			continue
-		}
-		nonEmpty++
-		lower := strings.ToLower(line)
-		for _, hint := range []string{"esc to cancel", "esc to go back", "enter to confirm", "enter to select", "press enter to continue", "do you want to proceed", "allow this tool"} {
-			if strings.Contains(lower, hint) && !sendScreenShowsSlashPopup(clean) {
-				state["state"], state["blocks_typing"] = "dialog", true
-				return state
-			}
-		}
-	}
-	normalized := strings.ToLower(body)
-	placeholder := kind == "codex" && (normalized == "ask codex to do anything" || normalized == "ask codex anything" || normalized == "ask codex to do something")
-	rawLines := strings.Split(screen, "\n")
-	if promptIndex < len(rawLines) && strings.Contains(rawLines[promptIndex], "\x1b[2m") && (strings.HasPrefix(normalized, "try ") || strings.HasPrefix(normalized, "ask ")) {
-		placeholder = true
-	}
-	if placeholder {
-		body = ""
-	}
-	for _, line := range lines[promptIndex+1:] {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "│") {
-			break
-		}
-		if continuation := trimSendBox(line); continuation != "" {
-			body += "\n" + continuation
-		}
-	}
-	state["state"], state["blocks_typing"] = "empty", false
-	if strings.TrimSpace(body) != "" {
-		state["state"], state["blocks_typing"] = "draft", true
-	}
-	state["slash_popup"] = sendScreenShowsSlashPopup(clean)
-	lower := strings.ToLower(clean)
-	if strings.Contains(lower, "queued messages:") || strings.Contains(lower, "message queued") || strings.Contains(lower, "queued message") {
-		state["queued"], state["state"] = true, "queued"
-	}
-	return state
-}
-
-func maxSend(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-func minSend(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func trimSendBox(line string) string {
 	return strings.TrimSpace(strings.Trim(strings.TrimSpace(line), "│"))
-}
-
-func sendScreenShowsSlashPopup(screen string) bool {
-	lines := strings.Split(sendANSISequence.ReplaceAllString(screen, ""), "\n")
-	prompt := ""
-	for i := len(lines) - 1; i >= 0; i-- {
-		trimmed := trimSendBox(lines[i])
-		if strings.HasPrefix(trimmed, "❯") || strings.HasPrefix(trimmed, "›") {
-			prompt = promptBody(trimmed)
-			break
-		}
-	}
-	if !strings.HasPrefix(prompt, "/") {
-		return false
-	}
-	for _, line := range lines {
-		trimmed := trimSendBox(line)
-		if strings.HasPrefix(trimmed, "/") && trimmed != prompt {
-			return true
-		}
-	}
-	return false
 }
 
 func promptBody(line string) string {

@@ -7728,7 +7728,8 @@ struct CMUXCLI {
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let (force, rem3) = Self.splitLeadingForceFlag(rem2)
             let keyArgs = rem3.first == "--" ? Array(rem3.dropFirst()) : rem3
-            guard let key = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
+            guard let rawKey = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
+            let key = (rawKey == "\r" || rawKey == "\n") ? "return" : rawKey
             if keyArgs.count > 1 {
                 let trailing = keyArgs.dropFirst().joined(separator: " ")
                 throw CLIError(message: String(

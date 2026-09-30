@@ -323,50 +323,11 @@ func TestSendSubmitRejectsStaleEmptyAfterPaste(t *testing.T) {
 
 func TestSendSubmitHooklessDraftRefusal(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{{"agent": false, "state": "unknown"}}, []string{"✻ Welcome to Claude Code!\n❯\u00a0human draft\n"})
-	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
-		t.Fatal("hookless draft was not refused")
+	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
+		t.Fatalf("host state unknown should still send: exit %d", code)
 	}
-	if mock.request("terminal.paste") != nil {
-		t.Fatal("pasted over hookless human draft")
-	}
-}
-
-func TestSendSubmitScreenClassifier(t *testing.T) {
-	for _, tc := range []struct {
-		name, screen, kind, state string
-		busy                      bool
-	}{
-		{"claude boxed placeholder", "✻ Welcome to Claude Code!\n╭────────────────────╮\n│\x1b[2m❯\u00a0Try asking for a change\x1b[0m│\n╰────────────────────╯\n", "claude", "empty", false},
-		{"claude multiline draft", "▐▛███▜▌ Claude Code v2.1\n│ ❯\u00a0│\n│ human draft │\n╰────╯\n", "claude", "draft", false},
-		{"codex busy", "│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› hello\n", "codex", "draft", true},
-		{"codex queued", "│ >_ OpenAI Codex (v0.154.0) │\nQueued messages: 1\n› \n", "codex", "queued", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			state := sendStateFromScreen(tc.screen)
-			if stateString(state, "agent_kind") != tc.kind || stateString(state, "state") != tc.state || boolValue(state, "busy") != tc.busy {
-				t.Fatalf("screen state = %v", state)
-			}
-		})
-	}
-}
-
-func TestSendSubmitRealScreenShapesWithoutBanners(t *testing.T) {
-	for _, tc := range []struct {
-		name, screen, kind, state string
-	}{
-		{"claude welcome", "✻ Welcome to Claude Code!\n❯\u00a0", "claude", "empty"},
-		{"codex banner row", "│ >_ OpenAI Codex (v0.154.0) │\n› Ask Codex to do anything", "codex", "empty"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			state := sendStateFromScreen(tc.screen)
-			if stateString(state, "agent_kind") != tc.kind || stateString(state, "state") != tc.state || !sendStateAgent(state) {
-				t.Fatalf("screen state = %v", state)
-			}
-		})
-	}
-	state := sendStateFromScreen("│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› Ask Codex to do anything")
-	if !boolValue(state, "busy") {
-		t.Fatalf("real Codex busy row not detected: %v", state)
+	if mock.request("terminal.paste") == nil {
+		t.Fatal("submit did not paste when host state was available but unknown")
 	}
 }
 
@@ -390,7 +351,7 @@ func TestSendSubmitOwnSlashPickerCountsAsSubmitted(t *testing.T) {
 }
 
 func TestSendSubmitBusyFlagChoosesTab(t *testing.T) {
-	if !sendStateLooksLikeBusyCodex(map[string]any{"agent": true, "agent_kind": "codex", "busy": true}, "") {
+	if !sendStateLooksLikeBusyCodex(map[string]any{"agent": true, "agent_kind": "codex", "busy": true}) {
 		t.Fatal("busy:true Codex ignored")
 	}
 }
@@ -436,7 +397,7 @@ func TestSendSubmitHooklessBusyCodexQueues(t *testing.T) {
 			t.Fatalf("exit %d", code)
 		}
 	})
-	if output != "queued\n" || len(mock.keysSnapshot()) != 1 || mock.keysSnapshot()[0] != "tab" {
+	if output != "submitted\n" || len(mock.keysSnapshot()) != 1 || mock.keysSnapshot()[0] != "return" {
 		t.Fatalf("output=%q keys=%v", output, mock.keysSnapshot())
 	}
 }
@@ -453,11 +414,8 @@ func TestSendSubmitShellGlyphPromptDoesNotProbe(t *testing.T) {
 
 func TestSendSubmitReviewKeys(t *testing.T) {
 	claude := map[string]any{"agent": true, "agent_kind": "claude", "busy": true, "lifecycle": "running"}
-	if key := sendSubmitKey(claude, "Claude Code\n› codex mentioned in output\n", "one\ntwo"); key != "return" {
+	if key := sendSubmitKey(claude); key != "return" {
 		t.Fatalf("Claude key = %q", key)
-	}
-	if state := sendStateFromScreen("shell output mentions codex\n❯ "); sendStateAgent(state) {
-		t.Fatalf("incidental codex recognized: %v", state)
 	}
 }
 
@@ -516,7 +474,7 @@ func TestSendSubmitFinalReadConfirmsSlowRenderer(t *testing.T) {
 }
 
 func TestSendSubmitPopupNotConfirmedUntilClosed(t *testing.T) {
-	if sendStateConfirmed(map[string]any{"agent": true, "state": "empty", "slash_popup": true}, "") {
+	if sendStateConfirmed(map[string]any{"agent": true, "state": "empty", "slash_popup": true}, "", false, "hello") {
 		t.Fatal("popup falsely confirmed")
 	}
 }
@@ -581,25 +539,5 @@ func TestSendSubmitHonorsHostShellClassification(t *testing.T) {
 	keys := mock.keysSnapshot()
 	if len(keys) != 1 || keys[0] != "return" {
 		t.Fatalf("shell keys = %v", keys)
-	}
-}
-
-func TestSendSubmitPromptShapeAndDialogScope(t *testing.T) {
-	for _, screen := range []string{"›", "›shell output", "codex\n> continuation", "│ >_ OpenAI Codex (v0.154.0) │"} {
-		if sendStateAgent(sendStateFromScreen(screen)) {
-			t.Errorf("classified shell or banner as agent: %q", screen)
-		}
-	}
-	state := sendStateFromScreen("esc to cancel\nold tool output\n› hello")
-	if sendStateDialog(state) {
-		t.Fatalf("dialog hint above prompt blocked composer: %v", state)
-	}
-	state = sendStateFromScreen("esc to interrupt\nold output\nmore output\nextra row\n› hello")
-	if boolValue(state, "busy") {
-		t.Fatalf("historical hint marked busy: %v", state)
-	}
-	state = sendStateFromScreen("› hello\nEnter to select")
-	if !sendStateDialog(state) {
-		t.Fatalf("current hint not dialog: %v", state)
 	}
 }

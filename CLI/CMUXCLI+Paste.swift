@@ -237,6 +237,15 @@ extension CMUXCLI {
         if let payload = try? client.sendV2(method: "surface.read_text", params: target) {
             screen = payload["text"] as? String
         }
+        let prePasteState = state
+        let queuedBeforePaste = Self.stateIsQueued(prePasteState)
+        let forceDraft = force && (prePasteState?["state"] as? String) == "draft"
+        let expectedComposerText = Self.expectedComposerText(
+            force: force,
+            state: prePasteState,
+            screen: screen,
+            appendedText: text
+        )
         if (state == nil || force), let screen,
            let fallback = Self.submitInputStateFromScreen(screen) {
             if !force {
@@ -249,6 +258,16 @@ extension CMUXCLI {
         pasteParams["text"] = text
         pasteParams["submit_key"] = "none"
         _ = try client.sendV2(method: "terminal.paste", params: pasteParams)
+        if forceDraft, expectedComposerText == nil {
+            return try sendSubmitUnconfirmed(
+                command: command,
+                target: target,
+                reason: "could not reconstruct the existing draft to verify forced submission",
+                jsonOutput: jsonOutput,
+                idFormat: idFormat
+            )
+        }
+        let composerText = expectedComposerText ?? text
         let agent = Self.stateHasKnownAgent(state)
         // Ghostty queues paste bytes before the next key event. Wait for the
         // composer to show the pasted block before submitting; an unchanged
@@ -275,13 +294,14 @@ extension CMUXCLI {
                     let composerMatches = Self.sendComposerMatches(
                         observed,
                         nil,
-                        text: text,
+                        text: composerText,
                         agentKind: state?["agent_kind"] as? String
                     )
+                    let observedQueued = observedState == "queued" || (observed["queued"] as? Bool) == true
                     if observedState == "draft" {
                         pastedVisible = composerMatches
-                    } else if observedState == "queued" || (observed["queued"] as? Bool) == true {
-                        pastedVisible = true
+                    } else if observedQueued {
+                        pastedVisible = !queuedBeforePaste || composerMatches
                     } else if slashPopup {
                         // A picker opened by the pasted slash command still
                         // belongs to this submission, but only if its composer
@@ -299,7 +319,7 @@ extension CMUXCLI {
                        Self.sendComposerMatches(
                            nil,
                            refreshedText,
-                           text: text,
+                           text: composerText,
                            agentKind: state?["agent_kind"] as? String
                        ) {
                         pastedVisible = true
@@ -335,7 +355,12 @@ extension CMUXCLI {
                    let refreshedText = refreshed["text"] as? String {
                     screen = refreshedText
                 }
-                if sendStateIsConfirmed(lastState, screen: screen) {
+                if sendStateIsConfirmed(
+                    lastState,
+                    screen: screen,
+                    queuedBeforePaste: queuedBeforePaste,
+                    expectedComposerText: composerText
+                ) {
                     return printSubmitResult(
                         status: sendSubmitStatus(lastState, key: lastKey),
                         payload: lastState ?? target,
@@ -357,7 +382,7 @@ extension CMUXCLI {
                 guard !agent || Self.sendComposerMatches(
                     lastState,
                     screen,
-                    text: text,
+                    text: composerText,
                     agentKind: state?["agent_kind"] as? String
                 ) else {
                     return try sendSubmitUnconfirmed(
@@ -371,7 +396,7 @@ extension CMUXCLI {
             }
             let busyCodex = agent
                 && ((state?["busy"] as? Bool) == true || (state?["lifecycle"] as? String) == "running")
-                && Self.stateOrScreenLooksLikeCodex(state, screen: screen)
+                && Self.stateSaysCodex(state)
             let key = busyCodex ? "tab" : "return"
             lastKey = key
             let slashPopupBeforeKey = (state?["slash_command_popup"] as? Bool) == true || Self.screenShowsSlashPopup(screen)
@@ -380,14 +405,13 @@ extension CMUXCLI {
             do {
                 _ = try client.sendV2(method: "surface.send_key", params: keyParams)
             } catch {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.send.error.submitUnconfirmed",
-                        defaultValue: "%@: text was pasted but the submit key failed: %@; do not paste it again without checking the target"
-                    ),
-                    command,
-                    String(describing: error)
-                ))
+                return try sendSubmitUnconfirmed(
+                    command: command,
+                    target: target,
+                    reason: "the submit key failed: \(error)",
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
             }
             Thread.sleep(forTimeInterval: 0.1 * Double(attempt + 1))
 
@@ -431,8 +455,14 @@ extension CMUXCLI {
                 || Self.screenShowsSlashPopup(screen)
             if let lastState,
                 ((lastState["state"] as? String) == "empty"
-                    || (lastState["state"] as? String) == "queued"
-                    || (lastState["queued"] as? Bool) == true),
+                    || ((lastState["state"] as? String) == "queued"
+                        || (lastState["queued"] as? Bool) == true)
+                        && (!queuedBeforePaste || Self.sendComposerMatches(
+                            lastState,
+                            screen,
+                            text: composerText,
+                            agentKind: state?["agent_kind"] as? String
+                        ))),
                 !popupStillVisible && (!slashPopupBeforeKey || attempt > 0) {
                 return printSubmitResult(
                     status: sendSubmitStatus(lastState, key: key),
@@ -454,7 +484,12 @@ extension CMUXCLI {
            let refreshedText = refreshed["text"] as? String {
             screen = refreshedText
         }
-        if sendStateIsConfirmed(lastState, screen: screen) {
+        if sendStateIsConfirmed(
+            lastState,
+            screen: screen,
+            queuedBeforePaste: queuedBeforePaste,
+            expectedComposerText: composerText
+        ) {
             return printSubmitResult(
                 status: sendSubmitStatus(lastState, key: lastKey),
                 payload: lastState ?? target,
@@ -518,16 +553,28 @@ extension CMUXCLI {
         (state?["slash_command_popup"] as? Bool) == true
     }
 
-    private func sendStateIsConfirmed(_ state: [String: Any]?, screen: String?) -> Bool {
+    private func sendStateIsConfirmed(
+        _ state: [String: Any]?,
+        screen: String?,
+        queuedBeforePaste: Bool,
+        expectedComposerText: String
+    ) -> Bool {
         let observed = state ?? screen.flatMap(Self.submitInputStateFromScreen)
         guard let observed,
               Self.stateHasKnownAgent(observed),
               !((observed["slash_command_popup"] as? Bool) == true || Self.screenShowsSlashPopup(screen)) else {
             return false
         }
-        return (observed["state"] as? String) == "empty"
-            || (observed["state"] as? String) == "queued"
-            || (observed["queued"] as? Bool) == true
+        if (observed["state"] as? String) == "empty" { return true }
+        guard (observed["state"] as? String) == "queued" || (observed["queued"] as? Bool) == true else {
+            return false
+        }
+        return !queuedBeforePaste || Self.sendComposerMatches(
+            observed,
+            screen,
+            text: expectedComposerText,
+            agentKind: observed["agent_kind"] as? String
+        )
     }
 
     private func throwIfAgentPromptBlocks(
@@ -536,7 +583,10 @@ extension CMUXCLI {
         command: String,
         target: [String: Any]
     ) throws {
-        let dialog = state["state"] as? String == "dialog" && (state["agent"] as? Bool) == true
+        let slashPopup = (state["slash_command_popup"] as? Bool) == true
+        let dialog = state["state"] as? String == "dialog"
+            && (state["agent"] as? Bool) == true
+            && !slashPopup
         let blocks: Bool
         switch kind {
         case .text:
@@ -567,27 +617,36 @@ extension CMUXCLI {
     }
 
     private static func stateHasKnownAgent(_ state: [String: Any]?) -> Bool {
-        guard let state else { return false }
-        if (state["agent"] as? Bool) == true { return true }
-        guard let rawKind = state["agent_kind"] as? String else { return false }
-        let kind = rawKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return kind == "claude" || kind == "codex"
-    }
-
-    private static func screenLooksLikeCodex(_ screen: String?) -> Bool {
-        guard let screen else { return false }
-        return AgentPromptSubmissionSnapshot(screenText: screen).agentKind == .codex
-    }
-
-    private static func stateOrScreenLooksLikeCodex(
-        _ state: [String: Any]?,
-        screen: String?
-    ) -> Bool {
-        if let kind = state?["agent_kind"] as? String,
-           !kind.isEmpty {
-            return kind.lowercased() == "codex"
+        guard let state, (state["agent"] as? Bool) == true else { return false }
+        if let rawKind = state["agent_kind"] as? String {
+            let kind = rawKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return kind.isEmpty || kind == "claude" || kind == "codex"
         }
-        return screenLooksLikeCodex(screen)
+        return true
+    }
+
+    private static func stateSaysCodex(_ state: [String: Any]?) -> Bool {
+        guard let state, (state["agent"] as? Bool) == true,
+              (state["from_screen"] as? Bool) != true,
+              let kind = state["agent_kind"] as? String else { return false }
+        return kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
+    }
+
+    private static func stateIsQueued(_ state: [String: Any]?) -> Bool {
+        guard let state else { return false }
+        return (state["state"] as? String) == "queued" || (state["queued"] as? Bool) == true
+    }
+
+    private static func expectedComposerText(
+        force: Bool,
+        state: [String: Any]?,
+        screen: String?,
+        appendedText: String
+    ) -> String? {
+        guard force, (state?["state"] as? String) == "draft" else { return appendedText }
+        if let draft = state?["draft_text"] as? String { return draft + appendedText }
+        if let draft = screen.flatMap(composerTextFromScreen) { return draft + appendedText }
+        return nil
     }
 
     private static func screenShowsSlashPopup(_ screen: String?) -> Bool {
@@ -600,6 +659,7 @@ extension CMUXCLI {
         var state: [String: Any] = [
             "state": "unknown",
             "agent": snapshot.agentKind != nil,
+            "from_screen": true,
             "busy": snapshot.busy,
             "queued": snapshot.queued,
             "slash_command_popup": snapshot.slashCommandPopup,

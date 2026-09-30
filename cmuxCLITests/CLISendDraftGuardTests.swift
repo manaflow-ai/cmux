@@ -200,10 +200,10 @@ struct CLISendDraftGuardTests {
     }
 
     @Test(arguments: ["claude", "codex"])
-    func sendSubmitRecognizesAgentKindWithoutHookAgentFlag(kind: String) throws {
-        let empty: [String: Any] = ["state": "empty", "agent": false, "terminal": true,
+    func sendSubmitRecognizesAgentKindWithHookAgentFlag(kind: String) throws {
+        let empty: [String: Any] = ["state": "empty", "agent": true, "terminal": true,
                                    "agent_kind": kind, "busy": true, "blocks_typing": false]
-        let draft: [String: Any] = ["state": "draft", "agent": false, "terminal": true,
+        let draft: [String: Any] = ["state": "draft", "agent": true, "terminal": true,
                                    "agent_kind": kind, "busy": true]
         let run = try runCLI(
             arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
@@ -736,12 +736,13 @@ struct CLISendDraftGuardTests {
         let request = codexHookJSONObject(line)
         let id = (request?["id"] as? String) ?? "unknown"
         if sendKeyFailure, request?["method"] as? String == "surface.send_key" {
-            return codexHookV2Response(
-                id: id,
-                ok: false,
-                result: nil,
-                error: ["code": "surface_unavailable", "message": "key rejected"]
-            )
+            let payload: [String: Any] = [
+                "id": id,
+                "ok": false,
+                "error": ["code": "surface_unavailable", "message": "key rejected"],
+            ]
+            let data = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data("{}".utf8)
+            return String(decoding: data, as: UTF8.self)
         }
         if request?["method"] as? String == "surface.read_text" {
             let text: String?
