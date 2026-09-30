@@ -142,6 +142,9 @@ final class cmuxUITests: XCTestCase {
         let questionPager = questionRow.descendants(matching: .scrollView).firstMatch
         XCTAssertTrue(questionPager.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Question 1 of 2"].exists)
+        let otherAnswer = app.buttons["MobileAgentFeedQuestionOther-deploy"]
+        XCTAssertTrue(otherAnswer.waitForExistence(timeout: 5))
+        XCTAssertTrue(otherAnswer.isHittable)
         questionPager.swipeLeft()
         XCTAssertTrue(app.staticTexts["Question 2 of 2"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Select all that apply"].exists)
@@ -164,6 +167,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(allow.waitForExistence(timeout: 5))
         XCTAssertTrue(always.exists)
         XCTAssertTrue(more.exists)
+        XCTAssertTrue(more.isHittable)
         XCTAssertEqual(allow.frame.width, more.frame.width, accuracy: 6)
         XCTAssertEqual(allow.frame.height, more.frame.height, accuracy: 6)
 

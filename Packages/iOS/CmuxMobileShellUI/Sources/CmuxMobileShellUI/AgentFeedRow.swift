@@ -895,6 +895,7 @@ private struct AgentFeedQuestionControls: View {
                 HStack(spacing: 0) {
                     ForEach(Array(questions.enumerated()), id: \.element.id) { index, question in
                         questionPage(question, index: index)
+                            .fixedSize(horizontal: false, vertical: true)
                             .frame(width: geometry.size.width, alignment: .top)
                             .allowsHitTesting(index == pageIndex)
                             .accessibilityHidden(index != pageIndex)
@@ -1239,6 +1240,7 @@ private struct AgentFeedQuestionControls: View {
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(Color.secondary.opacity(0.42), lineWidth: 1)
             }
+            .accessibilityIdentifier("MobileAgentFeedQuestionOther-\(question.id)")
         }
     }
 }

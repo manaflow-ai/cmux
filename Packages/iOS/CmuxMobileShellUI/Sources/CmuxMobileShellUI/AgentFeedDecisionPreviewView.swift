@@ -69,6 +69,7 @@ public struct AgentFeedDecisionPreviewView: View {
                     .accessibilityIdentifier("MobileAgentFeedDecisionResult")
             }
         }
+        .preferredColorScheme(.dark)
     }
 
     private var actions: AgentFeedActions {
