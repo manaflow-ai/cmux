@@ -102,6 +102,8 @@ cmux sends `SIGTERM` to the agent's process group (scoped to that workspace and 
 
 A workspace with hibernated agents shows a moon row (**Agent hibernated**, or a count) in the sidebar, Task Manager marks each hibernated terminal as **Hibernated** and dims it, and the menu bar menu shows how many agents are hibernated across all windows. `cmux top --json` reports `agent_hibernated` on each surface.
 
+After a wake, cmux checks that the agent actually came back. The wake counts as working as soon as either the agent's own hooks report in for that terminal or a live process of that agent is found running in it (cmux looks every few seconds, which covers agents without hooks). If the resume command exits before either happens, or neither happens within 90 seconds, the terminal shows a banner saying the agent didn't resume, with **Retry** (types the resume command again), **Show command** (shows the command so you can copy it) and a close button. The workspace's sidebar row shows "Agent didn't resume" until the failure is retried, dismissed, or the agent reports in, and one entry is added to the notification feed. The sidebar row is not saved with the session.
+
 ### Enable and configure
 
 Enable routine hibernation from the command palette (`⌘⇧P` -> **Enable Agent Hibernation**), from **Settings > Terminal > Agent Hibernation**, or from the CLI:

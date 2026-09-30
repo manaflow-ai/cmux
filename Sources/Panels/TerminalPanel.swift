@@ -24,6 +24,15 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The underlying terminal surface
     let surface: TerminalSurface
+    private(set) var hasReceivedExplicitInput = false
+
+    func recordExplicitInput() {
+        hasReceivedExplicitInput = true
+    }
+
+    func restoreExplicitInputState(_ state: Bool) {
+        hasReceivedExplicitInput = state
+    }
     var fontSizePanelTransfer:
         WorkspaceTerminalFontSizePanelTransfer?
 
@@ -101,6 +110,12 @@ final class TerminalPanel: Panel, ObservableObject {
             NotificationCenter.default.post(name: .terminalPanelAgentHibernationDidChange, object: self)
         }
     }
+    /// Set when an agent woken from hibernation did not come back; drives
+    /// `AgentWakeFailureBanner`.
+    @Published var agentWakeFailure: AgentWakeFailure?
+    /// Set by the owning workspace while `agentWakeFailure` is shown.
+    var onRequestAgentWakeRetry: (() -> Void)?
+    var onDismissAgentWakeFailure: (() -> Void)?
     /// A native cloud pane's live attachment state (nil for local terminals).
     /// Written only by the owning cloud session; the view shows it.
     var cloudAttachment: CloudTerminalAttachmentStatus?
@@ -161,6 +176,9 @@ final class TerminalPanel: Panel, ObservableObject {
         self.workspaceId = workspaceId
         self.surface = surface
         self.title = surface.agentPanelTitle.flatMap { AutomaticTerminalTitle($0)?.value } ?? "Terminal"
+        surface.onExplicitInput = { [weak self] in
+            self?.hasReceivedExplicitInput = true
+        }
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
