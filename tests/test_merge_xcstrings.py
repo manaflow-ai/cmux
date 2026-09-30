@@ -310,6 +310,74 @@ def test_every_refusal_preserves_theirs_in_the_output():
         assert "<<<<<<<" in merged
 
 
+def test_a_refusal_that_cannot_render_blanks_the_result():
+    """The one fail-open left: exit 1 with %A byte-identical to ours.
+
+    git marks the path unmerged either way, but a file with no markers reads as
+    "no disagreement here" and gets staged, which is the bug this driver exists
+    to kill. If the conflict cannot be rendered at all, %A must still stop
+    being ours.
+    """
+    driver = load_driver()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        base_path, ours_path, theirs_path = (root / "O", root / "A", root / "B")
+        base_path.write_text(render(catalog({"a": unit("old")})), encoding="utf-8")
+        ours_path.write_text(render(catalog({"a": unit("ours")})), encoding="utf-8")
+        theirs_path.write_text(render(catalog({"a": unit("theirs")})), encoding="utf-8")
+        before = ours_path.read_text(encoding="utf-8")
+
+        def explode(*_args, **_kwargs):
+            raise RuntimeError("no git here")
+
+        original = driver.conflict_text
+        driver.conflict_text = explode
+        try:
+            code = driver.main(
+                [str(DRIVER), str(base_path), str(ours_path), str(theirs_path), "Localizable.xcstrings"]
+            )
+        finally:
+            driver.conflict_text = original
+        after = ours_path.read_text(encoding="utf-8")
+
+    assert code == 1
+    assert after != before, "a refusal left ours in place with no markers"
+    assert after == ""
+
+
+def test_an_unwritable_result_says_it_is_still_ours():
+    """When even a blank write fails there is nothing left but to be loud.
+
+    A driver cannot make git abort, so the only honest outcome is a message
+    naming the file and saying it is not a merge of theirs.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        base_path, ours_path, theirs_path = (root / "O", root / "A", root / "B")
+        base_path.write_text(render(catalog({"a": unit("old")})), encoding="utf-8")
+        ours_path.write_text(render(catalog({"a": unit("ours")})), encoding="utf-8")
+        theirs_path.write_text(render(catalog({"a": unit("theirs")})), encoding="utf-8")
+        ours_path.chmod(0o444)
+        try:
+            ours_path.write_text("probe", encoding="utf-8")
+        except OSError:
+            pass
+        else:
+            ours_path.chmod(0o644)
+            ours_path.write_text(render(catalog({"a": unit("ours")})), encoding="utf-8")
+            print("ok (skipped: this user can write a read-only file)")
+            return
+        result = subprocess.run(
+            [sys.executable, str(DRIVER), str(base_path), str(ours_path), str(theirs_path), "Localizable.xcstrings"],
+            capture_output=True,
+            text=True,
+        )
+        ours_path.chmod(0o644)
+
+    assert result.returncode == 1
+    assert "must not be committed" in result.stderr, result.stderr
+
+
 def main():
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:

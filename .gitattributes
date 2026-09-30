@@ -14,10 +14,14 @@ Resources/markdown-viewer/webviews-app/** linguist-generated
 # without that config git silently uses the default driver.
 *.xcstrings merge=xcstrings-v2
 
-# Both drivers here run from the working tree, so a checkout of an untrusted
-# branch that also rewrites them gets to run its own code on the next merge.
-# scripts/ci/catch_up_pr.py pins both to false for that reason; a maintainer
-# merging into a fork checkout has no such protection.
+# A merge can run right after checking out a fork branch, so a driver resolved
+# from the working tree would run that branch's code with the maintainer's
+# credentials. scripts/install-git-hooks.sh installs reviewed copies into
+# $GIT_COMMON_DIR/cmux-merge-drivers and configures absolute paths to those, so
+# what git executes is not what a branch can rewrite; it also repoints the
+# older checkout-relative merge.xcstrings name at the same trusted copy.
+# scripts/ci/catch_up_pr.py pins every driver to false instead, since catch-up
+# only needs to know which paths are unmerged.
 
 # The Xcode project file collides the same way, and for a sharper reason: no
 # target here is filesystem-synchronized, so adding one source file writes four

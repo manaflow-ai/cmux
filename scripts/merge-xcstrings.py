@@ -308,22 +308,62 @@ def _read_bytes(path: Path, label: str) -> tuple[bytes, OSError | None]:
         return f"[merge-xcstrings could not read {label}: {error}]\n".encode(), error
 
 
+def _blank(path: Path, name: str) -> None:
+    """Make `%A` not-ours when the conflict itself cannot be written.
+
+    A driver cannot ask git to abort. The failure this guards against is `%A`
+    left byte-identical to ours: git records the path as unmerged, but the file
+    on disk has no markers, so it reads as "nothing to resolve here" and gets
+    staged. An empty file is the loudest signal left, and it is never valid
+    JSON, so anything downstream that parses the catalog fails instead of
+    accepting ours as the merge result.
+
+    Reopening can fail for the same reason the first write did, and then there
+    is genuinely nothing left to do but say so.
+    """
+    try:
+        path.write_bytes(b"")
+    except Exception as error:
+        print(
+            f"merge-xcstrings: {name}: cannot write a conflict or blank the result ({error}); "
+            f"{path} is still ours and must not be committed as a merge of theirs",
+            file=sys.stderr,
+        )
+
+
 def _materialize_conflict(
     path: Path, base: str, ours: str, theirs: str, width: int, name: str
 ) -> None:
+    # Build the text before opening the file, and catch everything: a refusal
+    # that raises past main() exits nonzero with %A untouched, which is the
+    # exact fail-open this function exists to prevent.
     try:
-        path.write_text(conflict_text(base, ours, theirs, width), encoding="utf-8")
-    except OSError as error:
+        text = conflict_text(base, ours, theirs, width)
+    except Exception as error:
+        print(f"merge-xcstrings: {name}: cannot render conflict ({error})", file=sys.stderr)
+        _blank(path, name)
+        return
+    try:
+        path.write_text(text, encoding="utf-8")
+    except Exception as error:
         print(f"merge-xcstrings: {name}: cannot materialize conflict ({error})", file=sys.stderr)
+        _blank(path, name)
 
 
 def _materialize_conflict_bytes(
     path: Path, base: bytes, ours: bytes, theirs: bytes, width: int, name: str
 ) -> None:
     try:
-        path.write_bytes(explicit_conflict_bytes(base, ours, theirs, width))
-    except OSError as error:
+        payload = explicit_conflict_bytes(base, ours, theirs, width)
+    except Exception as error:
+        print(f"merge-xcstrings: {name}: cannot render conflict ({error})", file=sys.stderr)
+        _blank(path, name)
+        return
+    try:
+        path.write_bytes(payload)
+    except Exception as error:
         print(f"merge-xcstrings: {name}: cannot materialize conflict ({error})", file=sys.stderr)
+        _blank(path, name)
 
 
 def main(argv: list[str]) -> int:
@@ -386,7 +426,14 @@ def main(argv: list[str]) -> int:
         _materialize_conflict(ours_path, base_text, ours_text, theirs_text, marker_size, name)
         print(f"merge-xcstrings: {name}: merged key set did not match the plan", file=sys.stderr)
         return 1
-    ours_path.write_text(merged_text, encoding="utf-8")
+    # A failed write here can leave ours in place just as silently as a failed
+    # refusal, so it gets the same treatment rather than an escaping traceback.
+    try:
+        ours_path.write_text(merged_text, encoding="utf-8")
+    except Exception as error:
+        print(f"merge-xcstrings: {name}: cannot write the merged catalog ({error})", file=sys.stderr)
+        _blank(ours_path, name)
+        return 1
     return 0
 
 
