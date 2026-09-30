@@ -10,6 +10,7 @@ The shipped `cmux` CLI (`CLI/cmux.swift`), agent hooks, and shell integration ta
 - App-local changes (show a workspace in a window, focus a pane, select a tab, open/focus/close a window) run on the main actor through the router's bounded `MainActorWorkQueue` (`CompatFrontend.perform`, implemented by `AppCompatFrontend`). Browser page operations call `CompatFrontend.browser`, which hops to the main actor for WebKit/CEF.
 - IDs: workspace UUID = durable workspace key; pane and surface UUIDs = the 32 hex digits of `pane_…` / `tab_…` resource ids (stable across app and daemon restarts). A surface also resolves by the UUID form of its terminal id. Refs are minted per kind on first sight, never reused in one app process, and start at 1 (the old app started at 1,000,000,000 and persisted blocks; scripts that only store refs within one run are unaffected).
 - Windows: every window's sidebar lists every workspace, so `workspace.list` returns all workspaces and `selected` means "shown in the target window".
+- Action verbs (`cmux tab reload --target …`, `action.run`) take the same refs: `surface:N` (also `tab:N`, the old CLI's display form), `pane:N`, `workspace:N`, `window:N` and old UUIDs resolve to model ids before the handler runs (`CompatActionTargets`); a surface ref names its pane or workspace for pane and workspace actions.
 
 ## Status by method, ranked by use
 
@@ -42,7 +43,7 @@ Usage columns: tests_v2 calls/files, skills mentions (via the CLI verb), and whe
 | surface.create | 18/12 | 7 | | new-surface | daemon `new-tab` / `new-frontend-browser-tab`; dock placement and providers unsup |
 | pane.focus | 16/10 | 2 | | focus-pane | app |
 | surface.health | 16/10 | 2 | | surface-health | impl (fresh read) |
-| window.list / v1 list_windows | 16/15 | 3 | yes | list-windows | impl (snapshot) |
+| window.list / v1 list_windows | 16/15 | 3 | yes | list-windows | impl (snapshot): shown windows only, each with the count of workspaces its sidebar shows; hidden windows (off screen until a machine reports a workspace) with `list-windows --all` / `include_hidden` |
 | workspace.rename | 14/9 | 0 | | rename-workspace, rename-window | daemon `rename-workspace` (clears a sidebar title override) |
 | browser.url.get, browser.get.url, browser.get.title | 13/7 | 2 | | browser url, get title | app |
 | system.identify | 14/11 | 15 | | identify | impl (fresh read): focused + caller objects |
