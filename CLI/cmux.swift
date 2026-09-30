@@ -16548,6 +16548,55 @@ struct CMUXCLI {
             values.filter { !$0.hasPrefix("-") }
         }
 
+        func browserProfileArguments(
+            _ values: [String],
+            allowedFlags: Set<String> = [],
+            commandName: String
+        ) throws -> (positionals: [String], flags: Set<String>) {
+            var positionals: [String] = []
+            var flags: Set<String> = []
+            var pastTerminator = false
+
+            for value in values {
+                if pastTerminator {
+                    positionals.append(value)
+                    continue
+                }
+                if value == "--" {
+                    pastTerminator = true
+                    continue
+                }
+                if allowedFlags.contains(value) {
+                    flags.insert(value)
+                    continue
+                }
+                if value.hasPrefix("-") {
+                    throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.readSelection.error.unexpectedArguments",
+                            defaultValue: "%@: unexpected arguments: %@"
+                        ),
+                        commandName,
+                        value
+                    ))
+                }
+                positionals.append(value)
+            }
+            return (positionals, flags)
+        }
+
+        func rejectBrowserProfileExtras(_ values: ArraySlice<String>, commandName: String) throws {
+            guard !values.isEmpty else { return }
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.readSelection.error.unexpectedArguments",
+                    defaultValue: "%@: unexpected arguments: %@"
+                ),
+                commandName,
+                values.joined(separator: " ")
+            ))
+        }
+
         func optionValues(_ values: [String], names: Set<String>) throws -> [String] {
             var result: [String] = []
             var index = 0
@@ -16655,8 +16704,13 @@ struct CMUXCLI {
                     printBrowserProfiles(payload)
                 }
             case "create":
+                let commandName = "browser profiles \(profileVerb)"
                 let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
-                let name = nameOpt ?? nonFlagArgs(remaining).joined(separator: " ")
+                let parsed = try browserProfileArguments(remaining, commandName: commandName)
+                if nameOpt != nil {
+                    try rejectBrowserProfileExtras(parsed.positionals[...], commandName: commandName)
+                }
+                let name = nameOpt ?? parsed.positionals.joined(separator: " ")
                 guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     throw CLIError(message: "browser profiles \(profileVerb) requires a name")
                 }
@@ -16670,9 +16724,16 @@ struct CMUXCLI {
                     print("Created browser profile")
                 }
             case "rename":
+                let commandName = "browser profiles \(profileVerb)"
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
                 let (nameOpt, rem2) = parseOption(rem1, name: "--name")
-                let positional = nonFlagArgs(rem2)
+                let parsed = try browserProfileArguments(rem2, commandName: commandName)
+                let positional = parsed.positionals
+                if profileOpt != nil, nameOpt != nil {
+                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                } else if nameOpt != nil {
+                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                }
                 let profile = profileOpt ?? positional.first
                 let newName = nameOpt ?? (positional.count > 1 ? positional.dropFirst().joined(separator: " ") : nil)
                 guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -16693,17 +16754,28 @@ struct CMUXCLI {
                     print("Renamed browser profile.")
                 }
             case "clear":
+                let commandName = "browser profiles \(profileVerb)"
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-                let positional = nonFlagArgs(rem1)
+                let parsed = try browserProfileArguments(
+                    rem1,
+                    allowedFlags: ["--all", "--force"],
+                    commandName: commandName
+                )
+                let positional = parsed.positionals
                 var params: [String: Any] = [:]
-                if hasFlag(profileArgs, name: "--all") {
+                if parsed.flags.contains("--all") {
+                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
                     params["all"] = true
-                } else if let profile = profileOpt ?? positional.first {
+                } else if let profileOpt {
+                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    params["profile"] = profileOpt
+                } else if let profile = positional.first {
+                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
                     params["profile"] = profile
                 } else {
                     throw CLIError(message: "browser profiles \(profileVerb) requires a profile or --all")
                 }
-                if hasFlag(profileArgs, name: "--force") {
+                if parsed.flags.contains("--force") {
                     params["force"] = true
                 }
                 let payload = try client.sendV2(method: "browser.profiles.clear", params: params, responseTimeout: 120)
@@ -16714,8 +16786,16 @@ struct CMUXCLI {
                     print("Cleared \(count) browser profile\(count == 1 ? "" : "s").")
                 }
             case "delete":
+                let commandName = "browser profiles \(profileVerb)"
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-                let profile = profileOpt ?? nonFlagArgs(rem1).first
+                let parsed = try browserProfileArguments(rem1, commandName: commandName)
+                let positional = parsed.positionals
+                if profileOpt != nil {
+                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                } else {
+                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                }
+                let profile = profileOpt ?? positional.first
                 guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     throw CLIError(message: "browser profiles \(profileVerb) requires a profile")
                 }
