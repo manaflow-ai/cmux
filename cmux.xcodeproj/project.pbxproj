@@ -2592,6 +2592,7 @@
 		49C6C7B44A597DE137E19B6C /* OwnWindowFrameCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B6A1AD299FCFD50D958AE98 /* OwnWindowFrameCapture.swift */; };
 		7A0CE1000000000000000046 /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000020 /* PacketTunnelProvider.swift */; };
 		2DC6B7301ABF07231A6D178C /* PaletteAgentCommandsBroker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 567A17CDBF16F38787CD2810 /* PaletteAgentCommandsBroker.swift */; };
+		8CE7B1B66ADD6D30E00023C7 /* PaletteAgentCommandsWindowIdTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BFB90A9B41761ECE5C3BB4 /* PaletteAgentCommandsWindowIdTests.swift */; };
 		E3B7A4000000000000000021 /* PaneChromeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000022 /* PaneChromeSettings.swift */; };
 		C51A73000000000000000201 /* PaneDropContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000202 /* PaneDropContainer.swift */; };
 		D0B752900000000000000002 /* PaneDropRoutingRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B752900000000000000001 /* PaneDropRoutingRegistration.swift */; };
@@ -6848,6 +6849,7 @@
 		6B6A1AD299FCFD50D958AE98 /* OwnWindowFrameCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnWindowFrameCapture.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000020 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
 		567A17CDBF16F38787CD2810 /* PaletteAgentCommandsBroker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaletteAgentCommandsBroker.swift; sourceTree = "<group>"; };
+		21BFB90A9B41761ECE5C3BB4 /* PaletteAgentCommandsWindowIdTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaletteAgentCommandsWindowIdTests.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000022 /* PaneChromeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneChromeSettings.swift; sourceTree = "<group>"; };
 		C51A73000000000000000202 /* PaneDropContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropContainer.swift; sourceTree = "<group>"; };
 		D0B752900000000000000001 /* PaneDropRoutingRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropRoutingRegistration.swift; sourceTree = "<group>"; };
@@ -12980,6 +12982,7 @@
 				2D3917E88FC3A4BFAD8ED176 /* SidebarAgentWorkStateTests.swift */,
 				EA6E81B689749BFCBB162559 /* AutoNamingOpenCodeArgumentsTests.swift */,
 				67DE841E0DBB03301BDAF4EA /* CLIPaletteListArgumentTests.swift */,
+				21BFB90A9B41761ECE5C3BB4 /* PaletteAgentCommandsWindowIdTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -17439,6 +17442,7 @@
 				0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */,
 				A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */,
 				B11371000000000000000011 /* OwnedAgentDescendantLifecycleTests.swift in Sources */,
+				8CE7B1B66ADD6D30E00023C7 /* PaletteAgentCommandsWindowIdTests.swift in Sources */,
 				649063F6165DE5FAEA9BB93A /* PaneDropTargetIdentityTests.swift in Sources */,
 				96B4F71E4B75DDDE94C654B1 /* PaneDropZoneOverlayAnimationTests.swift in Sources */,
 				29694FC4AD416A43C96FED5B /* PaneFocusFindResponderTests.swift in Sources */,
