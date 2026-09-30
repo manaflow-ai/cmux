@@ -13,22 +13,3 @@ struct TaskComposerPrefetchModifier: ViewModifier {
             .background(TaskComposerPrefetchObserver(store: store))
     }
 }
-
-private struct TaskComposerPrefetchObserver: View {
-    let store: CMUXMobileShellStore
-    @Environment(\.scenePhase) private var scenePhase
-
-    private var prefetchTargets: [MobileTaskModelPrefetchTarget] {
-        scenePhase == .active ? store.taskModelPrefetchTargets : []
-    }
-
-    var body: some View {
-        Color.clear
-            .onChange(of: prefetchTargets, initial: true) { _, targets in
-                store.updateTaskModelPrefetchTargets(targets)
-            }
-            .onDisappear {
-                store.updateTaskModelPrefetchTargets([])
-            }
-    }
-}

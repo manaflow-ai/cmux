@@ -14,11 +14,6 @@ private struct MobileTaskModelRequestContext {
     let owner: Owner
 }
 
-private struct MobileTaskModelHostFetchResult: Sendable {
-    let result: MobileTaskModelListResult
-    let connectionIdentity: String
-}
-
 extension MobileShellComposite {
     /// Removes model state for pairing rows that are no longer available.
     /// A removed row must also cancel an in-flight refresh so its completion
