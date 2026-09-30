@@ -1114,6 +1114,10 @@ jobs:
     # decline ~25 s sooner without admitting macOS on a rejected diff.
     needs: [changes]
     if: ${{ needs.changes.outputs.linux_guard_tests != 'false' || needs.changes.outputs.linux_guard_history != 'false' || needs.changes.outputs.linux_guard_cli != 'false' || needs.changes.outputs.linux_guard_source != 'false' }}
+    # The reusable workflow's ci matrix leg reads the fast-guards check.
+    permissions:
+      contents: read
+      checks: read
     uses: ./.github/workflows/ci-guards.yml
     with:
       linux_guard_tests: ${{ needs.changes.outputs.linux_guard_tests }}

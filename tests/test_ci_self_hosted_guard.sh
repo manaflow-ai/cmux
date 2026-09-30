@@ -1307,8 +1307,9 @@ check_owned_pools_route_through_picker() {
   # marker; macos_pr_runner reaches a job only as a `pr_runner` input written
   # exactly one way, or inside a runs-on branch that a pull_request condition
   # guards. Parsed as YAML, so a block scalar or a second output is seen too.
-  local violations
-  violations="$(python3 - "$ROOT_DIR/.github/workflows" <<'PYTHON'
+  local violations violations_file
+  violations_file="$(mktemp)"
+  python3 - "$ROOT_DIR/.github/workflows" >"$violations_file" <<'PYTHON'
 import re
 import sys
 from pathlib import Path
@@ -1442,7 +1443,8 @@ for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
         violations.append(f"{where}: reads macos_pr_runner outside pr_runner or a pull_request runs-on branch")
 print("\n".join(violations))
 PYTHON
-)"
+  violations="$(<"$violations_file")"
+  rm -f "$violations_file"
   if [ -n "$violations" ]; then
     echo "FAIL: the picked pull request pool must reach jobs only through pr_runner_pool.py's checked route"
     echo "$violations"
@@ -1660,8 +1662,9 @@ check_macos_xcode_pin_tracks_pull_request_lane() {
   # .github/workflows that names the macos-15 Xcode must also read the
   # pull-request variant, unless its exact (file, job, key) is exempted below
   # with a reason. A macOS job added next month inherits the rule for free.
-  local violations
-  violations="$(python3 - "$ROOT_DIR/.github/workflows" <<'PYTHON'
+  local violations violations_file
+  violations_file="$(mktemp)"
+  python3 - "$ROOT_DIR/.github/workflows" >"$violations_file" <<'PYTHON'
 import sys
 from pathlib import Path
 
@@ -1709,7 +1712,8 @@ for path in sorted(Path(sys.argv[1]).glob("*.yml")):
 
 print("\n".join(violations))
 PYTHON
-)"
+  violations="$(<"$violations_file")"
+  rm -f "$violations_file"
   if [ -n "$violations" ]; then
     echo "FAIL: a macos-15 Xcode pin does not follow the pull-request lane"
     echo "      Route it through CMUX_CI_XCODE_APP_PR, or add its (file, job, key) to"
@@ -1737,8 +1741,9 @@ check_macos_runner_identity_env_tracks_routing() {
   # move a job without moving what that job reports about itself.
   # Parse YAML so mapping order, quoting, and folded scalars cannot hide an
   # identity value. A parser failure aborts under set -e rather than passing.
-  local mismatches
-  mismatches="$(python3 - "$CI_MACOS_FILE" <<'PYTHON'
+  local mismatches mismatches_file
+  mismatches_file="$(mktemp)"
+  python3 - "$CI_MACOS_FILE" >"$mismatches_file" <<'PYTHON'
 import sys
 from pathlib import Path
 import yaml
@@ -1789,7 +1794,8 @@ assert len(list(mismatched_identities(fixture))) == 2
 
 print("\n".join(mismatched_identities(yaml.safe_load(Path(sys.argv[1]).read_text()))))
 PYTHON
-)"
+  mismatches="$(<"$mismatches_file")"
+  rm -f "$mismatches_file"
   if [ -n "$mismatches" ]; then
     echo "FAIL: a macOS runner env value in ci-macos.yml does not match its job's runs-on,"
     echo "      so it names the wrong pool on pull requests (see docs/ci-runners.md)"
