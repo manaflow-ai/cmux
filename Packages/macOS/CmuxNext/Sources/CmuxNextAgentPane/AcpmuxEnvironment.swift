@@ -2,10 +2,11 @@ public import Foundation
 
 /// Where this app's acpmux daemon lives and how to start it.
 ///
-/// Release builds share the user's daemon (`ACPMUX_HOME` or `~/.acpmux`), so
-/// the pane sees the same sessions as the `acpmux` CLI. A tagged dev build
-/// gets a tag-private home and an ephemeral port, so it never shares a
-/// daemon, a socket or port 47811 with the user's release app.
+/// Same rule as `cmux acp` (cmux-tui `acp::tagged_home`), so the pane and
+/// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins, else a
+/// tagged dev build uses `~/.acpmux/tags/<slug>`, else `~/.acpmux`, shared
+/// with a standalone `acpmux`. A daemon this app starts for a tag listens on
+/// an ephemeral port, never the release daemon's 47811.
 public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public var executable: URL
     public var home: URL
@@ -24,30 +25,25 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         bundledBinDirectory: URL?,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
-        applicationSupport: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
         uid: UInt32 = getuid(),
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> AcpmuxEnvironment? {
         guard let executable = executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
             .first(where: { isExecutable($0.path) }) else { return nil }
-        let isolated = tag.map { !$0.isEmpty } ?? false
+        let slug = tag.flatMap(tagSlug)
         let home: URL
-        var child: [String: String] = [:]
-        if isolated, let tag, let support = applicationSupport {
-            home = support.appendingPathComponent("cmux-next/acpmux-\(sanitized(tag))", isDirectory: true)
-            child["ACPMUX_HOME"] = home.path
-        } else if let custom = environment["ACPMUX_HOME"], !custom.isEmpty {
+        if let custom = environment["ACPMUX_HOME"], !custom.isEmpty {
             home = URL(fileURLWithPath: custom, isDirectory: true)
-            child["ACPMUX_HOME"] = custom
+        } else if let slug {
+            home = userHome.appendingPathComponent(".acpmux/tags/\(slug)", isDirectory: true)
         } else {
             home = userHome.appendingPathComponent(".acpmux", isDirectory: true)
         }
-        let socket = (!isolated ? environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 } : nil)
-            ?? defaultSocketPath(home: home, uid: uid)
-        child["ACPMUX_SOCKET"] = socket
+        let socket = environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 } ?? defaultSocketPath(home: home, uid: uid)
         return AcpmuxEnvironment(
             executable: executable, home: home, socketPath: socket,
-            daemonArguments: isolated ? ["--listen", "127.0.0.1:0"] : [], childEnvironment: child
+            daemonArguments: slug == nil ? [] : ["--listen", "127.0.0.1:0"],
+            childEnvironment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket]
         )
     }
 
@@ -84,7 +80,18 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         return hash
     }
 
-    static func sanitized(_ tag: String) -> String {
-        String(tag.lowercased().map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : "-" })
+    /// cmux-tui `acp::sanitize_tag`: lowercase, runs of anything outside
+    /// `[a-z0-9]` become one `-`, no leading or trailing `-`; nil when empty.
+    static func tagSlug(_ raw: String) -> String? {
+        var slug = ""
+        for character in raw.lowercased() {
+            if character.isASCII, character.isLetter || character.isNumber {
+                slug.append(character)
+            } else if !slug.hasSuffix("-") {
+                slug.append("-")
+            }
+        }
+        let trimmed = slug.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
