@@ -20,6 +20,7 @@ extension MobileShellComposite {
     /// cannot repopulate the cache after the pairing list changes.
     func pruneTaskModelStateToPairedMacs() {
         let validPairingIDs = Set(taskComposerPairedMacs.map(\.id))
+        cancelTaskModelPrefetchTasks(keeping: validPairingIDs)
         for key in taskModelRefreshRequests.keys
             where !validPairingIDs.contains(
                 MobilePairedMac.pairingID(
@@ -450,6 +451,20 @@ extension MobileShellComposite {
         maximumCacheAge: Double = 0,
         didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
     ) async -> MobileTaskModelRefreshOutcome {
+        await refreshTaskModels(
+            provider: provider, macDeviceID: macDeviceID, instanceTag: instanceTag,
+            maximumCacheAge: maximumCacheAge, prefetchedCatalog: nil, didUpdate: didUpdate
+        )
+    }
+
+    func refreshTaskModels(
+        provider: MobileTaskAgentProvider,
+        macDeviceID: String,
+        instanceTag: String?,
+        maximumCacheAge: Double,
+        prefetchedCatalog: MobileTaskModelPrefetchCatalog?,
+        didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
+    ) async -> MobileTaskModelRefreshOutcome {
         guard !Task.isCancelled else { return .stopped(.cancelled) }
         let key = MobileTaskModelCacheKey(
             macDeviceID: macDeviceID, instanceTag: instanceTag, provider: provider
@@ -499,6 +514,7 @@ extension MobileShellComposite {
             }
             let outcome = await self.performTaskModelRefresh(
                 provider: provider, macDeviceID: macDeviceID, instanceTag: instanceTag,
+                prefetchedCatalog: prefetchedCatalog,
                 didUpdate: { request.publish($0) }
             )
             if self.taskModelRefreshRequests[key] === request {
@@ -517,6 +533,7 @@ extension MobileShellComposite {
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
         instanceTag: String?,
+        prefetchedCatalog: MobileTaskModelPrefetchCatalog?,
         didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
     ) async -> MobileTaskModelRefreshOutcome {
         let startedAt = appDiagnosticNow()
@@ -528,6 +545,7 @@ extension MobileShellComposite {
             provider: provider,
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
+            prefetchedCatalog: prefetchedCatalog,
             hostResultLoader: { [weak self] in
                 guard let self else {
                     return MobileTaskModelHostRefreshResult(
@@ -618,6 +636,7 @@ extension MobileShellComposite {
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
         instanceTag: String? = nil,
+        prefetchedCatalog: MobileTaskModelPrefetchCatalog?,
         hostResultLoader: @escaping @Sendable () async -> MobileTaskModelHostRefreshResult,
         didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
     ) async -> MobileTaskModelRefreshOutcome {
@@ -636,11 +655,15 @@ extension MobileShellComposite {
             group.addTask {
                 .host(await hostResultLoader())
             }
-            group.addTask {
-                .backend(await Self.fetchTaskModelCatalog(
-                    client: catalogClient,
-                    provider: provider
-                ))
+            if let prefetchedCatalog {
+                group.addTask { .backend(await prefetchedCatalog.result(for: provider)) }
+            } else {
+                group.addTask {
+                    .backend(await Self.fetchTaskModelCatalog(
+                        client: catalogClient,
+                        provider: provider
+                    ))
+                }
             }
 
             for await event in group {

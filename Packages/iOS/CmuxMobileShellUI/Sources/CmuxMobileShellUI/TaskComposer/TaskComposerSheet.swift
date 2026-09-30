@@ -1328,6 +1328,7 @@ struct TaskComposerSheet: View {
             selectedMacInstanceTag = machines.first?.instanceTag
             restorePickerPreferences(templates: templates)
         }
+        validateWorkspaceGroupSelection()
     }
 
     private func validateWorkspaceGroupSelection() {

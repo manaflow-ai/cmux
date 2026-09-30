@@ -3,6 +3,36 @@ import Testing
 @testable import CmuxMobileShell
 import CmuxMobileShellModel
 
+private actor MobileTaskModelPrefetchGate {
+    let data: Data
+    private var started = false
+    private var startedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    func load() async -> Data {
+        started = true
+        let waiters = startedWaiters
+        startedWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { releaseContinuation = $0 }
+        return data
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { startedWaiters.append($0) }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+}
+
 @MainActor
 struct MobileTaskModelPrefetchTests {
     @Test func sharesInFlightDiscoveryAndReusesTheWarmHostCatalog() async throws {
@@ -75,6 +105,34 @@ struct MobileTaskModelPrefetchTests {
         }
     }
 
+    @Test func targetChangesKeepUnchangedMacPrefetchAlive() async throws {
+        let gate = MobileTaskModelPrefetchGate(data: Data(
+            #"{"schemaVersion":1,"providers":{"claude":{"models":[{"id":"backend-claude","label":"Backend Claude"}]},"codex":{"models":[{"id":"backend-codex","label":"Backend Codex"}]},"opencode":{"models":[{"id":"backend-opencode","label":"Backend OpenCode"}]}}}"#.utf8
+        ))
+        let catalog = MobileTaskModelCatalogClient(
+            endpoint: URL(string: "https://catalog.example.test/models")!,
+            loader: { _ in await gate.load() }
+        )
+        let store = try await makeRoutingConnectedStore(
+            router: RoutingHostRouter(), hostCapabilities: [], taskModelCatalogClient: catalog
+        )
+        let target = MobileTaskModelPrefetchTarget(
+            macDeviceID: "unchanged-mac", instanceTag: nil
+        )
+        let prefetch = Task {
+            await store.prefetchTaskModels(for: [target, .init(
+                macDeviceID: "removed-mac", instanceTag: nil
+            )])
+        }
+        await gate.waitUntilStarted()
+        store.updateTaskModelPrefetchTargets([target])
+        await gate.release()
+        await prefetch.value
+        #expect(store.discoveredTaskModels(
+            provider: .claude, macDeviceID: "unchanged-mac", instanceTag: nil
+        )?.map(\.id) == ["backend-claude"])
+    }
+
     @Test func warmsAnOfflineMacFromTheBackendCatalog() async throws {
         let probe = MobileTaskModelPrefetchCatalogProbe(data: Data(
             #"{"schemaVersion":1,"providers":{"claude":{"models":[{"id":"backend-claude","label":"Backend Claude"}]},"codex":{"models":[{"id":"backend-codex","label":"Backend Codex"}]},"opencode":{"models":[{"id":"backend-opencode","label":"Backend OpenCode"}]}}}"#.utf8
@@ -89,20 +147,22 @@ struct MobileTaskModelPrefetchTests {
         let target = MobileTaskModelPrefetchTarget(
             macDeviceID: "offline-mac", instanceTag: nil, connectionIdentity: nil
         )
-        await store.prefetchTaskModels(for: [target])
+        await store.prefetchTaskModels(for: [target, .init(
+            macDeviceID: "other-offline-mac", instanceTag: "nightly"
+        )])
         #expect(
             store.discoveredTaskModels(
                 provider: .claude, macDeviceID: "offline-mac", instanceTag: nil
             )?.first?.id == "backend-claude"
         )
-        #expect(await probe.requestCount == MobileTaskAgentProvider.allCases.count)
+        #expect(await probe.requestCount == 1)
         #expect(await store.refreshTaskModels(
             provider: .claude,
             macDeviceID: "offline-mac",
             instanceTag: nil,
             maximumCacheAge: 300
         ) == .succeeded)
-        #expect(await probe.requestCount == MobileTaskAgentProvider.allCases.count)
+        #expect(await probe.requestCount == 1)
     }
 
     @Test func obsoleteConnectionDoesNotPrefetchIntoReplacement() async throws {

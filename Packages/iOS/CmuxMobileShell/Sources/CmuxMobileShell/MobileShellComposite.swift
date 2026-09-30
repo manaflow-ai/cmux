@@ -542,6 +542,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var taskModelCache: [MobileTaskModelCacheKey: MobileTaskModelCacheEntry] = [:]
     @ObservationIgnored var taskModelRefreshRequests: [MobileTaskModelCacheKey: MobileTaskModelRefreshRequest] = [:]
     @ObservationIgnored var taskModelSuccessfulConnections: [MobileTaskModelCacheKey: String] = [:]
+    @ObservationIgnored var taskModelPrefetchTasks: [MobileTaskModelPrefetchKey: Task<Void, Never>] = [:]
+    @ObservationIgnored var taskModelPrefetchTaskTokens: [MobileTaskModelPrefetchKey: UUID] = [:]
+    @ObservationIgnored var taskModelPrefetchCatalog: MobileTaskModelPrefetchCatalog?
+    @ObservationIgnored let taskModelPrefetchLimiter = MobileTaskModelPrefetchLimiter(limit: 4)
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -2312,6 +2316,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         taskTemplateStore?.clearAllUserData()
         for request in taskModelRefreshRequests.values { request.cancel() }
         taskModelRefreshRequests.removeAll()
+        for task in taskModelPrefetchTasks.values { task.cancel() }
+        taskModelPrefetchTasks.removeAll()
+        taskModelPrefetchTaskTokens.removeAll()
+        taskModelPrefetchCatalog?.cancel()
+        taskModelPrefetchCatalog = nil
         taskModelSuccessfulConnections.removeAll()
         taskModelCache.removeAll()
         // Drop unflushed keystroke snapshots too: an armed flush that runs

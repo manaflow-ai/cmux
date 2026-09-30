@@ -102,6 +102,11 @@ extension TaskComposerSheet {
         // owns the request until they change it. A later catalog replacement
         // can change the available choices, but must not silently strip the
         // already-visible model from submission.
+        if let currentModel = modelAvailability.models.first(where: {
+            $0.id == selectedModelID
+        }) {
+            return currentModel
+        }
         if let explicitlySelectedModel, explicitlySelectedModel.id == selectedModelID {
             return explicitlySelectedModel
         }
