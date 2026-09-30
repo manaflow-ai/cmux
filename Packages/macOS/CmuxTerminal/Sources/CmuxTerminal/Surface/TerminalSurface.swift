@@ -6,7 +6,6 @@ public import CmuxTerminalCore
 #if DEBUG
 internal import CMUXDebugLog
 #endif
-
 /// The owner of one `ghostty_surface_t` lifecycle: spawn inputs, runtime
 /// creation/teardown, pending input queues, portal-host leases, and renderer
 /// reclamation state.
@@ -75,6 +74,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
     let agentCommandShimInstallDeadline: Duration
     let agentCommandShimInstallDeadlineClock: any Clock<Duration>
+    let runtimeReadinessClock: any Clock<Duration>
     /// Port ordinal base/range for CMUX_PORT assignment, snapshotted by the app composition root.
     let sessionPortBase: Int
     let sessionPortRangeSize: Int
@@ -128,7 +128,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         }
         return window
     }
-
     /// Whether the surface's pane container is in a real (non-bootstrap) window.
     @MainActor
     public var isViewInWindow: Bool { uiWindow != nil }
@@ -352,6 +351,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let maxPendingSocketInputBytes = 1_048_576
     var backgroundSurfaceStartQueued = false
     var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
+    /// Callers awaiting the next runtime-creation outcome; see
+    /// `waitForRuntimeSurfaceReady(timeout:)`.
+    var runtimeReadinessWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
     var restoredRuntimeSurfaceStartQueued = false
     var configurationReloadDeferredRuntimeSurfaceCreation = false
@@ -362,7 +364,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var requiresRestoreSpawnPacing = false
     var startupRestoreAdmissionPhase = TerminalSurfaceStartupRestoreAdmissionPhase.unrestricted
     var cancelsStartupRestoreAdmissionOnExplicitInput = false
-    var runtimeSurfaceSuspendedForAgentHibernation = false
+    var runtimeSurfaceSuspendedForAgentHibernation = false { didSet { if runtimeSurfaceSuspendedForAgentHibernation { completeRuntimeReadiness(success: false) } } }
+    /// Records a concrete native runtime creation failure separately from a
+    /// runtime that is merely still starting or deferred.
+    @MainActor public internal(set) var runtimeSurfaceCreationFailed = false
     var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
     var staleRuntimeResourceReleaseTicket: TerminalSurfaceRuntimeTeardownTicket?
     var agentHibernationRuntimeTeardownReservation:
@@ -399,7 +404,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// path explicitly requests it so background panes do not keep a focused
     /// state unless the workspace focus path requests it.
     var desiredFocusState: Bool = false
-
     /// Whether this model still owns its logical surface-registry entry.
     /// Weak registry membership is cleared before `deinit`, so the model keeps
     /// this one-shot ownership bit to distinguish deinit-only cleanup from a
@@ -421,7 +425,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // set and clear it on the main actor.
     public nonisolated(unsafe) static var runtimeSurfaceFreeOverrideForTesting: (@Sendable (ghostty_surface_t) -> Void)?
 #endif
-    var portalLifecycleState: PortalLifecycleState = .live
+    var portalLifecycleState: PortalLifecycleState = .live { didSet { if portalLifecycleState != .live { completeRuntimeReadiness(success: false) } } }
     var portalLifecycleGeneration: UInt64 = 1
     var activePortalHostLease: PortalHostLease?
     var portalHostAuthority: TerminalPortalHostAuthority?
@@ -443,12 +447,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var portalHostVacancyWakeScheduled: Bool {
         portalHostVacancyWakeGeneration != nil
     }
-
     func clearPortalHostVacancyRetries() {
         portalHostVacancyRetries.removeAll()
         portalHostVacancyWakeGeneration = nil
     }
-
     /// Parks (or refreshes) a host's vacancy retry. See
     /// `portalHostVacancyRetries` for lifetime rules.
     public func parkPortalVacancyRetry(
@@ -461,7 +463,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         portalHostVacancyRetries = portalHostVacancyRetries.filter { $0.value.generation == generation }
         portalHostVacancyRetries[hostId] = (instanceSerial, generation, retry)
     }
-
     /// Drops a host's vacancy retry (dismantle, or the host stopped owning
     /// its pane; the owner's own vacate paths drop theirs). Serial-matched
     /// like every other identity check here: a recycled object address must
@@ -470,7 +471,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         guard portalHostVacancyRetries[hostId]?.instanceSerial == instanceSerial else { return }
         portalHostVacancyRetries.removeValue(forKey: hostId)
     }
-
     /// The live find session, or nil when find is closed. Setting it arms the
     /// debounced needle pipeline; clearing it ends the runtime search.
     /// Main-actor isolated: the observer cancels pane focus requests on the
@@ -489,7 +489,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
                         if needle.isEmpty || needle.count >= 3 {
                             return Just(needle).eraseToAnyPublisher()
                         }
-
                         return Just(needle)
                             .delay(for: .milliseconds(300), scheduler: DispatchQueue.main)
                             .eraseToAnyPublisher()
@@ -643,6 +642,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.runtimeFilesystem = dependencies.runtimeFilesystem
         self.agentCommandShimInstallDeadline = dependencies.agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = dependencies.agentCommandShimInstallDeadlineClock
+        self.runtimeReadinessClock = dependencies.runtimeReadinessClock
         self.requiresRestoreSpawnPacing = runtimeSpawnPolicy.spawnTiming == .pacedSessionRestore
         self.cancelsStartupRestoreAdmissionOnExplicitInput =
             runtimeSpawnPolicy.cancelsStartupRestoreAdmissionOnExplicitInput

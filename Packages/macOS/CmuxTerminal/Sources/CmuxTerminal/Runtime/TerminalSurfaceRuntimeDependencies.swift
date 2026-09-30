@@ -50,6 +50,12 @@ public struct TerminalSurfaceRuntimeDependencies {
     /// tests control the deadline deterministically.
     public let agentCommandShimInstallDeadlineClock: any Clock<Duration>
 
+    /// The clock for a caller's bounded runtime-readiness wait.
+    ///
+    /// Lifecycle completion remains authoritative; this clock only bounds an
+    /// individual replay request and is injectable for deterministic tests.
+    public let runtimeReadinessClock: any Clock<Duration>
+
     /// The first port of the per-session `CMUX_PORT` allocation
     /// (snapshotted once per app session by the composition root).
     public let sessionPortBase: Int
@@ -82,6 +88,7 @@ public struct TerminalSurfaceRuntimeDependencies {
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
         agentCommandShimInstallDeadline: Duration = .seconds(5),
         agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock(),
+        runtimeReadinessClock: any Clock<Duration> = ContinuousClock(),
         sessionPortBase: Int,
         sessionPortRangeSize: Int,
         scrollbackReplayEnvironmentKey: String,
@@ -100,6 +107,7 @@ public struct TerminalSurfaceRuntimeDependencies {
         self.runtimeFilesystem = runtimeFilesystem
         self.agentCommandShimInstallDeadline = agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = agentCommandShimInstallDeadlineClock
+        self.runtimeReadinessClock = runtimeReadinessClock
         self.sessionPortBase = sessionPortBase
         self.sessionPortRangeSize = sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = scrollbackReplayEnvironmentKey

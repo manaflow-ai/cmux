@@ -129,6 +129,21 @@ extension Workspace {
 
 @MainActor
 extension TerminalController {
+    /// Keeps a deferred restore from becoming an empty successful replay.
+    func mobileTerminalReplayPendingAdmissionResult(
+        runtimeReady: Bool,
+        workspaceID: UUID,
+        surfaceID: UUID,
+        reason: TerminalSurfaceRuntimeUnavailableReason
+    ) -> V2CallResult? {
+        guard !runtimeReady, reason == .awaitingRestore else { return nil }
+        return Self.readTextTerminalNotRunningResult(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            reason: reason
+        )
+    }
+
     /// Resolves a legacy v1 surface argument to the canonical socket target.
     ///
     /// The v1 protocol accepts either a UUID or an ordered panel index and
@@ -178,6 +193,60 @@ extension TerminalController {
             return nil
         }
         return (resolved.workspace, surfaceID, target)
+    }
+
+    /// Resolves a mobile terminal after a cold source runtime registers. A
+    /// remote replay can arrive for a hidden or hibernated panel, so the
+    /// structural panel is resumed before the canonical registry target is
+    /// requested again.
+    func mobileCanonicalTerminalTargetAwaitingSurface(
+        params: [String: Any]
+    ) async -> (
+        workspace: Workspace,
+        surfaceID: UUID,
+        target: ControlTerminalSocketTarget,
+        runtimeReady: Bool
+    )? {
+        guard !Task.isCancelled else { return nil }
+        guard let resolved = mobileResolveWorkspaceAndSurface(
+            params: params,
+            requireTerminal: true
+        ), let surfaceID = resolved.surfaceId,
+              let owned = resolved.workspace.terminalInputTarget(forPanelID: surfaceID) else {
+            return nil
+        }
+        let target = resolved.workspace.controlSocketTerminalTarget(for: owned)
+        if let target, target.surface.liveSurfaceForGhosttyAccess(reason: "mobile.replay.canonical") != nil {
+            return (resolved.workspace, surfaceID, target, true)
+        }
+        guard !Task.isCancelled else { return nil }
+        if resolved.workspace.deferredAgentResumeRestoresByPanelId[surfaceID] != nil {
+            _ = resolved.workspace.admitDeferredAgentResumeRestoreForRemoteAttach(
+                panelId: surfaceID
+            )
+        }
+        resolved.workspace.admitStartupRestoreAwaitingFirstVisit(panelId: surfaceID)
+        // A bound target skips the resume while a replacement surface is
+        // mid-swap; a never-started panel has no target yet.
+        guard !Task.isCancelled else { return nil }
+        if let target {
+            target.resumeAgentHibernationForRemoteAttach()
+        } else {
+            owned.panel.resumeAgentHibernationForRemoteAttach()
+        }
+        var runtimeReady = await owned.panel.surface.waitForRuntimeSurfaceReady()
+        guard !Task.isCancelled else { return nil }
+        guard let canonical = resolved.workspace.controlSocketTerminalInputTarget(for: surfaceID) else {
+            return nil
+        }
+        if canonical.surface !== owned.panel.surface {
+            runtimeReady = await canonical.surface.waitForRuntimeSurfaceReady()
+        } else if !runtimeReady {
+            runtimeReady = canonical.surface.liveSurfaceForGhosttyAccess(
+                reason: "mobile.replay.final"
+            ) != nil
+        }
+        return (resolved.workspace, surfaceID, canonical, runtimeReady)
     }
 }
 

@@ -35,8 +35,8 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
         record("terminal.input", params)
     }
 
-    func controlMobileTerminalReplay(params: [String: JSONValue]) -> ControlCallResult {
-        record("terminal.replay", params)
+    nonisolated func controlMobileTerminalReplay(params: [String: JSONValue]) async -> ControlCallResult {
+        await MainActor.run { record("terminal.replay", params) }
     }
 
     func controlMobileTerminalViewport(params: [String: JSONValue]) -> ControlCallResult {
@@ -151,6 +151,17 @@ struct ControlCommandCoordinatorMobileHostTests {
         #expect(context.lastMarker == "chat.interrupt")
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.chat.send") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.chat.interrupt") == .socketWorker(mainThreadCallable: false))
+    }
+
+    @Test(arguments: ["mobile.terminal.replay", "terminal.replay"])
+    func replayAwaitsTheSharedAsyncSeam(method: String) async {
+        let (coordinator, context) = makeCoordinator()
+        let params: [String: JSONValue] = ["workspace_id": .string("workspace"), "surface_id": .string("terminal")]
+        #expect(await coordinator.handleMobileHostAsync(request(method, params), context: context) != nil)
+        #expect(context.lastMarker == "terminal.replay")
+        #expect(context.lastParams == params)
+        #expect(coordinator.handleMobileHost(request(method, params)) == nil)
+        #expect(ControlCommandExecutionPolicy(forMethod: method) == .socketWorker(mainThreadCallable: false))
     }
 
     @Test func v2SurfaceUsesPrivateHostStatusVariant() {

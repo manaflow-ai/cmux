@@ -279,7 +279,6 @@ class TerminalController {
     /// the clear+re-apply resize flap (issue 13474).
     private static let mobileViewportUncapApplyStabilityWindow: Duration = .seconds(3)
     var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]; private var mobileViewportGenerationsBySurfaceID: [UUID: [String: UInt64]] = [:]
-    private var mobileTerminalPasteInFlightSurfaceIDs: Set<UUID> = []
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
     var mobileViewportApplyGovernorsBySurfaceID: [UUID: MobileViewportApplyGovernor] = [:]
     /// Shared-sizing hosts of local terminals (docs/shared-terminal-sizing.md).
@@ -323,7 +322,6 @@ class TerminalController {
     nonisolated static func terminalWakeCommand(workspaceID: UUID, surfaceID: UUID) -> String {
         "cmux focus-panel --workspace \(workspaceID.uuidString) --panel \(surfaceID.uuidString)"
     }
-
     /// Explains why a terminal has no running runtime and how to get one.
     nonisolated static func terminalNotRunningMessage(
         reason: TerminalSurfaceRuntimeUnavailableReason,
@@ -367,7 +365,6 @@ class TerminalController {
     private nonisolated static var terminalInputQueueFullSocketError: String {
         "ERROR: \(terminalInputQueueFullMessage)"
     }
-
     private nonisolated static let focusIntentV1Commands: Set<String> = [
         "__internal_flags",
         "focus_window",
@@ -417,7 +414,6 @@ class TerminalController {
         }
         return focusIntentV1Commands.contains(commandKey)
     }
-
     /// Returns the encoded error when task-local automation policy suppresses
     /// a focus-oriented v2 command; otherwise returns `nil`.
     nonisolated static func focusSuppressionResponse(
@@ -439,7 +435,6 @@ class TerminalController {
             data: nil
         )
     }
-
     /// The main-actor RPC dispatch coordinator (CmuxControlSocket). Owns the
     /// `kind:N` handle registry and the moved command domains (window so far,
     /// growing per stage-3c sub-stage); this controller is its interim
@@ -452,14 +447,12 @@ class TerminalController {
         let surfaceId: UUID
         let selector: String
     }
-
     private struct V2BrowserPendingDialog {
         let type: String
         let message: String
         let defaultText: String?
         let responder: (_ accept: Bool, _ text: String?) -> Void
     }
-
     private final class V2BrowserUndefinedSentinel: Sendable {}
 
     private nonisolated static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
@@ -515,14 +508,12 @@ class TerminalController {
         }
         for paneId in Set(paneIds) { controlCommandCoordinator.removeRef(kind: .pane, uuid: paneId) }
     }
-
     /// Bridges the package server's event closures back to the controller.
     /// Assigned exactly once during `init`, before the listener can start, and
     /// read-only afterward; the controller is an app-lifetime singleton.
     final class ServerEventTarget: @unchecked Sendable {
         weak var controller: TerminalController?
     }
-
     /// Queues a session hook the app observed for a remote agent (the cmux-tui agent
     /// roster of a `cmux ssh` machine) through the same relay-backed delivery
     /// lane as `agent.hook.enqueue`, routed to the local pane showing it.
@@ -548,7 +539,6 @@ class TerminalController {
         }
         return agentHookDeliveryQueue.enqueue(event)
     }
-
     private init(
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         transport: SocketTransport = SocketTransport(),
@@ -741,7 +731,6 @@ class TerminalController {
     nonisolated static func socketCommandAllowsInAppFocusMutations() -> Bool {
         allowsInAppFocusMutationsForActiveSocketCommand()
     }
-
     private nonisolated static func allowsInAppFocusMutationsForActiveSocketCommand() -> Bool {
         currentSocketCommandFocusAllowanceStack().last ?? false
     }
@@ -1327,7 +1316,7 @@ class TerminalController {
                     await self.v2SurfaceReadSelection(params: parsedRequest.params)
                 }
             }
-            if ["mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt", "mobile.terminal.paste", "terminal.paste"].contains(request.method) {
+            if ["mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt", "mobile.terminal.replay", "terminal.replay"].contains(request.method) {
                 return v2AsyncResultCall(
                     id: request.id,
                     timeoutSeconds: 7
@@ -6343,11 +6332,7 @@ class TerminalController {
         }
     }
 
-    // The three feed reply handlers are internal (not private) because the
-    // mobile data plane dispatches the same bodies from
-    // `TerminalController+MobileFeed.swift`'s verb family; every entrypoint
-    // resolves through the single `FeedCoordinator.deliverReply` path.
-    nonisolated func v2FeedPermissionReply(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2FeedPermissionReply(params: [String: Any]) -> V2CallResult {
         guard let requestId = params["request_id"] as? String else {
             return .err(
                 code: "invalid_params",
@@ -6371,7 +6356,7 @@ class TerminalController {
         return .ok(["delivered": true])
     }
 
-    nonisolated func v2FeedQuestionReply(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2FeedQuestionReply(params: [String: Any]) -> V2CallResult {
         guard let requestId = params["request_id"] as? String else {
             return .err(
                 code: "invalid_params",
@@ -6393,7 +6378,7 @@ class TerminalController {
         return .ok(["delivered": true])
     }
 
-    nonisolated func v2FeedExitPlanReply(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2FeedExitPlanReply(params: [String: Any]) -> V2CallResult {
         guard let requestId = params["request_id"] as? String else {
             return .err(
                 code: "invalid_params",
@@ -15083,17 +15068,17 @@ class TerminalController {
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
         case "mobile.terminal.paste", "terminal.paste":
-            result = await v2MobileTerminalPaste(params: request.params)
+            result = v2MobileTerminalPaste(params: request.params)
         case "mobile.terminal.paste_image", "terminal.paste_image":
             result = v2MobileTerminalPasteImage(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
-            result = v2MobileTerminalReplay(params: request.params)
+            result = await v2MobileTerminalReplay(params: request.params)
         case "mobile.terminal.viewport", "terminal.viewport":
             result = v2MobileTerminalViewport(params: request.params)
         case "mobile.terminal.scroll", "terminal.scroll":
             result = v2MobileTerminalScroll(params: request.params)
         case "mobile.terminal.reattach":
-            result = v2MobileTerminalReattach(params: request.params)
+            result = await v2MobileTerminalReattach(params: request.params)
         case "mobile.terminal.size_policy.set":
             result = v2MobileTerminalSizePolicySet(params: request.params)
         case "mobile.terminal.participant.disconnect":
@@ -15164,19 +15149,6 @@ class TerminalController {
                 params: request.params,
                 responseID: request.id.map { String(describing: $0) }
             )
-        case "feed.list":
-            result = await v2MobileFeedList(
-                params: request.params,
-                responseID: request.id.map { String(describing: $0) }
-            )
-        case "feed.text":
-            result = v2MobileFeedText(params: request.params)
-        case "feed.permission.reply":
-            result = v2FeedPermissionReply(params: request.params)
-        case "feed.question.reply":
-            result = v2FeedQuestionReply(params: request.params)
-        case "feed.exit_plan.reply":
-            result = v2FeedExitPlanReply(params: request.params)
         case "notification.feed.mark_read":
             result = v2MobileNotificationFeedMarkRead(params: request.params)
         case "notification.feed.mark_unread":
@@ -15601,7 +15573,7 @@ class TerminalController {
         )
     }
 
-    func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
+    func v2MobileTerminalReplay(params: [String: Any]) async -> V2CallResult {
         let traceID = v2String(params, "trace_id")
             .flatMap(DiagnosticTerminalTraceID.init(stringValue:))
         let traceStartedAt = DispatchTime.now().uptimeNanoseconds
@@ -15626,22 +15598,40 @@ class TerminalController {
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
-        guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
-            #if DEBUG
-            cmuxDebugLog("mobile.terminal.replay NOT_FOUND surface=\(v2RawString(params, "surface_id") ?? "nil")")
-            #endif
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
-        }
-        let surfaceId = resolved.surfaceID
-        let terminalTarget = resolved.target
         let hasViewportReportFields = params["client_id"] != nil || params["viewport_columns"] != nil || params["viewport_rows"] != nil
         if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
             return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
         }
-        // A hibernated agent has no runtime, so this replay would be empty and
-        // no output would follow: the viewer would stay blank. Once resumed,
-        // the runtime's output streams to the viewer like any live terminal.
-        terminalTarget.resumeAgentHibernationForRemoteAttach()
+        guard let resolved = await mobileCanonicalTerminalTargetAwaitingSurface(params: params) else {
+            #if DEBUG
+            cmuxDebugLog("mobile.terminal.replay NOT_FOUND surface=\(v2RawString(params, "surface_id") ?? "nil")")
+            #endif
+            return .err(code: "not_found", message: String(localized: "socket.surface.error.surfaceNotFound", defaultValue: "Surface not found"), data: nil)
+        }
+        let (surfaceId, terminalTarget) = (resolved.surfaceID, resolved.target)
+        // Starting runtimes stream current state; blocked lifecycles return an error.
+        let unavailableReason = terminalTarget.surface.runtimeUnavailableReason
+        if !resolved.runtimeReady, terminalTarget.surface.runtimeSurfaceCreationFailed {
+            return .err(
+                code: "surface_unavailable",
+                message: Self.terminalSurfaceUnavailableMessage,
+                data: [
+                    "reason": "runtime_creation_failed",
+                    "workspace_id": resolved.workspace.id.uuidString,
+                    "surface_id": surfaceId.uuidString,
+                ]
+            )
+        }
+        if let pendingAdmission = mobileTerminalReplayPendingAdmissionResult(runtimeReady: resolved.runtimeReady, workspaceID: resolved.workspace.id, surfaceID: surfaceId, reason: unavailableReason) { return pendingAdmission }
+        if !resolved.runtimeReady, unavailableReason == .hibernated || unavailableReason == .closing {
+            return Self.readTextTerminalNotRunningResult(workspaceID: resolved.workspace.id,
+                surfaceID: surfaceId, reason: unavailableReason)
+        }
+        guard !Task.isCancelled,
+              let current = resolved.workspace.controlSocketTerminalTarget(for: surfaceId),
+              current.surface === terminalTarget.surface else {
+            return .err(code: "not_found", message: String(localized: "socket.surface.error.surfaceNotFound", defaultValue: "Surface not found"), data: nil)
+        }
         let expectedViewport = applyMobileViewportReport(
             params: params,
             terminalTarget: terminalTarget,
@@ -16107,7 +16097,7 @@ class TerminalController {
     ///
     /// `submit_key` is optional: `return`/`enter` (default) or `ctrl+enter`
     /// submit; `none` pastes without submitting so the composer can keep editing.
-    func v2MobileTerminalPaste(params: [String: Any]) async -> V2CallResult {
+    func v2MobileTerminalPaste(params: [String: Any]) -> V2CallResult {
         guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
         }
@@ -16146,11 +16136,6 @@ class TerminalController {
         if let answer = mobileInputAdmissionAnswer(delivery, workspaceID: resolved.workspace.id, surfaceID: surfaceId) {
             return answer
         }
-
-        guard mobileTerminalPasteInFlightSurfaceIDs.insert(surfaceId).inserted else {
-            return .err(code: "busy", message: "A prompt is already being submitted to this terminal", data: nil)
-        }
-        defer { mobileTerminalPasteInFlightSurfaceIDs.remove(surfaceId) }
 
         // Mirror the macOS TextBox composer's submit-key selection
         // (`TextBoxInput.dispatchEvents`): Claude Code needs `ctrl+enter` to
@@ -16201,35 +16186,7 @@ class TerminalController {
         var submitted = false
         var submitError: String?
         if let submitKeyName {
-            // Gemini's editor treats Enter during its 40 ms paste-protection
-            // window as a newline. React-based editors can also process paste
-            // and Enter in one render with a stale, empty input buffer. Keep a
-            // separate input turn, with margin for the documented cooldown,
-            // and await it before acknowledging submission to the phone.
-            let generation = terminalTarget.surface.runtimeSurfaceGeneration
-            do {
-                try await Task.sleep(for: .milliseconds(150))
-            } catch {
-                return .ok([
-                    "workspace_id": resolved.workspace.id.uuidString,
-                    "surface_id": surfaceId.uuidString,
-                    "submitted": false,
-                    "submit_error": "cancelled",
-                ])
-            }
-            // Closing/replacing a terminal during the suspension must never
-            // send Enter into a different process or a newly created surface.
-            guard let current = mobileCanonicalTerminalTarget(params: params)?.target,
-                  current.surface === terminalTarget.surface,
-                  current.surface.runtimeSurfaceGeneration == generation else {
-                return .ok([
-                    "workspace_id": resolved.workspace.id.uuidString,
-                    "surface_id": surfaceId.uuidString,
-                    "submitted": false,
-                    "submit_error": "surface_changed",
-                ])
-            }
-            let keyResult = current.sendNamedKeyResult(submitKeyName)
+            let keyResult = terminalTarget.sendNamedKeyResult(submitKeyName)
             if keyResult.accepted {
                 submitted = true
             } else {
@@ -16249,12 +16206,6 @@ class TerminalController {
         }
 
         terminalTarget.forceRefresh(reason: "mobileHost.terminalPaste")
-
-        if submitted,
-           let rawEventID = v2String(params, "feed_event_id"),
-           let eventID = UUID(uuidString: rawEventID) {
-            _ = FeedCoordinator.shared.store?.recordTerminalReply(eventID, text: text)
-        }
 
         #if DEBUG
         cmuxDebugLog(
@@ -16596,22 +16547,13 @@ class TerminalController {
             surfaceId = nil
         }
 
-        // A session-restored / never-foregrounded terminal has its libghostty
-        // surface created lazily — today only on the first keystroke (via the
-        // input path's `requestBackgroundSurfaceStartIfNeeded`). The mobile
-        // render-grid producer only reads a *live* surface, so such a terminal
-        // shows blank on the phone until the user types. When a mobile client
-        // resolves a terminal to read or drive, materialize the surface
-        // headlessly so attaching alone loads it. Idempotent and a no-op once
-        // the surface exists.
+        // A mobile read or drive starts a never-shown terminal headlessly at
+        // restore-paced priority; replay promotes it to input demand and waits.
+        // Resolve the panel first: restored, never-foregrounded terminals are
+        // absent from the socket-target registry until their runtime starts.
         if requireTerminal,
            let surfaceId,
            let owned = workspace.terminalInputTarget(forPanelID: surfaceId) {
-            // Resolve the panel before asking the registry for a socket target.
-            // Restored, never-foregrounded terminals are intentionally absent
-            // from that registry until this request materializes their runtime.
-            // Resolving the canonical target first made the on-demand start
-            // unreachable for exactly the terminals mobile attach needs.
             owned.panel.surface.requestBackgroundSurfaceStartIfNeeded()
         }
 

@@ -16,7 +16,6 @@ extension TerminalSurface {
     ) {
         startRuntimeUsingHeadlessWindowIfNeeded(reason: reason, source: source)
     }
-
     @MainActor
     private func startRuntimeUsingHeadlessWindowIfNeeded(
         reason: String,
@@ -34,7 +33,6 @@ extension TerminalSurface {
             attachToViewForInputDemand(surfaceView)
         }
     }
-
     @MainActor
     private func ensureHeadlessStartupWindowIfNeeded(reason: String) {
         if let existingWindow = headlessStartupWindow {
@@ -83,7 +81,6 @@ extension TerminalSurface {
         )
 #endif
     }
-
     @MainActor
     private func adoptPaneHostIntoHeadlessStartupWindow(_ window: NSWindow, reason: String) {
         guard let contentView = window.contentView else { return }
@@ -268,7 +265,6 @@ extension TerminalSurface {
     public func hasDeferredStartupWorkForBackgroundStart() -> Bool {
         hasDeferredStartupWork
     }
-
     /// Marks the portal as closing (close animation/teardown has begun).
     public func beginPortalCloseLifecycle(reason: String) {
         guard portalLifecycleState != .closed else { return }
@@ -301,7 +297,6 @@ extension TerminalSurface {
         )
 #endif
     }
-
     /// Explicitly retire this model and free its Ghostty runtime surface.
     /// Idempotent — safe to call before deinit; deinit will skip the work if
     /// already torn down.
@@ -720,7 +715,6 @@ extension TerminalSurface {
         guard configurationReloadDeferredRuntimeSurfaceCreation else { return }
         resumeRuntimeSurfaceCreationAfterConfigurationReload()
     }
-
     @MainActor
     func createSurface(for view: any TerminalSurfaceNativeViewing, source: RuntimeSurfaceCreationSource) {
         guard allowsRuntimeSurfaceCreation() else {
@@ -735,6 +729,7 @@ extension TerminalSurface {
 #endif
             return
         }
+        runtimeSurfaceCreationFailed = false
         if deferRuntimeSurfaceCreationForConfigurationReload(
             view: view,
             source: source
@@ -767,6 +762,8 @@ extension TerminalSurface {
         #endif
 
         guard let app = engine.runtimeApp else {
+            runtimeSurfaceCreationFailed = true
+            completeRuntimeReadiness(success: false)
             #if DEBUG
             logDebugEvent("ghostty.surface.create.failed reason=appNotInitialized surface=\(id.uuidString)")
             #endif
@@ -789,6 +786,8 @@ extension TerminalSurface {
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
 
         if surface == nil {
+            runtimeSurfaceCreationFailed = true
+            completeRuntimeReadiness(success: false)
             invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: false)
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil
@@ -927,6 +926,7 @@ extension TerminalSurface {
             ]
         )
         onRuntimeReady?()
+        completeRuntimeReadiness(success: true)
 #if DEBUG
         let runtimeFontText = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(createdSurface).map {
             String(format: "%.2f", $0)

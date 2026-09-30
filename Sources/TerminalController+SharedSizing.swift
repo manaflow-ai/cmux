@@ -549,7 +549,7 @@ extension TerminalController {
 
     /// `mobile.terminal.reattach {surface_id, client_id, as_viewer}`: lifts a
     /// disconnect and answers like `mobile.terminal.replay`.
-    func v2MobileTerminalReattach(params: [String: Any]) -> V2CallResult {
+    func v2MobileTerminalReattach(params: [String: Any]) async -> V2CallResult {
         guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
@@ -568,7 +568,7 @@ extension TerminalController {
         if asViewer, cloudSizingRelaysBySurfaceID[surfaceID]?.value?.relaysPhones == true {
             replayParams["counts_override"] = false
         }
-        return v2MobileTerminalReplay(params: replayParams)
+        return await v2MobileTerminalReplay(params: replayParams)
     }
 
     /// `mobile.terminal.size_policy.set {surface_id, policy}`.
