@@ -271,40 +271,32 @@ async function attachUntilReady(vmId, stage) {
   }
 }
 
-/** Polls the authoritative VM list until the newly created durable row is visible. */
-async function rowUntilVisible(vmId) {
+/** Reads the authoritative VM row after create; the detail endpoint is the completion signal. */
+async function readAuthoritativeRow(vmId) {
   const startedAt = performance.now();
-  const attempts = [];
-  for (;;) {
-    const elapsed = performance.now() - startedAt;
-    if (elapsed >= ROW_READY_BUDGET_MS || interrupted) {
-      throw new Error(`VM row for ${vmId} did not become visible within ${ROW_READY_BUDGET_MS} ms (${attempts.length} attempts)`);
-    }
-    const remainingMs = ROW_READY_BUDGET_MS - (performance.now() - startedAt);
-    const response = await fetchTimed(
-      `${targetUrl}/api/vm`,
-      { headers: authHeaders },
-      Math.min(REQUEST_TIMEOUT_MS, remainingMs),
-    );
-    const body = json(response.text);
-    attempts.push({ status: response.status, ms: response.ms });
-    if (response.status === 200) {
-      const row = (body.vms ?? []).find((entry) => entry?.id === vmId);
-      if (row?.status === "failed") {
-        throw new Error(`VM row for ${vmId} became failed while waiting for readiness`);
-      }
-      if (row?.status === "running") {
-        return {
-          rowReadyMs: elapsedMs(startedAt),
-          rowReadyStatus: row.status ?? null,
-          rowReadyAttempts: attempts,
-        };
-      }
-    } else if (response.status >= 500) {
-      throw new Error(`VM row list failed while waiting for ${vmId}: ${response.status} ${response.text.slice(0, 300)}`);
-    }
-    await sleep(Math.min(remainingMs, 250));
+  if (interrupted) throw new Error(`VM row for ${vmId} was interrupted before readiness`);
+  const response = await fetchTimed(
+    vmUrl(vmId),
+    { headers: authHeaders },
+    Math.min(REQUEST_TIMEOUT_MS, ROW_READY_BUDGET_MS),
+  );
+  const body = json(response.text);
+  const attempt = { status: response.status, ms: response.ms };
+  if (response.status !== 200) {
+    throw new Error(`VM row for ${vmId} was not readable after create: ${response.status} ${response.text.slice(0, 300)}`);
   }
+  if (body.status === "failed") {
+    throw new Error(`VM row for ${vmId} became failed while waiting for readiness`);
+  }
+  if (body.id !== vmId || body.status !== "running") {
+    throw new Error(`VM row for ${vmId} was not running after create: ${response.text.slice(0, 300)}`);
+  }
+  return {
+    rowReadyMs: elapsedMs(startedAt),
+    rowReadyStatus: body.status,
+    rowReadyAttempts: [attempt],
+    rowReadySource: "detail",
+  };
 }
 
 /** Time from the first probe until the edge alias answers with an HTTP status (any status proves injection). */
@@ -371,12 +363,12 @@ async function runTrial(trial) {
   trial.vmId = vmId;
   trial.imageVersion = created.imageVersion ?? null;
   trial.size = created.size?.name ?? null;
-  Object.assign(trial, await rowUntilVisible(vmId));
+  Object.assign(trial, await readAuthoritativeRow(vmId));
   trial.createToRowReadyMs = elapsedMs(createStartedAt);
   Object.assign(trial, await attachUntilReady(vmId, "attachEndpoint"));
-  // Row polling is serialized before endpoint issuance. Use one monotonic
-  // origin so the totals include both phases; endpoint issuance is not a
-  // terminal-ready claim (bench-private-link.ts measures the real prompt).
+  // The authoritative row read is serialized before endpoint issuance. Use
+  // one monotonic origin so totals include both phases; endpoint issuance is
+  // not a terminal-ready claim (bench-private-link.ts measures the prompt).
   trial.createToAttachEndpointMs = elapsedMs(createStartedAt);
   Object.assign(trial, await attachUntilReady(vmId, "warmAttach"));
   if (!skipExec) {
