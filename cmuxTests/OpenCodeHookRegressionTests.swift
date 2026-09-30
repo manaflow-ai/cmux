@@ -2,6 +2,37 @@ import XCTest
 import Darwin
 
 final class OpenCodeHookRegressionTests: XCTestCase {
+    func testOpenCodePathOverridesFollowEnvironment() {
+        let environment = [
+            "HOME": "/tmp/home",
+            "XDG_CONFIG_HOME": "/tmp/xdg-config",
+            "XDG_DATA_HOME": "/tmp/xdg-data",
+            "OPENCODE_CONFIG_DIR": "~/custom-config",
+            "OPENCODE_DB": "~/custom.sqlite"
+        ]
+
+        XCTAssertEqual(OpenCodePaths.configDirectory(environment: environment).path, "/tmp/home/custom-config")
+        XCTAssertEqual(OpenCodePaths.databaseURL(environment: environment).path, "/tmp/home/custom.sqlite")
+    }
+
+    func testOpenCodePathResolutionUsesXDGLocations() {
+        let environment = [
+            "HOME": "/tmp/home",
+            "XDG_CONFIG_HOME": "~/xdg-config",
+            "XDG_DATA_HOME": "~/xdg-data"
+        ]
+
+        XCTAssertEqual(OpenCodePaths.configDirectory(environment: environment).path, "/tmp/home/xdg-config/opencode")
+        XCTAssertEqual(OpenCodePaths.databaseURL(environment: environment).path, "/tmp/home/xdg-data/opencode/opencode.db")
+    }
+
+    func testOpenCodePathResolutionKeepsLegacyDefaults() {
+        let environment = ["HOME": "/tmp/home"]
+
+        XCTAssertEqual(OpenCodePaths.configDirectory(environment: environment).path, "/tmp/home/.config/opencode")
+        XCTAssertEqual(OpenCodePaths.databaseURL(environment: environment).path, "/tmp/home/.local/share/opencode/opencode.db")
+    }
+
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String

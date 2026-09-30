@@ -43,6 +43,9 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
             "auth.team.list", "auth.team.use", "auth.team.create",
+            "auth.team.members", "auth.team.invite", "auth.team.invite_link",
+            "auth.team.revoke_invite", "auth.team.remove_member", "auth.team.open_members",
+            "auth.team.invitations", "auth.team.accept_invite", "auth.team.decline_invite",
             "feed.jump", "feed.push", "agent.hook.enqueue", "agent.hook.barrier",
             "agent.restore.admit", "agent.restore.release",
             "agent.message.send", "agent.message.list", "agent.message.claim",
