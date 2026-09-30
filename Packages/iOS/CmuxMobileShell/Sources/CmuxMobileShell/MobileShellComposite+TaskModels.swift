@@ -769,7 +769,12 @@ extension MobileShellComposite {
             }
             if let hostFailure, backendResult == nil {
                 guard !Task.isCancelled,
-                      currentSessionGeneration == sessionGeneration else {
+                      currentSessionGeneration == sessionGeneration,
+                      let failureIdentity = hostOutcome?.connectionIdentity,
+                      failureIdentity == taskModelConnectionIdentity(
+                          macDeviceID: key.macDeviceID,
+                          instanceTag: key.instanceTag
+                      ) else {
                     return
                 }
                 cacheTaskModels(hostFailure, for: key)
