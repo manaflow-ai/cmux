@@ -246,13 +246,14 @@ actor AgentFanOutOperationStore {
             merged.children = incoming.children.map { candidate in
                 guard let current = previous.children.first(where: { $0.index == candidate.index }) else { return candidate }
                 var candidate = candidate
+                let carriesProjectionUpdate = candidate.localWorkspaceID != nil
                 if candidate.remoteWorkspaceID == nil {
                     candidate.remoteWorkspaceID = current.remoteWorkspaceID
                 }
                 if candidate.localWorkspaceID == nil {
                     candidate.localWorkspaceID = current.localWorkspaceID
                 }
-                if candidate.projectionErrorCode == nil, candidate.localWorkspaceID == nil {
+                if candidate.projectionErrorCode == nil, !carriesProjectionUpdate {
                     candidate.projectionErrorCode = current.projectionErrorCode
                 }
                 if current.state == .exited {
