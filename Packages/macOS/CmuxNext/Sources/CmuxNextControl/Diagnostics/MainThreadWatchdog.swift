@@ -7,8 +7,9 @@ import Synchronization
 /// Records every main-thread stall longer than `threshold` (default 50 ms)
 /// with a stack sample, into a ring buffer (`debug.hangs`).
 ///
-/// A `CFRunLoopObserver` on the main run loop stamps a heartbeat at every
-/// run-loop activity. Time between two stamps while the loop is not asleep
+/// `CFRunLoopObserver`s on the main run loop stamp a heartbeat at every
+/// run-loop activity (the before-waiting stamp after AppKit's display and
+/// the Core Animation commit). Time between two stamps while the loop is not asleep
 /// is main-thread work; a gap over the threshold is a stall, measured
 /// exactly on the main thread when it ends. A dedicated watchdog thread
 /// parks while the main run loop sleeps (no wakeups when the app is idle),
@@ -109,12 +110,20 @@ public final class MainThreadWatchdog: Sendable {
         beatNanos.store(Self.now(), ordering: .releasing)
         beatCPUNanos.store(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
         mainAsleep.store(false, ordering: .releasing)
-        let activities = CFRunLoopActivity.allActivities.rawValue
-        let runLoopObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, activities, true, CFIndex.min) { [weak self] _, activity in
+        // Two observers: every activity but before-waiting stamps first
+        // (order CFIndex.min); before-waiting stamps last (CFIndex.max), so
+        // AppKit's layout, display and the Core Animation commit, which run
+        // in before-waiting observers, count as main-thread work.
+        let early = CFRunLoopActivity.allActivities.subtracting(.beforeWaiting).rawValue
+        let earlyObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, early, true, CFIndex.min) { [weak self] _, activity in
             self?.heartbeat(activity)
         }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), runLoopObserver, .commonModes)
-        let box = ObserverBox(runLoopObserver)
+        let lateObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { [weak self] _, activity in
+            self?.heartbeat(activity)
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), earlyObserver, .commonModes)
+        CFRunLoopAddObserver(CFRunLoopGetMain(), lateObserver, .commonModes)
+        let box = ObserverBox([earlyObserver, lateObserver])
         observer.withLock { $0 = box }
         let sampler = configuration.sampleStacks ? ThreadStackSampler(thread: mach_thread_self()) : nil
         let thread = Thread { [self] in watch(sampler: sampler) }
@@ -126,7 +135,7 @@ public final class MainThreadWatchdog: Sendable {
     public func stop() {
         guard running.compareExchange(expected: true, desired: false, ordering: .acquiringAndReleasing).exchanged else { return }
         if let box = observer.withLock({ observer in defer { observer = nil }; return observer }) {
-            CFRunLoopObserverInvalidate(box.observer)
+            for runLoopObserver in box.observers { CFRunLoopObserverInvalidate(runLoopObserver) }
         }
         wake.signal()
     }
@@ -229,7 +238,7 @@ public final class MainThreadWatchdog: Sendable {
 
     /// CFRunLoopObserver is thread-safe to invalidate from any thread.
     private final class ObserverBox: @unchecked Sendable {
-        let observer: CFRunLoopObserver?
-        init(_ observer: CFRunLoopObserver?) { self.observer = observer }
+        let observers: [CFRunLoopObserver]
+        init(_ observers: [CFRunLoopObserver?]) { self.observers = observers.compactMap { $0 } }
     }
 }

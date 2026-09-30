@@ -189,7 +189,7 @@ def one_run(tag, threshold_ms, tabs):
         metrics["launch.to_first_terminal_ms"] = launch.get("first_terminal_surface_created")
         metrics["launch.max_stall_ms"] = round(hangs.get("max_gap_ms", 0), 1)
         surfaces = timings.get("terminal_surfaces_ms", [])
-        metrics["terminal.first_surface_ms"] = surfaces[0] if surfaces else None
+        metrics["launch.first_surface_ms"] = surfaces[0] if surfaces else None
         detail.append({"label": "launch", "stalls": run.stalls(hangs), "surfaces_ms": surfaces})
 
         for index in (1, 2):
@@ -205,7 +205,7 @@ def one_run(tag, threshold_ms, tabs):
             key = "first" if index == 1 else "later"
             metrics.setdefault(f"tab.{key}_max_gap_ms", []).append(result["max_gap_ms"])
             if result["surfaces_ms"]:
-                metrics.setdefault(f"terminal.{key}_surface_ms", []).append(result["surfaces_ms"][0])
+                metrics.setdefault(f"tab.{key}_surface_ms", []).append(result["surfaces_ms"][0])
             detail.append(result)
         for _ in range(tabs):
             run.action("tab close")
