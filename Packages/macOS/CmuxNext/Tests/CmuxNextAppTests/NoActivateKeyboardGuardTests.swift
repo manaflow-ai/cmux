@@ -84,3 +84,23 @@ struct NoActivateKeyboardGuardTests {
         #expect(host.givenBackTo == [501])
     }
 }
+
+extension NoActivateKeyboardGuardTests {
+    /// One system activation posts didBecomeKey and didBecomeActive a few
+    /// milliseconds apart: that is one give-back, not two. A second
+    /// activation later is counted again.
+    @Test func keyAndActivationTogetherAreOneGiveBack() {
+        let host = FakeHost()
+        let guardian = NoActivateKeyboardGuard(host: host, frontmost: 501)
+        host.isAppActive = true
+        guardian.windowDidBecomeKey()
+        host.isAppActive = true  // macOS still reports active for this batch
+        host.now += .milliseconds(7)
+        guardian.appDidBecomeActive()
+        #expect(guardian.giveBackCount == 1)
+        host.now += .milliseconds(50)
+        host.isAppActive = true
+        guardian.appDidBecomeActive()
+        #expect(guardian.giveBackCount == 2)
+    }
+}
