@@ -231,6 +231,16 @@ struct CLISendDraftGuardTests {
         #expect(params["key"] as? String == "return")
     }
 
+    @Test func sendSubmitStopsWhenADialogOpensAfterSubmitKey() throws {
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [Self.empty, Self.draft, Self.dialog]
+        )
+
+        #expect(run.result.status != 0, Comment(rawValue: run.result.stderr))
+        #expect(run.requests.filter { $0["method"] as? String == "surface.send_key" }.count == 1)
+    }
+
     // MARK: - Harness
 
     private struct Run {
