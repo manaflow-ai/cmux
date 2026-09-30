@@ -142,6 +142,15 @@ export class AcpmuxDirectClient {
         this.firstSeq = undefined;
         this.lastSeq = 0;
         this.summary = undefined;
+        this.queue = [];
+        this.turnOpen = false;
+        this.streamingAssistant = undefined;
+        this.streamingAssistantMessageId = undefined;
+        this.streamingActivity = undefined;
+        this.optimisticPromptRows.clear();
+        this.optimisticPromptTexts.clear();
+        this.supersededMessageIds.clear();
+        this.messageRows.clear();
         this.pendingPermission = undefined;
       }
       if (!this.selectedSessionId) this.selectedSessionId = this.sessions[0]?.sessionId;
@@ -223,6 +232,15 @@ export class AcpmuxDirectClient {
         this.firstSeq = undefined;
         this.lastSeq = 0;
         this.summary = undefined;
+        this.queue = [];
+        this.turnOpen = false;
+        this.streamingAssistant = undefined;
+        this.streamingAssistantMessageId = undefined;
+        this.streamingActivity = undefined;
+        this.optimisticPromptRows.clear();
+        this.optimisticPromptTexts.clear();
+        this.supersededMessageIds.clear();
+        this.messageRows.clear();
         this.pendingPermission = undefined;
         this.emit("session purged");
         if (this.selectedSessionId) void this.attach(this.selectedSessionId, undefined, generation).catch(() => undefined);
