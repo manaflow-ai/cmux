@@ -260,6 +260,18 @@ struct AgentNotificationReconcilerTests {
     }
 
     @Test(arguments: ["claude", "codex"])
+    func backgroundWorkResolutionKeepsThePaneRunning(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: source, turn: "turn-1", notify: false))
+        _ = reconciler.apply(event(2, .turnCompleted, source: source, turn: "turn-1",
+                                   pending: true, notify: false))
+        let resumed = event(3, .attentionResolved, source: source, turn: "turn-1",
+                             pending: true, notify: false, declaredPhase: .running)
+        _ = reconciler.apply(resumed)
+        #expect(reconciler.lifecycleEvent(resumed).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
     func idlePromptDoesNotSettleAnActiveTurn(source: String) {
         var reconciler = AgentNotificationReconciler()
         _ = reconciler.apply(event(1, .turnStarted, source: source, turn: "turn-1", notify: false))
@@ -347,8 +359,8 @@ struct AgentNotificationReconcilerTests {
     }
 
     @Test(arguments: ["claude", "codex"])
-    func runningToolResultDoesNotReopenSettledTurn(source: String) {
-        // Feed declares every tool result `.running`; only an idle declaration settles.
+    func runningToolResultKeepsASettledTurnIdle(source: String) {
+        // A same-turn result can be a late delivery from the completed turn.
         var reconciler = AgentNotificationReconciler()
         _ = reconciler.apply(event(1, .turnCompleted, source: source))
         let result = event(2, .attentionResolved, source: source, request: "ordinary-tool",
