@@ -264,6 +264,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
     /// Routes accepted explicit user input to the surface's current panel owner.
     @MainActor public var onExplicitInput: (@MainActor () -> Void)?
+    /// Set while another participant disconnected this pane's view of a
+    /// shared terminal (docs/shared-terminal-sizing.md). The pane drops
+    /// keyboard and text input until the user reattaches.
+    @MainActor public var sharingViewDetached = false
     /// Notifies the owner when explicit input cancels a deferred auto-resume.
     @MainActor public var onStartupRestoreAdmissionCancelled: (@MainActor () -> Void)?
     /// Called after durable font-size lineage changes.

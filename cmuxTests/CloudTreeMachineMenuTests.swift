@@ -500,6 +500,187 @@ struct CloudTreeMachineMenuTests {
         }, resources: [], projections: [])
     }
 
+    /// A browser row is one daemon tab, and until now the only way to name one
+    /// was to let the page title name it. A machine full of tabs called
+    /// "Example Domain" is the naming complaint this sidebar work is about, so
+    /// the row offers the same verb a terminal and a workspace already do. A
+    /// port row does not: a port row renders its forwarded link and falls back
+    /// to the port number, never to a name, so a rename there would write
+    /// something no row shows.
+    @Test("A cloud browser row can be renamed and a port row cannot")
+    func browserMenuOffersRenameAndPortDoesNot() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-browser-rename-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+
+        let machine = SurfaceMachineID.cloud(Self.machineID)
+        let browser = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: "browser-1"),
+            title: "Example Domain",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: [],
+            port: nil,
+            url: "https://example.com"
+        )
+        let view = SurfaceRemoteView(
+            tabID: "tab-7",
+            workspace: SurfaceRemoteWorkspace(id: "ws-1", name: "main", index: 0, focused: true),
+            name: nil
+        )
+        let port = SurfaceResource(
+            // A forwarded port is a browser-kind resource with a `port:` key,
+            // not a kind of its own.
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(3000)),
+            title: "3000",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: [],
+            port: 3000,
+            url: nil
+        )
+        coordinator.apply(nodes: [
+            CloudTreeNode(
+                id: "browser-row",
+                kind: .browser(CloudTreeBrowserRow(
+                    resource: browser,
+                    isOpen: false,
+                    workspaceTitle: nil,
+                    remoteView: view
+                ))
+            ),
+            CloudTreeNode(id: "port-row", kind: .port(port, url: "http://localhost:3000", openIn: nil)),
+        ])
+
+        let rename = Self.title("cloudTree.menu.rename", "Rename\u{2026}")
+        let browserMenu = try #require(coordinator.contextMenu(forRow: 0))
+        try Self.choose(rename, in: browserMenu)
+        #expect(recorder.renamedRemoteViews.count == 1)
+        #expect(recorder.renamedRemoteViews.first?.0 == browser.id)
+        // The tab is what carries the name, so the action has to be handed the
+        // placement and not just the resource.
+        #expect(recorder.renamedRemoteViews.first?.1 == "tab-7")
+
+        let portMenu = try #require(coordinator.contextMenu(forRow: 1))
+        #expect(!portMenu.items.map(\.title).contains(rename))
+    }
+
+    /// The menu builder appends the rename item in both the browser and the
+    /// display case, but only the browser call site was driven end to end, so an
+    /// edit that dropped the display one was caught by nothing.
+    @Test("A cloud display row can be renamed")
+    func displayMenuOffersRename() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-display-rename-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+
+        let machine = SurfaceMachineID.cloud(Self.machineID)
+        let desktop = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .display, key: "screen-1"),
+            title: "",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: [],
+            port: nil,
+            url: nil
+        )
+        coordinator.apply(nodes: [
+            CloudTreeNode(
+                id: "display-row",
+                kind: .display(desktop, openIn: nil, remoteView: SurfaceRemoteView(
+                    tabID: "tab-9",
+                    workspace: SurfaceRemoteWorkspace(id: "ws-1", name: "main", index: 0, focused: true),
+                    name: nil
+                ))
+            ),
+        ])
+
+        let menu = try #require(coordinator.contextMenu(forRow: 0))
+        try Self.choose(Self.title("cloudTree.menu.rename", "Rename\u{2026}"), in: menu)
+        #expect(recorder.renamedRemoteViews.count == 1)
+        #expect(recorder.renamedRemoteViews.first?.0 == desktop.id)
+        #expect(recorder.renamedRemoteViews.first?.1 == "tab-9")
+    }
+
+    /// Another Mac's browser rows carry a tab, so "does this row have a tab"
+    /// lets them through, but the write cannot land: the device provider maps a
+    /// tab rename onto the host's terminal rename verb, which resolves the id
+    /// with `requireTerminal: true` and answers "Terminal surface not found"
+    /// for a browser. Offering a verb that always fails is worse than not
+    /// offering it, so the gate has to know which machine the row is on.
+    @Test("A paired Mac's browser row is not offered a rename it cannot land")
+    func deviceBrowserMenuOffersNoRename() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-device-rename-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(
+            deviceID: "22222222-2222-2222-2222-222222222222",
+            tag: "default"
+        ))
+        let browser = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: "surface-9"),
+            title: "Example Domain",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: [],
+            port: nil,
+            url: "https://example.com"
+        )
+        coordinator.apply(nodes: [
+            CloudTreeNode(
+                id: "device-browser-row",
+                kind: .browser(CloudTreeBrowserRow(
+                    resource: browser,
+                    isOpen: false,
+                    workspaceTitle: nil,
+                    // The device projection publishes exactly this: one view per
+                    // browser surface, keyed by the surface id.
+                    remoteView: SurfaceRemoteView(
+                        tabID: "surface-9",
+                        workspace: SurfaceRemoteWorkspace(id: "ws-1", name: "main", index: 0, focused: true),
+                        name: nil
+                    )
+                ))
+            ),
+        ])
+
+        let menu = try #require(coordinator.contextMenu(forRow: 0))
+        #expect(!menu.items.map(\.title).contains(Self.title("cloudTree.menu.rename", "Rename\u{2026}")))
+    }
+
     @Test("expired machines still allow local pinning")
     func expiredMachineCanBePinned() throws {
         let suite = "expired-pin-\(UUID().uuidString)"
@@ -674,6 +855,9 @@ struct CloudTreeMachineMenuTests {
                 recorder.renamedWorkspaces.append((machine, (workspace.id, workspace.name)))
             },
             renameTerminal: { _, _ in },
+            renameRemoteView: { resource, view in
+                recorder.renamedRemoteViews.append((resource.id, view.tabID))
+            },
             selectLocalWorkspace: { _ in },
             copyToPasteboard: { _ in },
             copyPortLink: { _ in },
@@ -705,4 +889,5 @@ private final class CloudTreeMenuVerbRecorder {
     var pinChanges: [(String, Bool)] = []
     var renamedMachines: [(String, String)] = []
     var renamedWorkspaces: [(SurfaceMachineID, (String, String))] = []
+    var renamedRemoteViews: [(SurfaceResourceID, String)] = []
 }

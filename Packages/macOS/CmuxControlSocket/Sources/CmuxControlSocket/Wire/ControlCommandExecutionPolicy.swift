@@ -167,6 +167,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // `surface.input_state` reads the screen through the render-grid
+        // export in one short `v2MainSync` hop (`cmux send` asks it before
+        // typing). App-side for the same reason as `surface.read_text`.
+        "surface.input_state",
         // Selection providers own AppKit/WebKit state on the main actor, then
         // return one immutable snapshot for response shaping on this worker.
         // The async bridge must never be entered inline by a main-thread caller.
