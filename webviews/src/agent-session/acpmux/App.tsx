@@ -99,6 +99,7 @@ function VirtualTranscript({ rows, onToggleActivity, expanded, foldToolCalls = t
   const [measuredHeights, setMeasuredHeights] = useState(new Map<string, number>());
   const didOpenAtLatest = useRef(false);
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
+  const previousAnchor = useRef<{ rows: AcpmuxRow[]; first: number } | null>(null);
   useEffect(() => { const node = ref.current; if (!node) return; const observer = new ResizeObserver(() => { setHeight(node.clientHeight); setWidth(node.clientWidth); }); observer.observe(node); setWidth(node.clientWidth); return () => observer.disconnect(); }, []);
   const registry = { ...defaultRegistry, ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined) };
   const rowKind = (row: AcpmuxRow) => row.kind === "activity" && row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ? "editedFiles" : row.kind;
@@ -123,9 +124,13 @@ function VirtualTranscript({ rows, onToggleActivity, expanded, foldToolCalls = t
   useLayoutEffect(() => {
     const old = previousLayout.current;
     const node = ref.current;
-    if (old && node && old.tops.length === layout.tops.length && range.first > 0) {
-      const delta = layout.tops[range.first] - old.tops[range.first];
-      if (Math.abs(delta) > 0.5) node.scrollTop += delta;
+    const anchor = previousAnchor.current;
+    if (old && node && anchor && anchor.rows[anchor.first]) {
+      const newIndex = rows.findIndex((row) => row.id === anchor.rows[anchor.first].id);
+      if (newIndex >= 0 && anchor.first < old.tops.length) {
+        const delta = layout.tops[newIndex] - old.tops[anchor.first];
+        if (Math.abs(delta) > 0.5) node.scrollTop += delta;
+      }
     }
     if (!didOpenAtLatest.current && node && layout.totalHeight > node.clientHeight) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
@@ -134,7 +139,8 @@ function VirtualTranscript({ rows, onToggleActivity, expanded, foldToolCalls = t
       didOpenAtLatest.current = true;
     }
     previousLayout.current = layout;
-  }, [layout, range.first]);
+    previousAnchor.current = { rows, first: range.first };
+  }, [layout, range.first, rows]);
   const scheduleScroll = useRef<number | null>(null);
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => { const next = event.currentTarget.scrollTop; if (scheduleScroll.current !== null) return; scheduleScroll.current = requestAnimationFrame(() => { scheduleScroll.current = null; setScrollTop(next); }); };
   return <div ref={ref} className="acpmux-scroll" onScroll={onScroll}><div className="acpmux-spacer" style={{ height: layout.totalHeight }}><div className="acpmux-thread">{rows.slice(range.first, range.last).map((row, index) => { const absoluteIndex = range.first + index; const kind = rowKind(row); const Component = registry[kind] ?? NoticeRow; const isExpanded = !foldToolCalls || expanded.has(row.id); const rendered = <Component row={row} onToggleActivity={onToggleActivity} expanded={isExpanded} />; const hasExactMeasure = Component === defaultRegistry[kind] || Boolean(Component.measure); return <article className={`acpmux-row acpmux-${kind}`} data-at={row.at} style={{ transform: `translateY(${layout.tops[absoluteIndex]}px)`, height: layout.heights[absoluteIndex] }} key={row.id}>{hasExactMeasure ? rendered : <MeasuredCustomRow onHeight={(value) => setMeasuredHeights((current) => { if (current.get(row.id) === value) return current; const next = new Map(current); next.set(row.id, value); return next; })}>{rendered}</MeasuredCustomRow>}</article>; })}</div></div></div>;

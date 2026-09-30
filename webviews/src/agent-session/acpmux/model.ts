@@ -52,6 +52,7 @@ export type PreparedRow = {
   text: string;
   prepared: PreparedText | null;
   blocks: Map<string, PreparedText>;
+  blockKeys: string[];
 };
 
 export type ConversationLayout = {
@@ -92,16 +93,18 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   if (!row.text) return fallbackRowHeight(row, width);
   const previous = cache.get(row.id);
-  let entry = previous ?? { version: row.version, text: row.text, prepared: null, blocks: new Map<string, PreparedText>() };
-  entry.version = row.version;
-  entry.text = row.text;
+  let entry = previous ?? { version: row.version, text: row.text, prepared: null, blocks: new Map<string, PreparedText>(), blockKeys: [] };
+  if (entry.version !== row.version || entry.text !== row.text || entry.blockKeys.length === 0) {
+    entry.version = row.version;
+    entry.text = row.text;
+    try { entry.blockKeys = lexer(row.text, { gfm: true, breaks: true }).map((token) => token.raw).filter(Boolean); } catch { entry.blockKeys = row.text.split(/\n{2,}/).filter(Boolean); }
+  }
   if (!entry.blocks.size) {
     try { entry.prepared = prepare(row.text, MEASURE_FONT, { whiteSpace: "pre-wrap" }); } catch { entry.prepared = null; }
   }
   cache.set(row.id, entry);
   const contentWidth = Math.max(80, row.kind === "user" ? width * 0.78 - 24 : width);
-  let blocks: string[];
-  try { blocks = lexer(row.text, { gfm: true, breaks: true }).map((token) => token.raw).filter(Boolean); } catch { blocks = row.text.split(/\n{2,}/).filter(Boolean); }
+  const blocks = entry.blockKeys;
   if (blocks.length === 0) return fallbackRowHeight(row, width);
   let contentHeight = 0;
   for (const block of blocks) {
