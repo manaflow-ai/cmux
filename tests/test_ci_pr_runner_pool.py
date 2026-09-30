@@ -2439,7 +2439,7 @@ class Wiring(unittest.TestCase):
                       "' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner", wrapper)
         # Main's dispatch takes the side label only where the picker placed the wrapper.
         # Attempts 1 and 2, as the picker's LAST_OWNED_ATTEMPT (the janitor charges both).
-        self.assertIn("|| github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && "
+        self.assertIn("|| github.event_name == 'workflow_dispatch' && "
                       "github.run_attempt <= 2 && "
                       "contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && "
                       "(needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) "
@@ -2483,8 +2483,8 @@ class Wiring(unittest.TestCase):
         same = "contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
         dispatch_lane = (f"(inputs.pr_xcode_app || (github.event_name != 'pull_request' || {same}) "
                          "&& vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)")
-        main_dispatch = ("${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' "
-                         f"&& github.ref == 'refs/heads/main') && {dispatch_lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}")
+        main_dispatch = ("${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')"
+                         f" && {dispatch_lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}")
         macos = self.workflow("ci-macos.yml")["jobs"]
         for job in ("macos-compile-admission", "tests-build-and-lag"):
             self.assertEqual(macos[job]["env"]["CMUX_CI_XCODE_APP"], main_dispatch, job)
@@ -2587,7 +2587,7 @@ class Wiring(unittest.TestCase):
         job = self.workflow("ci-macos.yml")["jobs"]["swift-package-tests"]
         owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
                  "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
-                 "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && "
+                 "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner)")
         self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
         self.assertIn("contains(inputs.pr_owned_jobs, ' swift-package ')", job["runs-on"])
@@ -2620,7 +2620,7 @@ class Wiring(unittest.TestCase):
         job = self.workflow("ci-macos.yml")["jobs"]["release-build"]
         owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
                  "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
-                 "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && "
+                 "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner)")
         self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
         self.assertIn("contains(inputs.pr_owned_jobs, ' release-build ')", job["runs-on"])
@@ -2815,8 +2815,8 @@ class MainFullSuite(unittest.TestCase):
         ids = [step.get("id") for step in steps]
         mint, picker = steps[ids.index("route-token")], steps[ids.index("macos-pool")]
         self.assertNotIn("if", picker)
-        self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'", mint["if"])
-        self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+        self.assertIn("github.event_name == 'workflow_dispatch'", mint["if"])
+        self.assertIn("github.event_name == 'workflow_dispatch'",
                       picker["env"]["CMUX_CI_XCODE_APP_PR"])
 
 

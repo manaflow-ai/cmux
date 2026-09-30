@@ -40,6 +40,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | Browser automation | [cmux-browser](cmux-browser/SKILL.md) |
 | Operate Cloud machines and their persistent workspaces | [cmux-cloud-vm](cmux-cloud-vm/SKILL.md) |
 | Native computer use when requested | [cmux-cua](cmux-cua/SKILL.md) |
+| Screenshot or record a cmux window as evidence | [cmux-capture](cmux-capture/SKILL.md) |
 | Settings values and validation | [cmux-settings](cmux-settings/SKILL.md) |
 | Shortcuts, key bindings and templates | [cmux-keyboard-shortcuts](cmux-keyboard-shortcuts/SKILL.md) |
 | Actions, commands and layouts | [cmux-customization](cmux-customization/SKILL.md) |

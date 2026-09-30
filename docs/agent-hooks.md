@@ -109,6 +109,8 @@ cmux agent wake surface:3
 
 `hibernate` stops one agent now, whether or not routine hibernation is on. It skips the idle delay, the live-terminal limit and the confirmation window, and keeps every other check. The agent must be off screen and idle, with no unsent input and no background work. cmux still snapshots the transcript and revalidates the process before it signals anything. When a check fails, the command exits non-zero and says why. `wake` resumes a hibernated agent in place without moving focus. Both accept a surface UUID, a ref, or an index with `--workspace`, and `--json`. Over the socket they are `agent.hibernate` and `agent.wake` with `surface_id`.
 
+After a wake, cmux checks that the agent actually came back. The wake counts as working as soon as either the agent's own hooks report in for that terminal or a live process of that agent is found running in it (cmux looks every few seconds, which covers agents without hooks). If the resume command exits before either happens, or neither happens within 90 seconds, the terminal shows a banner saying the agent didn't resume, with **Retry** (types the resume command again), **Show command** (shows the command so you can copy it) and a close button. The workspace's sidebar row shows "Agent didn't resume" until the failure is retried, dismissed, or the agent reports in, and one entry is added to the notification feed. The sidebar row is not saved with the session.
+
 ### Enable and configure
 
 Enable routine hibernation from the command palette (`⌘⇧P` -> **Enable Agent Hibernation**), from **Settings > Terminal > Agent Hibernation**, or from the CLI:

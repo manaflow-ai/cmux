@@ -2032,8 +2032,10 @@
         "automation": {
           "ampIntegration": "Slår cmux-hookene for Amp på eller av. Når de er slått av, forblir den medfølgende utvidelsen installert, men inaktiv.",
           "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri.",
+          "agentAutoResume": "Sender `continue` med backoff til en agent startet av cmux når turen endte med en upstream-feil som kan prøves på nytt (modellen har ikke kapasitet, er overbelastet eller tilkoblingen ble brutt). Turer som venter på et menneske, gjenopptas aldri.",
           "workspaceAutoNaming": "Valgfri AI-basert automatisk navngiving av arbeidsområder og faner fra agentens samtaleinnhold. Når aktivert, oppsummerer cmux støttede agentøkter til korte titler med hver agents egen binærfil; manuelle navneendringer vinner alltid.",
-          "autoNamingAgent": "Hvilken agent som genererer automatiske navn for hver økt. \"auto\" (standard) navngir hver økt med sin egen agent; en hvilken som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) overstyrer navngivingen for alle økter, også andre agenters. Agenter som ikke kan styres eller ikke er installert, faller tilbake til øktens egen agent, så navngivingen aldri svikter."
+          "autoNamingAgent": "Hvilken agent som genererer automatiske navn for hver økt. \"auto\" (standard) navngir hver økt med sin egen agent; en hvilken som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) overstyrer navngivingen for alle økter, også andre agenters. Agenter som ikke kan styres eller ikke er installert, faller tilbake til øktens egen agent, så navngivingen aldri svikter.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
@@ -2084,7 +2086,12 @@
           "compactAgentStatus": "Vis hvert arbeidsområde på én linje: ett farget ikon foran tittelen viser agent-, ulest- og pull request-status og erstatter agentstatuslinjene (for eksempel Kjører eller Trenger input), gren- og mappelinjen og pull request-linjene, der detaljene flyttes til ikonets verktøytips. Andre statusoppføringer beholder sine egne linjer.",
           "compactStatusIcons": "SF Symbol-navn som erstatter compactAgentStatus-glyfen for hver tilstand, for eksempel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Tilstander uten verdi beholder det innebygde symbolet, og et navn som ikke kan vises, faller tilbake til det.",
           "notificationMessageLineLimit": "Maksimalt antall linjer som vises for det nyeste varselet under tittelen til hvert arbeidsområde.",
-          "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
+          "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen.",
+          "beta": {
+            "conversations": {
+              "enabled": "Vis den samlede samtalevisningen i sidefeltets velger."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Innstillinger for filutforskeren (filtreet) i høyre sidepanel.",
@@ -2153,6 +2160,12 @@
       "actionTypeCommand": "Kjører shell-tekst i en terminal. Bruk target for å velge gjeldende terminal eller en ny fane i gjeldende panel.",
       "actionTypeAgent": "Starter en støttet kodeagent. I dag støttes codex og claude, med valgfrie argumenter.",
       "actionTypeWorkspaceCommand": "Kjører en navngitt arbeidsområdedefinisjon fra commands. Bruk dette for flerpane-layouter, egendefinerte arbeidsmapper og oppstartskommandoer.",
+      "actionTypeSetting": "Endrer én innstilling i din globale cmux.json, for eksempel slå en true/false-innstilling av eller på eller bla gjennom en liste med verdier. Se Innstillingshandlinger nedenfor.",
+      "actionTypeSettingPreset": "Bruker en navngitt gruppe innstillinger fra settingPresets i ett steg.",
+      "settingActions": "Innstillingshandlinger",
+      "settingActionsDesc": "En innstillingshandling angir en <path>path</path> til en innstilling og nøyaktig én av <set>set</set> (skriv en verdi), <toggle>toggle: true</toggle> (snu en true/false-innstilling), <cycle>cycle</cycle> (gå til neste verdi i en liste og start på nytt etter den siste) eller <unset>unset: true</unset> (fjern nøkkelen fra cmux.json, slik at verdien fra Innstillinger-vinduet eller standardverdien gjelder). toggle og cycle starter fra verdien cmux bruker, også en du har satt i Innstillinger-vinduet. En settingPreset-handling bruker en oppføring fra <presets>settingPresets</presets>, en delvis cmux.json der nestede objekter slås sammen nøkkel for nøkkel. cmux kontrollerer hver endring mot skjemaet før lagring, beholder kommentarene dine og andre nøkler og tar i bruk endringen med én gang. Innstillingshandlinger og presets kjører bare fra din globale cmux.json og pakkene den viser til; prosjektkonfigurasjoner kan ikke deklarere dem.",
+      "settingActionsCli": "De samme endringene fungerer fra en terminal: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> og <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "Med <confirm>confirm: true</confirm> spør cmux før lagring og viser den tilsvarende cmux config-kommandoen. Stier deles ved hvert \".\", så en nøkkel som selv inneholder \".\" (for eksempel en <byCwd>workspaceGroups.byCwd</byCwd>-oppføring for ~/src/app.web), kan ikke endres på denne måten. Rediger den direkte i cmux.json.",
       "actionFields": "Handlingsfelt",
       "actionFieldTitle": "Tittel i Command Palette-raden, knappetekst, menypunkttittel og tittel i tillitsdialogen, med mindre en oppføring overstyrer den.",
       "actionFieldSubtitle": "Sekundærtekst i Command Palette. description godtas som alias for subtitle.",
@@ -2284,7 +2297,8 @@
         "wn-reload": "Last inn konfigurasjon på nytt",
         "wn-quit": "Avslutt"
       },
-      "metaTitle": "Tastatursnarveier"
+      "metaTitle": "Tastatursnarveier",
+      "fileEditorWordWrap": "Slå linjebryting i filredigereren av eller på (Option+Z)."
     },
     "api": {
       "title": "CLI-referanse",
@@ -2722,7 +2736,8 @@
       "maxLinesSetting": "TextBox Max Lines begrenser høyden på TextBox før innholdet begynner å rulle.",
       "configTitle": "cmux.json",
       "configDesc": "Sett de samme standardverdiene i ~/.config/cmux/cmux.json under terminal:",
-      "focusNote": "Gjenopprettede økter beholder lagret TextBox-synlighet og fokusstatus. Disse standardverdiene gjelder bare nyopprettede terminalflater."
+      "focusNote": "Gjenopprettede økter beholder lagret TextBox-synlighet og fokusstatus. Disse standardverdiene gjelder bare nyopprettede terminalflater.",
+      "betaCallout": "TextBox er en betafunksjon. Standardverdier og oppførsel kan endres mens den testes."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multi-agent i cmux",

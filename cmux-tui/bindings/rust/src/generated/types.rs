@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8.
+// cmux-tui mux protocol 12, IR 8956ad6492bfd776f7c94fa11ba79b6fe23de0a0df61c6baf782d7d0ecf1f4cd.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -735,6 +735,13 @@ pub struct ReadScrollbackResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReattachViewResult {
+    pub participant: String,
+    pub state: SizeState,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderCursor {
     pub blink: bool,
     pub color: Nullable<ColorHex>,
@@ -1145,6 +1152,7 @@ pub enum SizeMode {
 pub struct SizeParticipant {
     pub counts: bool,
     pub counts_override: Nullable<bool>,
+    pub device_id: Nullable<String>,
     pub device_kind: SizeDeviceKind,
     pub device_name: Nullable<String>,
     pub display_name: Nullable<String>,
@@ -1200,6 +1208,8 @@ pub struct SizeState {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SizingIdentity {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub device_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub device_kind: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

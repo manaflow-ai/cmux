@@ -1310,6 +1310,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         qos: .utility
     )
     private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
+    /// Crash-safe scrollback checkpoints; see `SessionScrollbackCheckpoint.swift`.
+    var sessionScrollbackCheckpointCoordinator: SessionScrollbackCheckpointCoordinator?
+    let sessionScrollbackCheckpointQueue = DispatchQueue(
+        label: "com.cmuxterm.app.sessionScrollbackCheckpoint",
+        qos: .utility
+    )
     /// Holds back primary snapshot writes from a launch that restored less
     /// than it started from; installed by startup snapshot preparation or the
     /// first save, whichever comes first.
@@ -1342,7 +1348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastPersistedSessionWindowIds: [UUID] = []
-    private var lastTypingActivityAt: TimeInterval = 0
+    private(set) var lastTypingActivityAt: TimeInterval = 0
     /// Fresh resume indexes captured by `updaterPrepareForRelaunch()` just before an update
     /// relaunch, for the synchronous relaunch save.
     var updateRelaunchIndexCapture = UpdateRelaunchIndexCapture()
@@ -1662,8 +1668,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             CloudWorkspaceRenameService(environment: cloudRenameEnvironment)
         )
         TerminalPredictionCenter.shared.bindEnabledSetting(
-            userDefaultsKey: SettingCatalog().betaFeatures.predictedEcho.userDefaultsKey,
-            defaultValue: SettingCatalog().betaFeatures.predictedEcho.defaultValue
+            userDefaultsKey: SettingCatalog().terminal.predictiveLocalEcho.userDefaultsKey,
+            defaultValue: SettingCatalog().terminal.predictiveLocalEcho.defaultValue
         )
         SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
         SurfaceCatalog.shared.focusProjection = { projection in
@@ -1766,10 +1772,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
-        // key-equivalent routing flaky. Force defaults for deterministic tests.
+        // key-equivalent routing flaky. Force defaults for deterministic tests. The same
+        // profile carries the last closed window's frame, which sizes the launch window.
         if isRunningUnderXCTest {
             SystemWideHotkeySettings.reset()
             KeyboardShortcutSettings.resetAll()
+            Self.forgetPersistedWindowGeometryForTestProcess()
         }
 #endif
 
@@ -2684,7 +2692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 return .retryable
             }
-            switch controller.v2MobileTerminalPaste(params: routedParams) {
+            switch await controller.v2MobileTerminalPaste(params: routedParams) {
             case .ok:
                 // `terminal.paste` applies the text before it attempts the
                 // named key. A false `submitted` flag is therefore a partial
@@ -3772,9 +3780,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics(
             primaryOutcome: primaryOutcome
         )
+        // Before the restore guard, so a skipped restore still drops stale checkpoints.
+        prepareSessionScrollbackCheckpointsForLaunch(previousLaunchWasUnclean: previousSessionLaunchWasUnclean)
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup else { return }
-        startupSessionSnapshot = sanitizedStartupSnapshot
+        // After a crash the primary snapshot comes from the 8 s autosave, which
+        // never carries scrollback; recover it from the latest checkpoints. A
+        // clean exit already wrote scrollback and discarded them above.
+        if previousSessionLaunchWasUnclean,
+           let sanitizedStartupSnapshot,
+           let checkpointStore = sessionScrollbackCheckpointStore() {
+            startupSessionSnapshot = checkpointStore.merging(into: sanitizedStartupSnapshot)
+        } else {
+            startupSessionSnapshot = sanitizedStartupSnapshot
+        }
     }
 
     /// Archives the on-disk snapshot and installs the overwrite guard once per
@@ -3888,6 +3907,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         defaults: UserDefaults = .standard
     ) {
         legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
+    }
+
+    /// Forgets the last closed main window's frame so a test process opens its
+    /// first window at the default size.
+    ///
+    /// Every main-window close writes its frame to the app's standard
+    /// defaults, and the launch window and any window created without a source
+    /// window read it back. App-host test processes on one machine share that
+    /// domain, so without this reset a process inherits whatever window an
+    /// earlier process closed last, often a 320-point fixture. Every later
+    /// `createMainWindow()` copies that launch window, and split admission then
+    /// refuses side-by-side splits (#15392).
+    nonisolated static func forgetPersistedWindowGeometryForTestProcess(
+        defaults: UserDefaults = .standard
+    ) {
+        removeLegacyPersistedWindowGeometry(defaults: defaults)
+        defaults.removeObjectIfPresent(forKey: persistedWindowGeometryDefaultsKey)
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
@@ -4069,6 +4105,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             scheduleScreenChangeReconcileWhenIdle()
         }
         flushPendingStartupNavigationURLRequests()
+        // After a crash restore, the recovered scrollback lives only in memory
+        // under the restored panel ids; write it back as checkpoints so a second
+        // crash keeps it. A clean launch or manual reopen restored from a
+        // scrollback-bearing save, so the next checkpoint suffices there.
+        if !isManualReopen, previousSessionLaunchWasUnclean {
+            sessionScrollbackCheckpointCoordinator?.seed(sessionScrollbackCheckpointRestoredSeeds())
+        }
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.
@@ -4468,9 +4511,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
             self.runSessionAutosaveTick(source: "timer")
+            self.sessionScrollbackCheckpointCoordinator?.tickIfDue()
         }
         sessionAutosaveTimer = timer
         timer.resume()
+        startSessionScrollbackCheckpointsIfNeeded(environment: env)
     }
 
     private func stopSessionAutosaveTimer() {
@@ -5346,7 +5391,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let snapshot = AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
             createdAt: createdAt,
-            windows: windows
+            windows: windows,
+            scrollbackCapturedAt: includeScrollback ? createdAt : nil
         )
         return (snapshot, didRemoveCrashDiagnosticData)
     }
@@ -11296,29 +11342,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc private func handleFeedRequestSendText(_ notification: Notification) {
-        guard let surfaceId = notification.userInfo?["surfaceId"] as? String,
+        guard let workspaceId = notification.userInfo?["workspaceId"] as? String,
+              let surfaceId = notification.userInfo?["surfaceId"] as? String,
               let text = notification.userInfo?["text"] as? String,
               !text.isEmpty
         else { return }
 
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params,
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
+        // Share the phone composer's literal paste and provider-aware submit
+        // key. Appending CR to paste text inserts a newline in agent editors.
+        Task { @MainActor in
+            _ = await TerminalController.shared.v2MobileTerminalPaste(params: [
+                "workspace_id": workspaceId,
+                "surface_id": surfaceId,
+                "text": text,
+                "submit_key": "return",
+            ])
         }
-        // Terminal-mode Return is CR. sendNamedKey "Return" also works
-        // but one send_text is atomic, so append CR directly.
-        invoke("surface.send_text", [
-            "surface_id": surfaceId,
-            "text": text + "\r",
-        ])
     }
 
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {
@@ -18049,7 +18088,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted?()
                 return true
             }
-        case .command, .agent, .workspaceCommand, .workspace:
+        case .command, .agent, .workspaceCommand, .workspace, .setting:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
                 return false
             }
@@ -18063,6 +18102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: context.tabManager,
                 baseCwd: baseCwd,
                 globalConfigPath: cmuxConfigStore.globalConfigPath,
+                settingPresets: cmuxConfigStore.settingPresets,
                 presentingWindow: preferredWindow,
                 onExecuted: onExecuted
             )
@@ -18451,7 +18491,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         Task { @MainActor [weak self] in
-            self?.notificationDelivery.handleNotificationResponse(response)
+            await self?.notificationDelivery.handleNotificationResponse(response)
             completionHandler()
         }
     }

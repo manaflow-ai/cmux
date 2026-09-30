@@ -220,6 +220,18 @@ export function invalidateNativeAuthCacheForTokens(tokens: NativeStackTokens): v
   }
 }
 
+/**
+ * Drop every cached verification for one user on this instance. The team
+ * membership webhook calls this so the instance that handles the removal stops
+ * answering from a cached team list at once. Other instances keep theirs until
+ * the cache TTL (30 seconds by default) expires.
+ */
+export function invalidateNativeAuthCacheForUser(userId: string): void {
+  for (const [key, entry] of nativeAuthCache) {
+    if (entry.user.id === userId) nativeAuthCache.delete(key);
+  }
+}
+
 // Stack throttles per project, not per caller. Once one native verification is
 // throttled, every other native verification from this instance fails the same
 // way for the next few seconds, and the Stack SDK retries each of those calls
@@ -602,11 +614,12 @@ async function verifyNativeRequest(
  * miss (no token, token not locally verifiable, no fresh snapshot) falls
  * through to `verifyRequest`, which asks Stack and refreshes the snapshot.
  *
- * Trade-off, stated: team membership can be up to the snapshot TTL stale, so a
- * user removed from a team keeps that team's device-registry access until the
- * row refreshes. Stack sends no membership webhook we could invalidate on, so
- * the TTL (default ten minutes) is the bound. Routes that gate money, account
- * mutation, or admin powers must keep calling `verifyRequest`.
+ * Trade-off, stated: team membership can be up to the snapshot TTL stale. The
+ * Stack `team_membership.deleted` webhook (`app/api/webhooks/stack`) deletes
+ * the removed user's row, so a delivered webhook ends that window at once; the
+ * TTL (default ten minutes) remains the bound when a delivery is missed or
+ * still retrying. Routes that gate money, account mutation, or admin powers
+ * must keep calling `verifyRequest`.
  */
 export async function verifyRequestFromSnapshot(
   request: Request,
@@ -687,6 +700,30 @@ async function isAccountDeletionTombstoned(userId: string): Promise<boolean> {
     isBlockingAccountDeletionTombstone(deletion);
 }
 
+/**
+ * The caller's complete team membership, freshly listed from Stack for this
+ * request, or null when it cannot be established (Stack error, throttle, or no
+ * session). Never answered from a cache or an identity snapshot.
+ *
+ * Tunnel enrollment uses this to decide which team networks to keep: the
+ * route's normal verification resolves only the selected team, and treating
+ * that one team as the whole membership would detach every other team.
+ */
+export async function verifyCompleteTeamMembership(
+  request: Request,
+  expectedUserId: string,
+): Promise<readonly string[] | null> {
+  try {
+    const user = await verifyRequest(request, {
+      requireFreshTeamMembership: true,
+      forceCompleteTeamList: true,
+    });
+    return user?.id === expectedUserId ? user.teamIds : null;
+  } catch {
+    return null;
+  }
+}
+
 export type VerifiedIdentity = {
   readonly id: string;
   /** How the identity was established; surfaced for logs and tests. */
@@ -760,6 +797,10 @@ async function resolveStackTeamMembership(
 ): Promise<{ selectedTeam: BillingTeamLike | null; listedTeams: BillingTeamLike[]; completeTeamList: boolean }> {
   const selectedTeam = billingTeamFromUnknown(user.selectedTeam);
   if (options.requireFreshTeamMembership) {
+    // An empty list here must mean "no teams", never "could not list".
+    if (typeof user.listTeams !== "function") {
+      throw new Error("Stack user cannot list teams; fresh team membership is unavailable");
+    }
     const listedTeams = (await listAllStackTeams(user, options.subrouterAuthorizationSignal))
       .map(billingTeamFromUnknown).filter((team): team is BillingTeamLike => !!team);
     return {
