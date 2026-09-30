@@ -3,6 +3,7 @@ import { openSessionConnection } from "../src/connection";
 class FakeSocket {
   onopen: (() => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
+  onerror: (() => void) | null = null;
   onclose: (() => void) | null = null;
   closed = false;
   closes = 0;
@@ -80,6 +81,17 @@ try {
   if (timerCount() !== 0) throw new Error("stale socket scheduled another connection");
   if (recovering.current() !== second.asWebSocket()) throw new Error("stale socket cleared the replacement connection");
 
+  // Browser WebSockets can report an error without delivering close promptly.
+  // The view must still arm the same bounded reconnect path instead of
+  // remaining forever with a dead socket.
+  const errored = client();
+  const erroredFirst = errored.sockets[0];
+  erroredFirst.onerror?.();
+  if (errored.current() !== null || timerCount() !== 1) throw new Error("socket error left the dead connection active or unqueued");
+  flushTimers();
+  if (errored.sockets.length !== 2) throw new Error("socket error did not create a replacement connection");
+  errored.disconnect();
+
   // The retry may already be queued for execution when the view is disposed.
   second.close();
   const queuedRetry = [...timers.values()][0];
@@ -97,7 +109,7 @@ try {
   mounted.disconnect();
   // Detached before closing: these handlers capture the whole session closure
   // graph, and the socket outlives cleanup until the close handshake finishes.
-  if (only.onopen !== null || only.onmessage !== null || only.onclose !== null) {
+  if (only.onopen !== null || only.onmessage !== null || only.onerror !== null || only.onclose !== null) {
     throw new Error("cleanup left handlers attached to the disposed socket");
   }
   mounted.disconnect();
@@ -125,8 +137,63 @@ try {
   if (flaky.current() !== flakySockets[0].asWebSocket()) throw new Error("the recovered socket was not published");
   flaky.disconnect();
 
-  if (delays.length === 0 || delays.some((delay) => delay !== 800)) {
-    throw new Error(`reconnect delay changed: ${[...new Set(delays)].join(",")}`);
+  if (delays.length === 0 || delays.some((delay) => delay !== 800 && delay !== 15_000)) {
+    throw new Error(`unexpected connection delay: ${[...new Set(delays)].join(",")}`);
+  }
+
+  // A connection that never opens or closes must expire without waiting for
+  // the browser's network timeout or an onclose callback from ws.close().
+  const stalled = client();
+  const abandoned = stalled.sockets[0];
+  const lateOpen = abandoned.onopen!;
+  const lateMessage = abandoned.onmessage!;
+  const lateClose = abandoned.onclose!;
+  if (timerCount() !== 1 || delays.at(-1) !== 15_000) {
+    throw new Error("a connecting socket has no 15s deadline");
+  }
+  const lateDeadline = [...timers.values()][0];
+  flushTimers();
+  if (!abandoned.closed || abandoned.closes !== 1 || stalled.current() !== null) {
+    throw new Error("connection timeout did not close and retire its socket");
+  }
+  if (abandoned.onopen !== null || abandoned.onmessage !== null || abandoned.onclose !== null) {
+    throw new Error("connection timeout retained abandoned socket handlers");
+  }
+  if (timerCount() !== 1 || delays.at(-1) !== 800) {
+    throw new Error("connection timeout failed to schedule exactly one retry");
+  }
+  flushTimers();
+  if (stalled.sockets.length !== 2 || timerCount() !== 1) {
+    throw new Error("retry did not create one replacement with its own deadline");
+  }
+  const replacement = stalled.sockets[1];
+  replacement.onopen?.();
+  replacement.onmessage?.({ data: "replacement hello" } as MessageEvent);
+  lateOpen();
+  lateMessage({ data: "abandoned history" } as MessageEvent);
+  lateClose();
+  lateDeadline();
+  if (stalled.current() !== replacement.asWebSocket() || stalled.opens() !== 1 || stalled.messages.join(",") !== "replacement hello" || timerCount() !== 0) {
+    throw new Error("abandoned socket callbacks interfered with a healthy replacement");
+  }
+  stalled.disconnect();
+
+  const healthy = client();
+  const queuedDeadline = [...timers.values()][0];
+  healthy.sockets[0].onopen?.();
+  healthy.sockets[0].onmessage?.({ data: "hello" } as MessageEvent);
+  queuedDeadline(); // Cancellation must also guard a callback already queued.
+  if (healthy.sockets[0].closed || healthy.opens() !== 1 || timerCount() !== 0) {
+    throw new Error("a cancelled connection deadline closed a healthy socket");
+  }
+  healthy.disconnect();
+
+  const unmounted = client();
+  const disposedDeadline = [...timers.values()][0];
+  unmounted.disconnect();
+  disposedDeadline();
+  if (unmounted.sockets.length !== 1 || unmounted.sockets[0].closes !== 1 || timerCount() !== 0 || unmounted.current() !== null) {
+    throw new Error("a connection deadline reopened or retained a disposed view");
   }
   console.log("session connection lifecycle assertions passed");
 } finally {
