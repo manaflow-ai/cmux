@@ -712,6 +712,7 @@ dependencies = [
  "hyper-util",
  "iroh",
  "libc",
+ "notify",
  "rcgen",
  "serde",
  "serde_json",

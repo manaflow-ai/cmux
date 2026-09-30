@@ -672,6 +672,11 @@ fn rpc_traffic_class(request: &WorkspaceRequest) -> RpcTrafficClass {
         | WorkspaceRequest::ComputerUseCapabilitiesV1
         | WorkspaceRequest::InvokeComputerUse { .. }
         | WorkspaceRequest::CancelComputerUse { .. } => RpcTrafficClass::Control,
+        // The daemon spawns a pending watch-poll because it is cancel-safe,
+        // so it holds one control admission slot without blocking the stream.
+        WorkspaceRequest::WatchDirectories { .. }
+        | WorkspaceRequest::WatchPoll { .. }
+        | WorkspaceRequest::Unwatch { .. } => RpcTrafficClass::Control,
         WorkspaceRequest::CancelRequest { .. } => RpcTrafficClass::Cancellation,
     }
 }

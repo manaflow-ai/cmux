@@ -2772,6 +2772,155 @@ mod tests {
             .await;
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn workspace_watch_poll_over_rpc_lanes_does_not_block_other_requests() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let directory = tempdir().unwrap();
+                std::fs::write(directory.path().join("before.txt"), b"x").unwrap();
+                let workspace = WorkspaceService::new();
+                let services = DaemonServices::new(workspace.clone(), None);
+                let request_slots = RequestAdmission::new();
+                let (client_endpoint, daemon_endpoint) = endpoint_pair();
+                let client_multiplexer =
+                    ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+                let daemon_multiplexer =
+                    ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+                let server = tokio::task::spawn_local({
+                    let services = services.clone();
+                    let daemon_multiplexer = daemon_multiplexer.clone();
+                    let request_slots = request_slots.clone();
+                    async move {
+                        let scope = ClientScope::new(
+                            "workspace-watch-lanes",
+                            cmux_remote_protocol::SessionId([33; 16]),
+                        );
+                        while let Some(incoming) = daemon_multiplexer.accept().await.unwrap() {
+                            let services = services.clone();
+                            let scope = scope.clone();
+                            let request_slots = request_slots.clone();
+                            tokio::task::spawn_local(async move {
+                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                            });
+                        }
+                    }
+                });
+                let client = WorkspaceClient::connect(client_multiplexer.clone()).await.unwrap();
+                let opened = client
+                    .request(WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+                    panic!("open-workspace returned the wrong response")
+                };
+                let started = client
+                    .request(WorkspaceRequest::WatchDirectories {
+                        workspace: workspace_id.clone(),
+                        paths: vec![String::new()],
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::WatchStarted { watch } = started else {
+                    panic!("watch-directories returned the wrong response")
+                };
+
+                let abandoned = client
+                    .begin_request(WorkspaceRequest::WatchPoll {
+                        watch: watch.clone(),
+                        after: 0,
+                        timeout_ms: 30_000,
+                    })
+                    .await
+                    .unwrap();
+                let pending = client
+                    .begin_request(WorkspaceRequest::WatchPoll {
+                        watch: watch.clone(),
+                        after: 0,
+                        timeout_ms: 30_000,
+                    })
+                    .await
+                    .unwrap();
+                let two_polls_admitted =
+                    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                        while request_slots.control.available_permits()
+                            != MAX_CONTROL_RPC_REQUESTS - 2
+                        {
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await
+                    .is_ok();
+
+                let concurrent = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                    let listed = client
+                        .request(WorkspaceRequest::ListDirectory {
+                            workspace: workspace_id.clone(),
+                            path: String::new(),
+                            include_hidden: false,
+                            limit: 16,
+                            cursor: None,
+                        })
+                        .await;
+                    let stat = client
+                        .request(WorkspaceRequest::Stat {
+                            workspace: workspace_id.clone(),
+                            path: "before.txt".into(),
+                            follow_symlinks: false,
+                        })
+                        .await;
+                    (listed, stat)
+                })
+                .await;
+
+                // Dropping a transmitted cancel-safe request cancels it on the
+                // daemon, which releases its admission slot.
+                drop(abandoned);
+                let abandoned_released =
+                    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                        while request_slots.control.available_permits()
+                            != MAX_CONTROL_RPC_REQUESTS - 1
+                        {
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await
+                    .is_ok();
+
+                std::fs::write(directory.path().join("after.txt"), b"y").unwrap();
+                let changed =
+                    tokio::time::timeout(std::time::Duration::from_secs(10), pending.receive())
+                        .await;
+
+                let _ = client.request(WorkspaceRequest::Unwatch { watch }).await;
+                drop(client);
+                client_multiplexer.shutdown().await;
+                daemon_multiplexer.shutdown().await;
+                server.abort();
+                let _ = server.await;
+
+                assert!(two_polls_admitted, "watch-polls were not admitted concurrently");
+                let (listed, stat) =
+                    concurrent.expect("list-directory or stat waited behind a pending watch-poll");
+                let Ok(WorkspaceResponse::Directory { entries, .. }) = &listed else {
+                    panic!("list-directory failed: {listed:?}")
+                };
+                assert!(entries.iter().any(|entry| entry.name == "before.txt"));
+                assert!(matches!(stat, Ok(WorkspaceResponse::Stat { .. })), "{stat:?}");
+                assert!(abandoned_released, "a dropped watch-poll kept its admission slot");
+                let changed = changed.expect("watch-poll did not observe the new entry");
+                let Ok(WorkspaceResponse::WatchChanges { sequence, paths, overflow }) = &changed
+                else {
+                    panic!("watch-poll failed: {changed:?}")
+                };
+                assert!(*sequence > 0);
+                assert!(!*overflow);
+                assert_eq!(paths, &[String::new()]);
+            })
+            .await;
+    }
+
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
     async fn dropped_wait_requests_release_control_admission() {

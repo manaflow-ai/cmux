@@ -70,6 +70,11 @@ else is image-only: design it so old machines keep working without it.
   Nothing that waits for a daemon may assume seconds.
 - **The remote protocol (`CMXR`, protocol 5) stays compatible** with released
   Mac clients, which the version gate already enforces.
+- **New workspace RPC features are capability-gated.** A client checks the
+  `capabilities` response before using one, because an older daemon rejects
+  the unknown request. Directory watches (`watch-directories`, `watch-poll`,
+  `unwatch`) are advertised as `workspace-watch-v1`; without it, clients keep
+  refreshing on their own schedule.
 
 ### web (attach, open, create)
 
