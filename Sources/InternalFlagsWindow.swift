@@ -9,23 +9,17 @@ enum InternalFlagsPresenter {
     }
 }
 
+/// Presents the feature flag inspector as a standalone window.
+///
+/// This is a plain `NSWindow`, not an `NSPanel`: a panel hides on app
+/// deactivation, and a panel left ordered out while AppKit still counts it as
+/// visible captures Cmd-` cycling. The identifier routes Cmd-W to this window.
 @MainActor
-private final class InternalFlagsWindowController: NSWindowController {
+private final class InternalFlagsWindowController: ReleasingWindowController {
     static let shared = InternalFlagsWindowController()
 
-    private init() {
-        let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 920, height: 560),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = String(localized: "featureFlags.window.title", defaultValue: "Feature Flags")
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
-        window.minSize = NSSize(width: 760, height: 420)
-        window.contentView = NSHostingView(rootView: InternalFlagsView(flags: CmuxFeatureFlags.shared))
-        super.init(window: window)
+    private override init() {
+        super.init()
     }
 
     @available(*, unavailable)
@@ -33,13 +27,24 @@ private final class InternalFlagsWindowController: NSWindowController {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func makeWindow() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 920, height: 560),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.featureFlags")
+        window.title = String(localized: "featureFlags.window.title", defaultValue: "Feature Flags")
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.minSize = NSSize(width: 760, height: 420)
+        window.contentView = NSHostingView(rootView: InternalFlagsView(flags: CmuxFeatureFlags.shared))
+        return window
+    }
+
     func show() {
-        if window?.isVisible != true {
-            window?.center()
-        }
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        showManagedWindow(activateApplication: true)
     }
 }
 

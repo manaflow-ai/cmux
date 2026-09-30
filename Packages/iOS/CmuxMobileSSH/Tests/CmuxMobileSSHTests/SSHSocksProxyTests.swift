@@ -1,39 +1,23 @@
 @testable import CmuxMobileSSH
+import CmuxMobileTunnel
 import Darwin
 import Foundation
 import Network
 import Testing
 
-/// SOCKS5 request parsing (RFC 1928), no network.
-@Suite struct SSHSocksParseTests {
-    @Test func greetingRequiresNoAuthOffer() {
-        #expect(SSHSocksParse.greeting([0x05]) == .needMoreData)
-        #expect(SSHSocksParse.greeting([0x05, 0x02, 0x00]) == .needMoreData)
-        #expect(SSHSocksParse.greeting([0x05, 0x02, 0x02, 0x00]) == .greeting(acceptsNoAuth: true, consumed: 4))
-        #expect(SSHSocksParse.greeting([0x05, 0x01, 0x02]) == .greeting(acceptsNoAuth: false, consumed: 3))
-        #expect(SSHSocksParse.greeting([0x04, 0x01, 0x00]) == .malformed)
+/// How SSH channel-open failures become SOCKS replies. The SOCKS protocol
+/// itself is tested in `CmuxMobileTunnel`.
+@Suite struct SSHDirectTCPIPBackendTests {
+    struct OpenFailure: Error, CustomStringConvertible {
+        let description: String
     }
 
-    @Test func connectAddressTypes() {
-        // IPv4 127.0.0.1:8080
-        #expect(SSHSocksParse.request([5, 1, 0, 1, 127, 0, 0, 1, 0x1F, 0x90]) == .connect(host: "127.0.0.1", port: 8080, consumed: 10))
-        // Domain "localhost":3000, resolved by the server.
-        let name = Array("localhost".utf8)
-        #expect(SSHSocksParse.request([5, 1, 0, 3, UInt8(name.count)] + name + [0x0B, 0xB8])
-            == .connect(host: "localhost", port: 3000, consumed: 5 + name.count + 2))
-        // IPv6 ::1:443
-        let ipv6: [UInt8] = Array(repeating: 0, count: 15) + [1]
-        #expect(SSHSocksParse.request([5, 1, 0, 4] + ipv6 + [0x01, 0xBB]) == .connect(host: "0:0:0:0:0:0:0:1", port: 443, consumed: 22))
-        // Partial requests wait for more bytes.
-        #expect(SSHSocksParse.request([5, 1, 0, 3, 9, 0x6C]) == .needMoreData)
-    }
-
-    @Test func unsupportedRequestsAreRejected() {
-        // BIND and UDP ASSOCIATE.
-        #expect(SSHSocksParse.request([5, 2, 0, 1, 127, 0, 0, 1, 0, 80]) == .reject(.commandNotSupported))
-        #expect(SSHSocksParse.request([5, 3, 0, 1, 127, 0, 0, 1, 0, 80]) == .reject(.commandNotSupported))
-        #expect(SSHSocksParse.request([5, 1, 0, 9, 0, 0]) == .reject(.addressTypeNotSupported))
-        #expect(SSHSocksParse.request([5, 1, 0, 1, 127, 0, 0, 1, 0, 0]) == .reject(.hostUnreachable))
+    @Test func channelOpenFailureReasonsMapToSocksReplies() {
+        #expect(SSHDirectTCPIPBackend.openError(OpenFailure(description: "Channel open failed. Reason: 1")) == .notAllowed)
+        #expect(SSHDirectTCPIPBackend.openError(OpenFailure(description: "Channel open failed. Reason: 2 (connect failed)"))
+            == .connectionRefused)
+        #expect(SSHDirectTCPIPBackend.openError(OpenFailure(description: "closed")) == .hostUnreachable)
+        #expect(TunnelOpenError.connectionRefused.socksReply == .connectionRefused)
     }
 }
 

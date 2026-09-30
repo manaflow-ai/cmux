@@ -238,6 +238,9 @@ extension CmuxSettingsFileStore {
             [
                 "mobile": [
                     "artifactFolderAccess": SettingCatalog().mobile.artifactFolderAccess.defaultValue.rawValue,
+                    "browserTunnel": [
+                        "allowOtherHosts": SettingCatalog().mobile.browserTunnelAllowOtherHosts.defaultValue,
+                    ],
                 ],
             ],
             [

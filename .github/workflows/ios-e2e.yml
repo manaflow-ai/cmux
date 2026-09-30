@@ -8,11 +8,11 @@ name: iOS E2E
 #
 # No workflow-level path filter on purpose: the route job decides skips so the
 # ios-e2e-status aggregate always reports a deterministic conclusion.
+# The pull_request trigger stays off until the owner approves promotion (see
+# docs/ci/ios-e2e.md). The workflow is dispatchable while infrastructure and
+# the product path are validated.
+# pull_request:
 on: [workflow_dispatch]
-  # The pull_request trigger stays off until the owner approves promotion (see
-  # docs/ci/ios-e2e.md). The workflow is dispatchable while infrastructure and
-  # the product path are validated.
-  # pull_request:
 
 permissions:
   contents: read

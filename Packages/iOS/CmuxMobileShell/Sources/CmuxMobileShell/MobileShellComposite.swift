@@ -192,6 +192,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // does not fire for the in-init assignment, so this only observes
             // real transitions. The throttle's `outageOpen` is the per-outage gate.
             guard oldValue != connectionState else { return }
+            // Units sent on the previous connection are resent on the next
+            // one with their identity; the Mac drops any it already wrote.
+            exactlyOnceInputPathsChanged()
             recordAppEvent(
                 .connectionStateChanged,
                 correlationID: foregroundMacDeviceID,
@@ -847,6 +850,50 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSendOperationIDsByTerminalID.removeValue(forKey: terminalID)
     }
 
+    /// One exactly-once sender for every terminal on every Mac. Created on
+    /// first use so its transport can capture the fully initialized shell.
+    @ObservationIgnored private var exactlyOnceSenderStorage: MobileTerminalInputUnitSender?
+    /// Macs known to deliver input exactly once; kept across the capability
+    /// reset of a reconnect so input typed meanwhile still queues.
+    @ObservationIgnored var exactlyOnceInputHostIDs: Set<String> = []
+    /// Send-status operations whose units the exactly-once sender owns.
+    @ObservationIgnored var exactlyOnceOwnedSendOperationIDs: Set<UUID> = []
+
+    var exactlyOnceSender: MobileTerminalInputUnitSender {
+        if let sender = exactlyOnceSenderStorage { return sender }
+        let sender = MobileTerminalInputUnitSender(merge: MobileTerminalInputUnit.merge)
+        exactlyOnceSenderStorage = sender
+        sender.transport = makeExactlyOnceInputTransport()
+        return sender
+    }
+
+    func finishExactlyOnceRawTerminalSend(
+        _ operationID: UUID?,
+        forTerminalID terminalID: String,
+        succeeded: Bool
+    ) {
+        finishRawTerminalSend(operationID, forTerminalID: terminalID, succeeded: succeeded)
+    }
+
+    /// Input that will never reach its terminal (it closed) shows as a
+    /// failed send on that terminal, unless a newer send is in progress.
+    func markTerminalInputUndelivered(terminalID: String) {
+        guard terminalSendStatusesByTerminalID[terminalID] != .sending else { return }
+        terminalSendStatusesByTerminalID[terminalID] = .failed
+        recordAppEvent(.terminalInputDropped, correlationID: terminalID, failure: .unknown)
+    }
+
+    /// Removes every raw-input chunk not yet handed to a sender.
+    func takeUndrainedRawTerminalInput() -> [MobileTerminalInputSendBuffer.Chunk] {
+        var chunks: [MobileTerminalInputSendBuffer.Chunk] = []
+        while let chunk = rawTerminalInputBuffer.nextBatch(
+            maximumByteCount: MobileTerminalInputFrame.maximumInputBytes
+        ) {
+            chunks.append(chunk)
+        }
+        return chunks
+    }
+
     private func finishRawTerminalSend(
         _ operationID: UUID?,
         forTerminalID terminalID: String,
@@ -1401,6 +1448,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// SSH computers (hosts, keys, live sessions). Local to this device and
     /// independent of the cmux account. See `MobileShellComposite+SSHComputers.swift`.
     public let sshComputers: MobileSSHComputers
+    /// The "On iPhone" browser network per paired Mac, keyed by Mac device
+    /// id. See `MobileShellComposite+MacBrowserTunnel.swift`.
+    @ObservationIgnored var macBrowserNetworks: [String: MobileMacBrowserNetwork] = [:]
     @ObservationIgnored var notificationFeedSnapshotsByMac: [String: NotificationFeedMacSnapshot] = [:]
     @ObservationIgnored var notificationFeedKnownRevisionsByMac: [String: Int] = [:]
     @ObservationIgnored var notificationFeedSuccessfulMacIDs: Set<String> = []
@@ -2110,6 +2160,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     isolated deinit {
+        // Pending input settles as abandoned so no awaiting submitter stays
+        // suspended past the store that owned it.
+        exactlyOnceSenderStorage?.abandon { _ in true }
         connectionRecoveryOwner.cancel()
         connectionRecoveryAttemptDeadlineTask?.cancel()
         automaticReconnectRetryTask?.cancel()
@@ -2217,6 +2270,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // not survive an account boundary or leak into the next session's
         // projections.
         resetStateSyncForAccountBoundary()
+        // Browser tunnels to the previous account's Macs end with it.
+        Task { await stopMacBrowserNetworks() }
         lastPresenceReconnectEvidence = nil
         presencePushRecoveryThrottle.reset()
         pendingInactiveRecoveryTrigger = nil
@@ -2322,6 +2377,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         rawTerminalInputBuffer.clear()
         terminalInputRPCPipeline.clear()
+        abandonExactlyOnceInput()
         resumeRawTerminalInputDrainWaiters()
         reportedViewportSizesByTerminalKey = [:]
         viewportReportGenerationsBySequenceKey = [:]
@@ -9140,7 +9196,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
         }
-        let terminalID = selectedTerminalID?.rawValue
+        // The terminal and workspace are captured with the text: the submit
+        // belongs to the terminal on screen when the user pressed Send.
+        let submittedTerminalID = selectedTerminalID
+        let submittedWorkspaceID = selectedWorkspace?.id
+        let terminalID = submittedTerminalID?.rawValue
         recordAppEvent(
             .terminalInputSubmitted,
             correlationID: terminalID,
@@ -9148,7 +9208,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         terminalInputText = ""
         let selectedTerminalIsDemonstration = terminalID.map(locallyServedOwnsSurface) ?? false
-        guard remoteClient != nil || selectedTerminalIsDemonstration else {
+        let queuesExactlyOnce = submittedWorkspaceID.flatMap { workspaceID in
+            submittedTerminalID.flatMap { exactlyOnceInputKey(workspaceID: workspaceID, terminalID: $0) }
+        } != nil
+        guard let submittedWorkspaceID, let submittedTerminalID,
+              remoteClient != nil || selectedTerminalIsDemonstration || queuesExactlyOnce else {
             recordAppEvent(
                 .terminalInputDropped,
                 correlationID: terminalID,
@@ -9165,7 +9229,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "line_count": .int(text.split(separator: "\n", omittingEmptySubsequences: false).count),
             "had_attachment": .bool(false),
         ])
-        await submitTerminalRawInput(text + "\r")
+        await enqueueTerminalRawInputAwaitingDrain(
+            text + "\r",
+            workspaceID: submittedWorkspaceID,
+            terminalID: submittedTerminalID
+        )
         recordAppEvent(
             .terminalInputSent,
             correlationID: terminalID
@@ -10140,7 +10208,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if handleLocallyServedTerminalInput(text, surfaceID: terminalID.rawValue) {
             return
         }
-        guard remoteClient != nil else { return }
+        // An exactly-once Mac queues input while its connection recovers.
+        guard remoteClient != nil
+            || exactlyOnceInputKey(workspaceID: workspaceID, terminalID: terminalID) != nil else { return }
         switch rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
@@ -10204,10 +10274,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func clearPendingTerminalInputForFocusChange() {
+        // Input already bound to a terminal on an exactly-once Mac stays in
+        // that terminal's outbox and is delivered there, never dropped.
+        adoptUndrainedRawInputForExactlyOnceDelivery()
         rawTerminalInputBuffer.clear()
         terminalInputRPCPipeline.clear()
         let pendingRawSends = rawTerminalSendOperationIDsByTerminalID
-        for (terminalID, operationID) in pendingRawSends {
+        for (terminalID, operationID) in pendingRawSends
+        where !exactlyOnceOwnedSendOperationIDs.contains(operationID) {
             finishRawTerminalSend(
                 operationID,
                 forTerminalID: terminalID,
@@ -13185,6 +13259,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         latencyBatchNumber: UInt64? = nil,
         sendStatusOperationID: UUID? = nil
     ) async {
+        if submitRemoteTerminalInputExactlyOnce(
+            text,
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            latencyBatchNumber: latencyBatchNumber,
+            sendStatusOperationID: sendStatusOperationID
+        ) {
+            return
+        }
         guard let client = remoteClient else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal input remoteClient=0")
@@ -13450,6 +13533,70 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Hands typed keys to the exactly-once sender when their Mac supports
+    /// it. Returns false when the caller must use the previous path.
+    private func submitRemoteTerminalInputExactlyOnce(
+        _ text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID,
+        latencyBatchNumber: UInt64?,
+        sendStatusOperationID: UUID?
+    ) -> Bool {
+        guard exactlyOnceInputKey(workspaceID: workspaceID, terminalID: terminalID) != nil else {
+            return false
+        }
+        let tracksInputSequence = supportedHostCapabilities.contains(MobileTerminalInputFrame.capability)
+        let inputSequence = terminalLatencyObserver.inputStarted(
+            surfaceID: terminalID.rawValue,
+            byteCount: text.utf8.count,
+            correlate: tracksInputSequence
+        )
+        let marker = inputSequence != 0 && tracksInputSequence ? inputSequence : nil
+        if let sendStatusOperationID {
+            exactlyOnceOwnedSendOperationIDs.insert(sendStatusOperationID)
+        }
+        let latencySequences = inputSequence == 0 ? [] : [inputSequence]
+        let outcome = submitExactlyOnceKeys(
+            text,
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            marker: marker
+        ) { [weak self] settlement in
+            self?.exactlyOnceKeysSettled(
+                settlement,
+                terminalID: terminalID.rawValue,
+                latencySequences: latencySequences,
+                latencyBatchNumber: latencyBatchNumber,
+                sendStatusOperationID: sendStatusOperationID
+            )
+        }
+        switch outcome {
+        case .queued:
+            return true
+        case .full:
+            exactlyOnceKeysSettled(
+                .undeliverable,
+                terminalID: terminalID.rawValue,
+                latencySequences: latencySequences,
+                latencyBatchNumber: latencyBatchNumber,
+                sendStatusOperationID: sendStatusOperationID
+            )
+            // One terminal's full outbox is not a connection failure: its
+            // pending units keep retrying, other terminals and Macs are fine.
+            analytics.capture("ios_terminal_input_dropped", [
+                "pending_byte_count": .int(text.utf8.count),
+                "reason": .string("outbox_full"),
+            ])
+            return true
+        case .unsupported:
+            if let sendStatusOperationID {
+                exactlyOnceOwnedSendOperationIDs.remove(sendStatusOperationID)
+            }
+            terminalLatencyObserver.inputFailed(surfaceID: terminalID.rawValue, sequence: inputSequence)
+            return false
+        }
+    }
+
     @inline(__always)
     private static func stampTerminalInputSettlement(
         _ latencyBatchNumber: UInt64?,
@@ -13469,27 +13616,49 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) -> [String: Any] {
-        let key = viewportKey(
-            workspaceID: workspaceID,
-            terminalID: terminalID
-        )
         let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
-        var params: [String: Any] = [
+        let params: [String: Any] = [
             "workspace_id": remoteWorkspaceID.rawValue,
             "surface_id": terminalID.rawValue,
             "text": text,
             "client_id": clientID,
         ]
-        if let viewportSize = reportedViewportSizesByTerminalKey[key] {
-            params["viewport_columns"] = viewportSize.columns
-            params["viewport_rows"] = viewportSize.rows
-            if let generation = terminalViewportGeneration(
-                for: terminalID.rawValue
-            ) {
-                params["viewport_generation"] = Int(clamping: generation)
-            }
+        return params.merging(
+            terminalViewportParameters(workspaceID: workspaceID, terminalID: terminalID)
+        ) { current, _ in current }
+    }
+
+    /// The viewport the phone last reported for this terminal, piggybacked on
+    /// input so the Mac sizes the PTY before writing.
+    func terminalViewportParameters(
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) -> [String: Any] {
+        let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
+        guard let viewportSize = reportedViewportSizesByTerminalKey[key] else { return [:] }
+        var params: [String: Any] = [
+            "viewport_columns": viewportSize.columns,
+            "viewport_rows": viewportSize.rows,
+        ]
+        if let generation = terminalViewportGeneration(for: terminalID.rawValue) {
+            params["viewport_generation"] = Int(clamping: generation)
         }
         return params
+    }
+
+    func handleExactlyOnceInputResponse(_ data: Data, surfaceID: String) {
+        handleTerminalInputResponse(data, surfaceID: surfaceID)
+    }
+
+    /// A transport failure on the focused connection is reported like any
+    /// other input failure; the sender retries the unit itself.
+    func handleExactlyOnceTransportFailure(
+        _ error: any Error,
+        client: MobileCoreRPCClient,
+        generation: UUID
+    ) {
+        guard client === remoteClient else { return }
+        handleTerminalInputFailure(error, client: client, generation: generation)
     }
 
     private func handleTerminalInputFailure(
@@ -13505,20 +13674,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             expectedGeneration: generation
         )
         applyOperationalError(error)
-    }
-
-    /// - Returns: `true` when the Mac acknowledged the paste, `false` when there
-    ///   is no selected workspace/terminal or the send failed.
-    @discardableResult
-    private func sendRemoteTerminalPaste(_ text: String, submitKey: String) async -> Bool {
-        guard let workspaceID = selectedWorkspace?.id,
-              let terminalID = selectedTerminalID else {
-            #if DEBUG
-            mobileShellLog.info("skip remote terminal paste selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
-            #endif
-            return false
-        }
-        return await sendRemoteTerminalPaste(text, submitKey: submitKey, workspaceID: workspaceID, terminalID: terminalID)
     }
 
     /// Deliver a composed block to the Mac surface via `terminal.paste`: a
@@ -13556,6 +13711,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 pasted,
                 surfaceID: terminalID.rawValue
             )
+        }
+        if let settlement = await deliverExactlyOnce(
+            .paste(text, submitKey: submitKey),
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            byteCount: text.utf8.count
+        ) {
+            return settlement == .delivered
         }
         guard let client = remoteClient else {
             #if DEBUG
@@ -13615,24 +13778,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Forward an image the user pasted on the phone to the currently selected
-    /// remote terminal. The bytes travel as base64 in `terminal.paste_image`; the
-    /// Mac writes them to a temp file and injects the path into the terminal so
-    /// the running TUI (e.g. Claude Code) attaches the image the same way a local
-    /// clipboard-image paste does.
-    ///
-    /// - Parameters:
-    ///   - data: The encoded image bytes (PNG/JPEG/…).
-    ///   - format: A lowercase file-extension hint (e.g. `"png"`). The Mac
-    ///     sanitizes it and defaults to `png` for anything unrecognized.
-    /// - Returns: `true` when the Mac acknowledged the image, `false` on any
-    ///   failure (no selection, no client, a stale generation, or an RPC error).
+    /// Send an image the user pasted into the terminal `surfaceID`. The image
+    /// goes to that terminal even if the selection changed meanwhile.
     @discardableResult
-    public func submitTerminalPasteImage(_ data: Data, format: String) async -> Bool {
-        guard let workspaceID = selectedWorkspace?.id,
-              let terminalID = selectedTerminalID else {
+    public func submitTerminalPasteImage(
+        _ data: Data,
+        format: String,
+        surfaceID: String
+    ) async -> Bool {
+        guard let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             recordAppEvent(
                 .terminalImagePasteFailed,
+                correlationID: surfaceID,
                 failure: .noRoute,
                 count: data.count
             )
@@ -13642,7 +13799,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             data,
             format: format,
             workspaceID: workspaceID,
-            terminalID: terminalID
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
         )
     }
 
@@ -13703,6 +13860,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) async -> Bool {
+        if let settlement = await deliverExactlyOnce(
+            .image(data, format: format),
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            byteCount: data.count
+        ) {
+            let delivered = settlement == .delivered
+            recordAppEvent(
+                delivered ? .terminalImagePasteSucceeded : .terminalImagePasteFailed,
+                correlationID: terminalID.rawValue,
+                failure: delivered ? nil : .unknown,
+                count: data.count
+            )
+            return delivered
+        }
         guard let client = remoteClient else { return false }
         let generation = connectionGeneration
         do {
@@ -15100,33 +15272,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         startLatencyProbeIfReady()
         #endif
-        // The first viewport callback commits a generation before this sink is
-        // registered. Let its viewport acknowledgement schedule the one
-        // authoritative replay, avoiding a cold attach request that races the
-        // geometry RPC and gets immediately superseded.
-        let preparationSequenceKey = MobileTerminalViewportSequenceKey(
-            ownerKey: foregroundMacKey,
-            surfaceID: surfaceID
-        )
-        // SSH surfaces never wait for that acknowledgement: their grid is
-        // recorded when the viewport is prepared, and tying the attach to
-        // the Mac negotiation stranded the one-shot seed whenever a late
-        // teardown of the previous view retired the negotiation.
-        if sshOwnsSurface(surfaceID)
-            || terminalViewportPreparationGenerationsBySequenceKey[
-                preparationSequenceKey
-            ] == nil {
-            requestColdAttachTerminalReplay(surfaceID: surfaceID)
-        } else {
-            terminalViewportDeferredColdReplayGenerationsBySequenceKey[
-                preparationSequenceKey
-            ] = terminalViewportPreparationGenerationsBySequenceKey[
-                preparationSequenceKey
-            ]
-            MobileDebugLog.anchormux(
-                "terminal.output.defer_cold_replay surface=\(surfaceID)"
-            )
-        }
+        // Start cold replay as soon as the viewport report is issued. The replay
+        // barrier handles viewport-transition responses and retries after the
+        // Mac acknowledges settled geometry, so waiting here would serialize
+        // two round trips and leave a newly selected workspace blank.
+        requestColdAttachTerminalReplay(surfaceID: surfaceID)
         ensureTerminalLane(surfaceID: surfaceID)
         return registrationToken
     }
@@ -15612,10 +15762,41 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return
                 }
                 let payload = decoded.payload
+                if payload?.namesAnotherTerminal(than: surfaceID) == true {
+                    // The answer describes another terminal. None of it, not
+                    // even its raw bytes, may reach this terminal's view.
+                    mobileShellLog.error("CMUX_REPLAY foreign_surface surface=\(surfaceID, privacy: .public)")
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .discarded,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
+                    self.clearTerminalReplayInFlightIfCurrent(
+                        surfaceID: surfaceID,
+                        requestID: replayRequestID
+                    )
+                    transferredInFlightToRetry = true
+                    guard self.requestTerminalReplayForCurrentBarrier(
+                        surfaceID: surfaceID,
+                        trigger: .failureRetry,
+                        replayBarrierToken: replayBarrierTokenForRequest,
+                        coveredReplayBarrierDroppedOutputCount: nil,
+                        reason: "foreign_surface"
+                    ) else {
+                        self.clearTerminalReplayBarrierIfCurrent(
+                            surfaceID: surfaceID,
+                            token: replayBarrierTokenForRequest,
+                            reason: "foreign_surface"
+                        )
+                        return
+                    }
+                    return
+                }
                 let bytes = decoded.bytes
                 let snapshotBytes = decoded.snapshotBytes
-                let decodedRenderGrid = payload?.renderGrid
-                let renderGrid = decodedRenderGrid?.surfaceID == surfaceID ? decodedRenderGrid : nil
+                let renderGrid = payload?.renderGrid
                 let replaySeq = renderGrid?.stateSeq ?? payload?.sequence
                 if let replayBarrierTokenForRequest {
                     guard self.terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierTokenForRequest else {

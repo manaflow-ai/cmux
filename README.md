@@ -441,7 +441,7 @@ cmux is free and open source, and always will be. If you want to back developmen
 
 ### I have a feature request or found a bug?
 
-We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) or [pull request](https://github.com/manaflow-ai/cmux/pulls) on GitHub, or [email us](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) or [pull request](https://github.com/manaflow-ai/cmux/pulls) on GitHub, or [email us](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Star History
 
@@ -455,7 +455,9 @@ We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) 
 
 ## Contributing
 
-For code contributions, start with the [contributor guide](CONTRIBUTING.md) and
+New here? [Start here](docs/start-here.md) is the short path from "I want to
+change something" to a merged pull request, including what you can fix without a
+Mac. Then the [contributor guide](CONTRIBUTING.md) and
 [fast local checks](CONTRIBUTING.md#fast-checks-before-building-or-pushing).
 
 Ways to get involved:
@@ -526,4 +528,4 @@ If your organization cannot comply with GPL, commercial terms may be available
 for portions for which Manaflow controls the necessary rights. They do not
 relicense third-party material or outside contributions for which Manaflow
 lacks a separate grant. See [LICENSE](LICENSE) for the exact scope and contact
-[founders@manaflow.com](mailto:founders@manaflow.com) for details.
+[founders@cmux.com](mailto:founders@cmux.com) for details.
