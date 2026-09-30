@@ -84,38 +84,10 @@ struct MobilePrimaryTabScaffold<
         if #available(iOS 26.0, *) {
             ZStack(alignment: .bottomTrailing) {
                 TabView(selection: tabSelection) {
-                    Tab(value: MobilePrimaryTab.workspaces) {
-                        tabBarPlaceholder
-                    } label: {
-                        workspacesLabel
-                    }
-                    .accessibilityIdentifier("MobilePrimaryTabWorkspaces")
-
-                    Tab(value: MobilePrimaryTab.feed) {
-                        tabBarPlaceholder
-                    } label: {
-                        feedLabel
-                    }
-                    .badge(feedNeedsInputCount)
-                    .accessibilityIdentifier("MobilePrimaryTabFeed")
-
-                    if showsNotificationsTab {
-                        Tab(value: MobilePrimaryTab.notifications) {
-                            tabBarPlaceholder
-                        } label: {
-                            notificationsLabel
-                        }
-                        .badge(notificationUnreadCount)
-                        .accessibilityIdentifier("MobilePrimaryTabNotifications")
-                    }
+                    primaryTabs
 
                     if selection == .search || selection.searchScope != nil {
                         Tab(value: MobilePrimaryTab.search, role: .search) {
-                            // The searchable navigation stack must remain in
-                            // the native search-role tab. iOS uses the tab's
-                            // content to attach search activation, so keeping
-                            // it in the overlay would leave the Search control
-                            // without a searchable presentation.
                             search
                                 .environment(\.mobilePrimarySearchDestination, true)
                         }
@@ -124,41 +96,10 @@ struct MobilePrimaryTabScaffold<
                 }
                 .tabViewSearchActivation(.searchTabSelection)
                 .tabViewStyle(.tabBarOnly)
-                .background(Color.clear)
                 .accessibilityIdentifier("MobilePrimaryTabs")
                 .animation(nil, value: selection)
                 .transaction { transaction in
                     transaction.disablesAnimations = true
-                }
-                .background(alignment: .top) {
-                    // Keep every non-search navigation stack mounted behind
-                    // the native tab content transition so paths and
-                    // destination state survive a switch. The TabView and its
-                    // native tab bar stay above this layer, so the system
-                    // controls remain the top hit-test target.
-                    GeometryReader { geometry in
-                        ZStack {
-                            workspaces
-                                .opacity(selection == .workspaces ? 1 : 0)
-                                .allowsHitTesting(selection == .workspaces)
-                                .accessibilityHidden(selection != .workspaces)
-                            feed
-                                .opacity(selection == .feed ? 1 : 0)
-                                .allowsHitTesting(selection == .feed)
-                                .accessibilityHidden(selection != .feed)
-                            notifications
-                                .opacity(selection == .notifications ? 1 : 0)
-                                .allowsHitTesting(selection == .notifications)
-                                .accessibilityHidden(selection != .notifications)
-                        }
-                        .frame(
-                            width: geometry.size.width,
-                            height: geometry.size.height,
-                            alignment: .top
-                        )
-                        .allowsHitTesting(selection != .search)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
                 .onChange(of: selection, initial: true) { _, selection in
                     searchCoordinator.synchronizeSelection(selection)
@@ -221,12 +162,6 @@ struct MobilePrimaryTabScaffold<
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
         }
-    }
-
-    private var tabBarPlaceholder: some View {
-        Color.clear
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .allowsHitTesting(false)
     }
 
     private var tabSelection: Binding<MobilePrimaryTab> {

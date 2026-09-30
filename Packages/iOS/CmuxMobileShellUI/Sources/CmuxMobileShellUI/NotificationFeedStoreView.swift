@@ -19,21 +19,15 @@ struct NotificationFeedStoreView: View {
     @State private var isFeedVisible = false
 
     var body: some View {
-        Group {
-            if isActive {
-                NotificationFeedView(
-                    status: status,
-                    projection: projection,
-                    refreshesOnAppear: !isSearchDestination,
-                    actions: actions,
-                    isActive: true,
-                    isConfirmingMarkAllRead: $isConfirmingMarkAllRead,
-                    showsNavigationToolbar: showsNavigationToolbar
-                )
-            } else {
-                Color.clear
-            }
-        }
+        NotificationFeedView(
+            status: status,
+            projection: projection,
+            refreshesOnAppear: !isSearchDestination,
+            actions: actions,
+            isActive: isActive,
+            isConfirmingMarkAllRead: $isConfirmingMarkAllRead,
+            showsNavigationToolbar: showsNavigationToolbar
+        )
         .onAppear {
             updateFeedVisibility(isActive)
         }

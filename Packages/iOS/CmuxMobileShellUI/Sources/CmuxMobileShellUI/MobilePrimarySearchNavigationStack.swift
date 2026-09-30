@@ -18,21 +18,16 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            Group {
-                if isActive {
-                    root()
-                        .toolbar(hidesRootNavigationBar ? .hidden : .automatic, for: .navigationBar)
-                        .modifier(MobilePrimarySearchLifecycleModifier(
-                            scope: searchCoordinator.scope,
-                            update: { scope, isSearching in
-                                searchCoordinator.updateLifecycle(scope: scope, isSearching: isSearching)
-                            }
-                        ))
-                } else {
-                    Color.clear
-                }
-            }
-            .navigationDestination(for: MobileWorkspacePreview.ID.self, destination: destination)
+            root()
+                .toolbar(hidesRootNavigationBar ? .hidden : .automatic, for: .navigationBar)
+                .modifier(MobilePrimarySearchLifecycleModifier(
+                    scope: searchCoordinator.scope,
+                    update: { scope, isSearching in
+                        guard isActive || !isSearching else { return }
+                        searchCoordinator.updateLifecycle(scope: scope, isSearching: isSearching)
+                    }
+                ))
+                .navigationDestination(for: MobileWorkspacePreview.ID.self, destination: destination)
         }
         .searchable(text: searchText, isPresented: searchPresentation, prompt: prompt)
         .onSubmit(of: .search) {

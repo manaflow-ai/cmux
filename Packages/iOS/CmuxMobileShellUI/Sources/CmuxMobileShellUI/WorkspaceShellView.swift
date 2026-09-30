@@ -504,10 +504,7 @@ struct WorkspaceShellView: View {
                         ? nil
                         : taskComposerAction
                 ) {
-                    workspaceTabContent(
-                        presentation: presentation,
-                        isActive: selectedPrimaryTab == .workspaces
-                    )
+                    workspaceTabContent(presentation: presentation)
                 } feed: {
                     NavigationStack(path: $feedNavigationPath) {
                         agentFeedStoreView(
@@ -567,17 +564,9 @@ struct WorkspaceShellView: View {
     #endif
 
     #if os(iOS)
-    private func workspaceTabContent(
-        presentation: WorkspaceShellRenderPresentation,
-        isActive: Bool = true
-    ) -> some View {
+    private func workspaceTabContent(presentation: WorkspaceShellRenderPresentation) -> some View {
         workspaceActionToastOverlay {
-            if isActive {
-                layoutContent(presentation: presentation)
-            } else {
-                Color.clear
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            layoutContent(presentation: presentation)
         }
     }
     #else
