@@ -70,6 +70,8 @@ final class AppServices {
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
     let terminalTheme = TerminalThemeSetting()
+    /// Browser tabs of remote machines reach that machine's localhost.
+    private(set) var remoteLocalhost: RemoteLocalhostService!
     var chromiumLikelyObservations: [Task<Void, Never>] = []
 
     init(environment: AppEnvironment) {
@@ -79,6 +81,16 @@ final class AppServices {
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
         ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
         cache = TabContentCache(daemon: daemon)
+        remoteLocalhost = RemoteLocalhostService(machines: machines)
+        cache.configureBrowser = { [weak self] tab, url, base in
+            await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base
+        }
+        cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
+        cache.machineBadge = { [weak self] key, url in
+            guard let self, let tab = remoteLocalhost.tab(id: key) else { return nil }
+            let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
+            return remoteLocalhost.badge(for: tab, url: url, engine: engine)
+        }
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
         cache.cef.onReady = { [crashRecovery] in crashRecovery.marker?.installHandlers() }

@@ -246,9 +246,12 @@ final class BrowserHibernation {
             configuration.initialURL = placeholder.state.url
             configuration.restoreState = placeholder.restoreState
             let make = cache.makeCEFTab
-            Task { @MainActor [weak self] in
+            let tab = cache.tabModel(key)
+            Task { @MainActor [weak self, weak cache] in
                 do {
-                    let page = try await make(configuration)
+                    // The remote-localhost store and guard, as for any Chromium page.
+                    let configured = await cache?.chromiumConfiguration(for: tab, base: configuration) ?? configuration
+                    let page = try await make(configured)
                     self?.finishRestore(key, token: token, page: page)
                 } catch {
                     guard let cache = self?.cache else { return }

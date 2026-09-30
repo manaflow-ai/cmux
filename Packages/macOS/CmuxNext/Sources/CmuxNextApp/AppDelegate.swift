@@ -100,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.notifications.follow(settings)
         services.startHibernation(settings: settings)
         services.terminalTheme.follow(settings)
+        services.remoteLocalhost.follow(settings)
         Task {
             await settings.waitForLoad(atLeast: 1)
             do {

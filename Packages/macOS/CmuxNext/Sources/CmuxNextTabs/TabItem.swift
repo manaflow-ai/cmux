@@ -25,6 +25,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// The machine the tab's terminal runs on when it is not this Mac: a
     /// very subtle trailing label (plans/cmux-next/data-model.md 1.2b).
     public var machineBadge: String?
+    /// Explains the machine badge in the hover card and to VoiceOver (a
+    /// remote-localhost browser tab: "localhost is build-box").
+    public var machineBadgeHelp: String?
 
     public init(
         id: TabID,

@@ -54,6 +54,15 @@ final class TabContentCache {
     lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
         try await cef.makeTab($0)
     }
+    /// The remote-localhost store and navigation guard of a Chromium page for
+    /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy
+    /// could not start, so the page must not load (never this Mac's localhost).
+    var configureBrowser: ((TabModel, URL?, BrowserTabConfiguration) async -> BrowserTabConfiguration?)?
+    /// The omnibar and tab-strip machine chip of tab `key` for a URL.
+    var machineBadge: ((String, URL?) -> (text: String, help: String)?)?
+    /// The tab with durable id `key` on any machine (`browserTabs` only
+    /// knows the local daemon).
+    var findTab: ((String) -> TabModel?)?
     /// A CEF page finished its asynchronous creation; panes showing `key` re-show.
     var onBrowserReady: ((String) -> Void)?
     /// Presentation changed (for the blank-pane invariant).
@@ -169,7 +178,7 @@ final class TabContentCache {
             defer { pendingBrowsers.remove(key) }
             let page: any BrowserTab
             do {
-                page = try await makeCEFTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
+                page = try await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url))
             } catch {
                 guard let tab = browserTabs.tabModel(key), browsers[key] == nil else { return }
                 _ = fallBack(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
@@ -194,6 +203,47 @@ final class TabContentCache {
             return tab.url.flatMap(URL.init(string:))
         }
         return RemoteRelayPolicy.remoteBrowserURL(tab.url)
+    }
+
+    /// The Chromium configuration of `tab` showing `url`, with its
+    /// remote-localhost store. A failed proxy start leaves the page blank.
+    private func chromiumConfiguration(for tab: TabModel, key: String, url: URL?) async -> BrowserTabConfiguration {
+        await chromiumConfiguration(for: tab, base: BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
+    }
+
+    /// `base` with the remote-localhost store of `tab` (every Chromium page a
+    /// tab gets goes through here, a hibernated page waking included). A
+    /// failed proxy start leaves the page blank, never on this Mac's localhost.
+    func chromiumConfiguration(for tab: TabModel?, base: BrowserTabConfiguration) async -> BrowserTabConfiguration {
+        guard let tab, let configureBrowser else { return base }
+        if let configured = await configureBrowser(tab, base.initialURL, base) { return configured }
+        var blank = base
+        blank.initialURL = nil
+        blank.restoreState = nil
+        blank.navigationGuard = .noLoopback
+        return blank
+    }
+
+    /// The tab with durable id `key` on any machine.
+    func tabModel(_ key: String) -> TabModel? {
+        browserTabs.tabModel(key) ?? findTab?(key)
+    }
+
+    /// Re-creates Chromium page `key` in the other remote-localhost store
+    /// with `url` (its navigation left the store; `BrowserTabIntent.rerouteStore`).
+    /// The daemon record keeps the tab; the new page writes its URL back.
+    func reroute(_ key: String, to url: URL) {
+        guard let tab = tabModel(key), let entry = browsers[key], entry.tab.engineKind == .cef,
+              pendingBrowsers.insert(key).inserted else { return }
+        browserTabs.untrack(key)
+        browsers.removeValue(forKey: key)?.close()
+        Task {
+            defer { pendingBrowsers.remove(key) }
+            guard let page = try? await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url)) else { return }
+            install(page, for: key)
+            browserTabs.track(page, tabID: key)
+            onBrowserReady?(key)
+        }
     }
 
     /// A page that loads nothing until the user reloads it; then the real
@@ -242,6 +292,7 @@ final class TabContentCache {
         (page as? CEFTab)?.devToolsObserver = self
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
+        entry.chrome.machineBadge = { [weak self] url in self?.machineBadge?(key, url) }
         onBrowserEntryCreated?(entry)
         if page.engineKind == .cef, let handler = makeExtensionMenuHandler?(key) {
             entry.extensionMenuHandler = handler

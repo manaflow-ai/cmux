@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
@@ -102,7 +103,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
             item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
             if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
             item.isDormant = services.cache.dormantTabs.contains(tab.id)
-            if tab.kind != .browser { item.machineBadge = machine }
+            if tab.kind != .browser {
+                item.machineBadge = machine
+            } else {
+                // A browser tab names the machine whose localhost it sees.
+                let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
+                let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
+                item.machineBadge = badge?.text
+                item.machineBadgeHelp = badge?.help
+            }
             return item
         }
         for local in state?.localBrowserTabs[paneKey] ?? [] where !pendingClosed.contains(local.id) {

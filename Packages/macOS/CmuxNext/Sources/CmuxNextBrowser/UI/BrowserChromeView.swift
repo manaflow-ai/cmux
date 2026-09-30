@@ -87,6 +87,8 @@ public final class BrowserChromeView: NSView {
     /// that also tracks Chromium page windows); else the chrome focuses the
     /// page itself.
     public var onReturnFocusToPage: (() -> Void)?
+    /// The omnibar machine chip for a URL (remote localhost), nil for none.
+    public var machineBadge: ((URL?) -> (text: String, help: String)?)? { didSet { updateMachineBadge() } }
     var recordedURL: URL?
     var recordedTitle: String?
 
@@ -319,6 +321,7 @@ public final class BrowserChromeView: NSView {
             reloadButton.setSymbol(loading ? "xmark" : "arrow.clockwise", label: loading ? Strings.stop : Strings.reload)
         }
         addressBar.update(url: state.url, security: PageInfoSite.omnibarSecurity(for: state))
+        updateMachineBadge()
         recordHistory(state)
         progressLine.set(progress: state.progress, visible: loading)
 

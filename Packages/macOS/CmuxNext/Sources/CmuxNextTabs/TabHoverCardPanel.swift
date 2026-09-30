@@ -94,7 +94,8 @@ final class TabHoverCardPanel: NSPanel {
     func configure(_ content: TabHoverCardContent) {
         switch content {
         case .tab(let item):
-            configure(title: item.title.isEmpty ? Strings.untitled : item.title, subtitle: item.subtitle, lines: 1)
+            let subtitle = [item.machineBadgeHelp, item.subtitle].compactMap(\.self).joined(separator: " · ")
+            configure(title: item.title.isEmpty ? Strings.untitled : item.title, subtitle: subtitle.isEmpty ? nil : subtitle, lines: 1)
             setResourcesVisible(true)
             setThumbnailVisible(true)
         case .group(let group, let titles):

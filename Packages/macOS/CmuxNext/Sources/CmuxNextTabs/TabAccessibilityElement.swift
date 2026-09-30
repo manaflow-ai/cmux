@@ -47,6 +47,6 @@ extension TabCell {
         }
         accessibility.setAccessibilityLabel(parts.joined(separator: ", "))
         accessibility.setAccessibilityValue(isSelected ? 1 : 0)
-        accessibility.setAccessibilityHelp(item.subtitle)
+        accessibility.setAccessibilityHelp([item.machineBadgeHelp, item.subtitle].compactMap(\.self).joined(separator: ", "))
     }
 }
