@@ -19,6 +19,11 @@ import Testing
             return true
         }
         func uninstall(_ id: String) -> Bool { false }
+        func reload(_ id: String) -> Bool {
+            calls.append("\(id)=reload")
+            if let index = list.firstIndex(where: { $0.id == id }) { list[index].isTerminated = false }
+            return true
+        }
         func setPinned(_ id: String, _ pinned: Bool) -> Bool { false }
         func openOptions(_ id: String, from tab: (any BrowserTab)?) -> Bool { false }
         func loadUnpacked(at path: String) -> Bool { false }
@@ -43,7 +48,7 @@ import Testing
         #expect(indicator.button.toolTip?.contains("Alpha") == true)
 
         indicator.reloadCrashed()
-        #expect(backend.calls == ["a=false", "a=true"])
+        #expect(backend.calls == ["a=reload"])
         #expect(store.crashed.isEmpty)
         indicator.update(store: store, in: slot, before: puzzle)
         #expect(!slot.arrangedSubviews.contains(indicator.button))

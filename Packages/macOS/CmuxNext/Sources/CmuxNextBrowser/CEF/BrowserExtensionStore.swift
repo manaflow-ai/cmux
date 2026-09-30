@@ -49,17 +49,14 @@ public final class BrowserExtensionStore {
     /// terminated set); they stay off until reloaded.
     public var crashed: [BrowserExtensionInfo] { extensions.filter(\.isTerminated) }
 
-    /// Reloads a crashed extension. The fork has no reload call, so this is
-    /// disable then enable (Chromium moves a terminated extension to the
-    /// disabled set and loads it again on enable).
-    public func reload(_ id: String) -> Bool {
-        perform { backend in backend.setEnabled(id, false) && backend.setEnabled(id, true) }
-    }
+    /// Reloads an extension, also a crashed one: fork API v5
+    /// `cmux_ext_reload`; older forks disable then enable (Chromium moves a
+    /// terminated extension to the disabled set and loads it on enable).
+    public func reload(_ id: String) -> Bool { perform { $0.reload(id) } }
 
     public func setEnabled(_ id: String, _ enabled: Bool) -> Bool { perform { $0.setEnabled(id, enabled) } }
     public func uninstall(_ id: String) -> Bool { perform { $0.uninstall(id) } }
     public func setPinned(_ id: String, _ pinned: Bool) -> Bool { perform { $0.setPinned(id, pinned) } }
-    public func reload(_ id: String) -> Bool { perform { $0.reload(id) } }
 
     /// Opens the options page as a tab of `tab`'s pane (Chromium adds the tab
     /// to that tab's window; the host adopts it).
