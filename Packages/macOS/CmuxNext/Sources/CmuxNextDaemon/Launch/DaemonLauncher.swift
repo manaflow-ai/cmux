@@ -155,6 +155,9 @@ public struct DaemonLauncher: Sendable {
         var environment = await environmentProvider()
         if let stateDirectory = configuration.stateDirectory { environment["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
+        // XDG_RUNTIME_DIR would win over TMPDIR in cmux-tui's socket lookup.
+        environment["XDG_RUNTIME_DIR"] = nil
+        environment["TMPDIR"] = configuration.runtimeBase.path
         return environment
     }
 
