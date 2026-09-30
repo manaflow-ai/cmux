@@ -511,3 +511,25 @@ Rules:
 3. Session name for release builds: `main` (shared with the standalone
    `cmux-tui` CLI, so the TUI and the app see the same terminals) or a
    dedicated `cmux-app` session.
+
+## 8. Sessions, rooms and breaking changes (decision 2026-09-30)
+
+The app federates many cmux-tui sessions (plans/cmux-next/data-model.md 1):
+terminals belong to their machine's session, a workspace's layout to its home
+session, and personal state (rooms, browser profiles, workspace groups,
+sidebar order, saved groups, the session registry) only to the local home
+session. Session identity is `registry_id`. Breaking changes, each behind a
+capability, with the app in read-only fallback against older daemons:
+
+| Change | Capability | Effect on the TUI | Effect on shipped iOS |
+| --- | --- | --- | --- |
+| Workspace groups become personal (home only); the app stops reading and writing groups on remote daemons | `profiles-v1` | keeps showing each daemon's shared groups; they no longer follow the Mac's regrouping | same as the TUI (the compat adapter reads shared groups) |
+| Sidebar order becomes personal; the app stops calling `move-workspace` on remote daemons for sidebar drags | `profiles-v1` | sees the registry order, which the Mac no longer changes | same |
+| CLI and control-socket IDs of non-home sessions are qualified (`build-box:workspace:3`); home IDs unchanged | app only | none | none |
+| Remote-terminal tabs in home layouts (mixed-machine workspaces) | `remote-terminal-tabs-v1` | shows an unknown tab kind as a labeled placeholder | shows the tab as unsupported until iOS reads the kind |
+| Window records store qualified workspace keys; bare keys decode as home | app only | none | none |
+
+Migration is idempotent: the home daemon copies its own groups and order into
+personal rows once at open (`personal_migrated_v1`), and the app copies each
+remote daemon's groups and order once on first connect
+(`import-session-organization`, a no-op after the first run).
