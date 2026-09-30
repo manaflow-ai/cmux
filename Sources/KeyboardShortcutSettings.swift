@@ -231,7 +231,7 @@ enum KeyboardShortcutSettings {
         case diffViewerOpenFileSearch
         case simulatorHome, simulatorRotateLeft, simulatorRotateRight
         case simulatorToggleAppearance, simulatorToggleSoftwareKeyboard
-        case diffViewerNextFile, diffViewerPreviousFile
+        case diffViewerNextFile, diffViewerPreviousFile, diffViewerNextHunk, diffViewerPreviousHunk
 
         var id: String { rawValue }
         /// Localized action title displayed by shortcut settings and command surfaces.
@@ -408,8 +408,8 @@ enum KeyboardShortcutSettings {
             case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
                  .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
                 return simulatorLabel
-            case .diffViewerNextFile: return String(localized: "shortcut.diffViewerNextFile.label", defaultValue: "Diff Viewer: Next File")
-            case .diffViewerPreviousFile: return String(localized: "shortcut.diffViewerPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
+            case .diffViewerNextFile, .diffViewerPreviousFile, .diffViewerNextHunk, .diffViewerPreviousHunk:
+                return diffViewerNavigationLabel
             }
         }
 
@@ -745,16 +745,8 @@ enum KeyboardShortcutSettings {
                 )
             case .diffViewerOpenFileSearch:
                 return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
-            case .diffViewerNextFile:
-                return StoredShortcut(
-                    first: ShortcutStroke(key: "]", command: false, shift: false, option: false, control: false),
-                    second: ShortcutStroke(key: "f", command: false, shift: false, option: false, control: false)
-                )
-            case .diffViewerPreviousFile:
-                return StoredShortcut(
-                    first: ShortcutStroke(key: "[", command: false, shift: false, option: false, control: false),
-                    second: ShortcutStroke(key: "f", command: false, shift: false, option: false, control: false)
-                )
+            case .diffViewerNextFile, .diffViewerPreviousFile, .diffViewerNextHunk, .diffViewerPreviousHunk:
+                return diffViewerNavigationDefaultShortcut
             case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
                  .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
                 return simulatorDefaultShortcut

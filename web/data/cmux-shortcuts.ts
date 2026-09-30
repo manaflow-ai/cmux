@@ -636,6 +636,20 @@ export const shortcutCategories: ShortcutCategory[] = [
         note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
         configValue: '["[", "f"]]',
       },
+      {
+        id: "diffViewerNextHunk",
+        combos: [["N"]],
+        description: { en: "Jump to next hunk", ja: "次のハンクへ移動" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        configValue: '"n"',
+      },
+      {
+        id: "diffViewerPreviousHunk",
+        combos: [["P"]],
+        description: { en: "Jump to previous hunk", ja: "前のハンクへ移動" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        configValue: '"p"',
+      },
     ],
   },
   {
