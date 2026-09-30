@@ -245,8 +245,6 @@ extension TerminalController {
             return try await agentRestoreAdmissionReleaseResponse(request)
         }
         if request.method.hasPrefix("agent.message.") {
-            // Local surfaces only for now; relay-backed requests are denied
-            // by RemoteRelayCommandPolicy before they reach this worker.
             if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil,
                let dispatchError = try await v2MainAsync({
                    self.controlRemoteRelayDispatchError(method: request.method, params: request.params)
