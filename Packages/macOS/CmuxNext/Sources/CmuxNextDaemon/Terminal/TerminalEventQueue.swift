@@ -14,6 +14,10 @@ final class TerminalEventQueue: @unchecked Sendable {
     let highWater: Int
     let lowWater: Int
     let mergeLimit: Int
+    /// Called on the reader thread, with the lock held, each time a `push`
+    /// starts to block above `highWater`. Tests use it to observe
+    /// backpressure without timing; it must not block or touch the queue.
+    private let onReaderBlocked: (@Sendable () -> Void)?
 
     // All mutable state is guarded by `condition`.
     private let condition = NSCondition()
@@ -24,10 +28,12 @@ final class TerminalEventQueue: @unchecked Sendable {
     private var finished = false
     private var armed = false
 
-    init(highWater: Int = 8 << 20, lowWater: Int = 2 << 20, mergeLimit: Int = 1 << 20) {
+    init(highWater: Int = 8 << 20, lowWater: Int = 2 << 20, mergeLimit: Int = 1 << 20,
+         onReaderBlocked: (@Sendable () -> Void)? = nil) {
         self.highWater = highWater
         self.lowWater = lowWater
         self.mergeLimit = mergeLimit
+        self.onReaderBlocked = onReaderBlocked
     }
 
     /// Enables blocking once the consumer can start draining.
@@ -52,6 +58,7 @@ final class TerminalEventQueue: @unchecked Sendable {
         }
         items.append(event)
         outputBytes += Self.outputSize(event)
+        if armed, !finished, outputBytes > highWater { onReaderBlocked?() }
         while armed, !finished, outputBytes > highWater {
             // concurrency-allow: runs only on the attach connection's dedicated reader thread (LineTransport), never the main thread; this is the designed backpressure that makes the daemon drop a slow view.
             condition.wait()

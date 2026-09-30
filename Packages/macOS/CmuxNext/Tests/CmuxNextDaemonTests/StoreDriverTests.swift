@@ -189,19 +189,31 @@ final class ManualFrameScheduler: FrameScheduler {
     }
 
     @Test func readerBlocksAboveHighWaterUntilConsumerDrains() async throws {
-        let queue = TerminalEventQueue(highWater: 10, lowWater: 4, mergeLimit: 1 << 20)
-        queue.arm()
+        enum ReaderSignal: Sendable { case blocked(produced: Int), done(produced: Int) }
+        let (signals, signal) = AsyncStream.makeStream(of: ReaderSignal.self)
         let produced = Mutex(0)
+        // The queue reports each push that starts to block, on the reader
+        // thread, before it waits: no sleep decides when to look.
+        let queue = TerminalEventQueue(highWater: 10, lowWater: 4, mergeLimit: 1 << 20, onReaderBlocked: {
+            signal.yield(.blocked(produced: produced.withLock { $0 }))
+        })
+        queue.arm()
         let thread = Thread {
             for _ in 0..<6 {
                 queue.push(.output(Data(repeating: 0x41, count: 5), colors: nil))
                 produced.withLock { $0 += 1 }
             }
+            signal.yield(.done(produced: produced.withLock { $0 }))
+            signal.finish()
         }
         thread.start()
-        try await Task.sleep(for: .milliseconds(200))
+        var events = signals.makeAsyncIterator()
         // 3 chunks (15 bytes) exceed the 10-byte high water: the third push blocks.
-        #expect(produced.withLock { $0 } == 2)
+        guard case .blocked(let producedWhenBlocked)? = await events.next() else {
+            Issue.record("the reader finished without blocking")
+            return
+        }
+        #expect(producedWhenBlocked == 2)
         #expect(queue.bufferedOutputBytes == 15)
         guard case .output(let first, _)? = await queue.next() else {
             Issue.record("expected output")
@@ -214,7 +226,11 @@ final class ManualFrameScheduler: FrameScheduler {
             drained += data.count
         }
         #expect(drained == 30)
-        #expect(produced.withLock { $0 } == 6)
+        var producedAtEnd: Int?
+        while let event = await events.next() {
+            if case .done(let count) = event { producedAtEnd = count }
+        }
+        #expect(producedAtEnd == 6)
     }
 
     @Test func replayNeverBlocksBeforeArm() {
