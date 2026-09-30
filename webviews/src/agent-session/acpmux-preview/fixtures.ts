@@ -21,16 +21,18 @@ function recordingRows(raw: string, title: string, harness: string): { snapshot:
     if (!line.trim()) continue;
     let event: Record<string, unknown>;
     try { event = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
-    const msg = (event.msg ?? {}) as Record<string, unknown>;
-    const nestedUpdate = ((msg.params as Record<string, unknown> | undefined)?.update ?? event.update ?? msg) as Record<string, unknown>;
-    const eventKind = String(nestedUpdate.sessionUpdate ?? event.kind ?? "");
+    const envelope = (event.params ?? event) as Record<string, unknown>;
+    const msg = (envelope.msg ?? event.msg ?? {}) as Record<string, unknown>;
+    const nestedUpdate = ((envelope.update ?? (msg.params as Record<string, unknown> | undefined)?.update ?? event.update ?? msg)) as Record<string, unknown>;
+    const eventKind = String(nestedUpdate.sessionUpdate ?? envelope.kind ?? event.kind ?? "");
+    const at = Number(envelope.at ?? event.at ?? Date.now());
     const content = (nestedUpdate.content ?? msg.content ?? {}) as Record<string, unknown>;
     const text = String(nestedUpdate.text ?? msg.text ?? content.text ?? "");
     if (eventKind === "user_message" || eventKind === "session/prompt") {
       assistant = undefined;
-      append({ id: `user-${sequence++}`, version: 1, at: Number(event.at ?? Date.now()), kind: "user", text: String(msg.text ?? msg.prompt ?? "") });
+      append({ id: `user-${sequence++}`, version: 1, at, kind: "user", text: String(msg.text ?? msg.prompt ?? envelope.text ?? envelope.prompt ?? "") });
     } else if (eventKind === "agent_message_chunk") {
-      if (!assistant) { assistant = { id: `assistant-${sequence++}`, version: 1, at: Number(event.at ?? Date.now()), kind: "assistant", text: "", streaming: true }; append(assistant); }
+      if (!assistant) { assistant = { id: `assistant-${sequence++}`, version: 1, at, kind: "assistant", text: "", streaming: true }; append(assistant); }
       assistant.text = `${assistant.text ?? ""}${text}`;
       assistant.version += 1;
       const rowIndex = rows.findIndex((row) => row.id === assistant?.id);
@@ -38,9 +40,9 @@ function recordingRows(raw: string, title: string, harness: string): { snapshot:
       else rows.push(structuredClone(assistant));
       replay.push(structuredClone(assistant));
     } else if (eventKind === "agent_thought_chunk" || eventKind === "think") {
-      append({ id: `thought-${sequence++}`, version: 1, at: Number(event.at ?? Date.now()), kind: "plan", text: text || "Thinking…" });
+      append({ id: `thought-${sequence++}`, version: 1, at, kind: "plan", text: text || "Thinking…" });
     } else if (eventKind === "tool_call" || eventKind === "tool_call_update" || eventKind === "execute" || eventKind === "read") {
-      append({ id: `activity-${sequence++}`, version: 1, at: Number(event.at ?? Date.now()), kind: "activity", toolCount: 1, items: [{ kind: "tool", text: String(msg.title ?? msg.name ?? eventKind), tool: { id: `tool-${sequence}`, title: String(msg.title ?? eventKind), kind: eventKind, status: "completed", inputSummary: String(msg.input ?? msg.path ?? "") } }] });
+      append({ id: `activity-${sequence++}`, version: 1, at, kind: "activity", toolCount: 1, items: [{ kind: "tool", text: String(msg.title ?? msg.name ?? envelope.title ?? envelope.name ?? eventKind), tool: { id: `tool-${sequence}`, title: String(msg.title ?? envelope.title ?? eventKind), kind: eventKind, status: "completed", inputSummary: String(msg.input ?? msg.path ?? envelope.input ?? envelope.path ?? "") } }] });
     } else if (eventKind === "turn_end" || eventKind === "status") {
       if (eventKind === "turn_end") {
         if (assistant) {
@@ -51,7 +53,7 @@ function recordingRows(raw: string, title: string, harness: string): { snapshot:
           replay.push(structuredClone(assistant));
         }
         assistant = undefined;
-        append({ id: `summary-${sequence++}`, version: 1, at: Number(event.at ?? Date.now()), kind: "turnSummary", durationMs: 4200, toolCount: rows.filter((row) => row.kind === "activity").length });
+        append({ id: `summary-${sequence++}`, version: 1, at, kind: "turnSummary", durationMs: 4200, toolCount: rows.filter((row) => row.kind === "activity").length });
       }
     }
   }

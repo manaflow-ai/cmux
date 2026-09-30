@@ -99,8 +99,9 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
     try { entry.prepared = prepare(row.text, MEASURE_FONT, { whiteSpace: "pre-wrap" }); } catch { entry.prepared = null; }
   }
   cache.set(row.id, entry);
-  const contentWidth = Math.max(80, width - (row.kind === "user" ? 120 : 0));
-  const blocks = row.text.split(/\n{2,}/).filter(Boolean);
+  const contentWidth = Math.max(80, row.kind === "user" ? width * 0.78 - 24 : width);
+  let blocks: string[];
+  try { blocks = lexer(row.text, { gfm: true, breaks: true }).map((token) => token.raw).filter(Boolean); } catch { blocks = row.text.split(/\n{2,}/).filter(Boolean); }
   if (blocks.length === 0) return fallbackRowHeight(row, width);
   let contentHeight = 0;
   for (const block of blocks) {
@@ -146,3 +147,4 @@ export function visibleLayoutRange(layoutModel: ConversationLayout, scrollTop: n
   return { first, last };
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
+import { lexer } from "marked";
