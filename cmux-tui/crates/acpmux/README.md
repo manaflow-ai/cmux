@@ -808,7 +808,9 @@ work. `eventStream: true` on attach delivers every live record (filtered by `kin
 Turns: `queued`, `dequeued`, `user_message`, `turn_started`, `turn_end` and `turn_result`
 carry `turnId` (and `promptId`); `turn_result.turnSeq` is the seq of `turn_started`. A failed
 turn's `turn_result` has `errorText` and `errorCode`, and `errorChunkSeqs` when the harness had
-streamed that same text as an ordinary message. When Codex abandons a partial answer after a
+streamed that same text as an ordinary message. A terminal error that Codex reports in-band
+(`_meta.codex.error` without `willRetry`) fails the turn even when Codex then ends it normally.
+Session summaries carry `lastTurn`; `acpmux wait` exits 1 when a resolved session's last turn failed. When Codex abandons a partial answer after a
 dropped stream and redelivers it, acpmux records `message_superseded {oldMessageId,
 newMessageId}` before the redelivery. Other harnesses send no such signal.
 

@@ -126,6 +126,10 @@ pub struct SessionMeta {
     /// A turn ended while no client was attached.
     #[serde(default)]
     pub unread: bool,
+    /// Outcome of the last turn: {turnId, promptId, status, stopReason?,
+    /// errorText?, errorSource?, endedAt}.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_turn: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -447,6 +451,7 @@ mod tests {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            last_turn: None,
         }
     }
 

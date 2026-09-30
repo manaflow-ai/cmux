@@ -1484,6 +1484,10 @@ async fn codex_retry_records_message_superseded_before_the_redelivery() {
         .find(|e| e.msg.pointer("/params/update/messageId") == Some(&json!("m2")))
         .unwrap();
     assert!(sup[0].seq < redelivered.seq);
+    // A willRetry error that the harness recovers from leaves the turn completed.
+    let result = find(&events, "turn_result")[0];
+    assert_eq!(result.msg["status"], "completed");
+    assert!(result.msg.get("errorText").is_none());
 
     // A message that a tool call already finished is not abandoned by a retry.
     c.request(method::SESSION_PROMPT, prompt(&id, "codex-retry-after-tool", None)).await.unwrap();
@@ -1531,14 +1535,22 @@ async fn turn_result_carries_error_text_and_streamed_error_chunks() {
     assert_eq!(r.msg["errorCode"], -32603);
     assert!(r.msg.get("errorChunkSeqs").is_none());
 
-    // Codex reports a terminal error in-band and still ends the turn.
-    c.request(method::SESSION_PROMPT, prompt(&id, "codex-fail", None)).await.unwrap();
+    // Codex reports a terminal error in-band and still ends the turn: the
+    // turn failed, and the prompt is answered with that error.
+    let err = c.request(method::SESSION_PROMPT, prompt(&id, "codex-fail", None)).await.unwrap_err();
+    assert_eq!(err, "Selected model is at capacity.");
     let r = last_result(&hub);
-    assert_eq!(r.msg["status"], "completed");
+    assert_eq!(r.msg["status"], "failed");
     assert_eq!(r.msg["errorText"], "Selected model is at capacity.");
+    assert_eq!(r.msg["errorCode"], json!({"serverOverloaded": {}}));
     assert_eq!(r.msg["errorSource"], "codex");
+    let summary = hub.session_summary(&hub.resolve("errs").unwrap());
+    assert_eq!(summary["lastTurn"]["status"], "failed");
+    assert_eq!(summary["lastTurn"]["turnId"], r.msg["turnId"]);
 
     // A clean turn has no error fields.
     c.request(method::SESSION_PROMPT, prompt(&id, "fine", None)).await.unwrap();
     assert!(last_result(&hub).msg.get("errorText").is_none());
+    let summary = hub.session_summary(&hub.resolve("errs").unwrap());
+    assert_eq!(summary["lastTurn"]["status"], "completed");
 }

@@ -175,6 +175,7 @@ impl Hub {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            last_turn: None,
         };
         let session = self.make_session(meta);
         self.store.save(&session.meta()).map_err(|e| RpcError::internal(e.to_string()))?;

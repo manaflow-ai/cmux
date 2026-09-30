@@ -214,6 +214,24 @@ impl Hub {
                 }
             }
         }
+        // A harness that reported a terminal error in-band (Codex
+        // `_meta.codex.error` without willRetry) and then ended the turn
+        // normally still failed it: answer the prompt with that error.
+        let harness_error = session.stream.lock().unwrap().harness_error.clone();
+        let harness_failure = match (&result, &harness_error) {
+            (Ok(v), Some(h)) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled") => {
+                let text = h.get("text").and_then(Value::as_str).unwrap_or("");
+                let text =
+                    if text.is_empty() { "the harness reported an error" } else { text }.to_owned();
+                let data = json!({"errorSource": h.get("source"), "errorCode": h.get("code"), "stopReason": v.get("stopReason")});
+                Some(RpcError::new(-32000, text).with_data(data))
+            }
+            _ => None,
+        };
+        let harness_failed = harness_failure.is_some();
+        if let Some(e) = harness_failure {
+            result = Err(e);
+        }
         let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
         match &result {
             Ok(v) => {
@@ -230,6 +248,7 @@ impl Hub {
                 if let Some(o) = msg.as_object_mut() {
                     o.extend(self.turn_error_fields(session, None));
                 }
+                self.record_last_turn(session, &msg);
                 self.append(session, "mux", "turn_result", msg);
             }
             Err(e) => {
@@ -241,8 +260,10 @@ impl Hub {
                 );
                 let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
                 if let Some(o) = msg.as_object_mut() {
-                    o.extend(self.turn_error_fields(session, Some((&e.message, json!(e.code)))));
+                    let agent_error = (!harness_failed).then(|| (e.message.as_str(), json!(e.code)));
+                    o.extend(self.turn_error_fields(session, agent_error));
                 }
+                self.record_last_turn(session, &msg);
                 self.append(session, "mux", "turn_result", msg);
             }
         }
@@ -264,6 +285,19 @@ impl Hub {
             merge_mux_meta(v, ids);
         }
         result
+    }
+
+    /// Keep the outcome of the last turn on the session (`lastTurn` in the
+    /// summary), so `wait` can report a failed turn after it resolves.
+    fn record_last_turn(&self, session: &Session, turn_result: &Value) {
+        let mut last = serde_json::Map::new();
+        for k in ["turnId", "promptId", "status", "stopReason", "errorText", "errorSource"] {
+            if let Some(v) = turn_result.get(k) {
+                last.insert(k.to_owned(), v.clone());
+            }
+        }
+        last.insert("endedAt".into(), json!(now_ms()));
+        session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
     }
 
     /// The profile to fall over to, when the current one names one that exists.
@@ -563,6 +597,7 @@ impl Hub {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            last_turn: None,
         };
         let new = self.make_session(meta);
         if is_claude {

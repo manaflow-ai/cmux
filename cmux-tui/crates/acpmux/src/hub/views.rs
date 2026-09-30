@@ -36,6 +36,7 @@ impl Hub {
             "tags": live_tags(&m),
             "stateSeq": session.state_seq.load(Ordering::SeqCst),
             "unread": m.unread,
+            "lastTurn": m.last_turn,
             "attached": session.attached.load(Ordering::SeqCst),
         })
     }
