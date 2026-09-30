@@ -224,20 +224,32 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Whether OSC 52 may publish into the local clipboard.
     /// Manual mirrors and remote exec PTYs need a one-shot agent-copy permit.
     public var allowsAutomaticClipboardWrite: Bool {
-        !ioMode.usesManualIO && !isRemoteTerminal || clipboardWritePermit
+        !ioMode.usesManualIO && !isRemoteTerminal
     }
-    private var clipboardWritePermit = false
+    private let clipboardWritePermitLock = NSLock()
+    private var clipboardWritePermitDeadline: UInt64?
 
     /// Allows one agent-initiated OSC 52 write after a user copy gesture.
-    @MainActor public func permitClipboardWriteForAgentCopy() {
-        clipboardWritePermit = true
+    public func permitClipboardWriteForAgentCopy() {
+        clipboardWritePermitLock.lock()
+        defer { clipboardWritePermitLock.unlock() }
+        clipboardWritePermitDeadline = DispatchTime.now().uptimeNanoseconds + 15_000_000_000
     }
 
     /// Consumes the one-shot agent copy permit.
-    @MainActor public func consumeClipboardWritePermit() -> Bool {
-        guard clipboardWritePermit else { return false }
-        clipboardWritePermit = false
-        return true
+    public func consumeClipboardWritePermit() -> Bool {
+        clipboardWritePermitLock.lock()
+        defer { clipboardWritePermitLock.unlock() }
+        guard let deadline = clipboardWritePermitDeadline else { return false }
+        clipboardWritePermitDeadline = nil
+        return DispatchTime.now().uptimeNanoseconds <= deadline
+    }
+
+    /// Cancels an agent-copy permit when its key could not be delivered.
+    public func cancelClipboardWritePermit() {
+        clipboardWritePermitLock.lock()
+        clipboardWritePermitDeadline = nil
+        clipboardWritePermitLock.unlock()
     }
     /// Ordered input from the manual transport (literal bytes or named keys).
     let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?

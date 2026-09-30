@@ -6560,7 +6560,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     } ?? [:]
                     let key = configuredKeys[agent] ?? fallbackKey
                     terminalSurface.permitClipboardWriteForAgentCopy()
-                    _ = terminalSurface.sendNamedKey(key)
+                    if !terminalSurface.sendNamedKey(key).accepted {
+                        terminalSurface.cancelClipboardWritePermit()
+                    }
                 }
             }
         }
