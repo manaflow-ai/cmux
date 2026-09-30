@@ -47,9 +47,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// The only installed daemon graph for this machine. The catalog receives the
     /// same immutable value with its derived rows in one transaction.
     private(set) var cloudState: CloudVMState?
-    /// Completeness for the accepted graph and its resource rows. Rebuilt only
-    /// when placement relationships change, then reused by every cleanup pass.
-    private var cloudGraphCompleteness: CloudVMGraphCompleteness?
     /// Local ordering fence for concurrent snapshot commands and the event
     /// reader. Remote generations are opaque, so a response from an older
     /// request must not replace a generation installed later in the same turn.
@@ -753,9 +750,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             info: info,
             observation: acceptedObservation
         )
-        cloudGraphCompleteness = CloudVMGraphCompleteness(
-            state: state, resources: catalog.authoritativeSnapshot.resources(on: machine)
-        )
         if reconcileTitles {
             catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: acceptedObservation)
         }
@@ -793,11 +787,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             info: info,
             observation: acceptedObservation
         )
-        if impact.requiresFullResourceRebuild || cloudGraphCompleteness == nil {
-            cloudGraphCompleteness = CloudVMGraphCompleteness(
-                state: state, resources: catalog.authoritativeSnapshot.resources(on: machine)
-            )
-        }
         if reconcileTitles {
             catalog.cloudWorkspaceRenameService.reconcileRemoteState(
                 machine: machine,
@@ -846,11 +835,19 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard !manualMirrorSessions.isEmpty else { return }
         let resources = catalog.authoritativeSnapshot.resources(on: machine)
         let live = Set(resources.filter { $0.kind == .terminal }.map(\.id.key))
+        let boundTerminalIDs = Set(manualMirrorSessions.values.map(\.terminalID))
+        let hasMissingTerminalCandidate = !boundTerminalIDs.isSubset(of: live)
+        // A complete-graph scan is only needed when cleanup has a terminal it
+        // might close. Row-local publications can retire pending overlays, so a
+        // cached completeness result would be stale precisely in this case.
+        let graphComplete = !hasMissingTerminalCandidate || cloudState.map {
+            CloudVMGraphCompleteness(state: $0, resources: resources).isComplete()
+        } ?? false
         let closing = CloudTerminalPaneClosure.panelsToClose(
             boundTerminals: manualMirrorSessions.mapValues(\.terminalID),
             liveTerminalKeys: live,
             freshness: observation.freshness,
-            graphComplete: cloudGraphCompleteness?.isComplete() ?? false
+            graphComplete: graphComplete
         )
         for panelID in closing {
             guard let terminalID = manualMirrorSessions[panelID]?.terminalID else { continue }
