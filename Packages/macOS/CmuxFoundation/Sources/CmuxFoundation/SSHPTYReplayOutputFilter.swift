@@ -95,6 +95,9 @@ public struct SSHPTYReplayOutputFilter: Sendable {
         return output
     }
 
+    /// Treats every later byte as live output after the replay phase ended early.
+    public mutating func endReplay() {}
+
     /// Flushes an unterminated candidate when the bridge closes.
     ///
     /// Unterminated bytes cannot produce a terminal response, so they are

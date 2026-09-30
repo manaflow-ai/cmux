@@ -173,6 +173,16 @@ public struct SSHPTYAttachOutputProgress: Sendable {
         return Data(data.dropFirst(suppressBytes))
     }
 
+    /// Declared replay bytes that actually arrived from the bridge.
+    public var deliveredReplayBytes: Int { 0 }
+
+    /// Ends the replay phase before the declared byte count arrived.
+    ///
+    /// - Returns: Buffered replay output that must still reach the terminal.
+    public mutating func endReplay() -> Data {
+        Data()
+    }
+
     /// Finishes a buffered candidate when the bridge closes before replay ends.
     ///
     /// - Parameter discarding: When another managed attempt is guaranteed, drop
