@@ -2339,12 +2339,17 @@ final class cmuxUITests: XCTestCase {
             "MobileWorkspaceConnectionStatusLine"
         ]
         XCTAssertTrue(statusLine.waitForExistence(timeout: 3))
+        let toggleStatus = app.buttons[
+            "MobileWorkspaceListPreviewTogglePickerStatus"
+        ]
+        XCTAssertTrue(toggleStatus.waitForExistence(timeout: 3))
 
         let before = XCTAttachment(screenshot: app.screenshot())
         before.name = "computer-picker-status-before-transition"
         before.lifetime = .keepAlways
         add(before)
 
+        toggleStatus.tap()
         XCTAssertTrue(
             statusLine.waitForNonExistence(timeout: 3),
             "The preview must exercise the status-to-title transition."
@@ -2354,6 +2359,7 @@ final class cmuxUITests: XCTestCase {
         after.lifetime = .keepAlways
         add(after)
 
+        toggleStatus.tap()
         XCTAssertTrue(
             statusLine.waitForExistence(timeout: 3),
             "The preview must exercise the title-to-status transition."

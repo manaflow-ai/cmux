@@ -875,6 +875,20 @@ public struct WorkspaceListLayoutPreviewView: View {
                     .offset(x: 2)
                     .accessibilityElement()
                     .accessibilityIdentifier("MobileWorkspaceListRefreshGeneration-\(refreshGeneration)")
+                if ProcessInfo.processInfo.environment[
+                    "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_PICKER_STATUS_TRANSITIONS"
+                ] == "1" {
+                    Button {
+                        pickerStatusTransitionPhase.toggle()
+                    } label: {
+                        Rectangle()
+                            .fill(Color.primary.opacity(0.01))
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .offset(x: 2, y: 44)
+                    .accessibilityIdentifier("MobileWorkspaceListPreviewTogglePickerStatus")
+                }
                 Color.clear
                     .frame(width: 1, height: 1)
                     .accessibilityElement()
@@ -906,16 +920,6 @@ public struct WorkspaceListLayoutPreviewView: View {
             }
 
             await model.runLiveUpdates()
-        }
-        .task {
-            guard ProcessInfo.processInfo.environment[
-                "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_PICKER_STATUS_TRANSITIONS"
-            ] == "1" else { return }
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(300))
-                guard !Task.isCancelled else { return }
-                pickerStatusTransitionPhase.toggle()
-            }
         }
     }
 
