@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { diffRows, visibleLayoutRange, visibleRowRange, type AcpmuxRow, type ConversationLayout } from "./model";
+import { diffRows, layoutConversation, visibleLayoutRange, visibleRowRange, type AcpmuxRow, type ConversationLayout } from "./model";
 
 const row = (id: string, version: number): AcpmuxRow => ({ id, version, at: 0, kind: "assistant", text: id });
 
@@ -21,5 +21,10 @@ describe("acpmux row snapshots", () => {
     const layout: ConversationLayout = { tops: new Float64Array([0, 30, 90, 150]), heights: new Float64Array([30, 60, 60, 40]), totalHeight: 190 };
     expect(visibleLayoutRange(layout, 91, 40, 0)).toEqual({ first: 2, last: 3 });
     expect(visibleLayoutRange(layout, 0, 20, 1)).toEqual({ first: 0, last: 2 });
+  });
+
+  test("keeps collapsed activity geometry to its toggle", () => {
+    const layout = layoutConversation([{ id: "activity", version: 1, at: 0, kind: "activity", items: Array.from({ length: 100 }, () => ({ kind: "tool", text: "tool" })) }], 700);
+    expect(layout.heights[0]).toBe(34);
   });
 });

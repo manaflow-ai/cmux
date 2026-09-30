@@ -204,7 +204,7 @@ export function AcpmuxApp() {
     const connectHost = async () => {
       try {
         const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string; newSessionHarness?: string; workingDirectory?: string }>("ready");
-        if (cancelled || host.transport !== "acpmux-websocket" || !host.endpoint || !host.token) return;
+        if (cancelled || host.protocolVersion !== 1 || host.transport !== "acpmux-websocket" || !host.endpoint || !host.token) return;
         let persistedSessionId = host.sessionId;
         const persistSession = (sessionId?: string) => {
           if (!sessionId || sessionId === persistedSessionId) return Promise.resolve();

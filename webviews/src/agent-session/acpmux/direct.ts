@@ -60,7 +60,12 @@ function textFromContent(content: any): string {
   if (typeof content === "string") return content;
   if (content?.type === "text") return String(content.text ?? "");
   if (Array.isArray(content)) return content.map(textFromContent).join("");
+  if (content && typeof content === "object") return textFromContent(content.content ?? content.text ?? content.output ?? content.rawOutput);
   return "";
+}
+
+export function toolOutput(update: any): string {
+  return textFromContent(update.content) || textFromContent(update.rawOutput) || textFromContent(update.output);
 }
 
 export function diffCounts(value: any): { additions?: number; deletions?: number } {
@@ -441,7 +446,7 @@ export class AcpmuxDirectClient {
       const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id);
       this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "activity", toolCount: existing?.toolCount ?? 0, items: [...(existing?.items ?? []), { kind: "thought", text }] }); this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
-      const callId = String(update.toolCallId ?? `tool-${event.seq}`); const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const previousTool = itemIndex >= 0 ? items[itemIndex].tool : undefined; const counts = diffCounts(update); const item = { kind: "tool", text: String(update.title ?? update.name ?? previousTool?.title ?? callId), tool: { id: callId, title: String(update.title ?? previousTool?.title ?? callId), kind: update.kind ?? previousTool?.kind, status: String(update.status ?? previousTool?.status ?? "in_progress"), inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : previousTool?.inputSummary, output: text || previousTool?.output, additions: counts.additions ?? previousTool?.additions, deletions: counts.deletions ?? previousTool?.deletions } };
+      const callId = String(update.toolCallId ?? `tool-${event.seq}`); const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const previousTool = itemIndex >= 0 ? items[itemIndex].tool : undefined; const counts = diffCounts(update); const item = { kind: "tool", text: String(update.title ?? update.name ?? previousTool?.title ?? callId), tool: { id: callId, title: String(update.title ?? previousTool?.title ?? callId), kind: update.kind ?? previousTool?.kind, status: String(update.status ?? previousTool?.status ?? "in_progress"), inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : previousTool?.inputSummary, output: toolOutput(update) || previousTool?.output, additions: counts.additions ?? previousTool?.additions, deletions: counts.deletions ?? previousTool?.deletions } };
       if (itemIndex >= 0) items[itemIndex] = item; else { items.push(item); this.turnToolCount += 1; }
       this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "activity", toolCount: items.filter((entry) => entry.kind === "tool").length, items }); this.streamingActivity = id;
     } else if (event.kind === "plan") this.rows.set(`plan-${event.seq}`, { id: `plan-${event.seq}`, version: 1, at: event.at, kind: "plan", text: text || JSON.stringify(update.entries ?? update.content ?? "") });

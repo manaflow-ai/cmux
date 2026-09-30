@@ -85,7 +85,8 @@ export function visibleRowRange(rowCount: number, scrollTop: number, viewportHei
 
 function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
-  if (row.kind === "activity") return Math.max(46, 24 + (row.items?.length ?? 0) * 20);
+  // Collapsed activity rows paint only the single toggle button. Expanded rows are measured by the transcript activity path.
+  if (row.kind === "activity") return 34;
   if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "typing") return 32;
   return 24 + textLines * MESSAGE_LINE_HEIGHT;
 }

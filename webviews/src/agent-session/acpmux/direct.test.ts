@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applySupersededMessage, diffCounts, mergeEventRecords, normalizeCatalog, permissionFromMessage, settleOptimisticPrompt } from "./direct";
+import { applySupersededMessage, diffCounts, mergeEventRecords, normalizeCatalog, permissionFromMessage, settleOptimisticPrompt, toolOutput } from "./direct";
 import type { AcpmuxRow } from "./model";
 
 describe("direct acpmux event helpers", () => {
@@ -55,5 +55,9 @@ describe("direct acpmux event helpers", () => {
 
   test("counts replacement lines in edited-file diffs", () => {
     expect(diffCounts({ content: [{ type: "diff", oldText: "old line", newText: "new line" }] })).toEqual({ additions: 1, deletions: 1 });
+  });
+
+  test("preserves nested raw tool output", () => {
+    expect(toolOutput({ rawOutput: { content: [{ type: "text", text: "command result" }] } })).toBe("command result");
   });
 });
