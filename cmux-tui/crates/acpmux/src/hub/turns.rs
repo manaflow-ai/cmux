@@ -131,6 +131,7 @@ impl Hub {
             prompt_id: prompt_id.clone(),
             turn_seq: 0,
         });
+        self.reset_stream(session);
         self.append(
             session,
             "mux",
@@ -225,7 +226,10 @@ impl Hub {
                 );
                 let status =
                     if stop.as_str() == Some("cancelled") { "cancelled" } else { "completed" };
-                let msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+                let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+                if let Some(o) = msg.as_object_mut() {
+                    o.extend(self.turn_error_fields(session, None));
+                }
                 self.append(session, "mux", "turn_result", msg);
             }
             Err(e) => {
@@ -235,10 +239,14 @@ impl Hub {
                     "turn_error",
                     json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq}),
                 );
-                let msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+                let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+                if let Some(o) = msg.as_object_mut() {
+                    o.extend(self.turn_error_fields(session, Some((&e.message, json!(e.code)))));
+                }
                 self.append(session, "mux", "turn_result", msg);
             }
         }
+        self.reset_stream(session);
         // Nobody watching: the sidebar dot and `wait --until done` see it.
         if session.attached.load(Ordering::SeqCst) == 0 {
             session.meta.lock().unwrap().unread = true;

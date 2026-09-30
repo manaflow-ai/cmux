@@ -356,7 +356,18 @@ impl Hub {
                 (Direction::Out, Message::Notification { method, .. }) => ("out", method.clone()),
                 (Direction::Out, Message::Response { .. }) => ("out", "response".to_owned()),
             };
-            tap_hub.append(&tap_session, d, &kind, msg.to_value());
+            // Live agent updates (not a session/load replay) also feed the
+            // stream watcher, which may record `message_superseded` first.
+            let live_update = d == "in"
+                && !kind.ends_with(".replay")
+                && msg.method() == Some(crate::rpc::method::SESSION_UPDATE);
+            if live_update {
+                tap_hub.before_agent_update(&tap_session, msg.params());
+            }
+            let rec = tap_hub.append(&tap_session, d, &kind, msg.to_value());
+            if live_update {
+                tap_hub.after_agent_update(&tap_session, &rec);
+            }
         });
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let existing_sid = session.meta().agent_session_id.clone();

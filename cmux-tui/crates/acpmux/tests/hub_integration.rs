@@ -1465,3 +1465,80 @@ async fn live_updates_keep_agent_meta_and_event_stream_nests_them() {
         evs.iter().all(|e| e["dir"] != "out" && e["kind"] != "response" && e["kind"] != "turn_end")
     );
 }
+
+#[tokio::test]
+async fn codex_retry_records_message_superseded_before_the_redelivery() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "retry").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "codex-retry", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let sup = find(&events, "message_superseded");
+    assert_eq!(sup.len(), 1, "{:?}", events.iter().map(|e| &e.kind).collect::<Vec<_>>());
+    assert_eq!(sup[0].msg["oldMessageId"], "m1");
+    assert_eq!(sup[0].msg["newMessageId"], "m2");
+    assert_eq!(sup[0].msg["reason"], "harness_retry");
+    let turn = find(&events, "turn_started")[0];
+    assert_eq!(sup[0].msg["turnId"], turn.msg["turnId"]);
+    let redelivered = events
+        .iter()
+        .find(|e| e.msg.pointer("/params/update/messageId") == Some(&json!("m2")))
+        .unwrap();
+    assert!(sup[0].seq < redelivered.seq);
+
+    // A message that a tool call already finished is not abandoned by a retry.
+    c.request(method::SESSION_PROMPT, prompt(&id, "codex-retry-after-tool", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    assert_eq!(find(&events, "message_superseded").len(), 1);
+}
+
+#[tokio::test]
+async fn turn_result_carries_error_text_and_streamed_error_chunks() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "errs").await;
+    let last_result = |hub: &Arc<Hub>| {
+        let events = hub.events(&id, 0, 10_000).unwrap();
+        events.into_iter().rev().find(|e| e.kind == "turn_result").unwrap()
+    };
+
+    // Error text streamed as the answer: the chunk seqs are named.
+    assert!(
+        c.request(method::SESSION_PROMPT, prompt(&id, "fail-streamed: API Error: boom", None))
+            .await
+            .is_err()
+    );
+    let r = last_result(&hub);
+    assert_eq!(r.msg["status"], "failed");
+    assert_eq!(r.msg["errorText"], "API Error: boom");
+    assert_eq!(r.msg["errorCode"], -32000);
+    assert_eq!(r.msg["errorSource"], "agent");
+    let chunk = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .rev()
+        .find(|e| e.kind == "agent_message_chunk")
+        .unwrap();
+    assert_eq!(r.msg["errorChunkSeqs"], json!([chunk.seq]));
+
+    // Partial output then a different error: text and code, no chunk marks.
+    assert!(
+        c.request(method::SESSION_PROMPT, prompt(&id, "fail-after-update: x", None)).await.is_err()
+    );
+    let r = last_result(&hub);
+    assert!(
+        r.msg["errorText"].as_str().unwrap().starts_with("simulated internal error after output")
+    );
+    assert_eq!(r.msg["errorCode"], -32603);
+    assert!(r.msg.get("errorChunkSeqs").is_none());
+
+    // Codex reports a terminal error in-band and still ends the turn.
+    c.request(method::SESSION_PROMPT, prompt(&id, "codex-fail", None)).await.unwrap();
+    let r = last_result(&hub);
+    assert_eq!(r.msg["status"], "completed");
+    assert_eq!(r.msg["errorText"], "Selected model is at capacity.");
+    assert_eq!(r.msg["errorSource"], "codex");
+
+    // A clean turn has no error fields.
+    c.request(method::SESSION_PROMPT, prompt(&id, "fine", None)).await.unwrap();
+    assert!(last_result(&hub).msg.get("errorText").is_none());
+}

@@ -7,6 +7,7 @@
 
 mod lifecycle;
 mod paging;
+mod stream;
 pub use lifecycle::{NewRequest, profile_takes_model_at_spawn};
 pub use paging::{EventFilter, EventPage};
 mod peers;
@@ -95,6 +96,25 @@ pub struct PromptOptions {
     pub on_accepted: Option<Box<dyn FnOnce(Value) + Send>>,
 }
 
+/// What the agent's stream says about the current assistant message, used
+/// to record `message_superseded` and to attach streamed error text to
+/// `turn_result`.
+#[derive(Debug, Default)]
+pub(super) struct StreamState {
+    /// `messageId` of the assistant message streaming now.
+    pub(super) open_message: Option<String>,
+    /// Set by a harness retry signal while `open_message` was streaming:
+    /// (abandoned messageId, the retry notice text).
+    pub(super) retry_from: Option<(String, String)>,
+    /// A terminal error the harness reported in-band during this turn.
+    pub(super) harness_error: Option<Value>,
+    /// Text and sequences of the trailing `agent_message_chunk` records of
+    /// the current message; compared with the error text when a turn fails.
+    pub(super) trailing_text: String,
+    pub(super) trailing_seqs: Vec<u64>,
+    pub(super) trailing_overflow: bool,
+}
+
 pub struct Session {
     pub id: String,
     pub(super) meta: StdMutex<SessionMeta>,
@@ -105,6 +125,7 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
+    pub(super) stream: StdMutex<StreamState>,
     pub(super) pending_permissions: StdMutex<HashMap<String, PendingPermission>>,
     pub(super) rehydrate: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
@@ -273,6 +294,7 @@ impl Hub {
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
+            stream: StdMutex::new(StreamState::default()),
             pending_permissions: StdMutex::new(HashMap::new()),
             rehydrate: AtomicBool::new(false),
             inbound_tx,
@@ -542,7 +564,8 @@ impl Hub {
                 }
             }
             if let Some((seq, turn_id)) = open {
-                self.append(&session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": "the daemon restarted before this turn settled"}));
+                let error = "the daemon restarted before this turn settled";
+                self.append(&session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
                 self.save_meta(&session);
             }
         }

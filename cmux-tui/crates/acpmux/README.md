@@ -806,7 +806,11 @@ work. `eventStream: true` on attach delivers every live record (filtered by `kin
 `_acpmux/event`, with agent notifications nested in `msg`, instead of `session/update`.
 
 Turns: `queued`, `dequeued`, `user_message`, `turn_started`, `turn_end` and `turn_result`
-carry `turnId` (and `promptId`); `turn_result.turnSeq` is the seq of `turn_started`.
+carry `turnId` (and `promptId`); `turn_result.turnSeq` is the seq of `turn_started`. A failed
+turn's `turn_result` has `errorText` and `errorCode`, and `errorChunkSeqs` when the harness had
+streamed that same text as an ordinary message. When Codex abandons a partial answer after a
+dropped stream and redelivers it, acpmux records `message_superseded {oldMessageId,
+newMessageId}` before the redelivery. Other harnesses send no such signal.
 
 `acpmux daemon schema` prints the full RPC schema.
 
