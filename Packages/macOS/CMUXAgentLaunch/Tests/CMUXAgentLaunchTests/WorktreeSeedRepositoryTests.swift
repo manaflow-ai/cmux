@@ -100,6 +100,17 @@ struct WorktreeSeedRepositoryTests {
         #expect(entry.escapesRepository)
     }
 
+    @Test func aChainedSymlinkOutOfTheRepositoryIsAnEscape() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        let outside = try WorktreeSeedTemporaryTree("outside")
+        let target = try outside.file("secret")
+        try tree.symlink("redirect", to: target)
+        try tree.symlink("selected", to: URL(fileURLWithPath: "redirect"))
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "selected" })
+        #expect(entry.escapesRepository)
+    }
+
     @Test func aDanglingSymlinkInsideTheRepositoryIsNotAnEscape() throws {
         let tree = try WorktreeSeedTemporaryTree()
         let target = tree.root.appendingPathComponent("future/secret")
