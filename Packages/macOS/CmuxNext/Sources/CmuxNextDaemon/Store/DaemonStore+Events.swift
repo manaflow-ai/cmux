@@ -24,6 +24,12 @@ extension DaemonStore {
     /// Events superseded by the last snapshot are skipped.
     @discardableResult
     public func apply(batch: [DaemonEventEnvelope]) -> Followup {
+        // An observer that applies events while this batch applies is an
+        // update cycle (idle-wakeups.md): counted, logged in debug builds.
+        updateCycles.run { applyBatch(batch) }
+    }
+
+    private func applyBatch(_ batch: [DaemonEventEnvelope]) -> Followup {
         applyDepth += 1
         defer {
             applyDepth -= 1

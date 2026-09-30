@@ -54,6 +54,7 @@ public final class DaemonStore {
     @ObservationIgnored var notifiedWorkspaceList: [String]?
     /// Nesting of batch applies; the hook runs when the outermost ends.
     @ObservationIgnored var applyDepth = 0
+    @ObservationIgnored let updateCycles = UpdateCycleDetector(owner: "DaemonStore.apply")
     @ObservationIgnored public var transactionLimit = 64
     @ObservationIgnored public var notificationLimit = 200
 
