@@ -108,7 +108,7 @@ extension CEFRuntime {
         guard var placement = placements.take(window: window) else {
             return CEFPlacement(disposition: fallback, bounds: created.features)
         }
-        if placement.bounds == nil { placement.bounds = created.features }
+        placement.bounds = CEFPlacement.resolvedBounds(request: placement.bounds, created: created.features)
         return placement
     }
 

@@ -5,6 +5,12 @@ import CoreGraphics
 nonisolated struct CEFPlacement: Equatable, Sendable {
     var disposition: BrowserNewTabDisposition
     var bounds: CGRect?
+
+    /// The popup features to use: the window request's bounds, else the
+    /// features Chromium reported at creation.
+    static func resolvedBounds(request: CGRect?, created: CGRect?) -> CGRect? {
+        request ?? created
+    }
 }
 
 /// Placements by Chromium window id, oldest first.
