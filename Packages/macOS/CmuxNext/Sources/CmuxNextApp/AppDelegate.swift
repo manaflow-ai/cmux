@@ -42,7 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.menu")
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         if !environment.noActivate { NSApp.activate() }
-        services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment)
+        services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider())
         cloudContext = services.startCloud()
         services.updater.start()
         // Before the first window opens (restoreWhenLoaded opens one at once).
@@ -108,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installCompat(on router: ControlRouter) {
         let frontend = services.compat!
         frontend.afterIntent = { [control] in control.publishSnapshotNow() }
-        let compat = CompatService(frontend: frontend, terminalEnvironment: environment.terminalEnvironment) {
+        let compat = CompatService(frontend: frontend, terminalEnvironment: environment.terminalEnvironmentProvider()) {
             frontend.currentConnection()
         }
         compat.install(on: router)

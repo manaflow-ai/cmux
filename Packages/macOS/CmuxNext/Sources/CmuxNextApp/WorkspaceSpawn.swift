@@ -72,7 +72,7 @@ extension WindowManager {
         let defaults = daemon.isLocal ? room?.defaults : nil
         // Local terminals get the app's environment; a Cloud terminal only
         // the caller's keys. Both get the placement keys hooks read.
-        var vars = daemon.isLocal ? await TerminalEnvironment.shared(overrides: services.environment.terminalEnvironment)() : [:]
+        var vars = daemon.isLocal ? await services.environment.terminalEnvironmentProvider()() : [:]
         vars.merge(defaults?.env ?? [:]) { _, profile in profile }
         vars.merge(spawn.env) { _, caller in caller }
         vars.merge(DaemonConnection.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }

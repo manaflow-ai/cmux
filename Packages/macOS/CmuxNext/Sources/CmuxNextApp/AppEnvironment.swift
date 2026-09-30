@@ -25,6 +25,10 @@ struct AppEnvironment: Sendable {
     /// daemon's launch overrides, so terminals it creates without a
     /// per-terminal `env` match. Resolved once per launch.
     let terminalEnvironment: [String: String]
+    /// Ghostty resources directory and bundled CLI helper for shell
+    /// integration (`GhosttyShellIntegration`). Resolved once per launch.
+    var ghosttyResources: String?
+    var ghosttyBinary: String?
 
     var tag: String? { launch.tag }
 
@@ -35,7 +39,37 @@ struct AppEnvironment: Sendable {
             launch: launch,
             noActivate: noActivate,
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
-            terminalEnvironment: terminalEnvironment(launch: launch, environment: environment)
+            terminalEnvironment: terminalEnvironment(launch: launch, environment: environment),
+            ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
+            ghosttyBinary: GhosttyRuntime.cliHelperPath()
+        )
+    }
+
+    /// The per-terminal `env` provider every local spawn path uses (daemon
+    /// connection, new workspaces, the compat CLI): the filtered login
+    /// environment, ``terminalEnvironment``, then Ghostty's shell integration
+    /// from the config applied at spawn time, so `reload-config` affects
+    /// the next terminal.
+    func terminalEnvironmentProvider() -> @Sendable () async -> [String: String] {
+        let resources = ghosttyResources
+        let binary = ghosttyBinary
+        return TerminalEnvironment.shared(overrides: terminalEnvironment, integration: {
+            await MainActor.run {
+                Self.shellIntegration(GhosttyRuntime.shared.shellIntegrationSettings, resources: resources, binary: binary)
+            }
+        })
+    }
+
+    /// Maps the config's raw settings; Ghostty's defaults when no config loaded.
+    nonisolated static func shellIntegration(_ settings: GhosttyShellIntegrationSettings?, resources: String?,
+                                             binary: String?) -> GhosttyShellIntegration {
+        guard let settings else { return GhosttyShellIntegration(resourcesDirectory: resources, ghosttyBinary: binary) }
+        return GhosttyShellIntegration(
+            mode: GhosttyShellIntegration.Mode(rawValue: settings.mode) ?? .detect,
+            features: GhosttyShellIntegration.Features(rawValue: settings.features),
+            cursorBlink: settings.cursorBlink,
+            resourcesDirectory: resources,
+            ghosttyBinary: binary
         )
     }
 

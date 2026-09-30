@@ -68,7 +68,8 @@ final class DaemonService {
 
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
     /// the daemon process and to every terminal it creates for this app.
-    func start(launch: LaunchIdentity, terminalEnvironment: [String: String]) {
+    func start(launch: LaunchIdentity, terminalEnvironment: [String: String],
+               terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String]) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
         do {
@@ -79,7 +80,7 @@ final class DaemonService {
         }
         let configuration = DaemonConnection.Configuration(
             retryWake: retryWake,
-            terminalEnvironment: TerminalEnvironment.shared(overrides: terminalEnvironment))
+            terminalEnvironment: terminalEnvironmentProvider)
         start { DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider) }
     }
 

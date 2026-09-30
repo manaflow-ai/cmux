@@ -26,7 +26,7 @@ enum CompatSpawn {
     /// `CMUX_TAG`), the caller's `initial_env`, and the placement keys hooks
     /// read (`CMUX_WORKSPACE_ID`, `CMUX_SURFACE_ID`).
     static func environment(_ call: CompatCall, workspaceUUID: String?, surfaceUUID: String?) async -> [String: String] {
-        var env = await TerminalEnvironment.shared(overrides: call.service.terminalEnvironment)()
+        var env = await call.service.terminalEnvironment()
         for key in ["initial_env", "startup_environment"] {
             for (name, value) in call.params[key]?.objectValue ?? [:] {
                 if let text = value.stringValue { env[name] = text }
