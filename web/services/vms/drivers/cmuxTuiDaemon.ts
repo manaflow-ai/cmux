@@ -273,7 +273,7 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
     cmuxTuiLayoutSelector(),
     `CMUX_TUI_TMP="$CMUX_TUI_BIN.tmp"`,
     `mkdir -p "$(dirname "$CMUX_TUI_BIN")"`,
-    `if [ -x ${bin} ] && ${pinnedFile(source.sha256, bin)}; then :; else ${fetchTo(tmp, source.url)} && ${pinnedFile(source.sha256, tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
+    `if [ -x ${bin} ] && ${pinnedFile(source.sha256, bin)}; then :; else ${cmuxTuiFetchCommand(tmp, source.url)} && ${pinnedFile(source.sha256, tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
     `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
     ...hookHelperInstallSteps(source),
     // Only the nodes this install created, never the daemon's state tree.
@@ -292,7 +292,8 @@ function pinnedFile(sha256: string, path: string): string {
   return `printf '%s  %s\n' ${shellQuote(sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
 }
 
-function fetchTo(path: string, url: string): string {
+/** Downloads `url` to `path`. */
+export function cmuxTuiFetchCommand(path: string, url: string): string {
   return (
     `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 -o ${path} ${shellQuote(url)}; ` +
     `elif command -v wget >/dev/null 2>&1; then wget -q -O ${path} ${shellQuote(url)}; ` +
@@ -309,7 +310,7 @@ function hookHelperInstallSteps(source: CmuxTuiSource): string[] {
   return [
     `CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook"`,
     `CMUX_TUI_HOOK_TMP="$CMUX_TUI_HOOK_BIN.tmp"`,
-    `if [ -x ${HOOK_BIN} ] && ${pinnedFile(source.hookSha256, HOOK_BIN)}; then :; else ${fetchTo(HOOK_TMP, source.hookUrl)} && ${pinnedFile(source.hookSha256, HOOK_TMP)} && chmod 755 ${HOOK_TMP} && mv -f ${HOOK_TMP} ${HOOK_BIN}; fi`,
+    `if [ -x ${HOOK_BIN} ] && ${pinnedFile(source.hookSha256, HOOK_BIN)}; then :; else ${cmuxTuiFetchCommand(HOOK_TMP, source.hookUrl)} && ${pinnedFile(source.hookSha256, HOOK_TMP)} && chmod 755 ${HOOK_TMP} && mv -f ${HOOK_TMP} ${HOOK_BIN}; fi`,
   ];
 }
 
