@@ -12,6 +12,7 @@ const proc = {
     },
     flush() {},
   },
+  kill() {},
 } as any;
 const events: AgentEvent[] = [];
 const sess: SessionCtx = {
@@ -71,6 +72,49 @@ if (prompts.length !== 2 || prompts[0].message !== "first prompt" || prompts[1].
 }
 if (prompts[0].type !== "prompt" || prompts[1].type !== "steer") {
   throw new Error(`the second prompt should target the active turn: ${JSON.stringify(prompts)}`);
+}
+
+// Disposal while setup is pending must not poison the next send with the old
+// initialization promise. The retry must start setup on the replacement proc.
+const retryWrites: string[] = [];
+const firstProc = { ...proc, stdin: { ...proc.stdin, write(data: string) { retryWrites.push(`old:${data}`); return data.length; } } } as any;
+const retryProc = { ...proc, stdin: { ...proc.stdin, write(data: string) { retryWrites.push(`new:${data}`); return data.length; } } } as any;
+const retrySess = { ...sess, id: "pi-startup-retry", events: [], internal: {
+  pi: {
+    proc: firstProc,
+    nextId: 1,
+    pending: new Map(),
+    model: "provider/model",
+    modelChoices: [{ value: "provider/model", label: "Model", efforts: [], defaultEffort: "" }],
+    thinking: "",
+    commands: [{ name: "help" }],
+    initialApplied: false,
+    activeTurn: false,
+  },
+} } as unknown as SessionCtx;
+const initialSend = piAdapter.send(retrySess, "stale prompt").catch(() => {});
+await Promise.resolve();
+await Promise.resolve();
+piAdapter.dispose(retrySess);
+(retrySess.internal.pi as any).proc = retryProc;
+const retrySend = piAdapter.send(retrySess, "recovered prompt");
+await Promise.resolve();
+await Promise.resolve();
+const replacementSetup = retryWrites
+  .filter((line) => line.startsWith("new:"))
+  .map((line) => JSON.parse(line.slice(4)));
+if (replacementSetup.length !== 1 || replacementSetup[0].type !== "get_state") {
+  throw new Error(`retry must restart setup on the replacement process: ${JSON.stringify(retryWrites)}`);
+}
+piHandleLineForTest(retrySess, JSON.stringify({
+  type: "response",
+  id: replacementSetup[0].id,
+  success: true,
+  data: { sessionFile: "/tmp/retry-session.jsonl" },
+}));
+await Promise.all([initialSend, retrySend]);
+if (!retryWrites.some((line) => line.includes('"message":"recovered prompt"'))) {
+  throw new Error(`retry prompt was not delivered after replacement setup: ${JSON.stringify(retryWrites)}`);
 }
 
 console.log("pi startup serialization assertions passed");
