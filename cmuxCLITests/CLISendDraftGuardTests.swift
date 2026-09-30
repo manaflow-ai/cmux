@@ -116,6 +116,21 @@ struct CLISendDraftGuardTests {
         }
     }
 
+    @Test func sendKeyCanDismissASlashPopup() throws {
+        let popup: [String: Any] = [
+            "state": "dialog", "agent": true, "terminal": true,
+            "agent_kind": "claude", "slash_command_popup": true,
+            "blocks_typing": true,
+        ]
+        let run = try runCLI(
+            arguments: ["send-key", "--surface", Self.targetSurfaceRef, "enter"],
+            inputState: popup
+        )
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        #expect(writes(run) == ["surface.send_key"])
+    }
+
     @Test func staleWaitingStateDoesNotBlock() throws {
         for arguments in [
             ["send", "--surface", Self.targetSurfaceRef, "continue"],
@@ -214,6 +229,33 @@ struct CLISendDraftGuardTests {
         #expect(run.requests.contains { $0["method"] as? String == "surface.send_key" } == false)
     }
 
+    @Test func sendSubmitForceAppendsToExistingDraftBeforeSubmitting() throws {
+        let before: [String: Any] = [
+            "state": "draft", "agent": true, "terminal": true,
+            "agent_kind": "claude", "draft_text": "old", "draft_length": 3,
+            "blocks_typing": true,
+        ]
+        let afterPaste: [String: Any] = [
+            "state": "draft", "agent": true, "terminal": true,
+            "agent_kind": "claude", "draft_text": "oldhello", "draft_length": 8,
+            "blocks_typing": true,
+        ]
+        let run = try runCLI(
+            arguments: ["send", "--force", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [before, afterPaste, Self.empty],
+            screenTexts: [
+                "Claude Code\n❯\u{00A0}old",
+                "Claude Code\n❯\u{00A0}oldhello",
+                "Claude Code\n❯\u{00A0}",
+            ]
+        )
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout.contains("submitted"), Comment(rawValue: run.result.stdout))
+        let key = try #require(run.requests.first { $0["method"] as? String == "surface.send_key" })
+        #expect((key["params"] as? [String: Any])?["key"] as? String == "return")
+    }
+
     @Test func sendSubmitQueuesBusyCodexWithTab() throws {
         let busyCodex: [String: Any] = [
             "state": "empty", "agent": true, "terminal": true,
@@ -268,6 +310,17 @@ struct CLISendDraftGuardTests {
         #expect((key["params"] as? [String: Any])?["key"] as? String == "return")
     }
 
+    @Test func sendKeyNormalizesALoneCarriageReturn() throws {
+        let run = try runCLI(
+            arguments: ["send-key", "--surface", Self.targetSurfaceRef, "\r"],
+            inputState: Self.empty
+        )
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        let key = try #require(run.requests.first { $0["method"] as? String == "surface.send_key" })
+        #expect((key["params"] as? [String: Any])?["key"] as? String == "return")
+    }
+
     @Test func sendSubmitRetriesSlashPopupWithAnExtraSubmit() throws {
         let run = try runCLI(
             arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "/goal resume"],
@@ -286,6 +339,25 @@ struct CLISendDraftGuardTests {
             return params["key"] as? String
         }
         #expect(keys == ["return", "return"])
+    }
+
+    @Test func sendSubmitDoesNotTrustAnExistingQueuedMessage() throws {
+        let queued: [String: Any] = [
+            "state": "queued", "queued": true, "agent": true, "terminal": true,
+            "agent_kind": "codex", "busy": true, "blocks_typing": false,
+        ]
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [queued, queued, queued, queued],
+            screenTexts: [
+                "OpenAI Codex\n›\u{00A0}Ask Codex to do anything\nQueued messages: 1",
+                "OpenAI Codex\n›\u{00A0}Ask Codex to do anything\nQueued messages: 1",
+            ]
+        )
+
+        #expect(run.result.status != 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout.contains("unconfirmed"), Comment(rawValue: run.result.stdout))
+        #expect(run.requests.contains { $0["method"] as? String == "surface.send_key" } == false)
     }
 
     @Test func sendSubmitFailsAfterBoundedRetriesWhenComposerNeverClears() throws {
@@ -347,6 +419,24 @@ struct CLISendDraftGuardTests {
         #expect(run.result.status != 0, Comment(rawValue: run.result.stderr))
         #expect(run.result.stderr.contains("human input"), Comment(rawValue: run.result.stderr))
         #expect(run.requests.filter { $0["method"] as? String == "surface.send_key" }.count == 1)
+    }
+
+    @Test func sendSubmitKeyFailureReportsUnconfirmedAfterPaste() throws {
+        let pasted: [String: Any] = [
+            "state": "draft", "agent": true, "terminal": true,
+            "agent_kind": "claude", "draft_text": "hello", "draft_length": 5,
+            "blocks_typing": true,
+        ]
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--json", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [Self.empty, pasted],
+            sendKeyFailure: true
+        )
+
+        #expect(run.result.status != 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout.contains("unconfirmed"), Comment(rawValue: run.result.stdout))
+        #expect(run.result.stderr.contains("text was pasted"), Comment(rawValue: run.result.stderr))
+        #expect(!run.result.stderr.contains("nothing was sent"), Comment(rawValue: run.result.stderr))
     }
 
     @Test func sendSubmitAfterKeyDialogReportsUnconfirmedWithoutNothingWasSent() throws {
@@ -481,7 +571,8 @@ struct CLISendDraftGuardTests {
         inputState: [String: Any]? = nil,
         inputStates: [[String: Any]]? = nil,
         screenText: String? = nil,
-        screenTexts: [String]? = nil
+        screenTexts: [String]? = nil,
+        sendKeyFailure: Bool = false
     ) throws -> Run {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-send-guard-\(UUID().uuidString)", isDirectory: true)
@@ -497,7 +588,8 @@ struct CLISendDraftGuardTests {
             recorder: recorder,
             inputStates: inputStates ?? inputState.map { [$0] },
             screenText: screenText,
-            screenTexts: screenTexts
+            screenTexts: screenTexts,
+            sendKeyFailure: sendKeyFailure
         )
         defer {
             server.stop.set()
@@ -565,7 +657,8 @@ struct CLISendDraftGuardTests {
         recorder: RequestRecorder,
         inputStates: [[String: Any]]?,
         screenText: String?,
-        screenTexts: [String]?
+        screenTexts: [String]?,
+        sendKeyFailure: Bool
     ) -> (done: DispatchSemaphore, stop: StopFlag) {
         let done = DispatchSemaphore(value: 0)
         let stop = StopFlag()
@@ -594,7 +687,8 @@ struct CLISendDraftGuardTests {
                     inputStateIndex: inputStateIndex,
                     screenIndex: screenIndex,
                     screenText: screenText,
-                    screenTexts: screenTexts
+                    screenTexts: screenTexts,
+                    sendKeyFailure: sendKeyFailure
                 )
             }
         }
@@ -620,10 +714,19 @@ struct CLISendDraftGuardTests {
         inputStateIndex: LockedCounter,
         screenIndex: LockedCounter,
         screenText: String?,
-        screenTexts: [String]?
+        screenTexts: [String]?,
+        sendKeyFailure: Bool
     ) -> String {
         let request = codexHookJSONObject(line)
         let id = (request?["id"] as? String) ?? "unknown"
+        if sendKeyFailure, request?["method"] as? String == "surface.send_key" {
+            return codexHookV2Response(
+                id: id,
+                ok: false,
+                result: nil,
+                error: ["code": "surface_unavailable", "message": "key rejected"]
+            )
+        }
         if request?["method"] as? String == "surface.read_text" {
             let text: String?
             if let screenTexts {
@@ -665,7 +768,8 @@ struct CLISendDraftGuardTests {
         inputStateIndex: LockedCounter,
         screenIndex: LockedCounter,
         screenText: String?,
-        screenTexts: [String]?
+        screenTexts: [String]?,
+        sendKeyFailure: Bool
     ) {
         defer { Darwin.close(clientFD) }
         guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else { return }
@@ -690,7 +794,8 @@ struct CLISendDraftGuardTests {
                     inputStateIndex: inputStateIndex,
                     screenIndex: screenIndex,
                     screenText: screenText,
-                    screenTexts: screenTexts
+                    screenTexts: screenTexts,
+                    sendKeyFailure: sendKeyFailure
                 )
                 guard writeAllToFixtureSocket(reply + "\n", fd: clientFD) else { return }
             }

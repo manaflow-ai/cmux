@@ -415,6 +415,7 @@ struct RemoteCLIRelayPolicyTests {
                 #"{"workspace_id":"\#(workspace.uuidString)","surface_id":"\#(surface.uuidString)","text":"x","submit_key":"none","command":"id"}"#,
                 #"{"workspace_id":"\#(workspace.uuidString)","surface_id":"\#(surface.uuidString)","text":"x","submit_key":"ctrl+enter"}"#,
                 #"{"workspace_id":"\#(workspace.uuidString)","surface_id":"\#(surface.uuidString)","text":"x"}"#,
+                #"{"workspace_id":"\#(UUID().uuidString)","surface_id":"\#(UUID().uuidString)","text":"x","submit_key":"none"}"#,
             ] {
                 let request = #"{"id":"paste-deny","method":"terminal.paste","params":#(params)}"#
                 let exchange = try runPolicyRelayExchange(port: port, relayID: relayID,
