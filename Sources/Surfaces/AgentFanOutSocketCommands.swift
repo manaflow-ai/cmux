@@ -36,7 +36,7 @@ extension TerminalController {
         if let number = value as? NSNumber {
             let type = String(cString: number.objCType)
             guard ["c", "i", "s", "l", "q", "C", "I", "S", "L", "Q"].contains(type) else { return nil }
-            return Int(exactly: number)
+            return number.intValue
         }
         return (value as? String).flatMap(Int.init)
     }
