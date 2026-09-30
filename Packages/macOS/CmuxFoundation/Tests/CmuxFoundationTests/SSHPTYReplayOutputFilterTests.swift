@@ -6,17 +6,17 @@ import Testing
 struct SSHPTYReplayOutputFilterTests {
     @Test("reported terminal queries are removed without changing visible replay text")
     func stripsTerminalQueriesFromReplay() {
-        let replay = Data(
-            (
-                "before\n" +
-                "\u{1B}[>q" +
-                "\u{1B}[c" +
-                "\u{1B}[?2026$p" +
-                "\u{1B}]11;?\u{07}" +
-                "\u{1B}P+q544e" + "\u{1B}\\" +
-                "after\n"
-            ).utf8
-        )
+        let replayText = [
+            "before\n",
+            "\u{1B}[>q",
+            "\u{1B}[c",
+            "\u{1B}[?2026$p",
+            "\u{1B}]11;?\u{07}",
+            "\u{1B}P+q544e",
+            "\u{1B}\\",
+            "after\n"
+        ].joined()
+        let replay = Data(replayText.utf8)
         var filter = SSHPTYReplayOutputFilter(replayBytes: replay.count)
         var output = Data()
         for byte in replay {
@@ -28,18 +28,17 @@ struct SSHPTYReplayOutputFilterTests {
 
     @Test("all supported Ghostty query families are removed from replay")
     func stripsAdditionalGhosttyQueryFamilies() {
-        let replay = Data(
-            (
-                "before" +
-                "\u{1B}Z" +
-                "\u{1B}[14t" +
-                "\u{1B}[?6n" +
-                "\u{1B}[?u" +
-                "\u{1B}P$qm\u{1B}\\" +
-                "\u{1B}_Ga=q,i=1;\u{1B}\\" +
-                "after"
-            ).utf8
-        )
+        let replayText = [
+            "before",
+            "\u{1B}Z",
+            "\u{1B}[14t",
+            "\u{1B}[?6n",
+            "\u{1B}[?u",
+            "\u{1B}P$qm\u{1B}\\",
+            "\u{1B}_Ga=q,i=1;\u{1B}\\",
+            "after"
+        ].joined()
+        let replay = Data(replayText.utf8)
         var filter = SSHPTYReplayOutputFilter(replayBytes: replay.count)
 
         #expect(filter.filter(replay) == Data("beforeafter".utf8))

@@ -14,6 +14,7 @@ export type DiffViewerAppearance = {
   fontFamily?: string;
   fontSize?: number;
   lineHeight?: number;
+  customProperties?: Record<string, string>;
   theme?: {
     dark?: string;
     light?: string;
@@ -77,6 +78,7 @@ export function resolveDiffViewerAppearance(appearance?: DiffViewerAppearance): 
       light: lightTheme,
       dark: darkTheme,
     },
+    customProperties: appearance?.customProperties ?? {},
   };
 }
 
@@ -109,6 +111,23 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   rootStyle.setProperty("--cmux-diff-code-font-family", codeFontFamily(appearance.fontFamily));
   rootStyle.setProperty("--cmux-diff-font-size", `${metric(appearance.fontSize, 10)}px`);
   rootStyle.setProperty("--cmux-diff-line-height", `${metric(appearance.lineHeight, 20)}px`);
+
+  const allowedCustomProperties = new Set([
+    "--cmux-diff-accent",
+    "--cmux-diff-error",
+    "--cmux-diff-renamed-light",
+    "--cmux-diff-renamed-dark",
+    "--cmux-diff-addition-fg-light",
+    "--cmux-diff-addition-fg-dark",
+    "--cmux-diff-deletion-fg-light",
+    "--cmux-diff-deletion-fg-dark",
+  ]);
+  for (const [name, value] of Object.entries(appearance.customProperties ?? {})) {
+    if (!allowedCustomProperties.has(name) || !isHexColor(value)) {
+      continue;
+    }
+    rootStyle.setProperty(name, value);
+  }
 }
 
 export function appearanceBackgroundColor(_color: unknown, _appearance?: DiffViewerAppearance) {
@@ -144,6 +163,10 @@ function semanticPaletteColor(theme: DiffViewerTheme, paletteKeys: string[], fal
 
 function colorString(value: unknown, fallback: string) {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : fallback;
+}
+
+function isHexColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value.trim());
 }
 
 function codeFontFamily(fontFamily: unknown) {

@@ -1,5 +1,6 @@
 import CryptoKit
 import CmuxTerminalCore
+import CmuxSettings
 import Darwin
 import Foundation
 
@@ -744,9 +745,36 @@ extension CMUXCLI {
         var fontSize: Double
         var lightTheme: DiffViewerTheme
         var darkTheme: DiffViewerTheme
+        var customProperties: [String: String] = [:]
 
         enum CodingKeys: String, CodingKey {
-            case backgroundOpacity, fontFamily, fontSize, lightTheme, darkTheme
+            case backgroundOpacity, fontFamily, fontSize, lightTheme, darkTheme, customProperties
+        }
+
+        init(
+            backgroundOpacity: Double,
+            fontFamily: String,
+            fontSize: Double,
+            lightTheme: DiffViewerTheme,
+            darkTheme: DiffViewerTheme,
+            customProperties: [String: String] = [:]
+        ) {
+            self.backgroundOpacity = backgroundOpacity
+            self.fontFamily = fontFamily
+            self.fontSize = fontSize
+            self.lightTheme = lightTheme
+            self.darkTheme = darkTheme
+            self.customProperties = customProperties
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            backgroundOpacity = try container.decode(Double.self, forKey: .backgroundOpacity)
+            fontFamily = try container.decode(String.self, forKey: .fontFamily)
+            fontSize = try container.decode(Double.self, forKey: .fontSize)
+            lightTheme = try container.decode(DiffViewerTheme.self, forKey: .lightTheme)
+            darkTheme = try container.decode(DiffViewerTheme.self, forKey: .darkTheme)
+            customProperties = try container.decodeIfPresent([String: String].self, forKey: .customProperties) ?? [:]
         }
 
         var lineHeight: Double {
@@ -771,7 +799,8 @@ extension CMUXCLI {
                 "themes": [
                     "light": lightTheme.jsonObject,
                     "dark": darkTheme.jsonObject
-                ]
+                ],
+                "customProperties": customProperties
             ]
         }
     }
@@ -3496,6 +3525,12 @@ extension CMUXCLI {
             guard let contents = readOptionalDiffViewerConfig(at: url) else { continue }
             applyDiffViewerGhosttyConfig(contents, to: &appearance)
         }
+        let customPropertyLayers = diffViewerDefaultSettingsPaths().compactMap { path in
+            let root = diffViewerSettingsRoot(at: path)
+            let section = root?["diffViewer"] as? [String: Any]
+            return section?["cssVariables"] as? [String: Any]
+        }
+        appearance.customProperties = DiffViewerCustomProperties(layers: customPropertyLayers).values
         if let fontSizeOverride {
             appearance.fontSize = fontSizeOverride
         }
