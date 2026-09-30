@@ -572,6 +572,7 @@ const subagentTools = [
   { tool_name: "team_spawn" },
   { name: "superpowers_dispatch" },
   { toolName: "Task" },
+  { toolName: "Agent" },
   { toolName: "review_subagent_batch" }
 ];
 for (let index = 0; index < subagentTools.length; index += 1) {
@@ -1031,6 +1032,7 @@ await waitForCompletionHookCount(completionCount);
             "team_spawn",
             "superpowers_dispatch",
             "Task",
+            "Agent",
             "review_subagent_batch",
         ]
         for tool_name in expected_subagent_names:
