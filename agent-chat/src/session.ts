@@ -361,8 +361,10 @@ export function useSession(): SessionState {
   // be rejected as a popup by the browser.
   const handoffWindowRef = useRef<Window | null>(null);
   const pendingHandoffSourceSessionRef = useRef<string | null>(null);
+  const pendingHandoffRequestRef = useRef<string | null>(null);
   const forkWindowRef = useRef<Window | null>(null);
   const pendingForkSourceSessionRef = useRef<string | null>(null);
+  const pendingForkRequestRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(routedSessionId);
   const pendingFileDiffKeysRef = useRef<Record<string, string[]>>({});
@@ -392,6 +394,7 @@ export function useSession(): SessionState {
     const popup = handoffWindowRef.current;
     handoffWindowRef.current = null;
     pendingHandoffSourceSessionRef.current = null;
+    pendingHandoffRequestRef.current = null;
     if (popup && !popup.closed) popup.close();
   }, []);
 
@@ -399,6 +402,7 @@ export function useSession(): SessionState {
     const popup = forkWindowRef.current;
     forkWindowRef.current = null;
     pendingForkSourceSessionRef.current = null;
+    pendingForkRequestRef.current = null;
     if (popup && !popup.closed) popup.close();
   }, []);
 
@@ -457,7 +461,6 @@ export function useSession(): SessionState {
       createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
       onSocket: (ws) => {
         wsRef.current = ws;
-        if (!ws) resetSessionActions();
       },
       onOpen: () => {
         const pending = pendingStartRef.current;
@@ -465,6 +468,12 @@ export function useSession(): SessionState {
         else if (pending && !pending.failed) {
           sendRaw({ op: "start", requestId: pending.requestId, conversationId: pending.conversationId, provider: pending.provider, cwd: pending.cwd, prompt: pending.prompt, options: pending.options });
           armPendingStartTimeout();
+        }
+        if (sessionIdRef.current && pendingForkSourceSessionRef.current === sessionIdRef.current && pendingForkRequestRef.current) {
+          sendRaw({ op: "fork", sessionId: sessionIdRef.current, requestId: pendingForkRequestRef.current });
+        }
+        if (sessionIdRef.current && pendingHandoffSourceSessionRef.current === sessionIdRef.current && pendingHandoffRequestRef.current) {
+          sendRaw({ op: "handoff", sessionId: sessionIdRef.current, requestId: pendingHandoffRequestRef.current });
         }
       },
       onMessage: (e) => {
@@ -590,11 +599,13 @@ export function useSession(): SessionState {
               pendingForkSourceSessionRef.current,
               sessionIdRef.current,
             )) break;
+            if (msg.requestId && msg.requestId !== pendingForkRequestRef.current) break;
             setForkPending(false);
             const target = appPath("/s/" + msg.session.id);
             const popup = forkWindowRef.current;
             forkWindowRef.current = null;
             pendingForkSourceSessionRef.current = null;
+            pendingForkRequestRef.current = null;
             if (popup && !popup.closed) {
               popup.location.href = target;
               popup.focus();
@@ -615,11 +626,13 @@ export function useSession(): SessionState {
               )) {
                 break;
               }
+              if (msg.requestId && msg.requestId !== pendingHandoffRequestRef.current) break;
               setHandoffPending(false);
               const target = appPath("/s/" + msg.session.id);
               const popup = handoffWindowRef.current;
               handoffWindowRef.current = null;
               pendingHandoffSourceSessionRef.current = null;
+              pendingHandoffRequestRef.current = null;
               if (popup && !popup.closed) {
                 popup.location.href = target;
                 popup.focus();
@@ -784,26 +797,30 @@ export function useSession(): SessionState {
     const sourceSessionId = sessionIdRef.current;
     if (sourceSessionId && !pendingForkSourceSessionRef.current) {
       const popup = window.open("about:blank", "_blank");
-      if (sendRaw({ op: "fork", sessionId: sourceSessionId })) {
-        forkWindowRef.current = popup;
-        pendingForkSourceSessionRef.current = sourceSessionId;
+      const requestId = newClientRequestId("fork");
+      forkWindowRef.current = popup;
+      pendingForkSourceSessionRef.current = sourceSessionId;
+      pendingForkRequestRef.current = requestId;
+      if (sendRaw({ op: "fork", sessionId: sourceSessionId, requestId })) {
         setForkPending(true);
       } else {
-        popup?.close();
+        closeForkWindow();
       }
     }
-  }, [sendRaw]);
+  }, [closeForkWindow, sendRaw]);
   const handoff = useCallback(() => {
     const sourceSessionId = sessionIdRef.current;
     if (sourceSessionId && !pendingHandoffSourceSessionRef.current) {
       closeHandoffWindow();
       const popup = window.open("about:blank", "_blank");
-      if (sendRaw({ op: "handoff", sessionId: sourceSessionId })) {
-        handoffWindowRef.current = popup;
-        pendingHandoffSourceSessionRef.current = sourceSessionId;
+      const requestId = newClientRequestId("handoff");
+      handoffWindowRef.current = popup;
+      pendingHandoffSourceSessionRef.current = sourceSessionId;
+      pendingHandoffRequestRef.current = requestId;
+      if (sendRaw({ op: "handoff", sessionId: sourceSessionId, requestId })) {
         setHandoffPending(true);
       } else {
-        popup?.close();
+        closeHandoffWindow();
       }
     }
   }, [closeHandoffWindow, sendRaw]);

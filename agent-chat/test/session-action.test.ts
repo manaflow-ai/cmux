@@ -110,6 +110,7 @@ try {
   await update(() => state.handoff());
   const handoffPopup = popups.at(-1)!;
   const handoffRequests = ws.sent.filter((message) => message.op === "handoff").length;
+  const handoffRequestId = ws.sent.at(-1)!.requestId;
   await update(() => state.handoff());
   assert.equal(ws.sent.filter((message) => message.op === "handoff").length, handoffRequests);
   await receive({ kind: "error", op: "handoff", sessionId: "old-session", message: "late handoff failure" });
@@ -117,32 +118,31 @@ try {
   assert.equal(handoffPopup.closed, false);
   const replacement = replacementSocket();
   await update(() => ws.close());
-  assert.equal(state.handoffPending, false, "disconnect must release the pending handoff for retry");
-  assert.equal(handoffPopup.closed, true);
+  assert.equal(state.handoffPending, true, "disconnect must retain the pending handoff until the server resolves it");
+  assert.equal(handoffPopup.closed, false);
   ws = await replacement;
   await update(() => ws.open());
-  assert.deepEqual(ws.sent.at(-1), { op: "subscribe", sessionId: "current-session" });
-  await update(() => state.handoff());
-  const retriedPopup = popups.at(-1)!;
-  await receive({ kind: "session-handoff", sourceSessionId: "current-session", session: child("handoff-child", "current-session") });
+  assert.deepEqual(ws.sent.slice(-2), [
+    { op: "subscribe", sessionId: "current-session" },
+    { op: "handoff", sessionId: "current-session", requestId: handoffRequestId },
+  ]);
+  await receive({ kind: "session-handoff", sourceSessionId: "current-session", requestId: handoffRequestId, session: child("handoff-child", "current-session") });
   assert.equal(state.handoffPending, false);
-  assert.equal(retriedPopup.location.href, "/s/handoff-child");
-  assert.equal(retriedPopup.focuses, 1);
+  assert.equal(handoffPopup.location.href, "/s/handoff-child");
+  assert.equal(handoffPopup.focuses, 1);
   await update(() => state.fork());
   const disconnectedForkPopup = popups.at(-1)!;
+  const disconnectedForkRequestId = ws.sent.at(-1)!.requestId;
   await update(() => ws.close());
-  assert.equal(state.forkPending, false);
-  assert.equal(disconnectedForkPopup.closed, true);
+  assert.equal(state.forkPending, true);
+  assert.equal(disconnectedForkPopup.closed, false);
   assert.equal(forkPopup.closed, false, "disconnect must preserve a completed fork tab");
-  assert.equal(retriedPopup.closed, false, "disconnect must preserve a completed handoff tab");
-  await update(() => state.fork());
-  assert.equal(popups.at(-1)!.closed, true, "a failed fork send must close its reservation");
-  await update(() => state.handoff());
-  assert.equal(popups.at(-1)!.closed, true, "a failed handoff send must close its reservation");
-  assert.equal(state.forkPending, false);
-  assert.equal(state.handoffPending, false);
   ws = await replacementSocket();
   await update(() => ws.open());
+  assert.deepEqual(ws.sent.at(-1), { op: "fork", sessionId: "current-session", requestId: disconnectedForkRequestId });
+  await receive({ kind: "session-forked", requestId: disconnectedForkRequestId, session: child("reconnected-child", "current-session") });
+  assert.equal(state.forkPending, false);
+  assert.equal(disconnectedForkPopup.location.href, "/s/reconnected-child");
   await update(() => { state.fork(); state.handoff(); });
   const pendingTabs = popups.slice(-2);
   assert.ok(pendingTabs.every((popup) => !popup.closed));
