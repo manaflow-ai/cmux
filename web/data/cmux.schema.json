@@ -846,6 +846,11 @@
           "default": false,
           "description": "When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them. Pasted text is not counted."
         },
+        "predictiveLocalEcho": {
+          "type": "boolean",
+          "default": true,
+          "description": "Draw typed characters immediately in a terminal whose shell runs on another machine (cmux ssh, Cloud, remote tmux) when the link is slow, underlined until the remote echo confirms them, and withdraw them if the remote disagrees. Local terminals, password prompts and full-screen apps are excluded."
+        },
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,
