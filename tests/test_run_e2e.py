@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the focused-run launcher against a fake GitHub CLI."""
 import importlib.util
+import io
 import json
 import re
 import os
@@ -477,9 +478,9 @@ class FocusedLauncherTests(unittest.TestCase):
     def test_e2e_follows_the_pull_request_headroom_rule(self):
         cases = [
             (queue(large_running=4), LARGE),               # a machine free on 12vcpu (5)
-            (queue(large_running=5), SMALL),               # 12vcpu full: roll over
-            (queue(large=1, large_running=0), SMALL),      # anything queued is full: roll over
-            (queue(large=5, small=4, large_running=5), SMALL),  # both full: shorter queue in rounds
+            (queue(large_running=5), SMALL),               # 12vcpu is full: roll over
+            (queue(large=1, large_running=0), SMALL),      # a queued job fills that label
+            (queue(large=5, small=4, large_running=5), SMALL),  # both labels are full; 6vcpu has the shorter queue
             (queue(large=1, small=9, large_running=5), LARGE),
         ]
         for state, expected in cases:
@@ -1469,8 +1470,8 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         state["e2e_runs"][0]["status"] = "completed"
         load = self.pool.measure_load(FakeActions(state), now=NOW, exclude_run_id=501)
         self.assertEqual(dict(load.e2e_since), {})
-        # Replayed pull request runs take 12vcpu's free machines first, as
-        # they would for real, which rolls E2E over to 6vcpu.
+        # Replayed pull request runs are charged to the label they take;
+        # enough replays fill 12vcpu and roll over to 6vcpu.
         crowded = queue(large_running=3, pr_since=2)
         self.assertEqual(self.decide(crowded)[0], SMALL)
         self.assertEqual(self.decide(queue(large_running=3, pr_since=1))[0], LARGE)
@@ -1713,6 +1714,23 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         with mock.patch.object(self.pool.pr_runner_pool.GitHub, "runners", side_effect=RuntimeError("403")), \
                 mock.patch("sys.stderr"):
             self.assertIsNone(read("manaflow-ai/cmux", {"ROUTE_TOKEN": "t"}, "1", "/Applications/Xcode_26.6.app"))
+
+    def test_main_routes_by_the_online_runners_not_the_slot_variable(self):
+        root = self.pool.pr_runner_pool.root_label(MINI)
+        runners = [{"status": "online", "busy": False, "labels": [{"name": MINI}, {"name": root}]}]
+        argv = ["--requested", MINI, "--owned", "1", "--owned-slots", '{"std": 40}',
+                "--pr-xcode-app", "/Applications/Xcode_26.6.app"]
+        env = {"ROUTE_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+
+        def run(listing):
+            with mock.patch.object(self.pool.pr_runner_pool.GitHub, "runners", **listing), \
+                    mock.patch("sys.stderr"), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                self.assertEqual(self.pool.main(argv, env), 0)
+            return out.getvalue().strip()
+        # An online root runner turns root routing on without a root count in CI_OWNED_POOL_SLOTS.
+        self.assertEqual(run({"return_value": runners}), root)
+        # No listing: the variable decides, and it has no root count.
+        self.assertEqual(run({"side_effect": RuntimeError("403")}), MINI)
 
     def test_the_workflow_mints_the_routing_token_for_auto_only(self):
         steps = self.jobs[next(name for name, job in self.jobs.items()

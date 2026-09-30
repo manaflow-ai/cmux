@@ -165,14 +165,15 @@ struct DetectedSSHSession: Equatable, Sendable {
             "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
         ]
+        // Uploads and their cleanup run beside the user's session and never
+        // become its master, so they forward nothing even when that session
+        // used `-A`. Ahead of the user's options: OpenSSH keeps the first value.
+        args += SSHBackgroundForwarding.allOff.optionArguments
 
         if useIPv4 {
             args.append("-4")
         } else if useIPv6 {
             args.append("-6")
-        }
-        if forwardAgent {
-            args.append("-A")
         }
         if compressionEnabled {
             args.append("-C")
@@ -204,7 +205,7 @@ struct DetectedSSHSession: Equatable, Sendable {
             args += ["-o", option]
         }
 
-        args += [localPath, "\(Self.scpRemoteDestination(destination)):\(remotePath)"]
+        args += ["--", localPath, "\(Self.scpRemoteDestination(destination)):\(remotePath)"]
         return args
     }
 
@@ -217,14 +218,15 @@ struct DetectedSSHSession: Equatable, Sendable {
             "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
         ]
+        // Uploads and their cleanup run beside the user's session and never
+        // become its master, so they forward nothing even when that session
+        // used `-A`. Ahead of the user's options: OpenSSH keeps the first value.
+        args += SSHBackgroundForwarding.allOff.optionArguments
 
         if useIPv4 {
             args.append("-4")
         } else if useIPv6 {
             args.append("-6")
-        }
-        if forwardAgent {
-            args.append("-A")
         }
         if compressionEnabled {
             args.append("-C")
@@ -253,7 +255,7 @@ struct DetectedSSHSession: Equatable, Sendable {
             args += ["-o", option]
         }
 
-        args += [destination, command]
+        args += ["--", destination, command]
         return args
     }
 
@@ -539,7 +541,7 @@ enum TerminalSSHSessionDetector {
         )
     }
 
-    private static func normalizeTTYName(_ ttyName: String) -> String {
+    static func normalizeTTYName(_ ttyName: String) -> String {
         let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         if let lastComponent = trimmed.split(separator: "/").last {
@@ -548,7 +550,7 @@ enum TerminalSSHSessionDetector {
         return trimmed
     }
 
-    private static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
+    static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
         normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
             RemoteShellTransport(executableName: process.executableName) != nil &&
             process.pgid > 0 &&
