@@ -213,15 +213,18 @@ final class AgentAutoResumeCoordinator {
                 result += span.text
             }
         }
-        let nonEmptyRows = plainRows.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        if nonEmptyRows.suffix(6).contains(where: { $0.trimmingCharacters(in: .whitespaces) == "Resume paused goal?" }) {
+        let nonEmptyRows = plainRows.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let pickerRows = [
+            "› 1. Resume goal   Mark it active and continue when idle",
+            "2. Leave paused  Keep it paused; use /goal resume later",
+            "enter select · esc back"
+        ]
+        if nonEmptyRows.suffix(10).contains("Resume paused goal?"),
+           Array(nonEmptyRows.suffix(3)) == pickerRows {
             return .codexResumePicker
         }
-        if nonEmptyRows.last?.trimmingCharacters(in: .whitespaces) == "Goal stalled (/goal resume)" {
-            return .codexGoalResume
-        }
         let loweredRows = nonEmptyRows.suffix(6).map { $0.lowercased() }
-        if loweredRows.contains(where: { $0.contains("esc to cancel") || $0.contains("press enter to") || $0.contains("enter to confirm") || $0.contains("enter to select") }) {
+        if loweredRows.contains(where: { $0.contains("esc to cancel") || $0.contains("press enter to") || $0.contains("enter to confirm") || $0.contains("enter to select") || $0.contains("enter select") || $0.contains("esc back") }) {
             return .dialog
         }
         let promptPrefixes = ["› ", "❯ ", "❯\u{00A0}", "> "]
@@ -230,7 +233,8 @@ final class AgentAutoResumeCoordinator {
               plainRows.indices.contains(cursor.row) else { return .unknown }
         let promptIndex = cursor.row
         let trimmedPrompt = plainRows[promptIndex].drop(while: { $0 == " " || $0 == "│" })
-        guard promptPrefixes.contains(where: trimmedPrompt.hasPrefix) else { return .unknown }
+        guard promptPrefixes.contains(where: trimmedPrompt.hasPrefix)
+            || trimmedPrompt == "›" || trimmedPrompt == "❯" else { return .unknown }
         var typed = rows[promptIndex]
             .sorted { $0.column < $1.column }
             .filter { !$0.faint }
@@ -239,11 +243,24 @@ final class AgentAutoResumeCoordinator {
                 if padding > 0 { result += String(repeating: " ", count: padding) }
                 result += span.text
             }
-        for prefix in promptPrefixes where typed.hasPrefix(prefix) {
+        typed = String(typed.drop(while: { $0 == " " || $0 == "│" }))
+        if let prefix = promptPrefixes.first(where: typed.hasPrefix) {
             typed.removeFirst(prefix.count)
-            break
+        } else if typed == "›" || typed == "❯" {
+            typed = ""
         }
-        return typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .emptyPrompt : .draft
+        guard typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .draft }
+        let stalledFooter = nonEmptyRows.last?.hasSuffix("Goal stalled (/goal resume)") == true
+        let footerIndex = stalledFooter ? plainRows.lastIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) : nil
+        for index in (promptIndex + 1)..<rows.count where index != footerIndex {
+            let typedRow = rows[index].filter { !$0.faint }.map(\.text).joined()
+                .trimmingCharacters(in: .whitespaces)
+            if !typedRow.isEmpty,
+               !typedRow.allSatisfy({ "─│╭╮╰╯".contains($0) || $0.isWhitespace }) {
+                return .draft
+            }
+        }
+        return stalledFooter ? .codexGoalResume : .emptyPrompt
     }
 
     private func clearMarker(surfaceId: String, workspaceHint: String?) {
