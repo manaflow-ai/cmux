@@ -79,12 +79,15 @@ function selectPages(origins) {
 
 // A small change the diff must find: the first heading's text, else the
 // first button's, else a new paragraph.
-const MUTATE = `(() => {
+const MUTATE_FN = `() => {
   const el = document.querySelector("h1, h2, h3, button");
   if (el) { el.textContent = el.textContent + " (changed)"; return "text"; }
   document.body.insertAdjacentHTML("afterbegin", "<p>perf change</p>");
   return "insert";
-})()`;
+}`;
+// As an expression for tools that evaluate strings; cmux passes the
+// function, which a page's Content Security Policy does not block.
+const MUTATE = `(${MUTATE_FN})()`;
 
 // The cmux program: runs in the REPL (cmux-dev in this process, or the app).
 function cmuxProgram(p) {
@@ -106,7 +109,7 @@ try {
     __out.runs.push({ snapMs, printMs, timing: s._timing || null, treeChars: s.tree.length, printedChars: printed.length });
     if (i === 0) { __out.tree = s.tree; __out.printed = printed; }
   }
-  await page.evaluate(${JSON.stringify(MUTATE)});
+  await page.evaluate(${MUTATE_FN});
   {
     const t = Date.now();
     const s = await snapshot();
@@ -127,7 +130,7 @@ try {
   const stats = await page.mainFrame()._agent("stats").catch(() => null);
   __out.agentStats = stats;
 } catch (e) {
-  __out.error = String(e && e.stack || e);
+  __out.error = String(e && (e.message + " | " + e.stack) || e);
 }
 console.log(${JSON.stringify(MARK)} + JSON.stringify(__out));`;
 }
@@ -146,7 +149,7 @@ try {
     if (i % 10 === 9) __out.sizes.push(await page.mainFrame()._agent("stats"));
   }
   __out.heap = typeof process !== "undefined" && process.memoryUsage ? process.memoryUsage().heapUsed : null;
-} catch (e) { __out.error = String(e && e.stack || e); }
+} catch (e) { __out.error = String(e && (e.message + " | " + e.stack) || e); }
 console.log(${JSON.stringify(MARK)} + JSON.stringify(__out));`;
 }
 
@@ -246,10 +249,17 @@ function cmuxAppBackend() {
   if (!cli || !process.env.CMUX_SOCKET_PATH) throw new Error("cmux backend needs PARITY_CMUX_CLI and CMUX_SOCKET_PATH");
   const call = (code, session) => runProcess(cli, ["browser", "repl", ...(session ? ["--session", session] : []), "--timeout", "600000", "--max-output", "0", "--eval", "-"], { input: code });
   return {
+    // A session per page, as the dev backend does: the first snapshot of a
+    // page must not diff against the previous page's tree.
     async page(p) {
-      const r = await call(cmuxProgram(p), `perf-${process.pid}`);
-      if (!r.out.includes(MARK)) throw new Error(`exit ${r.code} after ${r.ms}ms: ${(r.err || r.out).slice(-600)}`);
-      return parseMarked(r.out);
+      const session = `perf-${process.pid}-${p.name}`;
+      try {
+        const r = await call(cmuxProgram(p), session);
+        if (!r.out.includes(MARK)) throw new Error(`exit ${r.code} after ${r.ms}ms: ${(r.err || r.out).slice(-600)}`);
+        return parseMarked(r.out);
+      } finally {
+        await runProcess(cli, ["browser", "repl", "reset", session]);
+      }
     },
     async overhead() {
       const s = `perf-oh-${process.pid}`;
@@ -268,7 +278,6 @@ function cmuxAppBackend() {
       return parseMarked(r.out);
     },
     close: async () => {
-      await runProcess(cli, ["browser", "repl", "reset", `perf-${process.pid}`]);
       await runProcess(cli, ["browser", "repl", "reset", `perf-leak-${process.pid}`]);
     },
   };
@@ -301,7 +310,7 @@ try {
     await page.locator(last).textContent({ timeout: 10000 }).catch(() => null);
     __out.locatorMs = Date.now() - t;
   }
-} catch (e) { __out.error = String(e && e.stack || e); }
+} catch (e) { __out.error = String(e && (e.message + " | " + e.stack) || e); }
 finally { await closeTab(__tab).catch(() => {}); }
 console.log(${JSON.stringify(MARK)} + JSON.stringify(__out));`;
   return {
