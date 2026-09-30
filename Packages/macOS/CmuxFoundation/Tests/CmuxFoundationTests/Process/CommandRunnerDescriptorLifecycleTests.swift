@@ -97,8 +97,7 @@ struct CommandRunnerDescriptorLifecycleTests {
             await execution.run(timeout: 2)
         }
 
-        try await waitForFile(at: pidFile)
-        let pidText = try String(contentsOf: pidFile, encoding: .utf8)
+        let pidText = try await waitForFileContents(at: pidFile)
         let pid = try #require(pid_t(pidText))
         command.cancel()
 
@@ -177,6 +176,21 @@ struct CommandRunnerDescriptorLifecycleTests {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))
         while !FileManager.default.fileExists(atPath: url.path) {
+            guard clock.now < deadline else {
+                throw DescriptorLifecycleTestError.markerTimedOut
+            }
+            try await clock.sleep(for: .milliseconds(10))
+        }
+    }
+
+    private func waitForFileContents(at url: URL) async throws -> String {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while true {
+            if let contents = try? String(contentsOf: url, encoding: .utf8),
+               !contents.isEmpty {
+                return contents
+            }
             guard clock.now < deadline else {
                 throw DescriptorLifecycleTestError.markerTimedOut
             }

@@ -230,6 +230,21 @@ public struct WindowAppearanceSnapshot {
         sidebarColorScheme
     }
 
+    /// The opaque color the left sidebar's content is drawn over when it
+    /// shares the terminal backdrop, or `nil` when the sidebar draws its own
+    /// material (whose colors AppKit already keeps readable).
+    ///
+    /// Secondary text uses this to hold a contrast floor on saturated
+    /// terminal themes; see ``WindowChromeColorResolver/contrastFloored(_:over:minimumContrast:)``.
+    public var sidebarReadabilityBackdrop: NSColor? {
+        guard unifySurfaceBackdrops else { return nil }
+        return Self.compositedTerminalColor(
+            backgroundColor: terminalBackgroundColor,
+            opacity: Double(terminalBackgroundOpacity),
+            over: Self.resolvedColor(.windowBackgroundColor, for: sidebarColorScheme)
+        )
+    }
+
     /// Returns the backdrop policy for one chrome role.
     public func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {
         switch role {

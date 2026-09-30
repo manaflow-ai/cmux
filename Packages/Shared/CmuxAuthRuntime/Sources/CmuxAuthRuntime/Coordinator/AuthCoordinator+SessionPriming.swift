@@ -156,6 +156,11 @@ extension AuthCoordinator {
             currentUser = fixtureUser
             isAuthenticated = true
             publishAuthenticatedSessionIdentity()
+            // Only launches that ask for fixture teams load membership, so
+            // other fixture UI tests never wait on a live team lookup.
+            if launch.environment["CMUX_UITEST_AUTH_FIXTURE_TEAMS"] != nil {
+                await refreshTeams(generation: generation)
+            }
             return
         }
 

@@ -1996,7 +1996,7 @@ public actor VMClient {
         var tokens: [String] = []
         for entry in raw {
             let token = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard token.range(of: "^[a-z0-9-]{1,64}$", options: .regularExpression) != nil,
+            guard token.range(of: "^[a-z0-9-]{1,64}\\z", options: .regularExpression) != nil,
                   seen.insert(token).inserted else { continue }
             tokens.append(token)
             if tokens.count == 16 { break }

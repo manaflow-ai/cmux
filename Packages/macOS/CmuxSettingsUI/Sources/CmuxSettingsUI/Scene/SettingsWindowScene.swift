@@ -461,6 +461,12 @@ public struct SettingsWindowRoot: View {
                     .padding(.bottom, 20)
                 }
             }
+            // Reserve the vertical scroller's gutter on every page. With
+            // legacy (always-shown) scrollers, a page that grows past the
+            // window, like Themes once its gallery loads, would otherwise
+            // add a scroller and narrow every card mid-view; switching
+            // between short and long pages shifted the same way.
+            .scrollIndicators(.visible, axes: .vertical)
             .toggleStyle(.switch)
             .onAppear {
                 // Reopening Settings lands at the top of the last-viewed
