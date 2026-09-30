@@ -443,7 +443,10 @@ export function useSession(): SessionState {
       createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
       onSocket: (ws) => {
         wsRef.current = ws;
-        if (!ws) latestCommandRequestsRef.current.clear();
+        if (!ws) {
+          setReady(false);
+          latestCommandRequestsRef.current.clear();
+        }
       },
       onOpen: () => {
         const pending = pendingStartRef.current;
