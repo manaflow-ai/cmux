@@ -105,6 +105,20 @@ extension TerminalPanel {
         onRequestAgentHibernationTerminationRetry?()
     }
 
+    /// Banner action: type the resume command again and restart the wake check.
+    func retryAgentWake() {
+        onRequestAgentWakeRetry?()
+    }
+
+    /// Banner action: close the wake failure banner.
+    func dismissAgentWakeFailure() {
+        if let onDismissAgentWakeFailure {
+            onDismissAgentWakeFailure()
+        } else {
+            agentWakeFailure = nil
+        }
+    }
+
     private func suspendRuntimeForAgentHibernation(reason: String) -> Bool {
         guard surface.suspendRuntimeSurfaceForAgentHibernation(reason: reason) else {
             return false

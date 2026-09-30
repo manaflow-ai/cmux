@@ -65,6 +65,7 @@ struct SettingsRowAnchorResolutionTests {
         "automation.claudeBinaryPath",
         "automation.claudeCodeIntegration",
         "automation.piIntegration",
+        "automation.canonicalAgentScratch",
         "automation.cursorIntegration",
         "automation.geminiIntegration",
         "automation.portBase",
