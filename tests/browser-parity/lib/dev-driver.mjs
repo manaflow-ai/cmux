@@ -112,7 +112,14 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     });
   });
   const drivers = new Set();
-  const tabs = new Map(); // targetId -> tab record
+  const tabs = new Map();
+  // Visits most recent first, one row per URL.
+  const history = [];
+  const recordVisit = (url, title) => {
+    const at = history.findIndex((h) => h.url === url);
+    if (at >= 0) history.splice(at, 1);
+    history.unshift({ url, title: title || "", dateVisited: Date.now() });
+  }; // targetId -> tab record
   const tabOf = new WeakMap(); // page -> tab record
   const dialogs = new Map();
   const choosers = new Map();
@@ -198,7 +205,12 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     page.on("requestfailed", net("requestfailed"));
     page.on("requestfinished", net("requestfinished"));
     page.on("domcontentloaded", () => emit("tab.loadState", { targetId, state: "domcontentloaded" }));
-    page.on("load", () => emit("tab.loadState", { targetId, state: "load" }));
+    page.on("load", () => {
+      emit("tab.loadState", { targetId, state: "load" });
+      // Browser history, as cmux records it: http(s) main-frame loads.
+      const url = page.url();
+      if (/^https?:/.test(url)) page.title().then((title) => recordVisit(url, title), () => recordVisit(url, ""));
+    });
     page.on("framenavigated", (f) => emit("tab.navigated", { targetId, frameId: frameId(tab, f), url: f.url() }));
     page.on("close", () => {
       tabs.delete(targetId);
@@ -339,6 +351,13 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   }
 
   const methods = {
+    "history.search": async ({ queries = [], from, to, limit = 100 }) => {
+      const qs = queries.map((q) => String(q).toLowerCase());
+      return history
+        .filter((h) => (from === undefined || h.dateVisited >= from) && (to === undefined || h.dateVisited <= to))
+        .filter((h) => !qs.length || qs.some((q) => h.url.toLowerCase().includes(q) || h.title.toLowerCase().includes(q)))
+        .slice(0, limit);
+    },
     "tabs.list": async () =>
       Promise.all([...tabs.values()].map(async (t) => ({
         targetId: t.targetId,
@@ -351,6 +370,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     "tabs.open": async ({ url, background }, driver) => {
       const page = await context.newPage();
       const tab = register(page);
+      tab.blankStart = !url;
       driver.opened.add(tab.targetId);
       if (!background) activeTarget = tab.targetId;
       if (url) await page.goto(url, { waitUntil: "commit" });
@@ -383,13 +403,19 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     "tab.history": async ({ targetId, delta, waitUntil = "load", timeoutMs }) => {
       const page = tabFor(targetId).page;
       const before = page.url();
+      // The blank page a new tab starts on is not a history entry to go back
+      // to (Chrome drops it on the first navigation), as the app's driver.
+      const tab = tabFor(targetId);
+      if (delta < 0 && tab.blankStart && !tab.wentBack && (await page.evaluate("history.length").catch(() => 0)) === 2) return null;
+      if (delta < 0) tab.wentBack = true;
       const opts = { waitUntil, timeout: timeoutMs ?? 30000 };
       const r = delta < 0 ? await page.goBack(opts) : await page.goForward(opts);
       if (!r && page.url() === before) return null;
       return { url: page.url() };
     },
     "tab.reload": async ({ targetId, waitUntil = "load", timeoutMs }) => {
-      await tabFor(targetId).page.reload({ waitUntil, timeout: timeoutMs ?? 30000 });
+      const r = await tabFor(targetId).page.reload({ waitUntil, timeout: timeoutMs ?? 30000 });
+      return r ? { status: r.status() } : null;
     },
     "tab.info": async ({ targetId }) => {
       const tab = tabFor(targetId);

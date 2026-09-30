@@ -1,17 +1,10 @@
+import { errorsBetter as errBetter } from "../lib.mjs";
 // Locator members: Aside Locator.* and ChatGPT PlaywrightLocator.*, with
 // the option and error variants the ChatGPT reference was verified on
 // (cmux-browser-cli scripts/cua-reference-variant-cases.ts), ported to the
 // lab page.
 const LAB = "/diff/lab.html";
 const FILES = "/diff/files.html";
-const errBetter = {
-  reason: "cmux reports the failing check (a specific error class) where the reference reports a generic failure",
-  check: (c, r, h) => Object.keys(c).every((k) => {
-    const a = c[k]?.error, b = r[k]?.error;
-    if (a === undefined || b === undefined) return JSON.stringify(h.comparable(c[k])) === JSON.stringify(h.comparable(r[k]));
-    return h.classifyError(a) === h.classifyError(b) || (h.isSpecific(h.classifyError(a)) && !h.isSpecific(h.classifyError(b)));
-  }),
-};
 // Events on #action since the last read: [type, button, detail, alt, ctrl, meta, shift].
 const TAKE = `let seen = 0;
 const take = async () => { const all = $LOG.filter((r) => r[1] === "action"); const d = all.slice(seen); seen = all.length; return d.map((r) => [r[0], ...r[3]]); };`;

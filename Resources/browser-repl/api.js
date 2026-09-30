@@ -304,6 +304,148 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Content export (page.exportContent, tabs.content)
+
+  // Runs in the page: its visible content as Markdown.
+  function pageMarkdown() {
+    const skip = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "CANVAS", "IFRAME"]);
+    const clean = (t) => t.replace(/\s+/g, " ");
+    const hidden = (el) => { const cs = getComputedStyle(el); return cs.display === "none" || cs.visibility === "hidden"; };
+    const inline = (node) => {
+      if (node.nodeType === 3) return clean(node.textContent);
+      if (node.nodeType !== 1 || skip.has(node.tagName) || hidden(node)) return "";
+      const inner = [...node.childNodes].map(inline).join("");
+      if (node.tagName === "A" && node.getAttribute("href")) return inner.trim() ? `[${inner.trim()}](${node.href})` : "";
+      if (node.tagName === "B" || node.tagName === "STRONG") return inner.trim() ? `**${inner.trim()}**` : "";
+      if (node.tagName === "EM" || node.tagName === "I") return inner.trim() ? `*${inner.trim()}*` : "";
+      if (node.tagName === "CODE") return "`" + inner + "`";
+      if (node.tagName === "IMG") return node.alt ? `![${node.alt}](${node.src})` : "";
+      if (node.tagName === "BR") return "\n";
+      if (node.tagName === "INPUT" || node.tagName === "TEXTAREA") return node.type === "password" ? "" : node.value ? `\`${node.value}\`` : "";
+      return inner;
+    };
+    const out = [];
+    const block = (node, depth) => {
+      if (node.nodeType === 3) {
+        const t = clean(node.textContent).trim();
+        if (t) out.push(t);
+        return;
+      }
+      if (node.nodeType !== 1 || skip.has(node.tagName) || hidden(node)) return;
+      const tag = node.tagName;
+      const m = /^H([1-6])$/.exec(tag);
+      if (m) return void out.push("#".repeat(Number(m[1])) + " " + inline(node).trim());
+      if (tag === "P" || tag === "SUMMARY" || tag === "LABEL" || tag === "BUTTON") return void (inline(node).trim() && out.push(inline(node).trim()));
+      if (tag === "PRE") return void out.push("```\n" + node.innerText + "\n```");
+      if (tag === "UL" || tag === "OL") {
+        let n = 0;
+        for (const li of node.children) if (li.tagName === "LI") out.push(`${"  ".repeat(depth)}${tag === "OL" ? `${++n}.` : "-"} ${inline(li).trim()}`);
+        return;
+      }
+      if (tag === "TABLE") {
+        const rows = [...node.rows].map((r) => "| " + [...r.cells].map((c) => inline(c).trim().replace(/\|/g, "\\|")).join(" | ") + " |");
+        if (rows.length) out.push([rows[0], "| " + [...node.rows[0].cells].map(() => "---").join(" | ") + " |", ...rows.slice(1)].join("\n"));
+        return;
+      }
+      if (tag === "BLOCKQUOTE") return void out.push("> " + inline(node).trim());
+      const hasBlock = [...node.children].some((c) => /^(DIV|P|H[1-6]|UL|OL|TABLE|SECTION|ARTICLE|MAIN|NAV|HEADER|FOOTER|ASIDE|FORM|PRE|BLOCKQUOTE|DETAILS|FIELDSET|FIGURE|LI)$/.test(c.tagName));
+      if (!hasBlock) {
+        const t = inline(node).trim();
+        if (t) out.push(t);
+        return;
+      }
+      for (const c of node.childNodes) block(c, depth);
+    };
+    block(document.body || document.documentElement, 0);
+    return `# ${document.title}\n\n<${location.href}>\n\n` + out.filter(Boolean).join("\n\n") + "\n";
+  }
+
+  // Google Workspace export endpoints for a Docs, Sheets or Slides URL.
+  const GOOGLE_FORMATS = {
+    document: ["pdf", "md", "docx", "txt", "odt", "rtf", "html", "epub"],
+    spreadsheets: ["pdf", "xlsx", "csv", "tsv", "ods"],
+    presentation: ["pdf", "pptx", "odp", "txt"],
+  };
+  function googleExportURL(pageURL, format) {
+    let u;
+    try {
+      u = new core.URL(pageURL);
+    } catch {
+      u = null;
+    }
+    const m = u && u.protocol === "https:" && u.hostname === "docs.google.com" ? /^\/(document|spreadsheets|presentation)\/d\/([\w-]+)/.exec(u.pathname) : null;
+    if (!m) throw new Error(`page.exportContent({ format }): expected a Google Docs, Sheets or Slides tab (https://docs.google.com/...), got ${pageURL}`);
+    const [, kind, id] = m;
+    const allowed = GOOGLE_FORMATS[kind];
+    if (!allowed.includes(format)) throw new Error(`page.exportContent: format: expected one of ${allowed.join(", ")} for a Google ${kind === "document" ? "Docs document" : kind === "spreadsheets" ? "Sheets spreadsheet" : "Slides presentation"}, got ${JSON.stringify(format)}`);
+    if (kind === "presentation") return { url: `https://docs.google.com/presentation/d/${id}/export/${format}`, kind, id };
+    const gid = kind === "spreadsheets" ? /[#&?]gid=(\d+)/.exec(pageURL) : null;
+    return { url: `https://docs.google.com/${kind}/d/${id}/export?format=${format}${gid ? `&gid=${gid[1]}` : ""}`, kind, id };
+  }
+
+  function youtubeVideoId(pageURL) {
+    let u;
+    try {
+      u = new core.URL(pageURL);
+    } catch {
+      return null;
+    }
+    if (u.protocol !== "https:" || !/^(www\.|m\.)?youtube\.com$/.test(u.hostname) || u.pathname !== "/watch") return null;
+    return u.searchParams.get("v");
+  }
+
+  // YouTube's json3 caption format to plain text, one caption per line.
+  function transcriptText(json3) {
+    const lines = [];
+    for (const ev of (json3 && json3.events) || []) {
+      const text = (ev.segs || []).map((s) => s.utf8 || "").join("").replace(/\s+/g, " ").trim();
+      if (text) lines.push(text);
+    }
+    return lines.join("\n") + (lines.length ? "\n" : "");
+  }
+
+  function createExporter({ fetch, fs, path, host, Buffer }) {
+    let n = 0;
+    const target = (options, ext) => {
+      if (options.path) return path.resolve(String(options.path));
+      const dir = path.join(host.tmpdir, "cmux-browser-repl", String(host.sessionId || "session").replace(/[^\w.-]/g, "_"));
+      fs.mkdirSync(dir, { recursive: true });
+      return path.join(dir, `export-${++n}${ext}`);
+    };
+    return {
+      async markdown(page, options) {
+        const text = await page.evaluate(pageMarkdown);
+        const file = target(options, ".md");
+        fs.writeFileSync(file, text);
+        return file;
+      },
+      async google(page, pageURL, options) {
+        const { url } = googleExportURL(pageURL, options.format);
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`page.exportContent: Google returned HTTP ${r.status} for ${url}`);
+        const file = target(options, "." + options.format);
+        fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
+        return file;
+      },
+      async youtubeTranscript(page, pageURL, options) {
+        const id = youtubeVideoId(pageURL);
+        if (!id) throw new Error(`page.exportContent({ transcript: true }): expected a YouTube watch page (https://www.youtube.com/watch?v=...), got ${pageURL}`);
+        const tracks = await page.evaluate(() => {
+          const r = window.ytInitialPlayerResponse;
+          const list = r && r.captions && r.captions.playerCaptionsTracklistRenderer && r.captions.playerCaptionsTracklistRenderer.captionTracks;
+          return (list || []).map((t) => ({ baseUrl: t.baseUrl, lang: t.languageCode, kind: t.kind || null }));
+        });
+        if (!tracks.length) throw new Error(`page.exportContent: video ${id} has no captions`);
+        const want = options.lang ? tracks.find((t) => t.lang === options.lang) : tracks.find((t) => t.kind !== "asr") || tracks[0];
+        if (!want) throw new Error(`page.exportContent: video ${id} has no ${options.lang} captions; available: ${tracks.map((t) => t.lang).join(", ")}`);
+        const r = await fetch(new core.URL(want.baseUrl, pageURL).href + "&fmt=json3");
+        if (!r.ok) throw new Error(`page.exportContent: captions request returned HTTP ${r.status}`);
+        const file = target(options, ".txt");
+        fs.writeFileSync(file, transcriptText(await r.json()));
+        return file;
+      },
+    };
+  }
 
   function createGlobals(session, host) {
     const workDir = () => host.workDir || "/";
@@ -459,11 +601,67 @@
       return page;
     }
 
+    session.exporter = createExporter({ fetch: fetchWithCookies, fs, path, host, Buffer });
+
     const tabs = {
-      async list() {
-        const list = await session.call("tabs.list", {});
+      // `{ all: true }` also lists browser tabs in the user's other
+      // workspaces and windows; tabs.use(id) attaches any of them.
+      async list(options = {}) {
+        const list = await session.call("tabs.list", options && options.all ? { all: true } : {});
         const current = state.current && state.current._targetId;
-        return list.map((t) => ({ id: t.targetId, title: t.title, url: t.url, active: !!t.active, current: t.targetId === current }));
+        return list.map((t) => {
+          const row = { id: t.targetId, title: t.title, url: t.url, active: !!t.active, current: t.targetId === current };
+          if (options && options.all) row.workspace = t.windowId === undefined ? null : t.windowId;
+          return row;
+        });
+      },
+      // Loads each URL in a background tab, extracts it and closes the tab;
+      // the current tab does not change. format: "text" (default),
+      // "markdown", "html" or "snapshot".
+      async content(input, options = {}) {
+        const opts = Array.isArray(input) || typeof input === "string" ? { ...options, urls: [].concat(input) } : { ...(input || {}) };
+        const urls = opts.urls;
+        if (!Array.isArray(urls) || !urls.length || urls.some((u) => typeof u !== "string" || !u)) throw new Error(`tabs.content: urls: expected a non-empty array of URLs, got ${JSON.stringify(urls)}`);
+        const format = opts.format || "text";
+        if (!["text", "markdown", "html", "snapshot"].includes(format)) throw new Error(`tabs.content: format: expected one of text, markdown, html, snapshot, got ${JSON.stringify(format)}`);
+        const timeout = opts.timeout !== undefined ? opts.timeout : 30000;
+        const one = async (url) => {
+          const page = await session.newPage(undefined, { background: true });
+          try {
+            const response = await page.goto(url, { timeout, waitUntil: opts.waitUntil || "load" });
+            let content;
+            if (format === "html") content = await page.content();
+            else if (format === "snapshot") content = String((await ns.snapshot.takeSnapshot(page, undefined, { maxChars: Infinity })).tree);
+            else if (format === "markdown") content = await page.evaluate(ns.api.pageMarkdown);
+            else content = await page.evaluate(() => (document.body ? document.body.innerText : ""));
+            return { url: page.url(), title: await page.title(), status: response ? response.status() : null, content };
+          } catch (e) {
+            return { url, title: null, status: null, content: null, error: String((e && e.message) || e) };
+          } finally {
+            await page.close().catch(() => {});
+          }
+        };
+        const out = [];
+        // A few at a time, in the order given.
+        for (let i = 0; i < urls.length; i += 4) out.push(...(await Promise.all(urls.slice(i, i + 4).map(one))));
+        return out;
+      },
+      // cmux's browser history, most recent first: [{ url, title, dateVisited }].
+      async history(options = {}) {
+        if (options === null || typeof options !== "object") throw new Error(`tabs.history: options: expected an object, got ${JSON.stringify(options)}`);
+        const limit = options.limit === undefined ? 100 : options.limit;
+        if (!Number.isInteger(limit) || limit < 1) throw new Error(`tabs.history: limit: expected a positive integer, got ${JSON.stringify(limit)}`);
+        const date = (v, name) => {
+          if (v === undefined) return undefined;
+          const d = v instanceof Date ? v : new Date(v);
+          if (isNaN(d.getTime())) throw new Error(`tabs.history: ${name}: expected a date, got ${JSON.stringify(v)}`);
+          return d.getTime();
+        };
+        const from = date(options.from, "from");
+        const to = date(options.to, "to");
+        const queries = [].concat(options.query === undefined ? [] : options.query, options.queries || []).map(String).filter(Boolean);
+        const rows = await session.call("history.search", { queries, from, to, limit });
+        return rows.map((r) => ({ url: r.url, title: r.title || "", dateVisited: new Date(r.dateVisited).toISOString() }));
       },
       async open(url, options = {}) {
         const page = await session.newPage(url, { background: !!options.background });
@@ -527,5 +725,5 @@
     return { globals, show, importModule, state };
   }
 
-  ns.api = { createGlobals, createPath, createFs, inspect, Image, imageSize };
+  ns.api = { createGlobals, createPath, createFs, inspect, Image, imageSize, pageMarkdown, googleExportURL, youtubeVideoId, transcriptText };
 })(typeof globalThis !== "undefined" ? globalThis : this);

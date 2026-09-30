@@ -946,9 +946,33 @@
     return requireInjected().strictModeViolationError(requireInjected().parseSelector(selector), ids.map(element)).message;
   }
 
+  // Playwright checks "stable" over animation frames. WebKit runs no
+  // animation frames while a document is still loading (a body that never
+  // ends), so after a quarter second without a frame the check samples the
+  // element's box on timers instead: nothing renders, so nothing can move.
   async function checkStates(id, states) {
-    const result = await requireInjected().checkElementStates(element(id), states);
-    return result === undefined ? "done" : result;
+    const inj = requireInjected();
+    const el = element(id);
+    if (!states.includes("stable")) {
+      const result = await inj.checkElementStates(el, states);
+      return result === undefined ? "done" : result;
+    }
+    let frameSeen = false;
+    global.requestAnimationFrame(() => (frameSeen = true));
+    const viaFrames = inj.checkElementStates(el, states).then((r) => (r === undefined ? "done" : r));
+    const fallback = new Promise((resolve) => global.setTimeout(resolve, 250)).then(async () => {
+      if (frameSeen) return viaFrames;
+      if (!el.isConnected) return "error:notconnected";
+      const box = () => { const r = el.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].join(","); };
+      const first = box();
+      await new Promise((resolve) => global.setTimeout(resolve, 50));
+      if (!el.isConnected) return "error:notconnected";
+      if (box() !== first) return { missingState: "stable" };
+      const rest = states.filter((s) => s !== "stable");
+      const result = rest.length ? await inj.checkElementStates(el, rest) : undefined;
+      return result === undefined ? "done" : result;
+    });
+    return Promise.race([viaFrames, fallback]);
   }
 
   function elementState(id, state) {
@@ -959,11 +983,24 @@
     return rect.top >= 0 && rect.left >= 0 && rect.bottom <= global.innerHeight && rect.right <= global.innerWidth;
   }
 
+  // True when a scroll container between the element and the viewport cuts
+  // part of it off (a target inside a nested scroller).
+  function clippedByScroller(el, rect) {
+    for (let p = el.parentElement || (el.getRootNode() && el.getRootNode().host); p && p !== document.documentElement && p !== document.body; p = p.parentElement || (p.getRootNode() && p.getRootNode().host)) {
+      if (p.scrollHeight <= p.clientHeight && p.scrollWidth <= p.clientWidth) continue;
+      const cs = global.getComputedStyle(p);
+      if (!/(auto|scroll|hidden|clip)/.test(cs.overflowX + " " + cs.overflowY)) continue;
+      const r = p.getBoundingClientRect();
+      if (rect.top < r.top - 0.5 || rect.bottom > r.bottom + 0.5 || rect.left < r.left - 0.5 || rect.right > r.right + 0.5) return true;
+    }
+    return false;
+  }
+
   function scrollIntoViewIfNeeded(id) {
     const el = element(id);
     if (!el.isConnected) return "error:notconnected";
     const rect = el.getBoundingClientRect();
-    if (isInViewport(rect)) return "done";
+    if (isInViewport(rect) && !clippedByScroller(el, rect)) return "done";
     if (typeof el.scrollIntoViewIfNeeded === "function") el.scrollIntoViewIfNeeded(true);
     else el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
     return "done";

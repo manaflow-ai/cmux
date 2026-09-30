@@ -300,3 +300,25 @@ test("auto-print: the last value prints, promises are awaited, undefined prints 
   assert.equal(await runDevRepl("undefined"), "");
   assert.equal(await runDevRepl("console.log('a'); 'b'"), "a\nb");
 });
+
+test("export: Google Workspace export URLs and YouTube transcripts", () => {
+  const { googleExportURL, youtubeVideoId, transcriptText } = ns.api;
+  assert.equal(googleExportURL("https://docs.google.com/document/d/abc_1-2/edit#heading=h", "md").url, "https://docs.google.com/document/d/abc_1-2/export?format=md");
+  assert.equal(googleExportURL("https://docs.google.com/spreadsheets/d/S1/edit#gid=42", "csv").url, "https://docs.google.com/spreadsheets/d/S1/export?format=csv&gid=42");
+  assert.equal(googleExportURL("https://docs.google.com/presentation/d/P9/edit", "pptx").url, "https://docs.google.com/presentation/d/P9/export/pptx");
+  assert.throws(() => googleExportURL("https://docs.google.com/document/d/abc/edit", "xlsx"), /format: expected one of pdf, md/);
+  assert.throws(() => googleExportURL("http://127.0.0.1:1/x", "pdf"), /expected a Google Docs, Sheets or Slides tab/);
+  assert.throws(() => googleExportURL("https://evil.example/document/d/abc", "pdf"), /expected a Google Docs/);
+  assert.equal(youtubeVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1"), "dQw4w9WgXcQ");
+  assert.equal(youtubeVideoId("https://youtube.com/watch?v=x1"), "x1");
+  assert.equal(youtubeVideoId("http://www.youtube.com/watch?v=x1"), null);
+  assert.equal(youtubeVideoId("https://www.youtube.com/shorts/x1"), null);
+  assert.equal(transcriptText({ events: [{ segs: [{ utf8: "Hello " }, { utf8: "world" }] }, { segs: [{ utf8: "\n" }] }, { segs: [{ utf8: "Second  line" }] }] }), "Hello world\nSecond line\n");
+  assert.equal(transcriptText({}), "");
+});
+
+test("keyboard: ControlOrMeta is Meta on macOS; empty and non-string keys fail", () => {
+  assert.equal(describeKey("ControlOrMeta", new Set()).key, "Meta");
+  assert.throws(() => describeKey("", new Set()), /expected a non-empty string/);
+  assert.throws(() => splitKeyCombo(42), /expected a non-empty string/);
+});

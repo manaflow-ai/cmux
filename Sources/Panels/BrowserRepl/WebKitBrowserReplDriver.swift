@@ -83,7 +83,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // Every call on a tab first waits until the tab renders like a focused
         // foreground page; input must not race WebKit's focus update.
         if let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
-           let panel = try? browserPanels().first(where: { $0.id == id }) {
+           let panel = try? reachablePanel(id) {
             let attachment = attach(panel)
             // WebKit signals the update; the bound only guards a web process
             // that goes away before answering.
@@ -112,7 +112,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func handle(method: String, params: [String: Any]) async throws -> Any? {
         switch method {
-        case "tabs.list": return try listTabs()
+        case "tabs.list": return try listTabs(all: params["all"] as? Bool == true)
+        case "history.search": return try searchHistory(params)
         case "tabs.open": return try await openTab(params)
         case "tabs.close": return try closeTab(params)
         case "tabs.activate", "tab.bringToFront": return try activateTab(params)
@@ -174,11 +175,37 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard let raw = params["targetId"] as? String, let id = UUID(uuidString: raw) else {
             throw Self.error("invalid", "targetId is required")
         }
-        guard let panel = try browserPanels().first(where: { $0.id == id }) else {
+        guard let panel = try reachablePanel(id) else {
             throw Self.error("closed", "Tab \(raw) is closed")
         }
         attach(panel).keepRendering()
         return panel
+    }
+
+    /// Browser surfaces in every workspace of every window, with the
+    /// workspace that holds each.
+    @MainActor
+    private func allBrowserPanels() -> [(panel: BrowserPanel, workspace: Workspace)] {
+        guard let app = AppDelegate.shared else { return [] }
+        var out: [(BrowserPanel, Workspace)] = []
+        var seen = Set<UUID>()
+        for context in app.mainWindowContexts.values.sorted(by: { $0.windowId.uuidString < $1.windowId.uuidString }) {
+            for workspace in context.tabManager.tabs where seen.insert(workspace.id).inserted {
+                for id in workspace.orderedPanelIds {
+                    if let panel = workspace.panels[id] as? BrowserPanel { out.append((panel, workspace)) }
+                }
+            }
+        }
+        return out
+    }
+
+    /// A tab this session may drive: one of its workspace's browser surfaces,
+    /// or a tab in another workspace it claimed with tabs.use(id) after
+    /// `tabs.list({ all: true })` listed it (ChatGPT's claimTab).
+    @MainActor
+    private func reachablePanel(_ id: UUID) throws -> BrowserPanel? {
+        if let own = try browserPanels().first(where: { $0.id == id }) { return own }
+        return allBrowserPanels().first(where: { $0.panel.id == id })?.panel
     }
 
     @MainActor
@@ -212,9 +239,25 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     @MainActor
-    private func listTabs() throws -> [[String: Any]] {
+    private func listTabs(all: Bool = false) throws -> [[String: Any]] {
         let workspace = try workspace()
         let panels = try browserPanels()
+        if all {
+            // The session's own workspace first, then every other workspace.
+            let own = try listTabs()
+            let others: [[String: Any]] = allBrowserPanels()
+                .filter { $0.workspace.id != workspace.id }
+                .map { entry in
+                    [
+                        "targetId": entry.panel.id.uuidString,
+                        "title": entry.panel.webView.title ?? entry.panel.pageTitle,
+                        "url": entry.panel.webView.url?.absoluteString ?? entry.panel.currentURL?.absoluteString ?? "",
+                        "active": false,
+                        "windowId": entry.workspace.id.uuidString,
+                    ]
+                }
+            return own + others
+        }
         let active = activeTargetID.flatMap(UUID.init(uuidString:)).flatMap { id in panels.first { $0.id == id } }
             ?? panels.first { $0.id == workspace.focusedPanelId }
         return panels.map { panel in
@@ -368,6 +411,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard let item = delta < 0 ? webView.backForwardList.backItem : webView.backForwardList.forwardItem else {
             return nil
         }
+        // The blank page a tab opened on (tabs.open loads about:blank before
+        // its first navigation) is not an entry to go back to, as in Chrome.
+        if delta < 0, item.url.absoluteString == "about:blank", webView.backForwardList.backList.count == 1 {
+            return nil
+        }
         let timeout = Self.timeout(params)
         let started = ContinuousClock.now
         let ticket = panel.automationNavigationCoordinator.begin(
@@ -406,6 +454,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             Self.waitUntil(params),
             remainingMilliseconds: Self.remaining(timeout, since: started)
         )
+        // Like goto, reload answers with the main document's HTTP status.
+        if let status = attachment(panel).mainDocumentStatus { return ["status": status] }
         return nil
     }
 
@@ -513,6 +563,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         ]
         result["url"] = webView.url?.absoluteString ?? panel.currentURL?.absoluteString ?? ""
         result["title"] = webView.title ?? panel.pageTitle
+        // The web content process's pid (WKWebView SPI), so a test can end
+        // that process and check crash recovery.
+        let pidSelector = NSSelectorFromString("_webProcessIdentifier")
+        if webView.responds(to: pidSelector), let pid = webView.value(forKey: "_webProcessIdentifier") as? NSNumber, pid.intValue > 0 {
+            result["webProcessId"] = pid.intValue
+        } else {
+            result.removeValue(forKey: "webProcessId")
+        }
         // Page script is blocked while a dialog is open; answer from native state.
         guard !attachment.hasPendingDialog else { return result }
         let metrics = await withTimeout(milliseconds: 2_000) { () -> [Any]? in
@@ -543,6 +601,46 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         result["viewport"] = ["width": width.intValue, "height": height.intValue]
         attachment.lastInfo = result
         return result
+    }
+
+    /// cmux browser history, most recent first, from the history stores of
+    /// the profiles this workspace's tabs use (the default profile when it
+    /// has none).
+    @MainActor
+    private func searchHistory(_ params: [String: Any]) throws -> [[String: Any]] {
+        var stores: [BrowserHistoryStore] = []
+        for panel in try browserPanels() where !stores.contains(where: { $0 === panel.historyStore }) {
+            stores.append(panel.historyStore)
+        }
+        if stores.isEmpty {
+            stores.append(BrowserProfileStore.shared.historyStore(for: BrowserProfileStore.shared.builtInDefaultProfileID))
+        }
+        let queries = (params["queries"] as? [String] ?? []).map { $0.lowercased() }.filter { !$0.isEmpty }
+        let from = (params["from"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
+        let to = (params["to"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
+        let limit = max(1, (params["limit"] as? NSNumber)?.intValue ?? 100)
+        var rows: [BrowserHistoryStore.Entry] = []
+        for store in stores {
+            store.loadIfNeeded()
+            rows.append(contentsOf: store.entries)
+        }
+        let matched = rows
+            .filter { entry in
+                if let from, entry.lastVisited < from { return false }
+                if let to, entry.lastVisited > to { return false }
+                guard !queries.isEmpty else { return true }
+                let url = entry.url.lowercased()
+                let title = (entry.title ?? "").lowercased()
+                return queries.contains { url.contains($0) || title.contains($0) }
+            }
+            .sorted { $0.lastVisited > $1.lastVisited }
+        return matched.prefix(limit).map { entry in
+            [
+                "url": entry.url,
+                "title": entry.title ?? "",
+                "dateVisited": Int(entry.lastVisited.timeIntervalSince1970 * 1000),
+            ]
+        }
     }
 
     @MainActor

@@ -1,15 +1,8 @@
+import { errorsBetter as errBetter } from "../lib.mjs";
 // Page-level members: Aside Page.*, ChatGPT Tab.* and PlaywrightAPI.*.
 // $P is the dialect's Playwright page (ChatGPT: t.playwright); $T(n) its
 // timeout option; $LOG the lab page's event log.
 const LAB = "/diff/lab.html";
-const errBetter = {
-  reason: "cmux reports the failing check (a specific error class) where the reference reports a generic failure",
-  check: (c, r, h) => Object.keys(c).every((k) => {
-    const a = c[k]?.error, b = r[k]?.error;
-    if (a === undefined || b === undefined) return JSON.stringify(h.comparable(c[k])) === JSON.stringify(h.comparable(r[k]));
-    return h.classifyError(a) === h.classifyError(b) || (h.isSpecific(h.classifyError(a)) && !h.isSpecific(h.classifyError(b)));
-  }),
-};
 
 export default [
   {
@@ -163,7 +156,7 @@ return { doctype: /^<!DOCTYPE html>/i.test(html), heading: html.includes("Diff l
   },
   {
     id: "page.evaluate.forms",
-    members: ["aside:Page.evaluate", "chatgpt:PlaywrightAPI.evaluate"],
+    members: ["aside:Page.evaluate", "chatgpt:PlaywrightAPI.evaluate", "chatgpt:Tab.playwright"],
     path: LAB,
     code: `return {
   noArg: await $P.evaluate(() => document.title),

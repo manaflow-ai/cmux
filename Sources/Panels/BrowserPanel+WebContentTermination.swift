@@ -19,6 +19,8 @@ extension BrowserPanel {
 extension BrowserPanel {
     func handleWebContentProcessTermination(for terminatedWebView: WKWebView) {
         guard terminatedWebView === webView else { return }
+        // A REPL session driving this tab sees Playwright's page 'crash'.
+        BrowserReplTabAttachments.shared.attachment(for: id)?.emit("tab.crashed", [:])
 
         let wasRenderable = shouldRenderWebView
         let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)

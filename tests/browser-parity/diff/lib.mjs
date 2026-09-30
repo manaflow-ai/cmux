@@ -114,6 +114,9 @@ export function normalizeStrings(v, origins) {
 // Error text to a class that means the same across implementations. Order
 // matters: the most specific cue wins.
 const ERROR_CLASSES = [
+  // An argument check names what it expected; it wins over words like
+  // "timeout" or "detached" that the argument itself may contain.
+  ["invalid-arg", /\bexpected\b[^\n]*\bgot\b|expected one of|must be (a|an|one of)|is not a valid selector|while parsing|Unexpected token|not a date|Unknown key|unknown modifier/i],
   ["absent", /is not a function|is not defined|Cannot read propert(y|ies) of undefined|undefined is not an object|not supported|does not support|unsupported|Capability is not available/i],
   ["strict", /strict mode violation|resolved to [2-9]\d* elements/i],
   ["intercepted", /intercepts pointer events|intercepted|is covered|obscured|receives the click|would receive the click/i],
@@ -126,10 +129,11 @@ const ERROR_CLASSES = [
   ["tls", /certificate|SSL|TLS|ERR_CERT|secure connection/i],
   ["dns", /ERR_NAME_NOT_RESOLVED|server with the specified hostname could not be found|NSURLErrorCannotFindHost|cannot find host|could not resolve|getaddrinfo/i],
   ["refused", /ERR_CONNECTION_REFUSED|Could not connect|NSURLErrorCannotConnectToHost|connection refused|ECONNREFUSED/i],
-  ["redirects", /too many redirects|ERR_TOO_MANY_REDIRECTS|redirect loop|HTTPTooManyRedirects/i],
+  ["redirects", /too many redirects|ERR_TOO_MANY_REDIRECTS|redirect loop|HTTPTooManyRedirects|redirected too many times/i],
   ["aborted", /ERR_ABORTED|interrupted by another navigation|navigation (was )?(cancel|abort)|NSURLErrorCancelled|frame load interrupted/i],
   ["crashed", /Target crashed|page crashed|web content process (terminated|crashed)/i],
   ["closed", /has been closed|already handled|tab (was |is )?closed|No open tab|Target closed|page is closed|No tab with id|Tab not found/i],
+  ["no-element", /ENOENT|no such file/i],
   ["invalid-arg", /Not a checkbox or radio button|Cannot (un)?check|is not a <select>|not an <input>|Malformed value|Non-input element|not an HTMLInputElement|Node is not an/i],
   ["no-element", /did not find some options|no_matches|"matchCount":0|resolved to 0 elements|no element|does not exist|not found|waiting for (locator|selector|getBy)|waiting on \w+ for selector/i],
   ["timeout", /timeout|timed out|deadline/i],
@@ -140,8 +144,24 @@ export function classifyError(msg) {
   for (const [cls, re] of ERROR_CLASSES) if (re.test(m)) return cls;
   return "other";
 }
-const SPECIFIC = new Set(["crashed", "strict", "intercepted", "stale", "not-visible", "disabled", "not-editable", "dialog", "auth", "tls", "dns", "refused", "redirects", "aborted", "closed", "no-element"]);
+const SPECIFIC = new Set(["invalid-arg", "crashed", "strict", "intercepted", "stale", "not-visible", "disabled", "not-editable", "dialog", "auth", "tls", "dns", "refused", "redirects", "aborted", "closed", "no-element"]);
 export const isSpecific = (cls) => SPECIFIC.has(cls);
+
+// The shared "better" rule for error variants: for every key the outcomes
+// agree, or cmux fails with a specific error class (it names the failed
+// check, or rejects an invalid argument) where the reference fails
+// generically or silently accepts the input.
+export const errorsBetter = {
+  reason: "cmux reports the failing check or the invalid argument (a specific error) where the reference fails generically or silently accepts it",
+  check: (c, r) => Object.keys(c).every((k) => {
+    const a = c[k] && c[k].error;
+    const b = r[k] && r[k].error;
+    if (a === undefined) return stable(comparable(c[k])) === stable(comparable(r[k]));
+    const ca = classifyError(a);
+    if (!isSpecific(ca)) return b !== undefined && classifyError(b) === ca;
+    return b === undefined || classifyError(b) === ca || !isSpecific(classifyError(b));
+  }),
+};
 
 export function timingClass(n) {
   if (typeof n !== "number") return n;
@@ -155,10 +175,14 @@ export function timingClass(n) {
 // keys (raw evidence) are dropped.
 export function comparable(v, key = "") {
   if (v && typeof v === "object" && !Array.isArray(v)) {
-    if (typeof v.error === "string") return { error: classifyError(v.error) };
+    if (typeof v.error === "string") {
+      const out = { error: classifyError(v.error) };
+      if (typeof v.ms === "number") out.ms = timingClass(v.ms);
+      return out;
+    }
     const out = {};
     for (const [k, x] of Object.entries(v)) {
-      if (k.startsWith("_") || k === "name") continue;
+      if (k.startsWith("_")) continue;
       out[k] = comparable(x, k);
     }
     return out;

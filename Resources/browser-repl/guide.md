@@ -32,7 +32,14 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
 - `page`: the current tab, a Playwright `Page` with a stable `page.id`.
 - `tabs`: `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`,
   `get(id)`. `list()` returns `{ id, title, url, active, current }` for every
-  tab in the workspace without attaching; `use(id)` and `get(id)` return a `Page`.
+  tab in the workspace without attaching; `list({ all: true })` adds the
+  user's tabs in other workspaces and windows (with `workspace`), and
+  `use(id)` takes any of them; `use(id)` and `get(id)` return a `Page`.
+  `content({ urls, format })` loads URLs in background tabs and returns
+  `[{ url, title, status, content }]` (`format`: `text`, `markdown`,
+  `html`, `snapshot`) without changing the current tab.
+  `history({ query, from, to, limit })` returns cmux browser history,
+  newest first, as `{ url, title, dateVisited }`.
 - `snapshot(target?, options?)`: accessibility snapshot of `page`, a locator or
   a ref. Options: `interactive` (controls plus headings and landmarks),
   `viewport` (only what is on screen), `showHidden`, `maxChars` (print
@@ -48,6 +55,12 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
 - `sleep(ms)`, `display(value)`, `console`.
 - `session`: `name(label)` labels this session's tabs; `keep(page)` keeps a
   tab after a one-shot run; `id`; `guide()` returns this text.
+- `page.exportContent()` writes the page as Markdown and returns the file's
+  path; `{ format: "pdf" }` (or `md`, `docx`, `xlsx`, `csv`, `pptx`, ...)
+  exports a Google Docs, Sheets or Slides tab; `{ transcript: true }` writes a
+  YouTube watch page's captions as text.
+- To drop files on a drop zone:
+  `locator.dispatchEvent("drop", { dataTransfer: { files: [path or { name, mimeType, buffer }] } })`.
 
 ## Snapshot
 

@@ -24,18 +24,19 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `tabs.list` | | `[{ targetId, title, url, active, windowId, openerTargetId? }]` in window order |
+| `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, openerTargetId? }]` in window order; with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). Any listed tab is a valid `targetId` for the other methods. |
 | `tabs.open` | `{ url?, background? }` | `{ targetId }`; resolves after commit of `url` |
 | `tabs.close` | `{ targetId, runBeforeUnload? }` | |
 | `tabs.activate` | `{ targetId }` | |
 | `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }` |
-| `tab.history` | `{ targetId, delta: -1\|1, waitUntil, timeoutMs }` | `{ url }`, or `null` when no entry |
-| `tab.reload` | `{ targetId, waitUntil, timeoutMs }` | |
-| `tab.info` | `{ targetId }` | `{ url, title, loadState, viewport: { width, height }, deviceScaleFactor }` |
+| `tab.history` | `{ targetId, delta: -1\|1, waitUntil, timeoutMs }` | `{ url }`, or `null` when no entry (the blank page a tab opened on is not an entry) |
+| `tab.reload` | `{ targetId, waitUntil, timeoutMs }` | `{ status? }` |
+| `tab.info` | `{ targetId }` | `{ url, title, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId? }` |
 | `tab.setViewport` | `{ targetId, width, height }` or `{ targetId, reset: true }` | |
 | `tab.bringToFront` | `{ targetId }` | |
 | `tab.keep` | `{ targetId }` | |
 | `session.name` | `{ name }` | |
+| `history.search` | `{ queries?, from?, to?, limit }` (times in ms since the epoch) | `[{ url, title, dateVisited }]` newest first, from the history of the profiles the workspace's tabs use |
 
 Tabs the session opened (`tabs.open`, popups) close when the session ends;
 `tab.keep` releases one so it stays open. `session.name` shows the tabs the
@@ -103,6 +104,7 @@ Every event carries `targetId`.
 | --- | --- |
 | `tab.created` | `{ targetId, openerTargetId?, url }` (popups and `target=_blank`) |
 | `tab.closed` | |
+| `tab.crashed` | (the web content process ended; calls other than navigation fail until a reload or navigation starts a new one) |
 | `tab.navigated` | `{ frameId, url, sameDocument }` |
 | `tab.loadState` | `{ state: "domcontentloaded"\|"load"\|"networkidle" }` |
 | `dialog.opened` | `{ dialogId, type: "alert"\|"confirm"\|"prompt"\|"beforeunload", message, defaultValue }` (stays open until `dialog.respond`) |

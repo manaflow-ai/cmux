@@ -578,7 +578,19 @@
   const MODIFIERS = ["Alt", "Control", "Meta", "Shift"];
 
   // "Shift+KeyC" -> ["Shift", "KeyC"]; a trailing "+" is the plus key.
+  // Modifier names for a pointer action: Playwright's four plus ControlOrMeta.
+  function normalizeModifiers(list) {
+    if (list === undefined || list === null) return [];
+    if (!Array.isArray(list)) throw new Error("modifiers: expected an array of Alt, Control, ControlOrMeta, Meta, Shift");
+    return list.map((m) => {
+      if (m === "ControlOrMeta") return "Meta";
+      if (!["Alt", "Control", "Meta", "Shift"].includes(m)) throw new Error(`modifiers: unknown modifier ${JSON.stringify(m)}; expected Alt, Control, ControlOrMeta, Meta or Shift`);
+      return m;
+    });
+  }
+
   function splitKeyCombo(combo) {
+    if (typeof combo !== "string" || !combo) throw new Error(`key: expected a non-empty string, got ${JSON.stringify(combo)}`);
     const keys = [];
     let building = "";
     for (const ch of combo) {
@@ -594,6 +606,9 @@
   // Resolves a Playwright key name to a key description given the held
   // modifiers, following Playwright's keyboard rules.
   function describeKey(name, modifiers) {
+    if (typeof name !== "string" || !name) throw new Error(`key: expected a non-empty string, got ${JSON.stringify(name)}`);
+    // Playwright's ControlOrMeta is Meta on macOS.
+    if (name === "ControlOrMeta") name = "Meta";
     const def = KEYS[name];
     if (!def) {
       if ([...name].length === 1) return { key: name, code: "", keyCode: 0, text: name, location: 0 };
@@ -679,6 +694,8 @@
       this.host = host;
       this.files = files || null;
       this.pages = new Map();
+      // Tabs that closed; calls on them fail like Playwright's closed page.
+      this.closedTargets = new Set();
       this.defaultTimeout = DEFAULT_TIMEOUT;
       this.defaultNavigationTimeout = DEFAULT_TIMEOUT;
       this.errors = [];
@@ -687,6 +704,7 @@
       const route = (event, fn) => this._unsubscribe.push(driver.on(event, (payload) => fn(payload || {})));
       route("tab.created", (p) => this._onTabCreated(p));
       route("tab.closed", (p) => this._page(p.targetId, false) && this._page(p.targetId)._onClosed());
+      route("tab.crashed", (p) => this._forward(p, "_onCrashed"));
       route("tab.navigated", (p) => this._forward(p, "_onNavigated"));
       route("tab.loadState", (p) => this._forward(p, "_onLoadState"));
       route("dialog.opened", (p) => this._forward(p, "_onDialog"));
@@ -702,6 +720,15 @@
     // A lazy page has no tab until its first driver call opens one, so `page`
     // is usable the moment a session starts.
     async call(method, params) {
+      if (params && typeof params.targetId === "string" && this.closedTargets.has(params.targetId)) {
+        throw new Error(`${method}: Target page, context or browser has been closed`);
+      }
+      const crashed = params && typeof params.targetId === "string" && this.pages.get(params.targetId);
+      if (crashed && crashed._crashed) {
+        // A crashed page answers only what starts a new web process.
+        if (["tab.navigate", "tab.reload", "tab.history"].includes(method)) crashed._crashed = false;
+        else if (!["tabs.close", "tab.info", "tabs.activate", "tab.bringToFront", "tab.keep"].includes(method)) throw new Error(`${method}: Target crashed; call page.reload() or page.goto() to load it again`);
+      }
       if (params && typeof params.targetId === "string" && params.targetId.startsWith("lazy:")) {
         const page = this.pages.get(params.targetId);
         if (page) params = Object.assign({}, params, { targetId: await this._materialize(page) });
@@ -780,9 +807,19 @@
     let lastLog = "";
     for (;;) {
       try {
-        const r = await fn();
-        if (r && r.done) return r.value;
-        if (r && r.log) lastLog = r.log;
+        // An attempt that does not answer (a page still loading, a busy main
+        // thread) must not outlive the timeout; it is abandoned at the deadline.
+        let timer;
+        const expired = {};
+        const r = deadline === Infinity
+          ? await fn()
+          : await Promise.race([fn(), new Promise((resolve) => (timer = session.host.setTimeout(() => resolve(expired), Math.max(0, deadline - session.now()))))]);
+        if (timer !== undefined && session.host.clearTimeout) session.host.clearTimeout(timer);
+        if (r === expired) lastLog = lastLog || "the page did not answer";
+        else {
+          if (r && r.done) return r.value;
+          if (r && r.log) lastLog = r.log;
+        }
       } catch (e) {
         if (!["stale", "not_found"].includes(driverErrorCode(e))) throw e;
         lastLog = e.message;
@@ -1042,6 +1079,7 @@
       return this._page.waitForURL(url, options);
     }
     waitForTimeout(ms) {
+      if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return Promise.reject(new Error(`waitForTimeout: timeout: expected a non-negative number, got ${JSON.stringify(ms)}`));
       return this._session.sleep(ms);
     }
   }
@@ -1211,7 +1249,7 @@
       const steps = options.steps || 1;
       const path = [{ x: from.x, y: from.y }];
       for (let i = 1; i <= steps; i++) path.push({ x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps });
-      await this._page._input("input.drag", { targetId: this._page._targetId, path, button: "left", modifiers: options.modifiers || [] });
+      await this._page._input("input.drag", { targetId: this._page._targetId, path, button: "left", modifiers: normalizeModifiers(options.modifiers) });
       this._page.mouse._x = to.x;
       this._page.mouse._y = to.y;
       await this._page._afterAction();
@@ -1313,6 +1351,30 @@
       await this._withElement(options, "locator.blur", [], (frame, handle) => frame._agent("blur", handle));
     }
     async dispatchEvent(type, eventInit, options = {}) {
+      const dt = eventInit && eventInit.dataTransfer;
+      if (dt && typeof dt === "object" && !Array.isArray(dt)) {
+        // A drag event whose dataTransfer is described as { files, data }:
+        // files as for setInputFiles (paths or { name, mimeType, buffer }),
+        // data as { mimeType: string }. The page builds a real DataTransfer,
+        // so a drop zone receives files the way a person's drop delivers them.
+        const files = await this._page._filePayloads(dt.files);
+        const data = dt.data || {};
+        const init = { ...eventInit };
+        delete init.dataTransfer;
+        await this._withElement(options, "locator.dispatchEvent", [], (frame, handle) =>
+          frame._call("page", `(el, type, init, files, data) => {
+            const transfer = new DataTransfer();
+            for (const f of files) {
+              const bin = atob(f.base64);
+              const bytes = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+              transfer.items.add(new File([bytes], f.name, { type: f.mimeType }));
+            }
+            for (const [mime, value] of Object.entries(data)) transfer.setData(mime, String(value));
+            el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, composed: true, ...init, dataTransfer: transfer }));
+          }`, [type, init, files, data], [handle]));
+        return;
+      }
       await this._withElement(options, "locator.dispatchEvent", [], (frame, handle) => frame._agent("dispatchEvent", handle, type, eventInit || {}));
     }
     async selectText(options = {}) {
@@ -1387,6 +1449,9 @@
     }
     async waitFor(options = {}) {
       const state = options.state || "visible";
+      if (!["attached", "detached", "visible", "hidden"].includes(state)) {
+        throw new Error(`locator.waitFor: state: expected one of (attached|detached|visible|hidden)`);
+      }
       const timeout = this._timeout(options);
       await poll(this._session, timeout, "locator.waitFor", async () => {
         const r = await this._resolveAll().catch((e) => {
@@ -1400,7 +1465,9 @@
         if (state === "attached") return { done: handles.length > 0 };
         if (state === "detached") return { done: handles.length === 0 };
         const visible = handles.length ? (await r.frame._agent("elementState", handles[0], "visible")).matches : false;
-        return { done: state === "visible" ? visible : !visible, log: `waiting for ${this} to be ${state}` };
+        // Say what the locator found, as Playwright's call log does.
+        const found = !handles.length ? "" : visible ? "\n  - locator resolved to visible element" : "\n  - locator resolved to hidden element";
+        return { done: state === "visible" ? visible : !visible, log: `waiting for ${this} to be ${state}${found}` };
       });
     }
     async evaluate(fn, arg, options) {
@@ -1483,6 +1550,7 @@
       return new Locator(this._frame, this._selector + " >> nth=-1");
     }
     nth(index) {
+      if (!Number.isInteger(index)) throw new Error(`locator.nth: index: expected an integer, got ${JSON.stringify(index)}`);
       return new Locator(this._frame, this._selector + ` >> nth=${index}`);
     }
     and(locator) {
@@ -1617,6 +1685,7 @@
       await this._send("up", desc);
     }
     async insertText(text) {
+      if (typeof text !== "string") throw new Error(`keyboard.insertText: text: expected string, got ${typeof text}`);
       await this._page._input("input.insertText", { targetId: this._page._targetId, text });
     }
     async press(combo, options = {}) {
@@ -1636,12 +1705,17 @@
       await this._send("up", desc, detached);
     }
     async type(text, options = {}) {
+      if (typeof text !== "string") throw new Error(`keyboard.type: text: expected string, got ${typeof text}`);
       for (const ch of text) {
         if (KEYS[ch]) await this.press(ch, options);
         else await this.insertText(ch);
         if (options.delay) await this._page._session.sleep(options.delay);
       }
     }
+  }
+
+  function checkPoint(title, x, y) {
+    if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`${title}: x and y: expected numbers, got ${JSON.stringify(x)}, ${JSON.stringify(y)}`);
   }
 
   class Mouse {
@@ -1664,13 +1738,14 @@
       }, detached);
     }
     async move(x, y, options = {}) {
+      checkPoint("mouse.move", x, y);
       const steps = options.steps || 1;
       const fromX = this._x;
       const fromY = this._y;
       for (let i = 1; i <= steps; i++) {
         this._x = fromX + ((x - fromX) * i) / steps;
         this._y = fromY + ((y - fromY) * i) / steps;
-        await this._event("move", options.modifiers ? { modifiers: options.modifiers } : {});
+        await this._event("move", options.modifiers ? { modifiers: normalizeModifiers(options.modifiers) } : {});
       }
     }
     async down(options = {}) {
@@ -1684,6 +1759,7 @@
       await this._event("up", { button, clickCount: options.clickCount || 1 }, !!this._page._heldDialog);
     }
     async click(x, y, options = {}) {
+      checkPoint("mouse.click", x, y);
       await this.move(x, y);
       const count = options.clickCount || 1;
       for (let i = 1; i <= count; i++) {
@@ -1698,6 +1774,7 @@
       return this.click(x, y, { ...options, clickCount: 2 });
     }
     async wheel(deltaX, deltaY) {
+      if (typeof deltaX !== "number" || typeof deltaY !== "number" || !Number.isFinite(deltaX) || !Number.isFinite(deltaY)) throw new Error(`mouse.wheel: deltaX and deltaY: expected numbers, got ${JSON.stringify(deltaX)}, ${JSON.stringify(deltaY)}`);
       await this._event("wheel", { deltaX, deltaY });
     }
   }
@@ -1725,6 +1802,9 @@
     }
     async _respond(accept, promptText) {
       if (this._handled) throw new Error("Cannot accept dialog which is already handled!");
+      // Validate before answering: a rejected answer must leave the dialog
+      // open and known, or the page stays blocked with no dialog to answer.
+      if (promptText !== undefined && typeof promptText !== "string") throw new Error(`dialog.accept: promptText: expected string, got ${typeof promptText}`);
       this._handled = true;
       if (this._page._heldDialog === this) this._page._heldDialog = null;
       if (this._page._listenedDialog === this) this._page._listenedDialog = null;
@@ -1851,16 +1931,27 @@
       const text = (items || []).find((i) => i.type === "text/plain");
       return text ? Buffer.from(text.base64, "base64").toString("utf8") : "";
     }
+    // Items are { type, data } (data a string or bytes), or
+    // { entries: [{ mimeType, text | data }] } as ChatGPT for Chrome writes
+    // them; every entry of every item lands on the clipboard.
     async write(items) {
-      await this._call("clipboard.write", {
-        items: [].concat(items).map((i) => ({
-          type: i.type || "text/plain",
-          base64: Buffer.from(i.data !== undefined ? i.data : i.text !== undefined ? i.text : "").toString("base64"),
-        })),
-      });
+      const list = [].concat(items === undefined ? [] : items);
+      const flat = [];
+      for (const i of list) {
+        if (!i || typeof i !== "object") throw new Error(`clipboard.write: items: expected objects, got ${JSON.stringify(i)}`);
+        for (const e of Array.isArray(i.entries) ? i.entries : [i]) {
+          const type = e.type || e.mimeType || "text/plain";
+          const value = e.data !== undefined ? e.data : e.text;
+          if (value === undefined || value === null) throw new Error(`clipboard.write: item ${JSON.stringify(type)} has no data or text`);
+          flat.push({ type, base64: Buffer.from(typeof value === "string" ? value : value).toString("base64") });
+        }
+      }
+      if (!flat.length) throw new Error("clipboard.write: expected at least one clipboard item, got none");
+      await this._call("clipboard.write", { items: flat });
     }
     async writeText(text) {
-      await this.write([{ type: "text/plain", data: String(text) }]);
+      if (typeof text !== "string") throw new Error(`clipboard.writeText: text: expected string, got ${typeof text}`);
+      await this.write([{ type: "text/plain", data: text }]);
     }
   }
 
@@ -2102,7 +2193,7 @@
       if (!this._heldDialog) await this._refreshFrames().catch(() => {});
     }
     async _syncInfo() {
-      if (this._closed) return;
+      if (this._closed) throw new Error("Target page, context or browser has been closed");
       const info = await this._session.call("tab.info", { targetId: this._targetId });
       this._url = info.url;
       this._title = info.title;
@@ -2112,7 +2203,7 @@
     async _clickAt(target, options) {
       const button = options.button || "left";
       const count = options.clickCount || 1;
-      const modifiers = options.modifiers || [];
+      const modifiers = normalizeModifiers(options.modifiers);
       const call = (type, extra, detached) => this._input("input.mouse", {
         targetId: this._targetId, type, x: target.x, y: target.y, button, clickCount: 0, modifiers, ...extra,
       }, detached);
@@ -2148,10 +2239,17 @@
     }
 
     // Driver events
+    // The web content process died. Like Playwright's page 'crash': calls
+    // fail until the page navigates or reloads, which starts a new process.
+    _onCrashed() {
+      this._crashed = true;
+      this.emit("crash", this);
+    }
     _onClosed() {
       if (this._closed) return;
       this._closed = true;
       this._session.pages.delete(this._targetId);
+      this._session.closedTargets.add(this._targetId);
       this.emit("close", this);
     }
     _onNavigated(p) {
@@ -2250,6 +2348,12 @@
       return { multiple: c.isMultiple(), setFiles: (files) => c.setFiles(files), cancel: () => c.cancel() };
     }
     async consoleMessages(options = {}) {
+      const LEVELS = ["log", "debug", "info", "error", "warning", "dir", "dirxml", "table", "trace", "clear", "startGroup", "startGroupCollapsed", "endGroup", "assert", "profile", "profileEnd", "count", "timeEnd"];
+      if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit < 1)) throw new Error(`page.consoleMessages: limit must be a positive integer, got ${JSON.stringify(options.limit)}`);
+      if (options.filter !== undefined && typeof options.filter !== "string" && !isRegExp(options.filter)) throw new Error("page.consoleMessages: filter must be a string or a RegExp");
+      for (const l of options.level === undefined ? [] : [].concat(options.level)) {
+        if (!LEVELS.includes(l === "warn" ? "warning" : l)) throw new Error(`page.consoleMessages: invalid level ${JSON.stringify(l)}; expected one of log, debug, info, warning, error`);
+      }
       let list = this._consoleHistory.slice();
       if (options.level) {
         const levels = [].concat(options.level).map((l) => (l === "warn" ? "warning" : l));
@@ -2351,8 +2455,9 @@
       return status === undefined ? null : new Response(this, { url: this._url, status }, null);
     }
     async reload(options) {
-      await this._navigate("tab.reload", {}, options);
-      return null;
+      const r = await this._navigate("tab.reload", {}, options);
+      const status = r && r.status;
+      return status === undefined ? null : new Response(this, { url: this._url, status }, null);
     }
     async goBack(options) {
       const r = await this._navigate("tab.history", { delta: -1 }, options);
@@ -2404,6 +2509,9 @@
       this._session.defaultNavigationTimeout = ms;
     }
     async waitForLoadState(state = "load", options = {}) {
+      if (!["load", "domcontentloaded", "networkidle", "commit"].includes(state)) {
+        throw new Error(`page.waitForLoadState: state: expected one of (load|domcontentloaded|networkidle|commit)`);
+      }
       const want = state === "networkidle" ? "load" : state;
       const rank = { commit: 0, domcontentloaded: 1, load: 2 };
       const timeout = options.timeout !== undefined ? options.timeout : this._session.defaultNavigationTimeout;
@@ -2430,6 +2538,7 @@
       return null;
     }
     waitForTimeout(ms) {
+      if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return Promise.reject(new Error(`waitForTimeout: timeout: expected a non-negative number, got ${JSON.stringify(ms)}`));
       return this._session.sleep(ms);
     }
     waitForFunction(fn, arg, options) {
@@ -2483,6 +2592,18 @@
       return this.waitForEvent("response", { ...options, predicate: pred });
     }
     async screenshot(options = {}) {
+      if (options.type !== undefined && !["png", "jpeg"].includes(options.type)) {
+        throw new Error(`page.screenshot: options.type: expected one of (png|jpeg)`);
+      }
+      if (options.clip !== undefined) {
+        for (const k of ["x", "y", "width", "height"]) {
+          if (typeof options.clip[k] !== "number" || !Number.isFinite(options.clip[k])) throw new Error(`page.screenshot: Expected options.clip.${k} to be a number`);
+        }
+        if (options.clip.width <= 0 || options.clip.height <= 0) throw new Error("page.screenshot: Expected options.clip.width and height to be positive");
+      }
+      if (options.quality !== undefined && (options.type || "png") === "png" && !(options.path && /\.jpe?g$/i.test(options.path))) {
+        throw new Error("page.screenshot: options.quality is unsupported for the png screenshots");
+      }
       const format = options.type || (options.path && /\.jpe?g$/i.test(options.path) ? "jpeg" : "png");
       const r = await this._session.call("tab.screenshot", {
         targetId: this._targetId,
@@ -2512,6 +2633,26 @@
     async _writeFile(path, bytes) {
       if (!this._session.files) throw new Error("Writing files is not available in this session");
       await this._session.files.write(path, bytes);
+    }
+    // Writes this tab's content to a file and returns its path
+    // (docs/browser-repl/README.md, Page additions): the page as Markdown by
+    // default; `{ format }` exports a Google Docs, Sheets or Slides tab through
+    // Google's export endpoint; `{ transcript: true }` writes a YouTube watch
+    // page's captions as text. Requests carry this tab's cookies.
+    async exportContent(options = {}) {
+      if (options === null || typeof options !== "object") throw new Error(`page.exportContent: options: expected an object, got ${JSON.stringify(options)}`);
+      const exporter = this._session.exporter;
+      if (!exporter) throw new Error("page.exportContent is not supported in this session");
+      const url = this.url();
+      if (options.transcript) return exporter.youtubeTranscript(this, url, options);
+      if (options.format !== undefined) return exporter.google(this, url, options);
+      return exporter.markdown(this, options);
+    }
+    // The web content process that renders this tab (tests kill it to prove
+    // crash recovery); null when the driver cannot tell.
+    async _webProcessId() {
+      const info = await this._syncInfo();
+      return typeof info.webProcessId === "number" ? info.webProcessId : null;
     }
     async setViewportSize(size) {
       await this._session.call("tab.setViewport", { targetId: this._targetId, width: size.width, height: size.height });

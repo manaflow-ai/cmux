@@ -1,14 +1,7 @@
+import { errorsBetter as errBetter } from "../lib.mjs";
 // Raw input and element actions by index: Aside Keyboard.* and Mouse.*;
 // ChatGPT AXAPI.*, CUAAPI.*, DomCUAAPI.* (legacy mode) and the clipboard.
 const LAB = "/diff/lab.html";
-const errBetter = {
-  reason: "cmux reports the failing check (a specific error class) where the reference reports a generic failure",
-  check: (c, r, h) => Object.keys(c).every((k) => {
-    const a = c[k]?.error, b = r[k]?.error;
-    if (a === undefined || b === undefined) return JSON.stringify(h.comparable(c[k])) === JSON.stringify(h.comparable(r[k]));
-    return h.classifyError(a) === h.classifyError(b) || (h.isSpecific(h.classifyError(a)) && !h.isSpecific(h.classifyError(b)));
-  }),
-};
 // AX index of the first state line matching `role label`.
 const AXI = `const axi = async (re) => { const s = await t.ax.get("state", { disableDiffing: true }); const m = s.match(re); if (!m) throw new Error("AX index missing: " + re); return Number(m[1]); };`;
 const CENTER = `const center = async (s) => { const b = await $P.locator(s).evaluate((e) => { const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }); return { x: Math.round(b[0]), y: Math.round(b[1]) }; };`;

@@ -1,15 +1,8 @@
+import { errorsBetter as errBetter } from "../lib.mjs";
 // Dialogs, file choosers, navigation expectations, content extraction,
 // history and capabilities: ChatGPT Tab/Dialog/Content/Browser members and
 // the Aside Page members that share them.
 const DIALOGS = "/dialogs.html";
-const errBetter = {
-  reason: "cmux reports the failing check (a specific error class) where the reference reports a generic failure",
-  check: (c, r, h) => Object.keys(c).every((k) => {
-    const a = c[k]?.error, b = r[k]?.error;
-    if (a === undefined || b === undefined) return JSON.stringify(h.comparable(c[k])) === JSON.stringify(h.comparable(r[k]));
-    return h.classifyError(a) === h.classifyError(b) || (h.isSpecific(h.classifyError(a)) && !h.isSpecific(h.classifyError(b)));
-  }),
-};
 // ChatGPT: click without awaiting (the click blocks while the dialog is
 // open), then poll getJsDialog.
 const CG_OPEN = `const open = async (s) => { const click = $P.locator(s).click().catch(() => {}); let d; for (let i = 0; i < 100 && !d; i++) { d = await t.getJsDialog(); if (!d) await pause(20); } return { d, click }; };`;

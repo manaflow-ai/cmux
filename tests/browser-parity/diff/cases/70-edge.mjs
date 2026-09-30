@@ -1,3 +1,4 @@
+import { errorsBetter as errBetter } from "../lib.mjs";
 // Edge-case catalog (docs/browser-repl/edge-cases.md). Each case names its
 // catalog id in `edge`. References run a case only inside their approved
 // scope: ChatGPT on the one approved 127.0.0.1 origin, Aside on loopback
@@ -317,8 +318,8 @@ out.badDate = await E(() => $P.locator("#date").fill("not a date"));
 return out;`,
     compare: ["date", "time", "dtl", "color", "range", "number", "badDate"],
     better: {
-      aside: errBetter(),
-      chatgpt: errBetter(),
+      aside: errBetter,
+      chatgpt: errBetter,
     },
     expect: { date: "2026-09-30", time: "13:45", dtl: "2026-09-30T13:45", color: "#ff0000", range: "70", number: "42", badDate: { error: "invalid-arg" }, accept: "parity.png", acceptOther: "parity-upload.txt" },
   },
@@ -753,13 +754,3 @@ return { hasLast: tree.includes("Pick 4999"), picked: await $P.locator("#picked"
   },
 ];
 
-function errBetter() {
-  return {
-    reason: "cmux reports the failing check (a specific error class) where the reference reports a generic failure",
-    check: (c, r, h) => Object.keys(c).every((k) => {
-      const a = c[k]?.error, b = r[k]?.error;
-      if (a === undefined || b === undefined) return JSON.stringify(h.comparable(c[k])) === JSON.stringify(h.comparable(r[k]));
-      return h.classifyError(a) === h.classifyError(b) || (h.isSpecific(h.classifyError(a)) && !h.isSpecific(h.classifyError(b)));
-    }),
-  };
-}

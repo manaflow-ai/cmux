@@ -6,10 +6,13 @@ of Aside's `aside repl` and ChatGPT for Chrome (the Codex `browser`/`chrome`
 plugins), and improves on both where they differ. It does not copy either
 surface: there are no dialects, no `agent` object, and no numbered AX text.
 
-Capability coverage is enforced by
-[capabilities.json](../../tests/browser-parity/capabilities.json): every
-reference member maps to a cmux equivalent and the scenario that proves it, or
-to a written exclusion.
+Parity is enforced by
+[capabilities.json](../../tests/browser-parity/capabilities.json) and the
+differential cases in
+[tests/browser-parity/diff](../../tests/browser-parity/diff): every reference
+member maps to a cmux equivalent and to cases that run the same task in cmux,
+Aside and ChatGPT for Chrome, and no case may leave cmux worse than a
+reference ([parity-report.md](parity-report.md)).
 
 ## Principles
 
@@ -33,7 +36,7 @@ to a written exclusion.
 | Global | Purpose |
 | --- | --- |
 | `page` | The current tab, a Playwright `Page`. |
-| `tabs` | `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`, `get(id)`. `list()` returns `{ id, title, url, active, current }` without attaching; `open`, `current`, `use` and `get` return a `Page` with a stable `page.id`. |
+| `tabs` | `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`, `get(id)`. `list()` returns `{ id, title, url, active, current }` without attaching; `list({ all: true })` adds tabs in the user's other workspaces and windows, which `use(id)` attaches (ChatGPT's `claimTab`). `open`, `current`, `use` and `get` return a `Page` with a stable `page.id`. `content({ urls, format })` loads URLs in background tabs and extracts text, Markdown, HTML or a snapshot. `history({ query, from, to, limit })` searches cmux browser history. |
 | `snapshot(target?, options?)` | Accessibility snapshot of `page`, a locator, or a ref string. See [Snapshot](#snapshot). |
 | `screenshot(target?, options?)` | PNG of the viewport, full page, locator or ref. `{ annotate: true }` draws each ref's box and label. Returns an `Image` that displays when printed. |
 | `fetch` | Standard `fetch` that sends the current tab's cookies. |
@@ -52,6 +55,8 @@ to a written exclusion.
 | `page.clipboard` | `readText()`, `writeText(text)`, `read()`, `write(items)` on a per-tab clipboard used by paste. | ChatGPT `clipboard` |
 | `page.elementAt(x, y)` | `{ ref, role, name, box }` for the topmost element at a viewport point. | ChatGPT `elementInfo()` |
 | `page.keep()` | Keep this tab open after a one-shot run. | ChatGPT `markDeliverable()` |
+| `page.exportContent(options)` | Write the page as Markdown, a Google Docs/Sheets/Slides tab in an export format (`{ format }`), or a YouTube watch page's captions (`{ transcript: true }`) to a file; returns the path. | ChatGPT `content.export*` |
+| `locator.dispatchEvent("drop", { dataTransfer: { files, data } })` | Build a real `DataTransfer` in the page and dispatch a drag event with it, so drop zones receive files. | Playwright's `evaluateHandle` recipe |
 
 Everything else uses standard Playwright: `page.mouse` replaces ChatGPT `cua`
 coordinates, `page.on("popup")`, `waitForEvent("download")`, `page.pdf()`,
@@ -289,13 +294,17 @@ rest. Measurements: [performance.md](performance.md).
 
 - **Site integrations** (Aside `gmail`, `slack`, `notion`, `imessage`, …),
   password managers, CAPTCHA solving, `aside exec`: outside browser operation.
-- **Raw CDP** (ChatGPT `tab.capabilities.cdp`) and request interception: WebKit
-  has no CDP. ChatGPT disables both by default in its own backends. A Chromium
-  engine would add them as `page.cdp`.
-- **ChatGPT `tabs.content`, `content.exportGsuite`, `exportYouTubeTranscript`,
-  `pageAssets`, `webmcp`, `browser.history`, `browser.user.claimTab`**: product
-  features outside the REPL's browser-operation scope; listed per member in
-  capabilities.json.
+- **Raw CDP** (ChatGPT `browser.capabilities`' `cdp`) and request interception:
+  WebKit has no DevTools protocol. ChatGPT for Chrome withholds both by
+  default too (`browser.capabilities` in the parity cases records that). A
+  Chromium engine would add them as `page.cdp`.
+
+Everything else ChatGPT for Chrome documents has a cmux equivalent, including
+`browser.history` (`tabs.history`), `user.claimTab` (`tabs.list({ all: true })`
+and `tabs.use`), `tabs.content` and the content exports
+(`page.exportContent`). [parity-report.md](parity-report.md) lists every
+member's differential cases and verdicts; [edge-cases.md](edge-cases.md)
+the edge cases.
 
 ## Architecture
 
