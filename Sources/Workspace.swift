@@ -4795,7 +4795,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     func markTabStripMiddleClickClose(surfaceId: TabID) {
         markExplicitClose(surfaceId: surfaceId)
-        tabStripCloseButtonByTabId[surfaceId] = false
+        // Middle-click is the tab-strip equivalent of the inline x button. Keep
+        // it on that close path so the x-button warning and agent-session safety
+        // prompt are applied consistently.
+        tabStripCloseButtonByTabId[surfaceId] = true
     }
     @discardableResult
     func markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(surfaceId: TabID, tabStripClose: Bool, tabCloseButton: Bool, explicitUserClose: Bool = false) -> Bool {

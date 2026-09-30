@@ -359,7 +359,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.bonsplitController.delegate = self
         self.bonsplitController.contextMenuShortcuts = Workspace.buildContextMenuShortcuts()
         self.bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
-            guard source == .closeButton else { return }
+            guard source == .closeButton || source == .middleClick else { return }
+            // Both pointer close gestures use the explicit tab-close path. This
+            // preserves the close warning and closed-surface history behavior.
             self?.tabCloseButtonCloseDockTabIds.insert(tabId)
         }
         self.bonsplitController.onTabZoomToggleRequest = { [weak self] _, paneId in
