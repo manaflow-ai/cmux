@@ -28,7 +28,12 @@ public struct SSHPTYAttachReplayOutputStream: Sendable {
     ///   - suppressingReplay: Whether this managed attempt hides the replay
     ///     prefix an earlier attempt already rendered.
     public mutating func terminalOutput(from data: Data, suppressingReplay: Bool) -> Data {
-        queryFilter.filter(progress.terminalOutput(from: data, suppressingReplay: suppressingReplay))
+        let suppressedBefore = progress.suppressedReplayBytes
+        let output = progress.terminalOutput(from: data, suppressingReplay: suppressingReplay)
+        // Suppressed bytes are a replay prefix: they precede everything
+        // returned here, so move the filter's boundary before filtering.
+        queryFilter.skipReplayBytes(progress.suppressedReplayBytes - suppressedBefore)
+        return queryFilter.filter(output)
     }
 
     /// Ends the replay hold after the caller's replay deadline expired.

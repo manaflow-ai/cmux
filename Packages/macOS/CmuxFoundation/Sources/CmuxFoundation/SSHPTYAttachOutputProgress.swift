@@ -23,6 +23,15 @@ public struct SSHPTYAttachOutputProgress: Sendable {
     /// Declared replay bytes that actually arrived from the bridge.
     public private(set) var deliveredReplayBytes = 0
 
+    /// Replay bytes withheld from the terminal for good as a duplicate of
+    /// what an earlier attempt rendered.
+    ///
+    /// A prefix candidate still awaiting validation is not counted: it is
+    /// either forwarded (validation failed) or counted once it is proven
+    /// duplicate. Downstream consumers that count replay bytes in the
+    /// forwarded stream advance their boundary by this amount.
+    public private(set) var suppressedReplayBytes = 0
+
     /// Whether any output arrived after the initial replay boundary.
     public private(set) var receivedLiveOutput = false
 
@@ -124,7 +133,9 @@ public struct SSHPTYAttachOutputProgress: Sendable {
             let candidate = replayPrefixCandidate
             replayPrefixCandidate.removeAll(keepingCapacity: false)
             replayBytesToSuppressRemaining = 0
-            if !matches {
+            if matches {
+                suppressedReplayBytes += candidate.count
+            } else {
                 // The bounded snapshot rolled over (or the session was
                 // replaced), so none of the new snapshot can be proven
                 // duplicate.
@@ -164,6 +175,7 @@ public struct SSHPTYAttachOutputProgress: Sendable {
             : 0
         if suppressingReplay {
             replayBytesToSuppressRemaining -= suppressBytes
+            suppressedReplayBytes += min(suppressBytes, replayChunkBytes)
             // A partially suppressed replay contains a suffix that was
             // produced after the previous attach. It is live from the pane's
             // perspective even though the daemon labels the whole snapshot

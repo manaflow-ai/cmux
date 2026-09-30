@@ -104,6 +104,20 @@ public struct SSHPTYReplayOutputFilter: Sendable {
         return output
     }
 
+    /// Shrinks the replay boundary by replay bytes that were dropped before
+    /// reaching this filter.
+    ///
+    /// The declared replay length counts every replay byte, but a managed
+    /// reconnect removes the prefix an earlier attempt already rendered
+    /// before filtering. Without this, the filter would treat that many bytes
+    /// of later live output as replay and strip their queries.
+    ///
+    /// - Parameter count: Replay bytes removed upstream of this filter.
+    public mutating func skipReplayBytes(_ count: Int) {
+        guard count > 0 else { return }
+        replayBytesRemaining = max(0, replayBytesRemaining - count)
+    }
+
     /// Flushes an unterminated candidate when the bridge closes.
     ///
     /// Unterminated bytes cannot produce a terminal response, so they are
