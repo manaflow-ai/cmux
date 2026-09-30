@@ -15,7 +15,10 @@ final class DaemonService {
     let store = DaemonStore()
     private(set) var connection: DaemonConnection?
     private(set) var windowState: WindowStateStore?
-    private(set) var identity: DaemonIdentity?
+    /// The current (or last) daemon's identity. The store owns it and
+    /// replaces it on every handshake, so capabilities follow a daemon that
+    /// restarted or was handed off to a newer build after the first connect.
+    var identity: DaemonIdentity? { store.identity }
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private var reconciling: Task<Void, Never>?
     @ObservationIgnored private var queuedReconcile: Task<Void, Never>?
@@ -116,7 +119,7 @@ final class DaemonService {
 
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         self.connection = connection
-        self.identity = identity
+        store.noteHandshake(identity)
         startupDeadlineTask?.cancel()
         startupDeadlineTask = nil
         lastStartupError = nil

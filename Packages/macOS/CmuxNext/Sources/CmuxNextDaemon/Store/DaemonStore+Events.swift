@@ -46,6 +46,7 @@ extension DaemonStore {
         switch event {
         case .connected(let identity, _):
             connectionState = .connected(identity)
+            noteHandshake(identity)
             return .resync
         case .disconnected(let reason):
             connectionState = .disconnected(reason)

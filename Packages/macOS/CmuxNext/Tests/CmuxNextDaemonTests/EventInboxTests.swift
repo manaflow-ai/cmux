@@ -42,3 +42,26 @@ import Testing
         #expect(inbox.take().map(\.sequence) == [1, 2])
     }
 }
+
+@MainActor @Suite struct StoreIdentityTests {
+    private static func identity(generation: String, capabilities: [String]) throws -> DaemonIdentity {
+        let list = "[" + capabilities.map { "\"\($0)\"" }.joined(separator: ",") + "]"
+        let json = #"{"app":"cmux-tui","version":"0.1.0","protocol":12,"capabilities":\#(list),"session":"t","pid":1,"registry_id":"r","generation":"\#(generation)","workspace_revision":0}"#
+        return try WireCoding.decoder().decode(DaemonIdentity.self, from: Data(json.utf8))
+    }
+
+    /// Regression: the app kept the identity of the first daemon it reached,
+    /// so after the daemon restarted (crash, version handoff) capability
+    /// checks answered for the old one and hid or offered the wrong features.
+    @Test func reconnectToANewDaemonReplacesTheIdentity() throws {
+        let store = DaemonStore()
+        let first = try Self.identity(generation: "A", capabilities: [])
+        let second = try Self.identity(generation: "B", capabilities: [DaemonCapabilities.batchClose])
+        store.apply(.connected(first, generationChanged: false))
+        #expect(store.identity?.supports(DaemonCapabilities.batchClose) == false)
+        store.apply(.disconnected(reason: "eof"))
+        #expect(store.identity == first)
+        store.apply(.connected(second, generationChanged: true))
+        #expect(store.identity?.supports(DaemonCapabilities.batchClose) == true)
+    }
+}
