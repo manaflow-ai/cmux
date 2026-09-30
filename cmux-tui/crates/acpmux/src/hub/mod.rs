@@ -6,12 +6,15 @@
 //! (prompt, cancel, config), `transfer` (export, import), `views` (summaries).
 
 mod lifecycle;
+mod paging;
 pub use lifecycle::{NewRequest, profile_takes_model_at_spawn};
+pub use paging::{EventFilter, EventPage};
 mod peers;
 mod permissions;
 pub mod rules;
 mod transfer;
 mod turns;
+pub(crate) use turns::merge_mux_meta;
 mod views;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
@@ -63,6 +66,33 @@ pub struct TurnInfo {
     pub started_at: u64,
     pub client: String,
     pub prompt_preview: String,
+    /// Stable turn identifier, assigned when the prompt is accepted and
+    /// carried by `queued`, `user_message`, `turn_started` and `turn_result`.
+    pub turn_id: String,
+    /// The client's `_meta.acpmux.promptId`, or one acpmux generated.
+    pub prompt_id: String,
+    /// Sequence of this turn's `turn_started` record.
+    pub turn_seq: u64,
+}
+
+/// A prompt waiting for the running turn to end.
+#[derive(Debug, Clone)]
+pub struct QueuedPrompt {
+    pub prompt_id: String,
+    pub turn_id: String,
+    pub client: String,
+    pub preview: String,
+    pub queued_at: u64,
+}
+
+/// Options for `Hub::prompt_with`.
+#[derive(Default)]
+pub struct PromptOptions {
+    /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
+    pub prompt_id: Option<String>,
+    /// Called once, as soon as the prompt is recorded (queued or started),
+    /// with `{sessionId, promptId, turnId, queued, position?, steer?}`.
+    pub on_accepted: Option<Box<dyn FnOnce(Value) + Send>>,
 }
 
 pub struct Session {
@@ -74,6 +104,7 @@ pub struct Session {
     pub(super) turn_lock: Mutex<()>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
+    pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
     pub(super) pending_permissions: StdMutex<HashMap<String, PendingPermission>>,
     pub(super) rehydrate: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
@@ -103,6 +134,9 @@ impl Session {
     }
     pub fn queued(&self) -> u64 {
         self.queued.load(Ordering::SeqCst)
+    }
+    pub fn queue(&self) -> Vec<QueuedPrompt> {
+        self.queue.lock().unwrap().clone()
     }
     pub fn pending_permissions(&self) -> Vec<(String, Value)> {
         self.pending_permissions
@@ -238,6 +272,7 @@ impl Hub {
             turn_lock: Mutex::new(()),
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
+            queue: StdMutex::new(Vec::new()),
             pending_permissions: StdMutex::new(HashMap::new()),
             rehydrate: AtomicBool::new(false),
             inbound_tx,
@@ -316,6 +351,7 @@ impl Hub {
                 | "turn_end"
                 | "turn_error"
                 | "queued"
+                | "dequeued"
                 | "created"
                 | "tags"
                 | "rules"
@@ -495,16 +531,18 @@ impl Hub {
             let last = session.meta().last_seq;
             let from = last.saturating_sub(400);
             let Ok(events) = self.store.events(&session.id, from, 400) else { continue };
-            let mut open: Option<u64> = None;
+            let mut open: Option<(u64, Value)> = None;
             for e in &events {
                 match e.kind.as_str() {
-                    "turn_started" => open = Some(e.seq),
+                    "turn_started" => {
+                        open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)))
+                    }
                     "turn_result" => open = None,
                     _ => {}
                 }
             }
-            if let Some(seq) = open {
-                self.append(&session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "error": "the daemon restarted before this turn settled"}));
+            if let Some((seq, turn_id)) = open {
+                self.append(&session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": "the daemon restarted before this turn settled"}));
                 self.save_meta(&session);
             }
         }

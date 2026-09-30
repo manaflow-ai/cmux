@@ -151,6 +151,15 @@ pub trait Store: Send + Sync {
     fn append(&self, id: &str, record: &EventRecord) -> Result<()>;
     /// Events with `seq > after`, at most `limit`.
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>>;
+    /// Visit records with `seq > after` in order until `visit` returns false.
+    fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
+        for rec in self.events(id, after, usize::MAX)? {
+            if !visit(rec) {
+                break;
+            }
+        }
+        Ok(())
+    }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -318,6 +327,23 @@ impl Store for LocalStore {
         line.push('\n');
         w.file.write_all(line.as_bytes())?;
         w.written += line.len() as u64;
+        Ok(())
+    }
+
+    fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
+        for (_, path) in self.segments(id)? {
+            let file = File::open(&path)?;
+            for line in BufReader::new(file).lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let Ok(rec) = serde_json::from_str::<EventRecord>(&line) else { continue };
+                if rec.seq > after && !visit(rec) {
+                    return Ok(());
+                }
+            }
+        }
         Ok(())
     }
 

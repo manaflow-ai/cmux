@@ -40,7 +40,12 @@ mod tests {
         ] {
             assert!(methods.contains_key(m), "schema is missing method {m}");
         }
-        for n in [method::MUX_EVENT, method::MUX_SESSION_CHANGED, method::MUX_PERMISSION_PENDING] {
+        for n in [
+            method::MUX_EVENT,
+            method::MUX_SESSION_CHANGED,
+            method::MUX_PERMISSION_PENDING,
+            method::MUX_PROMPT_ACCEPTED,
+        ] {
             assert!(notes.contains_key(n), "schema is missing notification {n}");
         }
     }
