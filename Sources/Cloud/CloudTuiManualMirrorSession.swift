@@ -564,7 +564,6 @@ final class CloudTuiManualMirrorSession {
     }
 
     private func handle(frame: CloudTuiManualIOFrame) {
-        watchdog.noteFrame()
         switch frame {
         case let .snapshot(surfaceID, columns, rows, bytes, colors):
             // This dedicated connection has only one pending attachment. The
@@ -577,24 +576,31 @@ final class CloudTuiManualMirrorSession {
                 inputRouter.updateSurfaceID(surfaceID)
             }
             guard surfaceID == remoteSurfaceID else { return }
+            watchdog.noteFrame()
             applyReplacement(bytes, colors: colors, columns: columns, rows: rows)
         case let .output(surfaceID, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
+            watchdog.noteFrame()
             surface?.processRemoteOutput(bytes)
             applyColors(colors)
         case let .resized(surfaceID, columns, rows, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
+            watchdog.noteFrame()
             applyReplacement(bytes, colors: colors, columns: columns, rows: rows)
         case let .colorsChanged(surfaceID, colors):
             guard surfaceID == remoteSurfaceID else { return }
+            watchdog.noteFrame()
             applyColors(colors)
         case let .detached(surfaceID):
             guard surfaceID == remoteSurfaceID else { return }
+            watchdog.noteFrame()
             transitionToDisconnected(reason: .transportClosed)
         case let .overflow(surfaceID):
             guard surfaceID == nil || surfaceID == remoteSurfaceID else { return }
+            watchdog.noteFrame()
             transitionToDisconnected(reason: .transportClosed)
         case let .response(requestID, ok, lease, capabilities, outcome, accepted, error):
+            watchdog.noteFrame()
             handleResponse(
                 requestID: requestID,
                 ok: ok,
