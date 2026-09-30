@@ -193,10 +193,29 @@ public struct AcpmuxDaemonLauncher: Sendable {
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        // Clean signal state for the daemon. Swift concurrency and dispatch worker threads
+        // run with most signals blocked, and a blocked mask survives exec: without an empty
+        // mask the daemon never receives SIGTERM. Default dispositions undo any SIG_IGN the
+        // app set (SIGPIPE) so it cannot leak into acpmux or the agents it starts. SETSID
+        // puts the daemon in a new session so it outlives cmux.
+        var emptyMask = sigset_t()
+        sigemptyset(&emptyMask)
+        posix_spawnattr_setsigmask(&attributes, &emptyMask)
+        var defaults = sigset_t()
+        sigemptyset(&defaults)
+        for signal in 1..<NSIG where signal != SIGKILL && signal != SIGSTOP {
+            sigaddset(&defaults, signal)
+        }
+        posix_spawnattr_setsigdefault(&attributes, &defaults)
+        posix_spawnattr_setflags(
+            &attributes,
+            Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)
+        )
 
-        // `"$@" &` runs the daemon with the shell's descriptors; the shell then exits.
-        let shellArguments = ["/bin/sh", "-c", "\"$@\" &", "acpmux-launch", executable] + arguments
+        // `"$@" &` runs the daemon with the shell's descriptors; the shell then exits. `set -m`
+        // matters: without job control a shell starts background commands with SIGINT and
+        // SIGQUIT ignored, and that disposition would be inherited by acpmux.
+        let shellArguments = ["/bin/sh", "-c", "set -m; \"$@\" &", "acpmux-launch", executable] + arguments
         let argv = shellArguments.map { strdup($0) } + [nil]
         let envp = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
         defer {

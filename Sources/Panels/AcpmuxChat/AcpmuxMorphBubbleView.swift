@@ -2,15 +2,19 @@ import AppKit
 
 /// The transient bubble that carries sent text from the composer into its transcript slot.
 ///
-/// Position, size, and corner radius animate together on one spring (0.35 s response,
-/// 0.8 damping). The text is laid out once at its final wrap width, so it only moves; a
-/// composer-colored copy cross-fades into the bubble-colored copy. The owner reveals the
-/// real cell and removes this view in the same transaction, so nothing flickers.
+/// The view covers the whole pane and never moves; only layers animate, so AppKit never
+/// applies an end-state frame early. One spring (0.35 s response, 0.8 damping) drives the
+/// bubble outline from the composer's rounded rectangle to the final tailed bubble (the
+/// same path builder the cell uses, so the shapes match at hand-off) and moves the text,
+/// laid out at its final wrap width. A composer-colored copy of the text cross-fades into
+/// the bubble-colored copy. Every animation holds its end value until the owner hides the
+/// overlay and reveals the real cell in one transaction.
 @MainActor
 final class AcpmuxMorphBubbleView: NSView {
-    private let fill = CALayer()
+    private let shape = CAShapeLayer()
     private let sourceLabel = NSTextField(wrappingLabelWithString: "")
     private let finalLabel = NSTextField(wrappingLabelWithString: "")
+    private var startRect: CGRect = .zero
 
     override var isFlipped: Bool { true }
 
@@ -20,7 +24,7 @@ final class AcpmuxMorphBubbleView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = false
-        layer?.addSublayer(fill)
+        layer?.addSublayer(shape)
         for label in [sourceLabel, finalLabel] {
             label.isSelectable = false
             label.drawsBackground = false
@@ -28,24 +32,30 @@ final class AcpmuxMorphBubbleView: NSView {
             label.lineBreakMode = .byWordWrapping
             addSubview(label)
         }
+        autoresizingMask = [.width, .height]
         isHidden = true
     }
 
-    /// Places the overlay over the composer text and shows it.
-    func prepare(text: String, theme: AcpmuxChatTheme, from start: CGRect, textWidth: CGFloat) {
-        layer?.removeAllAnimations()
-        fill.removeAllAnimations()
-        frame = start
-        fill.backgroundColor = theme.userBubble.cgColor
-        fill.cornerRadius = 8
-        fill.opacity = 0
-        fill.frame = bounds
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    /// Covers `bounds` and shows the text over the composer text at `start`.
+    func prepare(text: String, theme: AcpmuxChatTheme, from start: CGRect, textWidth: CGFloat, in bounds: CGRect) {
+        frame = bounds
+        startRect = start
+        shape.removeAllAnimations()
+        shape.frame = CGRect(origin: .zero, size: bounds.size)
+        shape.fillColor = theme.userBubble.cgColor
+        shape.opacity = 0
+        shape.path = startPath(start)
         for (label, color) in [(sourceLabel, theme.foreground), (finalLabel, theme.userText)] {
             label.layer?.removeAllAnimations()
             label.stringValue = text
             label.font = theme.bodyFont
             label.textColor = color
-            label.frame.origin = .zero
+            label.frame.origin = start.origin
         }
         sourceLabel.alphaValue = 1
         finalLabel.alphaValue = 0
@@ -62,33 +72,33 @@ final class AcpmuxMorphBubbleView: NSView {
         }
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
+    /// The composer-shaped start outline, built with the same elements as the tailed end
+    /// outline (a zero-reach tail) so the path interpolates point for point.
+    private func startPath(_ rect: CGRect) -> CGPath {
+        AcpmuxBubblePath(radius: 8, groupedRadius: 8)
+            .path(for: rect, side: .trailing, tail: true, groupedAbove: false, groupedBelow: false, tailReach: 0)
     }
 
-    /// Springs into `target` (this view's superview coordinates), then calls `completion`.
-    func morph(to target: CGRect, textOrigin: CGPoint, completion: @escaping @MainActor () -> Void) {
-        let start = frame
+    /// Springs into the bubble at `target` (this view's coordinates), then calls `completion`.
+    func morph(
+        to target: CGRect,
+        textOrigin: CGPoint,
+        groupedAbove: Bool,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        // The newest user bubble is always the last of its group, so it has the tail; a
+        // bubble directly above from the user gives it the small grouped top corner.
+        let endPath = AcpmuxBubblePath()
+            .path(for: target, side: .trailing, tail: true, groupedAbove: groupedAbove, groupedBelow: false)
         CATransaction.begin()
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
-        // The model stays at the start state: AppKit applies view geometry in its own
-        // display pass, so moving the view's frame to the target could show the end state
-        // for a frame before the springs start. Every animation holds its end value
-        // (fillMode forwards) until the completion hides this reusable overlay.
-
-        let hostLayer = layer!
-        add(spring("position", from: Self.position(of: start, in: hostLayer), to: Self.position(of: target, in: hostLayer)), to: hostLayer)
-        add(spring("bounds.size", from: NSValue(size: start.size), to: NSValue(size: target.size)), to: hostLayer)
-        add(spring("bounds.size", from: NSValue(size: start.size), to: NSValue(size: target.size)), to: fill)
-        add(spring("position", from: NSValue(point: CGPoint(x: start.width / 2, y: start.height / 2)),
-                   to: NSValue(point: CGPoint(x: target.width / 2, y: target.height / 2))), to: fill)
-        add(spring("cornerRadius", from: 8 as NSNumber, to: 17.5 as NSNumber), to: fill)
+        add(spring("path", from: startPath(startRect), to: endPath), to: shape)
         let fillFade = CABasicAnimation(keyPath: "opacity")
         fillFade.fromValue = 0
         fillFade.toValue = 1
         fillFade.duration = 0.12
-        add(fillFade, to: fill)
+        add(fillFade, to: shape)
+        let endOrigin = CGPoint(x: target.minX + textOrigin.x, y: target.minY + textOrigin.y)
         for (label, from, to) in [(sourceLabel, 1.0, 0.0), (finalLabel, 0.0, 1.0)] {
             guard let labelLayer = label.layer else { continue }
             let fade = CABasicAnimation(keyPath: "opacity")
@@ -96,9 +106,10 @@ final class AcpmuxMorphBubbleView: NSView {
             fade.toValue = to
             fade.duration = 0.16
             add(fade, to: labelLayer)
-            let startPosition = labelLayer.position
-            add(spring("position", from: NSValue(point: startPosition),
-                       to: NSValue(point: CGPoint(x: startPosition.x + textOrigin.x, y: startPosition.y + textOrigin.y))), to: labelLayer)
+            let start = labelLayer.position
+            let delta = CGPoint(x: endOrigin.x - startRect.minX, y: endOrigin.y - startRect.minY)
+            add(spring("position", from: NSValue(point: start),
+                       to: NSValue(point: CGPoint(x: start.x + delta.x, y: start.y + delta.y))), to: labelLayer)
         }
         CATransaction.commit()
     }
@@ -115,17 +126,5 @@ final class AcpmuxMorphBubbleView: NSView {
         animation.fillMode = .forwards
         animation.isRemovedOnCompletion = false
         layer.add(animation, forKey: (animation as? CAPropertyAnimation)?.keyPath)
-    }
-
-    /// The layer position for a frame, honoring the host's anchor point and geometry.
-    private static func position(of rect: CGRect, in layer: CALayer) -> NSValue {
-        let anchor = layer.anchorPoint
-        let y: CGFloat
-        if let superlayer = layer.superlayer, !superlayer.isGeometryFlipped {
-            y = superlayer.bounds.height - rect.maxY + rect.height * anchor.y
-        } else {
-            y = rect.minY + rect.height * anchor.y
-        }
-        return NSValue(point: CGPoint(x: rect.minX + rect.width * anchor.x, y: y))
     }
 }

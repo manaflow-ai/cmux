@@ -64,21 +64,23 @@ extension TerminalController {
         }
     }
 
-    /// `debug.agent_chat.action {action: "scroll_top"|"jump_latest"|"toggle_last_group"}`:
-    /// drives the focused agent chat pane for scripted animation recordings. Does not
-    /// change focus.
+    /// `debug.agent_chat.action {action, ...}` drives the focused agent chat pane for
+    /// scripted recordings and measurements: `scroll_top`, `jump_latest`,
+    /// `toggle_last_group`, `select_session {session_id}`, `seed_rows {count}`,
+    /// `fling {seconds}`, `fling_stats`. Does not change focus.
     nonisolated func debugAgentChatAction(_ request: V2SocketRequest) -> String {
         let action = (request.params["action"] as? String) ?? ""
-        let handled: Bool = v2MainSync {
+        let params = request.params
+        let result: [String: Any]? = v2MainSync {
             guard let workspace = self.tabManager?.selectedWorkspace,
                   let panelID = workspace.focusedPanelId,
-                  let panel = workspace.panels[panelID] as? AgentSessionPanel else { return false }
-            return panel.performDebugChatAction(action)
+                  let panel = workspace.panels[panelID] as? AgentSessionPanel else { return nil }
+            return panel.performDebugChatAction(action, params: params)
         }
-        guard handled else {
+        guard let result else {
             return v2Error(id: request.id, code: "not_found", message: "no focused agent chat pane handled \(action)")
         }
-        return v2Ok(id: request.id, result: ["action": action])
+        return v2Ok(id: request.id, result: result.merging(["action": action]) { current, _ in current })
     }
 }
 #endif

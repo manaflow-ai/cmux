@@ -116,8 +116,8 @@ final class AgentSessionPanel: Panel {
 
 #if DEBUG
     /// Scripted pane interactions for DEBUG animation recordings.
-    func performDebugChatAction(_ action: String) -> Bool {
-        chatPane?.performDebugAction(action) ?? false
+    func performDebugChatAction(_ action: String, params: [String: Any]) -> [String: Any]? {
+        chatPane?.performDebugAction(action, params: params)
     }
 #endif
 

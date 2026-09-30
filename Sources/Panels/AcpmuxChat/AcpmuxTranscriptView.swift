@@ -371,6 +371,65 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         }
     }
 
+    private var flingLink: CADisplayLink?
+    private var flingStart: CFTimeInterval = 0
+    private var flingDuration: CFTimeInterval = 3
+    private var flingFromY: CGFloat = 0
+    private var flingTimestamps: [CFTimeInterval] = []
+    private var flingNominalInterval: CFTimeInterval = 1.0 / 60
+
+    /// Scrolls from the bottom to the top at constant speed over `seconds`, one step per
+    /// display frame, recording each frame's timestamp for ``debugFlingStats()``.
+    func debugStartFling(seconds: Double) {
+        flingLink?.invalidate()
+        scrollToBottom(animated: false)
+        flingFromY = scrollView.contentView.bounds.origin.y
+        flingDuration = seconds
+        flingTimestamps = []
+        flingStart = 0
+        let link = displayLink(target: self, selector: #selector(flingTick(_:)))
+        link.add(to: .main, forMode: .common)
+        flingLink = link
+    }
+
+    @objc private func flingTick(_ link: CADisplayLink) {
+        if flingStart == 0 { flingStart = link.timestamp }
+        flingTimestamps.append(link.timestamp)
+        flingNominalInterval = max(0.001, link.targetTimestamp - link.timestamp)
+        let progress = min(1, (link.timestamp - flingStart) / flingDuration)
+        let top = -scrollView.contentInsets.top
+        let y = flingFromY + (top - flingFromY) * CGFloat(progress)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        if progress >= 1 {
+            link.invalidate()
+            flingLink = nil
+        }
+    }
+
+    /// Frame timing of the last fling: percentiles of the interval between display-link
+    /// callbacks and the frames missed against the display's nominal interval.
+    func debugFlingStats() -> [String: Any] {
+        let intervals = zip(flingTimestamps.dropFirst(), flingTimestamps).map { ($0 - $1) * 1000 }.sorted()
+        guard !intervals.isEmpty else { return ["running": flingLink != nil, "frames": 0] }
+        func percentile(_ p: Double) -> Double {
+            intervals[min(intervals.count - 1, Int((Double(intervals.count - 1) * p).rounded()))]
+        }
+        let nominal = flingNominalInterval * 1000
+        let dropped = intervals.reduce(0) { total, interval in total + max(0, Int((interval / nominal).rounded()) - 1) }
+        return [
+            "running": flingLink != nil,
+            "rows": rows.count,
+            "frames": intervals.count + 1,
+            "nominal_ms": (nominal * 100).rounded() / 100,
+            "p50_ms": (percentile(0.5) * 100).rounded() / 100,
+            "p95_ms": (percentile(0.95) * 100).rounded() / 100,
+            "p99_ms": (percentile(0.99) * 100).rounded() / 100,
+            "max_ms": ((intervals.last ?? 0) * 100).rounded() / 100,
+            "dropped_frames": dropped,
+        ]
+    }
+
     /// Toggles the newest activity group, as a click on its header would.
     func debugToggleLastActivity() -> Bool {
         guard let row = rows.last(where: { if case .activity = $0.content { return true } else { return false } }) else { return false }
@@ -385,6 +444,12 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     func setRowHidden(_ rowID: String, hidden: Bool) {
         if hidden { hiddenRowIDs.insert(rowID) } else { hiddenRowIDs.remove(rowID) }
         if let index = rows.firstIndex(where: { $0.id == rowID }) { reconfigure(row: index) }
+    }
+
+    /// Where `rowID` sits in its bubble group, so a morph can end on the same outline.
+    func groupPosition(of rowID: String) -> AcpmuxRowGroupPosition? {
+        guard let index = rows.firstIndex(where: { $0.id == rowID }), index < positions.count else { return nil }
+        return positions[index]
     }
 
     /// The surface outline of `rowID` in its cell's coordinates.

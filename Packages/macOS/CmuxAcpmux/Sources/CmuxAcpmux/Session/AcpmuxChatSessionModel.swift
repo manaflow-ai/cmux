@@ -346,6 +346,14 @@ public final class AcpmuxChatSessionModel {
         Task { try? await api.setModel(sessionId: sessionId, modelId: modelId) }
     }
 
+    /// Replaces the transcript with `records`, for DEBUG performance measurements only.
+    public func debugReplaceTranscript(with records: [AcpmuxEventRecord]) {
+        reducer = TranscriptReducer()
+        reducer.apply(records)
+        historyExhausted = true
+        transcriptDidChange()
+    }
+
     // MARK: - Notifications
 
     private func handle(_ notification: JSONRPCNotification) {

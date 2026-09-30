@@ -78,14 +78,27 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
 
 #if DEBUG
     /// Scripted interactions for DEBUG animation recordings.
-    func performDebugAction(_ action: String) -> Bool {
+    func performDebugAction(_ action: String, params: [String: Any]) -> [String: Any]? {
         switch action {
         case "scroll_top": transcript.debugScroll(toTop: true)
         case "jump_latest": transcript.jumpToLatest()
-        case "toggle_last_group": return transcript.debugToggleLastActivity()
-        default: return false
+        case "toggle_last_group":
+            return transcript.debugToggleLastActivity() ? [:] : nil
+        case "select_session":
+            guard let sessionID = params["session_id"] as? String else { return nil }
+            Task { await model.select(sessionId: sessionID) }
+        case "seed_rows":
+            let count = (params["count"] as? Int) ?? 5_000
+            model.debugReplaceTranscript(with: AcpmuxSyntheticTranscript(rowCount: count).records())
+            return ["rows": model.rows.count]
+        case "fling":
+            transcript.debugStartFling(seconds: (params["seconds"] as? Double) ?? 3)
+        case "fling_stats":
+            return transcript.debugFlingStats()
+        default:
+            return nil
         }
-        return true
+        return [:]
     }
 #endif
 
@@ -260,7 +273,7 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
         if activeMorph != nil { finishMorph(nil) }
         var overlay: AcpmuxMorphBubbleView?
         if !reduceMotion, window != nil {
-            morphOverlay.prepare(text: trimmed, theme: theme, from: startFrame, textWidth: max(1, startFrame.width - 8))
+            morphOverlay.prepare(text: trimmed, theme: theme, from: startFrame, textWidth: max(1, startFrame.width - 8), in: bounds)
             morphOverlay.displayIfNeeded()
             overlay = morphOverlay
         }
@@ -288,7 +301,8 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
         let vertical = AcpmuxRowLayoutEngine.bubbleVerticalPadding
         overlay.setTextWidth(max(1, target.width - 2 * horizontal))
         activeMorph = (rowID, overlay, target)
-        overlay.morph(to: target, textOrigin: CGPoint(x: horizontal, y: vertical)) { [weak self, weak overlay] in
+        let groupedAbove = transcript.groupPosition(of: rowID).map { !$0.isFirst } ?? false
+        overlay.morph(to: target, textOrigin: CGPoint(x: horizontal, y: vertical), groupedAbove: groupedAbove) { [weak self, weak overlay] in
             self?.finishMorph(overlay)
         }
     }

@@ -32,7 +32,14 @@ struct AcpmuxBubblePath {
     ///   - tail: Whether this is the last bubble of its group.
     ///   - groupedAbove: Whether a bubble from the same speaker sits directly above.
     ///   - groupedBelow: Whether a bubble from the same speaker sits directly below.
-    func path(for rect: CGRect, side: Side, tail: Bool, groupedAbove: Bool, groupedBelow: Bool) -> CGPath {
+    func path(
+        for rect: CGRect,
+        side: Side,
+        tail: Bool,
+        groupedAbove: Bool,
+        groupedBelow: Bool,
+        tailReach: CGFloat = AcpmuxBubblePath.tailReach
+    ) -> CGPath {
         let limit = min(rect.height / 2, rect.width / 2)
         let outer = min(radius, limit)
         let sideTop = groupedAbove ? min(groupedRadius, limit) : outer
@@ -44,7 +51,7 @@ struct AcpmuxBubblePath {
         path.addLine(to: CGPoint(x: maxX - sideTop, y: minY))
         path.addArc(tangent1End: CGPoint(x: maxX, y: minY), tangent2End: CGPoint(x: maxX, y: minY + sideTop), radius: sideTop)
         if tail {
-            let reach = Self.tailReach
+            let reach = tailReach
             // The side edge runs straight to the tail's root, then curls out to the tip.
             path.addLine(to: CGPoint(x: maxX, y: max(minY + sideTop, maxY - outer)))
             path.addCurve(

@@ -66,19 +66,15 @@ final class AcpmuxTranscriptRowCellView: NSTableCellView {
         case .none: break
         }
         surfaceLayer.path = layout.surfacePath
-        if sameRow, !reduceMotion, let previousPath, let newPath = layout.surfacePath, previousPath != newPath {
-            // The same bubble changed shape (streaming growth, or growing out of the typing
-            // bubble): tween from what is on screen now, replacing any older shape animation
-            // so a stale target never pins the bubble to an old size.
+        if sameRow, surfaceLayer.animation(forKey: "acpmuxChat.fromTyping") != nil,
+           let previousPath, let newPath = layout.surfacePath, previousPath != newPath {
+            // More text arrived while the bubble was still growing out of the typing
+            // bubble: stop that grow so the bubble jumps to the size the text needs.
             surfaceLayer.removeAnimation(forKey: "acpmuxChat.fromTyping")
-            let grow = CABasicAnimation(keyPath: "path")
-            grow.fromValue = previousPath
-            grow.toValue = newPath
-            grow.duration = 0.12
-            grow.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            surfaceLayer.add(grow, forKey: "acpmuxChat.grow")
-            clipText(to: grow, finalFrame: layout.textFrame)
+            textView.layer?.mask = nil
         }
+        // Streaming growth is applied without a tween: the bubble's new height and the new
+        // line of text land in the same frame, so text never shows below the bubble.
         surfaceLayer.frame = bounds
         CATransaction.commit()
         textView.apply(layout.text, frame: layout.textFrame)
