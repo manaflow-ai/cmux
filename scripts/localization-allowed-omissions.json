@@ -3514,5 +3514,30 @@
       "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
       "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
     }
+  },
+  "settings.betaFeatures.dock": {
+    "source": "Dock",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "es": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
+    }
+  },
+  "actions.discovery.menuTitle": {
+    "source": "Actions · cmux.json…",
+    "identityLocales": {
+      "fr": "French spells \"Actions\" the same as English, and cmux.json is a file name; the title is correctly translated."
+    }
+  },
+  "actions.discovery.dialogTitle": {
+    "source": "Actions · cmux.json",
+    "identityLocales": {
+      "fr": "French spells \"Actions\" the same as English, and cmux.json is a file name; the title is correctly translated."
+    }
   }
 }
