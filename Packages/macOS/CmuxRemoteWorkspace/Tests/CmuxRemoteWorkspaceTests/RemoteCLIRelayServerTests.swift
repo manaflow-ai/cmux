@@ -424,6 +424,70 @@ struct RemoteCLIRelayServerTests {
         )
     }
 
+    @Test("the relay proves it holds the token to a client that sends its own nonce")
+    func relayProvesTokenToClient() throws {
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: "/tmp/unused.sock",
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+
+        #expect(client.wait { data, _ in data.contains(0x0A) })
+        let challenge = try #require(client.receivedJSONLines().first)
+        let serverNonce = try #require(challenge["nonce"] as? String)
+        let token = try #require(RemoteCLIRelayServer.Session.hexData(from: tokenHex))
+        let clientMAC = RemoteCLIRelayServer.Session.authMAC(
+            token: token,
+            message: Data("relay_id=relay-1\nnonce=\(serverNonce)\nversion=1".utf8)
+        )
+        let clientNonce = String(repeating: "5a", count: 32)
+        let auth: [String: Any] = [
+            "relay_id": "relay-1",
+            "mac": clientMAC.map { String(format: "%02x", $0) }.joined(),
+            "client_nonce": clientNonce,
+        ]
+        client.send(try JSONSerialization.data(withJSONObject: auth) + Data([0x0A]))
+        #expect(client.wait { data, _ in
+            String(decoding: data, as: UTF8.self).contains("\"ok\":true")
+        })
+
+        let result = try #require(client.receivedJSONLines().last)
+        let relayMACHex = try #require(
+            result["relay_mac"] as? String,
+            "The success line must carry the relay's proof of the token"
+        )
+        let expectedRelayMAC = RemoteCLIRelayServer.Session.authMAC(
+            token: token,
+            message: Data(
+                "cmux-relay-server-proof\nrelay_id=relay-1\nclient_nonce=\(clientNonce)\nserver_nonce=\(serverNonce)\nversion=1".utf8
+            )
+        )
+        #expect(relayMACHex == expectedRelayMAC.map { String(format: "%02x", $0) }.joined())
+        #expect(relayMACHex != clientMAC.map { String(format: "%02x", $0) }.joined())
+    }
+
+    @Test("an older client without a nonce still authenticates")
+    func olderClientWithoutNonceAuthenticates() throws {
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: "/tmp/unused.sock",
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+
+        try authenticate(client)
+        #expect(client.receivedJSONLines().last?["relay_mac"] == nil)
+    }
+
     @Test("a wrong MAC gets ok:false and the connection closed")
     func wrongMACRejected() throws {
         let unixServer = try FakeUnixSocketServer(response: Data())
