@@ -199,6 +199,9 @@ final class BitmapView: NSView {
     var image: NSImage? {
         didSet {
             guard image !== oldValue else { return }
+            if image?.size != oldValue?.size {
+                invalidateIntrinsicContentSize()
+            }
             needsDisplay = true
         }
     }

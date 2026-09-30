@@ -84,7 +84,7 @@ final class TerminalThemeGalleryModel {
     /// The appearance whose theme the terminal shows now. Orders the cards
     /// (its appearance first) and picks the highlighted card when the config
     /// still holds a light/dark pair written elsewhere.
-    let slotInUse: Slot
+    private(set) var slotInUse: Slot
 
     init(
         context: TerminalThemeGalleryContext,
@@ -96,27 +96,41 @@ final class TerminalThemeGalleryModel {
         slotInUse = context.prefersDarkAppearance ? .dark : .light
     }
 
-    /// Parsed themes by search directories, kept for the app's lifetime so
-    /// reopening Themes renders the full gallery in its first layout pass
-    /// instead of growing the page after a background load.
+    /// Last successful parse per search directories. A new model shows it
+    /// at once, so reopening Themes lays out the full gallery in its first
+    /// pass, then re-reads the directories so added or edited theme files
+    /// still appear. An empty result is never cached.
     private static var themeCache: [[URL]: [Theme]] = [:]
 
-    /// Reads and parses every theme file off the main actor, once per app
-    /// launch; later models reuse the result without suspending.
+    /// Shows the cached themes at once when there are any, then reads and
+    /// parses every theme file off the main actor and keeps the fresh list.
     func load() async {
         guard !isLoaded else { return }
         let directories = context.themeDirectories
         if let cached = Self.themeCache[directories] {
             themes = cached
             isLoaded = true
-            return
         }
         let loaded = await Task.detached(priority: .userInitiated) {
             Self.loadThemes(in: directories)
         }.value
-        Self.themeCache[directories] = loaded
-        themes = loaded
+        if !loaded.isEmpty {
+            Self.themeCache[directories] = loaded
+        }
+        if loaded != themes {
+            themes = loaded
+        }
         isLoaded = true
+    }
+
+    /// Follows an app appearance change while Settings is open, so the
+    /// highlighted card and the group order track the theme on screen when
+    /// the config still holds a light/dark pair.
+    func appearanceDidChange(prefersDark: Bool) {
+        let slot: Slot = prefersDark ? .dark : .light
+        guard slot != slotInUse else { return }
+        slotInUse = slot
+        refreshSelection()
     }
 
     /// The cards for the current query.

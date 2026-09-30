@@ -9,6 +9,7 @@ import SwiftUI
 struct TerminalThemeSettingsRows: View {
     let hostActions: SettingsHostActions
     @State private var model: TerminalThemeGalleryModel?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -64,6 +65,9 @@ struct TerminalThemeSettingsRows: View {
                 model = galleryModel
             }
             await galleryModel.load()
+        }
+        .onChange(of: colorScheme) { _, newScheme in
+            model?.appearanceDidChange(prefersDark: newScheme == .dark)
         }
     }
 
@@ -224,6 +228,8 @@ struct TerminalThemeCard: View, Equatable {
         .buttonStyle(.plain)
         .accessibilityLabel(Text(verbatim: theme.name))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        // Long names truncate; only realized cards pay for the tooltip.
+        .help(Text(verbatim: theme.name))
     }
 
     /// Height of the drawn preview: name row plus two swatch rows.
