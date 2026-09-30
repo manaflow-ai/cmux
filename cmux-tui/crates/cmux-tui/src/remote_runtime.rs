@@ -1687,17 +1687,147 @@ fn client_socket_path_in(
     shared_tmp: &Path,
 ) -> anyhow::Result<PathBuf> {
     let candidate = state_dir.join("connections").join(format!("{session:?}")).join("mux.sock");
-    if !unix_socket_path_fits(&candidate) {
-        let uid = unsafe { libc::geteuid() };
-        let name =
-            format!("{}.sock", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(session.0));
-        let fallback = runtime.unwrap_or(shared_tmp).join(format!("cmux-r-{uid}")).join(&name);
-        if unix_socket_path_fits(&fallback) {
-            return Ok(fallback);
-        }
-        return Ok(shared_tmp.join(format!("cmux-r-{uid}")).join(name));
+    if unix_socket_path_fits(&candidate) {
+        return Ok(candidate);
     }
-    Ok(candidate)
+    let prefix = format!("cmux-r-{}", unsafe { libc::geteuid() });
+    let name =
+        format!("{}.sock", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(session.0));
+    let preferred_base = runtime.unwrap_or(shared_tmp);
+    let base = if unix_socket_path_fits(&preferred_base.join(&prefix).join(&name)) {
+        preferred_base
+    } else {
+        shared_tmp
+    };
+    let record = candidate.with_file_name(SOCKET_DIRECTORY_RECORD);
+    let directory =
+        private_socket_directory(base, &prefix, &record, prepare_client_socket_directory)?;
+    let socket = directory.join(name);
+    if !unix_socket_path_fits(&socket) {
+        return Err(anyhow!(
+            "client socket path is too long for this platform: {}",
+            socket.display()
+        ));
+    }
+    Ok(socket)
+}
+
+/// File in a private state directory that records the socket directory chosen
+/// after the fixed shared one was unusable.
+#[cfg(unix)]
+const SOCKET_DIRECTORY_RECORD: &str = "socket-dir";
+
+/// Chooses a private directory for Unix sockets under the world-writable
+/// `base`. `<base>/<prefix>` is preferred, but any local user can create that
+/// name first; `validate` rejects such a directory and a fresh random `0700`
+/// sibling is used instead, like the Go daemon's fallback. The fallback is
+/// recorded in `record`, inside the caller's private state, so every later
+/// process for the same session resolves the same sockets.
+#[cfg(unix)]
+fn private_socket_directory(
+    base: &Path,
+    prefix: &str,
+    record: &Path,
+    validate: impl Fn(&Path) -> anyhow::Result<()>,
+) -> anyhow::Result<PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
+
+    let preferred = base.join(prefix);
+    let mut preferred_error = None;
+    for _ in 0..8 {
+        if let Some(recorded) = recorded_socket_directory(record, base, prefix)
+            && validate(&recorded).is_ok()
+        {
+            return Ok(recorded);
+        }
+        match validate(&preferred) {
+            Ok(()) => return Ok(preferred),
+            Err(error) => preferred_error = Some(error),
+        }
+        let parent = record.parent().ok_or_else(|| anyhow!("socket record has no parent"))?;
+        ensure_secure_directory(parent, DirectoryAccess::OwnerControlled)
+            .with_context(|| format!("could not prepare {}", parent.display()))?;
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        // Keep the name short: socket paths must fit in sun_path.
+        let candidate = base.join(format!("{prefix}-{}", &suffix[..8]));
+        match fs::DirBuilder::new().mode(0o700).create(&candidate) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("could not create {}", candidate.display()));
+            }
+        }
+        if let Err(error) = validate(&candidate) {
+            let _ = fs::remove_dir(&candidate);
+            return Err(error);
+        }
+        match publish_socket_directory_record(record, &candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                // Another process for this session recorded its directory
+                // first. Use it if it is still private, otherwise replace
+                // the stale record on the next attempt.
+                let _ = fs::remove_dir(&candidate);
+                if let Some(recorded) = recorded_socket_directory(record, base, prefix)
+                    && validate(&recorded).is_ok()
+                {
+                    return Ok(recorded);
+                }
+                let _ = fs::remove_file(record);
+            }
+            Err(error) => {
+                let _ = fs::remove_dir(&candidate);
+                return Err(error)
+                    .with_context(|| format!("could not record {}", candidate.display()));
+            }
+        }
+    }
+    Err(preferred_error.unwrap_or_else(|| anyhow!("no private socket directory was available")))
+        .with_context(|| {
+            format!("could not create a private socket directory under {}", base.display())
+        })
+}
+
+/// Reads a recorded fallback directory. Only a `<prefix>-*` child of `base`
+/// is accepted, so a damaged record cannot point sockets anywhere else.
+#[cfg(unix)]
+fn recorded_socket_directory(record: &Path, base: &Path, prefix: &str) -> Option<PathBuf> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let metadata = fs::symlink_metadata(record).ok()?;
+    if !metadata.is_file() || metadata.len() > 4096 {
+        return None;
+    }
+    let path = PathBuf::from(std::ffi::OsString::from_vec(fs::read(record).ok()?));
+    let name = path.file_name()?.as_bytes();
+    (path.parent() == Some(base) && name.starts_with(format!("{prefix}-").as_bytes()))
+        .then_some(path)
+}
+
+/// Publishes `directory` as the session's socket directory without replacing
+/// a record another process already published.
+#[cfg(unix)]
+fn publish_socket_directory_record(record: &Path, directory: &Path) -> std::io::Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let staged = record
+        .with_file_name(format!(".{SOCKET_DIRECTORY_RECORD}.{}", uuid::Uuid::new_v4().simple()));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&staged)?;
+        file.write_all(directory.as_os_str().as_bytes())?;
+        file.sync_all()?;
+        fs::hard_link(&staged, record)
+    })();
+    let _ = fs::remove_file(&staged);
+    result
 }
 
 pub fn daemon_paths(
@@ -1760,10 +1890,16 @@ fn daemon_runtime_socket_paths_in(
         }
     }
 
-    let runtime = shared_tmp.join(format!("cmux-rd-{}", unsafe { libc::geteuid() }));
-    ensure_secure_directory(&runtime, DirectoryAccess::ManagedOwnerOnly).with_context(|| {
-        format!("could not create private remote daemon runtime directory {}", runtime.display())
-    })?;
+    // Every client of this session computes the same paths from `state`, so
+    // a fallback directory is recorded there for them to find.
+    let prefix = format!("cmux-rd-{}", unsafe { libc::geteuid() });
+    let runtime = private_socket_directory(
+        shared_tmp,
+        &prefix,
+        &state.join(SOCKET_DIRECTORY_RECORD),
+        |path| Ok(ensure_secure_directory(path, DirectoryAccess::ManagedOwnerOnly)?),
+    )
+    .context("could not create private remote daemon runtime directory")?;
     let (link, admin) = socket_names(&runtime);
     if !unix_socket_path_fits(&link) || !unix_socket_path_fits(&admin) {
         return Err(anyhow!("remote daemon runtime socket path is too long for this platform"));
