@@ -2033,6 +2033,9 @@ jobs:
 
       - name: Download compiled app-host test product
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
+        # The ranged transport has a six-minute deadline; cap the single-stream
+        # fallback after the observed 25–50 minute slow-download outliers.
+        timeout-minutes: 15
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -2847,6 +2850,8 @@ jobs:
 
       - name: Download compiled test product
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
+        # Keep a dead or crawling fallback from consuming the whole job.
+        timeout-minutes: 15
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -3626,6 +3631,8 @@ jobs:
 
       - name: Download compiled app-host test product
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
+        # Keep a dead or crawling fallback from consuming the whole job.
+        timeout-minutes: 15
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}

@@ -18,12 +18,6 @@ runs:
     - name: Download artifact
       id: download
       uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-      # The ranged transport has a six-minute deadline. If it cannot serve
-      # this artifact, cap the single-stream fallback as well: mini telemetry
-      # observed 25–50 minute fallback downloads for an ~860 MiB product while
-      # the consumer tests themselves took minutes. Fifteen minutes leaves
-      # margin over the observed ~2 MiB/s path plus lookup and extraction.
-      timeout-minutes: 15
       with:
         artifact-ids: ${{ inputs.artifact-id }}
         path: ${{ inputs.path }}

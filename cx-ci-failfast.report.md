@@ -28,7 +28,7 @@ job median. This is a long-tail diagnostic, not a reason to cancel independent
 shards: each row was checked for a stall, retry, lock wait, or slow transfer
 before changing its bound.
 
-| job | p50 | max | records past 2.5× p50 |
+| job | p50 | max | runner-minutes past 2.5× p50 |
 | --- | ---: | ---: | ---: |
 | swift-package-tests | 2.4m | 60m | 2,524 |
 | app-host-unit-tests | 6.5m | 55m | 1,735 |
