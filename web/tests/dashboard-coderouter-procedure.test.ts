@@ -78,7 +78,9 @@ mock.module("../services/coderouter/permissions", () => ({
     })),
 }));
 
+const realHostedClient = await import("../services/subrouter/hostedClient");
 mock.module("../services/subrouter/hostedClient", () => ({
+  ...realHostedClient,
   createHostedSubrouterClient: () => ({
     tenantControlConfigured: hostedControlConfigured,
     exchangeTeam: async () => {
