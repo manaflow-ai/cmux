@@ -18,7 +18,8 @@ struct CloudSidebarNativeDropTests {
     private func expectNoSidebarHints(_ outline: NSOutlineView) {
         let views = outline.subviews + (outline.window?.contentView?.superview?.subviews ?? [])
         #expect(!views.contains {
-            $0 is FileDropHintBadgeView || $0.identifier?.rawValue == "sidebarReorderIndicator"
+            $0 is FileDropHintBadgeView ||
+            ($0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden)
         })
     }
 
@@ -129,12 +130,19 @@ struct CloudSidebarNativeDropTests {
         let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero)
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
         #expect(outline.draggingDestinationFeedbackStyle == .none)
+        let visibleIndicators = outline.subviews.filter {
+            $0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden
+        }
+        #expect(visibleIndicators.count == 1)
         expectNoSidebarHints(outline)
         try fixture.attachScreenshot(named: "cloud-sidebar-drag-without-hints")
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: nil, proposedChildIndex: 0).isEmpty)
         expectNoSidebarHints(outline)
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
         outline.draggingExited(info)
+        #expect(outline.subviews.filter {
+            $0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden
+        }.isEmpty)
         expectNoSidebarHints(outline)
     }
 

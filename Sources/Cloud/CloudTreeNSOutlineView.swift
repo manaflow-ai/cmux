@@ -8,6 +8,7 @@ import CmuxFoundation
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
     private var dragDestinationSequenceNumber: Int?
+    private let organizationDropIndicator = SidebarReorderIndicatorView()
 
     func trackDragDestination(sequenceNumber: Int) {
         dragDestinationSequenceNumber = sequenceNumber
@@ -38,6 +39,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         draggingDestinationFeedbackStyle = .none
+        addSubview(organizationDropIndicator)
         NotificationCenter.default.addObserver(
             self, selector: #selector(menuDidBeginTracking(_:)),
             name: NSMenu.didBeginTrackingNotification, object: nil
@@ -46,6 +48,35 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             self, selector: #selector(menuDidEndTracking(_:)),
             name: NSMenu.didEndTrackingNotification, object: nil
         )
+    }
+
+    /// Paint the insertion gap selected by the organization drop planner.
+    /// AppKit's destination feedback is intentionally disabled for Cloud, so
+    /// this view owns the line and derives its y coordinate from the displayed
+    /// outline rows (including collapsed parents).
+    func showOrganizationDropIndicator(parent: CloudTreeNode?, children: [CloudTreeNode], childIndex: Int) {
+        guard childIndex >= 0 else { clearOrganizationDropIndicator(); return }
+        let y: CGFloat
+        if childIndex < children.count {
+            let row = row(forItem: children[childIndex])
+            guard row >= 0 else { clearOrganizationDropIndicator(); return }
+            y = rect(ofRow: row).minY
+        } else if let parent {
+            let row = row(forItem: parent)
+            guard row >= 0 else { clearOrganizationDropIndicator(); return }
+            y = rect(ofRow: row).maxY
+        } else if numberOfRows > 0 {
+            y = rect(ofRow: numberOfRows - 1).maxY
+        } else {
+            clearOrganizationDropIndicator()
+            return
+        }
+        organizationDropIndicator.position(in: bounds, at: y)
+        organizationDropIndicator.isHidden = false
+    }
+
+    func clearOrganizationDropIndicator() {
+        organizationDropIndicator.isHidden = true
     }
 
     @available(*, unavailable)
@@ -260,6 +291,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         guard isCurrentDragDestination(sender) else { return }
         super.draggingExited(sender)
         clearDragDestination(sequence: sender?.draggingSequenceNumber)
+        clearOrganizationDropIndicator()
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
@@ -272,11 +304,13 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         guard isCurrentDragDestination(sender) else { return }
         super.concludeDragOperation(sender)
         clearDragDestination(sequence: sender?.draggingSequenceNumber)
+        clearOrganizationDropIndicator()
     }
 
     override func viewDidHide() {
         super.viewDidHide()
         clearDragDestination()
+        clearOrganizationDropIndicator()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -395,6 +429,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     override func reloadData() {
         clearDragDestination()
+        clearOrganizationDropIndicator()
         updateHover(at: nil)
         super.reloadData()
         needsLayout = true

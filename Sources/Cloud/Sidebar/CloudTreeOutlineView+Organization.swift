@@ -45,20 +45,28 @@ extension CloudTreeOutlineView.Coordinator {
         // ownership warning and announcement; the tree draws no drag hints.
         guard ownershipRejection(info: info, item: item) == nil else {
             (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber)
+            (outlineView as? CloudTreeNSOutlineView)?.clearOrganizationDropIndicator()
             return []
         }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else {
             (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber)
+            (outlineView as? CloudTreeNSOutlineView)?.clearOrganizationDropIndicator()
             return []
         }
         outlineView.setDropItem(drop.parent, dropChildIndex: drop.childIndex)
+        (outlineView as? CloudTreeNSOutlineView)?.showOrganizationDropIndicator(
+            parent: drop.parent, children: drop.children, childIndex: drop.childIndex
+        )
         (outlineView as? CloudTreeNSOutlineView)?.trackDragDestination(sequenceNumber: info.draggingSequenceNumber)
         return .move
     }
 
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo,
                      item: Any?, childIndex index: Int) -> Bool {
-        defer { (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber) }
+        defer {
+            (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber)
+            (outlineView as? CloudTreeNSOutlineView)?.clearOrganizationDropIndicator()
+        }
         guard ownershipRejection(info: info, item: item) == nil else { return false }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return false }
         switch drop.operation {
