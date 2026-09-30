@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import CmuxSidebar
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -456,6 +457,95 @@ extension AgentNotificationRegressionTests {
             return
         }
         #expect(code == "not_found")
+    }
+
+    /// Relay-host agent status shows without a local agent PID, but only on a
+    /// relay-backed workspace and only while a live panel owns the agent.
+    @Test("Relay-host agent status needs a relay and a live owning panel")
+    func relayHostAgentStatusNeedsRelayAndLiveOwningPanel() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let workspace = fixture.source
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(key: "claude_code", value: "Running")
+        workspace.setAgentLifecycle(key: "claude_code", panelId: fixture.panelId, lifecycle: .running)
+        #expect(!workspace.sidebarStatusEntriesVisibleForDisplay().contains { $0.key == "claude_code" })
+
+        workspace.remoteConfiguration = deliveryTargetRemoteConfiguration()
+        #expect(!workspace.sidebarStatusEntriesVisibleForDisplay().contains { $0.key == "claude_code" })
+
+        workspace.remoteConfiguration = deliveryTargetRemoteConfiguration(relayPort: 64_011)
+        #expect(workspace.sidebarStatusEntriesVisibleForDisplay().contains { $0.key == "claude_code" })
+
+        _ = workspace.clearAgentLifecycle(key: "claude_code", panelId: fixture.panelId)
+        #expect(!workspace.sidebarStatusEntriesVisibleForDisplay().contains { $0.key == "claude_code" })
+
+        workspace.agentLifecycleStatesByPanelId[UUID()] = ["claude_code": .running]
+        #expect(
+            !workspace.sidebarStatusEntriesVisibleForDisplay().contains { $0.key == "claude_code" },
+            "A closed panel's lifecycle must not keep relay status visible"
+        )
+    }
+
+    /// Two relay-host agents on one pane show only the newer status, as local agents do.
+    @Test("Relay-host agent status keeps only the newest agent per panel")
+    func relayHostAgentStatusKeepsNewestAgentPerPanel() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let workspace = fixture.source
+        workspace.remoteConfiguration = deliveryTargetRemoteConfiguration(relayPort: 64_012)
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Idle",
+            timestamp: Date(timeIntervalSince1970: 1_000)
+        )
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            timestamp: Date(timeIntervalSince1970: 2_000)
+        )
+        workspace.setAgentLifecycle(key: "claude_code", panelId: fixture.panelId, lifecycle: .idle)
+        workspace.setAgentLifecycle(key: "codex", panelId: fixture.panelId, lifecycle: .running)
+
+        let visibleKeys = Set(workspace.sidebarStatusEntriesVisibleForDisplay().map(\.key))
+        #expect(visibleKeys.contains("codex"))
+        #expect(!visibleKeys.contains("claude_code"))
+    }
+
+    /// A dropped relay clears relay-host agent status and lifecycle; other status stays.
+    @Test("Relay-host agent status clears when the relay connection drops")
+    func relayHostAgentStatusClearsWhenRelayDrops() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let workspace = fixture.source
+        workspace.remoteConfiguration = deliveryTargetRemoteConfiguration(relayPort: 64_013)
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(key: "claude_code", value: "Needs input")
+        workspace.statusEntries["build"] = SidebarStatusEntry(key: "build", value: "green")
+        workspace.setAgentLifecycle(key: "claude_code", panelId: fixture.panelId, lifecycle: .needsInput)
+
+        #expect(workspace.sidebarStatusEntriesVisibleForDisplay().contains { $0.key == "claude_code" })
+
+        workspace.applyRemoteConnectionStateUpdate(.reconnecting, detail: nil, target: "example.invalid")
+        #expect(workspace.statusEntries["claude_code"] == nil)
+        #expect(workspace.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == nil)
+        #expect(workspace.statusEntries["build"] != nil, "Non-agent status is not relay-owned")
+    }
+
+    /// Agent status saved in a snapshot does not come back on restore, so a relay
+    /// workspace starts without status until the next relayed hook.
+    @Test("Restored relay workspaces drop agent status from the snapshot")
+    func restoredRelayWorkspaceDropsAgentStatus() throws {
+        let source = Workspace()
+        defer { source.teardownAllPanels() }
+        source.statusEntries["claude_code"] = SidebarStatusEntry(key: "claude_code", value: "Running")
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.statusEntries.contains { $0.key == "claude_code" })
+
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        _ = restored.restoreSessionSnapshot(snapshot)
+        restored.remoteConfiguration = deliveryTargetRemoteConfiguration(relayPort: 64_014)
+        #expect(restored.statusEntries["claude_code"] == nil)
+        #expect(!restored.sidebarStatusEntriesVisibleForDisplay().contains { $0.key == "claude_code" })
     }
 
     private func deliveryTargetRemoteConfiguration(

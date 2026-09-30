@@ -138,9 +138,37 @@ import Testing
         #expect(catalog.availableKinds == [.base])
     }
 
+    @Test func decodesMachineSizeAndUsageLimits() throws {
+        let catalog = try decoding.catalog(from: Data("""
+        {
+          "vms": [],
+          "limits": {
+            "maxActiveVms": 50,
+            "activeVmCount": 3,
+            "planId": "pro",
+            "memoryOptionsMb": [4096, 8192, 16384, 24576],
+            "lockedMemoryOptionsMb": [32768, 65536],
+            "memoryUpgradePlanId": "max",
+            "memoryUpgradePlansByMb": {"32768": "max", "65536": "max"}
+          }
+        }
+        """.utf8))
+
+        #expect(catalog.limits == CloudMachineLimits(
+            maxActiveMachines: 50,
+            activeMachineCount: 3,
+            planID: "pro",
+            memoryOptionsMb: [4096, 8192, 16384, 24576],
+            lockedMemoryOptionsMb: [32768, 65536],
+            memoryUpgradePlanID: "max",
+            memoryUpgradePlansByMb: ["32768": "max", "65536": "max"]
+        ))
+    }
+
     @Test func toleratesServersWithoutMachineKindCapabilities() throws {
         let catalog = try decoding.catalog(from: Data(#"{"vms":[]}"#.utf8))
         #expect(catalog.availableKinds == nil)
+        #expect(catalog.limits == nil)
     }
 
     @Test func decodesCreatedMachine() throws {

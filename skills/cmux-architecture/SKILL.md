@@ -123,8 +123,11 @@ When extracting existing code that uses a forbidden primitive, reshape it at the
 
 Existing app-target code may keep the old primitives until rewritten. Do not retrofit blindly.
 
+Code linked into the macOS app also builds with Xcode 16.2 on Intel, so it stays within Swift 6.0 syntax; see [Swift 6.0 compatibility](references/swift-6-0-compatibility.md).
+
 ## Detailed references
 
 - [references/package-boundaries.md](references/package-boundaries.md): extraction order, dependency graph, composition root, pbxproj wiring.
 - [references/concurrency-carveouts.md](references/concurrency-carveouts.md): carve-out examples and the reviewer reject-list.
 - [references/file-api-discipline.md](references/file-api-discipline.md): one-type-per-file, DocC, design smells.
+- [references/swift-6-0-compatibility.md](references/swift-6-0-compatibility.md): Swift 6.0 syntax limits for app-linked code (Intel/Xcode 16.2 pathway).

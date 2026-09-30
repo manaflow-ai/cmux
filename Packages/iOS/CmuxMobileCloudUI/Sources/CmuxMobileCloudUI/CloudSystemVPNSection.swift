@@ -17,6 +17,7 @@ struct CloudSystemVPNSection: View {
     let enable: () -> Void
     let disable: () -> Void
     let retry: () -> Void
+    @State private var isInfoPresented = false
 
     var body: some View {
         Section {
@@ -44,15 +45,30 @@ struct CloudSystemVPNSection: View {
                     .accessibilityIdentifier("CloudVPNRetry")
             }
         } footer: {
-            Text(isAvailable
-                ? L10n.string(
-                    "mobile.cloud.vpn.footer",
-                    defaultValue: "Lets Safari and other apps reach your Cloud machines' private addresses. Terminals work without it. iOS asks for permission the first time, and turning it on can disconnect another VPN."
-                )
-                : L10n.string(
-                    "mobile.cloud.vpn.deviceRequired",
-                    defaultValue: "System VPN needs a physical iPhone or iPad."
-                ))
+            VStack(alignment: .leading, spacing: 8) {
+                if isAvailable {
+                    Text(L10n.string(
+                        "mobile.cloud.vpn.privateAddresses",
+                        defaultValue: "Lets Safari and other apps reach your Cloud machines' private addresses."
+                    ))
+                    Button(L10n.string("mobile.cloud.vpn.learnMore", defaultValue: "Learn more")) {
+                        isInfoPresented = true
+                    }
+                    .accessibilityIdentifier("CloudVPNLearnMore")
+                    Text(L10n.string(
+                        "mobile.cloud.vpn.footer",
+                        defaultValue: "Terminals work without it. iOS asks for permission the first time, and turning it on can disconnect another VPN."
+                    ))
+                } else {
+                    Text(L10n.string(
+                        "mobile.cloud.vpn.deviceRequired",
+                        defaultValue: "System VPN needs a physical iPhone or iPad."
+                    ))
+                }
+            }
+        }
+        .sheet(isPresented: $isInfoPresented) {
+            CloudSystemVPNInfoSheet()
         }
     }
 
@@ -95,6 +111,73 @@ struct CloudSystemVPNSection: View {
                 defaultValue: "The VPN couldn't start. Try again, or check it in Settings > General > VPN & Device Management."
             )
         }
+    }
+}
+
+private struct CloudSystemVPNInfoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    CloudVPNInfoVisual()
+                    Text(L10n.string(
+                        "mobile.cloud.vpn.sheet.body",
+                        defaultValue: "A Cloud machine can run a private web service, such as a development server on port 3000. With System VPN on, Safari can open that private address as if the phone were on the machine's network."
+                    ))
+                    .font(.body)
+                    Text(L10n.string(
+                        "mobile.cloud.vpn.sheet.footer",
+                        defaultValue: "Terminal connections use their own secure path, so they do not need this switch. System VPN only adds access for Safari and other apps."
+                    ))
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(24)
+            }
+            .navigationTitle(L10n.string(
+                "mobile.cloud.vpn.sheet.title",
+                defaultValue: "How System VPN works"
+            ))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+private struct CloudVPNInfoVisual: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            infoIcon("safari.fill", color: .blue)
+            Image(systemName: "arrow.right")
+                .foregroundStyle(.secondary)
+            infoIcon("lock.network", color: .green)
+            Image(systemName: "arrow.right")
+                .foregroundStyle(.secondary)
+            infoIcon("server.rack", color: .tint)
+        }
+        .font(.title2)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .accessibilityLabel(L10n.string(
+            "mobile.cloud.vpn.sheet.visual",
+            defaultValue: "Safari reaches a private service through System VPN"
+        ))
+    }
+
+    private func infoIcon(_ name: String, color: Color) -> some View {
+        Image(systemName: name)
+            .foregroundStyle(color)
+            .frame(width: 48, height: 48)
     }
 }
 #endif

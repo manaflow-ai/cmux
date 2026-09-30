@@ -3,6 +3,7 @@ extension CMUXCLI {
         piExtensionSourcePart1,
         piExtensionSourceDiagnostics,
         piExtensionSourceDispatch,
+        piExtensionSourceMetadata,
         piExtensionSourcePart2,
     ].joined(separator: "\n")
 }

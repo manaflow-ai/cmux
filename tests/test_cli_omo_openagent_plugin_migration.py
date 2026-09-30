@@ -58,8 +58,14 @@ def main() -> int:
                     "oh-my-opencode@2.0.0",
                     "oh-my-openagent@3.17.5",
                     ["oh-my-opencode", "1.0.0"],
-                ]
+                ],
+                "instructions": ["{file:./AGENTS.md}"],
             }),
+            encoding="utf-8",
+        )
+        # No tmux settings, so cmux omo rewrites this config into the shadow dir.
+        (user_config_dir / "oh-my-openagent.json").write_text(
+            json.dumps({"prompt_append": "{file:./AGENTS.md}"}),
             encoding="utf-8",
         )
 
@@ -104,9 +110,27 @@ mkdir -p "node_modules/$package"
             print(f"FAIL: invalid shadow opencode.json: {exc}")
             return 1
 
-        plugins = shadow_config.get("plugin")
+        # The file references must survive byte for byte: OpenCode does not
+        # resolve an escaped "{file:.\/AGENTS.md}".
+        shadow_omo_json = root / ".cmuxterm" / "omo-config" / "oh-my-openagent.json"
+        for written in (shadow_config_json, shadow_omo_json):
+            try:
+                raw = written.read_text(encoding="utf-8")
+            except Exception as exc:
+                print(f"FAIL: missing {written.name}: {exc}")
+                return 1
+            if "\\/" in raw or '"{file:./AGENTS.md}"' not in raw:
+                print(f"FAIL: {written.name} did not keep the file reference unescaped: {raw!r}")
+                return 1
+
+        # OpenCode V2 reads the plural `plugins` key. The migration accepts
+        # the legacy singular key above, then writes one canonical V2 list.
+        if "plugin" in shadow_config:
+            print(f"FAIL: shadow config retained legacy plugin key: {shadow_config!r}")
+            return 1
+        plugins = shadow_config.get("plugins")
         if not isinstance(plugins, list):
-            print(f"FAIL: expected shadow plugin list, got {plugins!r}")
+            print(f"FAIL: expected shadow plugins list, got {plugins!r}")
             return 1
 
         package_names = [plugin_package_name(entry) for entry in plugins]

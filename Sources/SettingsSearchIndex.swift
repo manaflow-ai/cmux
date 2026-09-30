@@ -3,7 +3,7 @@ import SwiftUI
 enum SettingsSearchIndex {
     static let defaultSelectionID = sectionID(for: .account)
 
-    private static let sectionEntries: [SettingsSearchEntry] = SettingsNavigationTarget.visibleCases.map { target in
+    private static let sectionEntries: [SettingsSearchEntry] = SettingsNavigationTarget.allCases.map { target in
         SettingsSearchEntry(
             id: sectionID(for: target),
             kind: .section,
@@ -20,6 +20,7 @@ enum SettingsSearchIndex {
         setting(.account, "pro", String(localized: "settings.account.pro.title", defaultValue: "cmux Pro"), "pro upgrade subscription billing plan pricing cloud"),
         setting(.app, "language", String(localized: "settings.app.language", defaultValue: "Language"), "locale translation japanese english restart"),
         setting(.app, "appearance", String(localized: "settings.app.appearance", defaultValue: "Appearance"), "theme light dark system"),
+        setting(.app, "accent-color", String(localized: "settings.app.accentColor", defaultValue: "Accent Color"), "accent highlight tint blue system"),
         setting(.app, "app-icon", String(localized: "settings.app.appIcon", defaultValue: "App Icon"), "dock icon alternate"),
         setting(.app, "new-workspace-placement", String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"), "workspace order position"),
         setting(.app, "workspace-group-new-workspace-placement", String(localized: "settings.app.workspaceGroupNewWorkspacePlacement", defaultValue: "Group New Workspace Placement"), "workspace group command n plus insert position after current top end"),
@@ -73,6 +74,18 @@ enum SettingsSearchIndex {
         ),
         setting(
             .app,
+            "warn-before-closing-workspace",
+            String(localized: "settings.app.warnBeforeClosingWorkspace", defaultValue: "Warn Before Closing Workspace"),
+            "cmd shift w close workspace confirmation running process"
+        ),
+        setting(
+            .app,
+            "warn-before-closing-window",
+            String(localized: "settings.app.warnBeforeClosingWindow", defaultValue: "Warn Before Closing Window"),
+            "cmd ctrl w close window confirmation running process"
+        ),
+        setting(
+            .app,
             "hide-tab-close-button",
             String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button"),
             "hide x button close tab"
@@ -95,6 +108,10 @@ enum SettingsSearchIndex {
         setting(.terminal, "session-content-alignment", String(localized: "settings.terminal.sessionContentAlignment", defaultValue: "Session Content Alignment"), "terminal.sessionContentAlignment left center right align terminal agent chat"),
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
         setting(.terminal, "text-editing-gestures", String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"), "terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
+        setting(.terminal, "confirm-unsafe-paste", String(localized: "settings.terminal.confirmUnsafePaste", defaultValue: "Confirm Unsafe Pastes"), "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet"),
+        setting(.terminal, "reflow-hard-wrap-on-copy", String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"), "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"),
+        setting(.terminal, "password-input-indicator", String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"), "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"),
+        setting(.terminal, "password-input-dots", String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"), "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"),
         setting(.terminal, "tab-bar-font-size", String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"), "font size text scale terminal browser pane tab title surface-tab-bar-font-size"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
         setting(.terminal, "agent-hibernation", String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"), "terminal.agentHibernation idle hibernate suspend background agents claude code codex opencode live terminals"),
@@ -128,12 +145,12 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "loading-spinner-position", String(localized: "settings.app.loadingSpinnerPosition", defaultValue: "Loading Spinner Position"), "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side"),
         setting(.sidebarAppearance, "notification-badge-position", String(localized: "settings.app.notificationBadgePosition", defaultValue: "Notification Badge Position"), "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"),
         setting(.sidebarAppearance, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
+        setting(.sidebarAppearance, "compact-agent-status", String(localized: "settings.app.compactAgentStatus", defaultValue: "Compact Agent Status"), "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"),
         setting(.sidebarAppearance, "right-max-width", String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"), "dock right sidebar max width terminal reservation cap logs lazygit"),
         setting(.sidebarAppearance, "right-sidebar-tabs", String(localized: "settings.sidebar.rightTabs", defaultValue: "Right Sidebar Tabs"), "right sidebar tabs show hide reorder order files find vault feed dock cloud mode switcher customize"),
         setting(.customSidebars, "enabled", String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), "custom sidebars enable show vibe swift json interpreted picker"),
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
-        setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
         setting(.betaFeatures, "predictedEcho", String(localized: "settings.betaFeatures.predictedEcho", defaultValue: "Predictive local echo"), "predictive local echo typing latency lag ssh remote speculative mosh round trip"),
         setting(.betaFeatures, "cloudMachines", String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"), "cloud machines vm right sidebar beta virtual machine persistent computer"),
         setting(.betaFeatures, "workspace-todo-controls", String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"), "workspace todo todos task status checklist add item controls beta"),
@@ -141,6 +158,7 @@ enum SettingsSearchIndex {
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
+        setting(.automation, "pi", String(localized: "settings.automation.pi", defaultValue: "Pi Integration"), "pi agent hooks notifications"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
         setting(
             .automation,
@@ -148,8 +166,7 @@ enum SettingsSearchIndex {
             String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
             [
                 "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation",
-                String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations."),
-                String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated."),
+                String(localized: "settings.automation.workspaceAutoNaming.subtitle", defaultValue: "Generates workspace and tab titles from agent conversations."),
                 String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."),
                 String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
                 String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic")
@@ -183,11 +200,13 @@ enum SettingsSearchIndex {
         setting(.browser, "history", String(localized: "settings.browser.history", defaultValue: "Browsing History"), "clear visited suggestions"),
         setting(.globalHotkey, "enable-hotkey", String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"), "global shortcut show hide windows"),
         setting(.globalHotkey, "shortcut", String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"), "keyboard recorder command option control"),
+        setting(.keyboardShortcuts, "base-keymap", String(localized: "settings.shortcuts.baseKeymap", defaultValue: "Base Keymap"), "preset iterm2 terminal tmux keybindings"),
         setting(.keyboardShortcuts, "shortcut-chords", String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"), "tmux multi step keybindings"),
         setting(.keyboardShortcuts, "pane-resize-step", String(localized: "settings.shortcuts.paneResizeStep", defaultValue: "Pane Resize Step"), "resize pane split step pixels keyboard repeat"),
         setting(.keyboardShortcuts, "reset-defaults", String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"), "restore built in builtin defaults keybindings hotkeys chords commands"),
         setting(.keyboardShortcuts, "shortcuts", String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), "keybindings commands"),
         setting(.workspaceColors, "indicator", String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), "tab color indicator"),
+        setting(.workspaceColors, "subtle-selection", String(localized: "settings.workspaceColors.subtleSelection", defaultValue: "Subtle Selection Highlight"), "calm selected workspace tint"),
         setting(.workspaceColors, "selection", String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), "selected workspace background"),
         setting(.workspaceColors, "badge", String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), "unread notification color"),
         setting(.workspaceColors, "palette", String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"), "named colors palette"),
@@ -203,9 +222,9 @@ enum SettingsSearchIndex {
 
     private static let settingsPathAnchorIDs: [String: String] = [
         "rightSidebar.beta.feed.enabled": settingID(for: .betaFeatures, idSuffix: "feed"),
-        "rightSidebar.beta.dock.enabled": settingID(for: .betaFeatures, idSuffix: "dock"),
         "app.language": settingID(for: .app, idSuffix: "language"),
         "app.appearance": settingID(for: .app, idSuffix: "appearance"),
+        "app.accentColor": settingID(for: .app, idSuffix: "accent-color"),
         "app.appIcon": settingID(for: .app, idSuffix: "app-icon"),
         "app.newWorkspacePlacement": settingID(for: .app, idSuffix: "new-workspace-placement"),
         "workspaceGroups.newWorkspacePlacement": settingID(for: .app, idSuffix: "workspace-group-new-workspace-placement"),
@@ -246,6 +265,8 @@ enum SettingsSearchIndex {
         "app.warnBeforeQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
         "app.warnBeforeClosingTab": settingID(for: .app, idSuffix: "warn-before-closing-tab"),
         "app.warnBeforeClosingTabXButton": settingID(for: .app, idSuffix: "warn-before-closing-tab-x-button"),
+        "app.warnBeforeClosingWorkspace": settingID(for: .app, idSuffix: "warn-before-closing-workspace"),
+        "app.warnBeforeClosingWindow": settingID(for: .app, idSuffix: "warn-before-closing-window"),
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
@@ -276,6 +297,7 @@ enum SettingsSearchIndex {
         "sidebar.loadingSpinnerPosition": settingID(for: .sidebarAppearance, idSuffix: "loading-spinner-position"),
         "sidebar.notificationBadgePosition": settingID(for: .sidebarAppearance, idSuffix: "notification-badge-position"),
         "sidebar.showCustomMetadata": settingID(for: .sidebarAppearance, idSuffix: "show-metadata"),
+        "sidebar.compactAgentStatus": settingID(for: .sidebarAppearance, idSuffix: "compact-agent-status"),
         "sidebar.rightMaxWidth": settingID(for: .sidebarAppearance, idSuffix: "right-max-width"),
         "sidebar-font-size": settingID(for: .sidebarAppearance, idSuffix: "font-size"),
         "surface-tab-bar-font-size": settingID(for: .terminal, idSuffix: "tab-bar-font-size"),
@@ -287,6 +309,10 @@ enum SettingsSearchIndex {
         "terminal.textBoxMaxLines": settingID(for: .textBox, idSuffix: "textbox-max-lines"),
         "terminal.copyOnSelect": settingID(for: .terminal, idSuffix: "copy-on-select"),
         "terminal.textEditingGestures": settingID(for: .terminal, idSuffix: "text-editing-gestures"),
+        "terminal.reflowHardWrapOnCopy": settingID(for: .terminal, idSuffix: "reflow-hard-wrap-on-copy"),
+        "terminal.confirmUnsafePaste": settingID(for: .terminal, idSuffix: "confirm-unsafe-paste"),
+        "terminal.showPasswordInputIndicator": settingID(for: .terminal, idSuffix: "password-input-indicator"),
+        "terminal.showPasswordInputDots": settingID(for: .terminal, idSuffix: "password-input-dots"),
         "terminal.sessionContentMaxWidth": settingID(for: .terminal, idSuffix: "session-content-width"),
         "terminal.sessionContentAlignment": settingID(for: .terminal, idSuffix: "session-content-alignment"),
         "terminal.autoResumeAgentSessions": settingID(for: .terminal, idSuffix: "agent-auto-resume"),
@@ -298,12 +324,14 @@ enum SettingsSearchIndex {
         "terminal.rendererRealization.maxWarmRenderers": settingID(for: .terminal, idSuffix: "renderer-realization"),
         "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
+        "workspaceColors.subtleSelection": settingID(for: .workspaceColors, idSuffix: "subtle-selection"),
         "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
         "sidebarAppearance.matchTerminalBackground": settingID(for: .sidebarAppearance, idSuffix: "match-terminal"),
         "customSidebars.renderer": settingID(for: .customSidebars, idSuffix: "renderer"),
         "automation.socketControlMode": settingID(for: .automation, idSuffix: "socket-mode"),
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
+        "automation.piIntegration": settingID(for: .automation, idSuffix: "pi"),
         "automation.claudeBinaryPath": settingID(for: .automation, idSuffix: "claude-path"),
         "automation.workspaceAutoNaming": settingID(for: .automation, idSuffix: "workspace-auto-naming"),
         "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
@@ -358,9 +386,7 @@ enum SettingsSearchIndex {
     }
 
     static func sectionEntry(for target: SettingsNavigationTarget) -> SettingsSearchEntry {
-        entriesByID[sectionID(for: target)]
-            ?? entriesByID[sectionID(for: target.canonicalTarget)]
-            ?? sectionEntries[0]
+        entriesByID[sectionID(for: target)] ?? sectionEntries[0]
     }
 
     static func sectionID(for target: SettingsNavigationTarget) -> String { "section:\(target.rawValue)" }

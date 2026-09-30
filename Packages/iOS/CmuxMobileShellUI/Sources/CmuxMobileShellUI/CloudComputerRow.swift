@@ -14,6 +14,7 @@ import SwiftUI
 struct CloudComputerRow: View {
     let host: MobileExternalHostSummary
     let setVisible: (Bool) -> Void
+    var createWorkspace: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -31,6 +32,18 @@ struct CloudComputerRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
+            if let createWorkspace, !host.isHidden, host.status == .connected {
+                Button(action: createWorkspace) {
+                    Image(systemName: "plus")
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(L10n.string(
+                    "mobile.workspace.new",
+                    defaultValue: "New Workspace"
+                ))
+                .accessibilityIdentifier("MobileCloudComputerCreateWorkspace")
+            }
             ComputerVisibilityToggle(
                 computerID: host.hostID,
                 computerName: name,
@@ -39,6 +52,39 @@ struct CloudComputerRow: View {
             )
         }
         .accessibilityIdentifier("MobileCloudComputerRow")
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button {
+                setVisible(host.isHidden)
+            } label: {
+                Label(
+                    host.isHidden
+                        ? L10n.string("mobile.connections.show", defaultValue: "Show")
+                        : L10n.string("mobile.connections.hide", defaultValue: "Hide"),
+                    systemImage: host.isHidden ? "eye" : "eye.slash"
+                )
+            }
+            .tint(.secondary)
+        }
+        .contextMenu {
+            if let createWorkspace, !host.isHidden, host.status == .connected {
+                Button(action: createWorkspace) {
+                    Label(
+                        L10n.string("mobile.workspace.new", defaultValue: "New Workspace"),
+                        systemImage: "plus.square.on.square"
+                    )
+                }
+            }
+            Button {
+                setVisible(host.isHidden)
+            } label: {
+                Label(
+                    host.isHidden
+                        ? L10n.string("mobile.connections.show", defaultValue: "Show")
+                        : L10n.string("mobile.connections.hide", defaultValue: "Hide"),
+                    systemImage: host.isHidden ? "eye" : "eye.slash"
+                )
+            }
+        }
     }
 
     private var name: String {

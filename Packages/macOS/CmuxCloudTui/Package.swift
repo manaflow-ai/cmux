@@ -23,7 +23,7 @@ let package = Package(
             dependencies: [
                 "CmuxCloudTui",
                 // CmuxTerminal binds libghostty, which SwiftPM cannot link here.
-                .product(name: "GhosttyRuntimeTestStubs", package: "CmuxTerminal"),
+                .product(name: "CmuxTerminalGhosttyRuntimeTestStubs", package: "CmuxTerminal"),
             ]
         )
     ]

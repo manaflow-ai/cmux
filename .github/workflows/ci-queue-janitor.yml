@@ -116,6 +116,9 @@ jobs:
           PR_POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           # 1: attempt 2 may hold the light pool, so its marker is read too.
           OWNED_LIGHT_RETRY: ${{ vars.CI_OWNED_LIGHT_RETRY }}
+          # 1: fold admission's owned-warm-keys artifacts into the snapshot's
+          # `warm` (scripts/ci/owned_warm_state.py) for warm affinity.
+          OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
         run: python3 scripts/ci/queue_janitor.py
 
       # What this sweep saw on each macOS pool. ci.yml's `changes` job reads

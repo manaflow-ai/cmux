@@ -7,17 +7,18 @@ import SwiftUI
 ///
 /// Visually this is the app's first-run onboarding scene design: the ambient
 /// Game of Life backdrop, balanced large-title copy above a symbol visual,
-/// capsule page dots, and a prominent capsule primary action. The flow is
-/// unchanged: two pages, completion via `onComplete` (inline) or dismissal
-/// (sheet), with skipping owned by the surrounding chrome.
+/// capsule page dots, and a prominent capsule primary action. Completion is
+/// handled by `onComplete` (inline) or dismissal (sheet), with skipping owned
+/// by the surrounding chrome.
 public struct CloudOnboardingView: View {
     private let controller: CloudSessionController?
     private let onComplete: (() -> Void)?
     private let showsNavigationChrome: Bool
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.cloudSystemVPNController) private var systemVPN
     @State private var page = 0
 
-    private static let pageCount = 2
+    private static let pageCount = 3
 
     /// - Parameters:
     ///   - controller: The Cloud session used by the optional VPN step.
@@ -70,16 +71,42 @@ public struct CloudOnboardingView: View {
                 TabView(selection: $page) {
                     CloudOnboardingPage(
                         title: L10n.string("mobile.cloud.onboarding.workspace.title", defaultValue: "Your workspace lives in the Cloud"),
-                        message: L10n.string("mobile.cloud.onboarding.workspace.message", defaultValue: "Your files, terminals, and coding agents keep running on a Cloud machine when your Mac is asleep or turned off."),
-                        systemImage: "cloud.fill"
-                    )
+                        message: L10n.string(
+                            "mobile.cloud.onboarding.workspace.message",
+                            defaultValue: "Workspaces keep their terminals, browsers, and coding agents running on a Cloud machine."
+                        )
+                    ) {
+                        CloudWorkspaceTopologyVisual()
+                    }
                     .tag(0)
                     CloudOnboardingPage(
-                        title: L10n.string("mobile.cloud.onboarding.key.title", defaultValue: "A private key keeps it private"),
-                        message: L10n.string("mobile.cloud.onboarding.key.message", defaultValue: "cmux stores a WireGuard key in this phone's Keychain. Enrollment gives that key permission to join your team's private Cloud network. The private key never leaves the phone."),
-                        systemImage: "key.fill"
-                    )
+                        title: L10n.string("mobile.cloud.vpn.title", defaultValue: "System VPN"),
+                        message: L10n.string(
+                            "mobile.cloud.onboarding.vpn.message",
+                            defaultValue: "Turn it on when Safari or another app needs to reach a private service on a Cloud machine."
+                        )
+                    ) {
+                        VStack(spacing: 18) {
+                            CloudVPNTopologyVisual()
+                            if let systemVPN {
+                                CloudOnboardingVPNControl(controller: systemVPN)
+                            }
+                        }
+                    }
                     .tag(1)
+                    CloudOnboardingPage(
+                        title: L10n.string("mobile.cloud.onboarding.key.title", defaultValue: "A private key keeps it private"),
+                        message: L10n.string(
+                            "mobile.cloud.onboarding.key.message",
+                            defaultValue: "cmux keeps this phone's private key in the Keychain. It never leaves the phone."
+                        )
+                    ) {
+                        Image(systemName: "key.fill")
+                            .symbolRenderingMode(.hierarchical)
+                            .font(.system(size: 96, weight: .medium))
+                            .foregroundStyle(.tint)
+                    }
+                    .tag(2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
 
@@ -117,10 +144,20 @@ public struct CloudOnboardingView: View {
 /// A stationary onboarding page in the first-run scene layout: the copy keeps
 /// its intrinsic height and the symbol visual consumes the remaining space.
 /// Regular-width, non-accessibility type lays copy and visual side by side.
-private struct CloudOnboardingPage: View {
+private struct CloudOnboardingPage<Visual: View>: View {
     let title: String
     let message: String
-    let systemImage: String
+    let visualContent: Visual
+
+    init(
+        title: String,
+        message: String,
+        @ViewBuilder visual: () -> Visual
+    ) {
+        self.title = title
+        self.message = message
+        visualContent = visual()
+    }
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -176,12 +213,129 @@ private struct CloudOnboardingPage: View {
     }
 
     private var visual: some View {
-        Image(systemName: systemImage)
-            .symbolRenderingMode(.hierarchical)
-            .font(.system(size: 96, weight: .medium))
-            .foregroundStyle(.tint)
-            .frame(maxWidth: 520, maxHeight: .infinity)
+        visualContent
+            .frame(maxWidth: 520, maxHeight: 280)
             .accessibilityHidden(true)
+    }
+}
+
+private struct CloudWorkspaceTopologyVisual: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "cloud.fill")
+                .font(.system(size: 42, weight: .medium))
+                .foregroundStyle(.tint)
+
+            HStack(spacing: 10) {
+                workspaceCard
+                workspaceCard
+            }
+        }
+        .frame(maxWidth: 360)
+        .accessibilityLabel(L10n.string(
+            "mobile.cloud.onboarding.workspace.visual",
+            defaultValue: "A Cloud machine with multiple workspaces, terminals, and browsers"
+        ))
+    }
+
+    private var workspaceCard: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "square.stack.3d.up.fill")
+                .font(.title3)
+                .foregroundStyle(.tint)
+            HStack(spacing: 8) {
+                Image(systemName: "terminal.fill")
+                Image(systemName: "globe")
+                Image(systemName: "terminal.fill")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(.quaternary, lineWidth: 1)
+        }
+    }
+}
+
+private struct CloudVPNTopologyVisual: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            topologyIcon("safari.fill", color: .blue)
+            Image(systemName: "arrow.right")
+                .foregroundStyle(.secondary)
+            topologyIcon("shield.lefthalf.filled", color: .green)
+            Image(systemName: "arrow.right")
+                .foregroundStyle(.secondary)
+            topologyIcon("server.rack", color: .tint)
+        }
+        .font(.system(size: 30, weight: .medium))
+        .frame(maxWidth: 360)
+        .accessibilityLabel(L10n.string(
+            "mobile.cloud.onboarding.vpn.visual",
+            defaultValue: "Safari reaches a private Cloud service through the System VPN"
+        ))
+    }
+
+    private func topologyIcon(_ name: String, color: Color) -> some View {
+        Image(systemName: name)
+            .foregroundStyle(color)
+            .frame(width: 64, height: 64)
+            .background(.thinMaterial, in: Circle())
+    }
+}
+
+private struct CloudOnboardingVPNControl: View {
+    let controller: CloudSystemVPNController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(isOn: Binding(
+                get: { controller.phase.isRequestedOn },
+                set: { $0 ? controller.enable() : controller.disable() }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.string("mobile.cloud.vpn.title", defaultValue: "System VPN"))
+                    Text(statusText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .disabled(!controller.isAvailable || controller.phase.isTransitioning)
+            .accessibilityIdentifier("CloudOnboardingVPNToggle")
+
+            Text(controller.isAvailable
+                ? L10n.string(
+                    "mobile.cloud.onboarding.vpn.controlFooter",
+                    defaultValue: "You can change this later in Cloud settings."
+                )
+                : L10n.string(
+                    "mobile.cloud.vpn.deviceRequired",
+                    defaultValue: "System VPN needs a physical iPhone or iPad."
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var statusText: String {
+        switch controller.phase {
+        case .off, .failed:
+            L10n.string("mobile.cloud.vpn.status.off", defaultValue: "Off")
+        case .preparing:
+            L10n.string("mobile.cloud.vpn.status.preparing", defaultValue: "Setting up...")
+        case .connecting:
+            L10n.string("mobile.cloud.vpn.status.connecting", defaultValue: "Connecting...")
+        case .connected:
+            L10n.string("mobile.cloud.vpn.status.connected", defaultValue: "Connected")
+        case .disconnecting:
+            L10n.string("mobile.cloud.vpn.status.disconnecting", defaultValue: "Disconnecting...")
+        }
     }
 }
 

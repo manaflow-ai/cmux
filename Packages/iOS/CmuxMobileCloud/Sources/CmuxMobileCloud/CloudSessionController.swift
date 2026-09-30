@@ -13,6 +13,8 @@ public final class CloudSessionController {
     public private(set) var machines: CloudListPhase<CloudMachine> = .idle
     /// The kinds the current deployment can create, when the API reports them.
     public private(set) var availableMachineKinds: Set<CloudMachineKind>?
+    /// The server's plan, machine-count, and machine-size metadata.
+    public private(set) var machineLimits: CloudMachineLimits?
     /// Whether a new machine is being provisioned.
     public private(set) var isCreatingMachine = false
     /// The latest create failure, shown beside the create action.
@@ -147,6 +149,7 @@ public final class CloudSessionController {
         identity = nil
         machines = .idle
         availableMachineKinds = nil
+        machineLimits = nil
         lastCreateFailure = nil
         pendingCreate = nil
         machineActionsInFlight = []
@@ -334,6 +337,7 @@ public final class CloudSessionController {
                 guard !Task.isCancelled else { return }
                 self.listFailureCount = 0
                 self.availableMachineKinds = catalog.availableKinds
+                self.machineLimits = catalog.limits
                 // A destroyed machine is gone; no screen should list it.
                 self.machines = .loaded(catalog.machines.filter { $0.lifecycle != .destroyed })
                 self.scheduleProvisioningPollIfNeeded()

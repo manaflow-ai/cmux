@@ -1,6 +1,15 @@
 extension CloudTreeNodeBuilder {
     static func flattened(_ nodes: [CloudTreeNode]) -> [CloudTreeNode] {
-        nodes.flatMap { [$0] + flattened($0.children) }
+        var result: [CloudTreeNode] = []
+        append(nodes, to: &result)
+        return result
+    }
+
+    private static func append(_ nodes: [CloudTreeNode], to result: inout [CloudTreeNode]) {
+        for node in nodes {
+            result.append(node)
+            append(node.children, to: &result)
+        }
     }
 
     /// Row identities, order and kinds — a change here needs `reloadData`.

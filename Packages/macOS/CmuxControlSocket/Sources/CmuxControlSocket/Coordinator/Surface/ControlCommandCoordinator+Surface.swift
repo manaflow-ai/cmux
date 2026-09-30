@@ -410,6 +410,8 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "No focused surface", data: nil)
         case .createFailed:
             return .err(code: "internal_error", message: "Failed to create split", data: nil)
+        case .noSpace:
+            return noSpaceForNewPaneResult
         case .mirrorUnsupportedOptions(let unsupported):
             return mirrorUnsupportedOptionsResult(unsupported)
         case .routedToRemote(let windowID, let workspaceID, let typeRawValue):
@@ -634,6 +636,11 @@ extension ControlCommandCoordinator {
         if hasSurfaceIDParam, surfaceID == nil {
             return .err(code: "not_found", message: context.controlSurfaceNotFoundMessage(), data: nil)
         }
+        // Capture the target's ref before closing. Teardown forgets a closed
+        // surface's ref, so minting one for the reply would hand the caller a
+        // fresh ref for a surface that no longer exists.
+        let targetSurfaceID = surfaceID ?? routing.surfaceID
+        let targetSurfaceRef = targetSurfaceID.flatMap { handles.existingRef(kind: .surface, uuid: $0) }
         let resolution = context.controlSurfaceClose(
             routing: routing,
             surfaceID: surfaceID,
@@ -662,12 +669,13 @@ extension ControlCommandCoordinator {
                 message: "Failed to close surface",
                 data: .object(["surface_id": .string(id.uuidString)])
             )
-        case .closed(let windowID, let workspaceID, let surfaceID):
+        case .closed(let windowID, let workspaceID, let closedSurfaceID):
+            let closedSurfaceRef = closedSurfaceID == targetSurfaceID ? targetSurfaceRef.map(JSONValue.string) : nil
             return .ok(.object([
                 "workspace_id": .string(workspaceID.uuidString),
                 "workspace_ref": ref(.workspace, workspaceID),
-                "surface_id": .string(surfaceID.uuidString),
-                "surface_ref": ref(.surface, surfaceID),
+                "surface_id": .string(closedSurfaceID.uuidString),
+                "surface_ref": closedSurfaceRef ?? ref(.surface, closedSurfaceID),
                 "window_id": orNull(windowID?.uuidString),
                 "window_ref": ref(.window, windowID),
             ]))

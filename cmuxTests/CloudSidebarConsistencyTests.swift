@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
@@ -101,7 +102,7 @@ struct CloudSidebarConsistencyTests {
         var titles: [String] = []
         let workspaceID = live.id()
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { title in titles.append(title); return (workspaceID, nil) },
+            create: { title, _ in titles.append(title); return (workspaceID, nil) },
             paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
         )
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
@@ -123,7 +124,7 @@ struct CloudSidebarConsistencyTests {
         let selection = SurfaceResourceGroup(title: "Selection", placements: [all.placements[0]], remoteWorkspaceID: "ws_main")
         let workspaceID = live.id()
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
+            create: { _, _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
         )
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(selection, title: selection.title, focus: false, host: host)
         #expect(opened.projections.map(\.resource.key) == ["term_a"])

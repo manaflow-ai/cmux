@@ -4,6 +4,14 @@ set -euo pipefail
 if [ "$(basename "$0")" = "fake-lsof" ]; then
   exit 0
 fi
+if [ "$(basename "$0")" = "launchctl" ]; then
+  printf '%s\n' "$*" >> "${CMUX_CAPTURE_LAUNCHCTL:?}"
+  exit 0
+fi
+if [ "$(basename "$0")" = "pgrep" ]; then
+  [ -z "${CMUX_FAKE_PGREP_PIDS:-}" ] || printf '%s\n' $CMUX_FAKE_PGREP_PIDS
+  exit 0
+fi
 
 if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   printf '%s\n' "$@" >> "$CMUX_CAPTURE_XCODEBUILD_ARGS"
@@ -95,6 +103,14 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     echo "Executed 1 test, with 0 failures (0 unexpected)"
     exit 0
   fi
+  if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "startup-hang" ]; then
+    # testmanagerd refused xcodebuild's channel: the host launched, and no
+    # test ever starts.
+    echo 'cmux DEV message = "socket.listener.start"'
+    echo "Testing started"
+    sleep 30
+    exit 0
+  fi
   if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "crash-loop" ]; then
     # xcodebuild relaunching an app host that crashes on contact: the run is
     # resumed after every crash and never ends on its own.
@@ -139,6 +155,8 @@ trap cleanup EXIT
 
 ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/xcodebuild"
 ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/fake-lsof"
+ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/launchctl"
+ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/pgrep"
 BASH32_BIN_DIR="$TMP_DIR/bash32-bin"
 mkdir -p "$BASH32_BIN_DIR"
 ln -s /bin/bash "$BASH32_BIN_DIR/bash"
@@ -701,4 +719,70 @@ if [ "$(grep -cx 'test' "$TMP_DIR/crash-loop-xcodebuild-args.log")" -ne 1 ]; the
   exit 1
 fi
 
-echo "PASS: app-host xcodebuild wrapper retries only before test execution, and aborts a crash loop without retrying"
+# A runner that never connects is cut at the startup deadline, retried once
+# after a testmanagerd restart, then reported as a runner fault. A single-attempt
+# caller gets the fault on its only hang, and another user's live xcodebuild
+# test keeps testmanagerd from being restarted under it.
+run_startup_hang() {
+  local name="$1" attempts="$2" pgrep_pids="${3:-}"
+  set +e
+  /usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
+    -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+    PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+    RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+    RUNNER_NAME=fake-mini-glaeda-1 \
+    CMUX_TAG="$name" \
+    CMUX_CAPTURE_LAUNCHCTL="$TMP_DIR/$name-launchctl.log" \
+    CMUX_FAKE_PGREP_PIDS="$pgrep_pids" \
+    CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/$name-xcodebuild-args.log" \
+    CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/$name-test-runner-env.log" \
+    CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/$name-parent-env.log" \
+    CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/$name-runner-home-env.log" \
+    CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+    CMUX_MOCK_XCODEBUILD_MODE=startup-hang \
+    CMUX_APP_HOST_XCODEBUILD_ATTEMPTS="$attempts" \
+    CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS=0.5 \
+    CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=60 \
+    /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+      >"$TMP_DIR/$name-output.log" 2>&1
+  startup_status=$?
+  set -e
+  : >> "$TMP_DIR/$name-launchctl.log"
+}
+fail_startup() {
+  cat "$TMP_DIR/$1-output.log"
+  echo "FAIL: $2"
+  exit 1
+}
+
+run_startup_hang startup-hang 3
+[ "$startup_status" -eq 122 ] || fail_startup startup-hang "expected startup-hang status 122, got $startup_status"
+[ "$(grep -cx 'test' "$TMP_DIR/startup-hang-xcodebuild-args.log")" -eq 2 ] \
+  || fail_startup startup-hang "a startup hang must be retried exactly once"
+[ "$(grep -c "^kickstart -k gui/$(id -u)/com.apple.testmanagerd\$" "$TMP_DIR/startup-hang-launchctl.log")" -eq 1 ] \
+  || fail_startup startup-hang "testmanagerd must be restarted once, before the retry"
+grep -Fq "App-host runner fault::fake-mini-glaeda-1: the XCTest runner never connected in 2 launch(es)" \
+  "$TMP_DIR/startup-hang-output.log" \
+  || fail_startup startup-hang "second startup hang must report a runner fault"
+
+run_startup_hang startup-hang-single 1
+[ "$startup_status" -eq 122 ] || fail_startup startup-hang-single "expected status 122, got $startup_status"
+[ "$(grep -cx 'test' "$TMP_DIR/startup-hang-single-xcodebuild-args.log")" -eq 1 ] \
+  || fail_startup startup-hang-single "a single-attempt caller must not retry"
+[ ! -s "$TMP_DIR/startup-hang-single-launchctl.log" ] \
+  || fail_startup startup-hang-single "no retry means no testmanagerd restart"
+grep -Fq "App-host runner fault::fake-mini-glaeda-1" "$TMP_DIR/startup-hang-single-output.log" \
+  || fail_startup startup-hang-single "a single-attempt startup hang must report a runner fault"
+
+bash -c 'exec -a "xcodebuild test-without-building -xctestrun other" sleep 30' &
+other_xcodebuild=$!
+run_startup_hang startup-hang-shared 3 "$other_xcodebuild"
+kill "$other_xcodebuild" 2>/dev/null || true
+wait "$other_xcodebuild" 2>/dev/null || true
+[ ! -s "$TMP_DIR/startup-hang-shared-launchctl.log" ] \
+  || fail_startup startup-hang-shared "testmanagerd must not restart under another live xcodebuild test"
+grep -Fq "Not restarting testmanagerd: xcodebuild $other_xcodebuild is running tests" \
+  "$TMP_DIR/startup-hang-shared-output.log" \
+  || fail_startup startup-hang-shared "skipped restart must explain itself"
+
+echo "PASS: app-host xcodebuild wrapper retries only before test execution, aborts a crash loop without retrying, and fails a startup hang as a runner fault after one testmanagerd restart"

@@ -7,6 +7,9 @@ public enum CloudMachineKind: String, CaseIterable, Sendable, Equatable {
     case base
     /// A machine with the desktop image, when the provider offers one.
     case desktop
+
+    /// The product default used by the Mac New Machine sheet.
+    public static let defaultKind: CloudMachineKind = .desktop
 }
 
 /// Options accepted by `POST /api/vm` when creating a Cloud machine.
@@ -83,6 +86,39 @@ public struct CloudMachine: Sendable, Equatable, Identifiable, Hashable {
 
     /// The control plane's lifecycle state, from the `vm_status` enum.
     public var lifecycle: CloudMachineLifecycle { CloudMachineLifecycle(status: status) }
+}
+
+/// Server-authoritative machine limits returned beside the Cloud machine list.
+///
+/// The Mac New Machine sheet uses the same fields. Keeping them in the shared
+/// Cloud model lets mobile show the same size and plan state without guessing
+/// from the machine rows.
+public struct CloudMachineLimits: Sendable, Equatable {
+    public var maxActiveMachines: Int?
+    public var activeMachineCount: Int?
+    public var planID: String?
+    public var memoryOptionsMb: [Int]
+    public var lockedMemoryOptionsMb: [Int]?
+    public var memoryUpgradePlanID: String?
+    public var memoryUpgradePlansByMb: [String: String]?
+
+    public init(
+        maxActiveMachines: Int? = nil,
+        activeMachineCount: Int? = nil,
+        planID: String? = nil,
+        memoryOptionsMb: [Int] = [],
+        lockedMemoryOptionsMb: [Int]? = nil,
+        memoryUpgradePlanID: String? = nil,
+        memoryUpgradePlansByMb: [String: String]? = nil
+    ) {
+        self.maxActiveMachines = maxActiveMachines
+        self.activeMachineCount = activeMachineCount
+        self.planID = planID
+        self.memoryOptionsMb = memoryOptionsMb
+        self.lockedMemoryOptionsMb = lockedMemoryOptionsMb
+        self.memoryUpgradePlanID = memoryUpgradePlanID
+        self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
+    }
 }
 
 /// A machine's lifecycle, mirroring the control plane's `vm_status` enum

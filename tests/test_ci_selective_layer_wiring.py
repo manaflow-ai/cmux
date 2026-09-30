@@ -20,11 +20,11 @@ def step_by_name(job, name):
     return next(step for step in job["steps"] if step.get("name") == name)
 
 
-def test_layered_products_are_default_for_full_suite_transport():
+def test_aggregate_products_are_default_and_layers_opt_in():
     workflow = load()
     event = workflow.get("on", workflow.get(True))
     product = event["workflow_call"]["inputs"]["product_artifacts"]
-    assert product["default"] == "layered"
+    assert product["default"] == "aggregate"
     assert product["type"] == "string"
 
 
@@ -71,6 +71,6 @@ def test_consumers_prefer_warm_aggregate_then_selective_layers_before_remote_agg
 
 
 if __name__ == "__main__":
-    test_layered_products_are_default_for_full_suite_transport()
+    test_aggregate_products_are_default_and_layers_opt_in()
     test_compile_admission_publishes_exact_layer_index_outputs()
     test_consumers_prefer_warm_aggregate_then_selective_layers_before_remote_aggregate()

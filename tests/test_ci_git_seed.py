@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+import git_fixture_env
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "git-seed.sh"
@@ -46,12 +47,12 @@ class GitSeedTests(unittest.TestCase):
         self.module_v1 = commit(self.module, "m.txt", "module v1")
         git("submodule", "add", "-q", f"file://{self.module}", "vendor/module", cwd=self.super)
         self.main = commit(self.super, "app.txt", "main")
-        self.env = dict(
+        self.env = git_fixture_env.without_auto_maintenance(dict(
             os.environ,
             GITHUB_SERVER_URL=f"file://{self.server}",
             GITHUB_REPOSITORY="acme/super",
             GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="protocol.file.allow", GIT_CONFIG_VALUE_0="always",
-        )
+        ))
 
     def seed_from_main(self) -> Path:
         """What the main-branch seeder checks out and stages."""

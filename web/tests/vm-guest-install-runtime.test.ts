@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,8 +39,8 @@ function guest(options: { corruptUpload?: boolean; promptFails?: boolean; publis
     write: (path, bytes) => writeFileSync(rebase(path), options.corruptUpload ? "#!/bin/sh\nexit 0\n" : bytes),
     remove: (path) => rmSync(rebase(path), { force: true }),
     exec: async (request) => {
-      const result = spawnSync("/bin/sh", ["-c", rebase(request.command)], {
-        encoding: "utf8", timeout: 5_000,
+      const result = await runChild("/bin/sh", ["-c", rebase(request.command)], {
+        timeout: 5_000,
         env: {
           ...process.env, HOME: root, PATH: `${join(root, "fixture-bin")}:${process.env.PATH}`,
           CMUX_GUEST_FIXTURE_ROOT: root,
@@ -64,13 +64,13 @@ describe("guest CLI publication in an isolated filesystem", () => {
       expect(readFileSync(join(root, "bin", file.path.split("/").at(-1)!), "utf8")).toBe(file.content);
     }
     expect(statSync(target).mode & 0o777).toBe(0o755);
-    const result = spawnSync(target, ["--help"], { encoding: "utf8", timeout: 5_000 });
+    const result = await runChild(target, ["--help"], { timeout: 5_000 });
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("cmux");
     const daemon = join(root, "cmux-tui");
     writeFileSync(daemon, '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$HOME/daemon-args"\nprintf \'%s\\n\' \'{"session":"cloud","workspaces":[]}\'\n', { mode: 0o755 });
-    const tree = spawnSync(target, ["tree", "--json"], {
-      encoding: "utf8", timeout: 5_000,
+    const tree = await runChild(target, ["tree", "--json"], {
+      timeout: 5_000,
       env: { ...process.env, HOME: root, CMUX_TUI_BIN: daemon },
     });
     expect(tree.status).toBe(0);

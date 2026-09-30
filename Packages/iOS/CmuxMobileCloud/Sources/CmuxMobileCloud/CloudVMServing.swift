@@ -66,9 +66,16 @@ public struct CloudMachineCatalog: Sendable, Equatable {
     public var machines: [CloudMachine]
     /// `nil` means an older server did not send capability metadata.
     public var availableKinds: Set<CloudMachineKind>?
+    /// The plan and machine-size metadata, when the server sends it.
+    public var limits: CloudMachineLimits?
 
-    public init(machines: [CloudMachine], availableKinds: Set<CloudMachineKind>? = nil) {
+    public init(
+        machines: [CloudMachine],
+        availableKinds: Set<CloudMachineKind>? = nil,
+        limits: CloudMachineLimits? = nil
+    ) {
         self.machines = machines
         self.availableKinds = availableKinds
+        self.limits = limits
     }
 }

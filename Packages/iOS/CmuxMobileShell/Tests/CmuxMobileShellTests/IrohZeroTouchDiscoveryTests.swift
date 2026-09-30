@@ -96,7 +96,9 @@ struct IrohZeroTouchDiscoveryTests {
         defer { fixture.cleanup() }
 
         #expect(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a", "iroh-mac-b"])
+        // Discovered Macs dial concurrently, so dial order is not deterministic;
+        // each Mac is still dialed exactly once.
+        #expect(fixture.factory.attemptedRouteIDs().sorted() == ["iroh-mac-a", "iroh-mac-b"])
         let rows = try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil)
         #expect(rows.count == 1)
         #expect(rows.first?.macDeviceID == "mac-b")
@@ -644,6 +646,195 @@ struct IrohZeroTouchDiscoveryTests {
         })
     }
 
+    /// Two directory entries whose dials never answer sort ahead of the only
+    /// live Mac. A clean install must still connect the live Mac while both
+    /// stalled dials are in flight, instead of spending the whole reconnect
+    /// deadline on them one at a time.
+    @Test
+    func unresponsiveDiscoveredMacsDoNotBlockLiveMac() async throws {
+        let stalledA = try candidate(deviceID: "mac-stalled-a", endpointByte: "a")
+        let stalledB = try candidate(deviceID: "mac-stalled-b", endpointByte: "b")
+        let live = try candidate(deviceID: "mac-live", endpointByte: "c")
+        let candidates = [stalledA, stalledB, live]
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let store = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        var routers: [String: LivenessHostRouter] = [:]
+        for candidate in candidates {
+            let router = LivenessHostRouter()
+            await router.setHostIdentity(
+                deviceID: candidate.deviceID,
+                instanceTag: candidate.instanceTag,
+                displayName: candidate.displayName
+            )
+            routers[candidate.routes[0].id] = router
+        }
+        let stalledRouters = try [stalledA, stalledB].map {
+            try #require(routers[$0.routes[0].id])
+        }
+        for router in stalledRouters {
+            await router.delayHostStatusRequest(number: 1)
+        }
+        let factory = RoutedZeroTouchFactory(routers: routers)
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { Self.fixedNow },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: store,
+            personalIrohDiscovery: ScriptedIrohDiscovery(
+                snapshots: [candidates]
+            ),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "iroh-stalled-discovery-\(UUID().uuidString)"
+            )!
+        )
+        defer {
+            for (_, subscription) in shell.secondaryMacSubscriptions {
+                subscription.cancel()
+            }
+            Task { await shell.remoteClient?.disconnect() }
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let reconnect = Task { @MainActor in
+            await shell.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        let connectedWhileStalled = try await pollUntil {
+            shell.connectionState == .connected
+                && shell.foregroundMacDeviceID == live.deviceID
+        }
+        let stalledDialsStillHeld = try await pollUntil {
+            for router in stalledRouters where await router.heldRequestCount() != 1 {
+                return false
+            }
+            return true
+        }
+        for router in stalledRouters {
+            await router.releaseAllHeld()
+        }
+        #expect(
+            connectedWhileStalled,
+            "the live Mac must connect while earlier directory entries stall"
+        )
+        #expect(stalledDialsStillHeld)
+        #expect(await reconnect.value)
+        #expect(shell.foregroundMacDeviceID == live.deviceID)
+        let rows = try await store.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(rows.map(\.macDeviceID).contains(live.deviceID))
+        // The winning dial is adopted, not repeated.
+        #expect(factory.attemptedRouteIDs().filter { $0 == live.routes[0].id }.count == 1)
+    }
+
+    /// More stalled directory entries than the dial window: the live Mac
+    /// behind them must queue rather than be refused by the shell's connect
+    /// budget, and dial as soon as a stalled dial frees its slot.
+    @Test
+    func discoveredMacsBeyondDialWindowQueueUntilASlotFrees() async throws {
+        let window = ZeroTouchDialRace.maximumConcurrentDials
+        let stalled = try (0..<window).map { index in
+            try candidate(
+                deviceID: "mac-stalled-\(index)",
+                endpointByte: Character(String(index + 1, radix: 16)),
+                routeID: "iroh-stalled-\(index)"
+            )
+        }
+        let live = try candidate(deviceID: "mac-live", endpointByte: "0")
+        let candidates = stalled + [live]
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let store = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        var routers: [String: LivenessHostRouter] = [:]
+        for candidate in candidates {
+            let router = LivenessHostRouter()
+            await router.setHostIdentity(
+                deviceID: candidate.deviceID,
+                instanceTag: candidate.instanceTag,
+                displayName: candidate.displayName
+            )
+            routers[candidate.routes[0].id] = router
+        }
+        let stalledRouters = try stalled.map {
+            try #require(routers[$0.routes[0].id])
+        }
+        for router in stalledRouters {
+            await router.delayHostStatusRequest(number: 1)
+        }
+        // The first stalled Mac answers as a different Mac once released, so
+        // its authentication fails and the race stays open for the live dial.
+        await stalledRouters[0].setHostIdentity(
+            deviceID: "mac-impostor",
+            instanceTag: stalled[0].instanceTag,
+            displayName: "Impostor"
+        )
+        let factory = RoutedZeroTouchFactory(routers: routers)
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { Self.fixedNow },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: store,
+            personalIrohDiscovery: ScriptedIrohDiscovery(
+                snapshots: [candidates]
+            ),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "iroh-dial-window-\(UUID().uuidString)"
+            )!
+        )
+        defer {
+            for (_, subscription) in shell.secondaryMacSubscriptions {
+                subscription.cancel()
+            }
+            Task { await shell.remoteClient?.disconnect() }
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let reconnect = Task { @MainActor in
+            await shell.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        let windowFilled = try await pollUntil {
+            for router in stalledRouters where await router.heldRequestCount() != 1 {
+                return false
+            }
+            return true
+        }
+        let liveDialedWhileWindowFull = factory.attemptedRouteIDs()
+            .contains(live.routes[0].id)
+        // Freeing one slot starts the queued live dial, which then connects.
+        await stalledRouters[0].releaseAllHeld()
+        let liveConnectedAfterSlotFreed = try await pollUntil {
+            shell.connectionState == .connected
+                && shell.foregroundMacDeviceID == live.deviceID
+        }
+        for router in stalledRouters {
+            await router.releaseAllHeld()
+        }
+        #expect(windowFilled)
+        #expect(!liveDialedWhileWindowFull)
+        #expect(liveConnectedAfterSlotFreed)
+        #expect(await reconnect.value)
+    }
+
     @Test
     func signOutWhileDiscoveryIsSuspendedPreventsDialAndPersistence() async throws {
         let live = try candidate(deviceID: "mac-a", endpointByte: "a")
@@ -876,7 +1067,7 @@ struct IrohZeroTouchDiscoveryTests {
     }
 }
 
-private final class RoutedZeroTouchFactory: CmxByteTransportFactory, @unchecked Sendable {
+final class RoutedZeroTouchFactory: CmxByteTransportFactory, @unchecked Sendable {
     private let routers: [String: LivenessHostRouter]
     private let lock = NSLock()
     private var attempts: [String] = []
@@ -899,7 +1090,7 @@ private final class RoutedZeroTouchFactory: CmxByteTransportFactory, @unchecked 
 }
 
 @MainActor
-private final class ScriptedIrohDiscovery: MobileIrohMacDiscovering {
+final class ScriptedIrohDiscovery: MobileIrohMacDiscovering {
     private var snapshots: [[MobileDiscoveredIrohMac]]
     private var calls = 0
 

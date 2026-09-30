@@ -30,7 +30,12 @@ E2E_BUILD_JOB = "build"
 PRODUCT_PROFILES = {
     # The app/UI scheme builds first so its warning log keeps the runtime
     # job's warning-budget scope; later schemes reuse the same app objects.
-    "app-host": ("cmux", "cmux-unit", "cmux-numeric-locale", "cmux-cli-tests"),
+    # cmux-unit supplies both ordinary app-host tests and the serialized
+    # numeric-locale gate (app_host_test_products.OUTPUT_ALIASES); the two
+    # schemes' product contracts are kept equivalent by
+    # tests/test_app_host_test_products.py, so cmux-numeric-locale is not
+    # built a third time.
+    "app-host": ("cmux", "cmux-unit", "cmux-cli-tests"),
     "cli": ("cmux-cli-tests",),
 }
 DEFAULT_PRODUCT_PROFILE = "app-host"
@@ -57,6 +62,8 @@ PRODUCT_CI_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/canonical-build-root.sh",
+    # canonical-build-root.sh copies the source tree the product compiles from with it.
+    "scripts/ci/apfs_clone.py",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
 })
 
@@ -85,6 +92,7 @@ NON_PRODUCT_TOOLING = frozenset({
     "scripts/check-test-determinism.py",
     "scripts/dev-fleet-warm-slot.py",
     "scripts/install-git-hooks.sh",
+    "scripts/merge-pbxproj.py",
     "scripts/merge-xcstrings.py",
     "scripts/normalize-pbxproj.py",
     "scripts/prune_nightly_release_assets.py",
@@ -170,6 +178,7 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     # What the kept DerivedData starts from, for the warm runner labels.
     "List the commits this owned Mac starts from warm",
     "Upload the owned Mac's warm keys",
+    "Record warm-state distance",
     "Validate Swift warning budget",
     "Run early CLI binary smoke checks",
     "Start product publication timer",
@@ -181,6 +190,7 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Report evidence collection outcomes",
     # A changed-suites run tests the product after it is packaged and
     # uploaded; nothing here can change its bytes.
+    "Take this Mac's gui token for the changed suites",
     "Prepare isolated DerivedData",
     "Restore compiled app-host test product",
     "Prepare isolated app-host home",

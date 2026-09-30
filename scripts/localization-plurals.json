@@ -703,5 +703,17 @@
     "arguments": [
       1
     ]
+  },
+  "update.relaunch.resumesMidTask": {
+    "source": "%lld agents will be resumed mid-task.",
+    "arguments": [
+      1
+    ]
+  },
+  "update.relaunch.runningCommands": {
+    "source": "%lld running commands",
+    "arguments": [
+      1
+    ]
   }
 }

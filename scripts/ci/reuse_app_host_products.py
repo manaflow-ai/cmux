@@ -63,13 +63,15 @@ MAX_CANDIDATES = 6
 # consumer event, so nothing a pull request compiled can reach main.
 #
 # A dispatch consumer is at least as trusted as a merge group, because starting
-# one requires write access, so it may adopt any exact product CI compiled as
-# well as the ones earlier dispatches of its own lane compiled. Nothing adopts a
-# dispatch product in the other direction: CI's trust surface is unchanged.
+# one requires write access, so it may adopt any exact product CI compiled,
+# including main's seeder product, as well as the ones earlier dispatches of
+# its own lane compiled. A dispatch of a main commit that no pull request
+# compiled then adopts the seeder's product. Nothing adopts a dispatch product
+# in the other direction: CI's trust surface is unchanged.
 PERMITTED_PRODUCERS = {
     "pull_request": {"pull_request", "push"},
     "merge_group": {"pull_request", "merge_group"},
-    "workflow_dispatch": {"pull_request", "merge_group", "workflow_dispatch"},
+    "workflow_dispatch": {"pull_request", "merge_group", "workflow_dispatch", "push"},
 }
 
 # The workflow each event is trusted to run from, keyed by event so a future
@@ -116,25 +118,29 @@ def names_compile_job(name: object, compile_name: str) -> bool:
 GATE_DECLINE_STEP = "Hold consumers behind the fast Linux gate"
 
 
-# test-e2e.yml's build job uploads its product with this step and then runs
-# the tests on the same runner. Once the step has succeeded the product is
-# complete, so a later dispatch may adopt it while those tests still run, or
-# after they fail.
+# test-e2e.yml's build job uploads its product with one of these steps: the
+# first before it runs the tests on the same runner, the second after them on
+# an owned Mac. Once either has succeeded the product is complete, so a later
+# dispatch may adopt it while those tests still run, or after they fail.
 PUBLISH_STEPS = {
-    ".github/workflows/test-e2e.yml": "Upload the compiled test product",
+    ".github/workflows/test-e2e.yml": (
+        "Upload the compiled test product",
+        "Upload the compiled test product after the tests",
+    ),
 }
 
 
-def compile_job_admitted(job: object, publish_step: str | None = None) -> bool:
-    """Whether a compile job produced its product: its `publish_step`
-    succeeded, or it completed and succeeded, or it failed only because the
+def compile_job_admitted(job: object, publish_step: str | tuple[str, ...] | None = None) -> bool:
+    """Whether a compile job produced its product: its `publish_step` (or
+    any of several) succeeded, or it completed and succeeded, or it failed only because the
     fast Linux gate declined its consumers."""
     if not isinstance(job, dict):
         return False
     steps = job.get("steps")
-    if publish_step and isinstance(steps, list) and any(
+    publish_steps = (publish_step,) if isinstance(publish_step, str) else (publish_step or ())
+    if publish_steps and isinstance(steps, list) and any(
         isinstance(step, dict)
-        and step.get("name") == publish_step
+        and step.get("name") in publish_steps
         and step.get("conclusion") == "success"
         for step in steps
     ):
@@ -181,6 +187,28 @@ def read(*args):
     return subprocess.check_output(args, text=True, timeout=30).strip()
 
 
+def contract_sdkroot(sdkroot):
+    """SDKROOT as the contract hashes it: empty when it names the default SDK.
+
+    Some owned Macs' runner services export SDKROOT as the selected Xcode's
+    MacOSX.sdk and others export nothing. Both build against the same SDK,
+    whose build is already `sdk` in the contract, but hashing the raw value
+    split one product into two names: on 2026-09-28 a UI test run on one such
+    Mac compiled the app again (376 s, run 36403079789) beside the product
+    compile admission had just published from the other kind (run 36401440165),
+    their receipts differing in SDKROOT alone. Any other SDK still hashes.
+    """
+    if not sdkroot:
+        return ""
+    try:
+        default = read("xcrun", "--sdk", "macosx", "--show-sdk-path")
+    except (OSError, subprocess.SubprocessError):
+        return sdkroot
+    if default and os.path.realpath(sdkroot) == os.path.realpath(default):
+        return ""
+    return sdkroot
+
+
 def contract(derived=None):
     """Fingerprint everything that decides a compiled product's bytes.
 
@@ -219,6 +247,7 @@ def contract(derived=None):
         "tools": versions,
         "environment": {k: os.environ.get(k, "") for k in CONTRACT_ENVIRONMENT},
     }
+    value["environment"]["SDKROOT"] = contract_sdkroot(value["environment"]["SDKROOT"])
     if derived is None:
         value["os"] = read("sw_vers", "-buildVersion")
         value["environment"].update(
@@ -230,6 +259,77 @@ def contract(derived=None):
     return value
 
 
+# glaeda's canonical-root helper on an owned Mac (glaeda-cmux-runner). A job
+# holds one canonical root; `take ROOT --switch` moves it to another, waiting
+# for ROOT while it still holds its own, so a timeout leaves it where it was.
+ROOT_HELPER = Path("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root")
+# How long a switch waits for the product's root. Giving up means compiling
+# the whole product at the root this job holds, about 405 s at the median on
+# an owned Mac, and that holds the root and the Mac just as long. A shorter
+# wait only trades a wait for a longer compile. With 120 s, 10 of 53 owned E2E
+# builds that found a product for their revision (2026-09-27 23:30Z to 09-28
+# 13:00Z) gave up and compiled. The product's root had been held by a compile
+# admission, an E2E build or an app-host shard, and it came free 214 to 623 s
+# into the wait: within 360 s in 7 of the 10, which then adopt. A waiter polls
+# every second, so it takes the root as it frees. Two switchers after each
+# other's root both give up after this wait, as before, and then compile.
+ROOT_SWITCH_WAIT_S = 360
+# Root 1. CANONICAL_DERIVED_DATA follows the job's own root instead.
+FIRST_ROOT = Path("/private/tmp/cmux-ci")
+DERIVED_NAME = "derived-data-compile-admission"
+CAS_NAME = "compile-admission-cas"
+
+
+def canonical_roots():
+    """This Mac's canonical roots: /private/tmp/cmux-ci, then every
+    /private/tmp/cmux-ci-<n> a job has used. The helper refuses a root the Mac
+    does not have, so a stray directory is only a wasted lookup."""
+    base = FIRST_ROOT
+    numbered = [path for path in base.parent.glob(base.name + "-*")
+                if re.fullmatch(re.escape(base.name) + r"-[0-9]+", path.name) and path.is_dir()]
+    return [base] + sorted(numbered, key=lambda path: int(path.name.rsplit("-", 1)[1]))
+
+
+def at_root(value, root):
+    """The same product compiled at another canonical root."""
+    return {**value, "build_location": str((root / DERIVED_NAME).resolve())}
+
+
+def switch_root(root):
+    """Move this job to `root` and give it an empty DerivedData there.
+
+    A product's test binaries carry #filePath strings under the root that
+    compiled it, which relocation cannot edit, so a product from another root
+    runs only from that root. The helper points $GITHUB_ENV's
+    CMUX_CI_CANONICAL_ROOT at it; the DerivedData and cache paths follow here.
+    """
+    try:
+        result = subprocess.run(
+            [str(ROOT_HELPER), "take", str(root), "--switch", "--wait", str(ROOT_SWITCH_WAIT_S)],
+            text=True, capture_output=True, timeout=ROOT_SWITCH_WAIT_S + 60)
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f"Could not move this job to {root} ({error}); compiling here.")
+        return None
+    if result.returncode != 0:
+        print(f"Could not move this job to {root} (take exited {result.returncode}): "
+              f"{result.stderr.strip()[-300:]}; compiling here.")
+        return None
+    # The job is at `root` from here: its paths follow it first, and it is
+    # reported moved even when the directories cannot be emptied, so nothing
+    # cleans the root it released, which another job may hold by now.
+    derived, cache = root / DERIVED_NAME, root / CAS_NAME
+    with open(os.environ["GITHUB_ENV"], "a") as env:
+        env.write(f"CMUX_DERIVED_DATA_PATH={derived}\nCMUX_E2E_COMPILATION_CACHE={cache}\n")
+    for path in (derived, cache):
+        try:
+            shutil.rmtree(path, ignore_errors=True)
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            print(f"Could not empty {path} ({error}).")
+    print(f"Moved this job to {root}, where the product was compiled.")
+    return derived
+
+
 def portable_contract(value):
     """The same product compiled at the canonical root, which runs on any pool."""
     return {**value, "build_location": str(CANONICAL_DERIVED_DATA.resolve())}
@@ -237,6 +337,31 @@ def portable_contract(value):
 
 def key(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def contract_differences(sealed, wanted, prefix=""):
+    """The dotted contract fields where a sealed receipt and this job differ.
+
+    Only names: a receipt found under this job's key but sealed with another
+    contract means the producer's contract changed between naming its artifact
+    and sealing it, and the field says which input moved.
+    """
+    if not isinstance(sealed, dict) or not isinstance(wanted, dict):
+        return [prefix or "contract"]
+    fields = []
+    for name in sorted(set(sealed) | set(wanted)):
+        path = f"{prefix}{name}"
+        sealed_has = name in sealed
+        wanted_has = name in wanted
+        if sealed_has and wanted_has and sealed[name] == wanted[name]:
+            continue
+        if (sealed_has and wanted_has
+                and isinstance(sealed[name], dict)
+                and isinstance(wanted[name], dict)):
+            fields.extend(contract_differences(sealed[name], wanted[name], f"{path}."))
+        else:
+            fields.append(path)
+    return fields or [prefix or "contract"]
 
 
 def github_product_identity(api, revision):
@@ -888,8 +1013,14 @@ def upstream_compile_seconds(upstream):
     return upstream["metrics"]["compile_seconds_avoided"]
 
 
-def restore(api, value, derived, current_run, current_identity, current_attempt="1", report=None):
-    """Restore in staging; a miss never leaves partial products in DerivedData."""
+def restore(api, value, derived, current_run, current_identity, current_attempt="1", report=None,
+            claim=None):
+    """Restore in staging; a miss never leaves partial products in DerivedData.
+
+    `claim`, when given, runs once a downloaded product has passed every check
+    and returns the DerivedData to restore it into, or None when this job
+    cannot use it after all (switch_root). The product is then a miss.
+    """
     reuse_started = time.monotonic()
     reasons = []
     consumer = load_consumer(
@@ -930,10 +1061,12 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
             root = staging / "Build/Products"
             try:
                 receipt = json.loads((root / RECEIPT).read_text())
-                if (receipt["contract"] != value
-                        or receipt["run_id"] != str(run["id"])
+                if receipt["contract"] != value:
+                    raise ValueError("artifact producer contract mismatch in "
+                                     + ", ".join(contract_differences(receipt["contract"], value)))
+                if (receipt["run_id"] != str(run["id"])
                         or receipt["run_attempt"] != str(run["run_attempt"])):
-                    raise ValueError("artifact producer contract mismatch")
+                    raise ValueError("artifact producer run mismatch")
                 # Bind the candidate-authored receipt back to a GitHub-attested
                 # producer revision, re-fingerprinting whatever it names.
                 revision = receipt["revision"]
@@ -953,10 +1086,21 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
                 # Relocate once more from staging into the actual consumer location.
                 products.stamp(staging, current_identity)
             except (TypeError, AttributeError, ValueError, KeyError, OSError,
-                    subprocess.SubprocessError):
+                    subprocess.SubprocessError) as error:
+                # The reason alone cannot tell a stale receipt from a relocation
+                # or disk fault, and every candidate records it once; name the
+                # artifact and the check that refused it.
+                print(f"Compiled-product reuse refused artifact {artifact.get('id')} of run "
+                      f"{run.get('id')}: {type(error).__name__}: {str(error)[:300]}")
                 record_reason(reasons, "product_provenance_invalid")
                 continue
 
+            if claim is not None:
+                claimed = claim()
+                if claimed is None:
+                    record_reason(reasons, "root_unavailable")
+                    break
+                derived, claim = claimed, None
             # After relocation starts, any failure must abort to main's cleanup.
             destination = derived / "Build/Products"
             if destination.exists():
@@ -1053,7 +1197,11 @@ def main():
             "restore_seconds": None,
             "total_reuse_seconds": None,
             "macos_runner_minutes_saved": None,
+            # Set when the product came from another root (switch_root).
+            "product_key": "",
         }
+        # A DerivedData this job moved to (switch_root), cleaned like its own.
+        switched = []
         try:
             if value is None:
                 report["miss_reasons"] = "fingerprint_unavailable"
@@ -1061,11 +1209,29 @@ def main():
                 api = GitHub(os.environ["GITHUB_REPOSITORY"])
                 # A product this job would compile, then the same product
                 # compiled at the canonical root, which this job can also run.
-                wanted = [value]
-                if portable_contract(value) != value:
-                    wanted.append(portable_contract(value))
+                # An owned Mac (CMUX_REUSE_SWITCH_ROOTS) has several roots
+                # instead, and takes a product from any of them by moving to
+                # its root first (switch_root).
+                wanted = [(value, None)]
+                here = derived.resolve().parent
+
+                def moved(target):
+                    # From here the job is at the other root, hit or not, and
+                    # packaging seals whatever it builds under that root's key.
+                    if target is not None:
+                        switched.append(target)
+                        report["product_key"] = key(at_root(value, target.parent))
+                    return target
+
+                if (os.environ.get("CMUX_REUSE_SWITCH_ROOTS") == "1" and ROOT_HELPER.exists()
+                        and derived.name == DERIVED_NAME):
+                    wanted += [(at_root(value, root), root) for root in canonical_roots()
+                               if root.resolve() != here]
+                elif portable_contract(value) != value:
+                    wanted.append((portable_contract(value), None))
                 reasons = []
-                for candidate in wanted:
+                for candidate, root in wanted:
+                    extra = {} if root is None else {"claim": lambda root=root: moved(switch_root(root))}
                     hit = restore(
                         api,
                         candidate,
@@ -1074,6 +1240,7 @@ def main():
                         products.identity(),
                         os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
                         report,
+                        **extra,
                     )
                     reasons.extend(r for r in report["miss_reasons"].split(",")
                                    if r and r not in reasons)
@@ -1087,7 +1254,10 @@ def main():
             print("Compiled-product reuse unavailable; compiling normally.")
             report["reason"] = "fallback"
             report["miss_reasons"] = "reuse_api_or_validation_error"
-            shutil.rmtree(derived, ignore_errors=True)
+            # Only the root this job holds: after a switch, the one it left
+            # is another job's to use.
+            for target in (switched or [derived]):
+                shutil.rmtree(target, ignore_errors=True)
         with open(os.environ["GITHUB_OUTPUT"], "a") as out:
             out.write(f"hit={'true' if hit else 'false'}\n")
             for name, item in report.items():

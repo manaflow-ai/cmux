@@ -7,12 +7,19 @@ use std::sync::{Arc, Mutex as StdMutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
+use flate2::Compression;
+use flate2::read::GzEncoder;
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncReadExt;
-use tokio::process::{Child, Command};
-use tokio::sync::Mutex;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::process::{Child, ChildStdin, Command};
+use tokio::sync::{Mutex, mpsc};
+
+use crate::ssh_args::background_ssh_arguments;
 
 const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
+/// Printed by the staging command when the remote can decompress an upload.
+const GZIP_UPLOAD_MARKER: &str = "cmux-upload:gzip";
+const UPLOAD_CHUNK_BYTES: usize = 256 * 1024;
 // Cleanup must not turn a bounded bootstrap timeout into an unbounded wait.
 const SSH_BOOTSTRAP_REAP_TIMEOUT: Duration = Duration::from_secs(2);
 // A process-wide counter prevents concurrent unpublished uploads from
@@ -278,9 +285,9 @@ impl SshBootstrapper {
         // allowed only after this command reports success, which proves that
         // this upload owns the staging directory. A failed or timed-out mkdir
         // is intentionally left untouched because ownership is unknown.
-        self.create_remote_staging(parent, &temporary_dir).await?;
-        let command = upload_command(parent, &temporary_dir, &temporary);
-        let output = match self.run_remote_with_input(&command, source).await {
+        let encoding = self.create_remote_staging(parent, &temporary_dir).await?;
+        let command = upload_command(&temporary, encoding);
+        let output = match self.run_remote_with_input(&command, source, encoding).await {
             Ok(output) => output,
             Err(error) => {
                 self.cleanup_remote_staging(&temporary_dir, deadline).await;
@@ -315,10 +322,13 @@ impl SshBootstrapper {
                 protocol: probe.remote_protocol,
             });
         }
-        let output = match self
-            .run_remote(["mv", "-f", "--", temporary.as_str(), self.config.remote_binary.as_str()])
-            .await
-        {
+        // The move also removes the now-empty staging directory, so a
+        // successful install spends no extra round trip on cleanup.
+        let command = format!(
+            "mv -f -- {temporary} {} && {{ rmdir -- {temporary_dir} 2>/dev/null || true; }}",
+            self.config.remote_binary
+        );
+        let output = match self.run_remote([command.as_str()]).await {
             Ok(output) => output,
             Err(error) => {
                 self.cleanup_remote_staging(&temporary_dir, deadline).await;
@@ -332,28 +342,18 @@ impl SshBootstrapper {
                 stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
             });
         }
-        let probe = match self.probe().await {
-            Ok(Some(probe)) => probe,
-            Ok(None) => {
-                self.cleanup_remote_staging(&temporary_dir, deadline).await;
-                return Err(BootstrapError::Install {
-                    status: 0,
-                    stderr: "upload completed but the remote binary is absent".into(),
-                });
-            }
-            Err(error) => {
-                self.cleanup_remote_staging(&temporary_dir, deadline).await;
-                return Err(error);
-            }
+        let Some(probe) = self.probe().await? else {
+            return Err(BootstrapError::Install {
+                status: 0,
+                stderr: "upload completed but the remote binary is absent".into(),
+            });
         };
         if !self.compatible(&probe) {
-            self.cleanup_remote_staging(&temporary_dir, deadline).await;
             return Err(BootstrapError::Incompatible {
                 version: probe.version,
                 protocol: probe.remote_protocol,
             });
         }
-        self.cleanup_remote_staging(&temporary_dir, deadline).await;
         Ok(BootstrapOutcome::Installed)
     }
 
@@ -364,26 +364,30 @@ impl SshBootstrapper {
         format!("{}.cmux-upload-{}-{now}-{nonce}", self.config.remote_binary, std::process::id())
     }
 
+    /// Creates the parent and the exclusive staging directory in one round
+    /// trip and reports whether the remote can decompress a gzip upload. The
+    /// status is zero only when this command created the staging directory:
+    /// the decompressor check cannot fail.
     async fn create_remote_staging(
         &self,
         parent: &str,
         temporary_dir: &str,
-    ) -> Result<(), BootstrapError> {
-        let parent_output = self.run_remote(["mkdir", "-p", "--", parent]).await?;
-        if parent_output.status != 0 {
-            return Err(BootstrapError::Install {
-                status: parent_output.status,
-                stderr: sanitize(&String::from_utf8_lossy(&parent_output.stderr)),
-            });
-        }
-        let output = self.run_remote(["mkdir", "-m", "700", "--", temporary_dir]).await?;
+    ) -> Result<UploadEncoding, BootstrapError> {
+        let command = format!(
+            "mkdir -p -- {parent} && mkdir -m 700 -- {temporary_dir} && \
+             {{ command -v gzip >/dev/null 2>&1 && echo {GZIP_UPLOAD_MARKER}; true; }}"
+        );
+        let output = self.run_remote([command.as_str()]).await?;
         if output.status != 0 {
             return Err(BootstrapError::Install {
                 status: output.status,
                 stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
             });
         }
-        Ok(())
+        let gzip = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .any(|line| line.trim() == GZIP_UPLOAD_MARKER);
+        Ok(if gzip { UploadEncoding::Gzip } else { UploadEncoding::Raw })
     }
 
     async fn cleanup_remote_staging(&self, path: &str, deadline: Instant) {
@@ -519,26 +523,32 @@ impl SshBootstrapper {
             command.arg(argument);
         }
         command.stdin(Stdio::null());
-        self.run_child_with_timeout(command, timeout).await
+        self.run_child_with_timeout(command, timeout, None).await
     }
 
     fn configure_ssh_command(&self, command: &mut Command) {
-        command.arg("-T");
-        if let Some(port) = self.config.port {
-            command.arg("-p").arg(port.to_string());
-        }
-        command.args(&self.config.extra_args).arg(&self.config.destination);
+        // Forwarding stays as configured unless `extra_args` pin
+        // `ControlMaster=no`: otherwise this run can become the shared master
+        // that interactive sessions reuse.
+        command.args(background_ssh_arguments(
+            self.config.port,
+            &self.config.extra_args,
+            &self.config.destination,
+        ));
     }
 
-    async fn run_child(&self, command: Command) -> Result<RemoteOutput, BootstrapError> {
-        self.run_child_with_timeout(command, self.config.timeout).await
-    }
-
+    /// Runs one ssh command. With `compressed_input`, that file is gzipped
+    /// on a blocking thread and streamed to the command's stdin while the
+    /// upload is in flight.
     async fn run_child_with_timeout(
         &self,
         mut command: Command,
         timeout: Duration,
+        compressed_input: Option<&Path>,
     ) -> Result<RemoteOutput, BootstrapError> {
+        if compressed_input.is_some() {
+            command.stdin(Stdio::piped());
+        }
         let mut child = command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -563,6 +573,7 @@ impl SshBootstrapper {
                 )));
             }
         };
+        let input = compressed_input.map(|path| (child.stdin.take(), compress_upload(path)));
         let started = Instant::now();
         let completion = tokio::time::timeout(timeout, async {
             // Drain both pipes concurrently so either stream can fill without
@@ -570,11 +581,12 @@ impl SshBootstrapper {
             tokio::try_join!(
                 read_bounded(stdout, "stdout"),
                 read_bounded(stderr, "stderr"),
+                write_upload(input),
                 async { child.wait().await.map_err(BootstrapError::Io) },
             )
         })
         .await;
-        let (stdout, stderr, status) = match completion {
+        let (stdout, stderr, sent, status) = match completion {
             Ok(Ok(result)) => result,
             Ok(Err(error)) => {
                 terminate_and_reap(&mut child).await;
@@ -593,31 +605,120 @@ impl SshBootstrapper {
                 return Err(BootstrapError::Timeout);
             }
         };
-        Ok(RemoteOutput { status: status.code().unwrap_or(255), stdout, stderr })
+        let status = status.code().unwrap_or(255);
+        // A command that exits cleanly without reading the whole upload must
+        // not pass for an install. A failed one reports its own status.
+        if status == 0 && !sent {
+            return Err(BootstrapError::Io(std::io::Error::other(
+                "SSH closed the upload before the payload was sent",
+            )));
+        }
+        Ok(RemoteOutput { status, stdout, stderr })
     }
 
     async fn run_remote_with_input(
         &self,
         remote_command: &str,
         source: &Path,
+        encoding: UploadEncoding,
     ) -> Result<RemoteOutput, BootstrapError> {
-        let source = std::fs::File::open(source).map_err(BootstrapError::Io)?;
         let mut command = Command::new(&self.config.ssh_binary);
         self.configure_ssh_command(&mut command);
-        command.arg(remote_command).stdin(Stdio::from(source));
-        self.run_child(command).await
+        command.arg(remote_command);
+        match encoding {
+            UploadEncoding::Raw => {
+                let source = std::fs::File::open(source).map_err(BootstrapError::Io)?;
+                command.stdin(Stdio::from(source));
+                self.run_child_with_timeout(command, self.config.timeout, None).await
+            }
+            UploadEncoding::Gzip => {
+                self.run_child_with_timeout(command, self.config.timeout, Some(source)).await
+            }
+        }
     }
+}
+
+/// How the payload travels to the remote staging file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UploadEncoding {
+    Raw,
+    /// gzip stream, decompressed remotely. The binary is about 2.5 times
+    /// smaller on the wire, and gzip's CRC rejects a truncated upload.
+    Gzip,
 }
 
 /// Build the remote upload command after the caller has created the staging
 /// directory exclusively with mode 0700. `set -C` plus an explicit descriptor
 /// opens the payload with no-clobber semantics, so a same-UID process cannot
 /// redirect the stream through a planted payload symlink.
-fn upload_command(_parent: &str, _temporary_dir: &str, temporary: &str) -> String {
+fn upload_command(temporary: &str, encoding: UploadEncoding) -> String {
+    let writer = match encoding {
+        UploadEncoding::Raw => "cat",
+        UploadEncoding::Gzip => "gzip -dc",
+    };
     // The validated temporary path is rooted under the configured remote
     // binary directory and cannot begin with `-`. macOS chmod does not accept
     // the GNU `--` separator, so keep this command portable across Unix hosts.
-    format!("umask 077; (set -C; exec 3> {temporary} && cat >&3) && chmod 755 {temporary}")
+    format!("umask 077; (set -C; exec 3> {temporary} && {writer} >&3) && chmod 755 {temporary}")
+}
+
+/// Compressed upload bytes, in order, or the read error that ended them.
+type UploadChunks = mpsc::Receiver<std::io::Result<Vec<u8>>>;
+
+/// Compresses `source` on a blocking thread into bounded chunks. Dropping the
+/// receiver stops the compressor at its next chunk.
+fn compress_upload(source: &Path) -> UploadChunks {
+    let (sender, receiver) = mpsc::channel(4);
+    let source = source.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        use std::io::Read;
+
+        let file = match std::fs::File::open(&source) {
+            Ok(file) => file,
+            Err(error) => {
+                let _ = sender.blocking_send(Err(error));
+                return;
+            }
+        };
+        let mut encoder = GzEncoder::new(std::io::BufReader::new(file), Compression::default());
+        loop {
+            let mut chunk = Vec::with_capacity(UPLOAD_CHUNK_BYTES);
+            match (&mut encoder).take(UPLOAD_CHUNK_BYTES as u64).read_to_end(&mut chunk) {
+                Ok(0) => return,
+                Ok(_) => {
+                    if sender.blocking_send(Ok(chunk)).is_err() {
+                        return;
+                    }
+                }
+                Err(error) => {
+                    let _ = sender.blocking_send(Err(error));
+                    return;
+                }
+            }
+        }
+    });
+    receiver
+}
+
+/// Writes a compressed upload to ssh's stdin and closes it. Reports whether
+/// every byte was written: a remote that exits early closes the pipe, and its
+/// own status and stderr then explain the failure better than the write error.
+async fn write_upload(
+    input: Option<(Option<ChildStdin>, UploadChunks)>,
+) -> Result<bool, BootstrapError> {
+    let Some((stdin, mut chunks)) = input else {
+        return Ok(true);
+    };
+    let Some(mut stdin) = stdin else {
+        return Err(BootstrapError::Io(std::io::Error::other("SSH stdin pipe is unavailable")));
+    };
+    while let Some(chunk) = chunks.recv().await {
+        let chunk = chunk.map_err(BootstrapError::Io)?;
+        if stdin.write_all(&chunk).await.is_err() {
+            return Ok(false);
+        }
+    }
+    Ok(stdin.shutdown().await.is_ok())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -821,15 +922,16 @@ mod tests {
 
     #[test]
     fn upload_command_writes_only_after_exclusive_directory_creation() {
-        let command = upload_command(
-            "~/.local/bin",
-            "~/.local/bin/.cmux-upload-test",
-            "~/.local/bin/.cmux-upload-test/payload",
-        );
+        let payload = "~/.local/bin/.cmux-upload-test/payload";
+        let command = upload_command(payload, UploadEncoding::Raw);
         assert!(command.contains("set -C; exec 3> ~/.local/bin/.cmux-upload-test/payload"));
         assert!(command.contains("cat >&3"));
         assert!(command.contains("chmod 755 ~/.local/bin/.cmux-upload-test/payload"));
         assert!(!command.contains("cat > ~/.local/bin"));
+        let command = upload_command(payload, UploadEncoding::Gzip);
+        assert!(command.contains("set -C; exec 3> ~/.local/bin/.cmux-upload-test/payload"));
+        assert!(command.contains("gzip -dc >&3"));
+        assert!(command.contains("chmod 755 ~/.local/bin/.cmux-upload-test/payload"));
     }
 
     #[test]
@@ -901,6 +1003,53 @@ mod tests {
         };
         assert!(
             matches!(error, BootstrapError::Configuration(message) if message.contains("destination"))
+        );
+    }
+
+    /// Every bootstrap step starts `ssh` the same way. This run is pinned to
+    /// `ControlMaster=no`, so it cannot become a shared master and turns
+    /// forwarding off.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bootstrap_uses_hardened_ssh_argv() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let log = directory.path().join("argv");
+        let script = directory.path().join("ssh");
+        fs::write(
+            &script,
+            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nexit 127\n", log.display()),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = SshBootstrapConfig::defaults("alice@example.com");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.port = Some(2222);
+        config.extra_args = vec!["-o".into(), "ControlMaster=no".into()];
+
+        assert_eq!(SshBootstrapper::new(config).unwrap().probe().await.unwrap(), None);
+        assert_eq!(
+            fs::read_to_string(&log).unwrap().lines().collect::<Vec<_>>(),
+            [
+                "-T",
+                "-p",
+                "2222",
+                "-o",
+                "ForwardAgent=no",
+                "-o",
+                "ForwardX11=no",
+                "-o",
+                "ClearAllForwardings=yes",
+                "-o",
+                "ControlMaster=no",
+                "--",
+                "alice@example.com",
+                "~/.local/bin/cmux-tui",
+                "remote-probe",
+                "--json",
+            ]
         );
     }
 
@@ -1030,6 +1179,68 @@ mod tests {
             BootstrapOutcome::Installed
         );
         assert_eq!(fs::read(installed).unwrap(), b"exact unpublished build");
+    }
+
+    /// A first connect uploads tens of megabytes over the user's own link, so
+    /// the payload must travel compressed when the remote can decompress it,
+    /// and the install must not spend a round trip per shell step.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn raw_build_streams_a_compressed_upload_in_few_round_trips() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let installed = directory.path().join("installed");
+        let staged = directory.path().join("staged");
+        let wire = directory.path().join("wire");
+        let commands = directory.path().join("commands");
+        let source = directory.path().join("cmux-tui");
+        let payload = b"compressible unpublished build\n".repeat(64 * 1024);
+        fs::write(&source, &payload).unwrap();
+        let uname_os = if std::env::consts::OS == "macos" { "Darwin" } else { "Linux" };
+        let uname_arch =
+            if std::env::consts::ARCH == "aarch64" { "arm64" } else { std::env::consts::ARCH };
+        let probe = serde_json::json!({
+            "app": "cmux-tui",
+            "version": DISTRIBUTION_VERSION,
+            "distribution_version": DISTRIBUTION_VERSION,
+            "build_identity": BUILD_IDENTITY,
+            "remote_protocol": REMOTE_PROTOCOL_VERSION,
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+        });
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >>'{commands}'\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) command -v gzip >/dev/null 2>&1 && printf '%s\\n' 'cmux-upload:gzip' ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"exec 3> \"*\".cmux-upload-\"*\"gzip -dc\"*) tee '{wire}' | gzip -dc >'{staged}' ;;\n  *\"exec 3> \"*\".cmux-upload-\"*) tee '{wire}' >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *\"rmdir \"*\".cmux-upload-\"*) exit 0 ;;\n  *) exit 2 ;;\nesac\n",
+                commands = commands.display(),
+                installed = installed.display(),
+                staged = staged.display(),
+                wire = wire.display(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.package_installable = false;
+        config.local_binary = Some(source);
+        config.remote_binary = "~/.local/bin/cmux-upload".into();
+
+        assert_eq!(
+            SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap(),
+            BootstrapOutcome::Installed
+        );
+        assert_eq!(fs::read(installed).unwrap(), payload);
+        let sent = fs::read(wire).unwrap();
+        assert_eq!(sent.get(..2), Some(&[0x1f, 0x8b][..]), "upload was not gzip");
+        assert!(sent.len() * 10 < payload.len(), "upload sent {} bytes", sent.len());
+        // probe, platform, staging, upload, staged probe, move, final probe.
+        let commands = fs::read_to_string(commands).unwrap();
+        assert!(commands.lines().count() <= 7, "install ran:\n{commands}");
     }
 
     #[cfg(unix)]

@@ -870,7 +870,13 @@ function TurnGroupView({
       {group.user ? <div className="msg user"><div className="body selectable">{group.user.text}</div></div> : null}
       {live
         ? group.activity.map((block, i) => (
-          <ActivityBlock key={i} block={block} fileDiffs={fileDiffs} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
+          block.kind === "thinking" || block.kind === "assistant"
+            ? (
+              <div className="turn-live-activity" key={i}>
+                <ActivityBlock block={block} fileDiffs={fileDiffs} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
+              </div>
+            )
+            : <ActivityBlock key={i} block={block} fileDiffs={fileDiffs} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
         ))
         : (
           <TurnActivity

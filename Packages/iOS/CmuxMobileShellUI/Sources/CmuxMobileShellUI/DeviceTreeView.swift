@@ -23,6 +23,8 @@ struct DeviceTreeView: View {
     /// Open a workspace (forwarded from the shell). Unused by the management list
     /// today; kept so a future "show this computer's workspaces" tap can use it.
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
+    /// Creates a workspace on a visible, connected Cloud computer.
+    var createWorkspaceOnCloudMachine: ((String) -> Void)? = nil
     /// Present the add-device (pairing) flow. `nil` hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
@@ -52,7 +54,16 @@ struct DeviceTreeView: View {
         MacComputerListSection.sections(from: computers).flatMap { section in
             [section.id] + section.computers.map(\.id)
         } + ["hidden"] + store.hiddenComputers.map(\.id)
-            + ["cloud"] + store.externalHostSummaries.map(\.hostID)
+            + ["cloud"] + cloudHosts.map(\.hostID)
+    }
+
+    private var cloudHosts: [MobileExternalHostSummary] {
+        store.externalHostSummaries.sorted { lhs, rhs in
+            if lhs.isHidden != rhs.isHidden {
+                return !lhs.isHidden
+            }
+            return (lhs.displayName ?? lhs.hostID) < (rhs.displayName ?? rhs.hostID)
+        }
     }
 
     var body: some View {
@@ -105,8 +116,13 @@ struct DeviceTreeView: View {
                         // Mac's does; managing the machine itself lives in
                         // the Cloud tab.
                         Section {
-                            ForEach(store.externalHostSummaries) { host in
-                                CloudComputerRow(host: host) { visible in
+                            ForEach(cloudHosts) { host in
+                                CloudComputerRow(
+                                    host: host,
+                                    createWorkspace: createWorkspaceOnCloudMachine.map { action in
+                                        { action(host.hostID) }
+                                    }
+                                ) { visible in
                                     store.setExternalHost(host.hostID, hidden: !visible)
                                 }
                             }

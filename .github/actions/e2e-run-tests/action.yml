@@ -21,8 +21,16 @@ inputs:
     description: Every selector, comma-separated (the filter job's `selectors`).
     required: true
   count:
-    description: How many selectors there are (the filter job's `count`).
+    description: >-
+      How many selectors there are (the filter job's `count`). Zero when the
+      run only replays the fuzz regressions.
     required: true
+  fuzz-regressions:
+    description: >-
+      "true" to replay the UI fuzzer's checked-in repros against the app after
+      the selected tests (the filter job's `fuzz_regressions`).
+    required: false
+    default: "false"
   record-video:
     description: Whether to record the virtual display, "true" or "false".
     required: true
@@ -33,6 +41,12 @@ inputs:
     description: Per-test timeout in seconds.
     required: false
     default: "120"
+  dogfood-scenario:
+    description: >-
+      Base64 JSON scenario for cmuxUITests/DogfoodScenarioUITests, passed to
+      the test runner as CMUX_DOGFOOD_SCENARIO_B64. Empty for every other run.
+    required: false
+    default: ""
   ref-display:
     description: The ref the dispatch named, for the summary.
     required: true
@@ -40,11 +54,15 @@ inputs:
     description: The full SHA the product was compiled from.
     required: true
   artifact-id:
-    description: The uploaded product artifact's id.
-    required: true
+    description: >-
+      The uploaded product artifact's id. Empty when the build job tests on an
+      owned Mac, which uploads after the tests.
+    required: false
+    default: ""
   artifact-digest:
-    description: The uploaded product artifact's provider digest.
-    required: true
+    description: The uploaded product artifact's provider digest; empty with artifact-id.
+    required: false
+    default: ""
   sha256:
     description: The product archive's SHA-256.
     required: true
@@ -183,6 +201,19 @@ runs:
       shell: bash
       run: python3 scripts/ci/preflight-e2e-screen-capture.py
 
+    # A console session that cannot activate apps fails every UI test after
+    # a one-minute wait each, as "Failed to activate application". Probe it
+    # before the tests, repair what the probe can, and otherwise fail here in
+    # seconds with the runner's state. The script is the tested revision's,
+    # which may predate it.
+    - name: Verify the runner can activate apps
+      if: ${{ inputs.target == 'cmuxUITests' }}
+      shell: bash
+      run: |
+        if [ -f scripts/ci/preflight-e2e-gui-activation.py ]; then
+          python3 scripts/ci/preflight-e2e-gui-activation.py
+        fi
+
     - name: Setup Bun
       uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       with:
@@ -213,6 +244,7 @@ runs:
         echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
     - name: Restore the compiled test product
+      id: restore
       env:
         ARTIFACT_ID: ${{ inputs.artifact-id }}
         ARTIFACT_PROVIDER_DIGEST: ${{ inputs.artifact-digest }}
@@ -227,9 +259,10 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # The build job restores the archive it just packaged and uploaded,
-        # as compile admission does for its changed suites, so the tests run
-        # the exact bytes every other consumer downloads.
+        # The build job restores the archive it just packaged, as compile
+        # admission does for its changed suites, so the tests run the exact
+        # bytes every other consumer downloads. It uploads them before the
+        # tests, or after them on an owned Mac.
         if [ "$CMUX_PRODUCT_FROM_PRODUCER" = true ]; then
           mkdir -p "$RUNNER_TEMP/app-host-products"
           ln -f "$RUNNER_TEMP/app-host-products.tar.gz" "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
@@ -296,8 +329,80 @@ runs:
       shell: bash
       run: touch "$RUNNER_TEMP/cmux-e2e-selectors-unresolved"
 
+    # Inline, not a scripts/ci file: this action ships from the workflow
+    # revision, and the tested revision may predate any new script.
+    #
+    # Owned macOS runners keep one GUI session across jobs and reboots. On one
+    # (2026-09-27) a crash report ("Reopen / Ignore / Report...") and
+    # Spotlight's password prompt for the cmux-ci test keychain (read while it
+    # was still locked after a reboot) sat over every UI test for hours, and
+    # XCUITest could not activate the app or focus its fields. Both run as the
+    # runner user, so no sudo. Crash dialogs stay off on the host afterwards;
+    # reports are still written to ~/Library/Logs/DiagnosticReports.
+    - name: Close leftover system dialogs
+      shell: bash
+      run: |
+        defaults write com.apple.CrashReporter DialogType none 2>/dev/null || true
+        uid="$(id -u)"
+        # SIGKILL: a SecurityAgent showing a prompt ignores SIGTERM (seen
+        # 2026-09-27: pkill "succeeded" and the 7 h old prompt stayed).
+        for process in UserNotificationCenter SecurityAgent; do
+          if pkill -KILL -x -u "$uid" "$process" 2>/dev/null; then
+            echo "Closed $process (its dialogs are cancelled; launchd restarts it on demand)"
+          fi
+        done
+        # Diagnostics Reporter draws "Your computer was restarted because of a
+        # problem" after a kernel panic and "cmux DEV cannot be opened because
+        # of a problem" after a crashed launch; on owned macOS runners
+        # (2026-09-27) one sat over UI tests from boot. launchd starts it
+        # whenever one of its QueueDirectories (/var/db/PanicReporter,
+        # /var/db/DiagnosticsReporter) holds an entry, and an entry stays
+        # until someone answers the dialog. Killing it alone therefore only
+        # relaunched it with the same dialog about two minutes into the tests
+        # (seen 2026-09-27, for a panic queued two days earlier). So empty the
+        # queues first, then close it; with nothing queued it stays closed.
+        # The owned runners' job-started hook does the same for every job;
+        # this keeps it for a runner without that hook.
+        # A queue entry only points at a report (a panic's is a symlink to
+        # /Library/Logs/DiagnosticReports/.contents.panic, the summary the
+        # dialog shows), so the reports themselves are kept: panic-full-*.panic
+        # and every crash report stay. The queue directories are
+        # world-writable, so this needs no sudo.
+        for queue in /var/db/PanicReporter /var/db/DiagnosticsReporter; do
+          [ -d "$queue" ] || continue
+          for entry in "$queue"/* "$queue"/.[!.]*; do
+            [ -e "$entry" ] || [ -L "$entry" ] || continue
+            target=""
+            if [ -L "$entry" ]; then
+              target="$(readlink "$entry" 2>/dev/null || true)"
+            fi
+            if rm -rf "$entry" 2>/dev/null && [ ! -e "$entry" ] && [ ! -L "$entry" ]; then
+              echo "Dequeued $entry${target:+ -> $target} (Diagnostics Reporter would redraw its dialog for it)"
+              # The summary of a panic whose dialog was never answered; the
+              # full panic report stays. Best effort: its directory is
+              # writable by _analyticsusers, which owned runner users are in.
+              # Only a `.contents.*` file directly in DiagnosticReports: `*`
+              # matches `/` in a case pattern, so reject any deeper path.
+              case "$target" in
+                */../*|/Library/Logs/DiagnosticReports/.contents.*/*) ;;
+                /Library/Logs/DiagnosticReports/.contents.*)
+                  rm -f "$target" 2>/dev/null || true
+                  ;;
+              esac
+            else
+              echo "::warning title=Diagnostics Reporter queue::Could not remove $entry, so its dialog may reappear during the tests."
+            fi
+          done
+        done
+        # Its name is longer than the 16 bytes -x compares, so match the
+        # executable path.
+        if pkill -KILL -u "$uid" -f "/Diagnostics Reporter.app/Contents/MacOS/" 2>/dev/null; then
+          echo "Closed Diagnostics Reporter (its crash dialogs are dismissed)"
+        fi
+
     - name: Run selected tests
       id: tests
+      if: ${{ inputs.count != '0' }}
       env:
         TEST_FILTER: ${{ inputs.test-filter }}
         TEST_TARGET: ${{ inputs.target }}
@@ -307,6 +412,7 @@ runs:
         NORMALIZED_FILTER: ${{ inputs.filter }}
         TEST_TIMEOUT: ${{ inputs.test-timeout }}
         RECORD_VIDEO: ${{ inputs.record-video }}
+        DOGFOOD_SCENARIO_B64: ${{ inputs.dogfood-scenario }}
         # App-host crash recovery must not stall on interactive backtraces
         # (mirrors ci.yml's tests job hardening).
         SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
@@ -396,6 +502,12 @@ runs:
         if [ "${#DISPLAY_ENV_PREFIX[@]}" -gt 0 ]; then
           XCODEBUILD_ENV+=("${DISPLAY_ENV_PREFIX[@]}")
         fi
+        # xcodebuild hands TEST_RUNNER_-prefixed variables to the test runner
+        # with the prefix stripped; sudo -u above resets the environment, so
+        # the scenario has to ride in this list.
+        if [ -n "${DOGFOOD_SCENARIO_B64:-}" ]; then
+          XCODEBUILD_ENV+=("TEST_RUNNER_CMUX_DOGFOOD_SCENARIO_B64=$DOGFOOD_SCENARIO_B64")
+        fi
 
         RUN_XCODEBUILD=(env "${XCODEBUILD_ENV[@]}")
         if [ "$TEST_TARGET" = "cmuxUITests" ]; then
@@ -434,7 +546,7 @@ runs:
             -xctestrun "$XCTESTRUN_PATH"
             -destination "platform=macOS"
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
-            "${ONLY_TESTING[@]}"
+            ${ONLY_TESTING[@]+"${ONLY_TESTING[@]}"}
             test-without-building
           )
         else
@@ -446,7 +558,7 @@ runs:
             -resultBundlePath "$RUNNER_TEMP/cmux-app-host-xcresults/cmuxUITests.xcresult"
             -destination "platform=macOS"
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
-            "${ONLY_TESTING[@]}"
+            ${ONLY_TESTING[@]+"${ONLY_TESTING[@]}"}
             test-without-building
           )
         fi
@@ -463,6 +575,12 @@ runs:
         EXIT_CODE=$?
         set -e
         OUTPUT=$(cat /tmp/xcodebuild-e2e.log)
+        if [ "$EXIT_CODE" -ne 0 ] && grep -q "Failed to activate application" /tmp/xcodebuild-e2e.log; then
+          echo "::error::The runner stopped letting apps come to the front during the tests (Failed to activate application). This is the runner, not the test; re-run to take another runner."
+          if [ -f scripts/ci/preflight-e2e-gui-activation.py ]; then
+            python3 scripts/ci/preflight-e2e-gui-activation.py --diagnose || true
+          fi
+        fi
 
         # Save summary for the issue
         SUMMARY=$(echo "$OUTPUT" | grep -E "(Test Suite|Executed|FAIL|PASS)" | tail -20)
@@ -565,6 +683,59 @@ runs:
           exit 1
         fi
 
+    # The UI fuzzer's checked-in repros (dogfood/fuzz/regressions), replayed
+    # against the app restored above: one fresh launch per repro, driven over
+    # its debug socket in the console session, as the XCUITests are. A repro
+    # that reproduces fails the job. Socket steps only (--no-pointer): a
+    # pointer step needs cua-driver, and the repros are kept to socket steps.
+    # scripts/fuzz is the tested revision's.
+    - name: Replay the UI fuzzer regressions
+      id: fuzz
+      # After the XCUITests even when they failed, but not on a runner whose
+      # own setup (display, activation, restore) already failed.
+      if: ${{ !cancelled() && inputs.fuzz-regressions == 'true' && steps.restore.outcome == 'success' && (success() || steps.tests.outcome == 'failure') }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ ! -f scripts/fuzz ]; then
+          echo "::error::This revision has no scripts/fuzz, so there are no fuzz regressions to replay."
+          exit 1
+        fi
+        app="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
+        if [ ! -d "$app" ]; then
+          echo "::error::The restored product has no $app."
+          exit 1
+        fi
+        out="$RUNNER_TEMP/fuzz-regressions"
+        rm -rf -- "$out"
+        mkdir -p "$out"
+        # The fuzzer writes here as the console user, who may not be this one.
+        chmod 0777 "$out"
+        status=0
+        bash scripts/ci/run-and-capture.sh "$out/replay.log" \
+          scripts/ci/run-in-console-session.sh \
+          python3 scripts/fuzz regressions --app "$app" --out "$out" --no-pointer || status=$?
+        {
+          echo "### Fuzz regressions"
+          echo
+          echo '```'
+          grep -E '^(ok|FAIL) ' "$out/replay.log" || echo "(no repro reported a result)"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        if [ "$status" -ne 0 ]; then
+          echo "::error::A fuzz regression reproduced, or the replay could not run (exit $status). Replay one locally with scripts/fuzz replay <repro> --app <cmux DEV.app>; the fuzz-regressions artifact has each replay's steps, frames and debug log."
+          exit "$status"
+        fi
+
+    - name: Upload the fuzz regression replays
+      if: ${{ always() && steps.fuzz.outcome == 'failure' }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: fuzz-regressions
+        path: ${{ runner.temp }}/fuzz-regressions
+        if-no-files-found: ignore
+        retention-days: 14
+
     - name: Stop recording and trim
       if: ${{ always() && inputs.record-video == 'true' && env.RECORD_PID != '' }}
       shell: bash
@@ -640,10 +811,37 @@ runs:
         if-no-files-found: warn
         retention-days: 7
 
+    # One labelled frame per test action, plus the action list in the job
+    # summary. The script comes from this workflow's revision (checked out
+    # into .e2e-workflow beside this action), since the tested one may predate it.
+    - name: Build UI test steps
+      if: ${{ always() && inputs.target == 'cmuxUITests' }}
+      shell: bash
+      run: |
+        script="$GITHUB_WORKSPACE/.e2e-workflow/scripts/ci/e2e-frames.py"
+        results="$RUNNER_TEMP/cmux-app-host-xcresults"
+        if [ ! -f "$script" ] || [ ! -d "$results" ]; then
+          echo "No UI test results or frames script; skipping."
+          exit 0
+        fi
+        python3 "$script" "$results" --out "$RUNNER_TEMP/ui-frames" --summary "$GITHUB_STEP_SUMMARY" || true
+
+    - name: Upload UI test steps
+      # No hashFiles gate: it ignores paths outside the workspace, and
+      # runner.temp is outside it. if-no-files-found covers an empty build.
+      if: ${{ always() && inputs.target == 'cmuxUITests' }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ui-frames
+        path: ${{ runner.temp }}/ui-frames
+        if-no-files-found: ignore
+        retention-days: 14
+
     - name: Publish test summary
       if: always()
       env:
-        TEST_RESULT: ${{ steps.tests.outputs.test_result || 'failed' }}
+        TEST_RESULT: ${{ steps.tests.outputs.test_result || (inputs.count == '0' && steps.fuzz.outcome == 'success' && 'skipped') || 'failed' }}
+        FUZZ_RESULT: ${{ steps.fuzz.outcome }}
         TEST_SUMMARY: ${{ steps.tests.outputs.test_summary }}
         TEST_OUTPUT: ${{ steps.tests.outputs.test_output }}
         TEST_FILTER: ${{ inputs.test-filter }}
@@ -656,8 +854,12 @@ runs:
       run: |
         set -euo pipefail
 
-        if [ "$TEST_RESULT" = "passed" ]; then
+        if [ "$FUZZ_RESULT" = "failure" ]; then
+          STATUS_EMOJI="FAILED"
+        elif [ "$TEST_RESULT" = "passed" ]; then
           STATUS_EMOJI="PASSED"
+        elif [ "$TEST_RESULT" = "skipped" ]; then
+          STATUS_EMOJI="NO TESTS SELECTED"
         else
           STATUS_EMOJI="FAILED"
         fi
@@ -670,6 +872,9 @@ runs:
           echo "**Ref:** \`$REF_DISPLAY\`"
           echo "**SHA:** [\`${COMMIT_SHA:0:12}\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA)"
           echo "**Test:** \`$TEST_FILTER\`"
+          if [ -n "$FUZZ_RESULT" ] && [ "$FUZZ_RESULT" != "skipped" ]; then
+            echo "**Fuzz regressions:** $FUZZ_RESULT"
+          fi
           echo "**Workflow run:** $RUN_URL"
 
           if [ "$RECORD_VIDEO" = "true" ]; then

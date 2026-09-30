@@ -20,6 +20,10 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 - Key events are logged in `AppDelegate.swift` (monitor, `performKeyEquivalent`); mouse/UI events inline in views (`ContentView`, `BrowserPanelView`).
 - Stable event prefixes: `focus.panel`, `focus.bonsplit`, `focus.firstResponder`, `focus.moveFocus`, `tab.select`, `tab.close`, `tab.dragStart`, `tab.drop`, `pane.focus`, `pane.drop`, `divider.dragStart`.
 
+## Profiling
+
+Profile a tagged build by attaching to its pid (`xctrace record --attach <pid>`, `sample <pid>`). Never use `xctrace --launch` or Instruments' launch mode on any cmux bundle, and never quit, kill or relaunch the user's running cmux (`com.cmuxterm.app`): it holds their live agent sessions, and on 2026-09-26 a suspected profiler relaunch took five of them down.
+
 ## Debug menu
 
 DEBUG builds get a **Debug** menu in the macOS menu bar. When the user says "debug menu" or "debug window" they mean this, not `defaults write`.

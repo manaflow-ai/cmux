@@ -196,7 +196,6 @@ run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR
 for expected in \
   cmux \
   cmux-unit \
-  cmux-numeric-locale \
   cmux-cli-tests \
   build-for-testing \
   -showBuildTimingSummary \
@@ -216,8 +215,8 @@ for expected in \
     exit 1
   fi
 done
-if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 4 ] || [ ! -d "$TMP_DIR/cas" ]; then
-  echo "FAIL: the build must run all four schemes against an existing CAS directory"
+if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 3 ] || [ ! -d "$TMP_DIR/cas" ]; then
+  echo "FAIL: the build must run the app/UI, unit and CLI test schemes against an existing CAS directory"
   exit 1
 fi
 # `build` compiles no test files: the cmux-unit scheme marks cmuxTests
@@ -226,7 +225,11 @@ if grep -Fxq -- build "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: the app-host test product must be compiled with build-for-testing, not build"
   exit 1
 fi
-echo "PASS: the build compiles all four schemes for testing, with the compilation cache on and the module emitted outside cmuxTests"
+if grep -Fxq -- cmux-numeric-locale "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: numeric locale must reuse the cmux-unit xctestrun instead of compiling another scheme"
+  exit 1
+fi
+echo "PASS: the build compiles all three schemes for testing, with the compilation cache on and the module emitted outside cmuxTests"
 if ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: before Xcode 26.6 the app target must build without the compilation cache"
   exit 1
@@ -311,6 +314,57 @@ for hit in "" false; do
     exit 1
   fi
 done
+# An owned Mac's kept packages are no `spm-` hit. A resolve stamps them with
+# the Package.resolved it resolved, and a matching stamp resolves offline the
+# way an exact hit does. A changed Package.resolved, or a failed offline
+# resolve, keeps the normal resolve.
+RESOLVED_DIR="$TMP_DIR/work/cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm"
+mkdir -p "$RESOLVED_DIR"
+echo '{"pins":["a"]}' > "$RESOLVED_DIR/Package.resolved"
+rm -rf "$TMP_DIR/kept-packages"
+: > "$STUB_RESOLVE_ATTEMPTS"
+: > "$STUB_XCODEBUILD_ARGS"
+if ! run_script resolve "$TMP_DIR/derived" "$TMP_DIR/kept-packages" >/dev/null 2>&1 \
+  || grep -Fxq -- -skipPackageUpdates "$STUB_XCODEBUILD_ARGS" \
+  || [ ! -s "$TMP_DIR/kept-packages/.cmux-resolved-sha256" ]; then
+  echo "FAIL: an unstamped package directory must resolve normally and be stamped"
+  exit 1
+fi
+: > "$STUB_RESOLVE_ATTEMPTS"
+: > "$STUB_XCODEBUILD_ARGS"
+if ! run_script resolve "$TMP_DIR/derived" "$TMP_DIR/kept-packages" >/dev/null 2>&1 \
+  || [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ne 1 ] \
+  || ! grep -Fxq -- -skipPackageUpdates "$STUB_XCODEBUILD_ARGS" \
+  || [ ! -s "$TMP_DIR/kept-packages/.cmux-resolved-sha256" ]; then
+  echo "FAIL: packages stamped for this Package.resolved must resolve once without fetching package remotes"
+  exit 1
+fi
+: > "$STUB_RESOLVE_ATTEMPTS"
+: > "$STUB_XCODEBUILD_ARGS"
+if ! STUB_SKIP_UPDATES_FAILS=1 run_script resolve "$TMP_DIR/derived" "$TMP_DIR/kept-packages" >/dev/null 2>&1 \
+  || [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ne 2 ] \
+  || [ ! -s "$TMP_DIR/kept-packages/.cmux-resolved-sha256" ]; then
+  echo "FAIL: a failed offline resolve of stamped packages must fall back to a normal resolve"
+  exit 1
+fi
+echo '{"pins":["b"]}' > "$RESOLVED_DIR/Package.resolved"
+: > "$STUB_RESOLVE_ATTEMPTS"
+: > "$STUB_XCODEBUILD_ARGS"
+if ! run_script resolve "$TMP_DIR/derived" "$TMP_DIR/kept-packages" >/dev/null 2>&1 \
+  || grep -Fxq -- -skipPackageUpdates "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: packages stamped for another Package.resolved must fetch package remotes"
+  exit 1
+fi
+: > "$STUB_RESOLVE_ATTEMPTS"
+: > "$STUB_XCODEBUILD_ARGS"
+if STUB_RESOLVE_FAILS_UNTIL=9 run_script resolve "$TMP_DIR/derived" "$TMP_DIR/kept-packages" >/dev/null 2>&1 \
+  || [ -e "$TMP_DIR/kept-packages/.cmux-resolved-sha256" ]; then
+  echo "FAIL: a failed resolve must leave no stamp behind"
+  exit 1
+fi
+rm -rf "$TMP_DIR/work/cmux.xcodeproj"
+echo "PASS: kept packages stamped for this Package.resolved resolve offline, with a normal-resolve fallback"
+
 if ! awk '
   /^      - name: / { step = $0 }
   step ~ /name: Cache Swift packages$/ && /^        id: swift-package-cache$/ { id = 1 }

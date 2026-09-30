@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import CmuxCore
@@ -281,6 +282,43 @@ struct CloudSurfaceMoveOwnershipTests {
             title: "same name", detail: nil, lifecycle: .running, agent: nil,
             remoteWorkspace: nil, port: nil, url: nil
         )
+    }
+
+    @Test("A remote terminal moved into a Dock is classified remote for predicted echo")
+    func dockTerminalRemoteClassification() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+            let source = fixture.workspace
+            let sourcePane = try #require(source.bonsplitController.allPaneIds.first)
+            let remote = try #require(source.newTerminalSurface(inPane: sourcePane, focus: false))
+            source.configureRemoteConnection(WorkspaceRemoteConfiguration(
+                destination: "fixture.invalid", port: 22, identityFile: nil, sshOptions: [],
+                localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
+                managedCloudVMID: nil, terminalStartupCommand: nil, skipDaemonBootstrap: true
+            ), autoConnect: false)
+            source.trackRemoteTerminalSurface(remote.id)
+            #expect(TerminalRemoteMachineClassification.runsOnAnotherMachine(
+                surfaceID: remote.id, workspaceID: source.id
+            ))
+
+            let target = fixture.manager.addWorkspace(title: "Local", select: false)
+            defer { target.teardownAllPanels() }
+            let dock = target.requiredDockSplitForTesting
+            let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+            let local = try #require(dock.newSurface(kind: .terminal, inPane: dockPane, focus: false))
+            #expect(!dock.terminalRunsOnAnotherMachine(local))
+            #expect(!TerminalRemoteMachineClassification.runsOnAnotherMachine(
+                surfaceID: local, workspaceID: target.id
+            ))
+
+            let detached = try #require(source.detachSurface(panelId: remote.id))
+            #expect(dock.attachDetachedSurface(detached, inPane: dockPane, focus: false) == remote.id)
+            #expect(dock.terminalRunsOnAnotherMachine(remote.id))
+            #expect(TerminalRemoteMachineClassification.runsOnAnotherMachine(
+                surfaceID: remote.id, workspaceID: target.id
+            ))
+        }
     }
 
     @Test("Legacy Cloud ownership survives a move through a local workspace")

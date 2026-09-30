@@ -5,7 +5,9 @@ name: "CLA Assistant"
 # pull request opener plus every primary commit author GitHub maps to an
 # account. Co-authored-by trailers (pairing partners, AI agents) and the git
 # committer field never need to sign, and a signature is reused in every
-# later pull request. Maintainer accounts in allowlist-ids never sign.
+# later pull request. Maintainer accounts in allowlist-ids never sign. A merge
+# commit that pr-catch-up.yml verified and marked with a cmux/catch-up-merge
+# status from github-actions[bot] in this repository needs no signature.
 on:
   issue_comment:
     types: [created]
@@ -50,10 +52,12 @@ jobs:
       pull-requests: write
       # Re-run the pull_request_target check after a signature comment.
       actions: write
+      # Read the trusted merge status on catch-up merge commits.
+      statuses: read
     steps:
       - name: "CLA Assistant"
         id: cla
-        uses: manaflow-ai/cla-github-action@f567430d44e22bc0bb6ecd1e00d383ef22886025
+        uses: manaflow-ai/cla-github-action@3bdedfb05157fd9c1c879dfea58455e32a770f96
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -68,6 +72,11 @@ jobs:
           # Numeric GitHub IDs of maintainers who never sign, as opener or as
           # commit author: @lawrencecchen, @austinywang, @azooz2003-bit.
           allowlist-ids: '54008264,38676809,67667005'
+          # pr-catch-up.yml's merge commits, vouched for by a status that
+          # only a token with statuses write in this repository can post.
+          # 41898282 is github-actions[bot], the Actions token that posts it.
+          trusted-merge-status-context: 'cmux/catch-up-merge'
+          trusted-merge-status-creator-ids: '41898282'
 
       # A signature comment runs this workflow from main, so its check run
       # attaches to main, not to the pull request head. Re-run the failed

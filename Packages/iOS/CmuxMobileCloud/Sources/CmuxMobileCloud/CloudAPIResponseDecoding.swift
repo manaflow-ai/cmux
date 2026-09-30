@@ -31,16 +31,31 @@ public struct CloudAPIResponseDecoding: Sendable {
             return CloudMachine(id: id, provider: provider, status: status, displayName: displayName, slug: slug)
         }
         let availableKinds: Set<CloudMachineKind>?
-        if let limits = object["limits"] as? [String: Any],
-           let entries = limits["imageKinds"] as? [[String: Any]] {
+        let machineLimits: CloudMachineLimits?
+        if let limits = object["limits"] as? [String: Any] {
+            let entries = limits["imageKinds"] as? [[String: Any]] ?? []
             availableKinds = Set(entries.compactMap { entry in
                 guard let raw = entry["kind"] as? String else { return nil }
                 return CloudMachineKind(rawValue: raw)
             })
+            machineLimits = CloudMachineLimits(
+                maxActiveMachines: Self.int(limits["maxActiveVms"]),
+                activeMachineCount: Self.int(limits["activeVmCount"]),
+                planID: limits["planId"] as? String,
+                memoryOptionsMb: Self.intArray(limits["memoryOptionsMb"]),
+                lockedMemoryOptionsMb: Self.optionalIntArray(limits["lockedMemoryOptionsMb"]),
+                memoryUpgradePlanID: limits["memoryUpgradePlanId"] as? String,
+                memoryUpgradePlansByMb: limits["memoryUpgradePlansByMb"] as? [String: String]
+            )
         } else {
             availableKinds = nil
+            machineLimits = nil
         }
-        return CloudMachineCatalog(machines: machines, availableKinds: availableKinds)
+        return CloudMachineCatalog(
+            machines: machines,
+            availableKinds: availableKinds,
+            limits: machineLimits
+        )
     }
 
     /// `POST /api/vm` → the newly created machine.
@@ -147,5 +162,15 @@ public struct CloudAPIResponseDecoding: Sendable {
         if let int = value as? Int { return int }
         if let number = value as? NSNumber { return number.intValue }
         return nil
+    }
+
+    private static func intArray(_ value: Any?) -> [Int] {
+        guard let values = value as? [Any] else { return [] }
+        return values.compactMap(int).filter { $0 > 0 }
+    }
+
+    private static func optionalIntArray(_ value: Any?) -> [Int]? {
+        guard let value, !(value is NSNull) else { return nil }
+        return intArray(value)
     }
 }

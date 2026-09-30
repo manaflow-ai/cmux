@@ -480,9 +480,9 @@ extension DockSplitStore {
             initialInput: initialInput,
             additionalEnvironment: replayEnvironment,
             focusPlacement: .rightSidebarDock,
+            isRemoteTerminal: terminalSnapshot.isRemoteTerminal == true,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .pacedSessionRestore,
-                willRunStartupCommand: false,
                 willRunStartupInput: willRunAgentInput,
                 awaitsDeferredAgentResume: deferredAgentResumeAdmission
             )
@@ -503,6 +503,11 @@ extension DockSplitStore {
             // replay it if the login shell drops the typeahead.
             restoredAgentLifecycle.registerStartupInput(initialInput, panelId: terminal.id)
         }
+        UpdateRelaunchContinuationNudges.shared.registerRestoredPanel(
+            terminal.id,
+            snapshot: terminalSnapshot,
+            resumesAgent: willRunAgentInput
+        )
         if let stableSurfaceId = snapshot.stableSurfaceId,
            !excludingStableIdentities.contains(stableSurfaceId) {
             terminal.adoptStableSurfaceId(stableSurfaceId)
@@ -524,7 +529,6 @@ extension DockSplitStore {
             resumeBinding: resumeBinding,
             manualResumeAvailable: restorableAgent != nil ||
                 (managedResumeBinding ?? resumeBinding)?.isAgentHookBinding == true,
-            willRunStartupCommand: false,
             willRunStartupInput: willRunAgentInput,
             resumeWorkingDirectory: resumeSessionWorkingDirectory,
             agentSessionAlreadyActive: liveSessionOwner != nil ||

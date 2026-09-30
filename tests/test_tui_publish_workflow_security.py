@@ -11,6 +11,7 @@ from pathlib import Path
 
 import tomllib
 import yaml
+import git_fixture_env
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -938,6 +939,7 @@ def test_tag_cut_retry_behavior_accepts_tags_after_main_advances() -> None:
                     "GIT_CONFIG_VALUE_0": "https://github.com/manaflow-ai/cmux.git",
                 }
             )
+            git_fixture_env.without_auto_maintenance(environment)
             result = subprocess.run(
                 ("bash",),
                 input=prepare_script,

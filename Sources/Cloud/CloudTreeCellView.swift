@@ -7,9 +7,11 @@ import SwiftUI
 
 /// Hosts SwiftUI row content inside an `NSOutlineView` cell while leaving every
 /// pointer event to the outline: the display host never hit-tests, so click,
-/// double-click, drag, and the context menu are handled natively. Machine rows
-/// add a second, hit-testable host for their hover buttons, faded in by a
-/// tracking area (the buttons are always laid out so hovering never reflows).
+/// double-click, drag, and the context menu are handled natively. Rows with
+/// actions (machines, groups, section headers) add a second, hit-testable host
+/// for their hover buttons, faded in while the outline reports the row hovered.
+/// The buttons are always laid out, so hovering never reflows the row, and a
+/// faded button keeps its hit area and its place in the accessibility tree.
 final class CloudTreeCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("CloudTreeCell")
     var machineReorderAccessibilityActions: (() -> [NSAccessibilityCustomAction])?
@@ -23,15 +25,17 @@ final class CloudTreeCellView: NSTableCellView {
     }
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
+    private var portsStatus: CloudPortsStatusContent?
+    private var portsStatusTrailingConstraint: NSLayoutConstraint?
+    private var portAction: @MainActor (CloudPortsStatusAction, SurfaceMachineID) -> Void = { _, _ in }
     private var buttonsHost: CloudTreeRowControlsHostingView?
     private var buttonsTrailingConstraint: NSLayoutConstraint?
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
     private var hovered = false {
-        didSet { buttonsHost?.alphaValue = hovered || keepsControlsVisible ? 1 : 0 }
+        didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
     }
-    private var keepsControlsVisible = false
 
     override convenience init(frame frameRect: NSRect) {
         self.init(frame: frameRect, collaborators: { machine, workspaceID in
@@ -132,28 +136,42 @@ final class CloudTreeCellView: NSTableCellView {
         node: CloudTreeNode,
         machineActions: MachineRowActions,
         nodeActions: CloudTreeNodeActions,
-        style: CloudTreeStyle = CloudTreeStyleStore.current
+        style: CloudTreeStyle = CloudTreeStyleStore.current,
+        portAction: @escaping @MainActor (CloudPortsStatusAction, SurfaceMachineID) -> Void = { _, _ in }
     ) {
         configuredNode = node
         configuredStyle = style
+        self.portAction = portAction
         #if DEBUG
         if case .terminal(let row) = node.kind, row.hasUnreadNotification {
             cmuxDebugLog("cloudTree.cell.configure unread terminal=\(row.resource.id.key.suffix(4)) node=\(node.id.suffix(12))")
         }
         #endif
-        displayHost.isHidden = false
+        let status: CloudPortsStatusPresentation? = {
+            guard case .placeholder(_, let placeholder) = node.kind else { return nil }
+            return placeholder.portStatus
+        }()
+        displayHost.isHidden = status != nil
         configureDisplayHost(node: node, style: style)
+        if let status {
+            let view = portsStatus ?? makePortsStatus(style: style)
+            view.isHidden = false
+            view.configure(presentation: status, style: style) {
+                portAction(status.action, node.machine)
+            }
+            portsStatusTrailingConstraint?.constant = -style.rowGrid.trailingPadding
+        } else {
+            portsStatus?.isHidden = true
+        }
         // An in-place row reload reuses this cell; the new content can be wider
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
         needsLayout = true
-        if case .devicesSection = node.kind { keepsControlsVisible = true }
-        else { keepsControlsVisible = false }
         if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
             let buttons = buttonsHost ?? makeButtonsHost(style: style)
             buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
             buttons.isHidden = false
-            buttons.alphaValue = hovered || keepsControlsVisible ? 1 : 0
+            buttons.alphaValue = hovered ? 1 : 0
             buttonsLeadingConstraint?.constant = -style.rowGrid.trailingGap
             buttonsTrailingConstraint?.constant = -style.rowGrid.trailingPadding
             buttonsLeadingConstraint?.isActive = true
@@ -167,32 +185,6 @@ final class CloudTreeCellView: NSTableCellView {
             buttonsHost?.isHidden = true
             buttonsLeadingConstraint?.isActive = false
         }
-        if case .machine(let machine, _) = node.kind {
-            toolTip = CloudTreeMachineRowContent(machine: machine).toolTip
-        } else if case .pendingMachine(let operation) = node.kind {
-            // The failure's first line rides along so a red row explains itself on hover.
-            toolTip = operation.summaryLine
-        } else if case .localMachine(let row) = node.kind {
-            toolTip = row.name
-        } else if case .device(let row) = node.kind {
-            // Full status and counts: the row itself carries only a dim fact.
-            toolTip = CloudTreeDeviceRowContent(row: row, style: style).toolTip
-        } else {
-            toolTip = nil
-        }
-        if case .machine(let machine, _) = node.kind {
-            setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
-        } else if case .device(let row) = node.kind {
-            setAccessibilityLabel(CloudTreeDeviceRowContent(row: row, style: style).accessibilityLabel)
-        } else if case .resource(_, let row) = node.kind {
-            setAccessibilityLabel(row.accessibilityLabel)
-        } else if case .terminal(let row) = node.kind {
-            setAccessibilityLabel(CloudTreeTerminalRowContent(row: row, style: style).toolTip)
-        } else if case .display(let resource, _, _) = node.kind {
-            setAccessibilityLabel([node.searchableTitle, CloudTreeRowContentView.text(for: resource)].joined(separator: ", "))
-        } else {
-            setAccessibilityLabel(node.searchableTitle)
-        }
         updatePresenceSubscription()
     }
 
@@ -201,13 +193,14 @@ final class CloudTreeCellView: NSTableCellView {
             guard case .workspace(let machine, let workspace, _, _, _) = node.kind else { return [] }
             return collaborators(machine, workspace.id)
         }()
-        if case .workspace = node.kind {
-            let names = WorkspacePresencePolicy.accessibilityLabel(presenceHeads)
-            toolTip = presenceHeads.isEmpty ? nil : names
-            setAccessibilityLabel(presenceHeads.isEmpty ? node.searchableTitle : "\(node.searchableTitle), \(names)")
-        }
+        // The one place that assigns hover text and the accessibility label.
+        // Both used to be written twice, here and again in `configure`, and the
+        // second pass reset a workspace row's presence tooltip to nil.
+        let description = CloudTreeRowToolTip.describe(node: node, style: style, presenceHeads: presenceHeads)
+        toolTip = description.toolTip
+        setAccessibilityLabel(description.accessibilityLabel)
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, presenceHeads: presenceHeads, style: style)
+            CloudTreeRowContentView(kind: node.kind, presenceHeads: presenceHeads, style: style, resources: node.resourceSection)
                 .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention, attentionSlot: style.rowGrid.attentionSlot))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
@@ -237,6 +230,22 @@ final class CloudTreeCellView: NSTableCellView {
         return host
     }
 
+    private func makePortsStatus(style: CloudTreeStyle) -> CloudPortsStatusContent {
+        let view = CloudPortsStatusContent(frame: .zero)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(view)
+        let trailing = view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -style.rowGrid.trailingPadding)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            trailing,
+            view.topAnchor.constraint(equalTo: topAnchor),
+            view.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        portsStatusTrailingConstraint = trailing
+        portsStatus = view
+        return view
+    }
+
     func setHovered(_ hovered: Bool) {
         guard self.hovered != hovered else { return }
         self.hovered = hovered
@@ -249,6 +258,7 @@ final class CloudTreeCellView: NSTableCellView {
         updatePresenceSubscription()
         toolTip = nil
         hovered = false
+        portsStatus?.isHidden = true
     }
 }
 
@@ -266,33 +276,3 @@ final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
 /// hands mouse-downs inside it to SwiftUI; NSTableView otherwise keeps every
 /// click on a non-`NSControl` subview and runs the row's own click action.
 final class CloudTreeRowControlsHostingView: NSHostingView<AnyView> {}
-
-/// Row view drawing the same selection treatment as the Files sidebar.
-final class CloudTreeRowView: NSTableRowView {
-    override func drawSelection(in dirtyRect: NSRect) {
-        guard isSelected else { return }
-        let insetRect = bounds.insetBy(dx: 6, dy: 1)
-        let path = NSBezierPath(roundedRect: insetRect, xRadius: 4, yRadius: 4)
-        // Gray in both focus states (no accent blue); keyboard focus reads as a
-        // slightly stronger shade.
-        NSColor.labelColor.withAlphaComponent(isKeyboardFocusActive ? 0.12 : 0.07).setFill()
-        path.fill()
-    }
-
-    private var isKeyboardFocusActive: Bool {
-        var view = superview
-        while let candidate = view {
-            if let outlineView = candidate as? NSOutlineView {
-                return window?.isKeyWindow == true && window?.firstResponder === outlineView
-            }
-            view = candidate.superview
-        }
-        return false
-    }
-
-    override var interiorBackgroundStyle: NSView.BackgroundStyle {
-        // The gray highlight keeps normal label colors; .emphasized would flip
-        // the text to white as if on an accent fill.
-        .normal
-    }
-}

@@ -65,10 +65,23 @@ checks; cmux manages application updates through Sparkle.
 The first functional `$cmux-cua` request from a current cmux agent session opens
 the existing onboarding window when setup is required. This is an explicit
 user opt-in signal, not a permission grant: the user still chooses every
-Accessibility and Screen Recording action in the window. Launch or resume,
-MCP/skill discovery, helper status checks, protected tool calls, and prompt or
-UI text remain quiet. Settings → cmux Computer Use continues to offer **Finish
-Setup…**, **Grant…**, and **Open System Settings** for resuming setup.
+Accessibility and Screen Recording action in the window. The presentation
+boundary is `ComputerUseOnboardingCoordinator`: deliberate Settings actions
+select a step, and authenticated functional CUA requests from a locally owned
+terminal claim the runtime's first-use gate before presenting. Reading or
+discovering `$cmux-cua` does not claim that gate.
+
+Launch/resume, enabled-setting reconciliation, helper recovery, permission/TCC
+refresh, feature-flag refresh, passive workstream events, and unrelated tools
+only update state. Even when both grants are present and capture verification
+is incomplete, a refresh never opens or reopens onboarding. Retried/concurrent
+protected requests share the runtime claim and one window controller. Dismissal
+leaves the claim in place, so later requests and refreshes stay quiet; only
+disabling Computer Use, relaunching, or invalidating helper readiness resets it.
+To resume or select another permission step, use **Finish Setup…**,
+**Grant…**, or **Open System Settings** in Settings → cmux Computer Use, or the
+matching command palette action. Completed setup stays quiet unless fresh
+explicit intent needs setup again after readiness is invalidated.
 
 The Settings action uses the same onboarding flow: its first **Allow** action
 goes directly to the matching permanent System Settings pane instead of

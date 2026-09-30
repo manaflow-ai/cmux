@@ -11,11 +11,12 @@ The stress workload runs for 3,600 seconds, with a five-second target cadence.
 Each cycle runs the basic transactions and the next step of a fixed four-step
 sequence: workspace navigation and refresh; 128 lines of Unicode output;
 create, open, use and close a scratch workspace; then refresh and use the
-terminal again. Every 120th cycle replaces the fourth step with an explicit
-disconnect and reconnect followed by another complete transaction set. The
-disconnect preserves the saved pairing; retrying an already healthy session
-alone does not establish reconnect coverage. Unexpected connection
-replacement fails either workload. A cycle exceeding 30 seconds fails.
+terminal again. Workload plan 2 checks continuity around every healthy step.
+The shell supports a separate explicit disconnect/reconnect test, but the
+recurring foreground workload reconnects only after a recorded terminal
+failure. An unexpected connection replacement fails the foreground workload.
+A cycle exceeding 30
+seconds fails.
 
 These are app-action and transport checks in an isolated Simulator. They do
 not establish physical iPhone reliability, touch gesture correctness, cellular
@@ -125,6 +126,11 @@ and from the row's selection action to the first nonblank verified terminal fram
 The gate invokes the production row selection and back actions, waits for the
 terminal view to unmount, then starts the full transport workload. Timings are
 recorded once per process and survive SwiftUI reconstruction and later frames.
+For a soak run, the first launch is an enrollment prewarm that verifies sign-in
+and pairing. The measured launch then restores the saved sign-in and pairing
+without credentials or an injected attach URL, matching a returning user's
+startup path. The report records `startupPath`, and a soak is rejected unless
+it is `stored_pairing`; `injected_pairing` is reserved for enrollment.
 The two UI screenshots are captured from the isolated app window after each
 measured boundary. Launch timing includes OS pre-main work, using the shared
 Mach uptime clock. It does not measure physical touchscreen delivery latency. The monitor
@@ -146,3 +152,13 @@ than reattaching and rehydrating up to 4,000 history rows for every marker.
 Switching surfaces and explicit reconnects replace the consumer. Unexpected
 ownership loss or stream termination still fails the run. The initial UI launch
 and workspace-open measurements continue to use real rendered app surfaces.
+
+Stress permits one bounded reconnect and terminal retry after a
+`terminalRoundTripFailed` event. The evidence records every such event under
+`recoverableFailures`, and the monitor keeps the check failed while preserving
+the rest of the hour's workload. A failed reconnect or a second terminal
+failure stops the run and reports that primary failure without cascading
+coverage noise. The retry covers the regular probe, workspace usage steps,
+and the final terminal transaction. Workspace cleanup and restoration must
+succeed before retrying a failed scratch-workspace step. Reconnection and the retry get a fresh 60-second deadline, and a recovered cycle may take up to 60 seconds (`soak_recovery_cycle_exceeded_60_seconds`). Successful recovery
+still produces `passed: false` with `soak_terminal_recovered` in the app report.

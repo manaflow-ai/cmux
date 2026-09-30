@@ -187,7 +187,17 @@ public actor IrxEndpointSupervisor {
     /// Queues a serialized installation and retries local failures independently
     /// of credential minting. Native installation emits its own outcome event.
     public func rotateCredentials(_ credentials: [IrxRelayCredential]) async {
-        guard !deactivated, configuration.pathMode != .directOnly else { return }
+        guard !deactivated, configuration.pathMode != .directOnly else {
+            journal.record("endpoint", "relay-rotation-skipped", [
+                "reason": deactivated ? "deactivated" : "direct-only",
+            ])
+            return
+        }
+        if relayInstaller == nil {
+            // The credentials are retained for the next bind, but nothing
+            // reaches the live driver; say so instead of rotating silently.
+            journal.record("endpoint", "relay-rotation-deferred", ["reason": "no-installer"])
+        }
         desiredRelayCredentials = credentials
         desiredRelayOwnership = nil
         await relayInstaller?.replace(with: credentials)
@@ -213,6 +223,19 @@ public actor IrxEndpointSupervisor {
 
     /// Health check after suspension/resume: a closed driver is replaced on
     /// the next `readyEndpoint` call.
+    /// Tells the live endpoint that the platform network may have changed.
+    ///
+    /// iroh recommends calling `Endpoint.networkChange()` from platform
+    /// connectivity callbacks: its own interface monitor cannot see every
+    /// change on iOS. Without it, a phone that leaves Wi-Fi keeps sending on
+    /// the dead direct path until heartbeat and path-idle timeouts abandon it,
+    /// stalling ordered streams (terminal output) for seconds. Harmless when
+    /// nothing changed; a no-op when no endpoint is bound.
+    public func notifyNetworkChange() async {
+        guard let driver, !driver.isClosed() else { return }
+        await driver.networkChange()
+    }
+
     public func isHealthy() -> Bool {
         guard let driver else { return false }
         return !driver.isClosed() && onlineReached
