@@ -181,7 +181,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "reflow-hard-wrap-on-copy",
                 title: String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"),
-                detailText: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitle", defaultValue: "Copying text also joins line breaks a program printed at the full terminal width and drops a short continuation indent. Soft-wrapped lines always copy as one line."),
+                detailText: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitle", defaultValue: "Join wrapped lines when copying text."),
                 paths: ["terminal.reflowHardWrapOnCopy"],
                 synonyms: "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"
             ),
@@ -197,7 +197,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "password-input-indicator",
                 title: String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
-                detailText: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off. Only local prompts are detected: ssh's own password prompt counts, but sudo inside an ssh session does not."),
+                detailText: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Show a lock badge when a local program hides password input."),
                 paths: ["terminal.showPasswordInputIndicator"],
                 synonyms: "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"
             ),
@@ -205,7 +205,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "password-input-dots",
                 title: String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"),
-                detailText: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters. Pasted text is not counted."),
+                detailText: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Show a dot for each character typed in a password. Pasted text is not counted."),
                 paths: ["terminal.showPasswordInputDots"],
                 synonyms: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"
             ),
@@ -397,7 +397,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .betaFeatures,
                 id: "cloudMachines",
                 title: String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
-                detailText: String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Cloud Machines also require a remote rollout; with this off, the Cloud tunnel and fleet polling stay off."),
+                detailText: String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Show Cloud Machines in the right sidebar, command palette, and new workspace menu."),
                 paths: ["cloud.beta.machines.enabled"],
                 synonyms: "cloud machines vm virtual machine right sidebar persistent computer beta unstable"
             ),
@@ -408,7 +408,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .betaFeatures,
                 id: "workspace-todo-controls",
                 title: String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"),
-                detailText: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Shows Add Checklist Item and status controls on workspaces. A remote rollout can turn them on even while this is off."),
+                detailText: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Show a checklist and status menu on each workspace."),
                 paths: ["sidebar.beta.workspaceTodos.controls.enabled"],
                 synonyms: String(localized: "settings.search.alias.setting.betaFeatures.workspace-todo-controls", defaultValue: "sidebar.beta.workspaceTodos.controls.enabled workspace todo todos task status checklist add item controls beta")
             ),

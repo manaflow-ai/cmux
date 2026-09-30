@@ -88,7 +88,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .json("sidebar.beta.workspaceTodos.controls.enabled"),
             searchAnchorID: "setting:betaFeatures:workspace-todo-controls",
             String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"),
-            subtitle: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Shows Add Checklist Item and status controls on workspaces. A remote rollout can turn them on even while this is off.")
+            subtitle: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Show a checklist and status menu on each workspace.")
         ) {
             Toggle("", isOn: Binding(get: { workspaceTodoControls.current }, set: { workspaceTodoControls.set($0) }))
                 .labelsHidden()
@@ -142,7 +142,7 @@ public struct BetaFeaturesSection: View {
             String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
             subtitle: cloudMachinesManagedByPolicy
                 ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
-                : String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Cloud Machines also require a remote rollout; with this off, the Cloud tunnel and fleet polling stay off.")
+                : String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Show Cloud Machines in the right sidebar, command palette, and new workspace menu.")
         ) {
             Toggle("", isOn: Binding(get: { cloudMachines.current && !cloudMachinesManagedByPolicy }, set: {
                 CloudMachinesBetaSettingAction(model: cloudMachines).setEnabled($0)

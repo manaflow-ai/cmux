@@ -59,7 +59,7 @@ public struct ComputerUseSection: View {
                     String(localized: "settings.computerUse.enabled", defaultValue: "Enable cmux Computer Use"),
                     subtitle: managedByPolicy
                         ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
-                        : String(localized: "settings.computerUse.enabled.subtitle", defaultValue: "Lets supported agents see and control apps on this Mac. An agent's first Computer Use request starts setup automatically.")
+                        : String(localized: "settings.computerUse.enabled.subtitle", defaultValue: "Let supported agents see and control apps on this Mac.")
                 ) {
                     Toggle("", isOn: Binding(get: { setupSnapshot.enabled && !managedByPolicy }, set: { enabled.set($0) }))
                         .labelsHidden()
