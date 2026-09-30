@@ -1,3 +1,4 @@
+import { draftStorage } from "./browser-storage";
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
@@ -403,7 +404,7 @@ export function useSession(): SessionState {
     if (!pending) return;
     clearPendingStartTimeout();
     pendingStartRef.current = null;
-    restoreComposerDraft(sessionStorage, pending.prompt);
+    restoreComposerDraft(draftStorage, pending.prompt);
     history.replaceState(null, "", appPath("/"));
     document.title = "cmux agent";
     sessionIdRef.current = null;
