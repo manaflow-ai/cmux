@@ -14,6 +14,8 @@ public nonisolated enum ActionCategory: String, CaseIterable, Sendable, Hashable
     case notifications
     case agents
     case cloud
+    /// SSH machines (Connect to Machine…).
+    case remote
     case settings
     /// Actions registered at runtime without a catalog descriptor.
     case other
@@ -32,6 +34,7 @@ public nonisolated enum ActionCategory: String, CaseIterable, Sendable, Hashable
         case .notifications: String(localized: "category.notifications", defaultValue: "Notifications", bundle: .module)
         case .agents: String(localized: "category.agents", defaultValue: "Agents", bundle: .module)
         case .cloud: String(localized: "category.cloud", defaultValue: "Cloud and Account", bundle: .module)
+        case .remote: String(localized: "category.remote", defaultValue: "Remote Machines", table: "RemoteActions", bundle: .module)
         case .settings: String(localized: "category.settings", defaultValue: "Settings and Help", bundle: .module)
         case .other: String(localized: "category.other", defaultValue: "Other", bundle: .module)
         }

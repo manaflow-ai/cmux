@@ -37,7 +37,7 @@ final class TabCell {
     var scale: CGFloat = 1 {
         didSet {
             guard oldValue != scale else { return }
-            for sublayer in [titleLayer, iconLayer, spinnerLayer, closeGlyphLayer].compactMap(\.self) as [CALayer] { sublayer.contentsScale = scale }
+            for sublayer in [titleLayer, iconLayer, spinnerLayer, closeGlyphLayer, machineLayer].compactMap(\.self) as [CALayer] { sublayer.contentsScale = scale }
             updateColors(animated: false)
             layoutLayers()
         }
@@ -66,6 +66,8 @@ final class TabCell {
     var badgeLayer: CALayer?
     var closeBackgroundLayer: CALayer?
     var closeGlyphLayer: CAShapeLayer?
+    /// The machine badge, created while the item names a remote machine.
+    var machineLayer: ChromeTextLayer?
 
     var hasSpinnerLayer: Bool { spinnerLayer != nil }
     var hasBadgeLayer: Bool { badgeLayer != nil }
@@ -140,6 +142,7 @@ final class TabCell {
             titleLayer.string = displayTitle
         }
         if previous?.isBusy != item.isBusy { updateSpinner() }
+        if previous?.machineBadge != item.machineBadge { updateMachineBadge() }
         updateColors(animated: false)
         updateAccessibility()
         layoutLayers()
@@ -196,6 +199,7 @@ final class TabCell {
             }
             let text = isSelected ? Palette.textPrimary : item.isDormant ? Palette.textTertiary : Palette.textSecondary
             titleLayer.foregroundColor = text.cgColor
+            machineLayer?.foregroundColor = Palette.textTertiary.cgColor
             spinnerLayer?.strokeColor = Palette.textSecondary.cgColor
             separatorLayer.backgroundColor = Palette.separator.cgColor
             iconLayer.contents = iconImage(tint: item.tint?.swatch ?? text)
@@ -343,11 +347,13 @@ final class TabCell {
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
             titleLayer.frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: width, height: lineHeight)
             titleLayer.opacity = 1
-            let visible = closeRect.map { max(0, $0.minX - m.titleCloseSpacing - titleX) } ?? width
+            let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
+            let visible = max(0, layoutMachineBadge(titleX: titleX, titleEnd: titleEnd, midY: midY) - titleX)
             applyTitleMask(width: width, visible: min(visible, width))
         } else {
             titleLayer.opacity = 0
             titleLayer.mask = nil
+            machineLayer?.opacity = 0
         }
     }
 
@@ -372,6 +378,41 @@ final class TabCell {
         } else {
             titleMask.locations = locations
         }
+    }
+
+    private func updateMachineBadge() {
+        guard let badge = item.machineBadge, !badge.isEmpty else {
+            machineLayer?.removeFromSuperlayer()
+            machineLayer = nil
+            return
+        }
+        let label = machineLayer ?? {
+            let label = ChromeTextLayer()
+            label.actions = Self.noActions
+            label.contentsScale = scale
+            layer.addSublayer(label)
+            machineLayer = label
+            return label
+        }()
+        label.font = Typography.caption
+        label.string = badge
+        label.foregroundColor = Palette.textTertiary.cgColor
+    }
+
+    /// Places the machine badge at the end of the title area when the title
+    /// keeps at least a few characters; returns where the title must end.
+    private func layoutMachineBadge(titleX: CGFloat, titleEnd: CGFloat, midY: CGFloat) -> CGFloat {
+        guard let machineLayer else { return titleEnd }
+        let font = Typography.caption
+        let width = min(ceil((machineLayer.string as NSString).size(withAttributes: [.font: font]).width), 72)
+        let lineHeight = ceil(font.ascender - font.descender + font.leading)
+        guard titleEnd - titleX - width - Metrics.space2 >= 40 else {
+            machineLayer.opacity = 0
+            return titleEnd
+        }
+        machineLayer.frame = CGRect(x: pixel(titleEnd - width), y: pixel(midY - lineHeight / 2), width: width, height: lineHeight)
+        machineLayer.opacity = 1
+        return titleEnd - width - Metrics.space2
     }
 
     private func titleWidth() -> CGFloat {

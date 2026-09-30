@@ -72,6 +72,6 @@ extension TabDragSession {
 
     private func repair(for workspace: WorkspaceModel) -> EmptyWorkspaceRepair {
         let machine = services.machines.daemon(forWorkspace: workspace.id)?.machineID
-        return machine.flatMap { services.machines.session($0)?.emptyWorkspaces } ?? services.emptyWorkspaces
+        return services.machines.emptyWorkspaceRepair(machine, local: services.emptyWorkspaces)
     }
 }

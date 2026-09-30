@@ -121,7 +121,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     /// The local daemon's repair, or the owning Cloud machine's.
     private var emptyWorkspaceRepair: EmptyWorkspaceRepair {
-        services.machines.session(daemon.machineID)?.emptyWorkspaces ?? services.emptyWorkspaces
+        services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
     }
 
     // MARK: Focus

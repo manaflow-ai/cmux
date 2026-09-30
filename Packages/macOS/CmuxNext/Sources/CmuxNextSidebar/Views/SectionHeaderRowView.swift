@@ -62,9 +62,9 @@ final class SectionHeaderRowView: SidebarRowView {
             switch (machine.kind, machine.status) {
             case (.local, .connected): statusColor = nil
             case (_, .connected), (_, .updateAvailable): statusColor = Palette.success
-            case (_, .connecting): statusColor = Palette.attention
+            case (_, .connecting), (_, .installing), (_, .installRequired): statusColor = Palette.attention
             case (_, .offline): statusColor = Palette.textTertiary
-            case (_, .updateRequired): statusColor = Palette.danger
+            case (_, .updateRequired), (_, .authFailed), (_, .unreachable): statusColor = Palette.danger
             }
             var label = machine.name
             switch machine.status {
@@ -73,10 +73,18 @@ final class SectionHeaderRowView: SidebarRowView {
             case .offline: label += ", " + Strings.statusOffline
             case .updateAvailable: label += ", " + Strings.statusUpdateAvailable
             case .updateRequired: label += ", " + Strings.statusUpdateRequired
+            case .installRequired: label += ", " + Strings.statusInstallRequired
+            case .installing: label += ", " + Strings.statusInstalling
+            case .authFailed: label += ", " + Strings.statusAuthFailed
+            case .unreachable: label += ", " + Strings.statusUnreachable
             }
             badgeText = switch machine.status {
             case .updateAvailable: Strings.statusUpdateAvailable
             case .updateRequired: Strings.statusUpdateRequired
+            case .installRequired: Strings.statusInstallRequired
+            case .installing: Strings.statusInstalling
+            case .authFailed: Strings.statusAuthFailed
+            case .unreachable: Strings.statusUnreachable
             default: nil
             }
             toolTip = machine.detail

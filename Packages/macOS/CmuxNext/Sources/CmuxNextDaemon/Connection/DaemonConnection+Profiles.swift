@@ -72,6 +72,12 @@ extension DaemonConnection {
     }
 
     @discardableResult
+    public func forgetSession(_ sessionID: String, force: Bool) async throws -> Bool {
+        try requireProfiles()
+        return try await request(ForgetSessionRequest(sessionID: sessionID, force: force)).changed
+    }
+
+    @discardableResult
     public func importOrganization(_ request: ImportSessionOrganizationRequest) async throws -> Bool {
         try requireProfiles()
         return try await self.request(request).imported

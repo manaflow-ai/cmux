@@ -7,7 +7,7 @@ extension CMUXCLI {
     /// choosing the legacy handler or the generated verbs. Other nouns need
     /// no entry: unknown commands always try the generated verbs.
     static let actionNounsSharedWithLegacyCommands: Set<String> = [
-        "agent", "app", "browser", "cloud", "notification", "pane", "settings",
+        "agent", "app", "browser", "cloud", "notification", "pane", "remote", "settings",
         "tab", "terminal", "workspace", "workspace-group"
     ]
 

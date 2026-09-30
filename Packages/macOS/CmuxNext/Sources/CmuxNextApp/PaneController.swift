@@ -95,11 +95,14 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func snapshot() -> Snapshot {
         let store = daemon.store
         let fallback = Strings.untitledTerminal
+        // Terminals on another machine carry its name; browsers always run here.
+        let machine = daemon.isLocal ? nil : services.machines.machineName(daemon.machineID)
         var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
             var item = TabItemMapping.item(tab, fallbackTitle: tab.kind == .browser ? Strings.untitledBrowser : fallback)
             item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
             if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
             item.isDormant = services.cache.dormantTabs.contains(tab.id)
+            if tab.kind != .browser { item.machineBadge = machine }
             return item
         }
         for local in state?.localBrowserTabs[paneKey] ?? [] where !pendingClosed.contains(local.id) {

@@ -23,6 +23,8 @@ final class AppServices {
     /// (`ActionRouting`); `activeDaemon` prefers it.
     var routedDaemon: DaemonService?
     private(set) var cloud: CloudService!
+    /// SSH machines (Connect to Machine…).
+    private(set) var ssh: SSHService!
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
     let registry = ActionRegistry.standard()
@@ -70,6 +72,7 @@ final class AppServices {
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         machines = MachineRegistry(local: daemon)
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
+        ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
         cache = TabContentCache(daemon: daemon)
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)

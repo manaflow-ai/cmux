@@ -43,6 +43,8 @@ enum DestructiveConfirmation {
                          button: ConfirmationStrings.close)
         case "room.delete":
             return RoomConfirmation.prompt(invocation, context)
+        case "remote.install", "remote.forget":
+            return await RemoteConfirmation.prompt(for: id, invocation, context)
         case "tabGroup.close":
             guard let (group, count) = tabGroup(invocation, context) else { return nil }
             let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name

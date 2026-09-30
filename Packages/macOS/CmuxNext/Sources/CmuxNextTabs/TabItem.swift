@@ -22,6 +22,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// User color of this tab (screens carry one). Tints the icon; a tab
     /// with no icon shows a dot of this color instead.
     public var tint: GroupColor?
+    /// The machine the tab's terminal runs on when it is not this Mac: a
+    /// very subtle trailing label (plans/cmux-next/data-model.md 1.2b).
+    public var machineBadge: String?
 
     public init(
         id: TabID,
@@ -33,7 +36,8 @@ public struct TabItem: Identifiable, Hashable, Sendable {
         isBusy: Bool = false,
         status: TabStatus = .none,
         groupID: TabGroupID? = nil,
-        tint: GroupColor? = nil
+        tint: GroupColor? = nil,
+        machineBadge: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -45,5 +49,6 @@ public struct TabItem: Identifiable, Hashable, Sendable {
         self.status = status
         self.groupID = groupID
         self.tint = tint
+        self.machineBadge = machineBadge
     }
 }

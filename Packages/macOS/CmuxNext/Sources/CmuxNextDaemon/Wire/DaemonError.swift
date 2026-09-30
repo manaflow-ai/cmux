@@ -23,6 +23,10 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
     /// start deadline. cmux-tui may still create the terminal.
     case terminalStartTimedOut(String)
     case invalidSessionName(String)
+    /// A remote machine's endpoint waits for the user (an SSH key or host
+    /// key to fix, cmux-tui to install): retrying on a timer cannot help,
+    /// the next retry waits for an event (activation, wake, Reconnect).
+    case endpointBlocked(String)
 
     public var description: String {
         switch self {
@@ -41,6 +45,7 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
         case .timedOut(let what): "timed out: \(what)"
         case .terminalStartTimedOut(let what): "timed out: \(what); the terminal may still appear"
         case .invalidSessionName(let name): "invalid cmux-tui session name: \(name)"
+        case .endpointBlocked(let reason): reason
         }
     }
 }

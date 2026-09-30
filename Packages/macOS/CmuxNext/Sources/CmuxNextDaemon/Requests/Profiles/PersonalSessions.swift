@@ -61,3 +61,19 @@ public struct ImportSessionOrganizationRequest: DaemonRequest {
         self.workspaces = workspaces
     }
 }
+
+/// Removes a session from the home registry with its personal rows (order,
+/// groups, pins). Without `force` the daemon refuses while rooms pin its
+/// workspaces.
+public struct ForgetSessionRequest: DaemonRequest {
+    public struct Response: Decodable, Sendable, Equatable {
+        public var changed: Bool
+    }
+    public static let command = "forget-session"
+    public var sessionID: String
+    public var force: Bool
+    public init(sessionID: String, force: Bool) {
+        self.sessionID = sessionID
+        self.force = force
+    }
+}

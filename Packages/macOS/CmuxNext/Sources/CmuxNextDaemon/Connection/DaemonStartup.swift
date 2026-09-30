@@ -36,7 +36,7 @@ public enum DaemonStartup {
     /// Errors no retry can fix: the binary or daemon is wrong.
     public static func isPermanent(_ error: DaemonError) -> Bool {
         switch error {
-        case .binaryNotFound, .wrongApp, .unsupportedProtocol, .missingCapabilities, .invalidSessionName: true
+        case .binaryNotFound, .wrongApp, .unsupportedProtocol, .missingCapabilities, .invalidSessionName, .endpointBlocked: true
         default: false
         }
     }

@@ -24,6 +24,14 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         /// The machine's cmux-tui is too old for this app; nothing connects
         /// until the machine is updated.
         case updateRequired
+        /// cmux-tui is missing on the machine (or does not run there).
+        case installRequired
+        /// cmux-tui is being installed on the machine.
+        case installing
+        /// SSH refused the key, or the host key is not trusted.
+        case authFailed
+        /// The network cannot reach the machine; retried on network change.
+        case unreachable
     }
 
     public var id: MachineID

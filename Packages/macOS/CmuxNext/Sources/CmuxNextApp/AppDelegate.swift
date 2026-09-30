@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider())
         cloudContext = services.startCloud()
+        services.ssh.start()
         services.updater.start()
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
@@ -99,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
+                control.registerRemoteMethods(services)
                 control.registerMobileMethods(services)
                 control.registerUpdateMethods(services.updater)
                 control.registerInputMethods(services)
@@ -149,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cloudContext?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }
+        services?.ssh.stop()
         control.stop()
         services?.tabBarButtons.stop()
         settings?.stop()

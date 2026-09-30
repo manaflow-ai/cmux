@@ -5,6 +5,9 @@ enum Strings {
     static var axStrip: String { String(localized: "tabs.ax.strip", defaultValue: "Tabs", bundle: .module) }
     static var axNewTab: String { String(localized: "tabs.ax.newTab", defaultValue: "New Tab", bundle: .module) }
     static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .module) }
+    static func axOnMachine(_ name: String) -> String {
+        String(localized: "tabs.ax.onMachine", defaultValue: "on \(name)", bundle: .module)
+    }
     static var axPinned: String { String(localized: "tabs.ax.pinned", defaultValue: "Pinned", bundle: .module) }
     static var axUnread: String { String(localized: "tabs.ax.unread", defaultValue: "Unread", bundle: .module) }
     static var axHibernated: String { String(localized: "tabs.ax.hibernated", defaultValue: "Hibernated", bundle: .module) }

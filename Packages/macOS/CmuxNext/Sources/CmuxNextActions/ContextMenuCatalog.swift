@@ -25,6 +25,7 @@ public enum ContextMenuCatalog {
         case .browserPage: browserPage
         case .link: link
         case .cloudMachine: cloudMachine
+        case .sshMachine: sshMachine
         case .newTab: newTab
         case .profile: profile
         }
@@ -127,6 +128,12 @@ public enum ContextMenuCatalog {
         + actions("cloudResizeMachine", "palette.cloud.status", "palette.cloud.snapshot", "palette.cloud.fork") + [.separator]
         + actions("cloudKillMachine")
 
+    /// An SSH machine's section header.
+    static let sshMachine: [ContextMenuEntry] =
+        actions("remote.newWorkspace") + [.separator]
+        + actions("remote.reconnect", "remote.disconnect", "remote.install") + [.separator]
+        + actions("remote.forget")
+
     /// A room dot in the sidebar.
     static let profile: [ContextMenuEntry] =
         actions("room.newWindow", "room.newWorkspace") + [.separator]
@@ -152,7 +159,7 @@ public enum ContextMenuCatalog {
         + [.separator]
         + actions("workspace.sortByName", "workspace.sortByLastUsed", "workspace.sortByDirectory", "workspaceGroup.collapseAll",
                   "workspaceGroup.expandAll") + [.separator]
-        + actions("newCloudWorkspace") + [.separator] + actions("toggleSidebar")
+        + actions("newCloudWorkspace", "remote.connect") + [.separator] + actions("toggleSidebar")
 
     static let terminalSelection: [ContextMenuEntry] =
         actions("terminalCopy", "terminalPaste", "terminal.selectAll", "useSelectionForFind") + [.separator]

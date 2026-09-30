@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextRemote
 import CmuxNextTerminal
 import Observation
 
@@ -157,7 +158,7 @@ final class TabContentCache {
         if let adopted = pageRequests.takeAdoption(for: tab.surface) {
             return tracked(install(adopted, for: key), tab)
         }
-        let url = tab.url.flatMap(URL.init(string:))
+        let url = recordURL(tab)
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.openedSurfaces.contains(tab.surface) {
             return deferred(tab, url: url)
         }
@@ -182,6 +183,17 @@ final class TabContentCache {
             onBrowserReady?(key)
         }
         return nil
+    }
+
+    /// The URL a browser record may open here. A record from a remote
+    /// machine's tree opens only web pages (`RemoteRelayPolicy`): a remote
+    /// host must not make this Mac load `file:` or `javascript:` content or
+    /// launch an app through a custom scheme.
+    private func recordURL(_ tab: TabModel) -> URL? {
+        guard let services = pageRequests.services, !services.machines.daemon(forTab: tab).isLocal else {
+            return tab.url.flatMap(URL.init(string:))
+        }
+        return RemoteRelayPolicy.remoteBrowserURL(tab.url)
     }
 
     /// A page that loads nothing until the user reloads it; then the real
