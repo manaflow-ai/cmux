@@ -921,7 +921,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Shared result for the one crash-artifact scan used by both the
     /// diagnostic notification and the rare missing-primary recovery probe.
     private var pendingCrashScanTask: Task<GhosttyCrashBreadcrumb.PendingCrash?, Never>?
-    private var isWaitingForStartupCrashRecoveryProbe = false
+    private var isWaitingForStartupSessionPreparation = false
     private var deferredInitialMainWindowBootstrapDebugSource: String?
     struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
@@ -3718,32 +3718,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
-        if shouldAwaitCrashRecoveryProbe() {
-            isWaitingForStartupCrashRecoveryProbe = true
-            let pendingCrashScanTask = pendingCrashScanTaskIfNeeded()
-            Task { @MainActor [weak self] in
-                let pendingCrash = await pendingCrashScanTask.value
-                guard let self, !Task.isCancelled, !self.isTerminatingApp else { return }
-                if pendingCrash != nil {
-                    self.previousSessionLaunchWasUnclean = true
-                }
+
+        isWaitingForStartupSessionPreparation = true
+        let replaySweepTask = Task.detached(priority: .utility) {
+            SessionScrollbackReplayStore.sweepStaleReplayFiles(
+                olderThan: Date().addingTimeInterval(
+                    -SessionScrollbackReplayStore.staleReplayLifetime
+                )
+            )
+        }
+        let pendingCrashScanTask = shouldAwaitCrashRecoveryProbe()
+            ? pendingCrashScanTaskIfNeeded()
+            : nil
+
+        Task { @MainActor [weak self] in
+            await replaySweepTask.value
+            let pendingCrash = await pendingCrashScanTask?.value
+            guard let self, !Task.isCancelled, !self.isTerminatingApp else { return }
+            if pendingCrash != nil {
+                self.previousSessionLaunchWasUnclean = true
+            }
 #if DEBUG
+            if pendingCrashScanTask != nil {
                 cmuxDebugLog(
                     "session.restore.crashProbe pending=\(pendingCrash != nil ? 1 : 0)"
                 )
-#endif
-                self.isWaitingForStartupCrashRecoveryProbe = false
-                self.finishPreparingStartupSessionSnapshot()
-                self.resumeDeferredInitialMainWindowBootstrapIfNeeded()
             }
-            return
+#endif
+            self.isWaitingForStartupSessionPreparation = false
+            self.finishPreparingStartupSessionSnapshot()
+            self.resumeDeferredInitialMainWindowBootstrapIfNeeded()
         }
-        finishPreparingStartupSessionSnapshot()
     }
 
     /// A missing primary with a backup is ambiguous until the asynchronous
-    /// crash-artifact probe completes. Defer cleanup and window bootstrap only
-    /// for that rare case; normal launches never wait on crash-file I/O.
+    /// crash-artifact probe completes. Replay-file cleanup shares the same
+    /// startup-preparation gate so filesystem I/O stays off the main actor and
+    /// completes before any restored surface can consume replay state.
     private func shouldAwaitCrashRecoveryProbe() -> Bool {
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup,
@@ -8435,7 +8446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.didScheduleInitialMainWindowBootstrap = false
                 return
             }
-            if self.isWaitingForStartupCrashRecoveryProbe {
+            if self.isWaitingForStartupSessionPreparation {
                 self.didScheduleInitialMainWindowBootstrap = false
                 if self.deferredInitialMainWindowBootstrapDebugSource == nil {
                     self.deferredInitialMainWindowBootstrapDebugSource = debugSource
