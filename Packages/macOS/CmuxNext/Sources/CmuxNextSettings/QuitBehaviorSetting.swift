@@ -18,6 +18,11 @@ public nonisolated enum QuitBehaviorSetting {
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (QuitBehavior, SettingsDiagnostic?) {
-        (fallback, nil)  // not implemented yet
+        guard let value = root.value(at: configPath) else { return (fallback, nil) }
+        guard let text = value.stringValue, let behavior = QuitBehavior(rawValue: text) else {
+            let choices = QuitBehavior.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "app.quitBehavior", message: "expected one of \(choices)"))
+        }
+        return (behavior, nil)
     }
 }

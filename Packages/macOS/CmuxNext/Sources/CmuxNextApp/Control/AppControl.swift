@@ -171,6 +171,10 @@ final class AppControl {
             .mainActor("debug.extensions.popup") { [weak services] call in
                 .value(services.map { DebugExtensionToolbar.popup(call.params, $0) } ?? .null)
             },
+            // The quit sheet (Quit and the local terminals).
+            .mainActor("debug.quit") { [weak services] call in
+                .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
+            },
             .mainActor("debug.extensions.prompt") { [weak services] call in
                 .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)
             },

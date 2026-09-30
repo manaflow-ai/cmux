@@ -11,8 +11,10 @@ enum MainMenu {
             NSMenuItem(title: Strings.menuAbout, action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
             .separator(),
         ]
-        let quitTitle = registry.title(for: "quit")
-        app += registry.makeMainMenuItems(for: .app).filter { $0.title != quitTitle }
+        // Quit and its two session choices go last, below Show All.
+        let quitIDs: [ActionID] = ["quit", "quitKeepSessions", "quitEndSessions"]
+        let quitTitles = Set(quitIDs.compactMap { registry.title(for: $0) })
+        app += registry.makeMainMenuItems(for: .app).filter { !quitTitles.contains($0.title) }
         app += [
             .separator(),
             NSMenuItem(title: Strings.menuHide, action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),
@@ -20,7 +22,7 @@ enum MainMenu {
             NSMenuItem(title: Strings.menuShowAll, action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""),
             .separator(),
         ]
-        if let quit = registry.makeMenuItem(for: "quit") { app.append(quit) }
+        app += quitIDs.compactMap { registry.makeMenuItem(for: $0) }
         mainMenu.addItem(submenu(Strings.appName, items: app))
         mainMenu.addItem(submenu(Strings.menuFile, items: registry.makeMainMenuItems(for: .file)))
         mainMenu.addItem(submenu(Strings.menuEdit, items: [

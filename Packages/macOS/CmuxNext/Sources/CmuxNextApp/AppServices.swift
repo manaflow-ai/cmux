@@ -67,6 +67,8 @@ final class AppServices {
     private(set) var chromiumWarmup: ChromiumWarmup!
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
+    /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
+    private(set) lazy var quit = QuitCoordinator(services: self)
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).

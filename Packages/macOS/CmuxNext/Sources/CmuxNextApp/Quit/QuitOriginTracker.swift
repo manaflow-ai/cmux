@@ -27,6 +27,7 @@ final class QuitOriginTracker {
     /// the quit came from one (logout and shutdown send one).
     func consume(appleEventReason: OSType? = nil) -> QuitOrigin {
         defer { pending = nil }
+        if isPoweringOff || appleEventReason.map(Self.powerOffReasons.contains) == true { return .powerOff }
         return pending ?? .interactive
     }
 

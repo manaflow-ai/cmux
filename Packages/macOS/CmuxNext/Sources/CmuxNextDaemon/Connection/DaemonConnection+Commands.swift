@@ -319,7 +319,7 @@ extension DaemonConnection {
     @discardableResult
     public func endSessionsAndStop() async throws -> UInt64 {
         await close()
-        return 0  // not implemented yet
+        return try await shutdownDaemon(endTerminals: true).endedTerminals ?? 0
     }
 
     /// Deadline for `shutdown-daemon end_terminals`, which awaits every host.

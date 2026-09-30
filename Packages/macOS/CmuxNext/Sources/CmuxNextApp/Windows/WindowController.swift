@@ -277,7 +277,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// of its terminals runs a program (`IncognitoCloseConfirmation`).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard !closeConfirmed, services.windows.isIncognito(window: state.id) else { return true }
-        IncognitoCloseConfirmation.confirm(windows: [state.id], quitting: false, sheetOn: sender, services) { [weak self, weak sender] ok in
+        IncognitoCloseConfirmation.confirm(windows: [state.id], sheetOn: sender, services) { [weak self, weak sender] ok in
             guard ok, let self else { return }
             closeConfirmed = true
             sender?.close()

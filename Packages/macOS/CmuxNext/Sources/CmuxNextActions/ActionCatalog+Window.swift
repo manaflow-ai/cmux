@@ -47,10 +47,35 @@ nonisolated extension ActionCatalog {
                 category: .window, symbol: "arrow.up.left.and.arrow.down.right", surfaces: [.palette, .keyboard, .menu],
                 cliName: "app toggle-full-screen", mainMenu: .window
             ),
+            // Quit and the local terminals (user decision 2026-09-30): the
+            // terminals run in cmux-tui and outlive the app. Quit asks while
+            // local terminals exist (setting `app.quitBehavior`); a scripted
+            // run never asks and takes `--keep-sessions` / `--end-sessions`.
             ActionDescriptor(
                 id: "quit", title: String(localized: "action.quit", defaultValue: "Quit cmux", bundle: .module),
                 keywords: ["exit", "close"], defaultShortcut: Shortcut("q", modifiers: [.command]), category: .window,
-                symbol: "power", surfaces: [.keyboard, .menu], cliName: "app quit", mainMenu: .app
+                symbol: "power", surfaces: [.keyboard, .menu],
+                arguments: [
+                    ActionArgument(name: "keepSessions",
+                                   title: String(localized: "argument.keepSessions", defaultValue: "Keep Sessions Running", bundle: .module),
+                                   kind: .bool, isRequired: false),
+                    ActionArgument(name: "endSessions",
+                                   title: String(localized: "argument.endSessions", defaultValue: "End All Sessions", bundle: .module),
+                                   kind: .bool, isRequired: false),
+                ],
+                cliName: "app quit", mainMenu: .app
+            ),
+            ActionDescriptor(
+                id: "quitKeepSessions",
+                title: String(localized: "action.quitKeepSessions", defaultValue: "Quit and Keep Sessions", bundle: .module),
+                keywords: ["exit", "close", "background", "terminals", "cmux-tui", "detach"], category: .window,
+                symbol: "power", surfaces: [.palette, .menu], cliName: "app quit-keep-sessions", mainMenu: .app
+            ),
+            ActionDescriptor(
+                id: "quitEndSessions",
+                title: String(localized: "action.quitEndSessions", defaultValue: "Quit and End Sessions", bundle: .module),
+                keywords: ["exit", "close", "kill", "terminals", "cmux-tui", "stop"], category: .window,
+                symbol: "power", surfaces: [.palette, .menu], cliName: "app quit-end-sessions", mainMenu: .app
             ),
             ActionDescriptor(
                 id: "showHideAllWindows",

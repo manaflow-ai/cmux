@@ -55,15 +55,19 @@ enum AppActions {
 
     private static func bindApp(_ services: AppServices) {
         let registry = services.registry
-        // Terminate from a run-loop callout, not from inside the caller's
-        // main-queue job (control socket, palette): terminateLater spins a
-        // nested run loop, and the save Task could never get the main queue.
-        registry.bind("quit") {
-            RunLoop.main.perform(inModes: [.common]) {
-                SheetDismissal.endAll()
-                NSApp.terminate(nil)
+        // Quit and the local terminals (QuitCoordinator): a keyboard, menu
+        // or Dock quit may ask; a scripted run (control socket, CLI) never
+        // waits on the sheet and takes --keep-sessions / --end-sessions.
+        registry.bind("quit", invoke: { invocation in
+            do {
+                let origin = try QuitPolicy.origin(for: invocation, scripted: registry.isCapturingRefusal)
+                services.quit.requestQuit(origin)
+            } catch {
+                registry.refuse(QuitArgumentConflict.reason)
             }
-        }
+        })
+        registry.bind("quitKeepSessions") { services.quit.requestQuit(.explicit(.keep)) }
+        registry.bind("quitEndSessions") { services.quit.requestQuit(.explicit(.end)) }
         registry.bind("newWindow") { services.windows.newWindow() }
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {

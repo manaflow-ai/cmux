@@ -1,72 +1,6 @@
 import CmuxNextActions
 import CmuxNextSettings
 
-/// What happens to the local terminals when cmux quits. They run in the
-/// local cmux-tui daemon, which outlives the app (cmux-tui-contract.md 1.5).
-enum QuitSessionsChoice: String, Equatable, Sendable {
-    /// Leave every local terminal and the daemon running.
-    case keep
-    /// End every local terminal and stop the local daemon
-    /// (`shutdown-daemon end_terminals`).
-    case end
-}
-
-/// Who asked to quit.
-enum QuitOrigin: Equatable, Sendable {
-    /// Cmd-Q, the Quit menu item or the Dock's Quit: may show the sheet.
-    case interactive
-    /// "Quit and Keep Sessions", "Quit and End Sessions", or `cmux app quit`
-    /// with `--keep-sessions` / `--end-sessions`: runs as asked.
-    case explicit(QuitSessionsChoice)
-    /// `cmux app quit` (or `action.run quit`) with no flag: follows the
-    /// setting and never waits on a sheet.
-    case scripted
-    /// Shut down, restart or log out: never asks, never ends terminals
-    /// (the system ends them).
-    case powerOff
-}
-
-/// One running program in a terminal that Quit keeps.
-struct QuitProgram: Equatable, Sendable {
-    var name: String
-    /// CPU time of the terminal's processes other than its shell.
-    var cpuNanos: UInt64
-}
-
-/// The local state the quit decision reads.
-struct QuitFacts: Equatable, Sendable {
-    /// Local terminals outside incognito windows (they outlive the app).
-    var terminals: Int
-    /// Those terminals' foreground programs other than the shell.
-    var programs: [QuitProgram]
-    /// Programs running in incognito windows' terminals, which always end.
-    var incognitoPrograms: [String]
-    /// Any Cloud or SSH session is known (never ended from the sheet).
-    var remoteSessions: Bool
-
-    static let none = QuitFacts(terminals: 0, programs: [], incognitoPrograms: [], remoteSessions: false)
-}
-
-/// The quit sheet's content.
-struct QuitPrompt: Equatable, Sendable {
-    var terminals: Int
-    var runningPrograms: Int
-    /// The busiest program names (most CPU first), at most `QuitPolicy.busiestLimit`.
-    var busiest: [String]
-    var incognitoPrograms: [String]
-    var remoteSessions: Bool
-    /// False when only incognito terminals are at stake: the sheet then
-    /// offers Quit and Cancel (the incognito close confirmation).
-    var offersSessionChoice: Bool
-    /// The button Return presses.
-    var defaultChoice: QuitSessionsChoice
-}
-
-enum QuitDecision: Equatable, Sendable {
-    case quit(QuitSessionsChoice)
-    case ask(QuitPrompt)
-}
-
 /// A quit request that names both choices.
 struct QuitArgumentConflict: Error, Equatable {
     static let reason = "quit takes --keep-sessions or --end-sessions, not both"
@@ -79,7 +13,14 @@ enum QuitPolicy {
     /// The origin of a `quit` action run: its flags, else scripted for a
     /// capturing caller (control socket, CLI), else interactive.
     static func origin(for invocation: ActionInvocation, scripted: Bool) throws(QuitArgumentConflict) -> QuitOrigin {
-        scripted ? .scripted : .interactive  // not implemented yet
+        let keep = invocation["keepSessions"]?.boolValue == true
+        let end = invocation["endSessions"]?.boolValue == true
+        switch (keep, end) {
+        case (true, true): throw QuitArgumentConflict()
+        case (true, false): return .explicit(.keep)
+        case (false, true): return .explicit(.end)
+        case (false, false): return scripted ? .scripted : .interactive
+        }
     }
 
     /// Whether the decision needs `QuitFacts` (read from the daemon).
@@ -88,12 +29,39 @@ enum QuitPolicy {
     /// Quit at once with a choice, or ask. `facts` is read only for an
     /// interactive quit.
     static func decide(_ origin: QuitOrigin, behavior: QuitBehavior, facts: QuitFacts) -> QuitDecision {
-        .quit(.keep)  // not implemented yet
+        let remembered: QuitSessionsChoice? = switch behavior {
+        case .ask: nil
+        case .keep: .keep
+        case .end: .end
+        }
+        switch origin {
+        case .powerOff: return .quit(.keep)
+        case .explicit(let choice): return .quit(choice)
+        case .scripted: return .quit(remembered ?? .keep)
+        case .interactive: break
+        }
+        let hasTerminals = facts.terminals > 0
+        let incognito = !facts.incognitoPrograms.isEmpty
+        guard hasTerminals || incognito else { return .quit(remembered ?? .keep) }
+        // A remembered choice skips the sheet unless incognito windows would
+        // end running programs (that confirmation is not remembered).
+        if let remembered, !incognito { return .quit(remembered) }
+        return .ask(QuitPrompt(
+            terminals: facts.terminals,
+            runningPrograms: facts.programs.count,
+            busiest: busiest(facts.programs),
+            incognitoPrograms: facts.incognitoPrograms,
+            remoteSessions: facts.remoteSessions,
+            offersSessionChoice: hasTerminals,
+            defaultChoice: remembered ?? .keep
+        ))
     }
 
     /// Unique program names, most CPU first (then by name), at most `limit`.
     static func busiest(_ programs: [QuitProgram], limit: Int = busiestLimit) -> [String] {
-        []  // not implemented yet
+        var cpu: [String: UInt64] = [:]
+        for program in programs { cpu[program.name, default: 0] += program.cpuNanos }
+        return cpu.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(limit).map(\.key)
     }
 
     /// The setting "Don't ask again" writes for a choice.

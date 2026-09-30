@@ -43,6 +43,7 @@ public nonisolated enum SettingsSchema {
     static var general: [SettingDescriptor] {
         let window = SettingsText.text("settings.group.window", "Window")
         let columns = SettingsText.text("settings.group.columns", "Columns")
+        let quitting = SettingsText.text("settings.group.quit", "Quitting")
         return [
             SettingDescriptor(
                 WindowTitlebarSetting.configPath, section: .general, group: window,
@@ -53,6 +54,19 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(TitlebarStyle.standard.rawValue, SettingsText.text("settings.choice.standard", "Standard")),
                 ]),
                 default: .string(WindowTitlebarSetting.fallback.rawValue), keywords: ["traffic lights", "title"]
+            ),
+            SettingDescriptor(
+                QuitBehaviorSetting.configPath, section: .general, group: quitting,
+                title: SettingsText.text("settings.app.quitBehavior", "When Quitting"),
+                help: SettingsText.text("settings.app.quitBehavior.help",
+                                        "Terminals run in cmux-tui and keep running after cmux quits unless you end them."),
+                kind: .choice([
+                    SettingChoice(QuitBehavior.ask.rawValue, SettingsText.text("settings.choice.quitAsk", "Ask")),
+                    SettingChoice(QuitBehavior.keep.rawValue, SettingsText.text("settings.choice.quitKeep", "Keep Sessions Running")),
+                    SettingChoice(QuitBehavior.end.rawValue, SettingsText.text("settings.choice.quitEnd", "End All Sessions")),
+                ]),
+                default: .string(QuitBehaviorSetting.fallback.rawValue),
+                keywords: ["quit", "exit", "sessions", "terminals", "cmux-tui", "daemon", "background"]
             ),
             SettingDescriptor(
                 DefaultColumnWidthSetting.configPath, section: .general, group: columns,

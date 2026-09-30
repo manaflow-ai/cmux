@@ -13,6 +13,8 @@ struct QuitSteps {
 enum QuitCompletion {
     @MainActor
     static func run(_ choice: QuitSessionsChoice, remember: Bool, _ steps: QuitSteps) async {
-        await steps.prepareWindows()  // not implemented yet
+        if remember { await steps.remember(QuitPolicy.remembered(choice)) }
+        await steps.prepareWindows()
+        if choice == .end { await steps.endLocalSessions() }
     }
 }

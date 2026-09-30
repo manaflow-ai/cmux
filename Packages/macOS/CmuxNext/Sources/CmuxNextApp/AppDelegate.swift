@@ -137,23 +137,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Every quit (Cmd-Q, the Quit menu, the Dock, `cmux app quit`, power
+    /// off) goes through `QuitCoordinator`: it may ask whether to keep the
+    /// local terminals (which run in cmux-tui and outlive the app), folds in
+    /// the incognito close confirmation, saves windows, and for End stops
+    /// the local daemon. `kill` never gets here.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let services else { return .terminateNow }
-        // Quit (menu, Cmd-Q, socket) never waits on an open sheet.
-        SheetDismissal.endAll()
-        // Quitting closes incognito windows' workspaces: ask first while a
-        // terminal in one runs a program (IncognitoCloseConfirmation).
-        let windows = services.windows!
-        let incognito = windows.registry.value.windows.map(\.id).filter(windows.isIncognito(window:))
-        let sheetWindow = incognito.lazy.compactMap { windows.controller(for: $0)?.window }.first
-        IncognitoCloseConfirmation.confirm(windows: incognito, quitting: true, sheetOn: sheetWindow, services) { ok in
-            guard ok else { return sender.reply(toApplicationShouldTerminate: false) }
-            Task {
-                await windows.prepareForTermination()
-                sender.reply(toApplicationShouldTerminate: true)
-            }
-        }
-        return .terminateLater
+        return services.quit.shouldTerminate(sender)
     }
 
     /// Web, `ssh:` and `x-man-page:` links (cmux as their handler) open as
