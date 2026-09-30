@@ -114,6 +114,20 @@ struct MobileSSHTmuxControlParserTests {
         #expect(MobileSSHTmuxProvider.parseTerminalID("a/b/%12")! == ("a/b", 12))
     }
 
+    @Test func markerInUserSessionNameDoesNotHideItsWorkspace() {
+        let session = "build-cmux-ios-demo"
+        let rows = [MobileSSHTmuxProvider.PaneRow(
+            session: session,
+            windowIndex: 0,
+            windowName: "zsh",
+            windowPaneCount: 1,
+            pane: 1,
+            paneIndex: 0
+        )]
+
+        #expect(MobileSSHTmuxProvider.workspaces(from: rows).map(\.id) == [session])
+    }
+
     // MARK: Screen title sequences
 
     private func filtered(_ chunks: [String]) -> (output: String, titles: [String]) {
