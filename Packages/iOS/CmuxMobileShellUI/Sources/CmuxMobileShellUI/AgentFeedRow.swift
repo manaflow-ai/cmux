@@ -1106,6 +1106,7 @@ private struct AgentFeedQuestionControls: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 1)
         .padding(.vertical, 2)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileAgentFeedQuestionPage-\(index + 1)")
     }
 
