@@ -142,6 +142,22 @@ struct AgentChatChildRunTests {
         #expect(rec.children[1].isRunning)
     }
 
+    @Test func claudeBackgroundSpawnStaysRunningUntilSubagentStop() {
+        var rec = record()
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec, event: event(.preToolUse, tool: "Task", at: 10)
+        )
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec, event: event(.postToolUse, tool: "Task", at: 11)
+        )
+        #expect(rec.children[0].isRunning)
+
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec, event: event(.subagentStop, at: 20)
+        )
+        #expect(!rec.children[0].isRunning)
+    }
+
     @Test func stopClosesAllOpenChildren() {
         var rec = record()
         AgentChatSessionRegistry.applyChildRunEvent(
