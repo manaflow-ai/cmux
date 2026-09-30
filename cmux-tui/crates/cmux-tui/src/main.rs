@@ -66,6 +66,8 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+#[cfg(all(test, unix))]
+mod test_exec;
 mod ui;
 
 #[cfg(target_os = "linux")]

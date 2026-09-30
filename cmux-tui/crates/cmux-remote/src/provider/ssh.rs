@@ -335,17 +335,13 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn provider_link_uses_hardened_ssh_argv() {
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let log = directory.path().join("argv");
         let script = directory.path().join("ssh");
-        std::fs::write(
+        crate::test_exec::write_executable(
             &script,
             format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n", log.display()),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let group = SshLinkGroup {
             description: "ssh://example.com:2222".into(),
             destination: "alice@example.com".into(),

@@ -6,7 +6,26 @@ use cmux_remote::ssh_bootstrap::{
 use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::io::Write as _;
+use std::path::Path;
+use std::process::{Command, Stdio};
+
+/// Creates an executable script without this process ever holding a write
+/// descriptor for it. Tests run on many threads, and a sibling test that
+/// forks while such a descriptor is open hands a copy to its child until that
+/// child execs; running the script in that window fails with ETXTBSY ("Text
+/// file busy"). A short-lived `sh` opens, writes, and closes the file in its
+/// own process, so no fork of this process can inherit it.
+fn write_executable(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path.as_ref())
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
+    assert!(child.wait().unwrap().success(), "could not write {}", path.as_ref().display());
+}
 
 struct Fixture {
     _directory: tempfile::TempDir,
@@ -48,7 +67,7 @@ impl Fixture {
             "remote_protocol": REMOTE_PROTOCOL_VERSION, "os": os, "arch": "aarch64",
         });
         let script = directory.path().join("ssh");
-        fs::write(
+        write_executable(
             &script,
             format!(
                 r#"#!/bin/sh
@@ -67,9 +86,7 @@ esac
                 staged = staged.display(),
                 installed = installed.display()
             ),
-        )
-        .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_installable = false;
@@ -139,7 +156,7 @@ impl NpmFixture {
             "remote_protocol": REMOTE_PROTOCOL_VERSION, "os": "linux", "arch": "aarch64",
         });
         let script = directory.path().join("ssh");
-        fs::write(
+        write_executable(
             &script,
             format!(
                 r#"#!/bin/sh
@@ -161,9 +178,7 @@ esac
                 staged = staged.display(),
                 installed = installed.display(),
             ),
-        )
-        .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_version = "9.9.9".into();
@@ -216,7 +231,7 @@ const NPM_NOTICE: &str = "echo 'npm notice New major version of npm available! 1
 /// stand-in remote reports. That is what `uname` prints, which can differ
 /// from the test binary's own target (for example under Rosetta).
 fn host_release_target() -> Option<(&'static str, &'static str)> {
-    let uname = std::process::Command::new("uname").args(["-s", "-m"]).output().ok()?;
+    let uname = Command::new("uname").args(["-s", "-m"]).output().ok()?;
     let uname = String::from_utf8_lossy(&uname.stdout).to_string();
     let mut fields = uname.split_whitespace();
     match (fields.next()?, fields.next()?) {
@@ -254,8 +269,7 @@ impl NonPosixLoginShellFixture {
         let package_bin = root.join("bin");
         fs::create_dir_all(&package_bin).unwrap();
         let source = package_bin.join("cmux-tui");
-        fs::write(&source, &binary).unwrap();
-        fs::set_permissions(&source, fs::Permissions::from_mode(0o755)).unwrap();
+        write_executable(&source, &binary);
         // npm builds pin only the digest; the native app also ships the
         // payload, which the upload path sends over SSH.
         let pins = package_bin.join("cmux-tui-ssh");
@@ -281,7 +295,7 @@ impl NonPosixLoginShellFixture {
         fs::write(registry.join("package/bin/cmux-tui"), &binary).unwrap();
         let fake_bin = root.join("fake-bin");
         fs::create_dir(&fake_bin).unwrap();
-        fs::write(
+        write_executable(
             fake_bin.join("npm"),
             format!(
                 r#"#!/bin/sh
@@ -292,13 +306,11 @@ tar -czf '{npm_package}-9.9.9.tgz' -C '{registry}' package
                 registry = registry.display(),
                 notice = if notice { NPM_NOTICE } else { "" },
             ),
-        )
-        .unwrap();
-        fs::set_permissions(fake_bin.join("npm"), fs::Permissions::from_mode(0o755)).unwrap();
+        );
 
         let rejected = root.join("rejected");
         let script = root.join("ssh");
-        fs::write(
+        write_executable(
             &script,
             format!(
                 r#"#!/bin/sh
@@ -328,9 +340,7 @@ exit 127
                 rejected = rejected.display(),
                 notice = if notice { NPM_NOTICE } else { ":" },
             ),
-        )
-        .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        );
 
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();

@@ -827,13 +827,13 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn status_disables_repository_fsmonitor() {
-        use std::os::unix::fs::PermissionsExt;
-
         let (_directory, root) = git_root().await;
         let hook = root.canonical_root().join("fsmonitor-hook");
         let marker = root.canonical_root().join("fsmonitor-hook.invoked");
-        std::fs::write(&hook, "#!/bin/sh\n: > \"$0.invoked\"\nprintf 'cmux-token\\n'\n").unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::test_exec::write_executable(
+            &hook,
+            "#!/bin/sh\n: > \"$0.invoked\"\nprintf 'cmux-token\\n'\n",
+        );
         git(root.canonical_root(), &["config", "core.fsmonitor", hook.to_str().unwrap()]);
 
         assert!(Command::new(&hook).status().unwrap().success());

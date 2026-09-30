@@ -216,6 +216,26 @@ impl HeadlessServer {
 }
 
 #[cfg(unix)]
+/// Creates an executable script without this process ever holding a write
+/// descriptor for it. Tests run on many threads, and a sibling test that
+/// forks while such a descriptor is open hands a copy to its child until that
+/// child execs; running the script in that window fails with ETXTBSY ("Text
+/// file busy"). A short-lived `sh` opens, writes, and closes the file in its
+/// own process, so no fork of this process can inherit it.
+fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
+    use std::io::Write as _;
+    let path = path.as_ref();
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
+    assert!(child.wait().unwrap().success(), "could not write {}", path.display());
+}
+
+#[cfg(unix)]
 fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -2462,7 +2482,7 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
     fs::write(theme_dir.join("Dark Direct Probe"), "foreground = #010203\n").unwrap();
     fs::write(theme_dir.join("Light Direct Probe"), "foreground = #a0b0c0\n").unwrap();
     let gdbus = bin_dir.join("gdbus");
-    fs::write(
+    write_executable(
         &gdbus,
         "#!/bin/sh\n\
          if [ \"${CMUX_MACHINE_PROVIDER_TOKEN+x}\" = x ] || [ \"${CMUX_PROVIDER_WORKSPACE_AUTHORITY+x}\" = x ]; then\n\
@@ -2470,9 +2490,7 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
          \texit 0\n\
          fi\n\
          printf '(<uint32 1>,)\\n'\n",
-    )
-    .unwrap();
-    fs::set_permissions(&gdbus, fs::Permissions::from_mode(0o700)).unwrap();
+    );
 
     let output = Command::new(bin())
         .arg("__ghostty-config-defaults")
@@ -2895,15 +2913,13 @@ fn startup_does_not_invoke_external_ghostty_config_resolver() {
     let helper = dir.join("ghostty-config-probe");
     let capture = dir.join("resolver-invoked.txt");
     let socket = dir.join("mux.sock");
-    fs::write(
+    write_executable(
         &helper,
         r#"#!/bin/sh
 echo invoked > "$CMUX_TEST_GHOSTTY_CAPTURE"
 exit 0
 "#,
-    )
-    .unwrap();
-    fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+    );
 
     let output = Command::new(bin())
         .args(["--machine-provider", "/does/not/exist", "--headless", "--socket"])

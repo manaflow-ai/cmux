@@ -34,6 +34,8 @@ pub mod session;
 mod ssh_args;
 mod ssh_artifacts;
 pub mod ssh_bootstrap;
+#[cfg(all(test, unix))]
+mod test_exec;
 #[cfg(unix)]
 mod unix_socket;
 #[cfg(feature = "wireguard-transport")]
