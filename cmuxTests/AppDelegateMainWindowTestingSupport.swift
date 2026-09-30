@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxTerminal
 import Foundation
 import Testing
@@ -236,6 +237,32 @@ extension AppDelegate {
             // not wait out Ghostty's 12 s SIGHUP grace into later tests.
             manager.closeWorkspacesForTesting()
         })
+    }
+}
+
+extension Workspace {
+    /// Splits `panelId` after giving `window` and its split container a
+    /// realistic size.
+    ///
+    /// `AppDelegate.createMainWindow()` copies the size of the current main
+    /// window, by design, and earlier tests in the same app host leave narrow
+    /// (320-point) main windows registered. After the 240-point sidebar, that
+    /// container is narrower than two minimum-width panes, so split admission
+    /// (#15392) correctly refuses a side-by-side split and the fixture gets
+    /// nil. A test that needs a split must set the geometry it depends on
+    /// instead of inheriting whatever the previous test left behind.
+    func newTerminalSplitInRealisticWindowForTesting(
+        window: NSWindow,
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        focus: Bool = true
+    ) -> TerminalPanel? {
+        window.setContentSize(NSSize(width: 1_000, height: 700))
+        window.contentView?.layoutSubtreeIfNeeded()
+        bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 1_000, height: 1_000)
+        )
+        return newTerminalSplit(from: panelId, orientation: orientation, focus: focus)
     }
 }
 

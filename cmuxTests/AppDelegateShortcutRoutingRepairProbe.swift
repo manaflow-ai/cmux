@@ -19,13 +19,8 @@ extension AppDelegateShortcutRoutingTests {
         orientation: SplitOrientation,
         focus: Bool = true
     ) -> TerminalPanel? {
-        window.setContentSize(NSSize(width: 1_000, height: 700))
-        window.contentView?.layoutSubtreeIfNeeded()
-        workspace.bonsplitController.setContainerFrame(
-            CGRect(x: 0, y: 0, width: 1_000, height: 1_000)
-        )
-        return workspace.newTerminalSplit(
-            from: panelId, orientation: orientation, focus: focus
+        workspace.newTerminalSplitInRealisticWindowForTesting(
+            window: window, from: panelId, orientation: orientation, focus: focus
         )
     }
 

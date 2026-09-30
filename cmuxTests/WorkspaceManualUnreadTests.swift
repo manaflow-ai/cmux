@@ -884,7 +884,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false))
+        let rightPanel = try XCTUnwrap(workspace.newTerminalSplitInRealisticWindowForTesting(window: window, from: leftPanelId, orientation: .horizontal, focus: false))
         let leftTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(leftPanelId))
         let rightTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(rightPanel.id))
 
@@ -994,7 +994,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
         let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let focusedPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
-        let otherPanel = try XCTUnwrap(currentWorkspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal, focus: false))
+        let otherPanel = try XCTUnwrap(currentWorkspace.newTerminalSplitInRealisticWindowForTesting(window: window, from: focusedPanelId, orientation: .horizontal, focus: false))
         let nextWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
 
         currentWorkspace.focusPanel(focusedPanelId)
