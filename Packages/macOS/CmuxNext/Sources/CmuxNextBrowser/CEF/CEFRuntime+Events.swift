@@ -169,6 +169,8 @@ extension CEFRuntime {
                     tab.emit(.activate)
                 }
             }
+        case .devToolsDockSide:
+            tabsByBrowser[browser]?.devToolsDockSideChosen(value)
         case .moved, .unknown:
             break
         }

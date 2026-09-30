@@ -79,5 +79,8 @@ nonisolated enum CEFForkTabEvent: Int32, Sendable {
     case windowDestroyed = 6
     /// An extension was installed, removed, enabled or disabled (fork API v3).
     case extensionsChanged = 7
+    /// The DevTools menu chose a dock side (fork API v5); value = 0
+    /// undocked, 1 left, 2 bottom, 3 right.
+    case devToolsDockSide = 8
     case unknown = -1
 }
