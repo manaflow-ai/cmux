@@ -367,12 +367,26 @@ struct AutoNamingEngine: Sendable {
             }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
-            // Codex injects framework context as user messages wrapped in
-            // angle-bracket tags; they describe the harness, not the topic.
-            if trimmed.hasPrefix("<"), trimmed.contains(">") { continue }
+            // Codex injects a small set of framework envelopes as user
+            // messages. Filter only those known wrappers; ordinary HTML-like
+            // conversation text is part of the user's topic.
+            if role == "user", isCodexInjectedContext(trimmed) { continue }
             messages.append(AutoNamingTranscriptMessage(role: role, text: trimmed))
         }
         return messages
+    }
+
+    private func isCodexInjectedContext(_ text: String) -> Bool {
+        let prefixes = [
+            "<environment_context",
+            "<user_instructions",
+            "<subagent_notification",
+            "<permissions",
+            "<collaboration_mode",
+            "<turn_aborted",
+            "# AGENTS.md instructions"
+        ]
+        return prefixes.contains { text.hasPrefix($0) }
     }
 
     // MARK: - Transcript extraction (Grok chat_history JSONL)
