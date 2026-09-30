@@ -151,7 +151,7 @@ extension CEFTab {
         // The fork anchors the popup at the top edge of the browser area
         // between x and x + width (DIPs, browser view coordinates), so it
         // hangs below the toolbar button.
-        let ran = shim.extActionRun(browserID, id, Int32(anchor.minX.rounded()), Int32(max(anchor.width, 1).rounded())) == 1
+        let ran = shim.extActionRun(browserID, id, anchor.minX.clampedInt32, max(anchor.width, 1).clampedInt32) == 1
         if ran, extensionActions.first(where: { $0.id == id })?.hasPopup == true { openExtensionPopup = id }
     }
 
@@ -171,6 +171,6 @@ extension CEFTab {
         guard let browserID else { return }
         // Chromium screen DIPs have a top-left origin on the primary screen.
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
-        runtime.shim?.extActionContextMenu(browserID, id, Int32(point.x.rounded()), Int32((primaryHeight - point.y).rounded()))
+        runtime.shim?.extActionContextMenu(browserID, id, point.x.clampedInt32, (primaryHeight - point.y).clampedInt32)
     }
 }

@@ -58,7 +58,7 @@ extension PaneController {
     /// Makes `id` the selected tab and shows it. Called by the focus
     /// applier; never moves focus itself.
     func applySelection(_ id: StripTabID) {
-        guard stripModel.selectedID != id || currentTabKey != id.rawValue else { return }
+        guard stripModel.selectedID != id || currentTabKey != id.rawValue, let state else { return }
         state.selection.select(id.rawValue, in: paneKey)
         stripModel.selectedID = id
         showSelected()
@@ -139,7 +139,7 @@ extension PaneController {
         }
         child?.close()  // Session-local tabs are WebKit pages made on demand.
         let local = LocalBrowserTab.make(url: url)
-        state.localBrowserTabs[paneKey, default: []].append(local)
+        state?.localBrowserTabs[paneKey, default: []].append(local)
         apply(snapshot())
         if background { return }
         select(StripTabID(local.id))
@@ -157,7 +157,7 @@ extension PaneController {
         var surfaces: [SurfaceID] = []
         for id in ids {
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
-                state.localBrowserTabs[paneKey]?.removeAll { $0.id == id.rawValue }
+                state?.localBrowserTabs[paneKey]?.removeAll { $0.id == id.rawValue }
                 services.cache.release(id.rawValue)
                 continue
             }

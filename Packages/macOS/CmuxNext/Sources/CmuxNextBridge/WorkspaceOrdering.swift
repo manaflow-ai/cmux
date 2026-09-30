@@ -23,7 +23,7 @@ public enum WorkspaceOrdering {
             siblings = section.nodes.map { $0.workspaces.map(\.id) }
         }
         let containers = siblings.map { $0.filter { !moved.contains($0) } }.filter { !$0.isEmpty }
-        if position.index < containers.count, let anchor = containers[position.index].first {
+        if containers.indices.contains(position.index), let anchor = containers[position.index].first {
             return remaining.firstIndex(of: anchor) ?? remaining.count
         }
         if let last = containers.last?.last, let index = remaining.firstIndex(of: last) {

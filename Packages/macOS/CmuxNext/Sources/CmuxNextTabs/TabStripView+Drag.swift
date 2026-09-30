@@ -101,10 +101,16 @@ extension TabStripView {
         // The release settles into the slot carrying the pointer's velocity.
         motion[drag.id]?.x.release(at: CACurrentMediaTime())
         let regrouped = drag.targetGroup != drag.originalGroup
+        // The model may have changed during the drag (tabs closed by the
+        // daemon); indexes captured at the start no longer hold.
+        guard displayed.contains(where: { $0.id == drag.id }) else {
+            sync(fromModel: true)
+            return
+        }
         if drag.currentIndex != drag.originalIndex || regrouped {
             var ids = displayed.map(\.id)
-            ids.remove(at: drag.originalIndex)
-            ids.insert(drag.id, at: min(drag.currentIndex, ids.count))
+            ids.removeAll { $0 == drag.id }
+            ids.insert(drag.id, at: min(max(drag.currentIndex, 0), ids.count))
             orderOverride = ids
             if regrouped { groups.membershipOverride.updateValue(drag.targetGroup, forKey: drag.id) }
             sync(fromModel: false)

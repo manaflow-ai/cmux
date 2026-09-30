@@ -23,7 +23,7 @@ final class DragLiftView: NSView {
         wantsLayer = true
         layer?.masksToBounds = false
 
-        for depth in (1..<min(count, 3)).reversed() {
+        for depth in (1..<max(1, min(count, 3))).reversed() {
             let back = NSView()
             back.wantsLayer = true
             back.layer?.cornerRadius = SidebarStyle.rowCornerRadius

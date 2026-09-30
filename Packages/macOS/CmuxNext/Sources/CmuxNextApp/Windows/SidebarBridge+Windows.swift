@@ -23,6 +23,7 @@ extension SidebarBridge {
     /// this window takes them and selects the first; with a `position`, one
     /// daemon order command each puts them there.
     func accept(_ ids: [SidebarWorkspaceID], at position: DropPosition?) {
+        guard let state else { return }
         let before = model.sections
         services.windows.moveWorkspaces(ids.map(\.rawValue), toWindow: state.id)
         if let position { reorder(ids, to: position, in: before) }
@@ -30,12 +31,14 @@ extension SidebarBridge {
 
     /// Workspaces dragged from another window onto a group header here.
     func accept(_ ids: [SidebarWorkspaceID], intoGroup group: GroupID) {
+        guard let state else { return }
         services.windows.moveWorkspaces(ids.map(\.rawValue), toWindow: state.id)
         handle(.move(ids, toGroup: group))
     }
 
     /// Ids of this window's workspaces, in sidebar order.
     var memberIDs: [SidebarWorkspaceID] {
-        services.windows.registry.members(of: state.id).map(SidebarWorkspaceID.init)
+        guard let state else { return [] }
+        return services.windows.registry.members(of: state.id).map(SidebarWorkspaceID.init)
     }
 }

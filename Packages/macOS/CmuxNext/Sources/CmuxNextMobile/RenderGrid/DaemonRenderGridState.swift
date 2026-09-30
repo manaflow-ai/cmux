@@ -22,6 +22,9 @@ public struct DaemonRenderGridState: Sendable {
     private var defaultFG: String?
     private var defaultBG: String?
 
+    /// Largest viewport side accepted from the daemon (cells).
+    static let maxDimension = 4_096
+
     public init(surfaceID: String, renderEpoch: String = UUID().uuidString) {
         self.surfaceID = surfaceID
         self.renderEpoch = renderEpoch
@@ -35,16 +38,20 @@ public struct DaemonRenderGridState: Sendable {
     @discardableResult
     public mutating func apply(_ frame: DaemonRenderFrame) -> Bool {
         if let size = frame.size {
-            columns = max(1, size.cols)
-            rowCount = max(1, size.rows)
+            // Daemon data: clamp before it sizes an allocation.
+            columns = min(max(1, size.cols), Self.maxDimension)
+            rowCount = min(max(1, size.rows), Self.maxDimension)
         }
         if frame.isComplete {
             guard columns > 0, rowCount > 0 else { return false }
             rows = Array(repeating: [], count: rowCount)
         } else if !hasViewport {
             return false
+        } else if rows.count != rowCount {
+            // A resizing delta: keep the rows that still fit, blank the new ones.
+            rows = Array(rows.prefix(rowCount)) + Array(repeating: [], count: max(0, rowCount - rows.count))
         }
-        for row in frame.rows where row.row >= 0 && row.row < rowCount {
+        for row in frame.rows where row.row >= 0 && row.row < rows.count {
             rows[row.row] = row.runs
         }
         cursor = frame.cursor
@@ -62,8 +69,9 @@ public struct DaemonRenderGridState: Sendable {
         for (rowIndex, runs) in rows.enumerated() {
             var column = 0
             for run in runs {
-                let width = run.cellWidth
-                defer { column += width }
+                // width_hint is daemon data: never negative, never past the row.
+                let width = min(max(run.cellWidth, 0), columns)
+                defer { column = min(column + width, columns) }
                 guard width > 0, column < columns else { continue }
                 let styleID = styles.id(for: run)
                 // Full frames start from a cleared screen: blank default cells need no span.

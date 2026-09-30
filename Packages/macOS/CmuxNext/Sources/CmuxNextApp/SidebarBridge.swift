@@ -12,7 +12,8 @@ final class SidebarBridge {
     let model = SidebarModel()
     let container: SidebarContainerView
     unowned let services: AppServices
-    unowned let state: WindowState
+    /// Weak: a daemon command's `Task` can outlive the window.
+    weak var state: WindowState?
     private var observation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
     private var widthObservation: Task<Void, Never>?
@@ -47,7 +48,7 @@ final class SidebarBridge {
         let machines = services.machines
         let board = services.statusBoard
         let registry = services.windows.registry
-        let windowState = state
+        guard let windowState = state else { return }
         observation = Task { [weak self] in
             // `state.id` is read inside: the launch window adopts a saved id.
             for await sections in Observations({ Self.sections(machines, statuses: board, members: registry.members(of: windowState.id)) }) {
@@ -55,7 +56,7 @@ final class SidebarBridge {
                 self.model.sections = sections
             }
         }
-        let state = state
+        let state = windowState
         let model = model
         widthObservation = Task { [weak self] in
             for await (width, presentation) in Observations({ (model.width, model.presentation) }) {

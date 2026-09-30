@@ -36,7 +36,8 @@ extension TabStripView {
         }
         if let override = orderOverride {
             if Set(override) == Set(ordered.map(\.id)) {
-                let byID = Dictionary(uniqueKeysWithValues: ordered.map { ($0.id, $0) })
+                // Duplicate ids (bad model data) keep the first, not trap.
+                let byID = Dictionary(ordered.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 ordered = override.compactMap { byID[$0] }
             } else {
                 orderOverride = nil

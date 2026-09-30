@@ -9,6 +9,13 @@ let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request
         s1: s1.map { String(cString: $0) } ?? "", s2: s2.map { String(cString: $0) } ?? ""
     )
     let address = UInt(bitPattern: context)
+    // The shim emits on the CEF UI thread, which is the main thread. If a
+    // future shim path emits elsewhere, hop instead of trapping in
+    // assumeIsolated (the strings are already copied into `event`).
+    guard Thread.isMainThread else {
+        DispatchQueue.main.async { MainActor.assumeIsolated { CEFRuntime.from(address)?.handle(event) } }
+        return
+    }
     MainActor.assumeIsolated {
         CEFRuntime.from(address)?.handle(event)
     }
@@ -16,7 +23,9 @@ let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request
 
 /// C entry before the page sees a key down: app shortcuts win.
 let cefKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
-    guard let context, let nsEvent else { return 0 }
+    // Keys arrive on the main thread; off it, let the page have the key
+    // rather than trap in assumeIsolated.
+    guard let context, let nsEvent, Thread.isMainThread else { return 0 }
     let address = UInt(bitPattern: context)
     let eventAddress = UInt(bitPattern: nsEvent)
     return MainActor.assumeIsolated {

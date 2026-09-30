@@ -113,6 +113,7 @@ public enum TabLayoutEngine {
     /// the leading tabs, as Chrome does, so the strip edge stays crisp.
     static func distribute(_ total: CGFloat, count: Int) -> [CGFloat] {
         guard count > 0 else { return [] }
+        guard total.isFinite, total > 0 else { return Array(repeating: 0, count: count) }
         let base = (total / CGFloat(count)).rounded(.down)
         let extra = max(0, min(count, Int((total - base * CGFloat(count)).rounded(.down))))
         return (0..<count).map { $0 < extra ? base + 1 : base }

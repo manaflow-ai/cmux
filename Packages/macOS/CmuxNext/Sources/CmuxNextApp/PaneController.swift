@@ -18,7 +18,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
     let stripModel = TabStripModel()
     let view: PaneContentView
     unowned let services: AppServices
-    unowned let state: WindowState
+    /// Weak: daemon round trips (`Task`s in the intents) can outlive the
+    /// window, and a closed window frees its state.
+    weak var state: WindowState?
     weak var workspace: WorkspaceContentController?
 
     private(set) var currentTabKey: String?
@@ -97,7 +99,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
             return item
         }
-        for local in state.localBrowserTabs[paneKey] ?? [] where !pendingClosed.contains(local.id) {
+        for local in state?.localBrowserTabs[paneKey] ?? [] where !pendingClosed.contains(local.id) {
             let page = services.cache.existingBrowser(local.id)?.tab.state
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? page?.url?.host() ?? Strings.untitledBrowser
             items.append(StripTabItem(id: StripTabID(local.id), title: title, subtitle: page?.url?.absoluteString,
@@ -122,15 +124,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
         var selectNew = false
         if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }) {
-            state.selection.select(tab.id, in: paneKey)
+            state?.selection.select(tab.id, in: paneKey)
             pendingSelectSurface = nil
             selectNew = true
         } else if let pending = pendingSelectTab, let tab = pane.tabs.first(where: { $0.id == pending }) {
-            state.selection.select(tab.id, in: paneKey)
+            state?.selection.select(tab.id, in: paneKey)
             pendingSelectTab = nil
             selectNew = true
         }
-        let selected = state.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex)
+        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex)
         let selectedID = selected.map { StripTabID($0) }
         if stripModel.selectedID != selectedID { stripModel.selectedID = selectedID }
         if selectNew {
@@ -183,7 +185,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     func content(for key: String) -> TabContent? {
         if key.hasPrefix(LocalBrowserTab.prefix) {
-            let local = state.localBrowserTabs[paneKey]?.first { $0.id == key }
+            let local = state?.localBrowserTabs[paneKey]?.first { $0.id == key }
             return .browser(services.cache.browser(for: key, url: local?.url))
         }
         guard let tab = pane.tabs.first(where: { $0.id == key }) else { return nil }

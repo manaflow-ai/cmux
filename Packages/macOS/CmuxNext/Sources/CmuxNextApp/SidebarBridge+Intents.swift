@@ -11,6 +11,7 @@ import CmuxNextSidebar
 // rejected command reverts by itself; a rejection also forces one re-map.
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
+        guard let state else { return }
         switch intent {
         case .select(let id):
             model.apply(intent)
@@ -134,6 +135,7 @@ extension SidebarBridge {
 
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
+        guard let state else { return }
         model.sections = Self.sections(services.machines, statuses: services.statusBoard, members: services.windows.registry.members(of: state.id))
     }
 

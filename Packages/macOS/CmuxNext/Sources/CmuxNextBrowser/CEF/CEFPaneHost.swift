@@ -100,7 +100,7 @@ final class CEFPaneHost {
             runtime.pendingWindows[request] = self
             let started = shim.createWindow(
                 request, Unmanaged.passUnretained(hostView).toOpaque(),
-                Int32(max(size.width, 1)), Int32(max(size.height, 1)),
+                max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32,
                 tab.initialURLString, cachePath.path
             )
             if started != 1 {
