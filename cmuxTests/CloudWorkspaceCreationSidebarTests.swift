@@ -22,6 +22,7 @@ struct CloudWorkspaceCreationSidebarTests {
             defer { fixture.close() }
             fixture.manager.window = fixture.window
             NSApp.activate(ignoringOtherApps: true)
+            fixture.window.orderFrontRegardless()
             fixture.window.makeKeyAndOrderFront(nil)
             let workspace = SurfaceRemoteWorkspace(id: "ws_existing", name: "Existing", index: 0, focused: true)
             fixture.provider.createdWorkspaces = [workspace]
