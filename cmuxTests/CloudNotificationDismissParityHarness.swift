@@ -207,7 +207,15 @@ final class CloudNotificationDismissParityHarness {
         sync?.retire()
         let next = makeSync()
         sync = next
-        hub.register(next)
+        hub.register(next, remoteWorkspaceID: { [state] terminalID in
+            var workspaceIDs = Set<String>()
+            for tab in state.tabs where tab.contentID == terminalID {
+                guard let pane = state.lookupIndex.pane(id: tab.paneID),
+                      let screen = state.lookupIndex.screen(id: pane.screenID) else { continue }
+                workspaceIDs.insert(screen.workspaceID)
+            }
+            return workspaceIDs
+        })
     }
 
     /// The provider is suspended: its sync retires and leaves the hub.
@@ -219,6 +227,12 @@ final class CloudNotificationDismissParityHarness {
 
     func apply(_ rows: [CloudVMNotificationRow]) {
         sync?.apply(rows: rows)
+    }
+
+    func markWorkspaceRead(_ remoteWorkspaceID: String) {
+        let machineID = machine.rawValue
+        _ = hub.noteRead(remoteWorkspaceID: remoteWorkspaceID, machineID: machineID)
+        spinStoreSubscription { store.notifications.allSatisfy(\.isRead) }
     }
 
     func flush() async {

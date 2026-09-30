@@ -18,6 +18,21 @@ import Testing
 @Suite("Cloud notification dismiss parity", .serialized)
 @MainActor
 struct CloudNotificationDismissParityTests {
+    @Test("Marking a remote workspace read clears its local feed and leaves another workspace unread")
+    func workspaceMenuReadKeepsRemoteWorkspacesSeparate() async throws {
+        let harness = try CloudNotificationDismissParityHarness()
+        defer { harness.close() }
+        let workspaceOne = harness.row("workspace-one", terminal: "term_a", title: "Finished", createdAt: 1)
+        let workspaceTwo = harness.row("workspace-two", terminal: "term_c", title: "Needs approval", createdAt: 2)
+        harness.apply([workspaceOne, workspaceTwo])
+
+        harness.markWorkspaceRead("ws_1")
+        await harness.flush()
+        #expect(harness.store.notifications.allSatisfy(\.isRead))
+        #expect(harness.ackedIDs == Set([workspaceOne.id]))
+        #expect(harness.hub.unreadTerminalIDs[harness.machine.rawValue] == Set(["term_c"]))
+    }
+
     @Test("Clicking into the pane clears the ring and the Cloud tree dot, even with a deduplicated repeat row")
     func paneFocusClearsTheCloudTreeDot() async throws {
         let harness = try CloudNotificationDismissParityHarness()
