@@ -2395,10 +2395,9 @@ impl Surface {
         let pty = cmux_pty::open(initial_geometry.pty_size()?)?;
 
         let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
-            Some(argv) => crate::shell_integration::ShellLaunch {
-                command: argv,
-                env: opts.extra_env.clone(),
-            },
+            Some(argv) => {
+                crate::shell_integration::ShellLaunch { command: argv, env: opts.extra_env.clone() }
+            }
             None => crate::shell_integration::integrate_default_shell(
                 vec![platform::default_shell()],
                 opts.extra_env.clone(),
@@ -8237,7 +8236,8 @@ mod tests {
             ));
             std::fs::create_dir_all(&home).unwrap();
             std::fs::write(home.join(".zshenv"), "setopt NO_GLOBAL_RCS\n").unwrap();
-            std::fs::write(home.join(".zshrc"), "PS1='prompt> '\nsetopt PROMPT_CR PROMPT_SP\n").unwrap();
+            std::fs::write(home.join(".zshrc"), "PS1='prompt> '\nsetopt PROMPT_CR PROMPT_SP\n")
+                .unwrap();
             std::fs::write(home.join(".bashrc"), "PS1='prompt> '\n").unwrap();
             let launch = crate::shell_integration::integrate_default_shell(
                 vec![program],
@@ -8278,7 +8278,8 @@ mod tests {
             let text = wait_for_viewport(&surface, "the settled prompt", |text, _| {
                 text.contains("prompt> nightly")
             });
-            let at_prompt = surface.try_with_terminal(|terminal| terminal.cursor_is_at_prompt()).unwrap();
+            let at_prompt =
+                surface.try_with_terminal(|terminal| terminal.cursor_is_at_prompt()).unwrap();
             assert_eq!(
                 text.matches("nightly").count(),
                 1,

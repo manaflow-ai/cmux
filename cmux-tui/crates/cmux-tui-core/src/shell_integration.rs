@@ -73,7 +73,10 @@ pub struct ShellLaunch {
 /// Only the default shell is modified: an explicit command is the caller's
 /// program, and `-c` style launches are never interactive. Any failure leaves
 /// the launch unchanged, so a shell always starts.
-pub fn integrate_default_shell(command: Vec<String>, extra_env: Vec<(String, String)>) -> ShellLaunch {
+pub fn integrate_default_shell(
+    command: Vec<String>,
+    extra_env: Vec<(String, String)>,
+) -> ShellLaunch {
     let inherited = extra_env.clone();
     let lookup = move |key: &str| -> Option<String> {
         inherited
@@ -129,7 +132,8 @@ fn apply(
             // The default shell carries no arguments of its own; anything
             // that makes bash non-interactive or already POSIX is left alone.
             if command.iter().skip(1).any(|arg| {
-                arg == "--posix" || (arg.starts_with('-') && !arg.starts_with("--") && arg.contains('c'))
+                arg == "--posix"
+                    || (arg.starts_with('-') && !arg.starts_with("--") && arg.contains('c'))
             }) {
                 return ShellLaunch { command, env };
             }
@@ -325,10 +329,8 @@ mod tests {
 
     #[test]
     fn opt_out_leaves_the_launch_unchanged() {
-        let launch = integrate_default_shell(
-            vec!["zsh".into()],
-            vec![(OPT_OUT_ENV.into(), "none".into())],
-        );
+        let launch =
+            integrate_default_shell(vec!["zsh".into()], vec![(OPT_OUT_ENV.into(), "none".into())]);
         assert_eq!(launch.command, vec!["zsh"]);
         assert_eq!(launch.env, vec![(OPT_OUT_ENV.to_string(), "none".to_string())]);
     }
