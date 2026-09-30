@@ -15649,20 +15649,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let replayBarrierToken, terminalReplayBarrierTokensBySurfaceID[surfaceID] != replayBarrierToken { return }; let replayBarrierTokenForRequest = replayBarrierToken
             ?? terminalReplayBarrierTokensBySurfaceID[surfaceID]
         // Every replay entry point (cold attach, view reset, resync sweeps)
-        // funnels here: demonstration surfaces answer from the local engine
-        // and release any barrier so canned output is never gated on a Mac.
-        if locallyServedOwnsSurface(surfaceID) {
-            clearTerminalReplayBarrierIfCurrent(
-                surfaceID: surfaceID,
-                token: replayBarrierTokenForRequest,
-                reason: "demo_content"
-            )
-            deliverLocallyServedTerminalReplay(surfaceID: surfaceID)
-            return
-        }
-        // An external host (a Cloud machine) repaints from its own snapshot
-        // for the same reason, and releases the barrier so its output is
-        // never gated on a Mac that does not know this surface.
+        // funnels here. External hosts own their own screen source, while
+        // demonstration and SSH surfaces answer from the local engine.
         if externalHostOwnsSurface(surfaceID) {
             clearTerminalReplayBarrierIfCurrent(
                 surfaceID: surfaceID,
@@ -15670,6 +15658,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 reason: "external_host"
             )
             handleExternalHostReplayRequest(surfaceID: surfaceID)
+            return
+        }
+        if locallyServedOwnsSurface(surfaceID) {
+            clearTerminalReplayBarrierIfCurrent(
+                surfaceID: surfaceID,
+                token: replayBarrierTokenForRequest,
+                reason: "demo_content"
+            )
+            deliverLocallyServedTerminalReplay(surfaceID: surfaceID)
             return
         }
         guard terminalAllowsTraffic(surfaceID: surfaceID) else {

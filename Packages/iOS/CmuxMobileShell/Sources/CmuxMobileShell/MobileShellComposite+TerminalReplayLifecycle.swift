@@ -141,14 +141,14 @@ extension MobileShellComposite {
         // Demonstration terminals replay locally, with or without a live
         // remote client, and never park in the barrier-upgrade set (that set
         // fires real replay RPCs when a Mac later connects).
-        if locallyServedOwnsSurface(surfaceID) {
-            deliverLocallyServedTerminalReplay(surfaceID: surfaceID)
+        // Cloud surfaces also live in-process from the shell's point of view,
+        // but their screen belongs to the external host source rather than the
+        // demonstration/SSH replay provider. Check that owner first.
+        if handleExternalHostReplayRequest(surfaceID: surfaceID) {
             return
         }
-        // An external host serves its own screen and has nothing to do with
-        // the Mac client or its replay barriers; waiting for either would
-        // leave the mounted view blank.
-        if handleExternalHostReplayRequest(surfaceID: surfaceID) {
+        if locallyServedOwnsSurface(surfaceID) {
+            deliverLocallyServedTerminalReplay(surfaceID: surfaceID)
             return
         }
         guard remoteClient != nil,
@@ -358,6 +358,13 @@ extension MobileShellComposite {
         guard terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil else {
             return false
         }
+        let activeToken = terminalReplayBarrierTokensBySurfaceID[surfaceID]
+        let isColdAttachBarrier = terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] == activeToken
+        let isMissingBaselineBarrier =
+            terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] == activeToken
+        let hasRenderGridBaseline = terminalOutputTransport == .hybrid
+            ? terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)
+            : deliveredTerminalByteEndSeqBySurfaceID[surfaceID] != nil
         cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -372,6 +379,14 @@ extension MobileShellComposite {
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
         restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
+        // Keep the missing-baseline budget saturated after an exhausted cold
+        // replay. A later partial render-grid frame must remain gated until a
+        // full live frame establishes state, without starting a new replay
+        // loop for every delta.
+        if (isColdAttachBarrier || isMissingBaselineBarrier), !hasRenderGridBaseline {
+            terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID] =
+                Self.maxTerminalReplayFailureRetries
+        }
         cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)

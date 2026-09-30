@@ -70,9 +70,12 @@ struct CloudReconnectTests {
     private static let machine = CloudMachine(id: "vm-1", provider: "freestyle", status: "running", slug: "sleepy-teal-otter")
     private static let surfaceID = CloudAddress(machineID: "vm-1", component: "t-1").identifier
 
-    private func settle(until condition: () -> Bool, iterations: Int = 2_000) async {
-        for _ in 0..<iterations {
-            if condition() { return }
+    private func settle(
+        until condition: () -> Bool,
+        timeout: Duration = .seconds(10)
+    ) async {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !condition(), ContinuousClock.now < deadline {
             await Task.yield()
         }
     }
@@ -158,7 +161,7 @@ struct CloudReconnectTests {
         bridge.linksDidBecomeUnavailable()
 
         bridge.externalHostRequestReplay(surfaceID: Self.surfaceID)
-        for _ in 0..<200 { await Task.yield() }
+        await settle(until: { false }, timeout: .milliseconds(20))
         #expect(provider.link.attaches.isEmpty)
 
         provider.isReady = true

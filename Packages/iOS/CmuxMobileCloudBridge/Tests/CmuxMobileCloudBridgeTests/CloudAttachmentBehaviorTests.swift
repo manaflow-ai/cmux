@@ -142,10 +142,10 @@ struct CloudAttachmentBehaviorTests {
     /// still need a plain settle, which is why both exist.
     private func settle(
         until condition: () -> Bool = { false },
-        iterations: Int = 2_000
+        timeout: Duration = .seconds(10)
     ) async {
-        for _ in 0..<iterations {
-            if condition() { return }
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !condition(), ContinuousClock.now < deadline {
             await Task.yield()
         }
     }

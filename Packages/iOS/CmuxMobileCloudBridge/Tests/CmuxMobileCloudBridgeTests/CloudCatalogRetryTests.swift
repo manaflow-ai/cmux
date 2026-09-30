@@ -63,9 +63,12 @@ struct CloudCatalogRetryTests {
         status: "running"
     )
 
-    private func settle(until condition: () -> Bool, iterations: Int = 2_000) async {
-        for _ in 0..<iterations {
-            if condition() { return }
+    private func settle(
+        until condition: () -> Bool,
+        timeout: Duration = .seconds(10)
+    ) async {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !condition(), ContinuousClock.now < deadline {
             await Task.yield()
         }
     }
@@ -89,7 +92,7 @@ struct CloudCatalogRetryTests {
 
         // Nothing is re-read before the delay elapses.
         clock.advance(by: .seconds(4))
-        await settle(until: { false }, iterations: 200)
+        await settle(until: { false }, timeout: .milliseconds(20))
         #expect(provider.link.reads == 1)
 
         clock.advance(by: .seconds(1))
@@ -98,7 +101,7 @@ struct CloudCatalogRetryTests {
 
         // The second wait is twice as long.
         clock.advance(by: .seconds(9))
-        await settle(until: { false }, iterations: 200)
+        await settle(until: { false }, timeout: .milliseconds(20))
         #expect(provider.link.reads == 2)
         clock.advance(by: .seconds(1))
 
@@ -121,7 +124,7 @@ struct CloudCatalogRetryTests {
         #expect(store.externalHostSummaries.first?.status == .reconnecting)
 
         clock.advance(by: .seconds(120))
-        await settle(until: { false }, iterations: 200)
+        await settle(until: { false }, timeout: .milliseconds(20))
         #expect(provider.link.reads == 1)
     }
 

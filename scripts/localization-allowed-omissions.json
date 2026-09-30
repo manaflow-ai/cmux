@@ -86,6 +86,10 @@
     "class": "format",
     "source": "%1$@: %2$@"
   },
+  "notification.remoteRelay.title": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
   "agent.kimi.displayName": {
     "class": "brand",
     "source": "Kimi Code"
@@ -421,6 +425,10 @@
   "cloudTree.node.desktop.detail.screen": {
     "class": "format",
     "source": "%1$@ · %2$@"
+  },
+  "cloudTree.group.cloudMachines.usage": {
+    "class": "format",
+    "source": "%1$d/%2$d"
   },
   "cloudTree.stats.cpu": {
     "class": "format",
@@ -1008,7 +1016,8 @@
       "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "dock.source.title": {
@@ -1020,7 +1029,8 @@
       "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "emptyPanel.action.browser": {
@@ -1365,6 +1375,10 @@
     "class": "brand",
     "source": "OpenCode"
   },
+  "machines.agent.pi": {
+    "class": "brand",
+    "source": "Pi"
+  },
   "machines.freeAccess.upgrade": {
     "source": "Upgrade",
     "identityLocales": {
@@ -1552,7 +1566,8 @@
       "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "menu.help.notifications": {
@@ -1855,13 +1870,18 @@
       "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "rightSidebar.mode.feed": {
     "source": "Feed",
     "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ar": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "es": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "zh-Hant": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "zh-Hans": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "rightSidebar.mode.machines": {
@@ -2011,18 +2031,6 @@
       "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
-  "settings.betaFeatures.dock": {
-    "source": "Dock",
-    "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "es": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
-    }
-  },
   "settings.betaFeatures.extensions": {
     "source": "Extensions",
     "identityLocales": {
@@ -2032,7 +2040,11 @@
   "settings.betaFeatures.feed": {
     "source": "Feed",
     "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ar": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "es": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "zh-Hant": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "zh-Hans": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "settings.betaFeatures.workspaceTodosChecklistStyle.inline": {
@@ -2162,6 +2174,18 @@
       "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
       "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
       "ja": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.computers.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "settings.computers.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
   "settings.config.source.cmux": {
@@ -2377,6 +2401,14 @@
     "class": "technical",
     "source": "cmux.json"
   },
+  "globalSearch.kind.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
   "settings.section.terminal": {
     "source": "Terminal",
     "identityLocales": {
@@ -2427,6 +2459,16 @@
     "class": "technical",
     "source": "pt"
   },
+  "settings.terminal.ghostty.scrollbackLimit.unit": {
+    "class": "technical",
+    "source": "MB"
+  },
+  "settings.terminal.ghostty.cursorStyle.block": {
+    "source": "Block",
+    "identityLocales": {
+      "de": "Block is the German word for a block cursor shape and has the same spelling as English."
+    }
+  },
   "settings.terminal.tabBarFontSize.points": {
     "class": "format",
     "source": "%@ pt"
@@ -2455,6 +2497,18 @@
     "identityLocales": {
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
+  },
+  "shortcut.keymap.preset.iterm2": {
+    "class": "brand",
+    "source": "iTerm2"
+  },
+  "shortcut.keymap.preset.terminal": {
+    "class": "brand",
+    "source": "Terminal.app"
+  },
+  "shortcut.keymap.summary.change": {
+    "class": "format",
+    "source": "%1$@: %2$@ → %3$@"
   },
   "shortcut.recorder.pendingChord": {
     "class": "format",
@@ -3391,55 +3445,6 @@
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
   },
-  "mobile.tabs.cloud": {
-    "source": "Cloud",
-    "identityLocales": {
-      "de": "cmux Cloud is a product name; German uses the English word unchanged.",
-      "fr": "cmux Cloud is a product name; French uses the English word unchanged.",
-      "es": "cmux Cloud is a product name; Spanish uses the English word unchanged.",
-      "zh-Hant": "cmux Cloud is a product name, left in Latin script in this locale.",
-      "zh-Hans": "cmux Cloud is a product name, left in Latin script in this locale.",
-      "ko": "cmux Cloud is a product name, left in Latin script in this locale.",
-      "ja": "cmux Cloud is a product name, left in Latin script in this locale."
-    }
-  },
-  "mobile.cloud.title": {
-    "source": "Cloud",
-    "identityLocales": {
-      "de": "cmux Cloud is a product name; German uses the English word unchanged.",
-      "fr": "cmux Cloud is a product name; French uses the English word unchanged.",
-      "es": "cmux Cloud is a product name; Spanish uses the English word unchanged.",
-      "zh-Hant": "cmux Cloud is a product name, left in Latin script in this locale.",
-      "zh-Hans": "cmux Cloud is a product name, left in Latin script in this locale.",
-      "ko": "cmux Cloud is a product name, left in Latin script in this locale.",
-      "ja": "cmux Cloud is a product name, left in Latin script in this locale."
-    }
-  },
-  "mobile.cloud.machines.header": {
-    "source": "Machines",
-    "identityLocales": {
-      "fr": "\"Machines\" is spelled identically in French."
-    }
-  },
-  "mobile.cloud.create.kind": {
-    "source": "Type",
-    "identityLocales": {
-      "fr": "\"Type\" is spelled identically in French."
-    }
-  },
-  "mobile.cloud.create.base": {
-    "source": "Base",
-    "identityLocales": {
-      "fr": "\"Base\" is spelled identically in French.",
-      "es": "\"Base\" is spelled identically in Spanish."
-    }
-  },
-  "mobile.cloud.create.desktop": {
-    "source": "Desktop",
-    "identityLocales": {
-      "de": "\"Desktop\" is the established German loanword, spelled identically."
-    }
-  },
   "cloudMenu.team": {
     "source": "Team",
     "identityLocales": {
@@ -3500,6 +3505,67 @@
       "ko": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
       "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
       "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
+    }
+  },
+  "settings.betaFeatures.dock": {
+    "source": "Dock",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "es": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "mobile.tabs.cloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "cmux Cloud is a product name; German uses the English word unchanged.",
+      "fr": "cmux Cloud is a product name; French uses the English word unchanged.",
+      "es": "cmux Cloud is a product name; Spanish uses the English word unchanged.",
+      "zh-Hant": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "zh-Hans": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ko": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ja": "cmux Cloud is a product name, left in Latin script in this locale."
+    }
+  },
+  "mobile.cloud.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "cmux Cloud is a product name; German uses the English word unchanged.",
+      "fr": "cmux Cloud is a product name; French uses the English word unchanged.",
+      "es": "cmux Cloud is a product name; Spanish uses the English word unchanged.",
+      "zh-Hant": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "zh-Hans": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ko": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ja": "cmux Cloud is a product name, left in Latin script in this locale."
+    }
+  },
+  "mobile.cloud.machines.header": {
+    "source": "Machines",
+    "identityLocales": {
+      "fr": "\"Machines\" is spelled identically in French."
+    }
+  },
+  "mobile.cloud.create.kind": {
+    "source": "Type",
+    "identityLocales": {
+      "fr": "\"Type\" is spelled identically in French."
+    }
+  },
+  "mobile.cloud.create.base": {
+    "source": "Base",
+    "identityLocales": {
+      "fr": "\"Base\" is spelled identically in French.",
+      "es": "\"Base\" is spelled identically in Spanish."
+    }
+  },
+  "mobile.cloud.create.desktop": {
+    "source": "Desktop",
+    "identityLocales": {
+      "de": "\"Desktop\" is the established German loanword, spelled identically."
     }
   }
 }
