@@ -5430,3 +5430,70 @@ fn adopted_template_terminal_is_restored_in_place_after_a_daemon_restart() {
     let surface = resolved["data"]["surface"].as_u64().unwrap();
     assert!(wait_for_screen(&harness.socket, surface, &parked.marker).contains(&parked.marker));
 }
+
+/// A receipted write is acknowledged by the host after the PTY write, but the
+/// acknowledgement travels on the same stream as the terminal's output. The
+/// daemon must hand it to the waiting writer when the frame arrives, not
+/// after it has applied every output frame queued ahead of it: a slow output
+/// backlog otherwise makes the write time out as indeterminate (the flake in
+/// noun_first_cli_covers_resources_output_errors_and_private_raw_escape).
+/// The test seam delays applying each output frame by 400 ms.
+#[test]
+fn receipted_input_is_acknowledged_behind_an_output_backlog() {
+    let mut harness = RecoveryHarness::start_unstarted("input-ack-backlog");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_HOSTED_OUTPUT_APPLY_DELAY_MS", "400");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    let created = resource_request(
+        &harness.socket,
+        "ack-backlog-workspace",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Input ack backlog",
+            "initial_content":"empty",
+        }),
+        Some("ack-backlog-workspace"),
+    );
+    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    // Twenty separate output bursts (8 s of delayed apply), then a reader.
+    let script = "i=0; while [ $i -lt 20 ]; do echo burst$i; i=$((i+1)); sleep 0.05; done; \
+                  echo bursts-done; read line; echo got-$line";
+    let run = resource_request(
+        &harness.socket,
+        "ack-backlog-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c",script],
+        }),
+        Some("ack-backlog-run"),
+    );
+    let terminal = run["value"]["terminal_id"].as_str().unwrap().to_string();
+    // Let the bursts reach the daemon's host stream before writing.
+    std::thread::sleep(Duration::from_millis(1_500));
+    let started = Instant::now();
+    let write = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"ack-backlog-write",
+            "operation":"terminal.input.write",
+            "idempotency_key":"ack-backlog-write",
+            "params":{
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal,
+                "text":"ok\n",
+            },
+        }),
+    );
+    let elapsed = started.elapsed();
+    assert_eq!(write["ok"], true, "receipted write behind an output backlog failed: {write}");
+    assert!(elapsed < Duration::from_secs(2), "write waited {elapsed:?} for its receipt");
+}

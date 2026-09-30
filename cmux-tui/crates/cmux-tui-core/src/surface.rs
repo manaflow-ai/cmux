@@ -3348,6 +3348,12 @@ impl Surface {
                 let mut smart_renderer = smart_renderer;
                 let mut applied_color_revision = initial_color_revision;
                 let mut applied_cursor_activity = initial_cursor_activity;
+                // Test seam: slows applying each output frame so tests can
+                // build an output backlog ahead of a targeted host response.
+                let output_apply_delay = std::env::var("CMUX_TUI_TEST_HOSTED_OUTPUT_APPLY_DELAY_MS")
+                    .ok()
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .map(|ms| Duration::from_millis(ms.min(5_000)));
                 // One backoff across consecutive losses: a host that accepts
                 // and then drops at once (or keeps asking for a resync) used
                 // to be reconnected with no delay and no limit, because each
@@ -3430,6 +3436,9 @@ impl Surface {
                         match transition {
                             transition @ (HostedTransition::Output(_)
                             | HostedTransition::OutputWithColors { .. }) => {
+                                if let Some(delay) = output_apply_delay {
+                                    std::thread::sleep(delay);
+                                }
                                 let (output, colors) = match transition {
                                     HostedTransition::Output(output) => (output, None),
                                     HostedTransition::OutputWithColors { output, colors } => {
