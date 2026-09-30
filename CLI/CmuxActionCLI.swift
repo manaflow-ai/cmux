@@ -129,7 +129,10 @@ final class CmuxActionCLI {
 
     /// `cmux <noun> [<verb>] …`. Returns false when no action uses `noun`,
     /// so the caller can report an unknown command.
-    func runNounCommand(noun: String, arguments: [String]) throws -> Bool {
+    /// `fallsBackOnUnknownVerb`: return false (let the legacy handler run)
+    /// when the verb is not a generated one, for nouns that are also legacy
+    /// commands (`cmux browser open`, `cmux browser surface:2 eval`).
+    func runNounCommand(noun: String, arguments: [String], fallsBackOnUnknownVerb: Bool = false) throws -> Bool {
         let verbs = try actions(noun: noun)
         guard !verbs.isEmpty else { return false }
         guard let verb = arguments.first, !verb.hasPrefix("-") else {
@@ -141,6 +144,7 @@ final class CmuxActionCLI {
             return true
         }
         guard let action = verbs.first(where: { $0.verb == verb }) else {
+            if fallsBackOnUnknownVerb { return false }
             let message = String(
                 format: String(localized: "cli.action.error.unknownVerb", defaultValue: "Unknown verb '%1$@' for '%2$@'.", bundle: .cmuxCLI),
                 verb, noun

@@ -102,6 +102,7 @@ extension TabStripView {
         if isInNewTabButton(point) {
             pressedNewTab = true
             newTabButton.isPressed = true
+            startNewTabHold()
             return
         }
         if let index = trailingButtonIndex(at: point) {
@@ -171,12 +172,7 @@ extension TabStripView {
             if isInCloseButton(id, point) { close(id, source: .mouse) }
             return
         }
-        if pressedNewTab {
-            pressedNewTab = false
-            newTabButton.isPressed = false
-            if isInNewTabButton(point) { pressNewTabButton() }
-            return
-        }
+        if endNewTabPress(at: point) { return }
         if endTrailingButtonPress(at: point) { return }
         if drag != nil { endDrag() }
         press = nil
@@ -210,7 +206,11 @@ extension TabStripView {
         hoverCard.hide(allowsQuickReshow: false)
         let point = convert(event.locationInWindow, from: nil)
         if trailingButtonIndex(at: point) != nil { return nil }
-        if isInNewTabButton(point) { return contextMenuProvider?(.newTabButton) }
+        if isInNewTabButton(point) {
+            // Anchored under the button, like the press-and-hold menu.
+            showNewTabMenu()
+            return nil
+        }
         if let group = chipGroup(at: point) {
             if let menu = contextMenuProvider?(.group(group)) { return menu }
             showGroupEditor(for: group)
@@ -233,13 +233,41 @@ extension TabStripView {
         applyFrames()
     }
 
-    /// The + button: shows the App's new tab menu (which kind of tab) under
-    /// the button, or opens a tab directly when there is no menu.
-    func pressNewTabButton() {
-        guard let menu = contextMenuProvider?(.newTabButton), !menu.items.isEmpty else {
-            model.send(.newTab(after: nil))
-            return
+    /// Mouse-up after a press on +. Returns whether the press was on +.
+    /// Chrome: a click opens a tab at once; a hold already showed the menu
+    /// and must not also open a tab.
+    @discardableResult
+    func endNewTabPress(at point: CGPoint) -> Bool {
+        newTabHoldTask?.cancel()
+        newTabHoldTask = nil
+        defer { newTabHoldOpenedMenu = false }
+        guard pressedNewTab else { return newTabHoldOpenedMenu }
+        pressedNewTab = false
+        newTabButton.isPressed = false
+        if !newTabHoldOpenedMenu, isInNewTabButton(point) { model.send(.newTab(after: nil)) }
+        return true
+    }
+
+    /// Holding + opens the new tab menu, like Safari's back button history.
+    func startNewTabHold() {
+        newTabHoldTask?.cancel()
+        newTabHoldOpenedMenu = false
+        let sleep = groups.sleep
+        newTabHoldTask = Task { [weak self] in
+            do { try await sleep(.milliseconds(450)) } catch { return }
+            guard let self, !Task.isCancelled, self.pressedNewTab else { return }
+            self.newTabHoldOpenedMenu = true
+            self.newTabButton.isPressed = false
+            self.pressedNewTab = false
+            self.showNewTabMenu()
         }
+    }
+
+    /// The new tab menu (which kind of tab: terminal, WebKit, Chromium)
+    /// under the + button. Right-click and press-and-hold open it; a plain
+    /// click opens a terminal tab.
+    func showNewTabMenu() {
+        guard let menu = contextMenuProvider?(.newTabButton), !menu.items.isEmpty else { return }
         hoverCard.hide(allowsQuickReshow: false)
         let frame = convert(newTabButton.frame, from: newTabButton.superview)
         let origin = NSPoint(x: frame.minX, y: isFlipped ? frame.maxY + 2 : frame.minY - 2)
