@@ -8,6 +8,7 @@ rule -- including the zombie reviewBy check the flag was relying on.
 
 import importlib.util
 from pathlib import Path
+from unittest import mock
 import unittest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -88,6 +89,24 @@ class FlagLinterScopeTests(unittest.TestCase):
                     flag["key"],
                     f"{rel}: parsed a flag declaration with no key",
                 )
+
+    def test_invalid_calendar_date_is_reported_as_a_violation(self):
+        """A DATE_RE match that is not a calendar date must be lint output."""
+        source = (
+            "// FLAG(key: malformed-date-release, owner: someone,\n"
+            "//      reviewBy: 2026-13-01, defaultWhenUnavailable: false)\n"
+        )
+        parsed = self.linter.parse_swift_registry(source, "Example.swift")
+        self.linter.errors.clear()
+        with mock.patch.object(self.linter, "parse_web_registry", return_value=parsed), \
+             mock.patch.object(self.linter, "swift_registry_files", return_value=[]), \
+             mock.patch.object(self.linter, "grep_key_files", return_value={"Example.swift"}):
+            self.assertEqual(self.linter.main(), 1)
+        self.assertTrue(
+            any("malformed-date-release" in error and "Example.swift" in error
+                for error in self.linter.errors),
+            self.linter.errors,
+        )
 
 
 if __name__ == "__main__":
