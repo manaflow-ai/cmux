@@ -595,6 +595,54 @@ fn replay_after_invalid_utf8_does_not_duplicate_replacement_characters() {
     }
 }
 
+fn pending_after(prefix: &[u8]) -> Vec<u8> {
+    let mut term = Terminal::new(20, 3, 0, Callbacks::default()).unwrap();
+    term.vt_write(prefix);
+    term.vt_replay_bounded_theme_portable_with_aliases(1024 * 1024).unwrap().pending_sequence
+}
+
+/// A pending sequence must hold only bytes the source parser has not acted
+/// on, or the mirror acts on them a second time.
+#[test]
+fn pending_sequence_excludes_bytes_the_parser_already_acted_on() {
+    // ESC ends an OSC, DCS or APC string: Ghostty dispatches it right there,
+    // so only the ESC that may start the string terminator is pending.
+    assert_eq!(pending_after(b"\x1b]52;c;aGk=\x1b"), b"\x1b");
+    assert_eq!(pending_after(b"\x1b]0;title\x1b"), b"\x1b");
+    assert_eq!(pending_after(b"\x1bPq#0\x1b"), b"\x1b");
+    // A new introducer abandons the sequence before it.
+    assert_eq!(pending_after(b"\x1b[3\x1b["), b"\x1b[");
+    // C0 controls inside an escape or CSI sequence execute immediately.
+    assert_eq!(pending_after(b"\x1b[3\n"), b"\x1b[3");
+    assert_eq!(pending_after(b"\x1b[3\x07\r"), b"\x1b[3");
+    // Strictly invalid UTF-8 prints U+FFFD at once; nothing is pending.
+    for invalid in [&b"\xe0\x80"[..], b"\xed\xa0", b"\xf0\x80", b"\xf4\x90"] {
+        assert_eq!(pending_after(invalid), b"", "{invalid:?}");
+    }
+    // A valid lead with its first valid continuation still waits.
+    assert_eq!(pending_after(b"\xe0\xa0"), b"\xe0\xa0");
+}
+
+#[test]
+fn replay_inside_a_csi_does_not_ring_the_bell_again() {
+    let rings = Arc::new(Mutex::new(0));
+    let callbacks = |rings: &Arc<Mutex<u32>>| {
+        let rings = rings.clone();
+        Callbacks {
+            on_bell: Some(Box::new(move || *rings.lock().unwrap() += 1)),
+            ..Callbacks::default()
+        }
+    };
+    let source_rings = Arc::new(Mutex::new(0));
+    let mut source = Terminal::new(20, 3, 0, callbacks(&source_rings)).unwrap();
+    source.vt_write(b"\x1b[3\x07");
+    assert_eq!(*source_rings.lock().unwrap(), 1);
+    let replay = source.vt_replay_bounded_theme_portable(1024 * 1024).unwrap();
+    let mut mirror = Terminal::new(20, 3, 0, callbacks(&rings)).unwrap();
+    mirror.vt_write(&replay);
+    assert_eq!(*rings.lock().unwrap(), 0, "the replayed pending sequence rang the bell again");
+}
+
 #[test]
 fn oversized_pending_sequence_is_reported_as_not_resumable() {
     // An unterminated control string larger than the pending-sequence budget
