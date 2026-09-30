@@ -64,6 +64,28 @@ struct CloudRestoreReplayGridTests {
         #expect(frame.terminalForeground == "#123456")
     }
 
+    /// The daemon owns the grid. A replay authored for 40×10 places text by
+    /// absolute and edge-clamped cursor moves, so the pane must parse it at
+    /// 40×10 even though its view holds more cells. The view's own grid stays
+    /// what the pane reports, so it can still grow the shared grid later.
+    @Test(arguments: ["vt-state", "resized"])
+    func paneParsesTheReplayAtTheDaemonGridNotItsViewGrid(event: String) async throws {
+        let fixture = try CloudRestoreReplayFixture()
+        defer { fixture.close() }
+        try await fixture.attach(replay: Data("STATUS_READY".utf8))
+        // Cursor moves clamp at the grid edge: `X` lands in the last column
+        // and `BOTTOM` on the last row of whatever grid parses them.
+        let replay = "\u{1B}[H\u{1B}[2J\u{1B}[1;999HX\u{1B}[999;1HBOTTOM"
+        try await fixture.deliver(Data(replay.utf8), event: event, marker: "BOTTOM", columns: 40, rows: 10)
+
+        _ = try await fixture.waitForTerminalGrid(columns: 40, rows: 10)
+        let rows = fixture.screenRows()
+        #expect(rows.first == String(repeating: " ", count: 39) + "X", "rows=\(rows)")
+        #expect(rows.count > 9 && rows[9] == "BOTTOM", "rows=\(rows)")
+        let view = try #require(fixture.surface.naturalGridSize())
+        #expect(view.columns > 40 && view.rows > 10, "the view grid collapsed onto the pinned grid: \(view)")
+    }
+
     @Test
     func restoredSnapshotReplacesStaleLocalCells() async throws {
         let fixture = try CloudRestoreReplayFixture()
