@@ -829,6 +829,7 @@ runs:
     - name: Upload UI test steps
       # No hashFiles gate: it ignores paths outside the workspace, and
       # runner.temp is outside it. if-no-files-found covers an empty build.
+      id: ui-frames
       if: ${{ always() && inputs.target == 'cmuxUITests' }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
@@ -850,6 +851,7 @@ runs:
         RUN_ID: ${{ github.run_id }}
         RECORD_VIDEO: ${{ inputs.record-video }}
         RECORDING_URL: ${{ steps.recording.outputs.artifact-url }}
+        UI_FRAMES_URL: ${{ steps.ui-frames.outputs.artifact-url }}
       shell: bash
       run: |
         set -euo pipefail
@@ -883,6 +885,10 @@ runs:
             else
               echo "**Recording:** unavailable"
             fi
+          fi
+
+          if [ -n "$UI_FRAMES_URL" ]; then
+            echo "**UI mirror:** [Download the interactive mirror artifact]($UI_FRAMES_URL) (open \`index.html\` locally)"
           fi
 
           if [ -n "$TEST_OUTPUT" ]; then

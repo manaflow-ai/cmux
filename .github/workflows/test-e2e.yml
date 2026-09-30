@@ -1145,6 +1145,7 @@ jobs:
           sparse-checkout: |
             .github/actions/e2e-run-tests
             scripts/ci/e2e-frames.py
+            scripts/ci/ui-mirror.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -1364,6 +1365,7 @@ jobs:
           sparse-checkout: |
             .github/actions/e2e-run-tests
             scripts/ci/e2e-frames.py
+            scripts/ci/ui-mirror.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
