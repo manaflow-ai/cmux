@@ -1,0 +1,50 @@
+{
+  "paths": [
+    "Sources/CmuxConfig*",
+    "Sources/CmuxSettingActionRunner.swift",
+    "Sources/ContentView.swift",
+    "Sources/Workspace.swift",
+    "Packages/macOS/CmuxSettings/*",
+    "dogfood/scenarios/setting-actions-tour.json"
+  ],
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Setting Actions",
+        "initial_input": "mkdir -p ~/.config/cmux && printf 'eyJhY3Rpb25zIjp7InRvdXIuYXBwZWFyYW5jZS5kYXJrIjp7InR5cGUiOiJzZXR0aW5nIiwicGF0aCI6ImFwcC5hcHBlYXJhbmNlIiwic2V0IjoiZGFyayIsInRpdGxlIjoiVG91cjogRGFyayBBcHBlYXJhbmNlIiwic3VidGl0bGUiOiJTZXR0aW5nIGFjdGlvbiBmcm9tIGNtdXguanNvbiIsInBhbGV0dGUiOnRydWV9LCJ0b3VyLnByZXNlbnRhdGlvbi5taW5pbWFsIjp7InR5cGUiOiJzZXR0aW5nUHJlc2V0IiwicHJlc2V0IjoidG91ci5taW5pbWFsIiwidGl0bGUiOiJUb3VyOiBNaW5pbWFsIFByZXNlbnRhdGlvbiIsInN1YnRpdGxlIjoiU2V0dGluZyBwcmVzZXQgZnJvbSBjbXV4Lmpzb24iLCJwYWxldHRlIjp0cnVlfX0sInNldHRpbmdQcmVzZXRzIjp7InRvdXIubWluaW1hbCI6eyJhcHAiOnsibWluaW1hbE1vZGUiOiJtaW5pbWFsIn19fX0=' | base64 -D > ~/.config/cmux/cmux.json
+",
+        "focus": true
+      },
+      "save": "setup"
+    },
+    {"wait": 2.0},
+    {"shot": "config-loaded"},
+    {"key": "p", "modifiers": ["command", "shift"]},
+    {"wait": 0.8},
+    {"type": "Tour: Dark Appearance"},
+    {"wait": 0.5},
+    {"shot": "palette-setting-action"},
+    {"key": "escape"},
+    {"key": "p", "modifiers": ["command", "shift"]},
+    {"wait": 0.8},
+    {"type": "Tour: Minimal Presentation"},
+    {"wait": 0.5},
+    {"shot": "palette-setting-preset"},
+    {"key": "return"},
+    {"wait": 2.0},
+    {"shot": "minimal-presentation-after-preset"},
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "CLI Config",
+        "initial_input": "cmux config get app.appearance; cmux config set app.appearance dark; cmux config get app.appearance\n",
+        "focus": true
+      },
+      "save": "cli"
+    },
+    {"wait": 3.0},
+    {"shot": "cli-config-output"},
+    {"tree": "cli-config-output-tree"}
+  ]
+}
