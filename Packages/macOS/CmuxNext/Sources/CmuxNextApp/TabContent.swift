@@ -32,15 +32,15 @@ final class TerminalEntry {
     let validity: String
     let session: TerminalSession
     let io: DaemonTerminalIO
-    /// `<machine>:<tab id>`, the key of this terminal's own theme.
-    let themeKey: String
+    /// The key of this terminal's own theme.
+    let themeKey: TerminalThemeKey
     /// This surface's theme scope, under its pane's workspace scope.
     let themeScope = ThemeScope(level: .terminal)
     let themeBinding: TerminalThemeBinding
     /// Tab `dead` and connection changes for this view.
     private let watch: TerminalLinkWatch
 
-    init(validity: String, session: TerminalSession, io: DaemonTerminalIO, themeKey: String, store: DaemonStore, surface: SurfaceID) {
+    init(validity: String, session: TerminalSession, io: DaemonTerminalIO, themeKey: TerminalThemeKey, store: DaemonStore, surface: SurfaceID) {
         self.validity = validity
         self.session = session
         self.io = io

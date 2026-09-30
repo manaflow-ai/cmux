@@ -106,7 +106,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             item.isDormant = services.cache.dormantTabs.contains(tab.id)
             if tab.kind != .browser {
                 item.machineBadge = machine
-                item.themeBadge = services.themes.badge(forTerminal: TerminalThemeStore.key(machine: daemon.machineID, tab: tab.id))
+                item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
             } else {
                 // A browser tab names the machine whose localhost it sees.
                 let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit

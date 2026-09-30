@@ -31,12 +31,16 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
     public var title: String
     public var kind: ActionArgumentKind
     public var isRequired: Bool
+    /// A free-text argument with a searchable list of known values (all
+    /// Ghostty themes); nil for plain text.
+    public var suggestions: ActionSuggestions?
 
-    public init(name: String, title: String, kind: ActionArgumentKind, isRequired: Bool = true) {
+    public init(name: String, title: String, kind: ActionArgumentKind, isRequired: Bool = true, suggestions: ActionSuggestions? = nil) {
         self.name = name
         self.title = title
         self.kind = kind
         self.isRequired = isRequired
+        self.suggestions = suggestions
     }
 
     /// Name of the bool argument a destructive action takes (`--confirm`).

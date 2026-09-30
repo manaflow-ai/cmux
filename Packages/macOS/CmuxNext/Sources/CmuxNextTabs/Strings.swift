@@ -12,6 +12,10 @@ enum Strings {
     static func browserProfile(_ name: String) -> String {
         String(localized: "tabs.browserProfile", defaultValue: "Browser profile: \(name)", bundle: .module)
     }
+    /// The terminal-theme dot, spoken (and shown in the hover card).
+    static func axTheme(_ name: String) -> String {
+        String(localized: "tabs.ax.theme", defaultValue: "theme \(name)", bundle: .module)
+    }
     static var axPinned: String { String(localized: "tabs.ax.pinned", defaultValue: "Pinned", bundle: .module) }
     static var axUnread: String { String(localized: "tabs.ax.unread", defaultValue: "Unread", bundle: .module) }
     static var axHibernated: String { String(localized: "tabs.ax.hibernated", defaultValue: "Hibernated", bundle: .module) }

@@ -19,6 +19,27 @@ public import CmuxNextActions
     /// Browser profiles in order (edited through the registry's
     /// `browserProfile.*` actions, so every entrypoint shares one path).
     var browserProfiles: [SettingsBrowserProfileRow] { get }
+    /// Theme picker (Appearance): the levels the window Settings was opened
+    /// from can theme (empty hides the picker).
+    var themeLevels: [SettingsThemeLevel] { get }
+    /// Every Ghostty theme name.
+    var themeNames: [String] { get }
+    /// The theme set at `level` of that window; nil is the Ghostty config.
+    func theme(at level: SettingsThemeLevel) -> String?
+    /// Whether Ghostty accepts `text` as a theme (a name, a path, or a
+    /// `light:A,dark:B` pair).
+    func acceptsTheme(_ text: String) -> Bool
+    /// Sets (nil: resets to the Ghostty config) the theme at `level`, through
+    /// the same actions as the palette and menus.
+    func setTheme(_ spec: String?, at level: SettingsThemeLevel)
+}
+
+extension SettingsWindowHost {
+    public var themeLevels: [SettingsThemeLevel] { [] }
+    public var themeNames: [String] { [] }
+    public func theme(at level: SettingsThemeLevel) -> String? { nil }
+    public func acceptsTheme(_ text: String) -> Bool { false }
+    public func setTheme(_ spec: String?, at level: SettingsThemeLevel) {}
 }
 
 /// One row of a list section (a room, a machine).

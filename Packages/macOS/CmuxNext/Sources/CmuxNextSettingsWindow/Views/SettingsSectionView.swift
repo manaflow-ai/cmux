@@ -12,7 +12,9 @@ struct SettingsSectionView: View {
 
     var body: some View {
         switch section {
-        case .appearance: ThemeCard()
+        case .appearance:
+            ThemeCard()
+            ThemePickerCard(model: model)
         case .terminal: TerminalInfoCard(model: model)
         case .keyboard: KeyboardSectionView(model: model)
         case .rooms:

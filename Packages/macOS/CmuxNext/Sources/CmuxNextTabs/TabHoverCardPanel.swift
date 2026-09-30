@@ -104,7 +104,8 @@ final class TabHoverCardPanel: NSPanel {
         switch content {
         case .tab(let item):
             let profile = item.profileBadge.map { Strings.browserProfile($0.name) }
-            let subtitle = [profile, item.machineBadgeHelp, item.subtitle].compactMap(\.self).joined(separator: " · ")
+            let subtitle = [profile, item.machineBadgeHelp, item.themeBadge.map { Strings.axTheme($0.name) }, item.subtitle]
+                .compactMap(\.self).joined(separator: " · ")
             configure(title: item.title.isEmpty ? Strings.untitled : item.title, subtitle: subtitle.isEmpty ? nil : subtitle, lines: 1)
             setResourcesVisible(true)
             setThumbnailVisible(true)

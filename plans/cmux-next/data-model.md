@@ -328,10 +328,15 @@ Precedence: terminal, workspace, room, Ghostty config. A theme is a Ghostty
 theme spec (`theme` syntax, `light:A,dark:B`), resolved like the global
 config: the user's config files, then `theme = <name>` for the current
 light/dark variant, so explicit config colors, opacity and blur still win.
-Room and workspace themes are personal (`profiles.theme`,
-`personal_workspaces.theme`). Terminal themes are app-local
-(`<Application Support>/<bundle id>/terminal-themes.json`, keyed
-`<machine>:<tab id>`) because `profiles-v1` has no per-terminal column.
+Room, workspace and terminal themes are personal (`profiles.theme`,
+`personal_workspaces.theme`, and `personal_terminals(session_id,
+terminal_key, theme)` with `set-personal-terminal`, capability
+`personal-terminals-v1`; the terminal key is the terminal's id on its
+session, else its tab id). Until the home daemon serves
+`personal-terminals-v1` the app keeps terminal themes in
+`<Application Support>/<bundle id>/terminal-themes.json` and moves them into
+personal state once it does. A theme is any spec Ghostty accepts: a theme
+name, an absolute path, or `light:A,dark:B`.
 
 Stage 5 (landed): `ThemeScope` in CmuxNextDesign is a tree under
 `ThemeScope.app` (the Ghostty config): each window adopts a room scope, each
@@ -346,8 +351,10 @@ cursor, selection) with no restart. A terminal with its own theme shows a
 small swatch dot on its tab icon. Actions: `room.setTheme`,
 `room.clearTheme`, `workspace.setTheme`, `workspace.clearTheme`,
 `terminal.setTheme`, `terminal.clearTheme` (palette with live preview,
-context submenus with hover preview, CLI, bindable, Settings). Pickers list
-the onboarding themes plus "Use Ghostty Config".
+context submenus with hover preview, CLI, bindable, Settings). The palette
+and the Settings theme picker list every Ghostty theme with type-to-search
+and take a typed light/dark pair; context submenus list the Ghostty config
+and the onboarding themes, then More… (the palette list).
 
 ## 7. App surfaces (action contract)
 

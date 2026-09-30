@@ -27,6 +27,8 @@ struct PaletteArgumentFlow {
             collected.target = target
         }
         switch argument.kind {
+        case .string where argument.suggestions != nil:
+            return .push(withPreview(suggestionPage(for: argument, collected: collected), argument, collected))
         case .string, .int:
             return .textInput(textSpec(for: argument, collected: collected))
         case .bool:
@@ -36,21 +38,45 @@ struct PaletteArgumentFlow {
             ], collected: collected))
         case .enumeration(let cases):
             let options = cases.map { PaletteTargetOption(id: $0.value, title: $0.title, symbol: descriptor.symbol) }
-            var page = listPage(for: argument, options: options, collected: collected)
-            if let preview {
-                let id = descriptor.id
-                let name = argument.name
-                let target = collected.target
-                page.onHighlight = { item in
-                    preview(id, name, item.flatMap(Self.optionValue), target)
-                }
-                page.onLeave = { preview(id, name, nil, target) }
-            }
-            return .push(page)
+            return .push(withPreview(listPage(for: argument, options: options, collected: collected), argument, collected))
         case .target(let kind):
             guard let targets else { return .textInput(textSpec(for: argument, collected: collected)) }
             return .push(listPage(for: argument, options: targets.targets(of: kind), collected: collected))
         }
+    }
+
+    /// Live preview of the highlighted option (theme pickers).
+    private func withPreview(_ page: PalettePageSpec, _ argument: ActionArgument, _ collected: ActionInvocation) -> PalettePageSpec {
+        guard let preview else { return page }
+        var page = page
+        let id = descriptor.id
+        let name = argument.name
+        let target = collected.target
+        page.onHighlight = { item in preview(id, name, item.flatMap(Self.optionValue), target) }
+        page.onLeave = { preview(id, name, nil, target) }
+        return page
+    }
+
+    /// A free-text argument with known values: its pinned values, a row for
+    /// other text (a light/dark pair), then every known value; typing
+    /// searches them.
+    private func suggestionPage(for argument: ActionArgument, collected: ActionInvocation) -> PalettePageSpec {
+        guard let suggestions = argument.suggestions else { return listPage(for: argument, options: [], collected: collected) }
+        let pinned = Set(suggestions.pinned.map(\.value))
+        let known = (registry.argumentSuggestions?(suggestions.source) ?? []).filter { !pinned.contains($0.value) }
+        let options = (suggestions.pinned + known).map { PaletteTargetOption(id: $0.value, title: $0.title, symbol: descriptor.symbol) }
+        var extra: [PaletteItem] = []
+        if let otherTitle = suggestions.otherTitle {
+            var spec = textSpec(for: argument, collected: collected)
+            let registry = registry
+            spec.isValid = { text in registry.argumentValidation?(suggestions.source, text) ?? !text.trimmingCharacters(in: .whitespaces).isEmpty }
+            extra.append(PaletteItem(
+                id: "other", title: otherTitle, symbol: "square.and.pencil",
+                section: PaletteSection(id: "argument", title: argument.title, order: 0),
+                primary: PaletteCommand(id: "choose", title: PaletteStrings.choose, symbol: "return", effect: .textInput(spec))
+            ))
+        }
+        return listPage(for: argument, options: options, collected: collected, extra: extra, pinnedCount: suggestions.pinned.count)
     }
 
     /// The captured object of the first kind the action targets.
@@ -86,9 +112,10 @@ struct PaletteArgumentFlow {
         )
     }
 
-    private func listPage(for argument: ActionArgument, options: [PaletteTargetOption], collected: ActionInvocation) -> PalettePageSpec {
+    private func listPage(for argument: ActionArgument, options: [PaletteTargetOption], collected: ActionInvocation,
+                          extra: [PaletteItem] = [], pinnedCount: Int? = nil) -> PalettePageSpec {
         let section = PaletteSection(id: "argument", title: argument.title, order: 0)
-        let items = options.map { option in
+        var items = options.map { option in
             let next = adding(argument, option.id, to: collected)
             return PaletteItem(
                 id: "option:\(option.id)",
@@ -106,6 +133,7 @@ struct PaletteArgumentFlow {
                 frecencyKey: "argument:\(descriptor.id.rawValue):\(argument.name):\(option.id)"
             )
         }
+        items.insert(contentsOf: extra, at: min(pinnedCount ?? items.count, items.count))
         return PalettePageSpec(
             id: "argument:\(descriptor.id.rawValue):\(argument.name)",
             title: Self.stepTitle(descriptor, argument),

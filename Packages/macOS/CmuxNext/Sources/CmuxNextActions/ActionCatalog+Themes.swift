@@ -48,14 +48,21 @@ nonisolated extension ActionCatalog {
 }
 
 nonisolated extension CatalogArgument {
-    /// Ghostty's built-in themes offered by onboarding, plus the Ghostty
-    /// config (`config`, which resets). Theme names are product names and
-    /// are not translated.
+    /// Any theme Ghostty accepts (a name, an absolute path, or a
+    /// `light:A,dark:B` pair; the App validates it), picked from every
+    /// Ghostty theme with type-to-search. Menus offer the Ghostty config
+    /// (`config`, which resets) and onboarding's themes, then the full list.
+    /// Theme names are product names and are not translated.
     static var ghosttyThemeChoice: ActionArgument {
         let config = ActionEnumCase(value: themeConfigValue,
                                     title: String(localized: "argument.value.theme.config", defaultValue: "Use Ghostty Config", table: "ThemeActions", bundle: .module))
+        let suggestions = ActionSuggestions(
+            source: ActionSuggestions.ghosttyThemes,
+            pinned: [config] + curatedThemes.map { ActionEnumCase(value: $0, title: $0) },
+            otherTitle: String(localized: "argument.value.theme.pair", defaultValue: "Light and Dark Pair…", table: "ThemeActions", bundle: .module)
+        )
         return ActionArgument(name: "theme", title: String(localized: "argument.theme", defaultValue: "Theme", table: "ThemeActions", bundle: .module),
-                              kind: .enumeration([config] + curatedThemes.map { ActionEnumCase(value: $0, title: $0) }))
+                              kind: .string, suggestions: suggestions)
     }
 
     /// The `theme` value that means "the Ghostty config" (no own theme).

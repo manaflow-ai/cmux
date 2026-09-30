@@ -19,6 +19,13 @@ nonisolated enum SettingsWindowStrings {
     static var soundNone: String { text("settingsWindow.soundNone", "None") }
     static var blankPage: String { text("settingsWindow.blankPage", "Blank page") }
     static var themeTitle: String { text("settingsWindow.theme", "Theme") }
+    static var themeLevelRoom: String { text("settingsWindow.themeLevel.room", "Room") }
+    static var themeLevelWorkspace: String { text("settingsWindow.themeLevel.workspace", "Workspace") }
+    static var themeLevelTerminal: String { text("settingsWindow.themeLevel.terminal", "Terminal") }
+    static var themeSearch: String { text("settingsWindow.themeSearch", "Search Ghostty themes") }
+    static var themeUseConfig: String { text("settingsWindow.themeUseConfig", "Use Ghostty Config") }
+    static func themeUse(_ spec: String) -> String { format("settingsWindow.themeUse", "Use “%@”", spec) }
+    static var themePickerTitle: String { text("settingsWindow.themePicker", "Themes") }
     static var themeBody: String { text("settingsWindow.themeBody", "Colors come from your Ghostty theme and follow it live.") }
     static var terminalBody: String { text("settingsWindow.terminalBody", "Fonts, colors, cursor and keybinds are Ghostty settings.") }
     static var ghosttyConfig: String { text("settingsWindow.ghosttyConfig", "Ghostty Config") }
