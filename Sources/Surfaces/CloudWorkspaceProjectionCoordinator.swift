@@ -63,11 +63,32 @@ final class CloudWorkspaceProjectionCoordinator {
         guard let binding = environment.bindings()[projection.workspaceID], binding.vmID == state.machine.rawValue,
               let workspaceID = binding.remoteWorkspaceID else { return true }
         let tabs = state.lookupIndex.tabs(contentKind: projection.resource.kind.rawValue, contentID: projection.resource.key)
+        if projection.resource.kind == .display && projection.remoteTabID == nil {
+            return state.displayMemberships.contains { $0.workspaceID == workspaceID && $0.displayID == projection.resource.key }
+        }
         return tabs.contains { tab in
             guard projection.remoteTabID == nil || projection.remoteTabID == tab.id,
                   let pane = state.lookupIndex.pane(id: tab.paneID),
                   let screen = state.lookupIndex.screen(id: pane.screenID) else { return false }
             return screen.workspaceID == workspaceID
+        }
+    }
+
+    /// Applies the catalog's known display inventory to the graph check. A
+    /// frontend row can carry a syntactically valid `display:*` value that is
+    /// no longer an exposed display after reconnect; that row must not retain
+    /// or recreate a local pane.
+    func retainsProjection(
+        _ projection: SurfaceProjection,
+        in state: CloudVMState,
+        catalog: SurfaceCatalog
+    ) -> Bool {
+        guard retainsProjection(projection, in: state) else { return false }
+        guard projection.resource.kind == .display, projection.remoteTabID == nil else { return true }
+        return catalog.cloudDisplayMemberships().contains {
+            $0.machine == projection.resource.machine
+                && $0.displayID == projection.resource.key
+                && $0.workspaceID == projection.remoteWorkspaceID
         }
     }
 
@@ -119,8 +140,10 @@ final class CloudWorkspaceProjectionCoordinator {
                         if !Task.isCancelled { requested.insert(machine) }
                         return
                     }
-                    let view = try catalog.remoteView(for: placement.resource, tabID: placement.remoteTabID,
-                                                      workspaceID: placement.remoteTabID == nil ? nil : remoteID)
+                    let view = try catalog.remoteView(
+                        for: placement,
+                        fallbackWorkspaceID: remoteID
+                    )
                     _ = try await catalog.project(placement.resource, into: .workspace(id: workspaceID, placement: .tab),
                                                   focus: false, reuseExisting: true, reuseInWorkspace: workspaceID, remoteView: view)
                 }

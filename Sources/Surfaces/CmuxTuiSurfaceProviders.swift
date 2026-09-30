@@ -82,7 +82,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var portDiscovery = CloudPortDiscovery()
     private(set) var summaryGeneration: UInt64 = 0
     let loadPortSummary: @MainActor (String) async throws -> VMSummary
-
     func publishPortDiscovery() {
         guard isRegisteredInCatalog() else { return }
         info.portDiscoveryState = portDiscovery.state
@@ -787,6 +786,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             info: info,
             observation: acceptedObservation
         )
+        catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: acceptedObservation)
         if reconcileTitles {
             catalog.cloudWorkspaceRenameService.reconcileRemoteState(
                 machine: machine,
@@ -962,7 +962,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             workspaceID: created.workspaceID,
             panelID: created.panelID,
             remoteWorkspaceID: createdPlacement?.workspaceID ?? selectedView?.workspace.id,
-            remoteTabID: createdPlacement?.tabID ?? selectedView?.tabID
+            remoteTabID: createdPlacement?.tabID ?? (selectedView?.isCloudDisplayMembershipView == true ? nil : selectedView?.tabID)
         )
     }
 
@@ -1706,7 +1706,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let terminals = catalog.authoritativeSnapshot.resources(on: machine).filter { $0.kind == .terminal }
         for terminal in terminals {
             for projection in catalog.projections(of: terminal.id) where !materializedPanels.contains(projection.panelID) {
-                guard cloudState.map({ catalog.cloudWorkspaceProjectionCoordinator.retainsProjection(projection, in: $0) }) != false,
+                guard cloudState.map({ catalog.cloudWorkspaceProjectionCoordinator.retainsProjection(projection, in: $0, catalog: catalog) }) != false,
                       let workspace = AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID),
                       let paneID = SurfacePaneFactory.paneID(ofPanel: projection.panelID, in: projection.workspaceID) else {
                     continue
