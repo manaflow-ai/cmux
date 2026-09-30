@@ -546,6 +546,41 @@ struct CloudTreeMachineMenuTests {
         #expect(outline.validateProposedFirstResponder(hit, for: nil))
     }
 
+    @Test("Idle machine hover controls do not steal the row click target")
+    func idleHoverControlsDoNotStealRowClick() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-idle-hover-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+        coordinator.apply(nodes: [Self.machineNode()])
+        container.layoutSubtreeIfNeeded()
+
+        let outline = try #require(coordinator.outlineView)
+        let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
+        cell.setHovered(false)
+        cell.layoutSubtreeIfNeeded()
+        let buttons = try #require(cell.subviews.first {
+            $0 is NSHostingView<AnyView> && !($0 is CloudTreePassthroughHostingView)
+        })
+        #expect(buttons.isHidden)
+
+        let trailingPoint = cell.convert(
+            NSPoint(x: cell.bounds.maxX - 4, y: cell.bounds.midY),
+            to: outline
+        )
+        let hit = outline.hitTest(trailingPoint)
+        #expect(!(hit?.isDescendant(of: buttons) ?? false))
+    }
+
     private static func machineNode(expired: Bool = false) -> CloudTreeNode {
         var machine = MachineSnapshot(
             id: machineID,
