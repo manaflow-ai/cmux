@@ -11,11 +11,14 @@ path, and was wrong only because `cmux layout` had never been written down.
 So the guard reads both sides and fails until they agree:
 
   * the dispatch: every top-level verb routed inside `CMUXCLI.run()`. There are
-    two routes and both count. Most verbs are `case "…"` arms of
+    several routes and all of them count. Most verbs are `case "…"` arms of
     `switch command`, but roughly a third are handled before the switch is
-    reached, as `if command == "…" { … return }` early returns, and `cmux diff`
-    and `cmux version` live there. A guard that read only the switch would be
-    blind to the cheapest way to add a verb to this file.
+    reached, and those early routes come in three shapes: `if command == "…"`,
+    `if command == SomeType.someConstant`, and `SomeType(command: command, …)`,
+    an initializer that returns nil unless it recognizes the verb. `cmux diff`
+    and `cmux version` are the first shape; the sudo broker entrypoints are the
+    second; the owned-process supervisors are the third. A guard that read only
+    the switch would be blind to the cheapest way to add a verb to this file.
   * the contract: the first cell of every row of every table whose first
     header cell is `Command`, where one cell may name a verb and its aliases. A
     verb documented with its family (the tmux compatibility set, the `vm` and
@@ -34,6 +37,13 @@ The dispatch parse refuses to go quiet:
   * a case arm whose pattern is not a comma-separated list of string literals
     fails the guard by name, so a pattern shape this script cannot read is a
     failure instead of a silently skipped verb.
+  * a `command ==` whose right side is neither a string literal nor a resolvable
+    `Type.constant` fails by line. Skipping it was how four hidden verbs stayed
+    out of the contract: the guard matched only literals, so a comparison
+    against a named constant read as no comparison at all.
+  * a named type in either of the two indirect shapes is resolved by reading the
+    file that declares it, and failing to find that file, the constant or any
+    verb in it is a failure too. Nothing here is hard-coded to a type name.
   * a missing `func run()` or `switch command` fails for the same reason: a
     rename must break the guard, not turn it into a no-op.
   * braces are counted over code only, with string literals (including
@@ -52,8 +62,8 @@ Usage:
 
 Exit codes:
     0  every dispatched verb appears in the contract
-    1  an undocumented verb, an unreadable case pattern, a missing anchor, or an
-       unreadable input
+    1  an undocumented verb, an unreadable dispatch shape, a missing anchor, or
+       an unreadable input
 """
 
 import argparse
@@ -69,13 +79,46 @@ COMMAND_SWITCH = re.compile(r"^        switch command \{")
 SWITCH_CLOSE = "        }"
 BLANK = "\x00"
 CASE_ARM = "        case "
-COMMAND_COMPARE = re.compile(r"\bcommand == (?=" + BLANK + ")")
+COMMAND_COMPARE = re.compile(r"\bcommand ==[ ]*")
+# `command == SudoExecutionRunner.hiddenCommand`: a verb named once, next to its
+# implementation, instead of spelled out at the comparison.
+MEMBER_REFERENCE = re.compile(r"\A([A-Z]\w*)\.(\w+)")
+# `if let supervisor = try OwnedProcessSupervisor(command: command, …)`: an
+# initializer that returns nil for a verb it does not own, so the verbs live in
+# its own file. Only a capitalized callee is a type; the lowercase helpers taking
+# the same argument label (`runGuideCommand(command:)`) are predicates, not
+# routes.
+COMMAND_INITIALIZER = re.compile(r"\b([A-Z]\w*)\(command: command\b")
+NESTED_SWITCH_COMMAND = re.compile(r"^(\s*)switch command \{\s*$")
+STATIC_MEMBER = r"\bstatic\s+(?:let|var)\s+{0}\b[^=]*=[ ]*"
+TYPE_DECLARATION = r"\b(?:struct|class|enum|actor|protocol|extension)\s+{0}\b"
+SKIPPED_DIRS = frozenset({
+    ".git", ".build", ".swiftpm", "DerivedData", "build", "node_modules",
+    "Pods", "Carthage", ".venv",
+})
+# The first cell of a table row. A pipe closes the cell only when it is not
+# escaped: several rows spell an alternation inside their command (`--from
+# <channel\|path>`), and reading the cell only up to the first pipe would cut a
+# row's verb off mid-backtick and silently undocument it. Leading and trailing
+# spaces are optional so a table written compactly (`|Command|Contract|`) counts
+# too, rather than being skipped without a word.
+ROW_FIRST_CELL = re.compile(r"^\|\s*(.+?)\s*(?<!\\)\|")
 COMMAND_SECTIONS = ("## Top-Level Commands", "## Command Families")
 COMMAND_HEADING = "Command"
 
 
 def repo_root_dir():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def read_lines(path):
+    with open(path, "r", encoding="utf-8") as handle:
+        return handle.read().splitlines()
+
+
+def location(root, path, line):
+    """Returns `relative/path.swift:12`, the form an editor can jump to."""
+    return "{0}:{1}".format(os.path.relpath(path, root), line)
 
 
 def blank_noncode(lines):
@@ -178,18 +221,18 @@ def literal_at(line, blanked_line, start):
     return None
 
 
-def parse_case_arms(lines, blanked, switch, end):
+def parse_case_arms(lines, blanked, switch, end, case_prefix=CASE_ARM):
     """Returns ({verb: line number}, unreadable patterns) for the switch body."""
     verbs = {}
     unreadable = []
     index = switch + 1
     while index < end:
-        if not blanked[index].startswith(CASE_ARM):
+        if not blanked[index].startswith(case_prefix):
             index += 1
             continue
         first = index
-        pattern = lines[index][len(CASE_ARM):]
-        masked = blanked[index][len(CASE_ARM):]
+        pattern = lines[index][len(case_prefix):]
+        masked = blanked[index][len(case_prefix):]
         while ":" not in masked:
             index += 1
             if index >= end:
@@ -214,30 +257,198 @@ def parse_case_arms(lines, blanked, switch, end):
     return verbs, unreadable
 
 
-def parse_command_comparisons(lines, blanked, start, end):
-    """Returns {verb: line number} for `command == "…"` inside `run()`.
+def parse_command_routes(lines, blanked, start, end):
+    """Reads the early routes above the switch, in all three of their shapes.
 
-    These are the early-return handlers above the switch. They are the same kind
-    of top-level route and are held to the same contract.
+    Returns ({verb: line number}, constants, initializers, unreadable), where
+    `constants` are the `command == Type.member` sites and `initializers` the
+    `Type(command: command, …)` ones, both to be resolved against the file that
+    declares the named type. These are the same kind of top-level route as a
+    case arm and are held to the same contract.
     """
     verbs = {}
+    constants = []
+    initializers = []
+    unreadable = []
     for i in range(start, end + 1):
         for match in COMMAND_COMPARE.finditer(blanked[i]):
             value = literal_at(lines[i], blanked[i], match.end())
-            if value:
+            if value is not None:
                 verbs.setdefault(value, i + 1)
+                continue
+            member = MEMBER_REFERENCE.match(blanked[i][match.end():])
+            if member is not None:
+                constants.append((i + 1, member.group(1), member.group(2)))
+                continue
+            unreadable.append((i + 1, lines[i].strip()))
+        for match in COMMAND_INITIALIZER.finditer(blanked[i]):
+            initializers.append((i + 1, match.group(1)))
+    return verbs, constants, initializers, unreadable
+
+
+def swift_sources(root):
+    """Returns every Swift file in the checkout, for resolving a named type."""
+    paths = []
+    for directory, subdirectories, filenames in os.walk(root):
+        subdirectories[:] = sorted(
+            name for name in subdirectories if name not in SKIPPED_DIRS
+        )
+        for name in sorted(filenames):
+            if name.endswith(".swift"):
+                paths.append(os.path.join(directory, name))
+    return paths
+
+
+def files_declaring(root, names):
+    """Returns {type name: [files declaring it]} in one pass over the sources."""
+    patterns = {
+        name: re.compile(TYPE_DECLARATION.format(re.escape(name))) for name in names
+    }
+    declaring = {name: [] for name in names}
+    for path in swift_sources(root):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                body = handle.read()
+        except OSError:
+            continue
+        for name, pattern in patterns.items():
+            if name in body and pattern.search(body):
+                declaring[name].append(path)
+    return declaring
+
+
+def static_string_members(path, member):
+    """Returns {literal: line number} for `static let <member> = "…"` in code."""
+    lines = read_lines(path)
+    blanked = blank_noncode(lines)
+    pattern = re.compile(STATIC_MEMBER.format(re.escape(member)))
+    values = {}
+    for i, masked in enumerate(blanked):
+        match = pattern.search(masked)
+        if match is None:
+            continue
+        value = literal_at(lines[i], masked, match.end())
+        if value is not None:
+            values.setdefault(value, i + 1)
+    return values
+
+
+def command_literals_in_file(path):
+    """Returns ({verb: line number}, unreadable) for one type's own dispatch.
+
+    An initializer that owns its verbs recognizes them either by comparison
+    (`guard command == "…" || command == "…"`) or by switching on them, so both
+    shapes are read, with the same fail-closed stance as the top-level parse.
+    """
+    lines = read_lines(path)
+    blanked = blank_noncode(lines)
+    verbs = {}
+    unreadable = []
+    for i, masked in enumerate(blanked):
+        for match in COMMAND_COMPARE.finditer(masked):
+            value = literal_at(lines[i], masked, match.end())
+            if value is None:
+                unreadable.append((i + 1, lines[i].strip()))
+            else:
+                verbs.setdefault(value, i + 1)
+    for i, line in enumerate(lines):
+        match = NESTED_SWITCH_COMMAND.match(line)
+        if match is None or blanked[i].strip() != line.strip():
+            continue
+        end = block_end(blanked, i)
+        if end is None:
+            unreadable.append((i + 1, "switch command { is never closed"))
+            continue
+        arms, arm_unreadable = parse_case_arms(
+            lines, blanked, i, end, match.group(1) + "case "
+        )
+        for verb, arm_line in arms.items():
+            verbs.setdefault(verb, arm_line)
+        unreadable.extend(arm_unreadable)
+    return verbs, unreadable
+
+
+def resolve_named_routes(root, constants, initializers):
+    """Resolves both indirect shapes by reading the files declaring their types.
+
+    Returns {verb: location}. Raises ValueError when a type, a constant or a
+    type's own verbs cannot be found, so an unreadable indirect route fails the
+    guard instead of contributing nothing.
+    """
+    if not constants and not initializers:
+        return {}
+    names = {name for _, name, _ in constants} | {name for _, name in initializers}
+    declaring = files_declaring(root, names)
+    missing = sorted(
+        "`{0}` (used at {1}:{2})".format(name, CLI_SOURCE, line)
+        for line, name in (
+            [(line, name) for line, name, _ in constants]
+            + [(line, name) for line, name in initializers]
+        )
+        if not declaring[name]
+    )
+    if missing:
+        raise ValueError(
+            "could not find the file declaring " + ", ".join(missing)
+            + ". The verb lives with the type, so an unresolvable type is an "
+              "unreadable route."
+        )
+
+    verbs = {}
+    for line, name, member in constants:
+        found = {}
+        for path in declaring[name]:
+            for value, declared in static_string_members(path, member).items():
+                found.setdefault(value, (path, declared))
+        if len(found) != 1:
+            raise ValueError(
+                "`command == {0}.{1}` at {2}:{3} resolved to {4} string "
+                "constant(s) named `{1}`; expected exactly one so the verb is "
+                "readable".format(name, member, CLI_SOURCE, line, len(found))
+            )
+        value, (path, declared) = next(iter(found.items()))
+        verbs.setdefault(value, location(root, path, declared))
+
+    for line, name in initializers:
+        found = {}
+        unreadable = []
+        for path in declaring[name]:
+            owned, path_unreadable = command_literals_in_file(path)
+            for value, declared in owned.items():
+                found.setdefault(value, (path, declared))
+            unreadable.extend(
+                (path, number, text) for number, text in path_unreadable
+            )
+        if unreadable:
+            raise ValueError(
+                "`{0}(command:)` at {1}:{2} owns a command comparison this guard "
+                "cannot read: ".format(name, CLI_SOURCE, line)
+                + "; ".join(
+                    "{0}: {1}".format(location(root, path, number), text)
+                    for path, number, text in unreadable
+                )
+            )
+        if not found:
+            raise ValueError(
+                "`{0}(command:)` at {1}:{2} is a dispatch route, but its "
+                "declaration names no verb this guard can read. It recognizes "
+                "its verbs somewhere; the guard has to see them."
+                .format(name, CLI_SOURCE, line)
+            )
+        for value, (path, declared) in found.items():
+            verbs.setdefault(value, location(root, path, declared))
     return verbs
 
 
-def parse_dispatch(path):
-    """Returns {verb: line number} for every top-level verb `run()` routes.
+def parse_dispatch(root):
+    """Returns {verb: location} for every top-level verb `run()` routes.
 
-    Raises ValueError when an anchor is missing, a case pattern cannot be read,
-    or the switch does not close where a switch should, so neither a rename nor
-    a new pattern shape can make this a no-op.
+    Raises ValueError when an anchor is missing, a case pattern or a command
+    comparison cannot be read, or the switch does not close where a switch
+    should, so neither a rename nor a new shape can make this a no-op.
     """
-    with open(path, "r", encoding="utf-8") as handle:
-        lines = handle.read().splitlines()
+    path = os.path.join(root, CLI_SOURCE)
+    lines = read_lines(path)
     blanked = blank_noncode(lines)
 
     start = next((i for i, line in enumerate(lines) if RUN_FUNC.match(line)), None)
@@ -261,16 +472,33 @@ def parse_dispatch(path):
             .format(end + 1, lines[end][:60])
         )
 
-    verbs, unreadable = parse_case_arms(lines, blanked, switch, end)
+    arms, unreadable = parse_case_arms(lines, blanked, switch, end)
     if unreadable:
         raise ValueError(
             "case pattern(s) this guard cannot read: "
             + "; ".join("line {0}: {1}".format(line, text) for line, text in unreadable)
         )
-    if not verbs:
+    if not arms:
         raise ValueError("`switch command {` parsed as having no verbs")
-    for verb, line in parse_command_comparisons(lines, blanked, start, run_end).items():
-        verbs.setdefault(verb, line)
+    verbs = {verb: location(root, path, line) for verb, line in arms.items()}
+
+    compared, constants, initializers, unreadable = parse_command_routes(
+        lines, blanked, start, run_end
+    )
+    if unreadable:
+        raise ValueError(
+            "`command ==` comparison(s) whose right side this guard cannot read: "
+            + "; ".join(
+                "line {0}: {1}".format(line, text) for line, text in unreadable
+            )
+            + ". Compare against a string literal or a `Type.constant` this "
+              "script can resolve; a comparison it skips is a verb the contract "
+              "never has to mention."
+        )
+    for verb, line in compared.items():
+        verbs.setdefault(verb, location(root, path, line))
+    for verb, where in resolve_named_routes(root, constants, initializers).items():
+        verbs.setdefault(verb, where)
     return verbs
 
 
@@ -297,7 +525,7 @@ def parse_documented_verbs(path):
     rows = 0
     collecting = False
     for line in body.splitlines():
-        match = re.match(r"^\| (.+?) \|", line)
+        match = ROW_FIRST_CELL.match(line)
         if match is None:
             collecting = False
             continue
@@ -322,8 +550,8 @@ def parse_documented_verbs(path):
 def check(dispatched, documented):
     """Returns a list of human-readable violations."""
     return [
-        "top-level verb {0} (dispatched at {1}:{2}) is in no `{3}` command "
-        "table; give it a row".format(verb, CLI_SOURCE, dispatched[verb], DOC_PATH)
+        "top-level verb {0} (dispatched at {1}) is in no `{2}` command "
+        "table; give it a row".format(verb, dispatched[verb], DOC_PATH)
         for verb in sorted(set(dispatched) - documented)
     ]
 
@@ -339,7 +567,7 @@ def main(argv=None):
     root = os.path.abspath(args.root)
 
     try:
-        dispatched = parse_dispatch(os.path.join(root, CLI_SOURCE))
+        dispatched = parse_dispatch(root)
     except (OSError, ValueError) as error:
         print("check-cli-contract-verbs: {0}: {1}".format(CLI_SOURCE, error),
               file=sys.stderr)

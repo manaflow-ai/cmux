@@ -7,11 +7,12 @@ in `docs/cli-contract.md`. An agent-reachability audit read that table, found no
 layout` had shipped all along.
 
 The negative cases below are what keep the guard from rotting into a no-op,
-because a guard that parses source has four ways to go quiet: an anchor it can
+because a guard that parses source has five ways to go quiet: an anchor it can
 no longer find, a case shape it cannot read, a dispatch route it does not look
-at, and a brace inside a string that ends its scan early. It also has one way to
-pass for the wrong reason: a row in a table that documents something other than
-commands.
+at, a comparison whose right side is not a literal, and a brace inside a string
+that ends its scan early. It also has two ways to pass for the wrong reason: a
+row in a table that documents something other than commands, and a table whose
+rows it cannot parse at all.
 
 Cases:
   (a) The real cmux checkout passes.
@@ -42,6 +43,25 @@ Cases:
       `sessions` field of `cmux sessions --json` must not vouch for a verb.
   (s) A switch whose brace count ends somewhere that is not the close of a
       switch fails, instead of silently dropping every arm below it.
+  (t) `command == SomeType.someConstant` is a dispatched verb, resolved by
+      reading the `static let` in the file declaring that type. Four hidden
+      verbs reached main this way while the guard read only literals.
+  (u) The same shape with no row fails, named at the constant's own line, which
+      is where someone has to look to learn the verb's spelling.
+  (v) A `command ==` whose right side is neither a literal nor a resolvable
+      constant fails by line instead of being skipped.
+  (w) `SomeType(command: command, …)` is a dispatch route: an initializer that
+      returns nil for a verb it does not own. Its verbs are read from the file
+      declaring the type, by comparison and by its own `switch command`.
+  (x) An initializer route whose type declaration cannot be found fails.
+  (y) An initializer route whose type names no readable verb fails, rather than
+      contributing nothing and passing.
+  (z) A lowercase helper taking the same `command:` argument label is a
+      predicate, not a route, and demands nothing.
+ (aa) A compactly written table (`|Command|Contract|`) counts, and an escaped
+      pipe inside a first cell does not cut the row's verb off mid-backtick.
+ (ab) A constant route whose named constant is not a readable string in the
+      type's file fails, because a renamed constant is a lost verb.
 """
 
 import os
@@ -145,11 +165,17 @@ def write_text(path, contents):
         handle.write(contents)
 
 
-def make_fixture_root(directory, case, cli=FIXTURE_CLI, doc=FIXTURE_DOC):
-    """Writes one case's fixture checkout and returns its root."""
+def make_fixture_root(directory, case, cli=FIXTURE_CLI, doc=FIXTURE_DOC, extra=None):
+    """Writes one case's fixture checkout and returns its root.
+
+    `extra` maps a repository-relative path to its contents, for the cases where
+    a verb is named in the file declaring a type rather than at the dispatch.
+    """
     root = os.path.join(directory, case)
     write_text(os.path.join(root, CLI_RELATIVE), cli)
     write_text(os.path.join(root, DOC_RELATIVE), doc)
+    for relative, contents in (extra or {}).items():
+        write_text(os.path.join(root, relative), contents)
     return root
 
 
@@ -340,6 +366,203 @@ def case_s_switch_end_shape(tmp):
     expect_failure(root, "case s", "does not close `switch command {`")
 
 
+# The two indirect early routes, in the shape `run()` has them: a comparison
+# against a constant declared next to its implementation, and an initializer
+# that returns nil for a verb it does not own.
+CONSTANT_ROUTE = """\
+        if command == HiddenBroker.hiddenCommand {
+            Darwin.exit(runHiddenBroker(commandArgs: rawCommandArgs))
+        }
+"""
+
+CONSTANT_DECLARATION = """\
+public struct HiddenBroker {
+    public static let hiddenCommand = "__hidden-broker"
+}
+"""
+
+INITIALIZER_ROUTE = """\
+        if let supervisor = try OwnedSupervisor(command: command, arguments: rawCommandArgs) {
+            exit(try supervisor.run())
+        }
+"""
+
+INITIALIZER_DECLARATION = """\
+struct OwnedSupervisor {
+    init?(command: String, arguments: [String]) throws {
+        guard command == "__supervise" || command == "__supervise-app-server" else {
+            return nil
+        }
+        switch command {
+        case "__supervise-legacy":
+            return nil
+        default:
+            break
+        }
+    }
+}
+"""
+
+
+def with_early_route(route):
+    """Returns the fixture CLI with `route` spliced in above the switch."""
+    anchor = "        let command = commandName\n"
+    assert anchor in FIXTURE_CLI
+    return FIXTURE_CLI.replace(anchor, anchor + route, 1)
+
+
+def with_rows(doc, *rows):
+    """Returns `doc` with extra rows appended to the top-level table."""
+    anchor = "| `rename-workspace`, `rename-window` | Rename a workspace. |\n"
+    assert anchor in doc
+    return doc.replace(anchor, anchor + "".join(rows), 1)
+
+
+def case_t_constant_route(tmp):
+    """A verb named by a constant is dispatched, and resolvable."""
+    root = make_fixture_root(
+        tmp,
+        "case-t",
+        cli=with_early_route(CONSTANT_ROUTE),
+        doc=with_rows(FIXTURE_DOC, "| `__hidden-broker` | Internal broker. |\n"),
+        extra={os.path.join("CLI", "HiddenBroker.swift"): CONSTANT_DECLARATION},
+    )
+    expect_pass(root, "case t", "8 dispatched verbs")
+
+
+def case_u_constant_route_undocumented(tmp):
+    """The constant's verb with no row fails, named at its declaration."""
+    root = make_fixture_root(
+        tmp,
+        "case-u",
+        cli=with_early_route(CONSTANT_ROUTE),
+        extra={os.path.join("CLI", "HiddenBroker.swift"): CONSTANT_DECLARATION},
+    )
+    expect_failure(
+        root, "case u", "top-level verb __hidden-broker", "CLI/HiddenBroker.swift:2"
+    )
+
+
+def case_v_unreadable_comparison(tmp):
+    """A comparison this guard cannot resolve fails instead of being skipped."""
+    root = make_fixture_root(
+        tmp,
+        "case-v",
+        cli=with_early_route(
+            "        if command == fallbackCommandName {\n"
+            "            try runFallback()\n"
+            "            return\n"
+            "        }\n"
+        ),
+    )
+    expect_failure(
+        root, "case v", "cannot read", "command == fallbackCommandName"
+    )
+
+
+def case_w_initializer_route(tmp):
+    """An initializer route's verbs are read from the type's own file."""
+    root = make_fixture_root(
+        tmp,
+        "case-w",
+        cli=with_early_route(INITIALIZER_ROUTE),
+        doc=with_rows(
+            FIXTURE_DOC,
+            "| `__supervise` | Internal supervisor. |\n",
+            "| `__supervise-app-server` | Internal app server supervisor. |\n",
+            "| `__supervise-legacy` | Internal legacy supervisor. |\n",
+        ),
+        extra={os.path.join("CLI", "OwnedSupervisor.swift"): INITIALIZER_DECLARATION},
+    )
+    expect_pass(root, "case w", "10 dispatched verbs")
+
+
+def case_x_initializer_type_missing(tmp):
+    """A route whose type cannot be found is an unreadable route."""
+    root = make_fixture_root(tmp, "case-x", cli=with_early_route(INITIALIZER_ROUTE))
+    expect_failure(root, "case x", "could not find the file declaring", "OwnedSupervisor")
+
+
+def case_y_initializer_names_no_verb(tmp):
+    """A route whose type names no verb fails instead of contributing none."""
+    root = make_fixture_root(
+        tmp,
+        "case-y",
+        cli=with_early_route(INITIALIZER_ROUTE),
+        extra={
+            os.path.join("CLI", "OwnedSupervisor.swift"): (
+                "struct OwnedSupervisor {\n"
+                "    init?(command: String, arguments: [String]) throws {\n"
+                "        guard isSupervisorCommand(command) else { return nil }\n"
+                "    }\n"
+                "}\n"
+            )
+        },
+    )
+    expect_failure(root, "case y", "names no verb this guard can read")
+
+
+def case_z_lowercase_helper_is_not_a_route(tmp):
+    """`runGuideCommand(command:)` is a predicate; it demands no rows."""
+    root = make_fixture_root(
+        tmp,
+        "case-z",
+        cli=with_early_route(
+            "        if try runGuideCommand(command: command, commandArgs: commandArgs) {\n"
+            "            return\n"
+            "        }\n"
+        ),
+    )
+    expect_pass(root, "case z", "7 dispatched verbs")
+
+
+def case_aa_compact_table_and_escaped_pipe(tmp):
+    """A compact table counts, and an escaped pipe does not truncate a verb."""
+    doc = """\
+# CLI Contract
+
+## Top-Level Commands
+
+|Command|Contract|
+|---|---|
+|`version`|Print the CLI version.|
+|`diff`|Open a diff viewer panel.|
+|`ping`|Check socket connectivity.|
+|`layout`|Saved workspace layouts.|
+|`vm restore --from <channel\\|path>`|Cloud machine namespace.|
+|`rename-workspace`, `rename-window`|Rename a workspace.|
+
+## Command Families
+
+|Command|Contract|
+|---|---|
+|`capture-pane`|tmux compatibility.|
+"""
+    expect_pass(make_fixture_root(tmp, "case-aa", doc=doc), "case aa", "7 dispatched verbs")
+
+
+def case_ab_constant_not_resolvable(tmp):
+    """A route naming a constant the type does not declare fails by name."""
+    root = make_fixture_root(
+        tmp,
+        "case-ab",
+        cli=with_early_route(CONSTANT_ROUTE),
+        extra={
+            os.path.join("CLI", "HiddenBroker.swift"): (
+                "public struct HiddenBroker {\n"
+                "    public static let hiddenVerb = \"__hidden-broker\"\n"
+                "}\n"
+            )
+        },
+    )
+    expect_failure(
+        root,
+        "case ab",
+        "HiddenBroker.hiddenCommand",
+        "resolved to 0 string constant(s)",
+    )
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="cli-contract-verb-guard-") as tmp:
         case_a_real_repo()
@@ -361,6 +584,15 @@ def main():
         case_q_comment_and_string_verbs_ignored(tmp)
         case_r_field_table_does_not_document(tmp)
         case_s_switch_end_shape(tmp)
+        case_t_constant_route(tmp)
+        case_u_constant_route_undocumented(tmp)
+        case_v_unreadable_comparison(tmp)
+        case_w_initializer_route(tmp)
+        case_x_initializer_type_missing(tmp)
+        case_y_initializer_names_no_verb(tmp)
+        case_z_lowercase_helper_is_not_a_route(tmp)
+        case_aa_compact_table_and_escaped_pipe(tmp)
+        case_ab_constant_not_resolvable(tmp)
     print("test_ci_cli_contract_verb_guard: ok")
     return 0
 
