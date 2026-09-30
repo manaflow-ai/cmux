@@ -31452,13 +31452,17 @@ struct CMUXCLI {
         var nextOwnerCheck = Date.distantPast
         var ownerGoneSince: Date?
         var publishedUserInputCallIds = Set<String>()
+        // Arm before every read. A write that lands after the read must wake
+        // the wait below, not wait for the 30 second backstop.
+        let transcriptChanges = CodexTranscriptChangeWatcher()
         while Date() < deadline {
-            if isCodexMonitorLeaseRetired(path: leasePath) {
-                return nil
-            }
-
             if transcriptPath == nil {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
+            }
+            transcriptChanges.arm(paths: [transcriptPath, leasePath].compactMap { $0 })
+
+            if isCodexMonitorLeaseRetired(path: leasePath) {
+                return nil
             }
 
             if let currentTranscriptPath = transcriptPath {
@@ -31561,11 +31565,7 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return nil }
-            waitForCodexTranscriptChange(
-                path: transcriptPath,
-                leasePath: leasePath,
-                timeout: min(ownerGraceActive ? 0.25 : 30, remaining)
-            )
+            transcriptChanges.wait(timeout: min(ownerGraceActive ? 0.25 : 30, remaining))
         }
         return nil
     }
