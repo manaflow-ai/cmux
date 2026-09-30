@@ -7,7 +7,7 @@ const vmContext = {
   value: {
     user: { id: "creator-user" },
     team: { teamId: "team-vm", teamName: "team-vm", use: true, manageAccounts: true },
-    access: { kind: "vm" as const, vmId: "vm-1", poolId: "pool-1" },
+    access: { kind: "vm" as const, vmId: "vm-1", poolId: "pool-1", creatorUserId: "creator-user" },
   },
 };
 

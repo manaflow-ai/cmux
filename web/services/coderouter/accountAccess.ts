@@ -10,7 +10,7 @@ import { sql, type SQL } from "drizzle-orm";
 export type CoderouterAccountAccess =
   | { readonly kind: "user"; readonly userId: string }
   | { readonly kind: "api-key"; readonly apiKeyId: string; readonly teamId: string; readonly personal: boolean }
-  | { readonly kind: "vm"; readonly vmId: string; readonly poolId: string | null }
+  | { readonly kind: "vm"; readonly vmId: string; readonly poolId: string | null; readonly creatorUserId: string }
   | { readonly kind: "team-machine"; readonly teamId: string; readonly machineId: string };
 
 export function accountAccessForIdentity(identity: {
@@ -24,7 +24,9 @@ export function accountAccessForIdentity(identity: {
   if (identity.machine === "chatmux") {
     return { kind: "team-machine", teamId: identity.teamId ?? "", machineId: identity.vmId ?? "" };
   }
-  if (identity.vmId !== null) return { kind: "vm", vmId: identity.vmId, poolId: identity.poolId ?? null };
+  if (identity.vmId !== null) {
+    return { kind: "vm", vmId: identity.vmId, poolId: identity.poolId ?? null, creatorUserId: identity.stackUserId };
+  }
   if (identity.apiKeyId) {
     const teamId = identity.teamId ?? "";
     return { kind: "api-key", apiKeyId: identity.apiKeyId, teamId, personal: teamId !== "" && teamId === identity.stackUserId };
@@ -76,6 +78,20 @@ export function accountAccessPredicate(
         and vm.status in ('provisioning', 'running', 'paused')
     )
   )`;
+}
+
+/** Used before changing or deleting an account. A machine sees its whole
+ * pool, but code running on it acts for its creator only: it may change or
+ * remove the accounts its creator imported, never a teammate's shared
+ * credentials. Every other caller mutates what it can read. */
+export function accountMutationPredicate(
+  account: { id: SQL; teamId: SQL; visibility: SQL; createdBy: SQL },
+  family: "native" | "claude",
+  access?: CoderouterAccountAccess,
+): SQL {
+  const readable = accountAccessPredicate(account, family, access);
+  if (access?.kind !== "vm") return readable;
+  return sql`(${readable} and ${account.createdBy} = ${access.creatorUserId})`;
 }
 
 /** The caller's session key is not a security namespace. */

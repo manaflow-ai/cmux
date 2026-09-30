@@ -253,6 +253,37 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
     await expect(response.json()).resolves.toMatchObject({ error: "invalid_provider" });
   });
 
+  test("never follows a provider redirect and does not return its body", async () => {
+    let redirectMode: RequestRedirect | undefined;
+    const response = await proxyOpenCodeRequest(
+      new Request("https://cmux.example/api/coderouter/opencode/proxy/go/chat", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${CLI_TOKEN}`,
+          "x-coderouter-route-token": CLI_TOKEN,
+        },
+        body: "{}",
+      }),
+      "go",
+      ["chat"],
+      dependencies([], {
+        fetch: async (_input, init) => {
+          redirectMode = init?.redirect;
+          return new Response("internal metadata", {
+            status: 302,
+            headers: { location: "http://169.254.169.254/latest/meta-data/" },
+          });
+        },
+      }),
+    );
+    expect(redirectMode).toBe("manual");
+    expect(response.status).toBe(502);
+    expect(response.headers.get("location")).toBeNull();
+    const text = await response.text();
+    expect(text).not.toContain("internal metadata");
+    expect(JSON.parse(text)).toMatchObject({ error: "invalid_provider" });
+  });
+
   test("propagates caller cancellation to the OpenCode upstream", async () => {
     const controller = new AbortController();
     let upstreamSignal: AbortSignal | null | undefined;

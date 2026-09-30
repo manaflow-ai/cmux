@@ -125,7 +125,7 @@ export function remainingUpstreamHeadersTimeoutMs(
  * still aborts the whole request, headers and body alike.
  */
 export async function fetchWithHeadersTimeout(
-  fetchImpl: typeof fetch,
+  fetchImpl: (input: string | URL, init: RequestInit) => Promise<Response>,
   input: string | URL,
   init: RequestInit,
   timeoutMs: number = upstreamHeadersTimeoutMs(),

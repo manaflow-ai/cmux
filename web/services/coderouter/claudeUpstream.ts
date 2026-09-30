@@ -1,5 +1,5 @@
 import { grantVmImportedAccount } from "./vmAccountImport";
-import { accountAccessPredicate, type CoderouterAccountAccess } from "./accountAccess";
+import { accountAccessPredicate, accountMutationPredicate, type CoderouterAccountAccess } from "./accountAccess";
 // Per-team Claude upstream accounts for the coderouter `/v1/messages` leg.
 //
 // A team holds any number of accounts of any kind (Anthropic API key, Claude
@@ -653,21 +653,21 @@ const drizzleStore: ClaudeAccountStore = {
         ...(patch.identifier !== undefined ? { identifier: patch.identifier } : {}),
         updatedAt: new Date(),
       })
-      .where(and(eq(coderouterClaudeAccounts.teamId, teamId), eq(coderouterClaudeAccounts.id, accountId), claudeAccess(access)))
+      .where(and(eq(coderouterClaudeAccounts.teamId, teamId), eq(coderouterClaudeAccounts.id, accountId), claudeMutationAccess(access)))
       .returning();
     return written ? rowFromDb(written) : null;
   },
   async remove(teamId, accountId, access) {
     const deleted = await cloudDb()
       .delete(coderouterClaudeAccounts)
-      .where(and(eq(coderouterClaudeAccounts.teamId, teamId), eq(coderouterClaudeAccounts.id, accountId), claudeAccess(access)))
+      .where(and(eq(coderouterClaudeAccounts.teamId, teamId), eq(coderouterClaudeAccounts.id, accountId), claudeMutationAccess(access)))
       .returning({ id: coderouterClaudeAccounts.id });
     return deleted.length > 0;
   },
   async removeAll(teamId, access) {
     const deleted = await cloudDb()
       .delete(coderouterClaudeAccounts)
-      .where(and(eq(coderouterClaudeAccounts.teamId, teamId), claudeAccess(access)))
+      .where(and(eq(coderouterClaudeAccounts.teamId, teamId), claudeMutationAccess(access)))
       .returning({ id: coderouterClaudeAccounts.id });
     return deleted.length;
   },
@@ -746,7 +746,7 @@ export const selectClaudeUpstream = defaultService.select;
 export const markClaudeAccountCooldown = defaultService.cooldown;
 export const touchClaudeAccountUsed = defaultService.touchUsed;
 
-function claudeAccess(access?: CoderouterAccountAccess) {
-  return accountAccessPredicate({ id: sql`${coderouterClaudeAccounts.id}`, teamId: sql`${coderouterClaudeAccounts.teamId}`,
+function claudeMutationAccess(access?: CoderouterAccountAccess) {
+  return accountMutationPredicate({ id: sql`${coderouterClaudeAccounts.id}`, teamId: sql`${coderouterClaudeAccounts.teamId}`,
     visibility: sql`${coderouterClaudeAccounts.visibility}`, createdBy: sql`${coderouterClaudeAccounts.createdBy}` }, "claude", access);
 }

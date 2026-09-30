@@ -132,8 +132,10 @@ constraints; custom pool management UI is not part of this change.
 session and the selected team. Account administration requires Stack's
 `$manage_api_keys` permission, or the user's own personal scope. A private
 account additionally belongs to its importer. The dashboard exposes **Share
-with team** and **Make private**. A VM token cannot administer accounts or mint
-an organization session. The organization catalog returned to a VM contains
+with team** and **Make private**. A VM token cannot change sharing or mint an
+organization session. It may import an account into its own pool, and it may
+change or remove only accounts its creator imported, never a teammate's shared
+credential. The organization catalog returned to a VM contains
 only its own team and `fixed: true`.
 
 Inside a managed machine, `cmux coderouter accounts --json` returns native and
