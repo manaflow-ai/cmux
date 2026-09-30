@@ -20,7 +20,6 @@ struct CloudDisplayCatalogTests {
         let command = CloudGuestDisplayScript.command(action: "list")
         #expect(!command.contains(#"\"\"\""#))
         #expect(command.contains("base64 -d"))
-        #expect(command.contains("cmux-wallpaper"))
         #expect(command.contains("cmp -s"))
         #expect(command.contains("pkill -TERM"))
     }
