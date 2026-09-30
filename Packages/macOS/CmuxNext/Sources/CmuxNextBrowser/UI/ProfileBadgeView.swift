@@ -68,7 +68,7 @@ final class ProfileBadgeView: NSView {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             layer?.backgroundColor = (color?.fill ?? Palette.hoverFill).cgColor
             label.textColor = Palette.textSecondary
         }

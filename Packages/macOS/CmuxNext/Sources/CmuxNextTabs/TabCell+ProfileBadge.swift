@@ -21,9 +21,10 @@ extension TabCell {
             profileLayer = dot
             return dot
         }()
-        applyProfileDotColors()
+        themeScope.perform { applyProfileDotColors() }
     }
 
+    /// theme-scoped: callers run it inside `themeScope.perform`.
     /// A colored profile fills the dot; a profile without a color draws a
     /// ring, so it never reads as the unread dot.
     func applyProfileDotColors() {
