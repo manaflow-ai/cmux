@@ -1,6 +1,7 @@
 public import Foundation
 import CmuxNextSettings
 import Darwin
+import CmuxNextWakeups
 import Synchronization
 
 /// The app control socket: a Unix stream socket speaking the old app's
@@ -81,11 +82,15 @@ public final class ControlSocketServer: Sendable {
         var socketIdentity: (dev: dev_t, ino: ino_t)?
         var connections: [ControlConnectionID: ControlConnection] = [:]
         var nextConnection: UInt64 = 1
+        /// Spacing of accept retries while descriptors are exhausted.
+        var acceptBackoff = Backoff(initial: .milliseconds(50), maximum: .seconds(2))
+        var acceptSuspended = false
     }
 
     /// `accept(2)`, replaceable in tests.
     typealias AcceptCall = @Sendable (Int32) -> Int32
     private let acceptCall: AcceptCall
+    private let acceptRetry = DemandTimer(owner: "ControlSocketServer.acceptRetry")
 
     public convenience init(configuration: Configuration, router: ControlRouter) {
         self.init(configuration: configuration, router: router, accept: { accept($0, nil, nil) })
@@ -164,8 +169,12 @@ public final class ControlSocketServer: Sendable {
     /// Stops accepting, closes every connection, and removes the socket file
     /// if it is still the one this server created.
     public func stop() {
+        acceptRetry.cancel()
         let (listener, identity, connections) = state.withLock { state in
             let result = (state.listener, state.socketIdentity, Array(state.connections.values))
+            // A suspended source never runs its cancel handler (the listener fd would leak).
+            if state.acceptSuspended { state.listener?.resume() }
+            state.acceptSuspended = false
             state.listener = nil
             state.socketIdentity = nil
             state.connections = [:]
@@ -226,13 +235,47 @@ public final class ControlSocketServer: Sendable {
 
     // MARK: - Accepting
 
+    private func pauseAccepting() {
+        let delay: Duration? = state.withLock { state in
+            guard let listener = state.listener, !state.acceptSuspended else { return nil }
+            state.acceptSuspended = true
+            listener.suspend()
+            return state.acceptBackoff.next()
+        }
+        guard let delay else { return }
+        WakeupLedger.shared.record("ControlSocketServer.accept", reason: "descriptor exhaustion")
+        acceptRetry.schedule(after: delay) { [weak self] in self?.resumeAccepting() }
+    }
+
+    private func resumeAccepting() {
+        state.withLock { state in
+            guard state.acceptSuspended else { return }
+            state.acceptSuspended = false
+            state.listener?.resume()
+        }
+    }
+
+    /// Accepts every waiting connection. The listener is non-blocking and
+    /// its read source level-triggered, so each exit path either drained
+    /// the backlog (EAGAIN: wait for readiness) or stops the source: a
+    /// failure that leaves the connection queued (EMFILE, ENFILE, ENOBUFS,
+    /// ENOMEM) suspends it and resumes after a capped backoff; retrying at
+    /// once would spin at 100% CPU until descriptors free up.
     private func acceptPending(listener: Int32) {
         while true {
             let client = acceptCall(listener)
             if client < 0 {
-                if errno == EINTR { continue }
-                return
+                switch errno {
+                case EINTR, ECONNABORTED, EPROTO:
+                    continue // this connection is gone; try the next one
+                case EAGAIN:
+                    return // backlog drained; the source fires on the next one
+                default:
+                    pauseAccepting()
+                    return
+                }
             }
+            state.withLock { $0.acceptBackoff.reset() }
             _ = fcntl(client, F_SETFD, FD_CLOEXEC)
             var noSigPipe: Int32 = 1
             setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
