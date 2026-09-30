@@ -82,7 +82,11 @@ or testing. The script runs repository code, so use a
 [trusted checkout](docs/contributor-verification.md#trust-boundary). Git push does
 not run it for you.
 
-For `web/` and other JS/TS sources, run `bun run biome:check` from the repository root.
+For `web/` and other JS/TS sources, run `bun run biome:check` from the repository
+root. The root `biome.json` deliberately scopes that to maintained web and JS/TS
+sources, excluding generated bundles, build outputs, vendored trees and review-tool
+metadata. Formatting and import sorting are off for now, so do not wire this into
+required CI until the remaining source lint diagnostics are paid down.
 
 ## Tests and CI
 
