@@ -21,8 +21,14 @@ extension AppActionContext {
         return (model, key)
     }
 
-    /// Workspaces in sidebar order (ungrouped first, then each group).
-    var sidebarOrder: [WorkspaceModel] { store.sidebarSections.flatMap(\.workspaces) }
+    /// The active window's workspaces in sidebar order (ungrouped first,
+    /// then each group). Each window lists only its own workspaces.
+    var sidebarOrder: [WorkspaceModel] {
+        let all = store.sidebarSections.flatMap(\.workspaces)
+        guard let window = activeWindow else { return all }
+        let members = Set(services.windows.registry.members(of: window.state.id))
+        return all.filter { members.contains($0.id) }
+    }
 
     /// The targeted workspace group (target, `group` argument), else the
     /// group of the targeted or shown workspace.

@@ -35,6 +35,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.services = services
         self.state = state
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
+        layoutModel.showsScreenSwitcher = state.showsScreenSwitcher
         layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
         observe()
     }

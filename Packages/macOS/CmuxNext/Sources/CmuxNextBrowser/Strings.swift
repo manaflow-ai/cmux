@@ -11,12 +11,15 @@ nonisolated enum Strings {
     static var extensions: String { String(localized: "browser.toolbar.extensions", defaultValue: "Extensions", bundle: .module) }
 
     // Address bar
-    static var addressPlaceholder: String {
-        String(localized: "browser.address.placeholder", defaultValue: "Search or enter address", bundle: .module)
-    }
     static func searchWith(engine: String) -> String {
         String(localized: "browser.suggestion.searchWith", defaultValue: "\(engine) Search", bundle: .module)
     }
+    /// Chromium's `IDS_OMNIBOX_EMPTY_HINT`, as Helium shows it.
+    static var omnibarPlaceholder: String {
+        String(localized: "browser.omnibar.placeholder", defaultValue: "Search or type URL", bundle: .module)
+    }
+    static var pasteAndGo: String { String(localized: "browser.omnibar.pasteAndGo", defaultValue: "Paste and Go", bundle: .module) }
+    static var pasteAndSearch: String { String(localized: "browser.omnibar.pasteAndSearch", defaultValue: "Paste and Search", bundle: .module) }
     static var newTab: String { String(localized: "browser.tab.new", defaultValue: "New Tab", bundle: .module) }
     static var notSecure: String { String(localized: "browser.address.notSecure", defaultValue: "Not Secure", bundle: .module) }
 

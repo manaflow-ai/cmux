@@ -21,6 +21,29 @@ enum TabLifecycle {
         ctx.send("new-tab") { _ = try await $0.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)) }
     }
 
+    /// `openBrowser.webkit` and `openBrowser.chromium`: `openBrowser` with a fixed engine.
+    static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation, engine: BrowserEngineTag) {
+        var invocation = invocation
+        invocation.arguments["engine"] = .string(engine.rawValue)
+        newBrowser(ctx, invocation)
+    }
+
+    /// Reopens a browser tab's page on the other engine in the same pane,
+    /// then closes the original (engines are fixed per tab).
+    static func reopen(_ ctx: AppActionContext, _ invocation: ActionInvocation, on engine: BrowserEngineTag) {
+        guard let (pane, id) = ctx.tab(invocation) else { return }
+        guard let tab = pane.tab(id), tab.kind == .browser else { return ctx.refuse(RefusalStrings.notABrowserTab) }
+        let current = BrowserEngineTag(rawValue: tab.browserEngine ?? "") ?? .webkit
+        guard current != engine else { return }
+        if engine == .cef, let browserTabs = ctx.services.cache.browserTabs, !browserTabs.cefAvailable() {
+            return ctx.refuse(browserTabs.cefUnavailableReason() ?? RefusalStrings.chromiumUnavailable)
+        }
+        let live = ctx.services.cache.existingBrowser(tab.id)?.tab.state.url
+        let url = live ?? tab.url.flatMap(URL.init(string:))
+        pane.newBrowserTab(url: url, engine: engine.rawValue)
+        pane.close([id])
+    }
+
     static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
         var url: URL?
         if let text = invocation["url"]?.stringValue {
@@ -29,6 +52,10 @@ enum TabLifecycle {
         }
         guard let pane = ctx.daemonPane(invocation) else { return }
         let engine = invocation["engine"]?.stringValue
+        // An explicit Chromium request never silently becomes WebKit.
+        if engine == BrowserEngineTag.cef.rawValue, let browserTabs = ctx.services.cache.browserTabs, !browserTabs.cefAvailable() {
+            return ctx.refuse(browserTabs.cefUnavailableReason() ?? RefusalStrings.chromiumUnavailable)
+        }
         if let controller = ctx.services.paneController(for: pane) { return controller.newBrowserTab(url: url, engine: engine) }
         let browserTabs = ctx.services.cache.browserTabs!
         guard browserTabs.isAvailable() else { return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.frontendBrowserTabs)) }

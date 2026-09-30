@@ -28,19 +28,22 @@ import Testing
         #expect(height.constant > compact)
     }
 
-    @Test func metricOverridesReachChromeViews() async {
+    @Test func toolbarUsesOmnibarGeometry() async {
         let settings = DesignSettings.shared
         defer { settings.setOverride(.tabStripHeight, nil) }
 
         let chrome = BrowserChromeView(tab: MockBrowserEngine().makeMockTab(BrowserTabConfiguration()))
         chrome.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         chrome.layoutSubtreeIfNeeded()
-        #expect(chrome.addressBar.frame.maxY <= Metrics.tabStripHeight)
+        let toolbar = chrome.subviews.first { $0.subviews.contains(chrome.addressBar) }
+        // Helium geometry: the bar plus 3 pt above and below, whatever the
+        // tab strip override (the omnibar has its own size, not a tab's).
+        #expect(toolbar?.frame.height == BrowserChromeView.toolbarHeight)
+        #expect(chrome.addressBar.frame.height == BrowserChromeView.toolbarHeight - 6)
 
         settings.setOverride(.tabStripHeight, 40)
         await settle()
         chrome.layoutSubtreeIfNeeded()
-        let toolbar = chrome.subviews.first { $0.subviews.contains(chrome.addressBar) }
-        #expect(toolbar?.frame.height == 40)
+        #expect(toolbar?.frame.height == BrowserChromeView.toolbarHeight)
     }
 }

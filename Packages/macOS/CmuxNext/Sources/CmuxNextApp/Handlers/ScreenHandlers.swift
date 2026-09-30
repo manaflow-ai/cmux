@@ -48,8 +48,11 @@ enum ScreenHandlers {
             ctx.send("close-screen") { try await $0.closeScreen(handle) }
         })
         registry.bind("screen.toggleSwitcher", invoke: { _ in
+            // Window-local: the window's own state, kept across workspace switches.
             guard let content = ctx.content() else { return }
-            content.layoutModel.showsScreenSwitcher.toggle()
+            content.state.showsScreenSwitcher.toggle()
+            content.layoutModel.showsScreenSwitcher = content.state.showsScreenSwitcher
+            ctx.services.windows.stateDidChange(content.state)
         })
     }
 

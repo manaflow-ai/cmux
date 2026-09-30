@@ -1,16 +1,23 @@
 import AppKit
 import CmuxNextDesign
+import QuartzCore
 
-/// Glass dropdown under the address bar. A separate non-activating child
-/// panel, so it stays above child-window engines (CEF) and never takes key
-/// status from the field being edited.
+/// The lower part of the suggestion card (Helium's omnibox popup): a
+/// non-activating child panel flush under the bar, as wide as the card top
+/// (`OmnibarCardTopView`), rounded at the bottom only, with 28 pt rows whose
+/// icon and text line up with the bar's chip and text. A separate window, so
+/// it stays above child-window engines (CEF) and never takes key status from
+/// the field being edited.
 final class OmniboxSuggestionPanel {
     var onPick: ((Int) -> Void)?
 
     private var panel: SuggestionWindow?
-    private let stack = NSStackView()
+    private let content = SuggestionCardView()
     private var rows: [SuggestionRowView] = []
-    private let density = DensityBinding()
+
+    /// Shadow room around the card inside the panel (none at the top: the
+    /// card continues the bar there).
+    private static let shadowMargin: CGFloat = 16
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
@@ -23,28 +30,50 @@ final class OmniboxSuggestionPanel {
             row.isSelected = index == selected
             return row
         }
-        rows.forEach { stack.addArrangedSubview($0) }
+        rows.forEach { content.card.addSubview($0) }
 
-        let anchorRect = anchor.convert(anchor.bounds, to: nil)
-        let screenRect = window.convertToScreen(anchorRect)
-        let height = CGFloat(rows.count) * SuggestionRowView.height + BrowserMetrics.suggestionGap * 2
-        let frame = NSRect(x: screenRect.minX, y: screenRect.minY - BrowserMetrics.suggestionGap - height, width: screenRect.width, height: height)
+        let anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
+        let outset = OmnibarStyle.cardSideOutset
+        let rowStep = OmnibarStyle.rowHeight + OmnibarStyle.rowGap
+        let cardHeight = CGFloat(rows.count) * rowStep + OmnibarStyle.cardBottomPadding
+        let cardWidth = anchorRect.width + 2 * outset
+        let margin = Self.shadowMargin
+        let frame = NSRect(
+            x: anchorRect.minX - outset - margin,
+            y: anchorRect.minY - cardHeight - margin,
+            width: cardWidth + 2 * margin,
+            height: cardHeight + margin
+        )
+        content.cardFrame = NSRect(x: margin, y: margin, width: cardWidth, height: cardHeight)
+        // Rows from the top, inset like Helium (4 at the sides, 2 above each).
+        for (index, row) in rows.enumerated() {
+            let top = cardHeight - OmnibarStyle.rowGap - CGFloat(index) * rowStep
+            row.frame = NSRect(
+                x: OmnibarStyle.rowSideInset,
+                y: top - OmnibarStyle.rowHeight,
+                width: cardWidth - 2 * OmnibarStyle.rowSideInset,
+                height: OmnibarStyle.rowHeight
+            )
+            // Icon and text line up with the bar's chip and text.
+            row.leadingIconCenter = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize / 2 - OmnibarStyle.rowSideInset
+            row.textLeading = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize + OmnibarStyle.textLeading - OmnibarStyle.rowSideInset
+        }
 
         panel.appearance = window.effectiveAppearance
-        let wasVisible = panel.isVisible
         panel.setFrame(frame, display: true)
+        content.needsLayout = true
         if panel.parent !== window {
             panel.parent?.removeChildWindow(panel)
             window.addChildWindow(panel, ordered: .above)
         }
-        if !wasVisible {
-            panel.alphaValue = 0
+        if !panel.isVisible {
+            // No fade: the card top in the bar appears at the same moment.
+            panel.alphaValue = 1
             panel.orderFront(nil)
-            Motion.animate(duration: 0.1) { panel.animator().alphaValue = 1 }
         }
     }
 
-    func select(_ index: Int) {
+    func select(_ index: Int?) {
         for (offset, row) in rows.enumerated() {
             row.isSelected = offset == index
         }
@@ -65,28 +94,12 @@ final class OmniboxSuggestionPanel {
         )
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.hasShadow = true
+        // The card draws its own shadow so none falls on the seam with the bar.
+        window.hasShadow = false
         window.level = .popUpMenu
         window.hidesOnDeactivate = true
         window.isReleasedWhenClosed = false
-
-        stack.orientation = .vertical
-        stack.spacing = 0
-        stack.alignment = .width
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        let content = OverlayBackingView()
-        content.addSubview(stack)
-        NSLayoutConstraint.activate([
-            density.bind(stack.leadingAnchor.constraint(equalTo: content.leadingAnchor)) { BrowserMetrics.suggestionGap },
-            density.bind(stack.trailingAnchor.constraint(equalTo: content.trailingAnchor)) { -BrowserMetrics.suggestionGap },
-            density.bind(stack.topAnchor.constraint(equalTo: content.topAnchor)) { BrowserMetrics.suggestionGap },
-        ])
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
-        glass.translatesAutoresizingMaskIntoConstraints = true
-        glass.autoresizingMask = [.width, .height]
-        window.contentView = glass
-        density.update { glass.cornerRadius = BrowserMetrics.overlayCornerRadius }
-        density.start()
+        window.contentView = content
         panel = window
         return window
     }
@@ -97,88 +110,47 @@ final class SuggestionWindow: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-final class SuggestionRowView: NSView {
-    static var height: CGFloat { BrowserMetrics.suggestionRowHeight }
+/// Transparent panel content holding the card layer and its shadow.
+final class SuggestionCardView: NSView {
+    let card = NSView()
+    var cardFrame: NSRect = .zero { didSet { needsLayout = true } }
 
-    var onClick: (() -> Void)?
-    var isSelected = false { didSet { updateFill() } }
-    private var isHovering = false { didSet { updateFill() } }
-    private var tracking: NSTrackingArea?
-    private let density = DensityBinding()
-
-    init(suggestion: BrowserSuggestion) {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
+    override init(frame: NSRect) {
+        super.init(frame: frame)
         wantsLayer = true
-
-        let symbol = switch suggestion.kind {
-        case .navigate: "globe"
-        case .search: "magnifyingglass"
-        case .history: "clock"
-        }
-        let icon = NSImageView()
-        icon.contentTintColor = Palette.textSecondary
-        icon.translatesAutoresizingMaskIntoConstraints = false
-
-        let title = NSTextField(labelWithString: suggestion.title)
-        title.textColor = Palette.textPrimary
-        title.lineBreakMode = .byTruncatingTail
-        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        let detail = NSTextField(labelWithString: suggestion.detail.isEmpty ? "" : "— \(suggestion.detail)")
-        detail.textColor = Palette.textSecondary
-        detail.lineBreakMode = .byTruncatingTail
-        detail.setContentCompressionResistancePriority(.defaultLow - 1, for: .horizontal)
-
-        let stack = NSStackView(views: [icon, title, detail])
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { Self.height },
-            density.bind(icon.widthAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.glyphSize },
-            density.bind(stack.leadingAnchor.constraint(equalTo: leadingAnchor)) { BrowserMetrics.overlayPadding },
-            density.bind(stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor)) { -BrowserMetrics.overlayPadding },
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-        density.update { [unowned self] in
-            layer?.cornerRadius = Metrics.itemCornerRadius
-            icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: BrowserMetrics.symbolPointSize, weight: .medium))
-            title.font = BrowserMetrics.bodyFont
-            detail.font = BrowserMetrics.captionFont
-            stack.spacing = BrowserMetrics.itemSpacing
-        }
-        density.start()
-        setAccessibilityRole(.button)
-        setAccessibilityLabel([suggestion.title, suggestion.detail].filter { !$0.isEmpty }.joined(separator: ", "))
+        layer?.masksToBounds = false
+        card.wantsLayer = true
+        card.layer?.cornerRadius = OmnibarStyle.cardCornerRadius
+        card.layer?.cornerCurve = .continuous
+        card.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        card.layer?.masksToBounds = false
+        card.layer?.shadowOpacity = 0.16
+        card.layer?.shadowRadius = 8
+        card.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        addSubview(card)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+    override func layout() {
+        super.layout()
+        card.frame = cardFrame
+        // The shadow shape reaches above the panel top, so the seam with the
+        // bar's card top shows no shadow edge.
+        let shape = CGRect(x: 0, y: 0, width: cardFrame.width, height: cardFrame.height + 40)
+        card.layer?.shadowPath = CGPath(roundedRect: shape, cornerWidth: OmnibarStyle.cardCornerRadius, cornerHeight: OmnibarStyle.cardCornerRadius, transform: nil)
+        refresh()
     }
-
-    override func mouseEntered(with event: NSEvent) { isHovering = true }
-    override func mouseExited(with event: NSEvent) { isHovering = false }
-    override func mouseUp(with event: NSEvent) { onClick?() }
-    override func mouseDown(with event: NSEvent) {}
-    override func accessibilityPerformPress() -> Bool { onClick?(); return true }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        updateFill()
+        refresh()
     }
 
-    private func updateFill() {
-        let color: NSColor = isSelected ? Palette.selectionFill : (isHovering ? Palette.hoverFill : .clear)
+    private func refresh() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = color.cgColor
+            card.layer?.backgroundColor = OmnibarStyle.cardFill.cgColor
         }
     }
 }

@@ -48,6 +48,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
             items.append(PaletteItem(
                 id: "action:\(actionID.rawValue)",
                 title: descriptor.title,
+                // A disabled row says why (Chromium without a CEF runtime).
+                subtitle: isEnabled ? nil : registry.unavailableReason(for: actionID),
                 accessory: entry.isBound || override != nil ? nil : PaletteStrings.unbound,
                 symbol: descriptor.symbol,
                 keycaps: registry.shortcutKeycaps(for: actionID),

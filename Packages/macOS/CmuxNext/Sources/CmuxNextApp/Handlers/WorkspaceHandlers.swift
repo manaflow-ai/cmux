@@ -21,12 +21,6 @@ enum WorkspaceHandlers {
                 }
             }
         })
-        registry.bind("moveWorkspaceToWindow", run: { invocation in
-            let workspace = try context.workspace(invocation).model
-            let target = try context.window(invocation)
-            context.services.windows.show(workspaceID: workspace.id, in: target.state)
-            target.window?.orderFront(nil)
-        })
         registry.bind("palette.closeOtherWorkspaces", run: { invocation in
             let keep = try context.workspace(invocation).model
             close(context.sidebarOrder.filter { $0 !== keep }, context)
@@ -78,9 +72,9 @@ enum WorkspaceHandlers {
                 return
             }
             if let state = services.windows.active?.state {
-                services.windows.show(workspaceID: created, in: state)
+                services.windows.claim(workspaceID: created, in: state)
             } else {
-                services.windows.open(record: nil, workspaceID: created)
+                services.windows.openWindow(workspaces: [created])
             }
         }
     }
