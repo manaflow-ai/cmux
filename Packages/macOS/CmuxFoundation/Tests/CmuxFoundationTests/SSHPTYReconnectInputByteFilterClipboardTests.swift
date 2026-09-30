@@ -48,11 +48,26 @@ struct SSHPTYReconnectInputByteFilterClipboardTests {
         #expect(output == normalInput)
     }
 
+    @Test(
+        "a >25 ms read gap inside a clipboard reply does not end the discard",
+        arguments: ["c2Vj", "c2Vj\u{1B}"]
+    )
+    func continuationTimeoutKeepsDiscardingClipboardReply(firstPayload: String) {
+        var filter = SSHPTYReconnectInputByteFilter(enabled: true)
+        var output = filter.filter(Data("\u{1B}]52;c;\(firstPayload)".utf8))
+        output.append(expireContinuationTimeout(&filter))
+
+        let rest = firstPayload.hasSuffix("\u{1B}") ? "\\" : "cmV0\u{07}"
+        let normalInput = Data("ls\n".utf8)
+        output.append(filter.filter(Data(rest.utf8) + normalInput))
+
+        #expect(output == normalInput)
+    }
+
     @Test("stopping mid-reply does not forward the partial clipboard reply")
     func stopFilteringDropsPartialClipboardReply() {
         var filter = SSHPTYReconnectInputByteFilter(enabled: true)
         #expect(filter.filter(Data("\u{1B}]52;c;c2VjcmV0".utf8)) == Data())
-        #expect(filter.hasPendingInput)
 
         #expect(filter.stopFiltering() == Data())
         let normalInput = Data("ls\n".utf8)
@@ -67,5 +82,13 @@ struct SSHPTYReconnectInputByteFilterClipboardTests {
 
         let later = Data("\u{1B}]52;c;c2VjcmV0\u{07}".utf8)
         #expect(filter.filter(later) == later)
+    }
+
+    /// Applies what the CLI stdin pump (`SSHPTYAttachReconnectInputFilter`)
+    /// does when no byte arrives within its 25 ms continuation timeout: a
+    /// filter reporting `hasPendingInput` is ended with `stopFiltering()` and
+    /// the returned bytes are forwarded to the remote PTY.
+    private func expireContinuationTimeout(_ filter: inout SSHPTYReconnectInputByteFilter) -> Data {
+        filter.hasPendingInput ? filter.stopFiltering() : Data()
     }
 }
