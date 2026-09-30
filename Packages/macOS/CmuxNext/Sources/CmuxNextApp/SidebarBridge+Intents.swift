@@ -119,16 +119,35 @@ extension SidebarBridge {
 
     func reorder(_ ids: [SidebarWorkspaceID], to position: DropPosition, in sections: [SidebarRowSection]) {
         guard case .machine(let machine) = position.section, let target = services.machines.daemon(machine: machine.rawValue),
-              let (daemon, members) = sameMachine(ids), daemon === target,
-              let root = daemonRootIndex(for: position, moving: ids, in: sections)
+              let (daemon, _) = sameMachine(ids), daemon === target
         else { return resync() }
-        for (offset, key) in members.enumerated() {
-            let index = root + offset
-            if let group = position.group {
-                let groupID = WorkspaceGroupID(rawValue: group.rawValue)
-                command("move-workspace-to-group", on: daemon) { c, _ in _ = try await c.moveWorkspace(key, toGroup: groupID, index: index) }
-            } else {
-                command("move-workspace", on: daemon, patch: .moveWorkspace(key: key, index: index)) { c, _ in _ = try await c.moveWorkspace(key, to: index) }
+        let store = daemon.store
+        let entries = store.workspaces.map { WorkspaceMovePlan.Entry(id: $0.id, group: $0.group?.rawValue) }
+        let groupOrder = store.groups.sorted { $0.index < $1.index }.map(\.id.rawValue)
+        guard let commands = WorkspaceMovePlan.commands(for: position, moving: ids, window: sections, daemon: entries, groupOrder: groupOrder)
+        else { return resync() }
+        let keys = Dictionary(store.workspaces.compactMap { model in model.key.map { (model.id, $0) } }, uniquingKeysWith: { first, _ in first })
+        // One task, in order: each command's index assumes the previous one applied.
+        Task {
+            for command in commands {
+                let ok: Bool
+                switch command {
+                case .move(let id, let index):
+                    guard let key = keys[id] else { continue }
+                    ok = await daemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: index)) { c, _ in
+                        _ = try await c.moveWorkspace(key, to: index)
+                    }
+                case .place(let id, let group, let index):
+                    guard let key = keys[id] else { continue }
+                    let groupID = group.map(WorkspaceGroupID.init(rawValue:))
+                    ok = await daemon.perform("move-workspace-to-group", patch: .custom { _ in }) { c, _ in
+                        _ = try await c.moveWorkspace(key, toGroup: groupID, index: index)
+                    }
+                }
+                if !ok {
+                    resync()
+                    return
+                }
             }
         }
     }
