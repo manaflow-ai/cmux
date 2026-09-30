@@ -224,7 +224,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func openTab(_ params: [String: Any]) async throws -> [String: Any] {
         let workspace = try workspace()
         let rawURL = params["url"] as? String
-        let url = rawURL.flatMap(URL.init(string:)) ?? URL(string: "about:blank")
+        // Open blank and attach first, then navigate like tab.navigate, so the
+        // first navigation already sees the REPL session (for example, it skips
+        // the insecure-HTTP prompt that nobody can answer).
+        let url = URL(string: "about:blank")
         let paneID = workspace.focusedPanelId.flatMap { workspace.paneId(forPanelId: $0) }
             ?? workspace.bonsplitController.focusedPaneId
         guard let paneID,
@@ -244,6 +247,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         _ = await withTimeout(milliseconds: 30_000) {
             await panel.automationDocumentReadiness.waitForCommit(instanceID: panel.webViewInstanceID)
+        }
+        if let rawURL, rawURL != "about:blank" {
+            _ = try await navigate([
+                "targetId": panel.id.uuidString,
+                "url": rawURL,
+                "waitUntil": "commit",
+                "timeoutMs": params["timeoutMs"] ?? 30_000,
+            ])
         }
         return ["targetId": panel.id.uuidString]
     }
