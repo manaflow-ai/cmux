@@ -80,7 +80,11 @@ import Testing
         )
     }
 
-    @Test func geometryFailuresAreParameterFailures() {
+    /// A geometry failure is only the caller's parameter when a parameter can
+    /// fix it. An agent that reads `invalid_params` edits its flags and tries
+    /// again, so a window with nothing to capture has to say `not_found`
+    /// instead: no `--region`, `--scale` or `--max-width` makes it capturable.
+    @Test func geometryFailuresSeparateFlagsFromAnEmptyWindow() {
         #expect(
             TerminalController.recordingErrorCode(
                 for: WindowRecordingFrameGeometry.Failure.regionOutsideWindow
@@ -88,8 +92,13 @@ import Testing
         )
         #expect(
             TerminalController.recordingErrorCode(
-                for: WindowRecordingFrameGeometry.Failure.emptyWindow
+                for: WindowRecordingFrameGeometry.Failure.gifFrameTooLarge
             ) == "invalid_params"
+        )
+        #expect(
+            TerminalController.recordingErrorCode(
+                for: WindowRecordingFrameGeometry.Failure.emptyWindow
+            ) == "not_found"
         )
     }
 

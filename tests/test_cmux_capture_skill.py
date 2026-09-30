@@ -44,6 +44,42 @@ WATCHED = (
 
 FLAG = re.compile(r"--[a-z][a-z-]*")
 SECTION = re.compile(r"^## (.+)$", re.MULTILINE)
+CONSTANT = re.compile(
+    r"public static let (?P<name>\w+)(?:\s*:\s*\w+)?\s*="
+    r"\s*(?P<value>[\d_]+(?:\.\d+)?(?:\s*\.\.\.\s*[\d_]+(?:\.\d+)?)?)"
+)
+
+
+def constants(path: Path) -> dict[str, str]:
+    """Every `public static let name = <number or range>` in one file."""
+    return {
+        match.group("name"): match.group("value")
+        for match in CONSTANT.finditer(path.read_text(encoding="utf-8"))
+    }
+
+
+def number(text: str) -> float:
+    return float(text.replace("_", "").strip())
+
+
+def bounds(text: str) -> tuple[float, float]:
+    lower, _, upper = text.partition("...")
+    return number(lower), number(upper)
+
+
+def spellings(value: float) -> tuple[str, ...]:
+    """How prose may write one limit: 120 and 120.0 are the same bound."""
+    if value == int(value):
+        return (str(int(value)), f"{int(value)}.0")
+    return (f"{value:g}",)
+
+
+def quotes(text: str, value: float) -> bool:
+    """Whether `text` states this number, not a longer one containing it."""
+    return any(
+        re.search(rf"(?<![\d.]){re.escape(form)}(?![\d.])", text)
+        for form in spellings(value)
+    )
 
 
 def reference_text() -> str:
@@ -172,22 +208,68 @@ class CaptureSkillTests(unittest.TestCase):
         self.assertIn("docs [settings|shortcuts|api|browser|capture|agents|dock|sidebars]", customize_help)
 
     def test_region_limits_match_the_constants(self) -> None:
-        """The documented region bounds are the ones both requests enforce."""
-        for request in (SHOT_REQUEST, RECORD_REQUEST):
-            body = request.read_text(encoding="utf-8")
-            for name, literal in (
-                ("minimumRegionExtent", "8"),
-                ("maximumRegionExtent", "100_000"),
-            ):
-                self.assertIn(
-                    f"public static let {name}: Double = {literal}",
-                    body,
-                    f"{request.name}: {name} changed; the reference page quotes it",
-                )
+        """The documented region bounds are the ones the code enforces."""
+        record = constants(RECORD_REQUEST)
         # Joined, because a bound can land either side of a line wrap.
         region = " ".join(section("Region", reference_text()).split())
-        self.assertIn("at least 8 points", region)
-        self.assertIn("100000 points", region)
+        minimum = number(record["minimumRegionExtent"])
+        maximum = number(record["maximumRegionExtent"])
+        self.assertIn(f"at least {minimum:g} points", region)
+        self.assertTrue(
+            quotes(region, maximum),
+            f"the Region section does not state the {maximum:g} point ceiling",
+        )
+
+    def test_documented_limits_are_the_enforced_ones(self) -> None:
+        """Every number in the Limits table comes out of a Swift constant.
+
+        The drift this catches: `--max-width` is 64 to 4096, but a gif stops at
+        `gifMaximumWidth`, and the table said 4096 for both. An agent reading
+        the doc asked for a width the app refuses, and the two gif budgets that
+        have no flag of their own were not written down at all.
+        """
+        record = constants(RECORD_REQUEST)
+        shot = constants(SHOT_REQUEST)
+        limits = " ".join(section("Limits", reference_text()).split())
+
+        ranged = [
+            (record, "allowedFramesPerSecond"),
+            (record, "allowedSeconds"),
+            (record, "allowedScale"),
+            (record, "allowedMaximumWidth"),
+            (shot, "allowedMaximumWidth"),
+            (shot, "allowedScale"),
+        ]
+        single = [
+            (record, "gifMaximumWidth"),
+            (record, "gifMaximumFrames"),
+            (record, "gifMaximumPixelsPerFrame"),
+        ]
+
+        for source, name in ranged:
+            lower, upper = bounds(source[name])
+            for value in (lower, upper):
+                self.assertTrue(
+                    quotes(limits, value),
+                    f"{name} allows {value:g}, which the Limits section never states",
+                )
+        for source, name in single:
+            value = number(source[name])
+            self.assertTrue(
+                quotes(limits, value),
+                f"{name} is {value:g}, which the Limits section never states",
+            )
+
+    def test_both_requests_agree_on_the_region_bounds(self) -> None:
+        """One documented region rule, so the two commands cannot diverge."""
+        record = constants(RECORD_REQUEST)
+        shot = constants(SHOT_REQUEST)
+        for name in ("minimumRegionExtent", "maximumRegionExtent"):
+            self.assertEqual(
+                number(record[name]),
+                number(shot[name]),
+                f"{name} differs between shot and record; the doc states one",
+            )
 
     def test_relative_links_and_their_anchors_resolve(self) -> None:
         """A link in either page points at a file, and at a heading that exists.

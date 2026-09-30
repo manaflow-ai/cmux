@@ -18,6 +18,18 @@ import Testing
         #expect(schedule.target(atOrAfter: 4.5) == 4.5)
     }
 
+    /// A sampler that arrives exactly on a later slot has not missed that slot.
+    /// Counting one past the elapsed slots dropped the frame it was already in
+    /// time for and waited a whole interval more for the next one.
+    @Test func arrivingExactlyOnALaterSlotKeepsIt() {
+        var schedule = WindowRecordingSampleSchedule(firstTargetUptime: 0.2, interval: 0.1)
+
+        let next = schedule.target(atOrAfter: 1.2)
+
+        #expect(abs(next - 1.2) < 0.000_001)
+        #expect(next >= 1.2)
+    }
+
     @Test func servingASlotStepsToTheNextOne() {
         var schedule = WindowRecordingSampleSchedule(firstTargetUptime: 1, interval: 0.5)
 
