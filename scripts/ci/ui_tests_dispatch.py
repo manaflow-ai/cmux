@@ -11,10 +11,10 @@ boundary instead:
   named for its run attempt (`request`), then waits for the verdict of the
   dispatch that serves it and reports it as its own result (`await-verdict`),
   so ci-status still gates on the UI tests.
-- ci-ui-tests.yml runs from the default branch on every CI run attempt
-  (`workflow_run: requested`). It waits for that attempt's request
-  (`await-request`), re-validates it, and runs main's dispatcher on it
-  (`dispatch`). When the CI attempt finishes first (cancelled by a newer push,
+- ci-ui-tests.yml runs from the default branch. The build controller
+  dispatches it when a CI attempt's `ui-tests` job starts. It waits for that
+  attempt's request (`await-request`), re-validates it, and runs main's
+  dispatcher on it (`dispatch`). When the CI attempt finishes first (cancelled by a newer push,
   or its `ui-tests` job gave up) it cancels the dispatched run.
 
 Nothing from the request artifact is trusted beyond selectors that match
@@ -75,13 +75,16 @@ FUZZ_REGRESSION_PATTERN = re.compile(r"Sources/Workspace\+[^/]*Split[^/]*\.swift
 # The files API lists at most 3000 files of a pull request.
 MAX_FILE_PAGES = 30
 POLL_SECONDS = 60
-# The request follows compile admission, usually tens of minutes after the
-# attempt starts, so its wait reads less often.
-REQUEST_POLL_SECONDS = 120
+# The dispatch starts with the `ui-tests` job, which uploads the request
+# within a minute.
+REQUEST_POLL_SECONDS = 20
 # How long the waiting side looks for the dispatch run of its attempt. The
-# dispatch run is created when the CI attempt is, so it normally exists before
-# `ui-tests` starts.
+# build controller dispatches it seconds after `ui-tests` starts.
 FIND_DISPATCH_SECONDS = 20 * 60
+# How long a cancelled dispatch run's replacement may take to appear in the
+# runs list, and how often it is read meanwhile.
+REPLACEMENT_SECONDS = 120
+REPLACEMENT_POLL_SECONDS = 10
 MAX_CONSECUTIVE_ERRORS = 10
 RUN_LINE = re.compile(r"^Run: https://github\.com/[^/]+/[^/]+/actions/runs/(\d+)")
 # dispatch-focused-test.py attaches to an identical run already in flight;
@@ -101,10 +104,11 @@ def dispatch_title(run_id: int | str, attempt: int | str) -> str:
 def rerun_dispatch(run_id: int | str, attempt: int | str, ref: str = "main") -> tuple[str, dict]:
     """The workflow_dispatch that serves a CI attempt a bot re-ran.
 
-    A re-run made with GITHUB_TOKEN (the owned-pool rescue, failure
-    attribution) may not emit workflow_run, so those callers start this
-    workflow themselves. Returns (path under repos/<repo>/, body). A duplicate
-    from a workflow_run event joins the same concurrency group and replaces it.
+    The bots that re-run CI (the owned-pool rescue, failure attribution)
+    start this workflow for the new attempt. The build controller dispatches
+    it again when that attempt's `ui-tests` job starts; the duplicate joins the
+    same concurrency group and replaces it. Returns (path under
+    repos/<repo>/, body).
     """
     return (f"actions/workflows/{DISPATCH_WORKFLOW_FILE}/dispatches",
             {"ref": ref, "inputs": {"run_id": str(run_id), "run_attempt": str(attempt)}})
@@ -661,28 +665,47 @@ def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
     if found is False:
         print(
             f"::error::No {DISPATCH_WORKFLOW_FILE} run titled {dispatch_title(run_id, attempt)!r} appeared, "
-            "so nothing dispatched the UI tests. Re-run this job: a re-run requests them again.",
+            "so nothing dispatched the UI tests (the build controller dispatches it when this job starts). "
+            "Re-run this job: a re-run requests them again.",
             flush=True,
         )
         return 1
     print(f"UI tests for this run: {found.get('html_url')}", flush=True)
     progress = Progress(gh, run_id, attempt, selectors or [], revisions or [], since) if selectors else None
 
-    def check() -> dict | None:
-        run = gh.get(f"repos/{{repo}}/actions/runs/{found['id']}")
-        if run.get("status") == "completed":
-            return run
-        ended = admission_ended_without_product(gh, run_id, attempt)
-        if ended is not None:
-            return {"admission": ended}
-        if progress is not None:
-            progress.report()
-        return None
+    while True:
+        watched = found
 
-    finished = poll(check, sleep=sleep)
-    if "admission" in finished:
-        # ci-ui-tests.yml cancels the run it dispatched once this CI attempt completes.
-        return admission_failure(finished["admission"])
+        def check() -> dict | None:
+            run = gh.get(f"repos/{{repo}}/actions/runs/{watched['id']}")
+            if run.get("status") == "completed":
+                return run
+            ended = admission_ended_without_product(gh, run_id, attempt)
+            if ended is not None:
+                return {"admission": ended}
+            if progress is not None:
+                progress.report()
+            return None
+
+        finished = poll(check, sleep=sleep)
+        if "admission" in finished:
+            return admission_failure(finished["admission"])
+        if finished.get("conclusion") != "cancelled":
+            break
+        # A second dispatch for this attempt joins the same concurrency group and cancels the one watched here; follow it.
+        replaced_by = now() + REPLACEMENT_SECONDS
+
+        def replacement() -> dict | bool | None:
+            newer = find_dispatch_run(gh, run_id, attempt, since, default_branch)
+            if newer is not None and newer["id"] != watched["id"] and newer.get("created_at", "") >= watched.get("created_at", ""):
+                return newer
+            return False if now() >= replaced_by else None
+
+        newer = poll(replacement, sleep=sleep, interval=REPLACEMENT_POLL_SECONDS)
+        if newer is False:
+            break
+        found = newer
+        print(f"{watched.get('html_url')} was replaced; UI tests for this run: {found.get('html_url')}", flush=True)
     step = retrying(lambda: dispatch_step_conclusion(gh, found["id"]), sleep=sleep)
     if finished.get("conclusion") == "success" and step == "success":
         print(f"UI tests passed: {found.get('html_url')}", flush=True)

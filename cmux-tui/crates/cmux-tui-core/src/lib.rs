@@ -44,6 +44,7 @@ mod resource_selector;
 mod resource_tab;
 mod short_id;
 mod sidebar_resource;
+pub mod sizing_policy;
 mod surface;
 mod terminal_metadata;
 mod workspace_registry;
@@ -82,6 +83,7 @@ pub use mux::{
     SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,
     WorkspacePlacement, ZoomMode, ZoomState,
 };
+pub use mux::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};

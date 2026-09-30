@@ -251,9 +251,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // Only the subtle left-rail treatment depends on window activation and
         // Increase Contrast; the default solid fill never changes here.
         let settings = painted.settings
-        guard settings.subtleSelection,
-              settings.activeTabIndicatorStyle != .solidFill,
-              settings.selectionColorHex.flatMap({ NSColor(hex: $0) }) == nil else { return }
+        guard sidebarUsesSubtleSelection(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            subtleSelection: settings.subtleSelection,
+            sidebarSelectionColorHex: settings.selectionColorHex
+        ) else { return }
         // Selection-derived foregrounds must resolve from the same window and
         // accessibility state as the fill. These notifications are rare, so
         // repaint the row from its existing model instead of leaving text
@@ -723,6 +725,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             text: model.shortcutHintText,
             fontSize: model.scaled(9),
             emphasis: model.isActive ? 1.0 : 0.9,
+            colorScheme: palette.colorScheme,
             representedIdentity: model.workspaceId
         )
         topDropIndicator.accentColor = palette.accent

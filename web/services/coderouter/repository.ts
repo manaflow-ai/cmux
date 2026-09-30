@@ -28,6 +28,10 @@ import { accountAccessPredicate, scopedSessionKey, type CoderouterAccountAccess 
 import { signVmAuthorization, verifyVmAuthorization, type VmAuthorizationClaims } from "./vmAuthorization";
 import { createLastUsedWriter } from "./lastUsedWriter";
 import { refreshCompletionRegistry } from "./refreshSignal";
+import {
+  buildCooldownWriteExpressions,
+  nonTransientFailureCodePredicate,
+} from "./cooldownWrite";
 
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const VAULT_LEASE_MS = 30_000;
@@ -1347,6 +1351,35 @@ function databaseRows(result: unknown): readonly Record<string, unknown>[] {
   return Array.isArray(rows) ? rows as readonly Record<string, unknown>[] : [];
 }
 
+/**
+ * When the soonest account of the pool cooling down for a transient reason
+ * (capacity, rate limit, outage) becomes usable again; `null` when none is.
+ * The Codex proxy holds a request for capacity only while this is in reach.
+ */
+export async function nextCapacityAvailableAt(input: {
+  teamId: string;
+  provider: ProviderPool;
+  signal?: AbortSignal;
+  access?: CoderouterAccountAccess;
+}): Promise<Date | null> {
+  const nonTransientFailure = nonTransientFailureCodePredicate(sql`account."last_failure_code"`);
+  const result = await runWithCloudDbQuerySignal(input.signal, () => cloudDb().execute(sql`
+      select min(account."cooldown_until") as "availableAt"
+      from "coderouter_accounts" as account
+      where account."team_id" = ${input.teamId}
+        and ${nativeAccess(input.access, true)}
+        and ${providerMatch(sql`account."provider"`, input.provider)}
+        and account."state" = 'active'
+        and account."cooldown_until" > now()
+        and not (${nonTransientFailure})
+    `));
+  const [row] = databaseRows(result);
+  const value = row?.availableAt;
+  if (value === null || value === undefined) return null;
+  const at = value instanceof Date ? value : new Date(String(value));
+  return Number.isFinite(at.getTime()) ? at : null;
+}
+
 export async function markAccountCooldown(
   accountId: string,
   durationMs: number,
@@ -1354,15 +1387,16 @@ export async function markAccountCooldown(
   failureCode = "rate_limited",
 ): Promise<void> {
   const bounded = Math.min(Math.max(durationMs, 1_000), 7 * 24 * 60 * 60 * 1_000);
-  const cooldownUntilIso = new Date(Date.now() + bounded).toISOString();
+  const cooldownUntil = new Date(Date.now() + bounded);
   await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
-      // A late provider error must never shorten a longer cooldown already
-      // recorded by another request. Keep the database value authoritative so
-      // every web instance avoids a capacity-hit account consistently.
-      cooldownUntil: sql`GREATEST(COALESCE(${coderouterAccounts.cooldownUntil}, ${cooldownUntilIso}::timestamptz), ${cooldownUntilIso}::timestamptz)`,
-      lastFailureCode: failureCode,
+      ...buildCooldownWriteExpressions(
+        coderouterAccounts.cooldownUntil,
+        coderouterAccounts.lastFailureCode,
+        cooldownUntil,
+        failureCode,
+      ),
       updatedAt: new Date(),
     })
     .where(eq(coderouterAccounts.id, accountId)));

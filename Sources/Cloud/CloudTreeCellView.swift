@@ -16,6 +16,7 @@ final class CloudTreeCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("CloudTreeCell")
     var machineReorderAccessibilityActions: (() -> [NSAccessibilityCustomAction])?
     private var configuredNode: CloudTreeNode?
+    private var configuredNodeActions: CloudTreeNodeActions?
     private var configuredStyle = CloudTreeStyleStore.current
     private let presenceObserverID = UUID()
     private let collaborators: @MainActor (SurfaceMachineID, String) -> [WorkspacePresenceParticipant]
@@ -25,6 +26,9 @@ final class CloudTreeCellView: NSTableCellView {
     }
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
+    private var portsStatus: CloudPortsStatusContent?
+    private var portsStatusTrailingConstraint: NSLayoutConstraint?
+    private var portAction: @MainActor (CloudPortsStatusAction, SurfaceMachineID) -> Void = { _, _ in }
     private var buttonsHost: CloudTreeRowControlsHostingView?
     private var buttonsTrailingConstraint: NSLayoutConstraint?
     private var buttonsLeadingConstraint: NSLayoutConstraint?
@@ -133,17 +137,34 @@ final class CloudTreeCellView: NSTableCellView {
         node: CloudTreeNode,
         machineActions: MachineRowActions,
         nodeActions: CloudTreeNodeActions,
-        style: CloudTreeStyle = CloudTreeStyleStore.current
+        style: CloudTreeStyle = CloudTreeStyleStore.current,
+        portAction: @escaping @MainActor (CloudPortsStatusAction, SurfaceMachineID) -> Void = { _, _ in }
     ) {
         configuredNode = node
+        configuredNodeActions = nodeActions
         configuredStyle = style
+        self.portAction = portAction
         #if DEBUG
         if case .terminal(let row) = node.kind, row.hasUnreadNotification {
             cmuxDebugLog("cloudTree.cell.configure unread terminal=\(row.resource.id.key.suffix(4)) node=\(node.id.suffix(12))")
         }
         #endif
-        displayHost.isHidden = false
+        let status: CloudPortsStatusPresentation? = {
+            guard case .placeholder(_, let placeholder) = node.kind else { return nil }
+            return placeholder.portStatus
+        }()
+        displayHost.isHidden = status != nil
         configureDisplayHost(node: node, style: style)
+        if let status {
+            let view = portsStatus ?? makePortsStatus(style: style)
+            view.isHidden = false
+            view.configure(presentation: status, style: style) {
+                portAction(status.action, node.machine)
+            }
+            portsStatusTrailingConstraint?.constant = -style.rowGrid.trailingPadding
+        } else {
+            portsStatus?.isHidden = true
+        }
         // An in-place row reload reuses this cell; the new content can be wider
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
@@ -170,6 +191,16 @@ final class CloudTreeCellView: NSTableCellView {
     }
 
     private func configureDisplayHost(node: CloudTreeNode, style: CloudTreeStyle) {
+        if case .createAction(let action) = node.kind, let nodeActions = configuredNodeActions {
+            displayHost.passesThrough = false
+            displayHost.rootView = AnyView(
+                CloudTreeCreateActionView(action: action, nodeActions: nodeActions, style: style)
+            )
+            toolTip = action.title
+            setAccessibilityLabel(action.title)
+            return
+        }
+        displayHost.passesThrough = true
         let presenceHeads: [WorkspacePresenceParticipant] = {
             guard case .workspace(let machine, let workspace, _, _, _) = node.kind else { return [] }
             return collaborators(machine, workspace.id)
@@ -211,6 +242,22 @@ final class CloudTreeCellView: NSTableCellView {
         return host
     }
 
+    private func makePortsStatus(style: CloudTreeStyle) -> CloudPortsStatusContent {
+        let view = CloudPortsStatusContent(frame: .zero)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(view)
+        let trailing = view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -style.rowGrid.trailingPadding)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            trailing,
+            view.topAnchor.constraint(equalTo: topAnchor),
+            view.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        portsStatusTrailingConstraint = trailing
+        portsStatus = view
+        return view
+    }
+
     func setHovered(_ hovered: Bool) {
         guard self.hovered != hovered else { return }
         self.hovered = hovered
@@ -220,16 +267,22 @@ final class CloudTreeCellView: NSTableCellView {
         super.prepareForReuse()
         machineReorderAccessibilityActions = nil
         configuredNode = nil
+        configuredNodeActions = nil
+        displayHost.passesThrough = true
         updatePresenceSubscription()
         toolTip = nil
         hovered = false
+        portsStatus?.isHidden = true
     }
 }
 
 /// A hosting view that is invisible to hit testing, so the outline row beneath
 /// it owns selection, drag, double-click, and the context menu.
 final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
+    var passesThrough = true
+
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard passesThrough else { return super.hitTest(point) }
         // The outline owns all ordinary row interaction. Returning nil here is
         // what keeps a header click from being swallowed by the SwiftUI host.
         return nil
