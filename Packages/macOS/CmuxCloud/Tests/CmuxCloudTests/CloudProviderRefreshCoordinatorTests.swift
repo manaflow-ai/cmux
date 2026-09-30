@@ -96,6 +96,36 @@ struct CloudProviderRefreshCoordinatorTests {
         #expect(forces == [false, true])
     }
 
+    @Test("Forced readers that resume after the trailing pass share its result")
+    func forcedReadersDoNotOpenDuplicateTrailingPasses() async {
+        let coordinator = CloudProviderRefreshCoordinator()
+        let initialStarted = CloudLinkFirstValue<Bool>()
+        let releaseInitial = CloudLinkFirstValue<Bool>()
+        var calls = 0
+        let operation: @MainActor (Bool) async -> Bool = { force in
+            calls += 1
+            if !force {
+                initialStarted.resolve(true)
+                _ = await releaseInitial.result
+            }
+            return true
+        }
+
+        let initial = Task { await coordinator.refresh(force: false, operation: operation) }
+        _ = await initialStarted.result
+        // Both forced callers are already waiting on the same old pass. The
+        // first continuation owns the trailing pass; the second must consume
+        // that result even if it resumes after the owner cleared inFlight.
+        let first = Task { await coordinator.refresh(force: true, operation: operation) }
+        let second = Task { await coordinator.refresh(force: true, operation: operation) }
+        releaseInitial.resolve(true)
+
+        #expect(await initial.value)
+        #expect(await first.value)
+        #expect(await second.value)
+        #expect(calls == 2)
+    }
+
     @Test("A metadata change restarts an invalidated pass before releasing its readers")
     func invalidatedPassFinishesWithTheCurrentGraph() async {
         let coordinator = CloudProviderRefreshCoordinator()
