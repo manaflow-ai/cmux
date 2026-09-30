@@ -63,6 +63,32 @@ public struct TerminalPromptSelection: Equatable, Sendable {
     public var range: Range<Int> { min(anchor, head)..<max(anchor, head) }
 }
 
+/// Tracks the prompt selection direction until input or the surface changes.
+public struct TerminalPromptSelectionTracker: Equatable, Sendable {
+    /// The directed selection currently owned by cmux.
+    public private(set) var selection: TerminalPromptSelection?
+
+    /// Creates an empty tracker.
+    public init(selection: TerminalPromptSelection? = nil) {
+        self.selection = selection
+    }
+
+    /// Records a selection made by cmux.
+    public mutating func record(_ selection: TerminalPromptSelection) {
+        self.selection = selection
+    }
+
+    /// Drops the selection after non-selection input changes the caret.
+    public mutating func invalidateForInput() {
+        selection = nil
+    }
+
+    /// Drops the selection when the native terminal surface is replaced.
+    public mutating func invalidateForSurfaceReplacement() {
+        selection = nil
+    }
+}
+
 /// Which way a Shift+arrow extension moves the selection head.
 public enum TerminalPromptSelectionDirection: Equatable, Sendable {
     /// Toward the start of the input.

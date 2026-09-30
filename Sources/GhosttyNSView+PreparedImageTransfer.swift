@@ -8,6 +8,7 @@ extension GhosttyNSView {
         mode: TerminalImageTransferMode = .drop,
         onCancel: @escaping () -> Void
     ) -> Bool {
+        invalidatePromptSelectionTrackingForInput()
         switch preparedContent {
         case .reject, .rejectOversizedImage:
             return false
