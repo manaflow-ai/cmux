@@ -1,6 +1,7 @@
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
+import { agentChatText } from "./i18n";
 import { openSessionConnection } from "./connection";
 import type { HarnessRecommendation, HarnessCatalogs } from "../harness-contract";
 import { latestRouteStatus, normalizeRouteStatus, type RouteHealth, type RoutePhase, type RouteStatus } from "../route-status";
@@ -35,7 +36,7 @@ export type AgentEvent =
   | { kind: "tool-end"; toolId: string; name?: string; detail?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
   | { kind: "files-changed"; files: ChangedFile[] }
-  | { kind: "error"; message: string; prompt?: string };
+  | { kind: "error"; message: string; prompt?: string; code?: "terminal-rpc-timeout" };
 
 export type OptionKind = "select" | "toggle";
 export type OptionValue = string | boolean;
@@ -210,7 +211,7 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
     case "files-changed":
       return [...closeStreaming(blocks), { kind: "files", files: evt.files, revision: nextFilesRevision(blocks) }];
     case "error":
-      return [...closeStreaming(blocks), { kind: "error", text: evt.message }];
+      return [...closeStreaming(blocks), { kind: "error", text: evt.code === "terminal-rpc-timeout" ? agentChatText("terminalRequestTimeout") : evt.message }];
     case "status":
       return [...closeStreaming(blocks), { kind: "status", text: evt.text }];
     case "plan": {

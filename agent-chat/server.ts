@@ -16,7 +16,7 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
-import { attachTranscript, focusTranscriptTerminal, transcriptAdapter, type TranscriptAgent } from "./adapters/transcript";
+import { attachTranscript, focusTranscriptTerminal, transcriptAdapter, transcriptRpcErrorEvent, type TranscriptAgent } from "./adapters/transcript";
 import { resolveSessionTranscript, resolveSurfaceTranscript, transcriptAttention, type TranscriptSource } from "./transcript-sources";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
@@ -2251,7 +2251,7 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       const sess = sessions.get(String(msg.sessionId));
       if (!sess?.transcript) return;
       Promise.resolve(focusTranscriptTerminal(sess)).then((res) => {
-        if (!res.ok) sess.emit({ kind: "error", message: `Couldn't focus the terminal: ${res.error}` });
+        if (!res.ok) sess.emit(transcriptRpcErrorEvent(res, `Couldn't focus the terminal: ${res.error}`));
       });
       break;
     }

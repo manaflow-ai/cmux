@@ -30,7 +30,7 @@ export type AgentEvent =
   | { kind: "done"; stats?: string }
   | { kind: "files-changed"; files: ChangedFile[] }
   // `prompt`: the prompt a failed send carried, which never reached the agent.
-  | { kind: "error"; message: string; prompt?: string };
+  | { kind: "error"; message: string; prompt?: string; code?: "terminal-rpc-timeout" };
 
 export type SessionStatus = "idle" | "running" | "exited" | "error";
 export type OptionKind = "select" | "toggle";
