@@ -188,14 +188,23 @@ fn content_digest() -> String {
 /// would start without its rc files (bash stays in POSIX mode).
 ///
 /// Every new shell sources these files, so the directories and files must
-/// belong to this user and must not be symlinks; otherwise the launch goes
-/// ahead without integration.
+/// belong to this user and must not be symlinks, and no other user may be
+/// able to replace a directory above them; otherwise the launch goes ahead
+/// without integration. The returned root is canonical, so shells never
+/// resolve the scripts through a symlink.
 fn materialize(root: &Path) -> io::Result<PathBuf> {
-    let container = root.parent().ok_or_else(|| io::Error::other("scripts root has no parent"))?;
-    if let Some(base) = container.parent() {
-        fs::create_dir_all(base)?;
-    }
-    ensure_private_dir(container)?;
+    let invalid = || io::Error::other("scripts root needs a parent and a name");
+    let digest = root.file_name().ok_or_else(invalid)?;
+    let container = root.parent().ok_or_else(invalid)?;
+    let container_name = container.file_name().ok_or_else(invalid)?;
+    let base = container.parent().ok_or_else(invalid)?;
+    fs::create_dir_all(base)?;
+    let base = fs::canonicalize(base)?;
+    check_trusted_ancestors(&base)?;
+    let container = base.join(container_name);
+    let root = container.join(digest);
+    let root = root.as_path();
+    ensure_private_dir(&container)?;
     ensure_private_dir(root)?;
     for script in SCRIPTS {
         let path = root.join(script.path);
@@ -237,6 +246,35 @@ fn materialize(root: &Path) -> io::Result<PathBuf> {
 }
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Every directory from `base` up to `/` must belong to this user or root.
+/// One that every user can write to must be a root-owned sticky directory
+/// (like `/tmp`), where no other user can rename our entries. Group write is
+/// accepted on this user's own directories (umask 002 with a private group).
+#[cfg(unix)]
+fn check_trusted_ancestors(base: &Path) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let uid = crate::platform::effective_uid();
+    for dir in base.ancestors() {
+        let metadata = fs::symlink_metadata(dir)?;
+        let mode = metadata.mode();
+        let owner_ok = metadata.uid() == uid || metadata.uid() == 0;
+        let shared = mode & 0o002 != 0 || (mode & 0o020 != 0 && metadata.uid() != uid);
+        let sticky_root = mode & 0o1000 != 0 && metadata.uid() == 0;
+        if !metadata.is_dir() || !owner_ok || (shared && !sticky_root) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("{} could be replaced by another user", dir.display()),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn check_trusted_ancestors(_base: &Path) -> io::Result<()> {
+    Ok(())
+}
 
 fn ensure_private_dir(dir: &Path) -> io::Result<()> {
     match fs::create_dir(dir) {
@@ -369,6 +407,8 @@ mod tests {
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
+        fs::create_dir_all(&base).unwrap();
+        let base = fs::canonicalize(&base).unwrap();
         let root = base.join("shell-integration").join(content_digest());
         materialize(&root).unwrap();
         for script in SCRIPTS {
@@ -396,6 +436,26 @@ mod tests {
             );
             assert_eq!(fs::read_to_string(&decoy).unwrap(), "echo hijacked\n");
         }
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scripts_are_refused_below_a_directory_others_can_replace() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = std::env::temp_dir().join(format!(
+            "cmux-tui-shell-integration-shared-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&base).unwrap();
+        let base = fs::canonicalize(&base).unwrap();
+        fs::set_permissions(&base, fs::Permissions::from_mode(0o777)).unwrap();
+        let root = base.join("shell-integration").join(content_digest());
+        assert!(materialize(&root).is_err());
+        assert!(!base.join("shell-integration").exists());
+        fs::set_permissions(&base, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(materialize(&root).unwrap(), root);
         fs::remove_dir_all(&base).unwrap();
     }
 

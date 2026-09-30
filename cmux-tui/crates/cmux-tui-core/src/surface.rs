@@ -8274,9 +8274,19 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(5));
             }
             surface.resize(60, 20).unwrap();
-            std::thread::sleep(Duration::from_millis(500));
+            // Wait for the shell's post-resize redraws to settle: the prompt
+            // text already matched before the resizes started.
+            let mut previous = String::new();
+            let mut stable_reads = 0;
             let text = wait_for_viewport(&surface, "the settled prompt", |text, _| {
-                text.contains("prompt> nightly")
+                if text == previous {
+                    stable_reads += 1;
+                } else {
+                    previous = text.to_string();
+                    stable_reads = 0;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+                stable_reads >= 5 && text.contains("prompt> nightly")
             });
             let at_prompt =
                 surface.try_with_terminal(|terminal| terminal.cursor_is_at_prompt()).unwrap();

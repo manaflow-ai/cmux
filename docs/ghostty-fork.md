@@ -2074,7 +2074,7 @@ tend to conflict together during rebases.
   - Keep `cursorBreakWrapIntoRow` limited to primary prompts: continuation
     and right prompts must keep their wrap.
 
-The current cmux pin is the merged head `34cbf180d`, which merges the surface
+An earlier cmux pin was the merged head `34cbf180d`, which merges the surface
 registry serialization (`e5c962a72`, section 14, landed on cmux `main` via
 branch `issue-5458-surface-registry-lock`) into the Cmd-click link fix line
 (`df789cd4b`, section 13) on top of the iOS render bounded-acquire pin
