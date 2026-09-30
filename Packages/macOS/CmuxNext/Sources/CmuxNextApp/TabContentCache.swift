@@ -30,6 +30,10 @@ final class TabContentCache {
     /// Page-originated tab requests (new-tab links, popups, window.close).
     let pageRequests = BrowserPageRequests()
     private var pendingBrowsers: Set<String> = []
+    /// Creates a Chromium page (asynchronous; a seam for tests).
+    lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
+        try await cef.makeTab($0)
+    }
     /// A CEF page finished its asynchronous creation; panes showing `key` re-show.
     var onBrowserReady: ((String) -> Void)?
     /// Presentation changed (for the blank-pane invariant).
@@ -130,7 +134,7 @@ final class TabContentCache {
             defer { pendingBrowsers.remove(key) }
             let page: any BrowserTab
             do {
-                page = try await cef.makeTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
+                page = try await makeCEFTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
             } catch {
                 guard let tab, browsers[key] == nil else { return }
                 _ = fallBack(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))

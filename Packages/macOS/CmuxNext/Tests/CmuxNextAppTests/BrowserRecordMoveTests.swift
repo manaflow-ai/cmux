@@ -49,3 +49,63 @@ struct BrowserRecordMoveTests {
         withExtendedLifetime(services) {}
     }
 }
+
+/// A Chromium page is created asynchronously. `cmux browser open` moves the
+/// new tab into a split while the page is still starting (a cold CEF start
+/// takes about a second), so the store replaces the tab's TabModel before
+/// the page exists. The page must still write its title back.
+@MainActor
+struct BrowserRecordAsyncPageTests {
+    final class Gate {
+        var continuation: CheckedContinuation<Void, Never>?
+        var opened = false
+        func wait() async {
+            if opened { return }
+            await withCheckedContinuation { continuation = $0 }
+        }
+        func open() {
+            opened = true
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
+    @Test func titleReachesTheRecordWhenTheTabMovedWhileItsPageWasStarting() async throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        let store = services.daemon.store
+        let cache = try #require(services.cache)
+        store.apply(snapshot: try BrowserRecordMoveTests.tree(pane: 3, tab: BrowserRecordMoveTests.tab))
+        let browserTabs = try #require(cache.browserTabs)
+        var sent: [(SurfaceID, BrowserRecordUpdate)] = []
+        browserTabs.update = { surface, update in
+            sent.append((surface, update))
+            return true
+        }
+        browserTabs.sleep = { _ in }
+        browserTabs.cefUnavailable = { nil }
+        let gate = Gate()
+        let page = MockBrowserEngine().makeMockTab(BrowserTabConfiguration())
+        cache.makeCEFTab = { _ in
+            await gate.wait()
+            return page
+        }
+        var ready: [String] = []
+        cache.onBrowserReady = { ready.append($0) }
+        do {
+            let original = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
+            #expect(cache.browser(for: original) == nil)  // Chromium: asynchronous
+        }
+        // The split while the page starts: the original TabModel is gone.
+        store.apply(snapshot: try BrowserRecordMoveTests.tree(pane: 5, tab: BrowserRecordMoveTests.tab))
+        gate.open()
+        for _ in 0..<500 where ready.isEmpty { await Task.yield() }
+        #expect(!ready.isEmpty)
+
+        page.load(URL(string: "https://example.com/")!)
+        page.simulate(.titleChanged("Example Domain"))
+        for _ in 0..<500 where sent.isEmpty { await Task.yield() }
+        #expect(sent.first?.0 == SurfaceID(rawValue: 9))
+        #expect(sent.first?.1.title == "Example Domain")
+        withExtendedLifetime(services) {}
+    }
+}
