@@ -28,6 +28,15 @@ import Testing
         #expect(TerminalStreamPlan.steps(for: .resized(inside)) == [.grid(columns: 120, rows: 40)])
     }
 
+    /// The replay omits DECSCUSR (cmux-tui-contract.md 2.5): a program's
+    /// cursor shape (vim's bar in insert mode) is restored after the replay.
+    @Test func cursorShapeFollowsTheInitialReplay() throws {
+        let colors = try JSONDecoder().decode(TerminalColors.self, from: Data(#"{"cursor_style":"bar","cursor_blink":false}"#.utf8))
+        let shaped = TerminalReplay(cols: 120, rows: 40, data: replay.data, colors: colors)
+        #expect(TerminalStreamPlan.steps(for: .replay(shaped))
+            == [.grid(columns: 120, rows: 40), .replay(shaped), .output(Data("\u{1B}[6 q".utf8))])
+    }
+
     @Test func outputAndLifecycle() {
         let bytes = Data("ls\r\n".utf8)
         #expect(TerminalStreamPlan.steps(for: .output(bytes, colors: nil)) == [.output(bytes)])
