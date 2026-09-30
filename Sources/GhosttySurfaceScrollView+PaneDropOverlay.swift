@@ -17,7 +17,7 @@ extension GhosttySurfaceScrollView {
                 activeDropZone = nil
                 pendingDropZone = nil
                 forwardedDropZone = nil
-                dropZoneOverlayAnimator.hideImmediately()
+                applyDropZoneOverlay(zone: nil)
                 return
             }
         } else {
