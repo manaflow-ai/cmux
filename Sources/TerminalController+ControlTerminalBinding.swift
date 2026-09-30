@@ -204,9 +204,11 @@ extension TerminalController {
         if let target, target.surface.liveSurfaceForGhosttyAccess(reason: "mobile.replay.canonical") != nil {
             return (resolved.workspace, surfaceID, target, true)
         }
+        guard !Task.isCancelled else { return nil }
         resolved.workspace.admitStartupRestoreAwaitingFirstVisit(panelId: surfaceID)
         // A bound target skips the resume while a replacement surface is
         // mid-swap; a never-started panel has no target yet.
+        guard !Task.isCancelled else { return nil }
         if let target {
             target.resumeAgentHibernationForRemoteAttach()
         } else {
