@@ -16242,6 +16242,10 @@ mod personal_tests;
 mod personal_terminal_tests;
 
 #[cfg(test)]
+#[path = "server/browser_profile_tests.rs"]
+mod browser_profile_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
