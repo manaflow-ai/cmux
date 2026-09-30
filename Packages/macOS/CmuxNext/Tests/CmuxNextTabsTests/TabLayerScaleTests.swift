@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+import CmuxNextDesign
 @testable import CmuxNextTabs
 
 /// Text and glyph layers the strip creates itself must render at the window's
@@ -32,12 +33,23 @@ import Testing
             strip.sync(fromModel: true)
         }
 
+        /// What AppKit does when the window moves to a screen with another
+        /// scale: notify every view in the tree, then lay out.
+        func changeBackingScale() {
+            func notify(_ view: NSView) {
+                view.viewDidChangeBackingProperties()
+                view.subviews.forEach(notify)
+            }
+            notify(strip)
+            strip.layoutSubtreeIfNeeded()
+        }
+
         /// Layers AppKit does not manage (no view delegate) that rasterize
         /// content: text, shapes, and image layers.
         func rasterLayers() -> [CALayer] {
             var result: [CALayer] = []
             func walk(_ layer: CALayer) {
-                if !(layer.delegate is NSView), layer is CATextLayer || layer is CAShapeLayer || layer.contents != nil {
+                if !(layer.delegate is NSView), layer is CATextLayer || layer is ChromeTextLayer || layer is CAShapeLayer || layer.contents != nil {
                     result.append(layer)
                 }
                 for sublayer in layer.sublayers ?? [] { walk(sublayer) }
@@ -57,20 +69,16 @@ import Testing
         #expect(cell.titleLayer.contentsScale == 2)
         #expect(h.strip.groups.chips.isEmpty == false)
         let layers = h.rasterLayers()
-        #expect(layers.contains { $0 is CATextLayer })
+        #expect(layers.contains { $0 is ChromeTextLayer })
         for layer in layers { #expect(layer.contentsScale == 2, "\(type(of: layer)) at \(layer.contentsScale)x") }
 
         h.window.scale = 1
-        h.strip.viewDidChangeBackingProperties()
-        h.strip.subviews.forEach { $0.viewDidChangeBackingProperties() }
-        h.strip.layoutSubtreeIfNeeded()
+        h.changeBackingScale()
         #expect(cell.titleLayer.contentsScale == 1)
         for layer in h.rasterLayers() { #expect(layer.contentsScale == 1, "\(type(of: layer)) at \(layer.contentsScale)x") }
 
         h.window.scale = 2
-        h.strip.viewDidChangeBackingProperties()
-        h.strip.subviews.forEach { $0.viewDidChangeBackingProperties() }
-        h.strip.layoutSubtreeIfNeeded()
+        h.changeBackingScale()
         for layer in h.rasterLayers() { #expect(layer.contentsScale == 2, "\(type(of: layer)) at \(layer.contentsScale)x") }
     }
 

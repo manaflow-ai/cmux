@@ -56,8 +56,16 @@ final class ActivityIndicatorView: NSView {
         needsLayout = true
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
+        // A sublayer the view did not create keeps contentsScale 1 unless set;
+        // a 1x shape layer is magnified (blurry) on Retina.
+        shape.contentsScale = window?.backingScaleFactor ?? 2
         shape.frame = bounds
         let rect = bounds.insetBy(dx: Metrics.space1 / 2, dy: Metrics.space1 / 2)
         switch activity {
