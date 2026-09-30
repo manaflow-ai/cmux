@@ -109,6 +109,7 @@ extension ContentView {
     static let commandPaletteCloudHandoffCommandId = "palette.cloud.handoff"
     static let commandPaletteCloudNewMachineCommandId = "palette.cloud.newMachine"
 
+    /// Returns Cloud VM commands when the Cloud feature and account are ready.
     static func commandPaletteCloudCommandContributions(
         isAuthenticated: Bool? = nil
     ) -> [CommandPaletteCommandContribution] {
@@ -201,6 +202,7 @@ extension ContentView {
         )
     }
 
+    /// Registers Cloud palette handlers with the shared command dispatcher.
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: Self.commandPaletteCloudAvailabilityInfoCommandId) {
             let alert = NSAlert()

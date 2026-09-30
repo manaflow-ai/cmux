@@ -549214,54 +549214,14 @@
             "value": "Workspace Color: %@"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arbeitsbereichfarbe: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couleur de l’espace de travail : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لون مساحة العمل: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color del espacio de trabajo: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工作區顏色：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工作区颜色：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작업 공간 색상: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースの色: %@"
-          }
-        }
+        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereichfarbe: %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Couleur de l’espace de travail : %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لون مساحة العمل: %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Color del espacio de trabajo: %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "工作區顏色：%@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区颜色：%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "작업 공간 색상: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースの色: %@"}}
       }
     },
     "fileExplorer.preview.failedTitle": {
@@ -600340,6 +600300,72 @@
             "state": "translated",
             "value": "ローカルワークスペースを選択すると、フォルダ、シミュレータ、ローカルブラウザの作成、ディレクトリ検索、差分表示のコマンドを利用できます。Cloud のターミナル、ブラウザ、ワークスペース、VM コマンドはここで引き続き利用できます。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naredbe za fascikle, simulator, kreiranje lokalnog preglednika, pretragu direktorija i razlike dostupne su nakon odabira lokalnog radnog prostora. Cloud naredbe za terminal, preglednik, radni prostor i VM ostaju dostupne ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommandoer til mapper, simulator, lokal oprettelse af browsere, katalogsøgning og diff er tilgængelige, når du vælger et lokalt arbejdsområde. Cloud-kommandoer til terminal, browser, arbejdsområde og VM er stadig tilgængelige her."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I comandi per cartelle, simulatore, creazione di browser locali, ricerca nelle directory e differenze sono disponibili dopo aver selezionato uno spazio di lavoro locale. I comandi Cloud per terminale, browser, spazio di lavoro e VM rimangono disponibili qui."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ជាថត ស៊ីម्युឡាទ័រ ការបង្កើតកម្មវិធីរុករកមូលដ្ឋាន ការស្វែងរកថត និងការប្រៀបធៀប នឹងអាចប្រើបានបន្ទាប់ពីជ្រើសរើសកន្លែងធ្វើការមូលដ្ឋាន។ ការបញ្ជា Cloud សម្រាប់ស្ថានីយ កម្មវិធីរុករក កន្លែងធ្វើការ និង VM នៅតែអាចប្រើបាននៅទីនេះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappe-, simulator-, lokal nettleseroppretting-, katalogsøk- og diff-kommandoer er tilgjengelige etter at du har valgt et lokalt arbeidsområde. Cloud-kommandoer for terminal, nettleser, arbeidsområde og VM er fortsatt tilgjengelige her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polecenia dotyczące folderów, symulatora, tworzenia lokalnej przeglądarki, wyszukiwania w katalogach i porównywania są dostępne po wybraniu lokalnego obszaru roboczego. Polecenia Cloud dotyczące terminala, przeglądarki, obszaru roboczego i maszyny wirtualnej są nadal dostępne tutaj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os comandos de pasta, simulador, criação de navegador local, pesquisa em diretórios e diferenças ficam disponíveis depois que você seleciona um espaço de trabalho local. Os comandos Cloud de terminal, navegador, espaço de trabalho e VM continuam disponíveis aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команды для папок, симулятора, создания локального браузера, поиска в каталогах и сравнения доступны после выбора локального рабочего пространства. Команды Cloud для терминала, браузера, рабочего пространства и виртуальной машины по-прежнему доступны здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งโฟลเดอร์ โปรแกรมจำลอง การสร้างเบราว์เซอร์ภายในเครื่อง การค้นหาไดเรกทอรี และการเปรียบเทียบ จะใช้งานได้หลังจากเลือกพื้นที่ทำงานภายในเครื่อง คำสั่ง Cloud สำหรับเทอร์มินัล เบราว์เซอร์ พื้นที่ทำงาน และ VM ยังคงใช้งานได้ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasör, simülatör, yerel tarayıcı oluşturma, dizin arama ve fark komutları, yerel bir çalışma alanı seçildikten sonra kullanılabilir. Terminal, tarayıcı, çalışma alanı ve VM için Cloud komutları burada kullanılmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команди для папок, симулятора, створення локального браузера, пошуку в каталогах і порівняння доступні після вибору локального робочого простору. Команди Cloud для термінала, браузера, робочого простору та віртуальної машини залишаються доступними тут."
+          }
         }
       }
     },
@@ -600398,6 +600424,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "一部のコマンドはローカル専用です"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neke naredbe su dostupne samo lokalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nogle kommandoer er kun lokale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alcuni comandi sono solo locali"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ជាមួយចំនួនមានសម្រាប់មូលដ្ឋានប៉ុណ្ណោះ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noen kommandoer er bare lokale"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niektóre polecenia są dostępne tylko lokalnie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alguns comandos são apenas locais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Некоторые команды доступны только локально"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งบางรายการใช้ได้เฉพาะในเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bazı komutlar yalnızca yereldir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Деякі команди доступні лише локально"
           }
         }
       }
@@ -600458,6 +600550,72 @@
             "state": "translated",
             "value": "Cloud ワークスペース"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-arbejdsområde"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spazio di lavoro Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការ Cloud"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszar roboczy Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaço de trabalho Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочее пространство Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงาน Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud çalışma alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочий простір Cloud"
+          }
         }
       }
     },
@@ -600516,6 +600674,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud コマンドの利用状況を表示"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži dostupnost Cloud naredbi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis tilgængelighed af Cloud-kommandoer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra disponibilità dei comandi Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញភាពអាចប្រើបាននៃការបញ្ជា Cloud"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis tilgjengelighet for Cloud-kommandoer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż dostępność poleceń Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar disponibilidade dos comandos Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать доступность команд Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงความพร้อมใช้งานของคำสั่ง Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud komutlarının kullanılabilirliğini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати доступність команд Cloud"
           }
         }
       }

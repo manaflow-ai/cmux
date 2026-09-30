@@ -5,6 +5,7 @@ import Testing
 struct CommandPaletteCloudCapabilityPolicyTests {
     private let policy = CommandPaletteCloudCapabilityPolicy()
 
+    /// Representative command IDs cover each capability classification.
     @Test("classifies representative shared, Cloud-only, and local-only commands")
     func representativeCommandsHaveExpectedCapabilities() {
         #expect(
@@ -36,6 +37,7 @@ struct CommandPaletteCloudCapabilityPolicyTests {
         )
     }
 
+    /// The audited sets stay explicit so a new palette action cannot silently drift.
     @Test("keeps the audited Cloud and local-only command sets explicit")
     func auditedCapabilitySetsRemainStable() {
         let cloudOnly = [
@@ -74,6 +76,7 @@ struct CommandPaletteCloudCapabilityPolicyTests {
         #expect(policy.capability(for: "palette.browserBack") == .shared)
     }
 
+    /// Context gating allows only capabilities valid for the selected workspace.
     @Test("scopes Cloud-only and local-only commands to the workspace context")
     func contextAllowsOnlyValidCapabilities() {
         let localContext = CommandPaletteContextSnapshot()

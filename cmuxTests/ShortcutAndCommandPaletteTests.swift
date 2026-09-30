@@ -870,6 +870,7 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
 }
 
 final class CommandPaletteCloudCommandTests: XCTestCase {
+    /// Cloud availability guidance is visible only for Cloud workspaces.
     func testCloudAvailabilityInfoAppearsOnlyForCloudWorkspace() {
         let contribution = ContentView.commandPaletteCloudAvailabilityInfoContribution()
         let localContext = CommandPaletteContextSnapshot()
@@ -882,6 +883,7 @@ final class CommandPaletteCloudCommandTests: XCTestCase {
         XCTAssertEqual(contribution.subtitle(cloudContext), "Cloud workspace")
     }
 
+    /// Cloud contributions include each supported current-VM operation.
     @MainActor
     func testCloudCommandPaletteIncludesCloudWorkspaceActions() {
         let key = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
@@ -915,6 +917,7 @@ final class CommandPaletteCloudCommandTests: XCTestCase {
         XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
     }
 
+    /// Managed Cloud identity is distinct from a generic SSH configuration.
     func testCloudVMIdentityIsExplicitMetadata() {
         let cloudConfig = WorkspaceRemoteConfiguration(
             destination: "nncop8f8h6w9blhns6sy+cmux@vm-ssh.freestyle.sh",

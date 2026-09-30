@@ -7238,6 +7238,7 @@ struct ContentView: View {
     }
 
     /// Captures the lightweight synchronous state consumed by palette contribution gates.
+    /// Captures the selected workspace and window state used by palette gates.
     private func commandPaletteContextSnapshot(
         terminalOpenTargets: Set<TerminalDirectoryOpenTarget>? = nil
     ) -> CommandPaletteContextSnapshot {
@@ -7462,6 +7463,7 @@ struct ContentView: View {
     ]
 
     /// Builds command-palette contributions from synchronous context and cached async availability.
+    /// Builds the complete Cmd-Shift-P contribution list before filtering.
     private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
