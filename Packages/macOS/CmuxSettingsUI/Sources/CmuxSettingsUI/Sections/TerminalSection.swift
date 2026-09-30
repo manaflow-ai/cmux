@@ -8,6 +8,9 @@ import SwiftUI
 /// the JSON-backed Resume Commands editor.
 @MainActor
 public struct TerminalSection: View {
+    private static let agentHibernationSettingsDidChange = Notification.Name(
+        "cmux.agentHibernationSettingsDidChange"
+    )
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
@@ -271,7 +274,17 @@ public struct TerminalSection: View {
                 String(localized: "settings.terminal.settledSessionAutoClose", defaultValue: "Auto-close Settled Sessions"),
                 subtitle: String(localized: "settings.terminal.settledSessionAutoClose.subtitle", defaultValue: "Off by default. Closes sessions only after their turn finished, their output is idle, and linked pull requests are closed or merged.")
             ) {
-                Toggle("", isOn: Binding(get: { settledAutoClose.current }, set: { settledAutoClose.set($0) }))
+                Toggle("", isOn: Binding(
+                    get: { settledAutoClose.current },
+                    set: {
+                        settledAutoClose.set($0) {
+                            NotificationCenter.default.post(
+                                name: Self.agentHibernationSettingsDidChange,
+                                object: nil
+                            )
+                        }
+                    }
+                ))
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalSettledAutoCloseToggle")
@@ -283,7 +296,17 @@ public struct TerminalSection: View {
                 subtitle: String(localized: "settings.terminal.settledSessionAutoClose.idleHours.subtitle", defaultValue: "The minimum idle time before a settled session can be closed."),
                 controlWidth: 110
             ) {
-                Stepper("\(Int(settledAutoCloseHours.current))", value: Binding(get: { settledAutoCloseHours.current }, set: { settledAutoCloseHours.set($0) }), in: 1...168, step: 1)
+                Stepper("\(Int(settledAutoCloseHours.current))", value: Binding(
+                    get: { settledAutoCloseHours.current },
+                    set: {
+                        settledAutoCloseHours.set($0) {
+                            NotificationCenter.default.post(
+                                name: Self.agentHibernationSettingsDidChange,
+                                object: nil
+                            )
+                        }
+                    }
+                ), in: 1...168, step: 1)
                     .accessibilityIdentifier("SettingsTerminalSettledAutoCloseIdleHoursStepper")
             }
             SettingsCardDivider()
