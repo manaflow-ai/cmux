@@ -335,7 +335,7 @@ export default function CustomCommandsPage() {
       <ul>
         <li><code>&quot;command&quot;</code>: {t("actionTypeCommand")}</li>
         <li><code>&quot;agent&quot;</code>: {t("actionTypeAgent")}</li>
-        <li><code>&quot;builtin&quot;</code>: {t("actionTypeBuiltin")}</li>
+        <li><code>&quot;builtin&quot;</code>: {t("actionTypeBuiltin")} {t("actionTypeBuiltinCopy")} {t("actionTypeBuiltinCopyRemote")}</li>
         <li><code>&quot;workspaceCommand&quot;</code>: {t("actionTypeWorkspaceCommand")}</li>
         <li><code>&quot;workspace&quot;</code>: {t("actionTypeWorkspace")}</li>
       </ul>

@@ -1,6 +1,7 @@
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
+import { openSessionConnection } from "./connection";
 import type { HarnessRecommendation, HarnessCatalogs } from "../harness-contract";
 import { latestRouteStatus, normalizeRouteStatus, type RouteHealth, type RoutePhase, type RouteStatus } from "../route-status";
 
@@ -259,7 +260,8 @@ export interface SessionState {
   handoffPending: boolean;
   start(opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }): boolean;
   compose(): void;
-  reply(text: string): void;
+  /** Sends a reply, returning false when the WebSocket is not ready. */
+  reply(text: string): boolean;
   stop(): void;
   /** Focuses the terminal pane behind a terminal chat view. */
   focusTerminal(): void;
@@ -349,6 +351,7 @@ export function useSession(): SessionState {
   const [commands, setCommands] = useState<CommandGroup[]>([]);
   const [providerOptions, setProviderOptions] = useState<Record<string, SessionOption[]>>({});
   const [providerCommands, setProviderCommands] = useState<Record<string, CommandGroup[]>>({});
+  const latestCommandRequestsRef = useRef(new Map<string, { requestId: string; cwd: string; pending: boolean }>());
   const [filesByCwd, setFilesByCwd] = useState<Record<string, string[]>>({});
   const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string }>>({});
   const [fileDiffs, setFileDiffs] = useState<Record<string, string>>({});
@@ -436,19 +439,21 @@ export function useSession(): SessionState {
   }, []);
 
   useEffect(() => {
-    let closed = false;
-    const connect = () => {
-      const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws"));
-      wsRef.current = ws;
-      ws.onopen = () => {
+    const disconnect = openSessionConnection({
+      createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
+      onSocket: (ws) => {
+        wsRef.current = ws;
+        if (!ws) latestCommandRequestsRef.current.clear();
+      },
+      onOpen: () => {
         const pending = pendingStartRef.current;
         if (sessionIdRef.current) sendRaw({ op: "subscribe", sessionId: sessionIdRef.current });
         else if (pending && !pending.failed) {
           sendRaw({ op: "start", requestId: pending.requestId, conversationId: pending.conversationId, provider: pending.provider, cwd: pending.cwd, prompt: pending.prompt, options: pending.options });
           armPendingStartTimeout();
         }
-      };
-      ws.onmessage = (e) => {
+      },
+      onMessage: (e) => {
         const msg = JSON.parse(e.data);
         switch (msg.kind) {
           case "hello": {
@@ -612,9 +617,13 @@ export function useSession(): SessionState {
               setProviderOptions((current) => ({ ...current, ...msg.options }));
             }
             break;
-          case "commands-list":
+          case "commands-list": {
+            const request = latestCommandRequestsRef.current.get(msg.provider);
+            if (!request?.pending || request.requestId !== msg.requestId || request.cwd !== msg.cwd) break;
+            request.pending = false;
             setProviderCommands((m) => ({ ...m, [msg.provider]: msg.groups ?? [] }));
             break;
+          }
           case "files-list":
             setFilesByCwd((m) => ({ ...m, [msg.cwd]: msg.files ?? [] }));
             break;
@@ -637,6 +646,11 @@ export function useSession(): SessionState {
             }
             break;
           case "error":
+            if (msg.op === "list-commands") {
+              for (const request of latestCommandRequestsRef.current.values()) {
+                if (request.requestId === msg.requestId && request.cwd === msg.cwd) request.pending = false;
+              }
+            }
             if (msg.op === "start") {
               const message = String(msg.message ?? "");
               const pending = pendingStartRef.current;
@@ -660,15 +674,12 @@ export function useSession(): SessionState {
             }
             break;
         }
-      };
-      ws.onclose = () => { if (!closed) setTimeout(connect, 800); };
-    };
-    connect();
+      },
+    });
     return () => {
-      closed = true;
+      disconnect();
       clearPendingStartTimeout();
       closeHandoffWindow();
-      wsRef.current?.close();
     };
   }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, failPendingStart, sendRaw]);
 
@@ -726,26 +737,27 @@ export function useSession(): SessionState {
   const reply = useCallback((text: string) => {
     const pending = pendingStartRef.current;
     if (!sessionIdRef.current && pending?.failed) {
-      start({ provider: pending.provider, cwd: pending.cwd, prompt: text, options: pending.options });
-      return;
+      return start({ provider: pending.provider, cwd: pending.cwd, prompt: text, options: pending.options });
     }
     if (!sessionIdRef.current && pending && !pending.failed) {
       pending.queuedReplies.push({ requestId: newClientRequestId("turn"), prompt: text });
       optimisticUsersRef.current.push(text);
       setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
-      return;
+      return true;
     }
     if (sessionIdRef.current) {
-      if (sendRaw({ op: "send", sessionId: sessionIdRef.current, requestId: newClientRequestId("turn"), prompt: text })) {
-        setSession((s) => (s ? { ...s, status: "running" } : s));
-        // A terminal view's prompt only reaches the event log when the agent's
-        // transcript records it; show it now and drop that echo when it lands.
-        if (sessionModeRef.current === "transcript") {
-          optimisticUsersRef.current.push(text);
-          setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
-        }
+      const sent = sendRaw({ op: "send", sessionId: sessionIdRef.current, requestId: newClientRequestId("turn"), prompt: text });
+      if (!sent) return false;
+      setSession((s) => (s ? { ...s, status: "running" } : s));
+      // A terminal view's prompt only reaches the event log when the agent's
+      // transcript records it; show it now and drop that echo when it lands.
+      if (sessionModeRef.current === "transcript") {
+        optimisticUsersRef.current.push(text);
+        setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
       }
+      return true;
     }
+    return false;
   }, [sendRaw, start]);
   const focusTerminal = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });
@@ -779,7 +791,13 @@ export function useSession(): SessionState {
     sendRaw({ op: "list-options", provider, cwd });
   }, [sendRaw]);
   const requestProviderCommands = useCallback((provider: string, cwd: string) => {
-    sendRaw({ op: "list-commands", provider, cwd });
+    const previous = latestCommandRequestsRef.current.get(provider);
+    const request = { requestId: newClientRequestId("commands"), cwd, pending: true };
+    latestCommandRequestsRef.current.set(provider, request);
+    // Commands are discovered per cwd, but the menu is stored per provider.
+    // Never show the old project's commands while a new discovery is pending.
+    if (previous?.cwd !== cwd) setProviderCommands((m) => ({ ...m, [provider]: [] }));
+    if (!sendRaw({ op: "list-commands", provider, cwd, requestId: request.requestId })) request.pending = false;
   }, [sendRaw]);
   const requestFiles = useCallback((cwd: string, query?: string) => {
     sendRaw({ op: "list-files", cwd, query });

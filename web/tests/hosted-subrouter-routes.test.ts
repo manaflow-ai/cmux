@@ -606,6 +606,9 @@ describe("hosted Subrouter account routes", () => {
       request("/api/subrouter/teams"),
     );
     expect(teamsResponse.status).toBe(200);
+    // The team catalog also carries billing fields: plan, seats, and the
+    // caller's Stack team_admin role (this fixture's user holds it everywhere).
+    const billing = { planId: null, seats: null, role: "admin", canManageBilling: true };
     expect(await teamsResponse.json()).toEqual({
       selectedTeamId: "team-a",
       teams: [
@@ -614,18 +617,21 @@ describe("hosted Subrouter account routes", () => {
           name: "Team A",
           personal: false,
           permissions: { use: true, manageAccounts: true },
+          ...billing,
         },
         {
           id: "team-b",
           name: "Team B",
           personal: false,
           permissions: { use: true, manageAccounts: true },
+          ...billing,
         },
         {
           id: "user-1",
           name: "User One",
           personal: true,
           permissions: { use: true, manageAccounts: true },
+          ...billing,
         },
       ],
     });
