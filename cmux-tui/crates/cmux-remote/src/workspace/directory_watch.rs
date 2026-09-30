@@ -86,7 +86,7 @@ fn unknown_watch(watch: &str) -> RpcError {
 }
 
 impl DirectoryWatch {
-    fn record(&self, paths: impl IntoIterator<Item = &String>, overflow: bool) {
+    fn record<'a>(&self, paths: impl IntoIterator<Item = &'a String>, overflow: bool) {
         let sequence = {
             let mut changes = lock(&self.changes);
             if changes.removed {
