@@ -537,3 +537,30 @@ Fixes from this work:
 2. New Browser Tab in Chromium: open `chrome://newtab` so new-tab override extensions (Momentum, Infinity) show, or keep cmux's own start page and treat overrides as unsupported.
 3. Omnibox keywords: add an extension keyword mode to the cmux omnibar, or keep `chrome.omnibox` input unsupported.
 4. `identity.getAuthToken`: keep unsupported (no Chrome sign-in), or add Google sign-in to Chromium.
+
+## CEF artifacts in R2 (2026-09-30)
+
+The pinned CEF tarballs are also in the private R2 bucket `cmux-cef` on the cmux Cloudflare account (the account that holds `cmux-binaries` and `cmux-ci-cache`). The bucket has no public access: its r2.dev URL is off and it has no custom domain. Its only lifecycle rule is Cloudflare's default "abort incomplete multipart uploads after 7 days"; no rule deletes objects. Keys are content-addressed, `cef/<sha256>/<asset name>`, and the manifest names them (`r2_bucket`, `r2_key`, `debug_r2_key`).
+
+`scripts/cmux-next/ensure-cef.sh` tries, in order: the local cache, R2 through the S3 API with the read-only key, then the GitHub release (gh login, `GH_TOKEN`/`GITHUB_TOKEN`, public URL). Every source is checked against the manifest `sha256`; a mismatch or an R2 error falls through to the next source. The key comes from `CMUX_CEF_R2_ACCOUNT_ID`, `CMUX_CEF_R2_ACCESS_KEY_ID`, `CMUX_CEF_R2_SECRET_ACCESS_KEY` in the environment, else from `~/.secrets/cmux-cef.env` (`CMUX_CEF_R2_ENV_FILE` overrides the path). The script reads only those names from the file and never sources it. `CMUX_CEF_NO_R2=1` skips R2.
+
+`scripts/cmux-next/publish-cef-r2.sh <tag> [--manifest scripts/cmux-next/cef-manifest.json]` mirrors a fork release: it fetches the `.tar.xz` assets with gh (checked against `SHA256SUMS`), uploads write-once, downloads each object again and checks its sha256, and can write the R2 fields into the manifest. It needs `CMUX_CEF_R2_WRITE_ACCESS_KEY_ID` and `CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY`; only the fork owner holds those.
+
+### R2 API tokens
+
+`~/.secrets/cmux-cef.env` (mode 600) holds, by name:
+
+| Name | Scope |
+| --- | --- |
+| `CMUX_CEF_R2_ACCOUNT_ID` | account ID (not secret) |
+| `CMUX_CEF_R2_ACCESS_KEY_ID`, `CMUX_CEF_R2_SECRET_ACCESS_KEY` | token `cmux-cef-read`: Object Read only, bucket `cmux-cef` only |
+| `CMUX_CEF_R2_WRITE_ACCESS_KEY_ID`, `CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY` | token `cmux-cef-write`: Object Read and Write, bucket `cmux-cef` only |
+
+No token on this Mac may create API tokens (2026-09-30: wrangler and cf OAuth have no R2 or token scopes; the account tokens in `~/.secrets` have R2 bucket rights but no "Account API Tokens" right). Create both tokens in the dashboard: R2, Manage API tokens, Create Account API token, permission "Object Read only" (then "Object Read & Write"), "Apply to specific buckets only" = `cmux-cef`, TTL forever. Put the Access Key ID and Secret Access Key into the file above.
+
+### Steps for the coordinator (shared infrastructure, not done by the agent)
+
+1. GitHub Actions, repository secrets on manaflow-ai/cmux: `CMUX_CEF_R2_ACCOUNT_ID`, `CMUX_CEF_R2_ACCESS_KEY_ID`, `CMUX_CEF_R2_SECRET_ACCESS_KEY` (the read-only values). Then add them next to `GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}` in the "Build nightly app (Release)" step of `.github/workflows/nightly.yml` and the "Build universal app (Release)" step of `.github/workflows/release.yml`. `CMUX_CEF_READ_TOKEN` can stay as the fallback or be removed.
+2. `ci-macos.yml` admission ("Decide whether admission embeds the Chromium engine") runs `ensure-cef.sh` with no token on purpose. To embed Chromium there, also pass the three R2 secrets to that step and to the compile step. Decide first: same-repo PR jobs would then receive a key that reads the private Chromium build (fork PRs get no secrets).
+3. Fleet (cmux-ci controller builds): the worker passes its own environment to the recipe (build-fleet `cmd/worker/main.go` `buildEnv`, which blocks only controller/cache tokens), but sets `HOME` to the job directory, so `~/.secrets/cmux-cef.env` and `~/Library/Caches/cmux/cef` are not seen. Add to the `EnvironmentVariables` of each worker LaunchDaemon plist (the dev-build worker and `ai.manaflow.cmux-lent-worker`, installed by `build-fleet/mini-ops/lend-worker.sh`): the three read-only names, and `CMUX_CEF_CACHE_DIR=<persistent worker cache>/cef` so jobs reuse one verified copy (about 130 MB download, 700 MB extracted). Restart the workers. The recipe runs as `cmux`, so any submitted source can read the read-only key; it grants only object reads in `cmux-cef`.
+4. Team Macs: copy only the three read-only lines into `~/.secrets/cmux-cef.env`, mode 600. Keep the write key on the fork owner's Mac only.
