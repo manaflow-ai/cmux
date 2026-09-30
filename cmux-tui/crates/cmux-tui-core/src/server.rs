@@ -274,6 +274,10 @@ pub const NOTIFICATION_SOURCE_CAPABILITY: &str = "notification-source-v1";
 /// `kind:"remote-terminal"` tab with its `remote` object;
 /// plans/cmux-next/data-model.md sections 1.2 and 2).
 pub const REMOTE_TERMINAL_TABS_CAPABILITY: &str = "remote-terminal-tabs-v1";
+/// Detached terminals: `create-terminal {detached:true}` creates a kept
+/// terminal with no workspace, pane, screen, or tab (cmux-next "Open Terminal
+/// on Machine Here" shows it as a remote-terminal tab in another session).
+pub const DETACHED_TERMINALS_CAPABILITY: &str = "detached-terminals-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
