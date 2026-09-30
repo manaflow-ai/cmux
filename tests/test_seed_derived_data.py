@@ -280,6 +280,17 @@ class SeedDerivedData(unittest.TestCase):
         self.assertFalse((self.root / "escape").exists())
         self.assertIsNone(seed.cached("../k-3"))
 
+    def test_the_local_cache_keeps_more_than_two_seeds_on_a_roomy_disk(self):
+        cache = self.root / "seeds"
+        os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
+        (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
+        (self.derived / seed.MANIFEST).write_text("{}")
+        with mock.patch.object(seed, "free_bytes", return_value=seed.LOCAL_KEEP_MIN_FREE_BYTES + 1):
+            for index, key in enumerate(("k-1", "k-2", "k-3", "k-4")):
+                seed.stash(self.derived, key)
+                os.utime(cache / key, (1000 + index, 1000 + index))
+        self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-1", "k-2", "k-3", "k-4"])
+
     def test_the_prune_spares_a_seed_a_job_may_be_cloning(self):
         cache = self.root / "seeds"
         os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
