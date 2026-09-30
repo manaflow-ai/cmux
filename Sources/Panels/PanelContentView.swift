@@ -6,6 +6,7 @@ import Bonsplit
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFeedback
+import CmuxTerminalCore
 
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {
@@ -58,6 +59,7 @@ struct PanelContentView: View {
             if let terminalPanel = panel as? TerminalPanel {
                 TerminalPanelView(
                     panel: terminalPanel,
+                    agentFooterStore: terminalPanel.surface.agentFooter?.stateStore ?? AgentFooterStateStore.empty,
                     paneId: paneId,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,

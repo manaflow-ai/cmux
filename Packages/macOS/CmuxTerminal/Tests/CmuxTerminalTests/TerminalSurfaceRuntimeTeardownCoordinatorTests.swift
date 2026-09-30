@@ -62,6 +62,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         self.recorder = recorder
     }
 
+    @MainActor
     func release() {
         recorder.record("tee.release")
     }

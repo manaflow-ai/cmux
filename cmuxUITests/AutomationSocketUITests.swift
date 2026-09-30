@@ -13,6 +13,14 @@ final class AutomationSocketUITests: XCTestCase {
     private var launchTag = ""
     private var temporaryRoots: [URL] = []
 
+    private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in predicate() },
+            object: nil
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
@@ -278,6 +286,55 @@ final class AutomationSocketUITests: XCTestCase {
 
         let typedTitles = typedState["mention_titles"] as? [String] ?? []
         XCTAssertEqual(typedTitles.first, "$iterate-pr")
+    }
+
+    func testAgentFooterRendersFromOSC699AndClearsOnEmptyAgent() throws {
+        let app = configuredApp(mode: "allowAll")
+        app.launchArguments += ["-NSAppSleepDisabled", "YES"]
+        defer { app.terminate() }
+        launchAllowingHeadlessBackground(app)
+
+        XCTAssertTrue(
+            ensureRunningAfterLaunch(app, timeout: 12.0),
+            "Expected the app to launch for the agent footer test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected a control socket for the agent footer test. diagnostics=\(loadDiagnostics())"
+        )
+
+        let command = #"printf '\033]699; agent=codex ; context=34%%\033\\'; read -r _; printf '\033]699;agent=\033\\'; tail -f /dev/null"#
+        let workspace = try XCTUnwrap(
+            socketResult(
+                method: "workspace.create",
+                params: [
+                    "title": "Agent footer OSC 699",
+                    "initial_command": command,
+                    "focus": true,
+                ]
+            ),
+            "Expected workspace.create to return the agent footer terminal"
+        )
+        let surfaceID = try XCTUnwrap(workspace["surface_id"] as? String)
+        let footer = app.descendants(matching: .any).matching(identifier: "TerminalAgentFooter").firstMatch
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                footer.exists && footer.label.contains("codex") && footer.label.contains("34%")
+            },
+            "Expected the footer to show codex and 34%%, label=\(footer.label)"
+        )
+
+        _ = try XCTUnwrap(
+            socketResult(
+                method: "surface.send_text",
+                params: ["surface_id": surfaceID, "text": "clear\n"]
+            ),
+            "Expected surface.send_text to release the command's read"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) { !footer.exists },
+            "Expected an empty OSC 699 agent value to remove the footer"
+        )
     }
 
     func testWindowScreenshotCommandWritesNonBlankPNGWithTerminalAndBrowserContent() throws {

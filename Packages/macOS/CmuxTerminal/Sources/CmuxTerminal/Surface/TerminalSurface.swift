@@ -68,6 +68,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let engine: any TerminalEngineHosting
     let spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding
     let byteTee: any TerminalByteTeeBinding
+    public let agentFooter: (any AgentFooterStatePublishing)?
     let rendererRealization: any TerminalRendererRealizationScheduling
     let hibernationRecorder: any AgentHibernationRecording
     let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
@@ -632,6 +633,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.engine = dependencies.engine
         self.spawnPolicyProvider = dependencies.spawnPolicy
         self.byteTee = dependencies.byteTee
+        self.agentFooter = dependencies.agentFooter
         self.rendererRealization = dependencies.rendererRealization
         self.hibernationRecorder = dependencies.hibernationRecorder
         self.runtimeTeardown = dependencies.runtimeTeardown
@@ -780,7 +782,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #endif
             callbackContext?.release()
             manualIOContext?.release()
-            teeLease?.release()
+            Task { @MainActor in teeLease?.release() }
             return
         }
 
@@ -789,7 +791,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             runtimeSurfaceFreedOutOfBandForTesting = false
             callbackContext?.release()
             manualIOContext?.release()
-            teeLease?.release()
+            Task { @MainActor in teeLease?.release() }
             return
         }
 #endif

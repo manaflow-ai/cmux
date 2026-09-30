@@ -290,6 +290,15 @@ class GhosttyApp {
         return val > 0 ? val : AutomationSettings.defaultPortRange
     }()
 
+    /// The composition-root-owned footer lifecycle shared by terminal tees,
+    /// surface teardown, child-exit handling, and panel rendering.
+    @MainActor
+    static let terminalAgentFooterStateStore = AgentFooterStateStore()
+    @MainActor
+    static let terminalAgentFooterPublisher = TerminalAgentFooterPublisher(
+        store: terminalAgentFooterStateStore
+    )
+
     /// The injected collaborators for every `TerminalSurface` (transitional:
     /// dissolves into composition-root injection when `GhosttyAppService`
     /// replaces this type).
@@ -316,7 +325,10 @@ class GhosttyApp {
             )
         }(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
-        byteTee: TerminalOutputByteTeeBridge(),
+        byteTee: TerminalOutputByteTeeBridge(
+            agentFooter: GhosttyApp.terminalAgentFooterPublisher
+        ),
+        agentFooter: GhosttyApp.terminalAgentFooterPublisher,
         rendererRealization: RendererRealizationController.shared,
         hibernationRecorder: TerminalAgentHibernationRecorder(),
         runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,

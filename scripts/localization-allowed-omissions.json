@@ -1,4 +1,73 @@
 {
+  "terminal.agentFooter.contextPercent": {
+    "source": "%lld%%",
+    "identityLocales": {
+      "ar": {
+        "reason": "Percent notation is an invariant numeric status symbol in Arabic UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "ja": {
+        "reason": "Percent notation is an invariant numeric status symbol in Japanese UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "zh-Hans": {
+        "reason": "Percent notation is an invariant numeric status symbol in Simplified Chinese UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "zh-Hant": {
+        "reason": "Percent notation is an invariant numeric status symbol in Traditional Chinese UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "ko": {
+        "reason": "Percent notation is an invariant numeric status symbol in Korean UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "bs": {
+        "reason": "Percent notation is an invariant numeric status symbol in Bosnian UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "da": {
+        "reason": "Percent notation is an invariant numeric status symbol in Danish UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "it": {
+        "reason": "Percent notation is an invariant numeric status symbol in Italian UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "km": {
+        "reason": "Percent notation is an invariant numeric status symbol in Khmer UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "nb": {
+        "reason": "Percent notation is an invariant numeric status symbol in Norwegian Bokmål UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "pl": {
+        "reason": "Percent notation is an invariant numeric status symbol in Polish UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "pt-BR": {
+        "reason": "Percent notation is an invariant numeric status symbol in Brazilian Portuguese UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "ru": {
+        "reason": "Percent notation is an invariant numeric status symbol in Russian UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "th": {
+        "reason": "Percent notation is an invariant numeric status symbol in Thai UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "tr": {
+        "reason": "Percent notation is an invariant numeric status symbol in Turkish UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "uk": {
+        "reason": "Percent notation is an invariant numeric status symbol in Ukrainian UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      }
+    }
+  },
   "mobile.ios106PairingUpdate.releaseLabel": {
     "source": "1.0.6 · September 2026",
     "identityLocales": {
