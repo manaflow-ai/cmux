@@ -205,14 +205,12 @@ final class AgentAutoResumeCoordinator {
             return .dialog
         }
         let promptPrefixes = ["› ", "❯ ", "❯\u{00A0}", "> "]
-        let barePromptMarkers = ["❯", ">"]
         guard let lastNonEmptyIndex = plainRows.lastIndex(where: {
             !$0.trimmingCharacters(in: .whitespaces).isEmpty
         }),
         let promptIndex = plainRows.lastIndex(where: { row in
             let trimmed = row.drop(while: { $0 == " " || $0 == "│" })
             return promptPrefixes.contains(where: trimmed.hasPrefix)
-                || barePromptMarkers.contains(String(trimmed))
         }),
         promptIndex == lastNonEmptyIndex else { return .unknown }
         var typed = ""
@@ -225,9 +223,6 @@ final class AgentAutoResumeCoordinator {
                 for prefix in promptPrefixes where typed.hasPrefix(prefix) {
                     typed.removeFirst(prefix.count)
                     break
-                }
-                if barePromptMarkers.contains(typed) {
-                    typed.removeAll()
                 }
             }
         }
