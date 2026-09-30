@@ -125,8 +125,8 @@ final class CLISocketSentryTelemetry {
     }
 
     init(command: String, commandArgs: [String], socketPath: String, processEnv: [String: String]) {
-        self.command = command.lowercased()
-        self.subcommand = commandArgs.first?.lowercased() ?? "help"
+        self.command = Self.telemetryWord(command)
+        self.subcommand = Self.telemetrySubcommand(command: command, first: commandArgs.first)
         self.socketPath = socketPath
         self.envSocketPath = CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
         self.processEnv = processEnv
@@ -154,6 +154,30 @@ final class CLISocketSentryTelemetry {
     /// agent's neutral response, and failures are expected while the app is
     /// busy or quitting. Starting Sentry there is unbounded work inside the
     /// agent's hook budget.
+    /// Commands whose first argument is user or terminal text, never a
+    /// subcommand (`cmux send <text>`, `cmux notify ...`).
+    private static let payloadFirstCommands: Set<String> = [
+        "send", "send-text", "send-key", "notify", "log", "set-status", "rename-tab", "rename-workspace",
+        "rename-window", "rename-pane", "rename-surface", "open", "paste", "markdown", "diff", "set-title",
+    ]
+
+    /// A command name as telemetry records it: a command-shaped word, or
+    /// `<arg>` for anything else (a path, text), so terminal or user text
+    /// never reaches Sentry tags or context.
+    static func telemetryWord(_ value: String?) -> String {
+        guard let value = value?.lowercased(), value.count <= 40,
+              value.range(of: "^[a-z][a-z0-9._-]*$", options: .regularExpression) != nil else {
+            return "<arg>"
+        }
+        return value
+    }
+
+    static func telemetrySubcommand(command: String, first: String?) -> String {
+        guard let first else { return "help" }
+        if payloadFirstCommands.contains(command.lowercased()) { return "<payload>" }
+        return telemetryWord(first)
+    }
+
     static func isFailOpenAgentHookAdmission(command: String, subcommand: String) -> Bool {
         command == "hooks" && subcommand == "enqueue"
     }
