@@ -1878,6 +1878,8 @@ class TerminalController {
             }
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
+        case "surface.input_state":
+            return v2Result(id: request.id, v2SurfaceInputState(params: request.params))
         case "workspace.ssh.open":
             return v2VmCall(id: request.id, timeoutSeconds: 190) {
                 try await self.openSSHTuiWorkspace(params: request.params)
