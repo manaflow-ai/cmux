@@ -4304,13 +4304,12 @@ fn shutdown_daemon_with_end_terminals_leaves_no_terminal_host() {
 #[test]
 fn shutdown_daemon_end_terminals_keep_layout_keeps_tabs_across_restart() {
     let mut harness = RecoveryHarness::start("shutdown-keep-layout");
-    let created = request(
+    request(
         &harness.socket,
         serde_json::json!({
             "id": 1, "cmd": "run", "argv": ["/bin/cat"], "new_workspace": true, "name": "kept",
         }),
     );
-    let workspace_id = created["workspace"].as_u64().unwrap();
     let kept_workspace = |tree: &serde_json::Value| {
         tree["workspaces"]
             .as_array()
@@ -4347,19 +4346,26 @@ fn shutdown_daemon_end_terminals_keep_layout_keeps_tabs_across_restart() {
     wait_for_host_records(&harness.host_root(), 3);
     let tree = request(&harness.socket, serde_json::json!({"id": 8, "cmd": "list-workspaces"}));
     let before = kept_workspace(&tree);
+    // Numeric pane and split handles are per owner; compare durable ids and
+    // the split shape (direction and ratio).
     let layout = |workspace: &serde_json::Value| {
         workspace["screens"]
             .as_array()
             .unwrap()
             .iter()
             .map(|screen| {
+                let shape = serde_json::json!({
+                    "type": screen["layout"]["type"],
+                    "dir": screen["layout"]["dir"],
+                    "ratio": screen["layout"]["ratio"],
+                });
                 let tabs = screen["panes"]
                     .as_array()
                     .unwrap()
                     .iter()
                     .map(|pane| {
                         (
-                            pane["id"].clone(),
+                            pane["resource_id"].clone(),
                             pane["tabs"]
                                 .as_array()
                                 .unwrap()
@@ -4369,7 +4375,7 @@ fn shutdown_daemon_end_terminals_keep_layout_keeps_tabs_across_restart() {
                         )
                     })
                     .collect::<Vec<_>>();
-                (screen["resource_id"].clone(), screen["layout"].clone(), tabs)
+                (screen["resource_id"].clone(), shape, tabs)
             })
             .collect::<Vec<_>>()
     };
@@ -4409,7 +4415,7 @@ fn shutdown_daemon_end_terminals_keep_layout_keeps_tabs_across_restart() {
     harness.restart();
     let tree = request(&harness.socket, serde_json::json!({"id": 11, "cmd": "list-workspaces"}));
     let after = kept_workspace(&tree);
-    assert_eq!(after["id"].as_u64(), Some(workspace_id));
+    assert_eq!(after["resource_id"], before["resource_id"]);
     assert_eq!(layout(&after), expected, "the layout changed across the restart: {after}");
     for screen in after["screens"].as_array().unwrap() {
         for pane in screen["panes"].as_array().unwrap() {
