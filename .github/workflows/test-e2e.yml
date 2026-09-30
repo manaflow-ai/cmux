@@ -103,6 +103,10 @@ jobs:
       # What build and test take from attempt 2 on: the label, except that an
       # owned Mac becomes the 6vcpu macOS 26 pool (same Xcode build).
       retry_label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.retry_label }}
+      # The attempt that ran this job. build and test take `label` only on
+      # that attempt: a re-run of failed jobs keeps attempt 1's outputs, so
+      # its build sees an older attempt here and takes retry_label.
+      picked_attempt: ${{ github.run_attempt }}
     steps:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
@@ -112,6 +116,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -154,6 +159,7 @@ jobs:
           # Empty unless a step above minted it: idle owned runners, live.
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           GH_REPO: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS }}
           LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
@@ -180,6 +186,12 @@ jobs:
             --test-filter "$TEST_FILTER" \
             --owned-ui "$OWNED_UI")"
           retry_label="$(python3 scripts/ci/e2e_runner_pool.py --retry-of "$label" --test-filter "$TEST_FILTER")"
+          # A full re-run picks again, but only attempt 2 may land on an owned
+          # Mac (owned_pool_rescue.LAST_OWNED_ATTEMPT): from attempt 3 on the
+          # rescue expects Blacksmith, so a busy fleet never loops.
+          if [ "${GITHUB_RUN_ATTEMPT:-1}" -gt 2 ]; then
+            label="$retry_label"
+          fi
           {
             echo "label=$label"
             echo "retry_label=$retry_label"
@@ -191,7 +203,9 @@ jobs:
       # refuses. Fail-safe: without it the run is only not watched.
       - name: Mark a run on a persistent macOS pool
         id: marker
-        if: ${{ startsWith(steps.pool.outputs.label, 'glaeda-') && github.run_attempt == 1 }}
+        # Attempt 2 of a rescue's full re-run too: the rescue follows that
+        # attempt by its own marker (the name carries the attempt).
+        if: ${{ startsWith(steps.pool.outputs.label, 'glaeda-') && github.run_attempt <= 2 }}
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -211,7 +225,7 @@ jobs:
       # The owned-pool rescue sweeper (ci-owned-pool-rescue.yml) finds the runs
       # it watches by this fixed name, one listing for all of them.
       - name: Upload the owned-pool watch marker
-        if: ${{ steps.marker.outputs.path != '' }}
+        if: ${{ steps.marker.outputs.path != '' && github.run_attempt == 1 }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -428,7 +442,7 @@ jobs:
     needs: [resolve-ref, filter, runner, sibling]
     # The sibling wait never gates the build.
     if: ${{ !cancelled() && needs.resolve-ref.result == 'success' && needs.filter.result == 'success' && needs.runner.result == 'success' }}
-    runs-on: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
+    runs-on: ${{ needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label }}
     # Reuse lists this contract's artifacts and downloads one from an earlier
     # run. Nothing else in this lane reads the Actions API, and nothing writes.
     permissions:
@@ -467,7 +481,7 @@ jobs:
       # same Xcode build and macOS major. The intra-run handoff uses the
       # artifact id, not the name, so nothing here depends on it.
       CMUX_SKIP_ZIG_BUILD: "1"
-      CMUX_PRODUCT_RUNNER: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
+      CMUX_PRODUCT_RUNNER: ${{ needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label }}
     steps:
       - name: Verify GitHub-hosted route
         env:
@@ -1145,6 +1159,7 @@ jobs:
           sparse-checkout: |
             .github/actions/e2e-run-tests
             scripts/ci/e2e-frames.py
+            scripts/ci/brew-ensure.sh
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -1227,7 +1242,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
+    runs-on: ${{ needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label }}
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '45') }}
     env:
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
@@ -1364,6 +1379,7 @@ jobs:
           sparse-checkout: |
             .github/actions/e2e-run-tests
             scripts/ci/e2e-frames.py
+            scripts/ci/brew-ensure.sh
           sparse-checkout-cone-mode: false
           persist-credentials: false
 

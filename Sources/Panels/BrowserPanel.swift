@@ -2076,6 +2076,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Saved Cloud path waiting for a provider/resource to become available.
     /// It is consumed after the first successful authenticated configuration.
     var pendingCloudRestoreURL: URL?
+    /// The team that owns this pane's Cloud machine, restored from a snapshot.
+    /// Kept so a pane of another team re-persists its own team, not the selection.
+    var restoredCloudTeamID: String?
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -4620,6 +4623,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
         currentURL = restoredURL
         if let resource = snapshot.cloudResource {
+            restoredCloudTeamID = snapshot.cloudTeamID
+            if let machineID = resource.machine.cloudMachineID {
+                CmuxTuiSurfaceProviderRegistry.shared.adoptOwnerTeam(snapshot.cloudTeamID, forMachineID: machineID)
+            }
             restoreCloudResource(resource, preferredURL: restoredURL, activate: shouldRenderRestoredWebView)
             if !shouldRenderRestoredWebView { shouldRenderWebView = false; refreshNavigationAvailability() }
             return

@@ -4497,7 +4497,11 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
-        #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
+        // The probe only ends at its output timeout here, so shorten it.
+        #expect(!(await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            probeOutputTimeoutNanoseconds: 2_000_000_000
+        )))
         try await expectProcessExited(pidFile: childPIDFile)
     }
 
@@ -4537,7 +4541,11 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
-        #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
+        // The probe only ends at its output timeout here, so shorten it.
+        #expect(!(await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            probeOutputTimeoutNanoseconds: 2_000_000_000
+        )))
         try await expectProcessExited(pidFile: childPIDFile)
     }
 
