@@ -1881,10 +1881,10 @@ extension CMUXCLI {
             ]
             if let operationIDOption { fanOutParams["operation_id"] = operationIDOption }
             if let remoteWorkspaceOption { fanOutParams["remote_workspace_id"] = remoteWorkspaceOption }
-            if !noOpen,
-               let callerWorkspace = try? normalizeWorkspaceHandle(ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"], client: client) {
-                fanOutParams["workspace_id"] = callerWorkspace
-            }
+            // Fan-out children are first-class sessions: the app creates one
+            // local workspace/sidebar row per child by default. A caller
+            // workspace is intentionally not forwarded here; use
+            // --remote-workspace for the explicit shared-placement mode.
             let response = try client.sendV2(method: "vm.agent_fan_out", params: fanOutParams, responseTimeout: 240)
             if jsonOutput { print(jsonString(response)) } else { print(Self.vmAgentFanOutSummary(response)) }
             return
