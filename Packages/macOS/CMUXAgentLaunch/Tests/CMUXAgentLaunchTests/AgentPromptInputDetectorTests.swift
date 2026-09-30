@@ -155,6 +155,8 @@ struct AgentPromptInputDetectorTests {
         let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
         #expect(snapshot.agentKind == .claude)
         #expect(snapshot.state == .draft("first line\n  second line [Pasted text #1 +2 lines]"))
+        #expect(snapshot.composerText == "first line\n  second line [Pasted text #1 +2 lines]")
+        #expect(snapshot.composerFingerprint == "c58163a522eec82e0197ed49dbbb2d77db9d8154a7b32ef6bcd455de11598391")
         #expect(!snapshot.busy)
         #expect(!snapshot.queued)
     }
@@ -231,6 +233,15 @@ struct AgentPromptInputDetectorTests {
         #expect(snapshot.agentKind == .claude)
         #expect(snapshot.slashCommandPopup)
         #expect(snapshot.state == .dialog)
+        #expect(snapshot.composerText == "/goal resume")
+        #expect(snapshot.composerFingerprint == "268cbbe5fdb0b164ce42b6ba47439fda6afc3f342fa32e57ccf1b1744d3e857b")
+    }
+
+    @Test("Composer fingerprints normalize line endings and surrounding whitespace")
+    func composerFingerprintNormalization() {
+        let snapshot = AgentPromptSubmissionSnapshot(screenText: "❯\u{00A0}  hello\r\n")
+        #expect(snapshot.composerText == "hello")
+        #expect(snapshot.composerFingerprint == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
     }
 
     @Test("Slash command suggestions above the composer are detected")
