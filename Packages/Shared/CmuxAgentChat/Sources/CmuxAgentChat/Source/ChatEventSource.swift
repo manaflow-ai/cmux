@@ -9,6 +9,17 @@ public protocol ChatEventSource: Sendable {
     /// Whether this source supports recursive artifact folder browsing.
     var supportsArtifactFolders: Bool { get }
 
+    /// Lists conversations owned by this backend. The UI keeps this method on
+    /// the backend seam so an ACP daemon, a hosted API, or a future provider
+    /// can all drive the same session picker.
+    func sessions(workspaceID: String?) async throws -> [ChatSessionDescriptor]
+
+    /// Reads the current metadata for one conversation.
+    func session(sessionID: String) async throws -> ChatSessionDescriptor
+
+    /// Creates a conversation and returns its backend identifier.
+    func createSession(harness: String?, workingDirectory: String?) async throws -> String
+
     /// Fetches a page of transcript history for a session.
     ///
     /// - Parameters:
@@ -119,12 +130,31 @@ public protocol ChatEventSource: Sendable {
     func artifactList(sessionID: String, path: String) async throws -> ChatArtifactDirectoryListing
 }
 
+/// Errors returned when a backend does not expose an optional conversation
+/// operation. A UI can turn this into an unavailable state without coupling to
+/// a provider-specific error type.
+public enum ChatEventSourceError: Error, Sendable, Equatable {
+    case unsupported
+}
+
 public extension ChatEventSource {
     /// Unsupported-by-default artifact capability for fixtures and previews.
     var supportsArtifacts: Bool { false }
 
     /// Unsupported-by-default recursive artifact folder capability.
     var supportsArtifactFolders: Bool { false }
+
+    func sessions(workspaceID _: String?) async throws -> [ChatSessionDescriptor] {
+        throw ChatEventSourceError.unsupported
+    }
+
+    func session(sessionID _: String) async throws -> ChatSessionDescriptor {
+        throw ChatEventSourceError.unsupported
+    }
+
+    func createSession(harness _: String?, workingDirectory _: String?) async throws -> String {
+        throw ChatEventSourceError.unsupported
+    }
 
     /// Unsupported-by-default artifact stat implementation.
     func artifactStat(sessionID: String, path: String) async throws -> ChatArtifactStat {

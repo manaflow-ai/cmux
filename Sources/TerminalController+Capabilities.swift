@@ -59,6 +59,13 @@ extension TerminalController {
             "mobile.task.models.list",
             "mobile.chat.send",
             "mobile.chat.interrupt",
+            "mobile.acpmux.sessions",
+            "mobile.acpmux.session",
+            "mobile.acpmux.session.new",
+            "mobile.acpmux.history",
+            "mobile.acpmux.send",
+            "mobile.acpmux.cancel",
+            "mobile.acpmux.answer",
             // Socket-reachable panel artifact reads (worker lane); fetch stays
             // behind the authenticated mobile execution context.
             "mobile.panel.artifact.stat",

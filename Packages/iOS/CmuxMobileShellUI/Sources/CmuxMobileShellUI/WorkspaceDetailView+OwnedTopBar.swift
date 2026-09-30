@@ -60,6 +60,9 @@ extension WorkspaceDetailView {
                 )
                 .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
             }
+            if store.supportsAcpmuxChat {
+                acpmuxChatToolbarButton
+            }
             terminalPickerToolbarButton
         }
         .buttonStyle(.plain)

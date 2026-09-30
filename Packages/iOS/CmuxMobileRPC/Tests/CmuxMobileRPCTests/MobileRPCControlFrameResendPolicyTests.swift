@@ -16,6 +16,9 @@ import Testing
     @Test func readOnlyRequestsAreResent() throws {
         #expect(MobileRPCControlFrameResendPolicy.allowsResend(ofFrame: try frame(method: "mobile.workspace.list")))
         #expect(MobileRPCControlFrameResendPolicy.allowsResend(ofFrame: try frame(method: "mobile.host.status")))
+        #expect(MobileRPCControlFrameResendPolicy.allowsResend(ofFrame: try frame(method: "mobile.acpmux.sessions")))
+        #expect(MobileRPCControlFrameResendPolicy.allowsResend(ofFrame: try frame(method: "mobile.acpmux.session")))
+        #expect(MobileRPCControlFrameResendPolicy.allowsResend(ofFrame: try frame(method: "mobile.acpmux.history")))
         #expect(MobileRPCControlFrameResendPolicy.allowsResend(ofFrame: try frame(
             method: "mobile.terminal.replay",
             params: ["workspace_id": "w", "surface_id": "s"]
