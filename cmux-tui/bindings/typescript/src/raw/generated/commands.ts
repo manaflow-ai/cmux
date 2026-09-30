@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd. */
+/* cmux-tui mux protocol 12, IR b71910b6a1ed69fa3f1b8b66d0337dcd48bdc50bc2d229a1047c423a5ecb16fb. */
 
 
 import type * as T from "./types.js";
@@ -1320,6 +1320,15 @@ export interface SetDefaultColorsRequest extends CmuxRequestBase {
 export type SetDefaultColorsResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
+export interface SetPersonalTerminalRequest extends CmuxRequestBase {
+  cmd: "set-personal-terminal";
+  "session_id": string;
+  "terminal_key": string;
+  "theme"?: (string) | null;
+}
+export type SetPersonalTerminalResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface SetPersonalWorkspaceRequest extends CmuxRequestBase {
   cmd: "set-personal-workspace";
   "browser_profile_id"?: (string) | null;
@@ -1819,6 +1828,7 @@ export type CmuxRequest =
   | SetClientInfoRequest
   | SetClientSizingRequest
   | SetDefaultColorsRequest
+  | SetPersonalTerminalRequest
   | SetPersonalWorkspaceRequest
   | SetProfileFollowsRequest
   | SetRatioRequest
@@ -2989,6 +2999,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "set-personal-terminal": {
+    request: SetPersonalTerminalRequest;
+    result: SetPersonalTerminalResult;
+    authority: "control";
+    since: 12;
+    capability: "personal-terminals-v1";
     stream: null;
   };
   "set-personal-workspace": {

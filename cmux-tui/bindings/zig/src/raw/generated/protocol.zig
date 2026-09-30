@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd";
+pub const ir_sha256 = "b71910b6a1ed69fa3f1b8b66d0337dcd48bdc50bc2d229a1047c423a5ecb16fb";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -5389,6 +5389,27 @@ pub fn setDefaultColors(client: anytype, request: SetDefaultColorsRequest) !wire
     );
 }
 
+pub const SetPersonalTerminalRequest = struct {
+    session_id: []const u8,
+    terminal_key: []const u8,
+    theme: wire.Field([]const u8) = .absent,
+};
+
+pub const SetPersonalTerminalResult = JsonValue;
+
+pub fn setPersonalTerminal(client: anytype, request: SetPersonalTerminalRequest) !wire.Decoded(SetPersonalTerminalResult) {
+    return client.callTyped(
+        SetPersonalTerminalResult,
+        .{
+            .name = "set-personal-terminal",
+            .authority = "control",
+            .since = 12,
+            .capability = "personal-terminals-v1",
+        },
+        request,
+    );
+}
+
 pub const SetPersonalWorkspaceRequest = struct {
     browser_profile_id: wire.Field([]const u8) = .absent,
     group: wire.Field([]const u8) = .absent,
@@ -7294,7 +7315,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 182;
+pub const command_count: usize = 183;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7437,6 +7458,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-client-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "set-personal-terminal", .authority = "control", .since = 12, .capability = "personal-terminals-v1", .stream = null },
     .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-profile-follows", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-ratio", .authority = "control", .since = 5, .capability = null, .stream = null },

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd'
+IR_SHA256 = 'b71910b6a1ed69fa3f1b8b66d0337dcd48bdc50bc2d229a1047c423a5ecb16fb'
 
 
 @dataclass(frozen=True)
@@ -1912,6 +1912,19 @@ COMMANDS = {
             'palette': CommandFieldMetadata(9, None),
             'selection_bg': CommandFieldMetadata(9, None),
             'selection_fg': CommandFieldMetadata(9, None),
+        },
+    ),
+    'set-personal-terminal': CommandMetadata(
+        'set-personal-terminal',
+        'control',
+        12,
+        'personal-terminals-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'session_id': CommandFieldMetadata(None, None),
+            'terminal_key': CommandFieldMetadata(None, None),
+            'theme': CommandFieldMetadata(None, None),
         },
     ),
     'set-personal-workspace': CommandMetadata(

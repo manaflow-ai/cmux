@@ -252,6 +252,7 @@
       "set-client-info",
       "set-client-sizing",
       "set-default-colors",
+      "set-personal-terminal",
       "set-personal-workspace",
       "set-profile-follows",
       "set-ratio",

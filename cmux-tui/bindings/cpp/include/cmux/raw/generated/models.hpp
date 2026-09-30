@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd";
+inline constexpr std::string_view kProtocolIrSha256 = "b71910b6a1ed69fa3f1b8b66d0337dcd48bdc50bc2d229a1047c423a5ecb16fb";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -303,6 +303,7 @@ struct SetCellPixelsRequest;
 struct SetClientInfoRequest;
 struct SetClientSizingRequest;
 struct SetDefaultColorsRequest;
+struct SetPersonalTerminalRequest;
 struct SetPersonalWorkspaceRequest;
 struct SetProfileFollowsRequest;
 struct SetRatioRequest;
@@ -2993,6 +2994,13 @@ struct SetDefaultColorsRequest {
     friend bool operator==(const SetDefaultColorsRequest&, const SetDefaultColorsRequest&) = default;
 };
 
+struct SetPersonalTerminalRequest {
+    std::string session_id{};
+    std::string terminal_key{};
+    Field<std::string> theme{};
+    friend bool operator==(const SetPersonalTerminalRequest&, const SetPersonalTerminalRequest&) = default;
+};
+
 struct SetPersonalWorkspaceRequest {
     Field<std::string> browser_profile_id{};
     Field<std::string> group{};
@@ -5364,6 +5372,12 @@ template <>
 struct Codec<SetDefaultColorsRequest> {
     static Result<Json> encode(const SetDefaultColorsRequest& value);
     static Result<SetDefaultColorsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetPersonalTerminalRequest> {
+    static Result<Json> encode(const SetPersonalTerminalRequest& value);
+    static Result<SetPersonalTerminalRequest> decode(const Json& value);
 };
 
 template <>

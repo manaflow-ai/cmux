@@ -347,8 +347,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "b6c3f894e3b9d00ff1d062ae8ddbf11d69bfe03b43456c33c2bb913a1850b806",
-      "size": 47150
+      "sha256": "f9a7c79ddf101c03d14bca48e1e45e298bdc1643b07a948e391009cf2d117365",
+      "size": 47413
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -597,8 +597,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "d0e7d33fc3abc06f30525c020d11fb7d9bea7e31f02ccc9fa786232ecb91b836",
-      "size": 42272
+      "sha256": "79089e16829ca201b8a318bd8cfe3a7671b070738441dcd33dc018f521580298",
+      "size": 42508
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1132,7 +1132,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "332772ff1413ed405728cc1f839e321d32364b1cce0a22ba16f128311db9977d",
+      "sha256": "f2db62ab6a372c4f8d48a9934f4320f3cc3a914d13960c6900bf31fd325e0942",
       "size": 4696
     },
     {
@@ -1514,6 +1514,11 @@
       "path": "SetDefaultColorsRequest.java",
       "sha256": "7bf8cf1b85137e678d95b11d322c22de199abe39868cbe33ce5d93cbf2576db7",
       "size": 7555
+    },
+    {
+      "path": "SetPersonalTerminalRequest.java",
+      "sha256": "ed194a9b9dd8bbbb280d9087aba9244c16ce5eb532e04b2d67e54e98aec036f9",
+      "size": 3589
     },
     {
       "path": "SetPersonalWorkspaceRequest.java",
@@ -2097,7 +2102,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd",
+  "ir_sha256": "b71910b6a1ed69fa3f1b8b66d0337dcd48bdc50bc2d229a1047c423a5ecb16fb",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd.
+// cmux-tui mux protocol 12, IR b71910b6a1ed69fa3f1b8b66d0337dcd48bdc50bc2d229a1047c423a5ecb16fb.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1880,6 +1880,18 @@ pub type SetDefaultColorsResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetPersonalTerminalRequest {
+    pub session_id: String,
+    pub terminal_key: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub theme: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type SetPersonalTerminalResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetPersonalWorkspaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub browser_profile_id: Optional<String>,
@@ -3163,6 +3175,10 @@ impl CmuxClient {
             self.require_protocol_field("set-default-colors", 9)?;
         }
         self.execute(&SET_DEFAULT_COLORS_METADATA, &request)
+    }
+
+    pub fn set_personal_terminal(&mut self, request: SetPersonalTerminalRequest) -> Result<SetPersonalTerminalResult> {
+        self.execute(&SET_PERSONAL_TERMINAL_METADATA, &request)
     }
 
     pub fn set_personal_workspace(&mut self, request: SetPersonalWorkspaceRequest) -> Result<SetPersonalWorkspaceResult> {

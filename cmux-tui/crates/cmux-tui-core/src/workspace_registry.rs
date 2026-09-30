@@ -35,6 +35,7 @@ mod idle_policy_store;
 mod journal_extensions;
 mod personal_mutations;
 mod personal_store;
+mod personal_terminals;
 mod presentation_store;
 mod public_fold;
 mod public_projection_store;
@@ -66,7 +67,7 @@ pub(crate) use journal_extensions::{
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
 pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
-pub use personal_store::PersonalSnapshot;
+pub use personal_store::{PersonalSnapshot, PersonalTerminal};
 pub use presentation_store::{
     FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
     TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,

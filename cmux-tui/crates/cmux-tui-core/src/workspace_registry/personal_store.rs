@@ -81,6 +81,12 @@ pub(super) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::R
            browser_profile_id TEXT,
            theme TEXT,
            PRIMARY KEY(session_id, workspace_key)
+         );
+         CREATE TABLE IF NOT EXISTS personal_terminals (
+           session_id TEXT NOT NULL,
+           terminal_key TEXT NOT NULL,
+           theme TEXT NOT NULL,
+           PRIMARY KEY(session_id, terminal_key)
          );",
     )?;
     Ok(())
@@ -204,6 +210,15 @@ pub struct PersonalWorkspace {
     pub theme: Option<String>,
 }
 
+/// The own theme of one session-qualified terminal
+/// (`personal-terminals-v1`). A terminal without a row has none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PersonalTerminal {
+    pub session_id: String,
+    pub terminal_key: String,
+    pub theme: String,
+}
+
 /// Everything `list-personal` returns, in order.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct PersonalSnapshot {
@@ -213,6 +228,7 @@ pub struct PersonalSnapshot {
     pub pins: Vec<PersonalPin>,
     pub groups: Vec<PersonalGroup>,
     pub workspaces: Vec<PersonalWorkspace>,
+    pub terminals: Vec<PersonalTerminal>,
 }
 
 // MARK: Validation
@@ -540,7 +556,23 @@ pub(super) fn read_snapshot(connection: &Connection) -> anyhow::Result<PersonalS
         pins: read_pins(connection)?,
         groups: read_groups(connection)?,
         workspaces: read_workspaces(connection)?,
+        terminals: read_terminals(connection)?,
     })
+}
+
+pub(super) fn read_terminals(connection: &Connection) -> anyhow::Result<Vec<PersonalTerminal>> {
+    let mut statement = connection.prepare(
+        "SELECT session_id, terminal_key, theme FROM personal_terminals
+         ORDER BY session_id ASC, terminal_key ASC",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok(PersonalTerminal {
+            session_id: row.get(0)?,
+            terminal_key: row.get(1)?,
+            theme: row.get(2)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
 pub(super) fn next_workspace_position(connection: &Connection) -> anyhow::Result<i64> {

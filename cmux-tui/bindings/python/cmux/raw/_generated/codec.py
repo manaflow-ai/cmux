@@ -279,6 +279,7 @@ MODEL_BY_PATH = {
     'commands/set-client-info/request': models.SetClientInfoRequest,
     'commands/set-client-sizing/request': models.SetClientSizingRequest,
     'commands/set-default-colors/request': models.SetDefaultColorsRequest,
+    'commands/set-personal-terminal/request': models.SetPersonalTerminalRequest,
     'commands/set-personal-workspace/request': models.SetPersonalWorkspaceRequest,
     'commands/set-profile-follows/request': models.SetProfileFollowsRequest,
     'commands/set-ratio/request': models.SetRatioRequest,

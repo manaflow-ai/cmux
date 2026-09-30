@@ -2638,6 +2638,14 @@ class SetDefaultColorsRequest:
 
 
 @dataclass(frozen=True)
+class SetPersonalTerminalRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-personal-terminal/request'
+    session_id: str
+    terminal_key: str
+    theme: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetPersonalWorkspaceRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-personal-workspace/request'
     session_id: str
@@ -3889,6 +3897,7 @@ __all__ = [
     'SetClientInfoRequest',
     'SetClientSizingRequest',
     'SetDefaultColorsRequest',
+    'SetPersonalTerminalRequest',
     'SetPersonalWorkspaceRequest',
     'SetProfileFollowsRequest',
     'SetRatioRequest',

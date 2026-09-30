@@ -204,6 +204,9 @@ pub const SESSION_IDENTITY_CAPABILITY: &str = "session-identity-v1";
 /// the session registry, personal groups and order, `list-personal`, and the
 /// `personal-changed` event (plans/cmux-next/data-model.md section 3).
 pub const PROFILES_CAPABILITY: &str = "profiles-v1";
+/// Per-terminal themes in the home session's personal state:
+/// `set-personal-terminal` and `list-personal.terminals`.
+pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
 /// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
 /// `move-screen`, `new-screen` with `screen_name`/`color`/`icon`/`pinned`/
 /// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,
@@ -344,6 +347,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         LOOPBACK_FORWARD_CAPABILITY,
         SESSION_IDENTITY_CAPABILITY,
         PROFILES_CAPABILITY,
+        PERSONAL_TERMINALS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
     ];
@@ -2010,6 +2014,13 @@ enum Command {
         browser_profile_id: Option<Option<String>>,
         #[serde(default, deserialize_with = "present_nullable")]
         theme: Option<Option<String>>,
+    },
+    /// Set or clear (null) the own theme of a session-qualified terminal.
+    SetPersonalTerminal {
+        session_id: String,
+        terminal_key: String,
+        #[serde(default)]
+        theme: Option<String>,
     },
     /// List sidebar workspace groups in order.
     ListWorkspaceGroups,
@@ -14864,6 +14875,9 @@ fn handle_command_with_cancellation(
                 theme,
             },
         ),
+        Command::SetPersonalTerminal { session_id, terminal_key, theme } => {
+            personal::set_terminal(mux, &session_id, &terminal_key, theme.as_deref())
+        }
         Command::ListWorkspaceGroups => {
             Ok(json!({ "groups": workspace_groups_json(&mux.presentation_snapshot()) }))
         }

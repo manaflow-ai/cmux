@@ -718,6 +718,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object setPersonalTerminal(SetPersonalTerminalRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_PERSONAL_TERMINAL, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object setPersonalWorkspace(SetPersonalWorkspaceRequest request) throws CmuxException {
         Object result = execute(Commands.SET_PERSONAL_WORKSPACE, request.toWire());
         return Wire.immutableJson(result);
