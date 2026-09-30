@@ -75,9 +75,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugScreens.report(services: services))
             },
-            .mainActor("debug.surfaces") { [weak services] _ in
+            // `text: true` adds each terminal mirror's viewport text.
+            .mainActor("debug.surfaces") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(SurfaceDiagnosticsReport.make(services))
+                return .value(SurfaceDiagnosticsReport.make(services, includeText: call.params["text"]?.boolValue == true))
             },
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
             .async("resources") { [weak services] call in

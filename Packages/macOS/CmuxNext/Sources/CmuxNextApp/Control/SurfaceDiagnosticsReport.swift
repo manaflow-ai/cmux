@@ -16,7 +16,9 @@ enum SurfaceDiagnosticsReport {
         return result
     }
 
-    static func make(_ services: AppServices) -> JSONValue {
+    /// `includeText` adds each terminal mirror's viewport text (`text`), so a
+    /// script can check that a view renders what its daemon terminal shows.
+    static func make(_ services: AppServices, includeText: Bool = false) -> JSONValue {
         let rows = statuses(services)
         var windows: [String: [JSONValue]] = [:]
         var order: [String] = []
@@ -28,6 +30,10 @@ enum SurfaceDiagnosticsReport {
                 object["workspace"] = .string(row.window.content?.workspace.id ?? "")
                 object["focused"] = .bool(row.pane.isFocusedInWorkspace)
                 if let tab = row.status.selectedTab { object["phase"] = .string(services.cache.phase(of: tab).rawValue) }
+                if case .terminal(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
+                    object["attach"] = .string(entry.io.attachPhase.journalName)
+                    if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
+                }
                 pane = .object(object)
             }
             windows[key, default: []].append(pane)
