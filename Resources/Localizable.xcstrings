@@ -551724,55 +551724,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scale all text in cmux."
+            "value": "Scale supported interface text and terminal fonts."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ändere die Größe des gesamten Texts in cmux."
+            "value": "Skaliere unterstützten Oberflächentext und Terminalschriften."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modifiez la taille de tout le texte de cmux."
+            "value": "Redimensionnez le texte d’interface pris en charge et les polices du terminal."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "غيّر حجم جميع النصوص في cmux."
+            "value": "غيّر حجم نص الواجهة المدعوم وخطوط الطرفية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cambia el tamaño de todo el texto de cmux."
+            "value": "Ajusta el tamaño del texto de la interfaz compatible y de las fuentes del terminal."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "調整 cmux 中所有文字的大小。"
+            "value": "縮放支援的介面文字和終端機字型。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "调整 cmux 中所有文本的大小。"
+            "value": "缩放支持的界面文本和终端字体。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux의 모든 텍스트 크기를 조절합니다."
+            "value": "지원되는 인터페이스 텍스트와 터미널 글꼴의 크기를 조절합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 内のすべてのテキストの大きさを変更します。"
+            "value": "対応するインターフェイスのテキストとターミナルのフォントを拡大・縮小します。"
           }
         }
       }
@@ -555677,55 +555677,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show a lock badge for local password prompts."
+            "value": "Show a lock badge when a local program hides password input."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeige bei lokalen Passwortabfragen ein Schloss-Symbol an."
+            "value": "Zeige ein Schloss-Symbol an, wenn ein lokales Programm die Passworteingabe verbirgt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affichez un badge de cadenas pour les invites de mot de passe locales."
+            "value": "Affichez un badge de cadenas lorsqu’un programme local masque la saisie du mot de passe."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اعرض شارة قفل عند المطالبات المحلية بكلمة المرور."
+            "value": "اعرض شارة قفل عندما يخفي برنامج محلي إدخال كلمة المرور."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra una insignia de candado para las solicitudes locales de contraseña."
+            "value": "Muestra una insignia de candado cuando un programa local oculta la entrada de la contraseña."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "本機提示輸入密碼時顯示鎖頭標記。"
+            "value": "本機程式隱藏密碼輸入時顯示鎖頭標記。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "本地提示输入密码时显示锁形标记。"
+            "value": "本地程序隐藏密码输入时显示锁形标记。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "로컬 비밀번호 프롬프트에 자물쇠 배지를 표시합니다."
+            "value": "로컬 프로그램이 비밀번호 입력을 숨길 때 자물쇠 배지를 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ローカルのパスワード入力を求められたときに鍵のバッジを表示します。"
+            "value": "ローカルのプログラムがパスワード入力を非表示にするときに鍵のバッジを表示します。"
           }
         }
       }

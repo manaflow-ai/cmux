@@ -197,7 +197,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "password-input-indicator",
                 title: String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
-                detailText: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Show a lock badge for local password prompts."),
+                detailText: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Show a lock badge when a local program hides password input."),
                 paths: ["terminal.showPasswordInputIndicator"],
                 synonyms: "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"
             ),

@@ -467,7 +467,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.showPasswordInputIndicator"),
                 String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
-                subtitle: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Show a lock badge for local password prompts.")
+                subtitle: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Show a lock badge when a local program hides password input.")
             ) {
                 Toggle("", isOn: Binding(get: { passwordInputIndicator.current }, set: { passwordInputIndicator.set($0) }))
                     .labelsHidden()
