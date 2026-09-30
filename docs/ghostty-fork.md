@@ -2022,6 +2022,26 @@ tend to conflict together during rebases.
     `App.focusedSurface`, or the embedded surface close path should preserve
     serialization of registry/focus mutation across create and free.
 
+### 15) OSC 133;A prompt starts its own logical line
+
+- Commits:
+  - `4458decb6` (test: a prompt after a padded partial line must stay at column 0 across resize)
+  - `5e5f8e12e` (terminal: start an OSC 133;A prompt on its own logical line)
+- Files:
+  - `src/terminal/Terminal.zig`
+  - `src/terminal/Screen.zig`
+- Summary:
+  - zsh PROMPT_SP pads a partial output line with spaces past the right edge,
+    which soft-wraps into the row where the prompt starts. Reflow joined the
+    two rows on every resize, so zsh's SIGWINCH redraw from column 0 left
+    prompt fragments behind.
+  - When OSC 133;A starts a prompt at column 0 of a soft-wrap continuation
+    row, `Screen.cursorBreakWrapIntoRow` resets the wrap from the row above.
+- Conflict notes:
+  - Any upstream change to the `fresh_line_new_prompt` handler or to
+    semantic-prompt reflow should keep a prompt at column 0 of its own
+    logical line.
+
 The current cmux pin is the merged head `34cbf180d`, which merges the surface
 registry serialization (`e5c962a72`, section 14, landed on cmux `main` via
 branch `issue-5458-surface-registry-lock`) into the Cmd-click link fix line
