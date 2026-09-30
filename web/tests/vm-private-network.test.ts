@@ -820,7 +820,7 @@ describe("enrollVmTunnel", () => {
 describe("team tunnel reconciliation", () => {
   const TEAM_2: ProviderNetwork = { id: "vpc-team-2", slug: networkSlugForTeam("team-2"), cidr: "10.60.0.0/24", cidrV6: "fd60::/64" };
 
-  function enroll(teamIds: readonly string[] | undefined, repo: VmRepositoryShape, gateway: VmProviderGatewayShape) {
+  function enroll(teamIds: readonly string[] | undefined, repo: VmRepositoryShape, gateway: VmProviderGatewayShape, teamIdsComplete = true) {
     return Effect.runPromise(enrollVmTunnel({
       userId: "user-1",
       provider: "freestyle",
@@ -828,7 +828,7 @@ describe("team tunnel reconciliation", () => {
       deviceFingerprint: "device-1",
       tunnelPurpose: "browser",
       clientPublicKey: CLIENT_KEY,
-      ...(teamIds ? { teamIds } : {}),
+      ...(teamIds ? { teamIds, teamIdsComplete } : {}),
     }).pipe(Effect.provide(layerFor(repo, gateway))));
   }
 
@@ -878,6 +878,31 @@ describe("team tunnel reconciliation", () => {
     const result = await enroll(["team-1"], testRepo({ network: networkRow(), tunnel: tunnelRow() }), testGateway({ calls, getTunnel: live, teamNetworks: [TEAM_NETWORK, TEAM_2] }));
     expect(calls.attachTunnelNetwork).toEqual([]);
     expect(calls.detachTunnelNetwork).toEqual([TEAM_2.id]);
+    expect(result.networks.map((network) => network.id)).toEqual([NETWORK.id, TEAM_NETWORK.id]);
+  });
+
+  test("a complete multi-team membership keeps every team network attached", async () => {
+    const calls = newGatewayCalls();
+    const live = providerTunnel({ attachments: [
+      { networkId: NETWORK.id, addressV4: "10.40.0.2", addressV6: "fd00:40::2" },
+      { networkId: TEAM_NETWORK.id, addressV4: "10.50.0.2", addressV6: "fd50::2" },
+      { networkId: TEAM_2.id, addressV4: "10.60.0.2", addressV6: "fd60::2" },
+    ] });
+    const result = await enroll(["team-1", "team-2"], testRepo({ network: networkRow(), tunnel: tunnelRow() }), testGateway({ calls, getTunnel: live, teamNetworks: [TEAM_NETWORK, TEAM_2] }));
+    expect(calls.attachTunnelNetwork).toEqual([]);
+    expect(calls.detachTunnelNetwork).toEqual([]);
+    expect(result.networks.map((network) => network.id)).toEqual([NETWORK.id, TEAM_NETWORK.id, TEAM_2.id]);
+  });
+
+  test("a partial team list (selected team only) attaches but never detaches other team networks", async () => {
+    const calls = newGatewayCalls();
+    const live = providerTunnel({ attachments: [
+      { networkId: NETWORK.id, addressV4: "10.40.0.2", addressV6: "fd00:40::2" },
+      { networkId: TEAM_2.id, addressV4: "10.60.0.2", addressV6: "fd60::2" },
+    ] });
+    const result = await enroll(["team-1"], testRepo({ network: networkRow(), tunnel: tunnelRow() }), testGateway({ calls, getTunnel: live, teamNetworks: [TEAM_NETWORK, TEAM_2] }), false);
+    expect(calls.attachTunnelNetwork).toEqual([TEAM_NETWORK.id]);
+    expect(calls.detachTunnelNetwork).toEqual([]);
     expect(result.networks.map((network) => network.id)).toEqual([NETWORK.id, TEAM_NETWORK.id]);
   });
 

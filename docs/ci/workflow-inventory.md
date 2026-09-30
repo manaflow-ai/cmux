@@ -36,7 +36,6 @@ The required checks on `main` (ruleset "main: block force-push or delete") are `
 - `testbox-broker-guard.yml` runs on every PR and every push to main (6,275 runs) because its header says "The main CI suite is dispatch-only right now". That is no longer true, so the guard could move into `ci-guards.yml`.
 - `web-complexity-trusted.yml` and `cla-policy-guard.yml` together ran about 27,000 times. That is roughly 3x the PR events, because `pull_request_target` also fires on `edited`. Do not drop `edited` blindly: it also carries base-branch changes.
 - `web-complexity.yml` and `web-complexity-trusted.yml` are an intentional pair: an untrusted diagnostic plus the trusted required check. Not a duplicate.
-- `ci-status-fallback.yml` has been a dispatch-only `echo` since 09-18. The 3,697 runs this week came from before that change.
 - `test-macos-suite.yml` (formerly `test-depot.yml`) is named "Run macOS test suite". It runs a whole test target cold; focused runs belong on `test-e2e.yml` through `scripts/run-e2e.sh`.
 
 **Other problems found along the way:** `release.yml` has not succeeded since 08-03 (both runs this week failed), and `iroh-release-gate.yml` not since 08-14. `tmux-corpus.yml` is `disabled_manually`. `ci-macos-compat.yml` fails actionlint on the unknown label `macos-15-intel`, and `test-ios.yml:21` fails actionlint with an empty string.
@@ -76,7 +75,6 @@ Sorted by estimated runner minutes. Trigger abbreviations: pr = pull_request, pr
 | `auth-refresh-tests.yml` | pr dispatch (paths) | blacksmith/warp/macos | 137 | 95 / 9 / 0 / 33 | 305 | 2026-09-22 | austinywang #12628 | Austin Wang 2026-09-20 | none |  |
 | `ci-artifact-transport.yml` | pr push (paths) | blacksmith | 692 | 470 / 22 / 0 / 200 | 297 | 2026-09-22 | teamleaderleo #13268 | Leo 2026-09-21 | 1 docs/tests |  |
 | `cmux-tui-spec.yml` | push pr dispatch (paths) | blacksmith | 423 | 380 / 28 / 0 / 11 | 252 | 2026-09-22 | lawrencecchen #9215 | Lawrence Chen 2026-09-01 | 1 wf refs; 1 docs/tests |  |
-| `ci-status-fallback.yml` | dispatch | blacksmith | 3,697 | 3,537 / 3 / 0 / 0 | 230 | 2026-09-20 | azooz2003-bit #11342 | Lawrence Chen 2026-09-18 | 1 docs/tests | **dead**: dispatch-only echo since 09-18 |
 | `ci-cache-receipts.yml` | pr push (paths) | blacksmith | 718 | 681 / 37 / 0 / 0 | 214 | 2026-09-22 | teamleaderleo #13272 | Leo 2026-09-21 | 1 docs/tests |  |
 | `localization-catalog.yml` | pr push dispatch (paths) | blacksmith | 647 | 589 / 28 / 0 / 0 | 144 | 2026-09-22 | lawrencecchen #12906 | Lawrence Chen 2026-09-17 | none |  |
 | `cmux-tui-release.yml` | dispatch push | blacksmith/warp/macos/gh-ubuntu | 4 | 3 / 0 / 0 / 1 | 128 | 2026-09-17 | lawrencecchen #7710 | Lawrence Chen 2026-09-16 | 4 wf refs; 2 docs/tests |  |

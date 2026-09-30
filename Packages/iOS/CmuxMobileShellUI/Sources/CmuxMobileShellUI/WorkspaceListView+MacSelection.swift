@@ -306,6 +306,14 @@ private struct WorkspaceMacTitlePickerLabel: View {
             minHeight: usesCompactLabelTreatment ? nil : WorkspaceRootToolbarSizing.controlHeight,
             alignment: .center
         )
+        // The toolbar can animate its principal item's content when the
+        // connection status line appears or disappears. That transiently
+        // interpolates the two different intrinsic heights and clips the
+        // caption at the edge of the navigation bar. Keep this state change
+        // discrete so the existing one-line and two-line layouts are rendered
+        // at their final sizes without changing either resting appearance.
+        .contentTransition(.identity)
+        .animation(.none, value: statusLine)
         .clipped()
         .contentShape(Rectangle())
     }

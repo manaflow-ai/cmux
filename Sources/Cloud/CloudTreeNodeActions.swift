@@ -28,9 +28,15 @@ struct CloudTreeNodeActions {
     /// terminal in `remoteWorkspaceID` on the machine instead.
     let openGroup: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ placement: SurfacePlacement, _ remoteWorkspaceID: String?) -> Void
     /// Open a whole group as a NEW local workspace named after it, every resource its own
-    /// pane (what clicking a remote workspace row does). An empty group starts a fresh
-    /// terminal in `remoteWorkspaceID` on the machine instead.
+    /// pane. Explicit open-here and drag/drop callers use this destination-owning verb;
+    /// the workspace row uses ``openWorkspace`` so it can admit its local destination
+    /// optimistically. An empty group starts a fresh terminal in `remoteWorkspaceID` on
+    /// the machine instead.
     let openGroupAsWorkspace: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ remoteWorkspaceID: String?) -> Void
+    /// Open an existing Cloud workspace row as one local workspace. This is the
+    /// optimistic row verb; explicit group/open-here routes keep using
+    /// ``openGroupAsWorkspace`` so their destination semantics remain distinct.
+    var openWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace, _ group: SurfaceResourceGroup) -> Void = { _, _, _ in }
     /// Create a workspace on the machine (its ⌘N: `workspace create`, then a starter
     /// terminal) and open it as a new local workspace.
     let newWorkspace: @MainActor (_ machine: SurfaceMachineID) -> Void
@@ -47,6 +53,11 @@ struct CloudTreeNodeActions {
     /// caller selected the machine pool, so the explicit compatibility operation
     /// renames all views.
     let renameTerminal: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView?) -> Void
+    /// Rename a display's or a browser's remote tab via a text prompt. The view
+    /// is not optional: a row without one exact tab does not offer the verb
+    /// rather than falling back to an all-views rename the way a terminal pool
+    /// row does. A display open in two workspaces is exactly that case.
+    var renameRemoteView: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
@@ -93,7 +104,8 @@ struct CloudTreeNodeActions {
         @MainActor @discardableResult
         func run(
             _ label: String,
-            _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void
+            _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void,
+            failureDescription: (@MainActor (Error) -> String)? = nil
         ) -> Task<Void, Never> {
             onWillMutate(label)
             return Task { @MainActor in
@@ -109,9 +121,46 @@ struct CloudTreeNodeActions {
                 } catch let failure as CloudDiagnosticFailure {
                     onFailure(failure.label)
                 } catch {
-                    onFailure((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+                    onFailure(failureDescription?(error)
+                        ?? (error as? LocalizedError)?.errorDescription
+                        ?? String(describing: error))
                 }
             }
+        }
+        /// Runs a Cloud action under the keyed operation controller so cancellation
+        /// reaches the same task that owns local admission.
+        @MainActor @discardableResult
+        func runKeyed(
+            _ key: String,
+            _ label: String,
+            _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void,
+            failureDescription: (@MainActor (Error) -> String)? = nil
+        ) -> Bool {
+            guard let controller = operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController else {
+                _ = run(label, operation, failureDescription: failureDescription)
+                return true
+            }
+            onWillMutate(label)
+            let started = controller.start(key: key) {
+                defer { onDidMutate() }
+                do {
+                    if let recorder = AppDelegate.shared?.cloudOperations {
+                        try await recorder.perform(.workspace) { try await operation(catalog()) }
+                    } else {
+                        try await operation(catalog())
+                    }
+                } catch is CancellationError {
+                    // A locally admitted delete or disabled feature invalidates navigation.
+                } catch let failure as CloudDiagnosticFailure {
+                    onFailure(failure.label)
+                } catch {
+                    onFailure(failureDescription?(error)
+                        ?? (error as? LocalizedError)?.errorDescription
+                        ?? String(describing: error))
+                }
+            }
+            if !started { onDidMutate() }
+            return started
         }
         func destination(_ placement: SurfacePlacement) throws -> SurfaceDestination {
             guard let workspaceID = selectedWorkspaceID() else {
@@ -409,19 +458,44 @@ struct CloudTreeNodeActions {
             renameTerminal: { resource, view in
                 let current = view?.name ?? (resource.title.isEmpty ? resource.id.key : resource.title)
                 guard let name = promptForName(
-                    title: String(format: String(localized: "cloudTree.renameTerminal.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
+                    title: String(format: String(localized: "cloudTree.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
                     current: current,
                     allowsClear: true
                 ) else { return }
                 let operationLabel = name.isEmpty
-                    ? String(format: String(localized: "cloudTree.operation.clearTerminal", defaultValue: "Clearing %@\u{2026}"), current)
-                    : String(format: String(localized: "cloudTree.operation.renameTerminal", defaultValue: "Renaming %@\u{2026}"), current)
+                    ? String(format: String(localized: "cloudTree.operation.clearName", defaultValue: "Clearing %@\u{2026}"), current)
+                    : String(format: String(localized: "cloudTree.operation.rename", defaultValue: "Renaming %@\u{2026}"), current)
                 run(operationLabel) { catalog in
                     if let view {
                         try await catalog.renameRemoteTab(on: resource.machine, id: view.tabID, name: name)
                     } else {
                         try await catalog.renameTerminal(on: resource.machine, id: resource.id, name: name)
                     }
+                }
+            },
+            renameRemoteView: { resource, view in
+                let resourceName = CloudTreeResourceName(resource: resource, remoteView: view)
+                let chosen = resourceName.chosenName
+                // Titled through the same helper the row renders, so the prompt
+                // names what the person clicked: an untitled browser says
+                // "browser" here too, not its daemon key. The field, separately,
+                // holds only a name someone typed: pre-filling a browser's live
+                // page title would pin it the moment they hit Return, which is
+                // the opposite of what a prompt opened by accident should do.
+                let current = resourceName.label
+                guard let name = promptForName(
+                    title: String(format: String(localized: "cloudTree.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
+                    current: chosen ?? "",
+                    // Clearing puts the row back on the generated title, which
+                    // for a browser is the live page title and is usually what
+                    // someone undoing a rename wants back.
+                    allowsClear: true
+                ) else { return }
+                let operationLabel = name.isEmpty
+                    ? String(format: String(localized: "cloudTree.operation.clearName", defaultValue: "Clearing %@\u{2026}"), current)
+                    : String(format: String(localized: "cloudTree.operation.rename", defaultValue: "Renaming %@\u{2026}"), current)
+                run(operationLabel) { catalog in
+                    try await catalog.renameRemoteTab(on: resource.machine, id: view.tabID, name: name)
                 }
             },
             selectLocalWorkspace: selectLocalWorkspace,
@@ -438,6 +512,54 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
+        actions.openWorkspace = { machine, workspace, group in
+            let host = workspaceCreationHost() ?? selectedWorkspaceID()
+                .flatMap { Workspace.liveWorkspace(id: $0)?.owningTabManager }
+                .map { CloudWorkspaceCreationHost(manager: $0) }
+            guard let host, host.isAvailable else { return }
+            if let pending = catalog().cloudWorkspaceCreationCoordinator.pendingLocalWorkspaceID(
+                machine: machine,
+                remoteWorkspaceID: workspace.id,
+                manager: host.manager
+            ) {
+                selectLocalWorkspace(pending)
+                return
+            }
+            guard let provider = catalog().provider(for: machine) else { return }
+            let managerKey = host.manager?.windowId?.uuidString ?? "unowned"
+            let key = "cloud-workspace-open:\(machine.rawValue):\(workspace.id):\(managerKey)"
+            let label = String(
+                format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@\u{2026}"),
+                machineName(machine)
+            )
+            _ = runKeyed(key, label, { catalog in
+                guard let current = try catalog.currentCloudWorkspace(group),
+                      catalog.provider(for: machine) === provider else {
+                    throw CancellationError()
+                }
+                let currentWorkspace = SurfaceRemoteWorkspace(
+                    id: workspace.id,
+                    name: current.group.title,
+                    index: workspace.index,
+                    focused: workspace.focused
+                )
+                _ = try await catalog.cloudWorkspaceCreationCoordinator.openExistingWorkspace(
+                    provider: provider,
+                    workspace: currentWorkspace,
+                    group: current.group,
+                    focus: true,
+                    host: host,
+                    validateOperation: {
+                        guard catalog.provider(for: machine) === provider,
+                              try catalog.currentCloudWorkspace(group) != nil else {
+                            throw CancellationError()
+                        }
+                    }
+                )
+            }, failureDescription: { error in
+                CloudDiagnosticFailure.classify(error).label
+            })
+        }
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine

@@ -804,8 +804,8 @@ class OrphanDetectionTests(unittest.TestCase):
         self.assertEqual(find([run], {run["id"]: [orphan_job(age=60 * 30)]}), [])
 
     def test_sweep_lists_queued_runs_regardless_of_age(self):
-        ghost = make_run(status="queued", age=60 * 24 * 11, name="CI status fallback",
-                         path=".github/workflows/ci-status-fallback.yml")
+        ghost = make_run(status="queued", age=60 * 24 * 11, name="Legacy workflow",
+                         path=".github/workflows/legacy-workflow.yml")
         fake = FakeGitHub({ghost["id"]: ghost})
         runs = fake.in_flight_runs()
         self.assertIn(ghost["id"], [r["id"] for r in runs])

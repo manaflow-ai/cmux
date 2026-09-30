@@ -897,6 +897,111 @@ test("native viewer navigation remains installed after an unrelated render", asy
   await waitFor(() => dom?.window.document.getElementById("file-search-toggle")?.getAttribute("aria-pressed") === "true");
 });
 
+test("files sidebar shows the viewed progress, path filter, and status toggles", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  renderApp(
+    <App
+      config={{ payload: { statusMessage: "Rendered diff" } }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+  const doc = dom.window.document;
+  expect(doc.getElementById("files-viewed-progress")?.textContent).toBe("0 of 0 files viewed");
+  const filterInput = doc.getElementById("file-filter-input") as HTMLInputElement;
+  expect(filterInput?.getAttribute("placeholder")).toBe("Filter files");
+  for (const status of ["added", "modified", "deleted", "renamed"]) {
+    const toggle = doc.querySelector(`[data-file-status-filter="${status}"]`);
+    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
+  }
+  const hideViewed = doc.getElementById("hide-viewed-toggle");
+  expect(hideViewed?.getAttribute("aria-pressed")).toBe("false");
+  expect(hideViewed?.getAttribute("aria-label")).toBe("Hide viewed files");
+  hideViewed?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  await waitFor(() => doc.getElementById("hide-viewed-toggle")?.getAttribute("aria-pressed") === "true");
+  expect(doc.getElementById("hide-viewed-toggle")?.getAttribute("aria-label")).toBe("Show viewed files");
+  doc.querySelector<HTMLButtonElement>('[data-file-status-filter="added"]')?.click();
+  await waitFor(() => doc.querySelector('[data-file-status-filter="added"]')?.getAttribute("aria-pressed") === "false");
+  expect(doc.getElementById("app")?.dataset.fileFilterActive).toBe("true");
+});
+
+test("viewed files load for the resolved typed session scope", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/unstaged.html");
+  const commentRequests: any[] = [];
+  installDomGlobals(dom, () => new Response("", { status: 200 }));
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          if (request.method === "sessionClose") {
+            return { id: request.id, version: 1, result: { type: "sessionClosed" }, error: null };
+          }
+          return {
+            id: request.id,
+            version: 1,
+            result: {
+              type: "sessionOpened",
+              value: {
+                sessionId: "01234567-89ab-cdef-0123-456789abcdef",
+                patch: { id: "cmux-diff-viewer://0123456789abcdef/diff-session.patch", mediaType: "text/x-diff", byteLength: 128, revision: 1 },
+                source: request.params.source,
+                generatedPaths: ["dist/bundle.js"],
+              },
+            },
+            error: null,
+          };
+        },
+      },
+      cmuxDiffComments: {
+        async postMessage(request: any) {
+          commentRequests.push(request);
+          if (request.method === "viewedFiles.list") {
+            return { ok: true, value: { files: [{ path: "a.txt", fingerprint: "aaa" }] } };
+          }
+          return { ok: true, value: { comments: [], preferences: {} } };
+        },
+      },
+    },
+  };
+  renderApp(
+    <App
+      config={{
+        payload: {
+          capabilityToken: "0123456789abcdef",
+          pendingReplacement: true,
+          repoRoot: "/tmp/repo",
+          sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" },
+          statusMessage: "Loading diff",
+          title: "Unstaged diff",
+          transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true, pending: true })}
+    />,
+  );
+  await waitFor(() => commentRequests.some((request) => request.method === "viewedFiles.list"));
+  expect(commentRequests.find((request) => request.method === "viewedFiles.list").params)
+    .toEqual({ scope: { repoRoot: "/tmp/repo", source: "unstaged" } });
+  await waitFor(() => dom?.window.document.body.dataset.generatedPathCount === "1");
+});
+
+test("toggle viewed action is handled by the viewer app", () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  renderApp(
+    <App
+      config={{ payload: { statusMessage: "Rendered diff" } }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+  const action = dom.window.__cmuxPerformDiffViewerNavigationAction;
+  expect(action?.("diffViewerToggleViewed")).toBe(true);
+});
+
 function createDom(url = "http://127.0.0.1/diff"): JSDOM {
   return new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
     url,
