@@ -281,3 +281,26 @@ Commands (this terminal), Resume Agent Session (this terminal).
 - Syncing page history between Macs (Chrome Sync): out of scope.
 - A per-workspace trail filter as a second pair of keys: the palette's
   Location History for This Workspace covers it until dogfood asks.
+
+## 9. Status (2026-09-30, branch feat-cmux-next-history)
+
+Built and verified on tag nxhist (no-activate launch, control socket):
+the location trail with Go Back / Go Forward (Ctrl-Cmd-Left/Right through
+`debug.key`, and `cmux history back|forward`) across panes, restored after
+relaunch from `history.trail`; Cmd-[ in a Chromium page is page Back;
+durable page visits per browser profile (a restored tab's reload is not a
+visit); agent sessions from the session journal with resume commands;
+`cmux://history` (screenshot checked); palette pages; `cmux history
+list|search`.
+
+Not built yet:
+
+- Long-press / right-click entry menus on the toolbar Back and Forward
+  buttons (needs `backForwardList` for WebKit and a fork call for Chromium).
+- Terminal command history: needs the daemon capability
+  `terminal-command-journal-v1` (section 6); it has no owner yet.
+- Agent-session and command "clear" tombstones are in memory for the app
+  run; they are not yet written to the `history.hidden` projection.
+- Closed screens and workspaces are not listed (screens stay on Reopen
+  Closed Screen; workspaces need `closed-history-v1`).
+- Mouse side buttons and swipe for either axis.
