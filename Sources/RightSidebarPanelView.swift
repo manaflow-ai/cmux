@@ -97,6 +97,7 @@ struct RightSidebarPanelView: View {
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
+    @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     /// The right rail's OWN worker client. Never share the left sidebar's:
     /// the remote host swaps files in place on one client, so a shared client
@@ -112,6 +113,7 @@ struct RightSidebarPanelView: View {
 
     private var featureAvailableModes: [RightSidebarMode] {
         _ = managedPolicyRevision
+        _ = customSidebarsEnabled
         return RightSidebarMode.availableModes(
             feedEnabled: feedEnabled,
             machinesEnabled: CloudMachinesFeature.isEnabled
@@ -204,6 +206,9 @@ struct RightSidebarPanelView: View {
         .onChange(of: fileExplorerState.isVisible) { _, visible in
             if visible { hasMountedRightSidebarContent = true }
             else { fileExplorerState.cloudTeamPickerPresentation.isPresented = false }
+        }
+        .onChange(of: customSidebarsEnabled) { _, _ in
+            refreshModeAvailabilityAndFocusIfNeeded()
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }

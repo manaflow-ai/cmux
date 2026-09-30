@@ -287,6 +287,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         let first = manager.tabs[0]
         let second = manager.addWorkspace()
         let third = manager.addWorkspace()
@@ -307,6 +308,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testChildExitOnLastPanelInLastWorkspaceSelectsPreviousWorkspace() {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         let first = manager.tabs[0]
         let second = manager.addWorkspace()
 
@@ -330,6 +332,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testFastChildExitOnLastRemotePanelKeepsWorkspaceDisconnected() {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId,
               let remotePanel = workspace.terminalPanel(for: remotePanelId) else {
@@ -370,6 +373,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testManualCloseOnLastRemotePanelKeepsWorkspaceDisconnected() throws {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -426,6 +430,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testRetryableChildExitPreservesPersistentRemoteIdentityAndReconnectsExistingPTY() throws {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -501,6 +506,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testDefaultFreestyleCloudSplitRoutesToCloudAndRepairsRawSSHStartupCommand() throws {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -567,6 +573,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             try? FileManager.default.removeItem(atPath: reservedSocket + ".lock")
         }
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -608,6 +615,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testPaneCloseOnLastRemotePanelKeepsWorkspaceDisconnected() throws {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -659,6 +667,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testDuplicateChildExitAfterPersistentAttachEndKeepsExitedSurfaceVisible() throws {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -715,6 +724,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testAuthoritativeAttachEndOnSplitPersistentRemotePanelClearsOnlyThatPTYState() throws {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -780,6 +790,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testFocusedRemoteChildExitWithMultipleTerminalsDisconnectsWorkspace() async throws {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let initialPanelId = workspace.focusedPanelId,
               let initialPanel = workspace.terminalPanel(for: initialPanelId) else {
@@ -832,6 +843,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testChildExitAfterRemoteSessionEndKeepsWorkspaceDisconnected() async throws {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId,
               let remotePanel = workspace.terminalPanel(for: remotePanelId) else {
@@ -874,6 +886,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testChildExitOnNonLastPanelClosesOnlyPanel() {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let initialPanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -900,6 +913,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         AppDelegate.shared = appDelegate
         ClosedItemHistoryStore.shared.removeAll()
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         var closeRequest: (tabId: UUID, recordHistory: Bool)?
@@ -945,6 +959,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
             transport: .websocket,
@@ -975,6 +990,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         AppDelegate.shared = appDelegate
         ClosedItemHistoryStore.shared.removeAll()
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
             transport: .websocket,

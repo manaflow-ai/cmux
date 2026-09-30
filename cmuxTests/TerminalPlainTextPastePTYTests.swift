@@ -29,6 +29,11 @@ extension TerminalPlainTextPasteStartupTests {
             try #require(NSPasteboard.general.setString(transcription, forType: .string))
             switch trial {
             case 0:
+                // The app-host runner can leave this isolated fixture window
+                // without a first responder between async trials. Restore
+                // the terminal responder before exercising AppKit's real
+                // Cmd+V dispatch, as the repeated-paste coverage does below.
+                try #require(fixture.window.makeFirstResponder(fixture.view))
                 let event = try #require(NSEvent.keyEvent(
                     with: .keyDown, location: .zero, modifierFlags: .command,
                     timestamp: ProcessInfo.processInfo.systemUptime,

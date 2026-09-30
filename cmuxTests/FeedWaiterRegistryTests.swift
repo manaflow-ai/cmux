@@ -123,4 +123,26 @@ struct FeedWaiterRegistryTests {
         }
         registry.replyStored(reply)
     }
+
+    @Test func deferredResolutionSignalsOnlyAfterStoreCommit() throws {
+        let registry = FeedWaiterRegistry()
+        let registration = try #require(registry.register(requestID: "request", event: event()))
+        registry.accepted(registration, event: event(), item: item())
+        let reply = try #require(
+            registry.resolve(
+                requestID: "request",
+                decision: .permission(.once),
+                deferSignalUntilStoreCommit: true
+            )
+        )
+
+        #expect(registration.semaphore.wait(timeout: .now()) == .timedOut)
+        registry.signalResolved(requestID: reply.requestID, groupID: reply.groupID)
+        #expect(registration.semaphore.wait(timeout: .now()) == .success)
+        guard case .resolved = registry.finish(registration).outcome.result else {
+            Issue.record("Deferred resolution did not wake with the decision")
+            return
+        }
+        registry.replyStored(reply)
+    }
 }

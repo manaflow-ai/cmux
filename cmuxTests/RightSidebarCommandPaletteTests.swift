@@ -1,4 +1,5 @@
 import CmuxCommandPalette
+import CmuxSettings
 import Foundation
 import XCTest
 
@@ -58,6 +59,11 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             // Cloud Machines defaults on in dev builds (d6584c07e0); pin the toggle off so
             // the default-mode contract below is the same on every build.
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            // Keep a developer's configured custom sidebar from changing the default-mode
+            // command count or the modes exercised by this test.
+            let customSidebarsKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
+            defaults.set(false, forKey: customSidebarsKey)
+            defaults.removeObject(forKey: "rightSidebar.customSidebarName")
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
@@ -90,6 +96,26 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
         }
+    }
+
+    func testCommandPaletteIncludesAvailableCustomSidebarMode() throws {
+        let defaults = UserDefaults.standard
+        let customSidebarsKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
+        let previousEnabled = defaults.object(forKey: customSidebarsKey)
+        let previousName = defaults.object(forKey: "rightSidebar.customSidebarName")
+        defer {
+            if let previousEnabled { defaults.set(previousEnabled, forKey: customSidebarsKey) }
+            else { defaults.removeObject(forKey: customSidebarsKey) }
+            if let previousName { defaults.set(previousName, forKey: "rightSidebar.customSidebarName") }
+            else { defaults.removeObject(forKey: "rightSidebar.customSidebarName") }
+        }
+        defaults.set(true, forKey: customSidebarsKey)
+        defaults.set("status-board", forKey: "rightSidebar.customSidebarName")
+
+        let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
+        let customID = ContentView.commandPaletteRightSidebarModeCommandID(.customSidebar)
+        let custom = try XCTUnwrap(contributions.first { $0.commandId == customID })
+        XCTAssertEqual(custom.title(CommandPaletteContextSnapshot()), RightSidebarMode.customSidebar.label)
     }
 
     @MainActor
@@ -256,10 +282,15 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         let previousLegacyDockBeta = defaults.object(forKey: "rightSidebar.beta.dock.enabled")
         let previousCloudMachines = defaults.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        let customSidebarsKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
+        let previousCustomSidebars = defaults.object(forKey: customSidebarsKey)
+        let previousCustomSidebarName = defaults.object(forKey: "rightSidebar.customSidebarName")
         defer {
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousLegacyDockBeta, forKey: "rightSidebar.beta.dock.enabled")
             restore(previousCloudMachines, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            restore(previousCustomSidebars, forKey: customSidebarsKey)
+            restore(previousCustomSidebarName, forKey: "rightSidebar.customSidebarName")
         }
         try body()
     }

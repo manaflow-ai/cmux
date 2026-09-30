@@ -88,6 +88,13 @@ extension TabManager {
         for workspace in tabs {
             for case let terminalPanel as TerminalPanel in workspace.panels.values {
                 terminalPanel.surface.killShellProcessesForTesting()
+                // The product close path queues native frees on the shared
+                // teardown coordinator. Test-owned managers are released at
+                // the end of an XCTest method, so queueing here can leave
+                // their surfaces in flight when the next suite starts. Free
+                // the runtime synchronously before the normal workspace
+                // retirement removes the panel models.
+                terminalPanel.surface.releaseSurfaceForTesting()
             }
         }
         finalizeAllWorkspacesForWindowClose()
