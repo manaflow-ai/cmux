@@ -31,11 +31,20 @@ enum ControlSessions {
     /// `build-box`, or `build-box-ci` for session `ci` on it: the machine
     /// name plus the session name when that is not a default one
     /// (plans/cmux-next/data-model.md 1.1).
-    static func qualifierName(machine: String?, session: String?) -> String? {
+    static func qualifierName(machine rawMachine: String?, session: String?) -> String? {
+        let machine = rawMachine.map(shortHost)
         guard let session, !session.isEmpty, !defaultSessionNames.contains(session) else { return machine ?? session }
         guard let machine else { return session }
         // An SSH label already names its session (`host/session`).
         return machine.hasSuffix("/" + session) ? machine : "\(machine)-\(session)"
+    }
+
+    /// A host name's first DNS label (`cmux-dev-backend-1` for
+    /// `cmux-dev-backend-1.us-central1-b.c.example.internal`); an IP address
+    /// or an SSH label (`host/session`) stays whole.
+    static func shortHost(_ name: String) -> String {
+        if name.contains("/") || name.allSatisfy({ $0.isNumber || $0 == "." || $0 == ":" }) { return name }
+        return name.split(separator: ".").first.map(String.init) ?? name
     }
 
     /// Session names that add nothing to a machine's name.
