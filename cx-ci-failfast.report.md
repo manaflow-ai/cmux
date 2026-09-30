@@ -23,6 +23,27 @@ workflow graph and cancellation propagation, with occasional slow signal
 handling, rather than a fleet-wide glaeda hook defect. No glaeda deployment was
 made.
 
+The overstay sample adds about **23 runner-hours per day** beyond 2.5 times the
+job median. This is a long-tail diagnostic, not a reason to cancel independent
+shards: each row was checked for a stall, retry, lock wait, or slow transfer
+before changing its bound.
+
+| job | p50 | max | records past 2.5× p50 |
+| --- | ---: | ---: | ---: |
+| swift-package-tests | 2.4m | 60m | 2,524 |
+| app-host-unit-tests | 6.5m | 55m | 1,735 |
+| ios-simulator | 2.3m | 16m | 877 |
+| test (E2E) | 3.9m | 46m | 730 |
+| cli-product-tests | 2.9m | 41m | 677 |
+
+The long records were dominated by bounded setup, artifact transfer, and
+legitimate serial package work; no evidence supported cancelling sibling test
+shards. Existing per-test and no-progress watchdogs fail a silent test with a
+stack dump before the job ceiling, while the job ceilings bound setup and
+teardown. Transfer waits are instrumented as separate download/restore phases
+so a future ceiling can use a transfer percentile instead of hiding a slow but
+valid host.
+
 The existing `always()` rollups were another source of post-cancel work. The
 change updates the CI, guard, macOS, and web rollups to `!cancelled()`: they
 still report a failed dependency, but do not allocate a runner after a run has
@@ -31,10 +52,11 @@ been cancelled. Cleanup steps remain `always()` where they release resources.
 The process-level fix is cooperative and applies to both self-hosted and
 hosted runners: `run_with_timeout.py` now handles the runner's SIGINT/SIGTERM,
 walks detached descendants, and escalates to SIGKILL within the cancellation
-grace period. `xcodebuild_noninteractive.py` uses the same tree cleanup for
-detached XCTest app hosts. Focused regressions cover a child in a new process
-group and a stubborn child that ignores the first signal. This removes leaked
-test processes without cancelling sibling jobs.
+grace period, then bounds the final reap as well. `xcodebuild_noninteractive.py`
+uses the same tree cleanup for detached XCTest app hosts. Focused regressions
+cover a child in a new process group, a stubborn child that ignores the first
+signal, and a root that remains unreaped after SIGKILL. This removes leaked test
+processes without cancelling sibling jobs.
 
 ## Changes in this PR
 
@@ -72,10 +94,11 @@ without duplicating those watchdogs.
 The longest app-host record spent 50 minutes downloading its product and only
 3.2 minutes running tests; the longest CLI record spent 25.7 minutes in the
 download path, and the longest E2E fallback spent 38 minutes downloading. The
-parallel transport is already attempted first. A new fixed fallback timeout
-was not added because artifact size and slow-host percentiles are not yet
-measured; an arbitrary ceiling could turn a slow but valid transfer into a
-false failure. These waits are the next instrumentation target.
+parallel transport is already attempted first. The single-stream fallback now
+has a 15-minute action timeout after the ranged transport's six-minute deadline;
+this bounds a dead or crawling fallback while leaving margin over the observed
+roughly 2 MiB/s transfer. Artifact download and restore timings remain in the
+job summaries for choosing a tighter percentile-based bound later.
 
 ## GUI, telemetry, and host side findings
 
@@ -85,10 +108,11 @@ is the desktop session, so fixed sleeps, app launch, polling, and XCTest setup
 are the next profiling targets. The current patch bounds their tail but does
 not guess at a safe redesign without per-step timings.
 
-The mini job record's process tree omits the launched `cmux DEV` test app, so
-job CPU is undercounted at roughly 0.15 cores. The glaeda hook should attribute
-the launched app to its owning job in a follow-up telemetry change; this PR
-does not change runner accounting while cancellation behavior is being fixed.
+The mini job record omitted the launched `cmux DEV` test app, so job CPU was
+undercounted at roughly 0.15 cores. The glaeda hook now attributes that launched
+app to its owning job using the exact temporary process tree and live
+Runner.Worker evidence; the fleet rollout and post-rollout sample are recorded
+below.
 
 Over five days, `fseventsd` used about 68 hours and `XprotectService` about 33
 hours alongside tests. Spotlight and XProtect exclusions need a separate
@@ -97,10 +121,11 @@ security and fleet review; this PR makes no speculative host-wide exclusions.
 ## Savings measurement
 
 The pre-change opportunity is **648 runner-minutes/day**. The post-change
-measurement is recorded here after the dependency and timeout changes have
-completed a full observation interval; it will report the interval, run count,
-cancelled-run tail minutes, timeout reductions, and resulting runner-hours/day.
-A short interval is reported as such rather than extrapolated to seven days.
+measurement will be recorded here after the merged workflow and glaeda
+telemetry changes complete a full observation interval. It will report the
+interval, run count, cancelled-run tail minutes, timeout reductions, and
+resulting runner-hours/day. A short interval is reported as such rather than
+extrapolated to seven days.
 
 Validation before publication: `actionlint` on all edited workflows,
 `python3 tests/test_ci_workflow_run_sources.py`, the focused CI policy tests,
