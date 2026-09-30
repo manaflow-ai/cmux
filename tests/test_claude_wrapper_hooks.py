@@ -505,6 +505,7 @@ def run_wrapper_terminal_env_probe(
             "CMUX_SURFACE_ID": "surface:test",
             "CMUX_TAB_ID": "tab:test",
             "CMUX_WORKSPACE_ID": "workspace:test",
+            "CMUX_CLAUDE_HEADLESS": "0",
             "TERMINFO": str(tmp / "terminfo"),
         }
         if hooks_disabled:
@@ -1755,6 +1756,14 @@ def test_explicit_prompt_modes_skip_subcommand_discovery(failures: list[str]) ->
             expect(code == 0 and "--settings" in observed,
                    f"session entry {argv}: missing hooks: {observed}: {stderr}", failures)
             expect(not calls.exists(), f"session entry {argv}: unexpectedly probed help", failures)
+
+
+def test_headless_detection_ignores_option_values(failures: list[str]) -> None:
+    for argv in (["--append-system-prompt", "-p"], ["--model", "--print"], ["--append-system-prompt=-p"]):
+        code, observed_env, _, stderr, _ = run_wrapper_terminal_env_probe(argv)
+        expect(code == 0, f"option value {argv}: wrapper failed: {stderr}", failures)
+        expect(observed_env.get("CMUX_CLAUDE_HEADLESS") == "0",
+               f"option value {argv}: incorrectly marked headless: {observed_env}", failures)
 
 
 def test_subcommand_help_cancellation_cleans_up_children(failures: list[str]) -> None:
@@ -3574,6 +3583,7 @@ def main() -> int:
     test_subcommand_cache_expires_for_unchanged_launchers(failures)
     test_subcommand_help_failure_falls_back_and_is_cached(failures)
     test_explicit_prompt_modes_skip_subcommand_discovery(failures)
+    test_headless_detection_ignores_option_values(failures)
     test_subcommand_help_cancellation_cleans_up_children(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_cmux_cua_when_available(failures)
