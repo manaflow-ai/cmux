@@ -78,14 +78,7 @@ enum CompatCreate {
         case .bottom: "down"
         }
         guard kind == .terminal else {
-            let surface = try await newTab(.browser, in: pane, call: call)
-            let world = try await call.world()
-            guard let tab = world.surfaces.values.first(where: { $0.handle == surface }) else {
-                throw CompatErrors.notFound("surface", "created surface \(surface.rawValue)")
-            }
-            try await call.service.runAction("tab.moveToNewSplit", target: CompatTargets.tab(tab),
-                                             arguments: ["direction": .string(direction)], call: call)
-            return surface
+            return try await splitBrowser(from: pane, direction: direction, fallbackToTab: false, call: call).surface
         }
         let before = try await call.world()
         var arguments: [String: ControlValue] = [:]
@@ -96,6 +89,24 @@ enum CompatCreate {
         let surface = try await created(since: before, in: pane.workspaceUUID, call: call)
         try await runInitial(call, surface: surface)
         return surface
+    }
+
+    /// A new browser tab in `pane`, then moved into a split toward
+    /// `direction` (`moveBrowserIntoSplit` decides what a refusal means).
+    static func splitBrowser(from pane: CompatWorld.Pane, direction: String, fallbackToTab: Bool,
+                             call: CompatCall) async throws -> (surface: SurfaceID, placement: CompatBrowserSplitPlacement) {
+        let surface = try await newTab(.browser, in: pane, call: call)
+        let world = try await call.world()
+        guard let tab = world.surfaces.values.first(where: { $0.handle == surface }) else {
+            throw CompatErrors.notFound("surface", "created surface \(surface.rawValue)")
+        }
+        let placement = try await moveBrowserIntoSplit(fallbackToTab: fallbackToTab, move: {
+            try await call.service.runAction("tab.moveToNewSplit", target: CompatTargets.tab(tab),
+                                             arguments: ["direction": .string(direction)], call: call)
+        }, discard: {
+            try? await call.service.runAction("closeTab", target: CompatTargets.tab(tab), call: call)
+        })
+        return (surface, placement)
     }
 
     /// The surface an action just created, found by diffing fresh trees.

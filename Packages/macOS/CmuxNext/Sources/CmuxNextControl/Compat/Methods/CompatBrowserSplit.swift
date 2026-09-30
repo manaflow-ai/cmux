@@ -18,7 +18,22 @@ extension CompatCreate {
         move: () async throws -> Void,
         discard: () async -> Void
     ) async throws -> CompatBrowserSplitPlacement {
-        try await move()
-        return .split
+        do {
+            try await move()
+            return .split
+        } catch {
+            if fallbackToTab, let reason = refusalReason(error) { return .tab(reason: reason) }
+            await discard()
+            throw error
+        }
+    }
+
+    /// The reason of a refused `tab.moveToNewSplit` (`runAction` reports a
+    /// refusal as `unavailable` with the handler's reason). A refused move
+    /// did not run, so the tab is still in the source pane.
+    static func refusalReason(_ error: any Error) -> String? {
+        guard let error = error as? ControlError, error.code == "unavailable",
+              error.data?["action"]?.stringValue == "tab.moveToNewSplit" else { return nil }
+        return error.data?["reason"]?.stringValue
     }
 }

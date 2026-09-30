@@ -16338,8 +16338,14 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "browser.open_split", params: params)
             let surfaceText = formatHandle(payload, kind: "surface", idFormat: effectiveIDFormat) ?? "unknown"
             let paneText = formatHandle(payload, kind: "pane", idFormat: effectiveIDFormat) ?? "unknown"
-            let placement = ((payload["created_split"] as? Bool) == true) ? "split" : "reuse"
-            output(payload, fallback: "OK surface=\(surfaceText) pane=\(paneText) placement=\(placement)")
+            // cmux-next reports a refused split as a tab in the source pane.
+            let strategy = payload["placement_strategy"] as? String
+            let placement = ((payload["created_split"] as? Bool) == true) ? "split" : (strategy == "tab" ? "tab" : "reuse")
+            var fallback = "OK surface=\(surfaceText) pane=\(paneText) placement=\(placement)"
+            if let reason = payload["placement_fallback_reason"] as? String, !reason.isEmpty {
+                fallback += " reason=\"\(reason)\""
+            }
+            output(payload, fallback: fallback)
             return
         }
 

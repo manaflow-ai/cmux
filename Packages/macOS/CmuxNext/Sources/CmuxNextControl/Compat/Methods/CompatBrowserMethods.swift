@@ -114,12 +114,13 @@ enum CompatBrowserMethods {
         return .object(result)
     }
 
-    /// New browser tab in a split right of the source pane.
+    /// New browser tab in a split right of the source pane; a refused split
+    /// keeps the tab in the source pane and the reply says so.
     static func openSplit(_ call: CompatCall) async throws -> JSON {
         let world = try await call.world()
         let source = try call.target(world).pane()
         let sourceSurface = world.surfaces[source.selectedSurfaceUUID ?? ""]
-        let handle = try await CompatCreate.split(.browser, from: source, edge: .right, call: call)
+        let (handle, placement) = try await CompatCreate.splitBrowser(from: source, direction: "right", fallbackToTab: true, call: call)
         let created = try await CompatCreate.result(call, surface: handle, kind: .browser)
         guard case .object(var result) = created else { return created }
         result["source_surface_id"] = sourceSurface.map { .string($0.uuid) } ?? .null
@@ -128,12 +129,17 @@ enum CompatBrowserMethods {
         result["source_pane_ref"] = .string(source.ref)
         result["target_pane_id"] = result["pane_id"]
         result["target_pane_ref"] = result["pane_ref"]
-        result.merge(placementFields(.split)) { $1 }
+        result.merge(placementFields(placement)) { $1 }
         return .object(result)
     }
 
     /// The reply fields that say where the tab went.
     static func placementFields(_ placement: CompatBrowserSplitPlacement) -> [String: JSON] {
-        ["created_split": true, "placement_strategy": "split_right"]
+        switch placement {
+        case .split:
+            ["created_split": true, "placement_strategy": "split_right"]
+        case .tab(let reason):
+            ["created_split": false, "placement_strategy": "tab", "placement_fallback_reason": .string(reason)]
+        }
     }
 }
