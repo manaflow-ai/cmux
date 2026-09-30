@@ -6,15 +6,27 @@ enum RemotesArgumentError: Error, Equatable {
 }
 
 /// Pure argument parser for the read/delete remotes verbs.
-///
-/// The initial behavior mirrors the legacy CLI so regression tests can pin the
-/// bug before the production command is switched to this parser.
 enum RemotesArgumentParser {
     static func validateList(_ args: [String]) throws {
-        _ = args
+        _ = try validatedPositionals(args, expectedCount: 0)
     }
 
     static func removeTarget(_ args: [String]) throws -> String? {
-        args.first { !$0.hasPrefix("-") }
+        try validatedPositionals(args, expectedCount: 1).first
+    }
+
+    private static func validatedPositionals(
+        _ args: [String],
+        expectedCount: Int
+    ) throws -> [String] {
+        let remaining = args.filter { $0 != "--json" }
+        if let unknown = remaining.first(where: { $0.hasPrefix("-") }) {
+            throw RemotesArgumentError.unknownFlag(unknown)
+        }
+        if remaining.count > expectedCount,
+           let extra = remaining.dropFirst(expectedCount).first {
+            throw RemotesArgumentError.unexpectedArgument(extra)
+        }
+        return remaining
     }
 }
