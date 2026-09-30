@@ -14,6 +14,8 @@ nonisolated enum ScreenStrings {
     static var iconPromptTitle: String { text("screens.icon.prompt", "Screen Icon") }
     static var groupNamePromptTitle: String { text("screens.group.rename.prompt", "Rename Screen Group") }
     static var barAccessibility: String { text("screens.bar.accessibility", "Screens") }
+    /// A screen group with no name, in pickers.
+    static var untitledGroup: String { text("screens.group.untitled", "Unnamed Group") }
 
     // Refusals.
     static func noScreenGroup(_ id: String) -> String { String(format: text("screens.refusal.noGroup", "no screen group %@"), id) }
