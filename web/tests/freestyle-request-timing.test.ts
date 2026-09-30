@@ -5,6 +5,7 @@ import { freestyleRequestFetch, type FreestyleRequestTiming } from "../services/
 describe("Freestyle enrollment request timings", () => {
   test("coalesces concurrent production connection warm-ups and keeps success sticky", async () => {
     const originalFetch = globalThis.fetch;
+    const originalNow = Date.now;
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     let calls = 0;
@@ -13,6 +14,7 @@ describe("Freestyle enrollment request timings", () => {
       await gate;
       return new Response(null, { status: 204 });
     }) as typeof globalThis.fetch;
+    Date.now = () => 0;
     try {
       const first = preconnectFreestyle();
       const second = preconnectFreestyle();
@@ -25,6 +27,7 @@ describe("Freestyle enrollment request timings", () => {
       expect(calls).toBe(1);
     } finally {
       globalThis.fetch = originalFetch;
+      Date.now = originalNow;
     }
   });
 
