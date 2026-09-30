@@ -55,9 +55,10 @@ CANONICAL_BUILD_ROOT="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
 # it, so it reaches only these builds. A build database written in one mode
 # reruns every task in the other, so the mode is part of the fingerprint.
 XCBUILD_FILE_SYSTEM_MODE=checksum-only
-# Swift test products embed #filePath literals. Keep those literals independent
-# of the producer's canonical root so consumers can use their own checkout.
-# restore-app-host-test-product.sh creates the matching runtime alias.
+# Keep compiler metadata independent of the producer's canonical root. Test
+# fixtures that need source files use cmuxTestSourceURL(), which resolves
+# #fileID against the matching runtime alias because Swift's #filePath literal
+# does not honor -file-prefix-map.
 FILE_PATH_ROOT=/private/tmp/cmux-test-source
 
 fingerprint() {

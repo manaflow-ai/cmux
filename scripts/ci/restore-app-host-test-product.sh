@@ -102,7 +102,10 @@ test -n "$framework_source"
 rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
 test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
-# The compile maps its canonical source root to this stable runtime location,
-# so consumers can alias their checkout without taking the producer root lock.
+# Source-backed test fixtures resolve #fileID through this stable runtime
+# location, so consumers can alias their checkout without the producer root.
 export CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source
+if [ -n "${GITHUB_ENV:-}" ]; then
+  echo "CMUX_CI_RUNTIME_SOURCE_ROOT=$CMUX_CI_RUNTIME_SOURCE_ROOT" >> "$GITHUB_ENV"
+fi
 scripts/ci/canonical-build-root.sh --runtime-source "$PWD"

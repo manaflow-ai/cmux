@@ -1115,7 +1115,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 struct CloudSCPIntegrationTests {
     @Test func transferUsesRealSFTPAndChecksTheHostKey() throws {
         let cli = try BundledCLITestSupport.bundledCLIPath(for: CLINotifyProcessIntegrationRegressionTests.self)
-        let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/test_vm_scp.py")
+        let script = SwiftTestingAssertions.sourceURL().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/test_vm_scp.py")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         process.arguments = [script.path, cli]

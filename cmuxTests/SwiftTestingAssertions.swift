@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 /// Assertion adapter for mechanically migrated Swift Testing suites.
@@ -5,6 +6,25 @@ import Testing
 /// Keeping the adapter value-scoped lets large behavior suites migrate without
 /// retaining an XCTest dependency or obscuring failures behind source rewrites.
 struct SwiftTestingAssertions {
+    /// Resolves a test source file from its module-relative identity.
+    static func sourceURL(_ file: StaticString = #fileID) -> URL {
+        let sourceRoot: URL
+        if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
+           !runtimeRoot.isEmpty {
+            sourceRoot = URL(fileURLWithPath: runtimeRoot, isDirectory: true)
+                .appendingPathComponent("src", isDirectory: true)
+        } else {
+            sourceRoot = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+        }
+
+        let fileID = String(describing: file)
+        let relativePath = fileID.split(separator: "/", maxSplits: 1).last.map(String.init) ?? fileID
+        return sourceRoot.appendingPathComponent(relativePath)
+    }
+
+
     func equal<T: Equatable>(
         _ expression1: @autoclosure () throws -> T,
         _ expression2: @autoclosure () throws -> T,
