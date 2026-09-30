@@ -704,9 +704,9 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            let dockBeforeShortcut = appDelegate.existingWindowDock(forWindowId: windowId)
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()
+            let dockBeforeShortcut = appDelegate.existingWindowDock(forWindowId: windowId)
 
 #if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
