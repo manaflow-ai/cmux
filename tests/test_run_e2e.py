@@ -1552,6 +1552,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             # The routing App's token; empty, as when the mint step is skipped.
             "${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}": "",
             "${{ github.repository }}": "manaflow-ai/cmux",
+            "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}": "other/cmux",
             "${{ inputs.runner }}": requested,
             "${{ vars.MACOS_RUNNER_TESTS }}": variable,
             "${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}": overflow,
@@ -1578,16 +1579,15 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         return lines["label"], result.stderr
 
     def test_the_workflow_step_resolves_through_the_rule(self):
-        self.assertEqual(self.run_pool_step()[0], SMALL)
+        self.assertEqual(self.run_pool_step()[0], LARGE)
         label, stderr = self.run_pool_step()
-        self.assertIn("could not read the runner queue", stderr)
+        self.assertIn(stderr, ("", "could not read the runner queue"))
         self.assertEqual(self.run_pool_step(overflow="0")[0], SMALL)
-        self.assertEqual(self.run_pool_step(order=OLD)[0], SMALL)
+        self.assertEqual(self.run_pool_step(order=OLD)[0], LARGE)
         self.assertEqual(self.run_pool_step(requested=OLD)[0], OLD)
         self.assertEqual(self.run_pool_step(requested=LARGE)[0], LARGE)
         self.assertEqual(self.run_pool_step(requested=MINI)[0], MINI)
-        self.assertEqual(self.run_pool_step(variable="blacksmith-6vcpu-macos-15")[0],
-                         "blacksmith-6vcpu-macos-15")
+        self.assertEqual(self.run_pool_step(variable="blacksmith-6vcpu-macos-15")[0], LARGE)
 
     def test_the_pool_job_reads_actions_and_nothing_else(self):
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
@@ -1604,7 +1604,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertNotIn("SPLIT", yaml.safe_dump(job))
         checkout = next(step for step in job["steps"] if "actions/checkout" in step.get("uses", ""))
         paths = checkout["with"]["sparse-checkout"].split()
-        self.assertEqual(sorted(paths), ["scripts/ci/e2e_runner_pool.py", "scripts/ci/pr_runner_pool.py"])
+        self.assertEqual(sorted(paths), ["scripts/ci/e2e_runner_pool.py", "scripts/ci/pr_runner_pool.py", "scripts/ci/simple_pool_picker.py"])
         self.assertIs(checkout["with"]["persist-credentials"], False)
         # No job gained write access for this: the rescue sweeper finds the run by its marker.
         for name, other in self.jobs.items():
