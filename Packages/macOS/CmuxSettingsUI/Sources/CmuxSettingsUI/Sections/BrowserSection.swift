@@ -22,7 +22,6 @@ public struct BrowserSection: View {
     @State private var customName: DefaultsValueModel<String>
     @State private var customURL: DefaultsValueModel<String>
     @State private var suggestions: DefaultsValueModel<Bool>
-    @State private var theme: DefaultsValueModel<BrowserThemeMode>
     @State private var defaultZoom: DefaultsValueModel<Double>
     @State private var discardEnabled: DefaultsValueModel<Bool>
     @State private var discardDelay: DefaultsValueModel<Double>
@@ -73,7 +72,6 @@ public struct BrowserSection: View {
         _customName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName))
         _customURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate))
         _suggestions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showSearchSuggestions))
-        _theme = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme))
         _defaultZoom = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultZoomLevel))
         _discardEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews))
         _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
@@ -107,7 +105,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
@@ -203,23 +201,6 @@ public struct BrowserSection: View {
                 Toggle("", isOn: Binding(get: { suggestions.current }, set: { suggestions.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
-            }
-            SettingsCardDivider()
-
-            // Browser Theme
-            SettingsCardRow(
-                configurationReview: .json("browser.theme"),
-                String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
-                subtitle: String(localized: "settings.browser.theme.subtitle", defaultValue: "Choose light or dark pages for sites that support both. System matches the app appearance."),
-                controlWidth: Self.columnWidth
-            ) {
-                Picker("", selection: Binding(get: { theme.current }, set: { theme.set($0) })) {
-                    ForEach(BrowserThemeMode.allCases, id: \.self) { mode in
-                        Text(themeDisplayName(mode)).tag(mode)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
             }
             SettingsCardDivider()
 
@@ -749,17 +730,6 @@ public struct BrowserSection: View {
         .padding(.vertical, 10)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("SettingsBrowserImportSection")
-    }
-
-    private func themeDisplayName(_ mode: BrowserThemeMode) -> String {
-        switch mode {
-        case .system:
-            return String(localized: "theme.system", defaultValue: "System")
-        case .light:
-            return String(localized: "theme.light", defaultValue: "Light")
-        case .dark:
-            return String(localized: "theme.dark", defaultValue: "Dark")
-        }
     }
 
     private func searchEngineLabel(_ engine: BrowserSearchEngine) -> String {

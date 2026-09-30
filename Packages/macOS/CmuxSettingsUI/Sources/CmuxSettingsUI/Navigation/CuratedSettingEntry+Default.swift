@@ -479,7 +479,6 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .browser, id: "search-suggestions", title: String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), synonyms: "Show Search Suggestions browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
             .init(section: .browser, id: "hidden-webview-discard", title: String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"), synonyms: "Browser Memory Saver browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),
             .init(section: .browser, id: "hidden-webview-discard-delay", title: String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Memory Saver Delay"), synonyms: "Memory Saver Delay browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
-            .init(section: .browser, id: "theme", title: String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), synonyms: "Browser Theme browser.theme web page theme color scheme light dark system"),
             .init(
                 section: .browser,
                 id: "ask-where-to-save-downloads",
