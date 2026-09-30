@@ -25,6 +25,8 @@ import PackageDescription
 //   CmuxNextUpdater -> Design, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
+//   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
+//   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 
@@ -93,10 +95,41 @@ let package = Package(
                 "CmuxNextMobile",
                 "CmuxNextUpdater",
                 "CmuxNextResources",
+                "CmuxNextBrowserImport",
+                "CmuxNextOnboarding",
             ],
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Browser import (plans/cmux-next/onboarding.md): source detection
+        // (Chrome, Arc, Dia, Brave, Edge, Vivaldi, Helium, Chromium, Safari,
+        // Firefox), parsers for bookmarks, history, open tabs and extensions,
+        // and the cancellable importer. No UI, nothing main-actor.
+        .target(
+            name: "CmuxNextBrowserImport",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextBrowserImportTests",
+            dependencies: ["CmuxNextBrowserImport"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // First-run onboarding window: theme and density, browser import,
+        // default browser and terminal handlers, the key ideas tour. The App
+        // supplies `OnboardingServices`.
+        .target(
+            name: "CmuxNextOnboarding",
+            dependencies: ["CmuxNextDesign", "CmuxNextBrowserImport"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextOnboardingTests",
+            dependencies: ["CmuxNextOnboarding", "CmuxNextBrowserImport", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // Chromium's EarlyMallocZoneRegistration, run first thing in main.
