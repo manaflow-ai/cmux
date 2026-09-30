@@ -25,6 +25,11 @@
       "message": "Die Einrichtung der Cloud-VM ist fehlgeschlagen. Die Bereinigung steht noch aus.",
       "action": "Wenden Sie sich mit der Trace-ID an den Support, bevor Sie eine weitere Maschine erstellen."
     },
+    "recreateRequired": {
+      "title": "Diese Maschine neu erstellen",
+      "message": "Diese Maschine wurde vor einem Cloud-Update erstellt und kann nicht verbunden werden.",
+      "action": "Erstelle eine neue Maschine, kopiere deine Dateien mit cmux vm pull und cmux vm push hinüber und lösche dann diese."
+    },
     "unsupported": {
       "title": "Cloud-VM-Vorgang nicht verfügbar",
       "reason": "Dieser Maschinentyp stellt diesen Vorgang nicht bereit.",
@@ -134,7 +139,9 @@
     "backToBlog": "Zurück zum Blog",
     "readTheDocs": "Dokumentation lesen",
     "viewChangelog": "Changelog ansehen",
-    "otherPlatforms": "Andere Plattformen"
+    "otherPlatforms": "Andere Plattformen",
+    "copyCode": "Code kopieren",
+    "copied": "Kopiert"
   },
   "nav": {
     "docs": "Dokumentation",
@@ -349,7 +356,9 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "Übersicht",
       "team": "Team",
-      "mobileDevices": "Mobile Geräte"
+      "mobileDevices": "Mobile Geräte",
+      "settings": "Einstellungen",
+      "teams": "Teams"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -374,6 +383,20 @@
         "empty": "In den letzten {days} Tagen hat keine Maschine coderouter genutzt.",
         "unavailable": "Die Nutzung pro Maschine ist vorübergehend nicht verfügbar.",
         "estimateNote": "Der API-Gegenwert ist eine Schätzung auf Basis öffentlicher Listenpreise, keine tatsächlichen Ausgaben."
+      },
+      "metrics": {
+        "title": "Nutzung der letzten 30 Tage",
+        "scope": "Team-Gesamtwerte für {team}",
+        "period": "Letzte {days} Tage",
+        "inputTokens": "Eingabe-Token",
+        "outputTokens": "Ausgabe-Token",
+        "tokens": "Token gesamt",
+        "apiEquivalent": "API-Gegenwert",
+        "unpriced": "{share} dieser Token stammen von Modellen ohne Listenpreis und sind in diesem Wert nicht enthalten.",
+        "chartLabel": "Tägliche CodeRouter-Token-Nutzung",
+        "privacy": "Es werden keine Prompts, Ausgaben, Kontobezeichnungen oder Mitgliederidentitäten erfasst oder angezeigt.",
+        "estimate": "Der API-Gegenwert entspricht den Kosten dieser Token zu öffentlichen API-Listenpreisen (Preisliste {version}). Er entspricht nicht dem, was du bezahlt hast.",
+        "unavailable": "Die Team-Nutzung ist vorübergehend nicht verfügbar."
       }
     },
     "accountMenu": {
@@ -390,8 +413,40 @@
       "plan": {
         "heading": "Dein persönlicher Tarif",
         "free": "Kostenlos",
-        "pro": "Pro",
-        "loading": "Wird geladen…"
+        "pro": "Pro"
+      },
+      "teamPanel": {
+        "notFound": "Dieses Team ist nicht verfügbar. Möglicherweise hast du es verlassen, oder es wurde gelöscht.",
+        "unavailable": "Die Team-Abrechnung konnte nicht geladen werden. Versuche es gleich noch einmal.",
+        "welcome": "Team ist aktiv. Lade deine Teammitglieder über die Mitgliederseite des Teams ein.",
+        "freeBody": "{team} nutzt den kostenlosen Tarif. Mit Team erhält jedes Mitglied Cloud-Agenten über eine gemeinsame Rechnung.",
+        "upgradeCta": "Upgrade für dieses Team",
+        "askAdmin": "Nur Team-Admins können die Abrechnung ändern. Bitte einen Admin von {team} um ein Upgrade.",
+        "memberReadOnly": "Nur Team-Admins können diesen Tarif ändern.",
+        "grantedBody": "Das cmux-Team hat {team} Team-Zugang gewährt. Es gibt kein Abonnement zu verwalten.",
+        "seatsUsed": "{members} von {seats} belegt",
+        "overSeat": "{team} hat {members} Mitglieder und {seats} bezahlte Plätze. Beitreten funktioniert weiterhin; füge Plätze hinzu, um alle abzudecken.",
+        "addSeats": "Plätze hinzufügen"
+      },
+      "teamList": {
+        "heading": "Abrechnungsbereiche",
+        "personal": "Persönliches Konto",
+        "planBadges": {
+          "free": "Kostenlos",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "banners": {
+        "team_admin_required": "Nur Team-Admins können die Abrechnung dieses Teams verwalten.",
+        "team_not_found": "Dieses Team ist nicht verfügbar. Möglicherweise hast du es verlassen, oder es wurde gelöscht.",
+        "authorization_unavailable": "Die Teamberechtigungen konnten nicht geprüft werden. Versuche es gleich noch einmal.",
+        "personal_team_not_upgradable_to_team": "Dein persönliches Konto nutzt Pro oder Max. Erstelle ein Team, um Team zu kaufen."
+      },
+      "team": {
+        "createCta": "Team erstellen"
       }
     },
     "mobileDevices": {
@@ -402,7 +457,6 @@
       "loading": "Geräte werden geladen…",
       "empty": "Für dieses Team sind keine Geräte registriert.",
       "unavailable": "Deine Geräte konnten nicht geladen werden. Aktualisiere die Seite und versuche es erneut.",
-      "retry": "Erneut versuchen",
       "mutationError": "Die Geräteänderung konnte nicht abgeschlossen werden.",
       "revoke": "Zugriff entziehen",
       "deviceId": "Gerät",
@@ -422,6 +476,513 @@
       "activeDevices": "Aktive Geräte",
       "directoryRevision": "Verzeichnisrevision",
       "savingRelaySettings": "Wird gespeichert…"
+    },
+    "settings": {
+      "nav": {
+        "title": "Einstellungen",
+        "profile": "Profil",
+        "auth": "E-Mails & Anmeldung",
+        "notifications": "Benachrichtigungen",
+        "sessions": "Sitzungen",
+        "apiKeys": "API-Schlüssel",
+        "account": "Konto",
+        "billing": "Abrechnung",
+        "teamsGroup": "Teams",
+        "createTeam": "Team erstellen"
+      },
+      "ui": {
+        "save": "Speichern",
+        "saving": "Wird gespeichert…",
+        "cancel": "Abbrechen",
+        "editLabel": "{label} bearbeiten",
+        "required": "Dieses Feld ist erforderlich.",
+        "saveError": "Speichern fehlgeschlagen. Versuche es erneut.",
+        "actionError": "Etwas ist schiefgelaufen. Versuche es erneut.",
+        "working": "Wird ausgeführt…",
+        "typeToConfirm": "Gib zur Bestätigung {text} ein",
+        "imageSaveError": "Das Bild konnte nicht gespeichert werden. Versuche es erneut.",
+        "invalidImage": "Wähle eine gültige Bilddatei.",
+        "uploadImage": "Bild hochladen",
+        "removeImage": "Bild entfernen",
+        "zoom": "Zoom"
+      },
+      "profile": {
+        "title": "Profil",
+        "description": "Dein Name und Avatar.",
+        "displayNameTitle": "Anzeigename",
+        "displayNameDescription": "Für Teammitglieder sichtbar. Wird nicht zur Anmeldung verwendet.",
+        "displayNameEmpty": "Nicht festgelegt",
+        "imageTitle": "Profilbild",
+        "imageDescription": "Lade ein Bild hoch, das als Avatar verwendet wird.",
+        "imageUpload": "Profilbild ändern"
+      },
+      "auth": {
+        "title": "E-Mails & Anmeldung",
+        "description": "E-Mail-Adressen, Anmeldemethoden und Multi-Faktor-Authentifizierung.",
+        "emails": {
+          "title": "E-Mails",
+          "description": "Bestätigte E-Mail-Adressen können deine primäre Kontaktadresse sein und zur Anmeldung verwendet werden.",
+          "add": "E-Mail-Adresse hinzufügen",
+          "addSubmit": "Hinzufügen",
+          "adding": "Wird hinzugefügt…",
+          "cancel": "Abbrechen",
+          "inputLabel": "Neue E-Mail-Adresse",
+          "placeholder": "E-Mail-Adresse eingeben",
+          "addError": "Die E-Mail-Adresse konnte nicht hinzugefügt werden. Versuche es erneut.",
+          "added": "{email} wurde hinzugefügt. Prüfe dieses Postfach auf einen Bestätigungslink.",
+          "addedVerificationFailed": "{email} wurde hinzugefügt, aber die Bestätigungs-E-Mail konnte nicht gesendet werden. Nutze „Bestätigungs-E-Mail senden“, um es erneut zu versuchen.",
+          "verificationSent": "Bestätigungs-E-Mail an {email} gesendet.",
+          "actionError": "Die E-Mail-Adresse konnte nicht aktualisiert werden. Versuche es erneut.",
+          "usedBySomeoneElse": "Diese E-Mail-Adresse wird bereits von einem anderen Nutzer zur Anmeldung verwendet.",
+          "removeTitle": "E-Mail-Adresse entfernen",
+          "removeBody": "{email} aus deinem Konto entfernen? Du kannst sie später erneut hinzufügen.",
+          "remove": "Entfernen",
+          "actionsLabel": "Aktionen für {email}",
+          "validation": {
+            "required": "E-Mail-Adresse ist erforderlich.",
+            "invalid": "Gib eine gültige E-Mail-Adresse ein.",
+            "duplicate": "Diese E-Mail-Adresse ist bereits in deinem Konto."
+          },
+          "actions": {
+            "sendVerification": "Bestätigungs-E-Mail senden",
+            "setPrimary": "Als primär festlegen",
+            "useForSignIn": "Zur Anmeldung verwenden",
+            "stopUsingForSignIn": "Nicht mehr zur Anmeldung verwenden",
+            "remove": "Entfernen"
+          },
+          "disabled": {
+            "verifyFirst": "Bestätige zuerst diese E-Mail-Adresse.",
+            "lastSignInEmail": "Du kannst deine letzte Anmelde-E-Mail-Adresse nicht entfernen."
+          },
+          "badges": {
+            "primary": "Primär",
+            "unverified": "Nicht bestätigt",
+            "usedForSignIn": "Für Anmeldung verwendet"
+          }
+        },
+        "password": {
+          "title": "Passwort",
+          "updateDescription": "Aktualisiere dein Passwort.",
+          "setDescription": "Lege ein Passwort für dein Konto fest.",
+          "update": "Passwort ändern",
+          "set": "Passwort festlegen",
+          "updateSubmit": "Passwort ändern",
+          "setSubmit": "Passwort festlegen",
+          "saving": "Wird gespeichert…",
+          "cancel": "Abbrechen",
+          "saved": "Passwort gespeichert.",
+          "needsSignInEmail": "Füge zuerst eine Anmelde-E-Mail-Adresse hinzu, um ein Passwort festzulegen.",
+          "saveError": "Das Passwort konnte nicht gespeichert werden. Versuche es erneut.",
+          "oldPassword": "Altes Passwort",
+          "newPassword": "Neues Passwort",
+          "repeatPassword": "Neues Passwort wiederholen",
+          "incorrect": "Falsches Passwort.",
+          "requirements": "Dieses Passwort erfüllt die Anforderungen nicht.",
+          "errors": {
+            "oldPassword": {
+              "required": "Gib dein altes Passwort ein."
+            },
+            "newPassword": {
+              "required": "Gib ein neues Passwort ein.",
+              "tooShort": "Verwende mindestens {min} Zeichen.",
+              "tooLong": "Verwende höchstens {max} Zeichen."
+            },
+            "newPasswordRepeat": {
+              "required": "Wiederhole das neue Passwort.",
+              "mismatch": "Die Passwörter stimmen nicht überein."
+            }
+          }
+        },
+        "passkey": {
+          "title": "Passkey",
+          "registered": "Ein Passkey ist registriert.",
+          "notRegistered": "Registriere einen Passkey, um dich ohne Passwort anzumelden.",
+          "add": "Passkey hinzufügen",
+          "registering": "Warte auf Passkey…",
+          "registerError": "Der Passkey konnte nicht registriert werden. Die Anfrage wurde abgebrochen oder ist fehlgeschlagen. Versuche es erneut.",
+          "delete": "Passkey entfernen",
+          "needsVerifiedEmail": "Füge eine bestätigte Anmelde-E-Mail-Adresse hinzu, um die Anmeldung per Passkey zu aktivieren.",
+          "onlyMethod": "Die Anmeldung per Passkey kann nicht deaktiviert werden, da sie deine einzige Anmeldemethode ist.",
+          "disableTitle": "Anmeldung per Passkey deaktivieren",
+          "disableBody": "Du kannst dich dann nicht mehr mit deinem Passkey anmelden.",
+          "disable": "Deaktivieren",
+          "disableError": "Die Anmeldung per Passkey konnte nicht deaktiviert werden. Versuche es erneut."
+        },
+        "otp": {
+          "title": "Anmeldung per Einmalcode",
+          "enabledDescription": "Die Anmeldung per Magic Link oder Einmalcode ist aktiviert.",
+          "disabledDescription": "Melde dich mit einem Magic Link oder Einmalcode an, der an deine Anmelde-E-Mail-Adressen gesendet wird.",
+          "enable": "Aktivieren",
+          "enableError": "Die Anmeldung per Einmalcode konnte nicht aktiviert werden. Versuche es erneut.",
+          "disable": "Deaktivieren",
+          "needsVerifiedEmail": "Füge eine bestätigte Anmelde-E-Mail-Adresse hinzu, um die Anmeldung per Einmalcode zu aktivieren.",
+          "onlyMethod": "Die Anmeldung per Einmalcode kann nicht deaktiviert werden, da sie deine einzige Anmeldemethode ist.",
+          "disableTitle": "Anmeldung per Einmalcode deaktivieren",
+          "disableBody": "Du kannst dich dann nicht mehr nur mit einer E-Mail-Adresse anmelden.",
+          "disableConfirm": "Deaktivieren",
+          "disableError": "Die Anmeldung per Einmalcode konnte nicht deaktiviert werden. Versuche es erneut."
+        },
+        "mfa": {
+          "title": "Multi-Faktor-Authentifizierung",
+          "enabledDescription": "Multi-Faktor-Authentifizierung ist aktiviert.",
+          "disabledDescription": "Multi-Faktor-Authentifizierung ist deaktiviert.",
+          "enable": "MFA aktivieren",
+          "disable": "MFA deaktivieren",
+          "startError": "Die MFA-Einrichtung konnte nicht gestartet werden. Versuche es erneut.",
+          "enableError": "MFA konnte nicht aktiviert werden. Versuche es erneut.",
+          "scan": "Scanne diesen QR-Code mit deiner Authenticator-App.",
+          "qrAlt": "QR-Code für die Multi-Faktor-Authentifizierung",
+          "enterCode": "Gib dann den sechsstelligen Code ein:",
+          "incorrect": "Falscher Code. Versuche es erneut.",
+          "cancel": "Abbrechen",
+          "disableTitle": "Multi-Faktor-Authentifizierung deaktivieren",
+          "disableBody": "Bei der Anmeldung wird dann kein Code aus deiner Authenticator-App mehr abgefragt.",
+          "disableConfirm": "MFA deaktivieren",
+          "disableError": "MFA konnte nicht deaktiviert werden. Versuche es erneut."
+        },
+        "connected": {
+          "title": "Verknüpfte Konten",
+          "description": "Konten anderer Anbieter, die mit deinem cmux-Konto verknüpft sind.",
+          "usedForSignIn": "Für Anmeldung verwendet",
+          "useForSignIn": "Zur Anmeldung verwenden",
+          "stopUsingForSignIn": "Nicht mehr zur Anmeldung verwenden",
+          "remove": "Verknüpfung aufheben",
+          "lastMethod": "Dies ist deine einzige Anmeldemethode.",
+          "actionsLabel": "Aktionen für {provider}",
+          "actionError": "Das verknüpfte Konto konnte nicht aktualisiert werden. Versuche es erneut.",
+          "usedBySomeoneElse": "Dieses Konto wird bereits von einem anderen Nutzer zur Anmeldung verwendet.",
+          "removeTitle": "Verknüpfung mit {provider} aufheben",
+          "removeBody": "Du kannst dich dann nicht mehr mit diesem Konto anmelden. Du kannst es erneut verknüpfen, indem du dich damit anmeldest."
+        }
+      },
+      "notifications": {
+        "title": "Benachrichtigungen",
+        "description": "E-Mail-Benachrichtigungen von cmux.",
+        "heading": "Wähle aus, welche E-Mails du erhalten möchtest",
+        "empty": "Es gibt keine E-Mail-Kategorien zum Konfigurieren.",
+        "cannotDisable": "(kann nicht deaktiviert werden)",
+        "saveError": "Diese Einstellung konnte nicht gespeichert werden. Versuche es erneut."
+      },
+      "sessions": {
+        "title": "Sitzungen",
+        "description": "Geräte, auf denen du angemeldet bist.",
+        "heading": "Aktive Sitzungen",
+        "explanation": "Auf diesen Geräten bist du angemeldet. Widerrufe eine Sitzung, um sie abzumelden.",
+        "revokeAll": "Alle anderen Sitzungen widerrufen",
+        "revokeAllTitle": "Andere Sitzungen widerrufen",
+        "revokeAllBody": "Dadurch {count, plural, one {wird # andere Sitzung} other {werden # andere Sitzungen}} abgemeldet. Diese Sitzung bleibt angemeldet.",
+        "revokeAllConfirm": "Sitzungen widerrufen",
+        "revokeAllError": "Nicht alle Sitzungen konnten widerrufen werden. Die Liste zeigt die verbleibenden.",
+        "revokeError": "Die Sitzung konnte nicht widerrufen werden. Versuche es erneut.",
+        "empty": "Keine aktiven Sitzungen gefunden.",
+        "columns": {
+          "session": "Sitzung",
+          "ip": "IP-Adresse",
+          "location": "Standort",
+          "lastUsed": "Zuletzt verwendet"
+        },
+        "current": "Aktuelle Sitzung",
+        "other": "Andere Sitzung",
+        "impersonation": "Identitätsübernahme",
+        "signedIn": "Angemeldet {date}",
+        "actionsLabel": "Sitzungsaktionen",
+        "revoke": "Widerrufen",
+        "cannotRevokeCurrent": "Du kannst deine aktuelle Sitzung nicht widerrufen.",
+        "unknownIp": "-",
+        "unknownLocation": "Unbekannt",
+        "never": "Nie"
+      },
+      "apiKeys": {
+        "title": "API-Schlüssel",
+        "description": "Schlüssel, die Programmen Zugriff auf dein Konto geben.",
+        "disabled": "Persönliche API-Schlüssel sind für dieses Projekt nicht aktiviert.",
+        "create": "API-Schlüssel erstellen",
+        "createTitle": "API-Schlüssel erstellen",
+        "createDescription": "API-Schlüssel gewähren programmatischen Zugriff auf dein Konto.",
+        "descriptionLabel": "Beschreibung",
+        "descriptionPlaceholder": "Zum Beispiel: Entwicklung, Produktion, CI",
+        "descriptionRequired": "Beschreibung ist erforderlich.",
+        "expiresIn": "Gültig für",
+        "expiry": {
+          "1d": "1 Tag",
+          "7d": "7 Tage",
+          "30d": "30 Tage",
+          "90d": "90 Tage",
+          "1y": "1 Jahr",
+          "never": "Unbegrenzt"
+        },
+        "cancel": "Abbrechen",
+        "createSubmit": "Erstellen",
+        "creating": "Wird erstellt…",
+        "createError": "Der API-Schlüssel konnte nicht erstellt werden. Versuche es erneut.",
+        "showTitle": "API-Schlüssel",
+        "showBody": "Hier ist dein API-Schlüssel.",
+        "showWarning": "Kopiere ihn an einen sicheren Ort. Du kannst ihn später nicht mehr anzeigen.",
+        "secretLabel": "Geheimer API-Schlüssel",
+        "copy": "Kopieren",
+        "copied": "Kopiert",
+        "copyError": "Kopieren fehlgeschlagen. Markiere den Schlüssel und kopiere ihn manuell.",
+        "acknowledge": "Mir ist klar, dass ich diesen Schlüssel später nicht mehr anzeigen kann.",
+        "close": "Schließen",
+        "search": "Schlüssel suchen",
+        "statusFilter": "Nach Status filtern",
+        "status": {
+          "valid": "Gültig",
+          "expired": "Abgelaufen",
+          "revoked": "Widerrufen"
+        },
+        "empty": "Noch keine API-Schlüssel.",
+        "noMatches": "Keine API-Schlüssel entsprechen diesen Filtern.",
+        "columns": {
+          "description": "Beschreibung",
+          "status": "Status",
+          "key": "Schlüssel",
+          "expiresAt": "Läuft ab",
+          "createdAt": "Erstellt"
+        },
+        "never": "Nie",
+        "actionsLabel": "Aktionen für {description}",
+        "revoke": "Widerrufen",
+        "revokeTitle": "API-Schlüssel widerrufen",
+        "revokeBody": "API-Schlüssel *****{lastFour} widerrufen? Apps, die ihn verwenden, verlieren sofort den Zugriff.",
+        "revokeAcknowledge": "Mir ist klar, dass dadurch alle Apps, die diesen API-Schlüssel verwenden, getrennt werden.",
+        "revokeConfirm": "Schlüssel widerrufen",
+        "revokeError": "Der API-Schlüssel konnte nicht widerrufen werden. Versuche es erneut."
+      },
+      "account": {
+        "title": "Konto",
+        "description": "Abrechnung, Abmelden und Kontolöschung.",
+        "billingTitle": "Abrechnung",
+        "billingDescription": "Tarife, Rechnungen und Zahlungsmethoden.",
+        "billingLink": "Abrechnung öffnen",
+        "signOutTitle": "Abmelden",
+        "signOutDescription": "Beende deine aktuelle Sitzung.",
+        "signOut": "Abmelden",
+        "signingOut": "Wird abgemeldet…",
+        "signOutError": "Abmeldung fehlgeschlagen. Versuche es erneut.",
+        "deleteTitle": "Konto löschen",
+        "deleteDescription": "Entferne dein Konto und alle zugehörigen Daten dauerhaft.",
+        "delete": "Konto löschen",
+        "deleteConfirmTitle": "Dein Konto löschen?",
+        "deleteConfirmBody": "Dies kann nicht rückgängig gemacht werden und löscht alle Daten, die mit deinem Konto verknüpft sind.",
+        "deleteAcknowledge": "Mir ist klar, dass mein Konto und seine Daten dauerhaft gelöscht werden.",
+        "deleteConfirm": "Konto löschen",
+        "deleteError": "Das Konto konnte nicht gelöscht werden. Versuche es erneut."
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "Kopieren",
+        "copied": "Kopiert",
+        "copyFailed": "Kopieren fehlgeschlagen"
+      },
+      "plan": {
+        "free": "Kostenlos",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "Admin",
+        "member": "Mitglied"
+      },
+      "errors": {
+        "generic": "Etwas ist schiefgelaufen. Versuche es erneut.",
+        "network_error": "cmux ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.",
+        "unauthorized": "Deine Sitzung ist abgelaufen. Melde dich erneut an.",
+        "forbidden": "Dazu bist du nicht berechtigt.",
+        "team_not_found": "Dieses Team existiert nicht mehr.",
+        "invalid_request": "Die Anfrage war ungültig. Prüfe die Felder und versuche es erneut.",
+        "rate_limited": "Zu viele Anfragen. Warte einen Moment und versuche es erneut.",
+        "last_admin": "Ein Team braucht mindestens einen Admin. Befördere zuerst ein anderes Mitglied.",
+        "member_not_found": "Diese Person ist kein Mitglied mehr.",
+        "invitation_not_found": "Diese Einladung existiert nicht mehr.",
+        "invitation_invalid": "Diese Einladung ist ungültig, abgelaufen oder wurde bereits verwendet.",
+        "email_mismatch": "Diese Einladung wurde an eine andere E-Mail-Adresse gesendet.",
+        "link_not_found": "Dieser Einladungslink existiert nicht mehr.",
+        "link_invalid": "Dieser Einladungslink ist ungültig, abgelaufen, widerrufen oder voll.",
+        "team_has_active_subscription": "Kündige das Team-Abonnement, bevor du das Team löschst.",
+        "service_unavailable": "Der Dienst ist vorübergehend nicht verfügbar. Versuche es gleich noch einmal."
+      },
+      "list": {
+        "title": "Teams",
+        "description": "Teams teilen Mitglieder, Abrechnung und coderouter-Konten. Öffne ein Team, um es zu verwalten.",
+        "create": "Team erstellen",
+        "count": "{count, plural, one {# Team} other {# Teams}}",
+        "selected": "Aktuell",
+        "emptyTitle": "Noch keine Teams",
+        "emptyBody": "Erstelle ein Team, um Personen einzuladen und einen Tarif zu teilen."
+      },
+      "new": {
+        "title": "Team erstellen",
+        "description": "Benenne das Team, wähle einen Tarif und lade dann Personen ein.",
+        "stepsLabel": "Schritte",
+        "steps": {
+          "name": "Name",
+          "plan": "Tarif",
+          "invite": "Einladen"
+        },
+        "nameTitle": "Benenne dein Team",
+        "nameLabel": "Teamname",
+        "namePlaceholder": "Acme Engineering",
+        "nameError": {
+          "empty": "Gib einen Teamnamen ein.",
+          "tooLong": "Verwende höchstens {max} Zeichen."
+        },
+        "cancel": "Abbrechen",
+        "createAction": "Team erstellen",
+        "creating": "Wird erstellt…",
+        "planTitle": "Wähle einen Tarif für {team}",
+        "planDescription": "Du kannst den Tarif später auf der Abrechnungsseite des Teams ändern.",
+        "freeName": "Kostenlos",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "${price} pro Platz und Monat",
+        "featureMembers": "Mitglieder, Rollen und Einladungen",
+        "featureProForEveryone": "Alles aus Pro für jedes Mitglied",
+        "featureCentralBilling": "Zentrale Abrechnung für das ganze Team",
+        "featurePrioritySupport": "Priorisierter Support",
+        "chooseFree": "Kostenlos fortfahren",
+        "chooseTeam": "Upgrade auf Team (${price}/Platz/Monat)",
+        "upgradeLater": "Plätze sind flexibel: Du kannst mehr Personen einladen, als du bezahlst, und später Plätze hinzufügen.",
+        "inviteTitle": "Personen zu {team} einladen",
+        "inviteDescription": "Optional. Du kannst Personen auch später über die Mitgliederseite des Teams einladen.",
+        "inviteByEmail": "Per E-Mail einladen",
+        "inviteByLink": "Einladungslink",
+        "backToPlan": "Zurück zu den Tarifen",
+        "finish": "Zum Team"
+      },
+      "invite": {
+        "emailsLabel": "E-Mail-Adressen",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "Keine gültige E-Mail-Adresse",
+        "removeEmail": "{email} entfernen",
+        "roleLabel": "Rolle",
+        "roleMember": "Mitglied",
+        "roleAdmin": "Admin",
+        "count": "{count}/{max}",
+        "send": "Einladungen senden",
+        "sending": "Wird gesendet…",
+        "invalidCount": "{count, plural, one {Korrigiere oder entferne # ungültige Adresse vor dem Senden.} other {Korrigiere oder entferne # ungültige Adressen vor dem Senden.}}",
+        "overflow": "{count, plural, one {# Adresse wurde nicht hinzugefügt: Das Limit liegt bei {max} pro Anfrage.} other {# Adressen wurden nicht hinzugefügt: Das Limit liegt bei {max} pro Anfrage.}}",
+        "sent": "{count, plural, one {# Einladung gesendet.} other {# Einladungen gesendet.}}"
+      },
+      "inviteFailure": {
+        "generic": "konnte nicht eingeladen werden",
+        "already_member": "ist bereits Mitglied",
+        "invite_failed": "die Einladung konnte nicht gesendet werden"
+      },
+      "links": {
+        "expiryLabel": "Läuft ab",
+        "expiry": {
+          "1": "In 1 Tag",
+          "7": "In 7 Tagen",
+          "30": "In 30 Tagen",
+          "never": "Nie"
+        },
+        "maxUsesLabel": "Max. Nutzungen",
+        "maxUsesPlaceholder": "Unbegrenzt",
+        "maxUsesInvalid": "Max. Nutzungen muss eine ganze Zahl von 1 bis {max} sein oder leer für unbegrenzt.",
+        "create": "Link erstellen",
+        "creating": "Wird erstellt…",
+        "memberOnly": "Wer über einen Link beitritt, wird Mitglied. Befördere Personen bei Bedarf danach zum Admin.",
+        "showOnce": "Kopiere diesen Link jetzt. Er wird nur einmal angezeigt.",
+        "empty": "Keine aktiven Einladungslinks.",
+        "createdAt": "Erstellt {at}",
+        "expiresAt": "Läuft ab {at}",
+        "neverExpires": "Läuft nie ab",
+        "uses": "{count}/{max} Nutzungen",
+        "usesUnlimited": "{count, plural, one {# Nutzung} other {# Nutzungen}}",
+        "revoke": "Widerrufen",
+        "revokeTitle": "Diesen Einladungslink widerrufen?",
+        "revokeBody": "Niemand mit diesem Link kann mehr beitreten. Bereits beigetretene Personen bleiben Mitglieder.",
+        "actionsFor": "Aktionen für den Link ({created})"
+      },
+      "shell": {
+        "allTeams": "Alle Teams",
+        "tabsLabel": "Team-Einstellungen",
+        "tabs": {
+          "general": "Allgemein",
+          "members": "Mitglieder",
+          "apiKeys": "API-Schlüssel",
+          "billing": "Abrechnung"
+        },
+        "notFoundTitle": "Team nicht gefunden",
+        "notFoundBody": "Dieses Team existiert nicht, oder du bist kein Mitglied.",
+        "backToTeams": "Zurück zu den Teams"
+      },
+      "general": {
+        "imageTitle": "Teambild",
+        "imageDescription": "Wird in cmux neben dem Teamnamen angezeigt.",
+        "imageUpload": "Teambild hochladen",
+        "nameTitle": "Teamname",
+        "nameDescription": "Für alle Mitglieder sichtbar.",
+        "nameReadOnly": "Nur Admins können das Team umbenennen.",
+        "nameError": {
+          "empty": "Gib einen Teamnamen ein.",
+          "tooLong": "Verwende höchstens {max} Zeichen."
+        },
+        "profileTitle": "Dein Name in diesem Team",
+        "profileDescription": "So sehen dich andere Mitglieder dieses Teams. Leer lassen, um deinen Kontonamen zu verwenden.",
+        "profileLabel": "Dein Anzeigename im Team",
+        "leaveTitle": "Team verlassen",
+        "leaveDescription": "Du verlierst den Zugriff auf die gemeinsamen Konten und die Abrechnung dieses Teams.",
+        "leaveAction": "Team verlassen",
+        "leaveBlocked": "Du bist der einzige Admin. Befördere ein anderes Mitglied zum Admin oder lösche das Team, bevor du es verlässt.",
+        "leaveConfirmTitle": "{team} verlassen?",
+        "leaveConfirmBody": "Du brauchst eine neue Einladung, um wieder beizutreten.",
+        "deleteTitle": "Team löschen",
+        "deleteDescription": "Entfernt das Team, den Zugriff seiner Mitglieder und seine Einladungslinks dauerhaft.",
+        "deleteAction": "Team löschen",
+        "deleteConfirmTitle": "{team} löschen?",
+        "deleteConfirmBody": "Dies kann nicht rückgängig gemacht werden.",
+        "openBilling": "Team-Abrechnung öffnen"
+      },
+      "members": {
+        "title": "Mitglieder",
+        "count": "{count, plural, one {# Mitglied} other {# Mitglieder}}",
+        "memberColumn": "Mitglied",
+        "roleColumn": "Rolle",
+        "actionsColumn": "Aktionen",
+        "you": "Du",
+        "unnamed": "Unbenanntes Mitglied",
+        "remove": "Entfernen",
+        "removeTitle": "{name} entfernen?",
+        "removeBody": "Diese Person verliert sofort den Zugriff auf dieses Team. Du kannst sie später erneut einladen.",
+        "inviteTitle": "Personen einladen",
+        "inviteDescription": "Sende Einladungen per E-Mail. Füge eine Liste ein, getrennt durch Kommas, Leerzeichen oder Zeilenumbrüche (bis zu 20).",
+        "pendingTitle": "Ausstehende Einladungen",
+        "pendingDescription": "Einladungen, die noch nicht angenommen wurden.",
+        "pendingEmpty": "Keine ausstehenden Einladungen.",
+        "unknownEmail": "Unbekannte Adresse",
+        "expires": "Läuft ab {at}",
+        "resend": "Erneut senden",
+        "resent": "Gesendet",
+        "revoke": "Widerrufen",
+        "linksTitle": "Einladungslinks",
+        "linksDescription": "Ein wiederverwendbarer Link, über den jeder als Mitglied beitreten kann.",
+        "seatNudge": "{used} Personen sind Mitglieder oder eingeladen, aber der Tarif hat {seats} Plätze. Einladungen funktionieren weiterhin; füge {over, plural, one {# Platz} other {# Plätze}} hinzu, um alle abzudecken.",
+        "seatNudgeAction": "Plätze verwalten",
+        "actions": {
+          "makeAdmin": "Zum Admin machen",
+          "makeMember": "Zum Mitglied machen",
+          "remove": "Aus dem Team entfernen",
+          "leave": "Team verlassen"
+        },
+        "actionsFor": "Aktionen für {name}",
+        "lastAdminReason": "Ein Team braucht mindestens einen Admin. Befördere zuerst ein anderes Mitglied.",
+        "demoteSelfTitle": "Nicht mehr Admin sein?",
+        "demoteSelfBody": "Du verlierst die Admin-Rechte für dieses Team. Ein anderer Admin kann sie dir zurückgeben.",
+        "demoteSelfConfirm": "Mich zum Mitglied machen"
+      },
+      "apiKeys": {
+        "title": "Team-API-Schlüssel",
+        "description": "Schlüssel, die im Namen dieses Teams handeln. Wer einen Schlüssel hat, kann den Zugriff des Teams nutzen. Bewahre Schlüssel daher sicher auf.",
+        "create": "Team-API-Schlüssel erstellen",
+        "disabled": "Team-API-Schlüssel sind für dieses Projekt nicht aktiviert.",
+        "forbidden": "Sie benötigen in diesem Team die Berechtigung „API-Schlüssel verwalten“, um die Schlüssel zu sehen."
+      }
     },
     "coderouterAccounts": {
       "transferAction": "Übertragen",
@@ -448,10 +1009,6 @@
       "apiKeysTitle": "API-Schlüssel",
       "apiKeysDescription": "Erstellen Sie langlebige Schlüssel für Skripte und Agenten. Das Geheimnis wird einmal angezeigt.",
       "apiKeysCount": "{count, plural, one {# Schlüssel} other {# Schlüssel}}",
-      "apiKeysLoading": "API-Schlüssel werden geladen…",
-      "apiKeysLoadError": "API-Schlüssel konnten nicht geladen werden. Versuchen Sie es bald erneut.",
-      "apiKeysRetry": "Erneut versuchen",
-      "apiKeysEmptyBody": "Noch keine API-Schlüssel. Erstellen Sie einen zur Authentifizierung eines CodeRouter-Clients.",
       "apiKeyPrefixColumn": "Schlüssel",
       "apiKeyStatusColumn": "Zustand",
       "apiKeySecretTitle": "Diesen Schlüssel jetzt kopieren",
@@ -471,7 +1028,28 @@
       "revokeApiKeyConfirmTitle": "Diesen API-Schlüssel widerrufen?",
       "apiKeyUsageDetail": "letzte 30 Tage: {completions} Abschlüsse · {tokens} Tokens ({input} Eingabe / {output} Ausgabe) · {value} API-Äquivalent",
       "apiKeyUsageUnavailable": "Nutzung nicht verfügbar",
-      "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren."
+      "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren.",
+      "apiKeysEmptyTitle": "Noch keine API-Schlüssel",
+      "apiKeysEmptyHint": "Erstelle einen, um einen CodeRouter-Client zu authentifizieren."
+    },
+    "notFound": {
+      "title": "Seite nicht gefunden",
+      "body": "Diese Dashboard-Seite existiert nicht oder wurde verschoben.",
+      "home": "Zum Dashboard"
+    },
+    "states": {
+      "errorTitle": "{section} konnte nicht geladen werden",
+      "errorTitleGeneric": "Dieser Bereich konnte nicht geladen werden",
+      "reason": {
+        "network": "Prüfe deine Verbindung und versuche es dann erneut.",
+        "unavailable": "cmux ist vorübergehend nicht verfügbar. Versuche es gleich noch einmal.",
+        "forbidden": "Du hast keinen Zugriff darauf.",
+        "notFound": "Das existiert nicht mehr, oder du hast keinen Zugriff darauf.",
+        "rateLimited": "Zu viele Anfragen. Warte einen Moment und versuche es dann erneut.",
+        "generic": "Etwas ist schiefgelaufen. Versuche es erneut."
+      },
+      "retry": "Erneut versuchen",
+      "retrying": "Wird erneut versucht…"
     }
   },
   "community": {
@@ -1367,8 +1945,8 @@
           "sessionContentAlignment": "Horizontale Position von Terminalinhalten und integriertem Agentenchat, wenn sessionContentMaxWidth aktiviert ist.",
           "copyOnSelect": "Bei true wird ausgewählter Terminaltext in die Systemzwischenablage kopiert, sobald die Auswahl bestätigt wird. Bei false gibt cmux keine Ghostty-copy-on-select-Überschreibung aus; Ghostty-Konfiguration und Standardwerte steuern das Verhalten der Auswahlzwischenablage.",
           "scrollSpeed": "Legt fest, wie weit sich das Terminal pro Mausrad- oder Trackpad-Scrollereignis bewegt. Werte über 1 beschleunigen das Scrollen, Werte unter 1 verlangsamen es.",
-          "showTextBoxOnNewTerminals": "Zeigt die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits an.",
-          "focusTextBoxOnNewTerminals": "Fokussiert die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits. Fokussieren zeigt die TextBox ebenfalls an."
+          "showTextBoxOnNewTerminals": "Zeigt die TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits an.",
+          "focusTextBoxOnNewTerminals": "Fokussiert die TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits. Fokussieren zeigt die TextBox ebenfalls an."
         },
         "notifications": {
           "soundWhenFocused": "Den Benachrichtigungston auch dann abspielen, wenn der benachrichtigende Bereich bereits fokussiert ist. Standardmäßig aus, sodass ein fokussierter Bereich nur Ring und Aufblinken zeigt.",
@@ -1409,7 +1987,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
+          "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
           "showModifierHoldHints": "Zeigt Kurzbefehl-Hinweis-Chips an, während Cmd oder Control gedrückt gehalten wird."
         },
         "fileEditor": {
@@ -1463,6 +2041,8 @@
       "customActionsDesc": "Ein <actions>actions</actions>-Eintrag ist die wiederverwendbare Aktion, die cmux ausführt. Verwende Aktionen, wenn dasselbe Verhalten in Command Palette, Oberflächen-Tableiste, Kurzbefehlen oder dem Plus-Menü verfügbar sein soll. Nutze <commands>commands</commands> weiter für wiederverwendbare Shell-Befehle und Workspace-Layouts. Setze <palette>palette</palette> auf false, wenn eine Aktion nicht in Command Palette erscheinen soll.",
       "actionTypes": "Aktionstypen",
       "actionTypeBuiltin": "Alias für eine eingebaute cmux-Aktion wie cmux.newTerminal, cmux.newBrowser, cmux.splitRight oder cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Eingebaute Kopieraktionen: cmux.copyWorkingDirectory kopiert das Arbeitsverzeichnis des Terminals, cmux.copyProjectRoot das Stammverzeichnis seines Git-Repositorys (außerhalb eines Repositorys das Arbeitsverzeichnis) und cmux.copyScreen den sichtbaren Bildschirm.",
+      "actionTypeBuiltinCopyRemote": "In einem SSH-, Cloud- oder Remote-tmux-Workspace kopiert cmux.copyProjectRoot das entfernte Arbeitsverzeichnis, weil cmux das Git-Repository auf dem anderen Host nicht ermitteln kann.",
       "actionTypeCommand": "Führt Shell-Text in einem Terminal aus. Verwende target, um das aktuelle Terminal oder einen neuen Tab im aktuellen Bereich auszuwählen.",
       "actionTypeAgent": "Startet einen unterstützten Coding-Agenten. Aktuell werden codex und claude mit optionalen Argumenten unterstützt.",
       "actionTypeWorkspaceCommand": "Führt eine benannte Workspace-Definition aus commands aus. Nutze dies für Multi-Pane-Layouts, eigene Arbeitsverzeichnisse und Startbefehle.",
@@ -1534,7 +2114,6 @@
       "restartNew": "Neuen Workspace erstellen (Standard)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Zeilenumbruch im Dateieditor umschalten (Option+Z).",
       "title": "Tastaturkürzel",
       "description": "Alle in cmux verfügbaren Tastaturkürzel, nach Kategorie gruppiert.",
       "metaDescription": "Alle cmux-Tastaturkürzel für Workspaces, Oberflächen, geteilte Bereiche, Browser, Benachrichtigungen, Suche und Fensterverwaltung unter macOS.",
@@ -1862,7 +2441,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)",
+      "textBox": "TextBox",
       "ios": "iOS-App",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Überblick",
@@ -1876,7 +2455,11 @@
       "automationSection": "Automatisierung",
       "remoteSection": "Fernzugriff",
       "customizeSection": "Anpassung und Verwaltung",
-      "basicsSection": "Grundlagen"
+      "basicsSection": "Grundlagen",
+      "coderouterSection": "CodeRouter",
+      "coderouterOverview": "Überblick",
+      "coderouterAgents": "Agenten und Modelle",
+      "coderouterCli": "CLI und Fehlerbehebung"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -2022,11 +2605,10 @@
       "daemonPath": "Die Daemon-Binärdatei wird unter ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote auf dem Remote-Host gespeichert und anhand eines in die App eingebetteten SHA-256-Manifests überprüft."
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Konfiguriere die Beta-TextBox-Eingabe von cmux fuer neue Terminal-Tabs, Splits und Workspaces.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Konfiguriere die TextBox-Eingabe von cmux fuer neue Terminal-Tabs, Splits und Workspaces.",
       "intro": "TextBox ist die Rich-Eingabeflaeche von cmux zum Formulieren von Prompts, bevor sie an ein Terminal gesendet werden.",
-      "betaCallout": "TextBox ist eine Beta-Funktion. Standardwerte und Verhalten koennen sich waehrend der Tests aendern.",
       "defaultsTitle": "Standardwerte",
       "defaultsDesc": "Die TextBox-Einstellungen befinden sich unter Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals oeffnet neue Workspaces, Terminal-Tabs und Terminal-Splits mit sichtbarer TextBox, waehrend der Fokus im Terminal bleibt.",
@@ -2198,7 +2780,8 @@
       "guestDesc": "Innerhalb einer Maschine steuert der Befehl cmux die Sitzung dieser Maschine. Er unterstützt tree, new-workspace, new-split, send, send-key, read-screen, terminal, layout, env, notify, open-url und self. cmux self zeigt den Eigentümer, die Maschine und deine anderen Maschinen. cmux vm verb peer steuert deine anderen Maschinen aus einer Maschine heraus.",
       "guestHostOnly": "Anmeldung, das Hochladen von KI-Konten und Befehle für den Lebenszyklus von Maschinen wie new, delete, checkpoint, fork, resize, pause, domains, open und vpn laufen nur auf deinem Mac.",
       "iosTitle": "iPhone",
-      "iosDesc": "Die cmux-App für iOS verwaltet keine Cloud-Maschinen. Eine Maschine, die gerade startet, erscheint als Platzhalterkarte."
+      "iosDesc": "Die cmux-App für iOS verwaltet keine Cloud-Maschinen. Eine Maschine, die gerade startet, erscheint als Platzhalterkarte.",
+      "coderouterLink": "CodeRouter-Dokumentation: unterstützte Konten, Teilen und Nutzung"
     },
     "cloudNetworking": {
       "title": "Cloud-Dateien und Netzwerk",
@@ -2263,7 +2846,8 @@
       "accountsTitle": "KI-Konten und Modell-Routing",
       "accountsDesc": "Lade Agentenkonten für dein Team hoch und prüfe das Modell-Routing.",
       "preflightTitle": "Checkliste für Skripte",
-      "preflightDesc": "Bevor ein Skript Maschinen erstellt oder nutzt, führe diese schreibgeschützten Prüfungen aus. Sie bestätigen, dass du angemeldet bist, zeigen deine Maschinen und Planlimits und zeigen, welche Maschine ein Verzeichnis verwendet."
+      "preflightDesc": "Bevor ein Skript Maschinen erstellt oder nutzt, führe diese schreibgeschützten Prüfungen aus. Sie bestätigen, dass du angemeldet bist, zeigen deine Maschinen und Planlimits und zeigen, welche Maschine ein Verzeichnis verwendet.",
+      "coderouterLink": "Vollständige CodeRouter-Befehlsreferenz"
     },
     "cloudTroubleshooting": {
       "title": "Cloud-Sicherheit und Fehlerbehebung",
@@ -2320,6 +2904,177 @@
       "fixTransferDisabled": "Eine verwaltete Richtlinie deaktiviert die Dateiübertragung. Wende dich an deinen Administrator.",
       "supportTitle": "Hilfe erhalten",
       "supportDesc": "Schlägt eine Erstellung fehl, nutze Copy Error in der Benachrichtigung und füge den Fehler, gegebenenfalls mit der Trace-ID, bei, wenn du den Support kontaktierst."
+    },
+    "ui": {
+      "onThisPage": "Auf dieser Seite",
+      "copyPage": "Seite kopieren",
+      "copyPageDesc": "Seite als Markdown für LLMs kopieren",
+      "copied": "Kopiert",
+      "pageActions": "Weitere Seitenaktionen",
+      "openInChatGPT": "In ChatGPT öffnen",
+      "openInClaude": "In Claude öffnen",
+      "openInDesc": "Fragen zu dieser Seite stellen",
+      "askPrompt": "Lies {url}, damit ich Fragen dazu stellen kann.",
+      "previous": "Zurück",
+      "next": "Weiter",
+      "helpful": "War diese Seite hilfreich?",
+      "yes": "Ja",
+      "no": "Nein",
+      "thanks": "Danke für dein Feedback.",
+      "raiseIssue": "Issue melden",
+      "openNavigation": "Navigation öffnen",
+      "closeNavigation": "Navigation schließen",
+      "searchShortcut": "Dokumentation durchsuchen (⌘K)",
+      "navigation": "Dokumentation"
+    },
+    "coderouterOverview": {
+      "title": "CodeRouter",
+      "metaTitle": "CodeRouter Modell-Routing",
+      "metaDescription": "CodeRouter leitet Codex, Claude Code, OpenCode und Pi über die KI-Abos und API-Schlüssel deines Teams und wechselt bei einem Limit das Konto.",
+      "intro": "CodeRouter ist der Modell-Router hinter cmux. Deine Coding-Agenten senden Anfragen an CodeRouter, und CodeRouter leitet jede Anfrage an ein Abo oder einen API-Schlüssel weiter, den dein Team hinzugefügt hat. Ist ein Konto ratenbegrenzt, abgelehnt oder nicht erreichbar, verschiebt CodeRouter die Arbeit auf ein anderes Konto. So laufen die Agenten weiter.",
+      "whyTitle": "Warum CodeRouter",
+      "whyPool": "Bündle mehrere ChatGPT-, Claude- und OpenCode Go-Abos und API-Schlüssel und teile sie mit deinem Team.",
+      "whyFailover": "Halte einen Agenten am Laufen, wenn ein Konto sein Nutzungslimit erreicht.",
+      "whyCloud": "Gib cmux Cloud-Maschinen Zugriff auf Modelle, ohne Anmeldedaten auf der Maschine zu speichern.",
+      "whyUsage": "Sieh die Token-Nutzung pro Konto, pro API-Schlüssel und pro Cloud-Maschine.",
+      "accountsTitle": "Unterstützte Konten",
+      "accountsDesc": "Jedes Konto bedient die Agenten, die die API seines Anbieters sprechen. Codex und Pi teilen sich einen Pool. Claude Code nutzt einen eigenen Pool aus Claude-Konten.",
+      "accountColumn": "Konto",
+      "servesColumn": "Bedient",
+      "addColumn": "Hinzufügen",
+      "accountChatgpt": "ChatGPT-Abo (persönlicher oder Team-Workspace)",
+      "accountOpenAiKey": "OpenAI-API-Schlüssel",
+      "accountOpenRouterKey": "OpenRouter-API-Schlüssel",
+      "accountOpencodeGo": "OpenCode Go-Abo",
+      "accountClaudeSubscription": "Claude Max oder Pro (Claude Code-Setup-Token)",
+      "accountAnthropicKey": "Anthropic-API-Schlüssel",
+      "accountBedrock": "Amazon Bedrock-Anmeldedaten",
+      "addDashboard": "CodeRouter-Dashboard",
+      "accountsDashboard": "Im CodeRouter-Dashboard kannst du auch API-Schlüssel, Claude-Tokens und Bedrock-Anmeldedaten hinzufügen. Es listet jedes Konto mit Status, Abkühlphase und aktiven Sitzungen auf:",
+      "routingTitle": "Wie das Routing funktioniert",
+      "routingSticky": "Jede Agenten-Sitzung bleibt auf einem Konto, solange dieses Konto funktioniert. So bleibt der Prompt-Cache des Anbieters warm. Eine neue Sitzung geht an das Konto mit den wenigsten aktiven Sitzungen.",
+      "routingFailover": "Meldet ein Anbieter ein Ratenlimit, lehnt er Anmeldedaten ab oder antwortet er nicht, versetzt CodeRouter dieses Konto in eine Abkühlphase und wiederholt die Anfrage mit einem anderen Konto. CodeRouter wiederholt nur, bevor Modellausgabe deinen Agenten erreicht. Eine bereits gestreamte Antwort wird daher nie doppelt gesendet.",
+      "routingProvider": "Der gehostete Dienst von CodeRouter stellt die Anfrage an den Anbieter. Der Anbieter-Traffic kommt daher von CodeRouter, nicht von deinem Mac oder deiner Cloud-Maschine.",
+      "quickstartTitle": "Schnellstart auf einem Mac",
+      "stepInstall": "Installiere die CodeRouter-CLI. Sie wird als coderouter und als cr installiert. Du kannst auch cmux cr ausführen, das beim ersten Mal die Installation anbietet.",
+      "stepLogin": "Melde dich mit deinem cmux-Konto an. cr login öffnet deinen Browser. Bestätige den angezeigten Code.",
+      "stepAdd": "Füge ein Abo hinzu. cr add öffnet ein Menü mit Anbietern, und cr add codex meldet dich in deinem Browser bei ChatGPT an.",
+      "stepRun": "Starte einen Agenten über CodeRouter mit cr codex, cr opencode oder cr pi. Argumente nach dem Agentennamen werden an den Agenten weitergegeben.",
+      "cloudTitle": "Auf cmux Cloud-Maschinen",
+      "cloudDesc": "Jede Cloud-Maschine wird beim Erstellen mit CodeRouter verbunden. Claude Code, Codex, OpenCode und Pi auf der Maschine nutzen die Konten deines Teams ohne Anmeldung und ohne Einrichtung.",
+      "cloudLink": "Wie Agenten auf Cloud-Maschinen konfiguriert sind",
+      "teamsTitle": "Teams und Teilen",
+      "teamsScope": "Konten gehören zu dem Team, bei dem du angemeldet bist. cr org list zeigt deine Teams, und cr org switch ändert das Team, das cr verwendet. cmux coderouter-Befehle akzeptieren --team '<id>'.",
+      "teamsPrivate": "Ein neues Konto ist privat für die Person, die es hinzugefügt hat. Im Dashboard macht „Mit Team teilen“ es für jedes Mitglied und die Cloud-Maschinen des Teams verfügbar. „Privat machen“ macht das rückgängig.",
+      "teamsPersonal": "In deinem persönlichen Team bedienen deine privaten Konten auch deine eigenen Cloud-Maschinen. Die Cloud-Maschinen einer Organisation nutzen nur geteilte Konten. Teile ein Konto also, bevor eine Maschine es nutzen soll.",
+      "teamsManage": "Jedes Teammitglied kann die geteilten Konten des Teams hinzufügen, umbenennen, deaktivieren, übertragen und entfernen. cr transfer verschiebt ein Konto nach deiner Bestätigung in ein anderes Team.",
+      "usageTitle": "Nutzung und Limits",
+      "usageLimits": "Jeder Anbieter rechnet das Konto ab, das eine Anfrage bedient hat, nach dem Tarif und den Limits dieses Kontos. CodeRouter verteilt die Arbeit auf mehrere Konten, erhöht aber nicht das Limit eines einzelnen Kontos.",
+      "usageCr": "cr zeigt den Kontingentstatus jedes Abos. Füge --watch hinzu, um ihn alle 30 Sekunden zu aktualisieren, oder --json für Skripte.",
+      "usageMachines": "cmux coderouter machines zeigt die Token-Nutzung der letzten 30 Tage und den API-Gegenwert für jede Cloud-Maschine. Innerhalb einer Maschine schlüsselt cmux coderouter usage die Nutzung dieser Maschine nach Tag, Workspace, Agent und Modell auf.",
+      "usageEstimate": "Der API-Gegenwert ist eine Schätzung zu öffentlichen Listenpreisen. Er ist keine Rechnung.",
+      "privacyTitle": "Anmeldedaten und Datenschutz",
+      "privStored": "Anmeldedaten der Anbieter werden vor dem Speichern verschlüsselt. Keine CodeRouter-API und keine Dashboard-Ansicht gibt gespeicherte Anmeldedaten zurück. Konten zeigen nur ein Label, eine E-Mail-Adresse oder einen maskierten Schlüssel.",
+      "privArgv": "cr add und cmux coderouter claude add nehmen Anmeldedaten eines Anbieters nie als Befehlsargument an, denn dort würden sie im Shell-Verlauf landen. Sie lesen sie aus einer Umgebungsvariable, der Standardeingabe oder einer verdeckten Eingabeaufforderung.",
+      "privLocal": "cr add codex und cr add opencode melden dich in deinem Browser beim Anbieter an. cr codex übergibt CodeRouter-Einstellungen nur für diesen Lauf an Codex und lässt deine normale Codex-Anmeldung und -Konfiguration unverändert.",
+      "privCloud": "Cloud-Maschinen enthalten keine Anmeldedaten. Agenten auf einer Maschine senden einen öffentlichen Platzhalterschlüssel an eine private CodeRouter-Adresse, und der Netzwerkrand der Maschine fügt signierte Anmeldedaten hinzu, die an diese Maschine gebunden sind. CodeRouter lehnt diese Anmeldedaten von jeder anderen Maschine ab und widerruft sie, wenn die Maschine gelöscht wird.",
+      "privRequestId": "Jede CodeRouter-Antwort enthält einen x-coderouter-request-id-Header, der die Anfrage identifiziert.",
+      "nextTitle": "Nächste Schritte",
+      "nextAgents": "Agenten und Modelle: jeden Agenten auf einem Mac und auf Cloud-Maschinen einrichten",
+      "nextCli": "CLI und Fehlerbehebung: alle Befehle und häufige Fehler",
+      "nextCloud": "cmux Cloud"
+    },
+    "coderouterAgents": {
+      "title": "CodeRouter-Agenten und -Modelle",
+      "metaTitle": "CodeRouter-Agenten und -Modelle",
+      "metaDescription": "Führe Claude Code, Codex, OpenCode und Pi über CodeRouter auf einem Mac und auf cmux Cloud-Maschinen aus und wähle, welches Modell jeder Agent nutzt.",
+      "intro": "Diese Seite zeigt, wie jeder Agent CodeRouter auf deinem Mac und auf einer cmux Cloud-Maschine erreicht und wie jeder Agent ein Modell wählt.",
+      "agentColumn": "Agent",
+      "macColumn": "Auf deinem Mac",
+      "cloudColumn": "Auf einer Cloud-Maschine",
+      "automatic": "Automatisch",
+      "experimental": "(experimentell)",
+      "claudeMacCell": "CodeRouter-API-Schlüssel",
+      "macTitle": "Auf deinem Mac",
+      "macDesc": "cr startet den Agenten, den du bereits installiert hast, und richtet ihn für diesen Lauf auf CodeRouter aus. Der Agent muss in deinem PATH liegen. Alles nach dem Agentennamen wird unverändert weitergegeben.",
+      "codexDesc": "cr codex startet Codex mit einem CodeRouter-Modellanbieter. Unterbefehle wie exec, review und resume funktionieren genauso. cr naked startet normales Codex und umgeht CodeRouter.",
+      "opencodeDesc": "cr opencode lädt die Modelle der OpenCode Go-Konten deines Teams und nutzt das erste, sofern du nicht --model übergibst. Ein --model-Wert muss eines dieser Modelle sein. Für jeden anderen Anbieter startest du normales opencode.",
+      "piDesc": "cr pi fügt Pi einen coderouter-Anbieter mit denselben Modellen wie Codex hinzu und nutzt das erste Modell, sofern du nicht --model übergibst. Der Anbieter ist fest, daher wird --provider abgelehnt. Die Unterstützung für Pi ist experimentell.",
+      "claudeTitle": "Claude Code und andere API-Clients",
+      "claudeDesc": "cr hat keinen Launcher für Claude Code. Um Claude Code auf deinem Mac zu routen, oder jedes Tool, das die Anthropic Messages API oder die OpenAI Responses API spricht, erstellst du einen CodeRouter-API-Schlüssel und richtest das Tool auf coderouter.dev aus.",
+      "apiKeyCreate": "Erstelle einen Schlüssel im Bereich API keys des CodeRouter-Dashboards. Der Schlüssel beginnt mit crk_ und wird nur einmal angezeigt. Zum Erstellen oder Widerrufen eines Schlüssels brauchst du die Berechtigung, API-Schlüssel in diesem Team zu verwalten. In deinem persönlichen Team hast du sie immer:",
+      "apiKeyScope": "Der API-Schlüssel einer Organisation nutzt nur die geteilten Konten des Teams. Ein Schlüssel in deinem persönlichen Team kann auch deine privaten Konten nutzen. CodeRouter bedient die OpenAI Responses API, nicht Chat Completions.",
+      "apiKeyLogin": "Auf einer Maschine ohne Browser meldet cr login --api-key cr mit einem Schlüssel an, und CODEROUTER_API_KEY liefert einen Schlüssel für einen einzelnen Befehl. Widerrufe einen Schlüssel im Dashboard oder führe cr logout auf der Maschine aus, die ihn nutzt.",
+      "cloudTitle": "Auf cmux Cloud-Maschinen",
+      "cloudDesc": "Cloud-Maschinen brauchen keine Einrichtung. Die Umgebung der Maschine richtet OPENAI_BASE_URL und ANTHROPIC_BASE_URL auf eine private CodeRouter-Adresse aus, und cmux schreibt die Konfiguration jedes Agenten, sobald zum ersten Mal eine Shell oder der Agent startet:",
+      "cloudClaude": "Claude Code liest ANTHROPIC_BASE_URL und einen Platzhalter-ANTHROPIC_API_KEY aus der Umgebung. Die Fragen beim ersten Start sind bereits beantwortet.",
+      "cloudCodex": "Codex erhält einen cmux-Modellanbieter in ~/.codex/config.toml.",
+      "cloudPi": "Pi erhält eine Anbieter-Überschreibung in ~/.pi/agent/models.json.",
+      "cloudOpencode": "OpenCode lädt beim ersten Start seine Anbieterliste von CodeRouter herunter und speichert sie in ~/.config/opencode/opencode.json.",
+      "cloudYours": "cmux schreibt jede Datei nur, wenn sie fehlt. Deine Änderungen bleiben also erhalten. Eine Codex-Konfiguration, die bereits einen anderen Modellanbieter nennt, bleibt unverändert.",
+      "cloudRun": "Starte Agenten wie gewohnt. cmux coderouter agent macht aus einem einfachen Prompt die Einmal-Form des Agenten. Innerhalb einer Maschine läuft er im aktuellen Terminal, und auf deinem Mac startet er den Agenten auf der Maschine, die du angibst, wie cmux vm agent.",
+      "cloudAccounts": "Cloud-Maschinen nutzen die Konten des Teams, dem sie gehören. Meldet ein Agent, dass kein Konto verfügbar ist, füge ein Konto hinzu oder teile ein vorhandenes mit diesem Team.",
+      "modelsTitle": "Modelle",
+      "modelsCodex": "Codex und Pi nutzen den Modellkatalog des Kontos, das CodeRouter auswählt, bereitgestellt unter /v1/models. Die Modellauswahl von Codex zeigt also, was deine Konten nutzen können. Wähle ein Modell mit dem Flag -m von Codex oder mit dessen Befehl /model. Für einen OpenRouter-Schlüssel sendet CodeRouter eine einfache OpenAI-Modell-ID als openai/'<model>'.",
+      "modelsOpencode": "OpenCode listet die Modelle der OpenCode Go-Konten des Teams auf.",
+      "modelsClaude": "Claude Code sendet das Modell, das du mit --model oder /model wählst, und CodeRouter leitet es an das ausgewählte Konto weiter. Abo- und API-Schlüssel-Konten bedienen die Modelle, die Anthropic für dieses Konto erlaubt.",
+      "modelsBedrock": "Bedrock-Konten übersetzen Claude-Modell-IDs mit einer eingebauten Tabelle in Bedrock-Modell-IDs. Bedrock-IDs werden unverändert weitergegeben. Ein Modell ohne Zuordnung liefert not_found_error. Um ein weiteres Modell zuzuordnen, füge das Konto mit --model hinzu:",
+      "modelsList": "Innerhalb einer Cloud-Maschine gibt cmux coderouter models den Codex-Modellkatalog als JSON aus."
+    },
+    "coderouterCli": {
+      "title": "CodeRouter-CLI und Fehlerbehebung",
+      "metaTitle": "CodeRouter-CLI und Fehlerbehebung",
+      "metaDescription": "Befehle für die cr-CLI und cmux coderouter, was innerhalb einer cmux Cloud-Maschine funktioniert und Lösungen für häufige CodeRouter-Fehler.",
+      "intro": "CodeRouter hat zwei Befehlssätze. cr, auch als coderouter installiert, meldet dich an, verwaltet Abos und startet Agenten. cmux coderouter verwaltet die Claude-Konten des Teams und die Nutzung der Cloud-Maschinen über die angemeldete cmux-App und gibt jedes andere Verb an cr weiter.",
+      "installTitle": "Installieren und anmelden",
+      "installDesc": "Das Installationsprogramm lädt eine per Prüfsumme verifizierte Binärdatei nach ~/.coderouter/bin, verlinkt cr darauf und fügt dieses Verzeichnis dem PATH deiner Shell hinzu. Führe es erneut aus, um zu aktualisieren. Es unterstützt macOS und Linux auf arm64 und x64. Dieselbe CLI ist auf npm und PyPI veröffentlicht.",
+      "loginDesc": "cr login öffnet deinen Browser und gibt einen Ersatzlink aus. Ohne lokalen Browser nutzt du --device-auth und öffnest den Link auf einem anderen Gerät, oder cr login --code, um einen Code oder Magic Link einzufügen.",
+      "crTitle": "cr",
+      "crDesc": "Ohne Befehl zeigt cr deine Konten und ihre Nutzung. Das Routing von Agenten ist immer explizit: normales codex, opencode und pi funktionieren weiterhin ohne CodeRouter.",
+      "crAddCodex": "Ein persönlicher und ein Team-Workspace von ChatGPT können dieselbe E-Mail-Adresse nutzen. Führe cr add codex einmal pro Workspace aus und wähle den Workspace im Browser. CodeRouter führt sie als getrennte Konten.",
+      "cmuxTitle": "cmux coderouter",
+      "cmuxDesc": "Diese Verben laufen über die cmux-App, die laufen und angemeldet sein muss (cmux auth login). Füge --json für maschinenlesbare Ausgabe hinzu und --team '<id>', um ein anderes als das ausgewählte Team anzusprechen.",
+      "claudeAddDesc": "claude add oauth-token liest CLAUDE_CODE_OAUTH_TOKEN oder --stdin. In einem Terminal ohne beides führt es claude setup-token aus und liest das Token, das dieser Befehl ausgibt. claude add api-key liest ANTHROPIC_API_KEY, --stdin oder eine verdeckte Eingabeaufforderung. claude add bedrock liest AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY und das optionale AWS_SESSION_TOKEN und nimmt die Region aus --region, AWS_REGION oder AWS_DEFAULT_REGION.",
+      "accountSelector": "Ein '<account>' kann seine ID, sein Label oder seine maskierte Kennung sein. disable nimmt ein Konto aus der Rotation, bis du es wieder aktivierst.",
+      "passthroughDesc": "Jedes andere cmux coderouter-Verb und jeder cmux cr-Befehl führt cr unverändert aus. Fehlt cr, bietet cmux an, das Installationsprogramm auszuführen. cmux gibt weder seine eigenen Umgebungsvariablen noch seine Anmeldung an cr weiter.",
+      "guestTitle": "Innerhalb einer Cloud-Maschine",
+      "guestDesc": "Jede Cloud-Maschine hat ihr eigenes cmux mit CodeRouter-Verben, die keine Anmeldung brauchen. Die Kontoverwaltung bleibt auf deinem Mac. Daher werden claude, login und logout innerhalb einer Maschine abgelehnt.",
+      "troubleTitle": "Fehlerbehebung",
+      "troubleDesc": "Die Meldungen in der ersten Spalte gibt der Agent, cr oder cmux aus.",
+      "symptomColumn": "Meldung oder Symptom",
+      "fixColumn": "Lösung",
+      "errSignIn": "Sign in with `cr login` and retry. (Außerdem: Missing coderouter route token.)",
+      "fixSignIn": "Führe cr login aus. Prüfe bei einem API-Client, dass der Schlüssel gesetzt ist und mit crk_ beginnt.",
+      "errExpired": "Your coderouter session expired or was revoked.",
+      "fixExpired": "Führe cr login erneut aus. Ein widerrufener API-Schlüssel funktioniert sofort nicht mehr. Erstelle einen neuen.",
+      "errNoCodex": "No healthy Codex subscription is currently available.",
+      "fixNoCodex": "Führe cr aus, um den Status jedes Kontos zu sehen. Füge mit cr add ein Konto hinzu oder warte, bis eine Abkühlphase endet. Teile das Konto für die Cloud-Maschinen einer Organisation mit dem Team.",
+      "errNoClaude": "No Claude upstream account is configured for this team.",
+      "fixNoClaude": "Füge eines mit cr add claude oder cmux coderouter claude add hinzu. Teile es für die Cloud-Maschinen einer Organisation mit dem Team.",
+      "errClaudeCooling": "Every Claude upstream account of this team is cooling down or disabled.",
+      "fixClaudeCooling": "Versuche es nach der Abkühlphase erneut, aktiviere ein deaktiviertes Konto mit cmux coderouter claude enable oder füge ein weiteres Konto hinzu.",
+      "errBedrockModel": "not_found_error von einem Bedrock-Konto",
+      "fixBedrockModel": "Das Modell hat keine Bedrock-Zuordnung. Entferne das Konto und füge es mit --model '<claude-id>=<bedrock-id>' erneut hinzu.",
+      "errBedrockRegion": "The team's Bedrock account is missing a region.",
+      "fixBedrockRegion": "Entferne das Konto und füge es mit --region oder mit gesetztem AWS_REGION erneut hinzu.",
+      "errNotInstalled": "CodeRouter CLI is not installed.",
+      "fixNotInstalled": "Führe das Installationsprogramm aus oder antworte mit y, wenn cmux cr die Installation anbietet.",
+      "errAgentMissing": "Codex is not installed or is not on PATH (oder OpenCode, oder Pi).",
+      "fixAgentMissing": "Installiere den Agenten. cr startet die Kopie, die es in deinem PATH findet.",
+      "errCodexLoop": "`codex` resolves back to coderouter.",
+      "fixCodexLoop": "Dein codex-Befehl zeigt auf cr. Setze die echte Codex-Programmdatei an die erste Stelle in deinem PATH.",
+      "errOpencodeModel": "`'<model>'` is not a coderouter OpenCode model.",
+      "fixOpencodeModel": "Wähle ein Modell aus deinen OpenCode Go-Konten oder starte normales opencode für einen anderen Anbieter.",
+      "errOpencodeMachine": "cmux: OpenCode provider configuration is unavailable; retry in one minute.",
+      "fixOpencodeMachine": "Die Maschine konnte die OpenCode-Anbieterliste nicht herunterladen. Warte eine Minute und starte OpenCode erneut.",
+      "errEdge": "CodeRouter: TLS edge unreachable, or route rejected, in cmux auth status innerhalb einer Maschine.",
+      "fixEdge": "Die Maschine erreicht CodeRouter nicht, oder CodeRouter hat die Anmeldedaten der Maschine abgelehnt. Versuche es gleich noch einmal. Bleibt der Fehler bestehen, kontaktiere den Support mit dem Namen der Maschine und der Ausgabe von cmux auth status --json.",
+      "errUnavailable": "coderouter is temporarily unavailable. Retry shortly.",
+      "fixUnavailable": "CodeRouter oder der Kontospeicher ist kurz nicht verfügbar. Versuche es erneut. Bleibt der Fehler bestehen, melde ihn mit der Request-ID.",
+      "diagnoseTitle": "Diagnose",
+      "diagnoseDesc": "cr doctor zeigt, ob cr angemeldet ist und welche CodeRouter-Endpunkte es nutzt. cmux coderouter status zeigt die cmux-Anmeldung, das ausgewählte Team und die Claude-Konten dieses Teams.",
+      "supportTitle": "Hilfe erhalten",
+      "supportDesc": "Wenn du eine fehlgeschlagene Anfrage meldest, gib den Wert des Antwort-Headers x-coderouter-request-id an. Er identifiziert genau diese Anfrage in den Aufzeichnungen von CodeRouter."
     }
   },
   "legal": {
@@ -4401,5 +5156,27 @@
     "updateDetail": "Erfordert cmux {stableVersion} oder neuer bzw. NIGHTLY {nightlyVersion} oder neuer. Aktiviere die iOS-Kopplung auf jedem Mac unter Einstellungen > Mobilgeräte.",
     "rollbackTitle": "Du möchtest einen älteren Mac-Build behalten?",
     "rollbackDetail": "Verwende cmux BETA 1.0.5 ({rollbackBuild}) unter TestFlight > Frühere Builds, solange verfügbar. Wähle genau diesen Build, da spätere Builds einen neueren Verbindungsdienst verwenden."
+  },
+  "teamInvite": {
+    "loading": "Einladung wird geladen…",
+    "title": "{team} beitreten",
+    "titleUnknown": "Diesem Team beitreten",
+    "body": "Du wurdest eingeladen, diesem Team auf cmux beizutreten.",
+    "join": "Team beitreten",
+    "joining": "Wird beigetreten…",
+    "signedInAs": "Angemeldet als {email}",
+    "alreadyMemberTitle": "Du bist bereits Mitglied von {team}",
+    "alreadyMemberTitleUnknown": "Du bist bereits Mitglied dieses Teams",
+    "alreadyMemberBody": "Öffne das Team, um es zu verwalten.",
+    "openTeam": "Team öffnen",
+    "mismatchTitle": "Diese Einladung gilt für ein anderes Konto",
+    "mismatchBody": "Du bist als {email} angemeldet, aber die Einladung wurde an eine andere Adresse gesendet. Melde dich mit der eingeladenen Adresse an, oder füge sie diesem Konto hinzu und bestätige sie.",
+    "mismatchBodyUnknown": "Die Einladung wurde an eine andere Adresse gesendet. Melde dich mit der eingeladenen Adresse an, oder füge sie diesem Konto hinzu und bestätige sie.",
+    "switchAccount": "Abmelden und Konto wechseln",
+    "switching": "Wird abgemeldet…",
+    "switchFailed": "Abmeldung fehlgeschlagen. Versuche es erneut.",
+    "invalidTitle": "Diese Einladung ist nicht mehr gültig",
+    "invalidBody": "Sie ist abgelaufen, wurde widerrufen oder bereits verwendet. Bitte einen Team-Admin um eine neue.",
+    "goToTeams": "Zu deinen Teams"
   }
 }

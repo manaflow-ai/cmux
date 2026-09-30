@@ -155,6 +155,7 @@ final class FeedCoordinator: @unchecked Sendable {
         guard let store else { return nil }
         guard let item = store.ingestReturningItem(event) else { return nil }
         observeSemanticLifecycle(event)
+        retirePendingDecisionsSuperseded(by: event)
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
@@ -480,6 +481,49 @@ final class FeedCoordinator: @unchecked Sendable {
     }
 
     func isAwaitingDecision(requestId: String) -> Bool { waiterRegistry.isAwaiting(requestId) }
+
+    /// Whether `event` proves its agent already moved past every earlier
+    /// blocking decision in the same agent context.
+    ///
+    /// Claude Code runs its PermissionRequest hook beside its own permission
+    /// dialog and auto-mode classifier. When the user answers in the terminal
+    /// or the classifier decides, Claude keeps the abandoned hook waiting until
+    /// the hook's own timeout, so the Feed request and its "Needs input"
+    /// sidebar overlay outlived the decision by up to two minutes while the
+    /// agent was visibly running again. Claude fires PreToolUse before the
+    /// permission check, and the blocking hook is stamped only after its
+    /// ordering barrier delivered every earlier hook, so a later-stamped tool,
+    /// prompt, or stop hook can only follow the decision. AskUserQuestion and
+    /// ExitPlanMode PreToolUse hooks announce a blocking prompt of their own.
+    static func supersedesPendingDecisions(_ event: WorkstreamEvent) -> Bool {
+        guard event.source == "claude", event.feedHookSentAtMs != nil else { return false }
+        switch event.hookEventName {
+        case .preToolUse:
+            return event.toolName != "AskUserQuestion" && event.toolName != "ExitPlanMode"
+        case .postToolUse, .postToolUseFailure, .userPromptSubmit, .stop, .sessionEnd:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Retires blocking requests that `event` proves were decided outside cmux:
+    /// the waiting hook returns no decision, the card expires, and the
+    /// needs-input overlay and banner clear, as when the user replies in Feed.
+    @MainActor
+    func retirePendingDecisionsSuperseded(by event: WorkstreamEvent) {
+        guard Self.supersedesPendingDecisions(event) else { return }
+        for (reply, itemID) in waiterRegistry.supersede(by: event) {
+            cancelNotification(requestId: reply.requestID)
+            concludeAttentionOnMain(reply.target)
+            notificationJournal.observeFeed(AgentFeedSemanticInput(event: reply.event,
+                agentKey: Self.lifecycleStatusKey(forSource: reply.event.source),
+                requestID: reply.requestID, resolvesRequest: true))
+            clearSemanticFeedNotification(requestId: reply.requestID)
+            expireTimedOutItem(itemID)
+            waiterRegistry.cleanupStored(requestID: reply.requestID, groupID: reply.groupID)
+        }
+    }
 
     private static func findItemId(
         for requestId: String,
