@@ -133,11 +133,13 @@ def test_multiple_conflict_hunks_keep_untouched_keys_outside_conflicts():
     theirs = catalog({"k1": unit("theirs-1"), "k2": unit("untouched"), "k3": unit("theirs-3")})
     code, merged, stderr = run(base, ours, theirs)
     assert code == 1, stderr
-    assert merged.count("<<<<<<<") == 2
-    first_start = merged.index("<<<<<<<")
-    last_end = merged.rindex(">>>>>>>") + len(">>>>>>> theirs")
-    conflict_body = merged[first_start:last_end]
-    assert '"value": "untouched"' not in conflict_body
+    lines = merged.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith("<<<<<<<")]
+    ends = [index for index, line in enumerate(lines) if line.startswith(">>>>>>>")]
+    assert len(starts) == len(ends) == 2
+    for start, end in zip(starts, ends):
+        assert '"value": "untouched"' not in "\n".join(lines[start : end + 1])
+    assert merged.count('"value": "untouched"') == 1
 
 
 def test_git_marker_size_is_used_for_materialized_conflicts():
