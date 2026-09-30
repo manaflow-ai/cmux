@@ -1372,6 +1372,7 @@
           "adaptiveDefaultTheme": "Når true (standard), bruker cmux en standardpalett som følger utseendet, med mindre et Ghostty-tema eller terminalfarger er konfigurert. Skrifttype og andre innstillinger beholdes. Når false, bruker Ghostty sin faste innebygde palett. Eksplisitte temaer og farger har alltid prioritet, inkludert theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalinnhold og den innebygde agentchatten. Angi false for å bruke hele rutens bredde.",
           "sessionContentAlignment": "Vannrett plassering av terminalinnhold og den innebygde agentchatten når sessionContentMaxWidth er aktivert.",
+          "macosPressAndHold": "Når verdien er true, åpner bokstaver som holdes inne macOS-aksentmenyen uten å gjentas i terminalen. Tastegjentakelse for disse bokstavene er deaktivert mens menyen er åpen.",
           "copyOnSelect": "Når verdien er true, kopieres markert terminaltekst til systemutklippstavlen når markeringen bekreftes. Når verdien er false, sender ikke cmux ut en Ghostty copy-on-select-overstyring; Ghostty-konfigurasjon og standardverdier styrer oppførselen til markeringsutklippstavlen.",
           "scrollSpeed": "Skalerer hvor langt terminalen flytter seg for hver rullehendelse fra musehjul eller styreflate. Verdier over 1 gjør rullingen raskere, og verdier under 1 gjør den tregere.",
           "showTextBoxOnNewTerminals": "Viser TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",

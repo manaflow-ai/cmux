@@ -62,23 +62,32 @@ import Testing
     #expect(failureSettled)
     #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
 
-    let transport = try #require(box.get())
-    await transport.deliver(try renderGridEventFrame(
-        surfaceID: surfaceID,
-        seq: 4,
-        text: "partial-after-failed-replay",
-        full: false
-    ))
     let replayCountAfterFailure = await router.count(of: "mobile.terminal.replay")
+    // Deliver on the store's actor so the assertion cannot race the transport
+    // read loop and accidentally pass before the partial frame is processed.
+    for seq in UInt64(4)...6 {
+        store.deliverAuthoritativeTerminalRenderGrid(
+            try renderGridFrame(
+                surfaceID: surfaceID,
+                seq: seq,
+                text: "partial-after-failed-replay",
+                full: false
+            ),
+            source: "event"
+        )
+        #expect(!store.terminalReplaySurfaceIDsInFlight.contains(surfaceID))
+        #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+    }
     #expect(!collector.lines.contains { $0.contains("partial-after-failed-replay") }, "partial render-grid deltas must wait for a baseline after failed cold replay")
     #expect(
         await router.count(of: "mobile.terminal.replay") == replayCountAfterFailure,
         "partial render-grid deltas must not retry replay on every event after retries are exhausted"
     )
 
+    let transport = try #require(box.get())
     await transport.deliver(try renderGridEventFrame(
         surfaceID: surfaceID,
-        seq: 5,
+        seq: 7,
         text: "full-after-failed-replay",
         full: true
     ))

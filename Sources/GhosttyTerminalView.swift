@@ -312,7 +312,9 @@ class GhosttyApp {
                 }
             )
             return TerminalSurfaceViewFactory(
-                imageTransferPreparation: preparationService
+                imageTransferPreparation: preparationService,
+                terminalPressAndHoldSettings: UserDefaultsSettingsClient(defaults: .standard),
+                terminalPressAndHoldKey: SettingCatalog().terminal.macosPressAndHold
             )
         }(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
@@ -4160,6 +4162,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// native runtime generation.
     private var deferredGhosttyMouseRepairTask: Task<Void, Never>?
     let imageTransferPreparation: TerminalImageTransferPreparationService?
+    let terminalPressAndHoldSettings: (any SettingsReading)?
+    let terminalPressAndHoldKey: DefaultsKey<Bool>
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -4202,21 +4206,29 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override init(frame frameRect: NSRect) {
         imageTransferPreparation = nil
+        terminalPressAndHoldSettings = nil
+        terminalPressAndHoldKey = SettingCatalog().terminal.macosPressAndHold
         super.init(frame: frameRect)
         setup()
     }
 
     init(
         frame frameRect: NSRect,
-        imageTransferPreparation: TerminalImageTransferPreparationService
+        imageTransferPreparation: TerminalImageTransferPreparationService? = nil,
+        terminalPressAndHoldSettings: (any SettingsReading)?,
+        terminalPressAndHoldKey: DefaultsKey<Bool> = SettingCatalog().terminal.macosPressAndHold
     ) {
         self.imageTransferPreparation = imageTransferPreparation
+        self.terminalPressAndHoldSettings = terminalPressAndHoldSettings
+        self.terminalPressAndHoldKey = terminalPressAndHoldKey
         super.init(frame: frameRect)
         setup()
     }
 
     required init?(coder: NSCoder) {
         imageTransferPreparation = nil
+        terminalPressAndHoldSettings = nil
+        terminalPressAndHoldKey = SettingCatalog().terminal.macosPressAndHold
         super.init(coder: coder)
         setup()
     }
@@ -7337,9 +7349,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         let accumulatedText = keyTextAccumulator ?? []
+        let markedStateAfter = (markedText.string, markedSelectedRange)
+        if shouldSuppressPressAndHoldKeyRepeat(
+            // Translation may remove Option for Ghostty's Alt mapping.
+            // Repeat filtering must respect the original physical modifiers.
+            event: event,
+            before: markedStateBefore,
+            after: markedStateAfter,
+            accumulatedText: accumulatedText
+        ) {
+            // The initial press may already belong to Ghostty. Suppressing a
+            // repeat does not transfer ownership of its eventual key release.
+            return
+        }
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
             before: markedStateBefore,
-            after: (markedText.string, markedSelectedRange),
+            after: markedStateAfter,
             accumulatedText: accumulatedText,
             event: textInputEvent,
             inputSourceId: keyboardIdBefore

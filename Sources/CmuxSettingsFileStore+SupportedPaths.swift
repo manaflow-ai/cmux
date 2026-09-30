@@ -49,6 +49,7 @@ extension CmuxSettingsFileStore {
         "terminal.reflowHardWrapOnCopy",
         "terminal.confirmUnsafePaste",
         "terminal.textEditingGestures",
+        "terminal.macosPressAndHold",
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
         "terminal.autoResumeAgentSessions",

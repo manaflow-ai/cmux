@@ -26,6 +26,7 @@ public struct TerminalSection: View {
     @State private var reflowHardWrapOnCopy: DefaultsValueModel<Bool>
     @State private var confirmUnsafePaste: DefaultsValueModel<Bool>
     @State private var textEditingGestures: DefaultsValueModel<Bool>
+    @State private var macosPressAndHold: DefaultsValueModel<Bool>
     @State private var passwordInputIndicator: DefaultsValueModel<Bool>
     @State private var passwordInputDots: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
@@ -57,6 +58,7 @@ public struct TerminalSection: View {
         _reflowHardWrapOnCopy = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.reflowHardWrapOnCopy))
         _confirmUnsafePaste = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.confirmUnsafePaste))
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
+        _macosPressAndHold = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.macosPressAndHold))
         _passwordInputIndicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputIndicator))
         _passwordInputDots = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputDots))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
@@ -92,6 +94,7 @@ public struct TerminalSection: View {
             reflowHardWrapOnCopy,
             confirmUnsafePaste,
             textEditingGestures,
+            macosPressAndHold,
             passwordInputIndicator,
             passwordInputDots,
             autoResume,
@@ -425,6 +428,20 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalTextEditingGesturesToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.macosPressAndHold"),
+                String(localized: "settings.terminal.macosPressAndHold", defaultValue: "macOS Press-and-Hold Accents"),
+                subtitle: macosPressAndHold.current
+                    ? String(localized: "settings.terminal.macosPressAndHold.subtitleOn", defaultValue: "Held letters open the macOS accent menu without repeating into the terminal. Key repeat stays disabled for those letters while the menu is open.")
+                    : String(localized: "settings.terminal.macosPressAndHold.subtitleOff", defaultValue: "Held letters repeat in the terminal as usual. Enable this to use the macOS accent menu for accented characters.")
+            ) {
+                Toggle("", isOn: Binding(get: { macosPressAndHold.current }, set: { macosPressAndHold.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalMacOSPressAndHoldToggle")
+
             }
             SettingsCardDivider()
             SettingsCardRow(
