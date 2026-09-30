@@ -2030,7 +2030,7 @@
     "textBox": {
       "title": "TextBox",
       "metaTitle": "TextBox",
-      "metaDescription": "កំណត់រចនាសម្ព័ន្ធការបញ្ចូល TextBox របស់ cmux សម្រាប់ផ្ទាំង ស្ប្លីត និង workspace ស្ថានីយថ្មី។",
+      "metaDescription": "កំណត់រចនាសម្ព័ន្ធការបញ្ចូល TextBox របស់ cmux សម្រាប់ផ្ទាំង ស្ប្លីត និង workspace ស្ថានីយថ្មីនៅក្នុង cmux។",
       "intro": "TextBox គឺជាផ្ទៃបញ្ចូលស្ថានីយ rich របស់ cmux សម្រាប់រៀបចំ prompt មុនពេលផ្ញើទៅស្ថានីយ។",
       "defaultsTitle": "លំនាំដើម",
       "defaultsDesc": "ការកំណត់ TextBox ស្ថិតនៅ Settings > TextBox:",

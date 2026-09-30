@@ -2033,7 +2033,7 @@
     "textBox": {
       "title": "TextBox",
       "metaTitle": "TextBox",
-      "metaDescription": "Configurez l'entrée TextBox de cmux pour les nouveaux onglets, divisions et espaces de travail de terminal.",
+      "metaDescription": "Configurez l'entrée TextBox de cmux pour les nouveaux onglets, divisions et espaces de travail du terminal cmux.",
       "intro": "TextBox est la surface de saisie enrichie de cmux pour composer des prompts avant de les envoyer au terminal.",
       "defaultsTitle": "Valeurs par défaut",
       "defaultsDesc": "Les réglages TextBox se trouvent dans Settings > TextBox :",
