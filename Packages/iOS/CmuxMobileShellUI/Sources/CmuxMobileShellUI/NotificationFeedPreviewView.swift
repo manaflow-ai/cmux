@@ -159,6 +159,9 @@ public struct NotificationFeedPreviewView: View {
             consumePendingSearchNavigation(for: selectedTab)
         }
         .onChange(of: selectedTab) { oldValue, newValue in
+            if newValue == .notifications {
+                consumePendingSearchNavigation(for: .notifications)
+            }
             if oldValue == .search, newValue != .search {
                 searchNavigationPath = []
             }
@@ -213,7 +216,7 @@ public struct NotificationFeedPreviewView: View {
             isConfirmingMarkAllRead: $isConfirmingMarkAllRead,
             showsNavigationToolbar: false
         )
-        .task {
+        .task(id: selectedTab) {
             guard selectedTab == .notifications else { return }
             await runScrollStressIfEnabled(proxy: proxy)
         }
