@@ -159,9 +159,8 @@ extension Workspace {
             ? stableTitle?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
         let stable = trimmedStable.flatMap { $0.isEmpty ? nil : $0 } ?? trimmed
 
-        // Runs on every frame, which is what keeps the animation. It still
-        // invalidates the tab bar's own SwiftUI subtree; what it avoids is the
-        // app-wide cascade below.
+        // Runs on every frame, which is what keeps the animation. It wakes only
+        // this tab's own views; what it avoids is the app-wide cascade below.
         let didRefreshTabLabel = refreshTabLabel(panelId: panelId, displayTitle: trimmed)
 
         // Only the spinner advanced. Everything below either writes @Published
