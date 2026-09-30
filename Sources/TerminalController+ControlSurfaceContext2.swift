@@ -149,7 +149,11 @@ extension TerminalController {
         // Terminal splits check the minimum pane size in
         // `newTerminalSplitOutcome`; other panel types check it here (#15371).
         if panelType != .terminal, !ws.isRemoteTmuxMirror,
-           ws.splitSpaceVerdict(splittingPanel: targetSurfaceId, orientation: orientation) == .noSpace {
+           ws.splitSpaceVerdict(
+               splittingPanel: targetSurfaceId,
+               orientation: orientation,
+               dividerPosition: dividerPosition
+           ) == .noSpace {
             return .noSpace
         }
         let newId: UUID?
@@ -206,7 +210,6 @@ extension TerminalController {
         guard let newId else {
             return .createFailed
         }
-        ws.finishSplitSpaceBorrow(newPanelId: newId, orientation: orientation, explicitDividerPosition: dividerPosition)
         // An explicit divider position wins over equalize-on-create.
         if dividerPosition == nil {
             ws.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: newId)
@@ -373,10 +376,6 @@ extension TerminalController {
         if case .invalid(let raw) = placement {
             return .invalidPlacement(rawValue: raw)
         }
-        if case .dock = placement, !RightSidebarMode.dock.isAvailable() {
-            return .dockUnavailable(message: dockUnavailableMessage())
-        }
-
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
         if case .dock = placement,
            let invalid = validateDockSurfaceCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {

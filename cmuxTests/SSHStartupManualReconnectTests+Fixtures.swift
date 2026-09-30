@@ -45,6 +45,9 @@ extension SSHStartupManualReconnectTests {
         )
     }
 
+    /// Foreground-auth token the supervisor command expects in its environment.
+    static let persistentAttachSupervisorAuthToken = UUID().uuidString.lowercased()
+
     static func persistentAttachSupervisorCommand(replacingSystemSSHWith fakeSSH: URL) -> String {
         // Direct process signals belong to the attach supervisor that the app
         // builds for restore and reattach.
@@ -55,7 +58,7 @@ extension SSHStartupManualReconnectTests {
                 port: 2222,
                 identityFile: nil,
                 sshOptions: ["ControlMaster=no"],
-                token: UUID().uuidString.lowercased()
+                token: persistentAttachSupervisorAuthToken
             )
         ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
     }

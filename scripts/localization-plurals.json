@@ -710,14 +710,20 @@
       1
     ]
   },
-  "update.readyWaiting.agents": {
-    "source": "Installs and relaunches when %lld agents finish. Agents resume after the relaunch.",
+  "update.relaunch.resumesMidTask": {
+    "source": "%lld agents will be resumed mid-task.",
     "arguments": [
       1
     ]
   },
-  "update.readyWaiting.commands": {
-    "source": "Relaunching will stop %lld running commands. Choose Install Now when you're ready.",
+  "update.relaunch.runningCommands": {
+    "source": "%lld running commands",
+    "arguments": [
+      1
+    ]
+  },
+  "terminalSharing.chip.hiddenColumns": {
+    "source": "%ld cols hidden",
     "arguments": [
       1
     ]

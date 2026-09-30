@@ -58,7 +58,7 @@ extension ControlCommandCoordinator {
                     "surface_id": .string(surfaceID.uuidString),
                     "surface_ref": self.ref(.surface, surfaceID),
                     "attempt_id": .string(attemptID.uuidString),
-                    "remote": remoteStatus,
+                    "remote": self.remoteStatus(remoteStatus, for: params),
                 ]))
             }
         }
@@ -226,7 +226,7 @@ extension ControlCommandCoordinator {
                     "surface_id": .string(surfaceID.uuidString),
                     "surface_ref": self.ref(.surface, surfaceID),
                     "relay_port": relayPort.map { .int(Int64($0)) } ?? .null,
-                    "remote": remoteStatus,
+                    "remote": self.remoteStatus(remoteStatus, for: params),
                 ]))
             }
         }
@@ -298,8 +298,16 @@ extension ControlCommandCoordinator {
                 "surface_id": .string(surfaceID.uuidString),
                 "surface_ref": ref(.surface, surfaceID),
                 "relay_port": relayPort.map { .int(Int64($0)) } ?? .null,
-                "remote": remoteStatus,
+                "remote": self.remoteStatus(remoteStatus, for: params),
             ]))
         }
+    }
+
+    /// The `remote` payload for a relay caller carries only connection state;
+    /// the destination, proxy, local ports and daemon details stay on the Mac.
+    nonisolated func remoteStatus(_ status: JSONValue, for params: [String: JSONValue]) -> JSONValue {
+        guard params["_cmux_remote_workspace_id"] != nil else { return status }
+        guard case .object(let fields) = status else { return .object([:]) }
+        return .object(fields.filter { ["enabled", "state", "connected"].contains($0.key) })
     }
 }

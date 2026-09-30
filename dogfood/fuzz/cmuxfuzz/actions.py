@@ -454,7 +454,9 @@ class Executor:
 
     def do_window_resize(self, s: dict) -> str:
         window = self.current_window()
-        self.sock.call("remote.tmux.test_set_frame", {"window_id": window["id"], "width": s["w"], "height": s["h"]})
+        # The app gives its main-actor hop 30 s; a busy CI Mac can pass the client's 10 s default.
+        self.sock.call("remote.tmux.test_set_frame", {"window_id": window["id"], "width": s["w"], "height": s["h"]},
+                       timeout=30)
         return ""
 
     def do_fullscreen(self, s: dict) -> str:
