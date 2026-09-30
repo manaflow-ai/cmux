@@ -311,7 +311,24 @@ extension TerminalController {
                 operation.children[index].endedAt = Date()
                 continue
             }
-            let result = try await provider.waitForExit(terminalID: terminalID, timeoutMs: 1)
+            let result: [String: Any]
+            do {
+                result = try await provider.waitForExit(terminalID: terminalID, timeoutMs: 1)
+            } catch {
+                // A confirmed missing terminal is permanently unobservable;
+                // transport, link, and machine availability failures remain
+                // running so a later status request can retry them.
+                let isMissing = (error as? CmuxTuiSurfaceProvider.ProviderError).map {
+                    if case .remoteTabNotFound = $0 { return true }
+                    return false
+                } ?? CloudDiagnosticFailure.classify(error) == .notFound
+                if isMissing {
+                    operation.children[index].state = .failed
+                    operation.children[index].errorCode = "terminal_unavailable"
+                    operation.children[index].endedAt = Date()
+                }
+                continue
+            }
             guard (result["state"] as? String) == "exited" else { continue }
             var exitCode: Int?
             if let outcome = result["outcome"] as? [String: Any] {
