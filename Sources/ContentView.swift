@@ -2023,6 +2023,7 @@ struct ContentView: View {
             sidebarBackdropLayer(width: width, role: role, appearance: appearance)
             content()
                 .environment(\.colorScheme, appearance.sidebarContentColorScheme)
+                .environment(\.sidebarReadabilityBackdrop, appearance.sidebarReadabilityBackdrop)
         }
         // Preserve the panel's intended edge when content reports an
         // intrinsic width larger than the constrained pane. The default
@@ -2116,7 +2117,7 @@ struct ContentView: View {
     }
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
-    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
+    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = SidebarAppearanceCatalogSection().matchTerminalBackground.defaultValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
@@ -2155,9 +2156,11 @@ struct ContentView: View {
         )
     }
 
+    /// Titlebar text over the terminal background. Picks black or white by
+    /// WCAG contrast, the same rule as the sidebar and the Bonsplit tab bar,
+    /// so a saturated mid-tone theme never gets white text at 3.2:1.
     private func fakeTitlebarTextColor(appearance: WindowAppearanceSnapshot) -> Color {
-        let ghosttyBackground = appearance.terminalBackgroundColor
-        return ghosttyBackground.isLightColor
+        cmuxReadableColorScheme(for: appearance.terminalBackgroundColor) == .light
             ? Color.black.opacity(0.78)
             : Color.white.opacity(0.82)
     }
@@ -2432,8 +2435,8 @@ struct ContentView: View {
             }
             return
         }
-        let title = tabManager.resolvedWorkspaceDisplayTitle(for: tab)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // SSH and Cloud workspaces show their host after the title (`title · host`).
+        let title = tabManager.resolvedWorkspaceWindowTitle(for: tab)
         if titlebarText != title {
             titlebarText = title
         }
@@ -8468,6 +8471,33 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.terminalSizeToMyWindow",
+                title: constant(String(localized: "command.terminalSizeToMyWindow.title", defaultValue: "Size Terminal to My Window")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "size", "resize", "window", "grid", "shared", "phone", "iphone", "fit", "mine"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.terminalShowSizePanel",
+                title: constant(String(localized: "command.terminalShowSizePanel.title", defaultValue: "Show Terminal Size Panel")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "size", "participants", "shared", "clients", "policy", "latest", "smallest", "priority", "fixed"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.terminalDisconnectOtherClients",
+                title: constant(String(localized: "command.terminalDisconnectOtherClients.title", defaultValue: "Disconnect Other Terminal Clients…")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "disconnect", "detach", "clients", "phone", "iphone", "shared", "kick"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalPasteLastScreenshot",
                 title: constant(String(localized: "command.terminalPasteLastScreenshot.title", defaultValue: "Paste Last Screenshot")),
                 subtitle: terminalPanelSubtitle,
@@ -8580,6 +8610,22 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
+        for copyAction in [
+            CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory,
+            .copyProjectRoot,
+            .copyScreen,
+        ] {
+            let metadata = copyAction.resolvedConfigMetadata
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: Self.commandPaletteCopyActionCommandID(copyAction),
+                    title: constant(metadata.title),
+                    subtitle: terminalPanelSubtitle,
+                    keywords: metadata.keywords,
+                    when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+                )
+            )
+        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitBrowserRight",
@@ -9440,6 +9486,21 @@ struct ContentView: View {
                 NSSound.beep()
             }
         }
+        registry.register(commandId: "palette.terminalSizeToMyWindow") {
+            if !tabManager.sizeFocusedTerminalToMyWindow() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalShowSizePanel") {
+            if !tabManager.showFocusedTerminalSizePanel(confirmDisconnectOthers: false) {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalDisconnectOtherClients") {
+            if !tabManager.showFocusedTerminalSizePanel(confirmDisconnectOthers: true) {
+                NSSound.beep()
+            }
+        }
         registry.register(commandId: "palette.terminalPasteLastScreenshot") {
             if !tabManager.pasteLastScreenshotIntoFocusedTerminal() {
                 NSSound.beep()
@@ -9476,6 +9537,22 @@ struct ContentView: View {
         registry.register(commandId: "palette.terminalSplitDown") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
                 tabManager.createSplit(direction: .down)
+            }
+        }
+        for copyAction in [
+            CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory,
+            .copyProjectRoot,
+            .copyScreen,
+        ] {
+            registry.register(commandId: Self.commandPaletteCopyActionCommandID(copyAction)) {
+                if let terminalCopyAction = copyAction.terminalCopyAction {
+                    let workspace = tabManager.selectedWorkspace
+                    TerminalCopyActionRunner.run(
+                        terminalCopyAction,
+                        workspace: workspace,
+                        panelId: workspace?.focusedPanelId
+                    )
+                }
             }
         }
         registry.register(commandId: "palette.terminalSplitBrowserRight") {
@@ -9568,7 +9645,8 @@ struct ContentView: View {
             commandSourcePaths: cmuxConfigStore.commandSourcePaths,
             tabManager: tabManager,
             baseCwd: baseCwd,
-            globalConfigPath: cmuxConfigStore.globalConfigPath
+            globalConfigPath: cmuxConfigStore.globalConfigPath,
+            settingPresets: cmuxConfigStore.settingPresets
         )
     }
 
@@ -11038,13 +11116,17 @@ enum CmuxExtensionSidebarSelection {
     /// Synchronous read of the experimental custom-sidebars flag, mirroring
     /// ``isEnabled`` for the AppKit/static paths (the picker menu).
     static var customSidebarsEnabled: Bool {
+        customSidebarsEnabled(defaults: .standard)
+    }
+
+    static func customSidebarsEnabled(defaults: UserDefaults) -> Bool {
         // `DisableCustomSidebars` (MDM): interpreted sidebars are user- or
         // agent-authored code that can dispatch `cmux(...)` commands.
         guard !ManagedDevicePolicy().isEnforced(.disableCustomSidebars) else { return false }
         // See ``isEnabled``: read only the beta-features section so a body-path
         // access does not allocate the entire `SettingCatalog` (issue #5970).
         let key = BetaFeaturesCatalogSection().customSidebars
-        return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
+        return Bool.decodeFromUserDefaults(defaults.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
     }
 
     /// Directory custom sidebars are authored into.
@@ -11544,6 +11626,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
 #endif
     @Environment(\.colorScheme) private var sidebarColorScheme
+    @Environment(\.sidebarReadabilityBackdrop) private var sidebarReadabilityBackdrop
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var sidebarGlobalFontMagnificationPercent
     @State private var sidebarDisplayAccessibility = DisplayAccessibilityOptions.current
 
@@ -11612,7 +11695,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     @AppStorage("sidebarMatchTerminalBackground")
-    private var sidebarMatchTerminalBackground = false
+    private var sidebarMatchTerminalBackground = SidebarAppearanceCatalogSection().matchTerminalBackground.defaultValue
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
     private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
@@ -11984,13 +12067,15 @@ struct VerticalTabsSidebar: View, Equatable {
             colorScheme: sidebarColorScheme,
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
             lazyContractProbe: sidebarLazyContractProbe,
-            displayAccessibility: sidebarDisplayAccessibility
+            displayAccessibility: sidebarDisplayAccessibility,
+            readabilityBackdropHex: sidebarReadabilityBackdrop?.hexString()
         )
 #else
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: sidebarColorScheme,
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-            displayAccessibility: sidebarDisplayAccessibility
+            displayAccessibility: sidebarDisplayAccessibility,
+            readabilityBackdropHex: sidebarReadabilityBackdrop?.hexString()
         )
 #endif
         let renderContext = WorkspaceListRenderContext(
@@ -12807,6 +12892,7 @@ struct VerticalTabsSidebar: View, Equatable {
             shortcutHintText: hintText,
             showsShortcutHints: input.showsModifierShortcutHints,
             colorSchemeIsDark: environment.colorScheme == .dark,
+            readabilityBackdropHex: environment.readabilityBackdropHex,
             globalFontMagnificationPercent: environment.globalFontMagnificationPercent,
             isChecklistExpanded: input.isChecklistExpanded,
             checklistAddFieldActivationToken: input.checklistAddFieldActivationToken,
@@ -17104,10 +17190,12 @@ extension String {
         var lineCount = 1
         var characterCount = 0
         var truncated = false
+        var cutMidToken = false
 
         for character in self {
             if characterCount >= maxDisplayedCharacters {
                 truncated = true
+                cutMidToken = true
                 break
             }
             if character == "\n" {
@@ -17123,7 +17211,24 @@ extension String {
 
         guard truncated else { return self }
         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "..." : trimmed + "..."
+        guard !trimmed.isEmpty else { return "…" }
+
+        // A single ellipsis character, not three periods, and attached in the
+        // way the cut earns. Sidebar text is scanned for GitHub references
+        // after it is bounded, and the reference parser trims a trailing `.`
+        // before reading a number but leaves `…` alone, so the marker decides
+        // whether the last token still parses.
+        //
+        // The character bound can stop in the middle of a token, and a cut
+        // `owner/repo#8471` reads as `owner/repo#847`, which links to an issue
+        // nobody wrote. Attaching the marker to that token is what keeps it
+        // from parsing, so the row shows text instead of a wrong link.
+        //
+        // The line bound cannot: the loop breaks on `\n` before appending it,
+        // so the kept text always ends with a whole line and a whole token.
+        // Attaching the marker there would only break a reference that is
+        // complete and correct, which is why it gets a space first.
+        return cutMidToken ? trimmed + "…" : trimmed + " …"
     }
 }
 

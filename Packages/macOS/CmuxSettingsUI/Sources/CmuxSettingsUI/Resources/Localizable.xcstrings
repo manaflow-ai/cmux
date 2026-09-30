@@ -6123,131 +6123,6 @@
         }
       }
     },
-    "settings.terminal.themeGallery.truncated": {
-      "extractionState": "manual",
-      "localizations": {
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ci sono altri temi corrispondenti. Continua a digitare per restringere l’elenco."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Postoji još tema koje odgovaraju. Nastavite kucati da suzite listu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flere temaer matcher. Skriv videre for at indsnævre listen."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មានស្បែកផ្សេងទៀតដែលត្រូវគ្នា។ បន្តវាយដើម្បីបង្រួមបញ្ជី។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flere temaer samsvarer. Skriv videre for å snevre inn listen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pasuje więcej motywów. Pisz dalej, aby zawęzić listę."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mais temas correspondem. Continue digitando para refinar a lista."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подходят и другие темы. Продолжайте вводить, чтобы сузить список."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ยังมีธีมที่ตรงกันอีก พิมพ์ต่อเพื่อจำกัดรายการ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eşleşen başka temalar da var. Listeyi daraltmak için yazmaya devam edin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Є й інші відповідні теми. Продовжуйте вводити, щоб звузити список."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "More themes match. Keep typing to narrow the list."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "هناك سمات أخرى مطابقة. تابع الكتابة لتضييق القائمة."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Es gibt weitere Treffer. Tippe weiter, um die Liste einzugrenzen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hay más temas que coinciden. Sigue escribiendo para acotar la lista."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "D’autres thèmes correspondent. Continuez à taper pour affiner la liste."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ほかにも一致するテーマがあります。入力を続けて絞り込んでください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "일치하는 테마가 더 있습니다. 계속 입력해 목록을 좁히세요."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "还有更多匹配的主题。继续输入以缩小列表范围。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "還有更多相符的主題。繼續輸入以縮小清單範圍。"
-          }
-        }
-      }
-    },
     "settings.terminal.themeGallery.writeFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -7098,6 +6973,242 @@
           "stringUnit": {
             "state": "translated",
             "value": "穩定版"
+          }
+        }
+      }
+    },
+    "settings.terminal.predictiveLocalEcho": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predictive Local Echo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصدى المحلي التنبؤي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorausschauendes lokales Echo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eco local predictivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écho local prédictif"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予測ローカルエコー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예측 로컬 에코"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预测性本地回显"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預測性本機回顯"
+          }
+        }
+      }
+    },
+    "settings.terminal.predictiveLocalEcho.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In terminals on another machine, typed characters appear right away when the connection is slow. They stay underlined until the remote host confirms them. Local terminals, password prompts and full-screen apps are excluded."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في الطرفيات الموجودة على جهاز آخر، تظهر الأحرف المكتوبة فورًا عندما يكون الاتصال بطيئًا، وتبقى مسطّرة حتى يؤكدها المضيف البعيد. ولا ينطبق ذلك على الطرفيات المحلية ومطالبات كلمة المرور والتطبيقات بملء الشاشة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Terminals auf einem anderen Rechner erscheinen getippte Zeichen bei langsamer Verbindung sofort. Sie bleiben unterstrichen, bis der Remote-Host sie bestätigt. Ausgenommen sind lokale Terminals, Passwortabfragen und Vollbild-Apps."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En terminales de otra máquina, los caracteres escritos aparecen al instante cuando la conexión es lenta y permanecen subrayados hasta que el host remoto los confirma. No se aplica a terminales locales, solicitudes de contraseña ni apps a pantalla completa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans les terminaux d’une autre machine, les caractères saisis s’affichent immédiatement lorsque la connexion est lente. Ils restent soulignés jusqu’à ce que l’hôte distant les confirme. Cela ne s’applique ni aux terminaux locaux, ni aux invites de mot de passe, ni aux apps en plein écran."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のマシン上のターミナルで接続が遅いとき、入力した文字をすぐに表示し、リモートホストが確認するまで下線を付けます。ローカルターミナル、パスワードの入力、フルスクリーンアプリには適用されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 기기의 터미널에서 연결이 느릴 때 입력한 문자를 바로 표시하고, 원격 호스트가 확인할 때까지 밑줄로 표시합니다. 로컬 터미널, 비밀번호 프롬프트와 전체 화면 앱에는 적용되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在其他机器上的终端中，连接较慢时输入的字符会立即显示并带有下划线，直到远程主机确认为止。本地终端、密码提示和全屏 App 不适用此功能。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在其他機器上的終端機中，連線較慢時輸入的字元會立即顯示並加上底線，直到遠端主機確認為止。本機終端機、密碼提示和全螢幕 App 不適用此功能。"
+          }
+        }
+      }
+    },
+    "settings.terminal.themeGallery.darkGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dark Themes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السمات الداكنة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dunkle Designs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temas oscuros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thèmes sombres"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダークテーマ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다크 테마"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "深色主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "深色主題"
+          }
+        }
+      }
+    },
+    "settings.terminal.themeGallery.lightGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light Themes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السمات الفاتحة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Helle Designs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temas claros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thèmes clairs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライトテーマ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이트 테마"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浅色主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "淺色主題"
           }
         }
       }

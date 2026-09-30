@@ -26,8 +26,11 @@ public struct TerminalSection: View {
     @State private var reflowHardWrapOnCopy: DefaultsValueModel<Bool>
     @State private var confirmUnsafePaste: DefaultsValueModel<Bool>
     @State private var textEditingGestures: DefaultsValueModel<Bool>
+    @State private var textEditingCommandMovesByWord: DefaultsValueModel<Bool>
+    @State private var textEditingGesturesInFullScreenApps: DefaultsValueModel<Bool>
     @State private var passwordInputIndicator: DefaultsValueModel<Bool>
     @State private var passwordInputDots: DefaultsValueModel<Bool>
+    @State private var predictiveLocalEcho: DefaultsValueModel<Bool>
     @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
@@ -58,8 +61,15 @@ public struct TerminalSection: View {
         _reflowHardWrapOnCopy = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.reflowHardWrapOnCopy))
         _confirmUnsafePaste = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.confirmUnsafePaste))
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
+        _textEditingCommandMovesByWord = State(
+            initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingCommandMovesByWord)
+        )
+        _textEditingGesturesInFullScreenApps = State(
+            initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGesturesInFullScreenApps)
+        )
         _passwordInputIndicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputIndicator))
         _passwordInputDots = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputDots))
+        _predictiveLocalEcho = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.predictiveLocalEcho))
         _adaptiveDefaultTheme = State(
             initialValue: DefaultsValueModel(
                 store: defaultsStore,
@@ -99,8 +109,11 @@ public struct TerminalSection: View {
             reflowHardWrapOnCopy,
             confirmUnsafePaste,
             textEditingGestures,
+            textEditingCommandMovesByWord,
+            textEditingGesturesInFullScreenApps,
             passwordInputIndicator,
             passwordInputDots,
+            predictiveLocalEcho,
             adaptiveDefaultTheme,
             autoResume,
             hibernation,
@@ -268,8 +281,6 @@ public struct TerminalSection: View {
                 }
             }
             SettingsCardDivider()
-            TerminalThemeSettingsRows(hostActions: hostActions)
-            SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .settingsOnly,
                 String(localized: "settings.terminal.importFromTerminal", defaultValue: "Import from Another Terminal"),
@@ -286,33 +297,6 @@ public struct TerminalSection: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsTerminalImportButton")
-            }
-            SettingsCardDivider()
-            SettingsCardRow(
-                configurationReview: .json("terminal.adaptiveDefaultTheme"),
-                String(
-                    localized: "settings.terminal.adaptiveDefaultTheme",
-                    defaultValue: "Adapt Default Theme to Appearance"
-                ),
-                subtitle: String(localized: "settings.terminal.adaptiveDefaultTheme.subtitle", defaultValue: "Matches terminal colors to the light or dark appearance when no Ghostty theme or colors are set.")
-            ) {
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { adaptiveDefaultTheme.current },
-                        set: { enabled in
-                            adaptiveDefaultTheme.set(enabled) {
-                                @MainActor [hostActions] in
-                                hostActions.terminalAdaptiveDefaultThemeDidChange()
-                            }
-                        }
-                    )
-                )
-                .labelsHidden()
-                .controlSize(.small)
-                .accessibilityIdentifier(
-                    "SettingsTerminalAdaptiveDefaultThemeToggle"
-                )
             }
             SettingsCardDivider()
             SettingsCardRow(
@@ -456,12 +440,38 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.textEditingGestures"),
                 String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"),
-                subtitle: String(localized: "settings.terminal.textEditingGestures.subtitle", defaultValue: "Pressing Command or Option with an arrow key or Delete moves or deletes by line or word. Full-screen terminal apps receive the rewritten keys too, so turn this off for apps that need the original keys.")
+                subtitle: String(localized: "settings.terminal.textEditingGestures.subtitle", defaultValue: "Command and Option arrow and delete keys move and delete by line and word at the shell prompt.")
             ) {
                 Toggle("", isOn: Binding(get: { textEditingGestures.current }, set: { textEditingGestures.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalTextEditingGesturesToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.textEditingCommandMovesByWord"),
+                String(localized: "settings.terminal.textEditingCommandMovesByWord", defaultValue: "Command Moves by Word"),
+                subtitle: textEditingCommandMovesByWord.current
+                    ? String(localized: "settings.terminal.textEditingCommandMovesByWord.subtitleOn", defaultValue: "Command arrow and delete keys move and delete by word, like Option. Control Left and Right Arrow move to the start and end of the line.")
+                    : String(localized: "settings.terminal.textEditingCommandMovesByWord.subtitleOff", defaultValue: "Command arrow and delete keys move and delete by line, as in macOS text fields.")
+            ) {
+                Toggle("", isOn: Binding(get: { textEditingCommandMovesByWord.current }, set: { textEditingCommandMovesByWord.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!textEditingGestures.current)
+                    .accessibilityIdentifier("SettingsTerminalTextEditingCommandMovesByWordToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.textEditingGesturesInFullScreenApps"),
+                String(localized: "settings.terminal.textEditingGesturesInFullScreenApps", defaultValue: "Text Editing Gestures in Full-Screen Apps"),
+                subtitle: String(localized: "settings.terminal.textEditingGesturesInFullScreenApps.subtitle", defaultValue: "Gestures also apply while a full-screen app such as vim, less, or tmux is running, so they keep working at a shell inside tmux, screen, or zellij.")
+            ) {
+                Toggle("", isOn: Binding(get: { textEditingGesturesInFullScreenApps.current }, set: { textEditingGesturesInFullScreenApps.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!textEditingGestures.current)
+                    .accessibilityIdentifier("SettingsTerminalTextEditingGesturesInFullScreenAppsToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(
@@ -485,6 +495,17 @@ public struct TerminalSection: View {
                     .controlSize(.small)
                     .disabled(!passwordInputIndicator.current)
                     .accessibilityIdentifier("SettingsTerminalPasswordInputDotsToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.predictiveLocalEcho"),
+                String(localized: "settings.terminal.predictiveLocalEcho", defaultValue: "Predictive Local Echo"),
+                subtitle: String(localized: "settings.terminal.predictiveLocalEcho.subtitle", defaultValue: "In terminals on another machine, typed characters appear right away when the connection is slow. They stay underlined until the remote host confirms them. Local terminals, password prompts and full-screen apps are excluded.")
+            ) {
+                Toggle("", isOn: Binding(get: { predictiveLocalEcho.current }, set: { predictiveLocalEcho.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalPredictiveLocalEchoToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

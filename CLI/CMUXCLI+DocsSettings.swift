@@ -381,6 +381,23 @@ extension CMUXCLI {
             ]
         ),
         DocsReference(
+            topic: "capture",
+            aliases: ["screenshot", "screenshots", "shot", "record", "recording", "clip", "gif"],
+            summary: "Screenshot or record a cmux window from the CLI: png, jpeg, mp4 or gif, with no Screen Recording permission.",
+            webURL: "https://cmux.com/docs/api",
+            rawResources: [
+                DocsResource(label: "capture skill", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-capture/SKILL.md"),
+                DocsResource(label: "capture commands", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-capture/references/commands.md"),
+            ],
+            commands: [
+                "cmux shot --label before",
+                "cmux record start --gif --max-seconds 8 --label sidebar-drag",
+                "cmux record note \"dragging the workspace\"",
+                "cmux record stop",
+                "cmux record list",
+            ]
+        ),
+        DocsReference(
             topic: "agents",
             aliases: ["integrations", "agent-integrations"],
             summary: "Agent hook integrations, Feed approvals, notifications, and session restore.",
@@ -389,6 +406,7 @@ extension CMUXCLI {
                 DocsResource(label: "agent hook docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-hooks.md"),
                 DocsResource(label: "feed docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/feed.md"),
                 DocsResource(label: "notifications docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/notifications.md"),
+                DocsResource(label: "capture skill", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-capture/SKILL.md"),
             ],
             commands: [
                 "cmux hooks setup",
@@ -460,7 +478,7 @@ extension CMUXCLI {
         }
 
         guard args.count == 1 else {
-            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies]")
+            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies]")
         }
 
         if topic == "list" || topic == "all" {
@@ -485,7 +503,7 @@ extension CMUXCLI {
 
     func docsUsage() -> String {
         return """
-        Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies]
+        Usage: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies]
 
         Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic.
         This command does not require a running cmux app or socket.
@@ -494,6 +512,7 @@ extension CMUXCLI {
           Use `cmux docs settings` before editing ~/.config/cmux/cmux.json.
           \(Self.workflowText("cli.workflow.guidance.discover", "Use `cmux docs workflows --json` to choose a shipped workflow example or discover the saved-layout lifecycle."))
           Use `cmux docs dock` before creating or editing .cmux/dock.json.
+          Use `cmux docs capture` to screenshot or record a window for a pull request or a bug report.
           Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert.
           Fetch raw resources with the printed curl commands when you need the latest schema.
         """
@@ -747,7 +766,7 @@ extension CMUXCLI {
           docs                Print the same output as `cmux docs settings`.
 
         Targets:
-          account, app, terminal, networking, computers, devices, sidebar-appearance,
+          account, app, themes, terminal, networking, computers, devices, sidebar-appearance,
           custom-sidebars, automation, browser, browser-import,
           global-hotkey, keyboard-shortcuts, shortcuts, workspace-colors,
           cmux-json, json, reset
@@ -779,6 +798,8 @@ extension CMUXCLI {
             return "account"
         case "app", "general":
             return "app"
+        case "themes", "theme", "appearance":
+            return "themes"
         case "terminal":
             return "terminal"
         case "sidebar", "sidebar-appearance", "sidebarappearance":

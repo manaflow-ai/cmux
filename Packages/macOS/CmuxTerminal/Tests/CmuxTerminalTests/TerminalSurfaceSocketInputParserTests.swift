@@ -34,6 +34,13 @@ import CmuxTerminalCore
         #expect(!containsUserInputEvents(events))
     }
 
+    @Test func sosRepliesStayTerminalBytes() {
+        let reply = "\u{1B}Xterminal-status\u{1B}\\"
+        let events = TerminalSurface.parsedSocketInputEvents(for: reply)
+        #expect(terminalBytePayloads(in: events) == [Data(reply.utf8)])
+        #expect(!containsUserInputEvents(events))
+    }
+
     private func terminalBytePayloads(in events: [ParsedSocketInput]) -> [Data] {
         events.compactMap { if case .terminalBytes(let data) = $0 { data } else { nil } }
     }

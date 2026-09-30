@@ -715,5 +715,17 @@
     "arguments": [
       1
     ]
+  },
+  "terminalSharing.chip.hiddenColumns": {
+    "source": "%ld cols hidden",
+    "arguments": [
+      1
+    ]
+  },
+  "agentWake.status.multiple": {
+    "source": "%ld agents didn't resume",
+    "arguments": [
+      1
+    ]
   }
 }

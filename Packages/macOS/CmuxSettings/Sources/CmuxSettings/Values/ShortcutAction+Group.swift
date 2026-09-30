@@ -28,7 +28,7 @@ extension ShortcutAction {
              .newWorkspaceGroup, .groupSelectedWorkspaces,
              .toggleFocusedWorkspaceGroupCollapsed, .reopenClosedBrowserPanel,
              .newSurface, .toggleTerminalCopyMode, .focusTextBoxInput,
-             .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal, .pasteLastScreenshot,
+             .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow,
              .clearScreenKeepScrollback:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown,
@@ -59,7 +59,7 @@ extension ShortcutAction {
              .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs,
              .diffViewerScrollToBottom, .diffViewerScrollToTop,
              .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile,
-             .diffViewerNextHunk, .diffViewerPreviousHunk:
+             .diffViewerNextHunk, .diffViewerPreviousHunk, .diffViewerToggleViewed:
             return .browser
         }
     }

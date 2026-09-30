@@ -3573,7 +3573,7 @@ final class SocketClient {
         let environment = ProcessInfo.processInfo.environment
         if let relayID = trimmedEnvValue(environment["CMUX_RELAY_ID"]),
            let relayTokenHex = trimmedEnvValue(environment["CMUX_RELAY_TOKEN"]),
-           let relayToken = hexData(from: relayTokenHex) {
+           let relayToken = Data(relayHex: relayTokenHex) {
             return RelayCredentials(relayID: relayID, relayToken: relayToken)
         }
 
@@ -3583,35 +3583,11 @@ final class SocketClient {
               let authObject = try? JSONSerialization.jsonObject(with: authData) as? [String: Any],
               let relayID = trimmedEnvValue(authObject["relay_id"] as? String),
               let relayTokenHex = trimmedEnvValue(authObject["relay_token"] as? String),
-              let relayToken = hexData(from: relayTokenHex) else {
+              let relayToken = Data(relayHex: relayTokenHex) else {
             throw CLIError(message: "Missing relay auth metadata for \(endpoint.host):\(endpoint.port)")
         }
 
         return RelayCredentials(relayID: relayID, relayToken: relayToken)
-    }
-
-    private static func hexData(from string: String) -> Data? {
-        let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty,
-              normalized.count.isMultiple(of: 2) else {
-            return nil
-        }
-
-        var data = Data(capacity: normalized.count / 2)
-        var cursor = normalized.startIndex
-        while cursor < normalized.endIndex {
-            let next = normalized.index(cursor, offsetBy: 2)
-            guard let byte = UInt8(normalized[cursor..<next], radix: 16) else {
-                return nil
-            }
-            data.append(byte)
-            cursor = next
-        }
-        return data
-    }
-
-    private static func hexString(from data: Data) -> String {
-        data.map { String(format: "%02x", $0) }.joined()
     }
 
     private func connectToRelay(
@@ -3734,47 +3710,45 @@ final class SocketClient {
         responseTimeout: TimeInterval,
         deadline: Date
     ) throws {
-        let challengeLine = try readLine(
-            responseTimeout: responseTimeout,
-            deadline: deadline
+        let handshake = RemoteRelayClientHandshake(
+            relayID: credentials.relayID,
+            relayToken: credentials.relayToken
         )
-        guard let challengeData = challengeLine.data(using: .utf8),
-              let challenge = try JSONSerialization.jsonObject(with: challengeData) as? [String: Any],
-              (challenge["protocol"] as? String) == "cmux-relay-auth",
-              let version = challenge["version"] as? Int,
-              let relayID = challenge["relay_id"] as? String,
-              relayID == credentials.relayID,
-              let nonce = challenge["nonce"] as? String,
-              !nonce.isEmpty else {
-            throw CLIError(message: "Invalid relay authentication challenge")
+        do {
+            try handshake.perform(
+                readLine: {
+                    try readLine(responseTimeout: responseTimeout, deadline: deadline)
+                },
+                writeLine: { line in
+                    try configureSocketWriteSafety(remainingSocketTimeout(
+                        responseTimeout: responseTimeout,
+                        deadline: deadline
+                    ))
+                    try writeAllNonBlocking(
+                        line,
+                        deadline: deadline,
+                        timeoutMessage: "Relay command timed out",
+                        failureMessage: "Failed to write to relay socket"
+                    )
+                }
+            )
+        } catch let failure as RemoteRelayClientHandshake.Failure {
+            throw CLIError(message: Self.relayHandshakeFailureMessage(failure))
         }
+    }
 
-        let authMessage = Data("relay_id=\(relayID)\nnonce=\(nonce)\nversion=\(version)".utf8)
-        let key = SymmetricKey(data: credentials.relayToken)
-        let mac = Data(HMAC<SHA256>.authenticationCode(for: authMessage, using: key))
-        let authPayload = try JSONSerialization.data(withJSONObject: [
-            "relay_id": relayID,
-            "mac": Self.hexString(from: mac),
-        ])
-        try configureSocketWriteSafety(remainingSocketTimeout(
-            responseTimeout: responseTimeout,
-            deadline: deadline
-        ))
-        try writeAllNonBlocking(
-            authPayload + Data([0x0A]),
-            deadline: deadline,
-            timeoutMessage: "Relay command timed out",
-            failureMessage: "Failed to write to relay socket"
-        )
-
-        let authResponseLine = try readLine(
-            responseTimeout: responseTimeout,
-            deadline: deadline
-        )
-        guard let authResponseData = authResponseLine.data(using: .utf8),
-              let authResponse = try JSONSerialization.jsonObject(with: authResponseData) as? [String: Any],
-              (authResponse["ok"] as? Bool) == true else {
-            throw CLIError(message: "Relay authentication failed")
+    private static func relayHandshakeFailureMessage(
+        _ failure: RemoteRelayClientHandshake.Failure
+    ) -> String {
+        switch failure {
+        case .invalidChallenge:
+            return "Invalid relay authentication challenge"
+        case .rejected:
+            return "Relay authentication failed"
+        case .relayNotProven:
+            return "Relay did not prove it holds the relay token; reconnect this SSH workspace"
+        case .nonceUnavailable:
+            return "Failed to create relay authentication nonce"
         }
     }
 
@@ -4369,6 +4343,18 @@ struct CMUXCLI {
     }
 
     static let claudeCodeStatusKey = "claude_code"
+    /// The SF Symbol a running-with-subagents row shows: several connected
+    /// points, distinct from the git-branch symbol the sidebar already uses.
+    static let subagentsStatusIcon = "point.3.filled.connected.trianglepath.dotted"
+
+    /// Whether a PreToolUse tool name is Claude Code's subagent spawn.
+    /// Claude Code renamed the spawn tool "Task" -> "Agent" (2.x); both names
+    /// remain on the wire depending on CLI version, so both must count (see
+    /// `AgentChatSessionRegistry.isTaskSpawn`, which says the same thing for
+    /// the mobile child-run tracker).
+    static func spawnsSubagents(toolName: String?) -> Bool {
+        toolName == "Task" || toolName == "Agent"
+    }
 
     private static func agentNotificationMeta(
         category: AgentHookNotifyCategory,
@@ -6831,7 +6817,8 @@ struct CMUXCLI {
             guard let target = optionValue(commandArgs, name: "--window"), let windowID = try normalizeWindowHandle(target, client: client) else {
                 throw CLIError(message: "close-window requires --window")
             }
-            let response = try sendV1Command("close_window \(windowID)", client: client)
+            let force = commandArgs.contains("--force")
+            let response = try sendV1Command("close_window \(windowID)\(force ? " --force" : "")", client: client)
             print(response)
 
         case "resize-window":
@@ -7347,6 +7334,7 @@ struct CMUXCLI {
                 sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
             }
             if let sfId { params["surface_id"] = sfId }
+            params["force"] = commandArgs.contains("--force")
             let payload = try client.sendV2(method: "surface.close", params: params)
             if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId,
                let closedSurfaceId = (payload["surface_id"] as? String) ?? sfId {
@@ -7568,6 +7556,22 @@ struct CMUXCLI {
                 includeContextInPlainOutput: true
             )
 
+        case "record":
+            try runRecordCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowId
+            )
+
+        case "shot", "screenshot":
+            try runShotCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowId
+            )
+
         case "read-screen":
             let selectionOnly = commandArgs.contains("--selection")
             if selectionOnly {
@@ -7688,6 +7692,17 @@ struct CMUXCLI {
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let keyArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
             guard let key = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
+            if keyArgs.count > 1 {
+                let trailing = keyArgs.dropFirst().joined(separator: " ")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.readSelection.error.unexpectedArguments",
+                        defaultValue: "%@: unexpected arguments: %@"
+                    ),
+                    "send-key",
+                    trailing
+                ))
+            }
             var params: [String: Any] = ["key": key]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
@@ -7732,6 +7747,17 @@ struct CMUXCLI {
             let skpArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
             let key = skpArgs.first ?? ""
             guard !key.isEmpty else { throw CLIError(message: "send-key-panel requires a key") }
+            if skpArgs.count > 1 {
+                let trailing = skpArgs.dropFirst().joined(separator: " ")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.readSelection.error.unexpectedArguments",
+                        defaultValue: "%@: unexpected arguments: %@"
+                    ),
+                    "send-key-panel",
+                    trailing
+                ))
+            }
             var params: [String: Any] = ["key": key]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
@@ -9785,6 +9811,16 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowOverride
             )
+        case "size", "size-policy", "size-to-me", "size-counts", "participants",
+             "disconnect-participant", "disconnect-others":
+            // Shared terminal sizing (docs/shared-terminal-sizing.md).
+            try runSurfaceSizingCommand(
+                subcommand: subcommand,
+                rest: Array(commandArgs.dropFirst()),
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowOverride
+            )
         case "ls", "list", "tree", "catalog", "open", "project", "new-terminal", "new":
             // The surface catalog: terminals, screens and browsers on This Mac and every
             // cloud machine, and one open path for all of them (`surface.project`).
@@ -10030,7 +10066,7 @@ struct CMUXCLI {
         }
     }
 
-    private struct SurfaceResumeTarget {
+    struct SurfaceResumeTarget {
         var params: [String: Any]
         var remaining: [String]
     }
@@ -10043,7 +10079,7 @@ struct CMUXCLI {
         return (Array(args[..<delimiterIndex]), Array(args[argvStart...]))
     }
 
-    private func surfaceResumeTarget(
+    func surfaceResumeTarget(
         _ args: [String],
         client: SocketClient,
         windowOverride: String?
@@ -10445,7 +10481,7 @@ struct CMUXCLI {
         let (descriptionOpt, rem4) = parseOption(rem3, name: "--description")
         let (windowOpt, rem5) = parseOption(rem4, name: "--window")
 
-        var positional = rem5
+        var positional = rem5.filter { $0 != "--force" }
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -10509,6 +10545,7 @@ struct CMUXCLI {
         if let description, !description.isEmpty {
             params["description"] = description
         }
+        params["force"] = commandArgs.contains("--force")
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
         var summaryParts = ["OK", "action=\(action)"]
@@ -10546,7 +10583,7 @@ struct CMUXCLI {
         let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
         let (windowOpt, rem7) = parseOption(rem6, name: "--window")
 
-        var positional = rem7
+        var positional = rem7.filter { $0 != "--force" }
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -10611,6 +10648,7 @@ struct CMUXCLI {
         if let urlOpt, !urlOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             params["url"] = urlOpt.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        params["force"] = commandArgs.contains("--force")
         try applyTabActionFocusOption(focusOpt, to: &params)
         let payload = try client.sendV2(method: "tab.action", params: params)
         var summaryParts = ["OK", "action=\(action)"]
@@ -10921,10 +10959,12 @@ struct CMUXCLI {
         }
 
         var params: [String: Any] = [:]
+        let force = commandArgs.contains("--force")
         let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
         if let winId { params["window_id"] = winId }
         let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
         if let wsId { params["workspace_id"] = wsId }
+        if force { params["force"] = true }
         let payload = try client.sendV2(method: "workspace.close", params: params)
         if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId {
             try? tmuxPruneCompatWorkspaceState(workspaceId: closedWorkspaceId)
@@ -12059,7 +12099,12 @@ struct CMUXCLI {
                     explicitOptions: inputSSHOptions.sshOptions
                 )
             },
-            routeSensitiveOptions: inputSSHOptions.identityFile.map { ["IdentityFile=\($0)"] } ?? []
+            routeSensitiveOptions: inputSSHOptions.identityFile.map { ["IdentityFile=\($0)"] } ?? [],
+            // `%C` ignores proxy, identity and host-key options; a route that
+            // sets them gets a master keyed by its whole resolved route.
+            routeIdentifier: resolvedUserSSHConfiguration.flatMap {
+                sharingOptions.routeIdentifier(fromSSHConfigOutput: $0)
+            }
         )
         if resolvedUserSSHConfiguration != nil {
             sshOptions.sshOptions = resolvedCmuxControlPathOptions(for: sshOptions)
@@ -12167,6 +12212,11 @@ struct CMUXCLI {
                 options: sshOptions,
                 localCommandScript: combinedLocalCommandScript
             )
+        // One-shot launchers can carry the Cloud VM password. Only a new
+        // workspace's first terminal runs one, and it then deletes itself;
+        // every other exit removes them here.
+        let launchScripts = SSHStartupLaunchScripts(directory: FileManager.default.temporaryDirectory)
+        defer { launchScripts.removeUnlaunched() }
         var initialSSHStartupCommand: String
         var remoteTerminalSSHStartupCommand: String
         if let remoteTerminalBootstrapScript, !remoteTerminalBootstrapScript.isEmpty {
@@ -12177,7 +12227,8 @@ struct CMUXCLI {
                 remoteRelayPort: sshOptions.remoteRelayPort,
                 localCommandScript: combinedLocalCommandScript,
                 passwordCredential: sshOptions.passwordCredential,
-                controlPathPreflightShellFunction: controlPathPreflightShellFunction
+                controlPathPreflightShellFunction: controlPathPreflightShellFunction,
+                launchScripts: launchScripts
             )
             remoteTerminalSSHStartupCommand = buildReusableBootstrapSSHStartupCommand(
                 options: sshOptions,
@@ -12195,7 +12246,8 @@ struct CMUXCLI {
                 remoteRelayPort: sshOptions.remoteRelayPort,
                 isShellSnippet: true,
                 passwordCredential: sshOptions.passwordCredential,
-                controlPathPreflightShellFunction: controlPathPreflightShellFunction
+                controlPathPreflightShellFunction: controlPathPreflightShellFunction,
+                launchScripts: launchScripts
             )
             remoteTerminalSSHStartupCommand = buildReusableSSHStartupCommand(
                 sshCommand: rawRemoteCommandSnippet,
@@ -12211,7 +12263,8 @@ struct CMUXCLI {
                 shellFeatures: "",
                 remoteRelayPort: sshOptions.remoteRelayPort,
                 passwordCredential: sshOptions.passwordCredential,
-                controlPathPreflightShellFunction: controlPathPreflightShellFunction
+                controlPathPreflightShellFunction: controlPathPreflightShellFunction,
+                launchScripts: launchScripts
             )
             remoteTerminalSSHStartupCommand = buildReusableSSHStartupCommand(
                 sshCommand: startupRemoteTerminalSSHCommand,
@@ -12226,7 +12279,8 @@ struct CMUXCLI {
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 localCommandScript: combinedLocalCommandScript,
-                sshFallbackCommand: initialSSHStartupCommand
+                sshFallbackCommand: initialSSHStartupCommand,
+                sshFallbackLauncherPaths: launchScripts.unlaunchedPaths
             )
             remoteTerminalSSHStartupCommand = buildMoshTerminalStartupCommand(
                 options: sshOptions,
@@ -12246,6 +12300,8 @@ struct CMUXCLI {
                 )
                 reusableTerminalStartupCommand = splitAttachCommand
                 initialSSHStartupCommand = reusableTerminalStartupCommand; remoteTerminalSSHStartupCommand = reusableTerminalStartupCommand
+                // The attach loop fetches its own credential, so no terminal runs the launcher.
+                launchScripts.removeUnlaunched()
             } else {
                 let splitAttachCommand = [
                     "env",
@@ -12464,6 +12520,10 @@ struct CMUXCLI {
                 }
             }
             throw error
+        }
+        if didCreateWorkspace {
+            // The new workspace's first terminal runs the launcher, which deletes itself.
+            launchScripts.handOff()
         }
 
         var payload = configuredPayload
@@ -12863,7 +12923,8 @@ struct CMUXCLI {
         remoteRelayPort: Int,
         localCommandScript: String? = nil,
         passwordCredential: String? = nil,
-        controlPathPreflightShellFunction: String? = nil
+        controlPathPreflightShellFunction: String? = nil,
+        launchScripts: SSHStartupLaunchScripts
     ) throws -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
@@ -12876,7 +12937,8 @@ struct CMUXCLI {
             remoteRelayPort: remoteRelayPort,
             isShellSnippet: true,
             passwordCredential: passwordCredential,
-            controlPathPreflightShellFunction: controlPathPreflightShellFunction
+            controlPathPreflightShellFunction: controlPathPreflightShellFunction,
+            launchScripts: launchScripts
         )
     }
 
@@ -15839,32 +15901,30 @@ struct CMUXCLI {
             suppressReplayBytes = 0
             expectedReplayFingerprint = nil
         }
-        var outputProgress = SSHPTYAttachOutputProgress(
-            replayBytes: bridgeReplayBytes,
-            suppressReplayBytes: suppressReplayBytes,
-            expectedReplayFingerprint: expectedReplayFingerprint
-        )
-        var replayStateStored = bridgeReplayBytes == 0
-        if replayStateStored {
-            replayState.storeSnapshot(
-                replayBytes: bridgeReplayBytes,
-                fingerprint: outputProgress.completedReplayFingerprint ??
-                    SSHPTYAttachOutputProgress.fingerprint(of: Data())
-            )
-        }
         // A persistent reattach's initial bytes are historical remote PTY
         // output. Strip terminal queries before Ghostty parses them; otherwise
         // its replies can arrive after the reconnect stdin filter hands off to
         // live input and land in the remote shell.
         let filtersReplayOutput = requireExisting && command == nil
-        var replayOutputFilter = SSHPTYReplayOutputFilter(
-            replayBytes: filtersReplayOutput ? bridgeReplayBytes : 0
+        var replayOutput = SSHPTYAttachReplayOutputStream(
+            progress: SSHPTYAttachOutputProgress(
+                replayBytes: bridgeReplayBytes,
+                suppressReplayBytes: suppressReplayBytes,
+                expectedReplayFingerprint: expectedReplayFingerprint
+            ),
+            queryFilterReplayBytes: filtersReplayOutput ? bridgeReplayBytes : 0
         )
-        func writeReplayFilteredOutput(_ data: Data) throws {
-            guard !data.isEmpty else { return }
-            let filtered = replayOutputFilter.filter(data)
-            if !filtered.isEmpty,
-               !outputWriter.write(filtered, cancellation: signalMonitor!) {
+        var replayStateStored = bridgeReplayBytes == 0
+        if replayStateStored {
+            replayState.storeSnapshot(
+                replayBytes: bridgeReplayBytes,
+                fingerprint: replayOutput.progress.completedReplayFingerprint ??
+                    SSHPTYAttachOutputProgress.fingerprint(of: Data())
+            )
+        }
+        func writeTerminalOutput(_ output: Data) throws {
+            if !output.isEmpty,
+               !outputWriter.write(output, cancellation: signalMonitor!) {
                 // Local output failure unwinds termios while preserving the remote PTY.
                 preserveLifecycleForRecovery = true
                 try checkSSHPTYCancellation(signalMonitor)
@@ -15872,14 +15932,12 @@ struct CMUXCLI {
             }
         }
         defer {
-            let pendingReplay = outputProgress.finishPendingReplay(
-                discarding: sshPTYAttachWrapperRetryPending()
-            )
-            try? writeReplayFilteredOutput(pendingReplay)
-            _ = outputWriter.write(replayOutputFilter.finish(), cancellation: signalMonitor!)
+            try? writeTerminalOutput(replayOutput.finish(
+                discardingPendingReplay: sshPTYAttachWrapperRetryPending()
+            ))
         }
         func startInputForwardingAfterReplay() throws {
-            guard !inputPumpStarted, outputProgress.replayBytesRemaining == 0 else { return }
+            guard !inputPumpStarted, replayOutput.progress.replayBytesRemaining == 0 else { return }
             if filtersReconnectInput, terminalInputMode?.beginForwarding() != true {
                 throw sshPTYTerminalModeError()
             }
@@ -15896,6 +15954,28 @@ struct CMUXCLI {
                 throw CLIError(message: "ssh-pty-attach: bridge write failed")
             }
         }
+        func storeReplayStateIfComplete() {
+            guard !replayStateStored, replayOutput.progress.replayBytesRemaining == 0 else { return }
+            replayState.storeSnapshot(
+                replayBytes: replayOutput.progress.deliveredReplayBytes,
+                fingerprint: replayOutput.progress.completedReplayFingerprint ??
+                    SSHPTYAttachOutputProgress.fingerprint(of: Data())
+            )
+            replayStateStored = true
+        }
+        // The replay length is declared by the remote peer. Bound the replay
+        // phase so a peer that declares more than it sends cannot hold input
+        // forwarding off indefinitely.
+        var replayDeadline = SSHPTYAttachReplayDeadline(startedAt: bridgeReadyUptime)
+        func endStalledReplay() throws {
+            // Same retry decision as the deferred finish: ending the replay
+            // clears the prefix candidate that finish would otherwise drop.
+            try writeTerminalOutput(replayOutput.endStalledReplay(
+                discardingPendingReplay: sshPTYAttachWrapperRetryPending()
+            ))
+            storeReplayStateIfComplete()
+            try startInputForwardingAfterReplay()
+        }
         try startInputForwardingAfterReplay()
         func finishBridgeClosedNormally() throws {
             resizeMonitor.cancel()
@@ -15903,7 +15983,7 @@ struct CMUXCLI {
             _ = try reconcileBridgeEnd(
                 intentionalOnly: false,
                 sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
-                    receivedLiveOutput: outputProgress.receivedLiveOutput,
+                    receivedLiveOutput: replayOutput.progress.receivedLiveOutput,
                     readyUptime: bridgeReadyUptime
                 ),
                 reconciliationUnavailableExitCode: .bridgeClosedSessionRunning
@@ -15913,10 +15993,25 @@ struct CMUXCLI {
 
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
+            if !inputPumpStarted, replayOutput.progress.replayBytesRemaining > 0 {
+                let wait = replayDeadline.remainingWait(at: ProcessInfo.processInfo.systemUptime)
+                var pollFD = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                let ready = wait > 0 ? poll(&pollFD, 1, Int32(min(wait * 1000, 60_000).rounded(.up))) : 0
+                try checkSSHPTYCancellation(signalMonitor)
+                if ready == 0 {
+                    if replayDeadline.remainingWait(at: ProcessInfo.processInfo.systemUptime) == 0 {
+                        try endStalledReplay()
+                    }
+                    continue
+                }
+                // Other poll failures fall through so read reports them.
+                if ready < 0, errno == EINTR { continue }
+            }
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             try checkSSHPTYCancellation(signalMonitor)
             if count > 0 {
-                let output = outputProgress.terminalOutput(
+                replayDeadline.recordOutput(at: ProcessInfo.processInfo.systemUptime)
+                let output = replayOutput.terminalOutput(
                     from: Data(outputBuffer.prefix(count)),
                     suppressingReplay: suppressReplay
                 )
@@ -15924,16 +16019,9 @@ struct CMUXCLI {
                     if inputPumpStarted {
                         reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                     }
-                    try writeReplayFilteredOutput(output)
+                    try writeTerminalOutput(output)
                 }
-                if !replayStateStored, outputProgress.replayBytesRemaining == 0 {
-                    replayState.storeSnapshot(
-                        replayBytes: bridgeReplayBytes,
-                        fingerprint: outputProgress.completedReplayFingerprint ??
-                            SSHPTYAttachOutputProgress.fingerprint(of: Data())
-                    )
-                    replayStateStored = true
-                }
+                storeReplayStateIfComplete()
                 try startInputForwardingAfterReplay()
             } else if count == 0 {
                 try finishBridgeClosedNormally()
@@ -19377,12 +19465,13 @@ struct CMUXCLI {
             """
         case "close-window":
             return """
-            Usage: cmux close-window --window <id|ref|index>
+            Usage: cmux close-window --window <id|ref|index> [--force]
 
             Close the specified window.
 
             Flags:
               --window <id|ref|index>   Window to close (required)
+              --force                   Close even when live processes would be terminated
 
             Example:
               cmux close-window --window 0
@@ -19554,6 +19643,7 @@ struct CMUXCLI {
               --title <text>               Title for rename
               --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
               --description <text>         Description for set-description
+              --force                      Close even when a live process would be killed
 
             Named colors:
               Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
@@ -19593,6 +19683,7 @@ struct CMUXCLI {
               --title <text>               Title for rename (or pass trailing title text)
               --url <url>                  Optional URL for new-browser-right
               --focus <true|false>         Focus the destination when supported (default: false for move-to-new-workspace)
+              --force                      Close even when a live process would be killed
 
             Example:
               cmux tab-action --tab tab:3 --action pin
@@ -20059,6 +20150,7 @@ struct CMUXCLI {
               --panel <id|ref|index>      Alias for --surface
               --workspace <id|ref|index>  Workspace context (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>     Window context for workspace/surface refs and indexes
+              --force                     Close even when a live process would be killed
 
             Example:
               cmux close-surface
@@ -20140,6 +20232,11 @@ struct CMUXCLI {
                    cmux surface resume show [--json] [flags]
                    cmux surface resume get [--json] [flags]
                    cmux surface resume clear [flags]
+                   cmux surface size|participants [--surface <id|ref|index>] [--json]
+                   cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]
+                   cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]
+                   cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]
+                   cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]
 
             ls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers
             on This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,
@@ -20476,6 +20573,10 @@ struct CMUXCLI {
             return Self.readSelectionHelp
         case "read-screen":
             return Self.readScreenHelp
+        case "record":
+            return Self.recordHelp
+        case "shot", "screenshot":
+            return Self.shotHelp
         case "paste":
             return Self.pasteHelp
         case "send":
@@ -28526,9 +28627,11 @@ struct CMUXCLI {
                 // to the app so it can suppress the done-ping until work truly drains.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
                 // Claude sets stop_hook_active on a re-entry after a Stop hook
-                // blocked once. That flag describes hook recursion, not work
-                // still running; only authoritative background-work signals
-                // should keep the sidebar in Running.
+                // blocked once. That flag describes hook recursion, not pending
+                // work: it must not mark the turn pending, but it does keep the
+                // sidebar pill in Running. Only authoritative background-work
+                // signals mark the turn pending and show Waiting.
+                let isReentrantStop = parsedInput.rawObject?["stop_hook_active"] as? Bool == true
                 let hasUnsettledWork = stopFailure == nil && hasPendingBackgroundWork
 
                 // Update session with transcript summary and send completion notification.
@@ -28588,18 +28691,34 @@ struct CMUXCLI {
                 )
                 if let stopFailure {
                     try? setClaudeStopFailureStatus(stopFailure, client: client, workspaceId: workspaceId, surfaceId: surfaceId)
-                } else if hasUnsettledWork {
+                } else if hasPendingBackgroundWork {
                     // The turn ended but a background task or scheduled wakeup is
                     // still live, so the pane is not idle — show it as still
                     // running rather than the misleading "Idle". Reuse the shared
                     // generic-agent status strings so the pill stays localized.
+                    //
+                    // A background task or cron is a deterministic wakeup the pane
+                    // is parked on, which reads as Waiting. A re-entrant Stop
+                    // (`stop_hook_active`) keeps the pill on Running separately
+                    // because it does not represent pending background work.
+                    try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: String(localized: "agent.generic.status.waiting", defaultValue: "Waiting"),
+                        icon: "hourglass",
+                        color: "#8E8E93",
+                        workState: .waiting
+                    )
+                } else if isReentrantStop {
                     try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
                         icon: "bolt.fill",
-                        color: "#4C8DFF"
+                        color: "#4C8DFF",
+                        workState: .running
                     )
                 } else {
                     try? setClaudeStatus(
@@ -28794,7 +28913,8 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: "Running",
                 icon: "bolt.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF",
+                workState: .running
             )
             printClaudeHookAck()
 
@@ -29489,10 +29609,28 @@ struct CMUXCLI {
                 telemetry: telemetry
             )
 
+            // A spawn call blocks the parent inside the tool until its
+            // subagents finish, so no other parent hook can fire meanwhile:
+            // the subagent state holds for exactly that span, and the next
+            // parent PreToolUse or Stop clears it. No counter to drift.
+            let runsSubagents = Self.spawnsSubagents(
+                toolName: parsedInput.object?["tool_name"] as? String
+            )
+            let waits = Self.waitsOnDeterministicEvent(
+                toolName: parsedInput.object?["tool_name"] as? String,
+                toolInput: parsedInput.object?["tool_input"]
+            )
             let statusValue: String
-            if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
-               let toolStatus = describeToolUse(parsedInput.object) {
+            if waits {
+                statusValue = String(localized: "agent.generic.status.waiting", defaultValue: "Waiting")
+            } else if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
+                      let toolStatus = describeToolUse(parsedInput.object) {
                 statusValue = toolStatus
+            } else if runsSubagents {
+                statusValue = String(
+                    localized: "agent.generic.status.runningSubagents",
+                    defaultValue: "Running subagents"
+                )
             } else {
                 statusValue = "Running"
             }
@@ -29501,9 +29639,10 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 value: statusValue,
-                icon: "bolt.fill",
+                icon: runsSubagents ? Self.subagentsStatusIcon : (waits ? "hourglass" : "bolt.fill"),
                 color: "#4C8DFF",
-                pid: claudePid
+                pid: claudePid,
+                workState: runsSubagents ? .subagents : (waits ? .waiting : .running)
             )
             printClaudeHookAck()
 
@@ -31424,6 +31563,8 @@ struct CMUXCLI {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
             }
 
+            // Taken before the reads, so a write after them wakes the wait below.
+            let observedTranscriptState = codexTranscriptFileState(path: transcriptPath)
             if let currentTranscriptPath = transcriptPath {
                 let userInput = autoreleasepool(invoking: { readCodexTranscriptUserInput(path: currentTranscriptPath, turnId: turnId, excluding: publishedUserInputCallIds) })
                 if let userInput {
@@ -31527,7 +31668,8 @@ struct CMUXCLI {
             waitForCodexTranscriptChange(
                 path: transcriptPath,
                 leasePath: leasePath,
-                timeout: min(ownerGraceActive ? 0.25 : 30, remaining)
+                timeout: min(ownerGraceActive ? 0.25 : 30, remaining),
+                observedState: observedTranscriptState
             )
         }
         return nil
@@ -38451,6 +38593,7 @@ export default {
             promptText: promptText,
             promptLength: feedPromptLength(from: parsedInput.object, compacted: true)
         )
+        enrichStopFeedEvent(&event, hookEventName: hookEventName, rawObject: parsedInput.rawObject)
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         if let agentID = firstString(in: fallbackObject, keys: ["agent_id", "agentId"]) {
             event["agent_id"] = agentID
@@ -38645,6 +38788,24 @@ export default {
             .map { String(format: "%02x", $0) }
             .joined()
         return "fallback-\(String(digest.prefix(16)))"
+    }
+
+    /// Feed reading must retain the completion, not the notification preview.
+    /// Both native Feed hooks and wrapper hooks call this with the raw payload.
+    private func enrichStopFeedEvent(
+        _ event: inout [String: Any],
+        hookEventName: String,
+        rawObject: [String: Any]?
+    ) {
+        guard hookEventName == "Stop", let rawObject else { return }
+        let keys = ["last_assistant_message", "lastAssistantMessage", "assistant_response",
+                    "assistantResponse", "assistantPreamble", "assistant_preamble"]
+        let nested = ["extra", "data", "context"].compactMap { rawObject[$0] as? [String: Any] }
+        guard let message = firstString(in: rawObject, keys: keys)
+            ?? nested.lazy.compactMap({ self.firstString(in: $0, keys: keys) }).first else { return }
+        var input = event["tool_input"] as? [String: Any] ?? [:]
+        input["reason"] = message
+        event["tool_input"] = input
     }
 
     private func enrichUserPromptSubmitFeedEvent(
@@ -40865,6 +41026,7 @@ export default {
             "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
+            "_cmux_ordered_hook": true,
         ]
         if agentPid > 0 { eventDict["_ppid"] = agentPid }
         if let workspaceId = validatedCodexFeedTarget?.workspaceId ?? claimedWorkspaceId {
@@ -40922,6 +41084,7 @@ export default {
             promptText: promptText,
             promptLength: feedPromptLength(from: stdinObj, compacted: false)
         )
+        enrichStopFeedEvent(&eventDict, hookEventName: hookEventName, rawObject: stdinObj)
         let causalEvidence = Self.semanticAttentionContext(stdinObj)
         let requestId = stdinObj["_opencode_request_id"] as? String
             ?? causalEvidence.requestIdentity.map { "\(workstreamID):\(Data($0.utf8).base64EncodedString())" }
@@ -40954,11 +41117,24 @@ export default {
             "method": "feed.push",
             "params": params,
         ]
-        if waitTimeout > 0 || shouldAwaitTelemetryIngestion {
+        // Codex progress hooks must use the ordered request lane so the host
+        // can retire the prompt only after this event is accepted. Detached
+        // wrapper telemetry does not carry this marker or send stamp.
+        let isOrderedCodexProgress = source == "codex" && !isActionable && [
+            "PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "Stop", "SessionEnd"
+        ].contains(hookEventName)
+        if isOrderedCodexProgress {
+            eventDict["_hook_sent_at_ms"] = Self.feedHookSentAtMs()
+            request["params"] = [
+                "event": eventDict,
+                "wait_timeout_seconds": waitTimeout,
+            ]
+        }
+        if waitTimeout > 0 || shouldAwaitTelemetryIngestion || isOrderedCodexProgress {
             request["id"] = UUID().uuidString
         }
 
-        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
+        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion && !isOrderedCodexProgress {
             let payload = try JSONSerialization.data(withJSONObject: request)
             let line = String(data: payload, encoding: .utf8) ?? "{}"
             // Codex-style agents block in their own approval UI while this

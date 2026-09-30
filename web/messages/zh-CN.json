@@ -353,13 +353,15 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "概览",
       "team": "团队",
-      "mobileDevices": "移动设备"
+      "mobileDevices": "移动设备",
+      "settings": "设置",
+      "teams": "团队"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
       "coderouterLink": "打开 coderouter",
       "iosAppName": "iOS 应用",
@@ -367,10 +369,10 @@
       "iosLink": "打开 iOS 应用"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "管理共享 AI 账户，并使用 coderouter 路由请求。",
-      "title": "coderouter",
-      "description": "coderouter 在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
+      "title": "Coderouter",
+      "description": "Coderouter 在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
       "machines": {
         "title": "机器",
         "description": "{team} 在过去 {days} 天内每台机器的 coderouter 使用情况。",
@@ -381,6 +383,20 @@
         "empty": "过去 {days} 天内没有机器使用 coderouter。",
         "unavailable": "机器使用情况暂时不可用。",
         "estimateNote": "API 等值金额是按公开标价估算的，并非实际支出。"
+      },
+      "metrics": {
+        "title": "30 天用量",
+        "scope": "{team} 的团队汇总",
+        "period": "最近 {days} 天",
+        "inputTokens": "输入令牌",
+        "outputTokens": "输出令牌",
+        "tokens": "总令牌数",
+        "apiEquivalent": "API 等值金额",
+        "unpriced": "其中 {share} 的令牌来自没有公开定价的模型，未计入该金额。",
+        "chartLabel": "CodeRouter 每日令牌用量",
+        "privacy": "不会记录或显示任何提示词、输出、账户标签或成员身份。",
+        "estimate": "API 等值金额是这些令牌按公开 API 定价（价目表 {version}）计算的费用，并非你的实际支出。",
+        "unavailable": "团队用量暂时不可用。"
       }
     },
     "accountMenu": {
@@ -391,14 +407,140 @@
       "signingOut": "正在退出…",
       "signOutError": "无法退出登录，请重试。",
       "organizationSwitchError": "无法切换组织，请重试。",
-      "signIn": "登录"
+      "signIn": "登录",
+      "upgrade": "升级"
     },
     "billing": {
       "plan": {
         "heading": "你的个人方案",
         "free": "免费",
-        "pro": "Pro",
-        "loading": "加载中…"
+        "pro": "Pro"
+      },
+      "teamPanel": {
+        "notFound": "此团队不可用。你可能已退出该团队，或该团队已被删除。",
+        "unavailable": "无法加载团队账单，请稍后重试。",
+        "welcome": "Team 已启用。请前往团队的成员页面邀请你的队友。",
+        "freeBody": "{team} 当前使用免费方案。Team 让每位成员都能使用云端智能体，并合并为一张账单。",
+        "upgradeCta": "升级此团队",
+        "askAdmin": "只有团队管理员可以更改账单。请联系 {team} 的管理员进行升级。",
+        "memberReadOnly": "只有团队管理员可以更改此方案。",
+        "grantedBody": "cmux 团队已向 {team} 授予 Team 访问权限，没有需要管理的订阅。",
+        "seatsUsed": "已使用 {members}/{seats}",
+        "overSeat": "{team} 有 {members} 名成员，但只有 {seats} 个付费席位。成员仍可加入；请添加席位以覆盖所有人。",
+        "addSeats": "添加席位"
+      },
+      "teamList": {
+        "heading": "账单范围",
+        "personal": "个人账户",
+        "planBadges": {
+          "free": "免费",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "banners": {
+        "team_admin_required": "只有团队管理员可以管理此团队的账单。",
+        "team_not_found": "该团队不可用。你可能已退出该团队，或该团队已被删除。",
+        "authorization_unavailable": "无法检查团队权限，请稍后重试。",
+        "personal_team_not_upgradable_to_team": "你的个人账户使用 Pro 或 Max。如需购买 Team，请先创建团队。"
+      },
+      "team": {
+        "createCta": "创建团队"
+      },
+      "title": "套餐与账单",
+      "picker": {
+        "current": "当前套餐",
+        "upgradeTo": "升级到 {plan}",
+        "switchTo": "切换到 {plan}",
+        "cancelPlan": "取消套餐",
+        "resume": "恢复 {plan}",
+        "renewsOn": "{date} 续订",
+        "endsOn": "{date} 结束",
+        "perMonth": "每月",
+        "perSeatMonth": "每席位每月",
+        "paymentMethod": "管理付款方式",
+        "invoices": "发票",
+        "heading": "套餐",
+        "actionError": "无法更改套餐。请重试。",
+        "unavailable": {
+          "cancelScheduled": "请先恢复套餐再进行更改。",
+          "granted": "由 cmux 授予，没有可更改的内容。",
+          "adminOnly": "只有团队管理员可以更改套餐。"
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "完整的 macOS 版 cmux 终端",
+            "使用你自己的密钥运行任意 CLI 智能体",
+            "本地会话历史"
+          ],
+          "go": [
+            "1 台运行中的 Cloud VM",
+            "每月 40 VM 小时",
+            "2 台已保存的 VM"
+          ],
+          "pro": [
+            "在 Cloud VM 上运行云端智能体",
+            "所有 VM 共享 24 GB 内存和 6 个 vCPU",
+            "cmux iOS 应用"
+          ],
+          "max": [
+            "所有 VM 共享 64 GB 内存和 16 个 vCPU",
+            "更大的机器规格",
+            "Pro 的全部功能"
+          ],
+          "team": [
+            "每位成员都享有 Pro 的全部功能",
+            "整个团队一张发票",
+            "优先支持"
+          ]
+        },
+        "billedAnnually": "按年计费"
+      },
+      "change": {
+        "title": "切换到 {plan}？",
+        "upgradeBody": "{plan} 立即生效。今天为本计费周期的剩余时间支付 {amount}。从 {date} 起，每月支付 {price}。",
+        "downgradeBody": "{plan} 立即生效。当前套餐未使用的部分 {credit} 将抵扣后续账单。{date} 的下一张账单为 {amount}。",
+        "confirm": "切换到 {plan}",
+        "keep": "保留当前套餐",
+        "switching": "正在切换…",
+        "previewError": "无法计算价格。请重试。",
+        "paymentFailed": "你的卡被拒绝。请更新付款方式后重试。",
+        "error": "无法切换套餐。请重试。"
+      },
+      "cancelDialog": {
+        "title": "取消 {plan}？",
+        "body": "你可以使用 {plan} 到 {date}。之后你将失去：",
+        "bodyNoDate": "你可以使用 {plan} 到本计费周期结束。之后你将失去：",
+        "reasonLabel": "为什么取消？（可选）",
+        "otherPlaceholder": "告诉我们更多（可选）",
+        "confirm": "取消套餐",
+        "keep": "保留 {plan}",
+        "error": "无法取消套餐。请重试。",
+        "resumeError": "无法恢复套餐。请重试。",
+        "reasons": {
+          "too_expensive": "太贵了",
+          "missing_feature": "缺少我需要的功能",
+          "not_using": "用得不多",
+          "other": "其他"
+        }
+      },
+      "welcome": {
+        "title": "欢迎使用 {plan}",
+        "body": "你的套餐已生效。先试试这些：",
+        "ios": "安装 iOS 应用",
+        "cloud": "打开 Cloud",
+        "team": "创建团队",
+        "banner": "你现在使用的是 {plan}。",
+        "bannerLink": "套餐与账单"
       }
     },
     "mobileDevices": {
@@ -409,7 +551,6 @@
       "loading": "正在加载设备…",
       "empty": "此团队没有注册设备。",
       "unavailable": "无法加载你的设备。刷新页面后重试。",
-      "retry": "重试",
       "mutationError": "无法完成设备更改。",
       "revoke": "撤销访问权限",
       "deviceId": "设备",
@@ -429,6 +570,516 @@
       "activeDevices": "有效设备",
       "directoryRevision": "设备列表修订号",
       "savingRelaySettings": "正在保存…"
+    },
+    "settings": {
+      "nav": {
+        "title": "设置",
+        "profile": "个人资料",
+        "auth": "邮箱与认证",
+        "notifications": "通知",
+        "sessions": "会话",
+        "apiKeys": "API 密钥",
+        "account": "账户",
+        "billing": "账单",
+        "teamsGroup": "团队",
+        "createTeam": "创建团队",
+        "accountGroup": "账户",
+        "billingGroup": "账单",
+        "planBilling": "套餐与账单"
+      },
+      "ui": {
+        "save": "保存",
+        "saving": "正在保存…",
+        "cancel": "取消",
+        "editLabel": "编辑{label}",
+        "required": "此字段为必填项。",
+        "saveError": "无法保存，请重试。",
+        "actionError": "出了点问题，请重试。",
+        "working": "处理中…",
+        "typeToConfirm": "输入 {text} 以确认",
+        "imageSaveError": "无法保存图片，请重试。",
+        "invalidImage": "请选择有效的图片文件。",
+        "uploadImage": "上传图片",
+        "removeImage": "移除图片",
+        "zoom": "缩放"
+      },
+      "profile": {
+        "title": "个人资料",
+        "description": "你的名称和头像。",
+        "displayNameTitle": "显示名称",
+        "displayNameDescription": "向队友显示，不用于登录。",
+        "displayNameEmpty": "未设置",
+        "imageTitle": "头像",
+        "imageDescription": "上传一张图片作为你的头像。",
+        "imageUpload": "更换头像"
+      },
+      "auth": {
+        "title": "邮箱与认证",
+        "description": "邮箱、登录方式和多重身份验证。",
+        "emails": {
+          "title": "邮箱",
+          "description": "已验证的邮箱可设为主要联系地址，也可用于登录。",
+          "add": "添加邮箱",
+          "addSubmit": "添加",
+          "adding": "正在添加…",
+          "cancel": "取消",
+          "inputLabel": "新邮箱地址",
+          "placeholder": "输入邮箱",
+          "addError": "无法添加邮箱，请重试。",
+          "added": "已添加 {email}。请前往该收件箱查收验证链接。",
+          "addedVerificationFailed": "已添加 {email}，但验证邮件发送失败。请使用“发送验证邮件”重试。",
+          "verificationSent": "验证邮件已发送至 {email}。",
+          "actionError": "无法更新邮箱，请重试。",
+          "usedBySomeoneElse": "此邮箱已被其他用户用于登录。",
+          "removeTitle": "移除邮箱",
+          "removeBody": "要从你的账户中移除 {email} 吗？之后可以重新添加。",
+          "remove": "移除",
+          "actionsLabel": "{email} 的操作",
+          "validation": {
+            "required": "邮箱为必填项。",
+            "invalid": "请输入有效的邮箱地址。",
+            "duplicate": "此邮箱已在你的账户中。"
+          },
+          "actions": {
+            "sendVerification": "发送验证邮件",
+            "setPrimary": "设为主要邮箱",
+            "useForSignIn": "用于登录",
+            "stopUsingForSignIn": "停止用于登录",
+            "remove": "移除"
+          },
+          "disabled": {
+            "verifyFirst": "请先验证此邮箱。",
+            "lastSignInEmail": "无法移除你最后一个登录邮箱。"
+          },
+          "badges": {
+            "primary": "主要",
+            "unverified": "未验证",
+            "usedForSignIn": "用于登录"
+          }
+        },
+        "password": {
+          "title": "密码",
+          "updateDescription": "更新你的密码。",
+          "setDescription": "为你的账户设置密码。",
+          "update": "更新密码",
+          "set": "设置密码",
+          "updateSubmit": "更新密码",
+          "setSubmit": "设置密码",
+          "saving": "正在保存…",
+          "cancel": "取消",
+          "saved": "密码已保存。",
+          "needsSignInEmail": "要设置密码，请先添加登录邮箱。",
+          "saveError": "无法保存密码，请重试。",
+          "oldPassword": "旧密码",
+          "newPassword": "新密码",
+          "repeatPassword": "确认新密码",
+          "incorrect": "密码不正确。",
+          "requirements": "此密码不符合要求。",
+          "errors": {
+            "oldPassword": {
+              "required": "请输入旧密码。"
+            },
+            "newPassword": {
+              "required": "请输入新密码。",
+              "tooShort": "至少使用 {min} 个字符。",
+              "tooLong": "最多使用 {max} 个字符。"
+            },
+            "newPasswordRepeat": {
+              "required": "请再次输入新密码。",
+              "mismatch": "两次输入的密码不一致。"
+            }
+          }
+        },
+        "passkey": {
+          "title": "通行密钥",
+          "registered": "已注册通行密钥。",
+          "notRegistered": "注册通行密钥即可无需密码登录。",
+          "add": "添加通行密钥",
+          "registering": "正在等待通行密钥…",
+          "registerError": "无法注册通行密钥。请求已取消或失败，请重试。",
+          "delete": "移除通行密钥",
+          "needsVerifiedEmail": "要启用通行密钥登录，请添加已验证的登录邮箱。",
+          "onlyMethod": "通行密钥是你唯一的登录方式，无法停用。",
+          "disableTitle": "停用通行密钥登录",
+          "disableBody": "你将无法再使用通行密钥登录。",
+          "disable": "停用",
+          "disableError": "无法停用通行密钥登录，请重试。"
+        },
+        "otp": {
+          "title": "一次性验证码登录",
+          "enabledDescription": "已启用魔法链接或一次性验证码登录。",
+          "disabledDescription": "通过发送到登录邮箱的魔法链接或一次性验证码登录。",
+          "enable": "启用",
+          "enableError": "无法启用一次性验证码登录，请重试。",
+          "disable": "停用",
+          "needsVerifiedEmail": "要启用一次性验证码登录，请添加已验证的登录邮箱。",
+          "onlyMethod": "一次性验证码是你唯一的登录方式，无法停用。",
+          "disableTitle": "停用一次性验证码登录",
+          "disableBody": "你将无法再仅凭邮箱登录。",
+          "disableConfirm": "停用",
+          "disableError": "无法停用一次性验证码登录，请重试。"
+        },
+        "mfa": {
+          "title": "多重身份验证",
+          "enabledDescription": "多重身份验证已启用。",
+          "disabledDescription": "多重身份验证已停用。",
+          "enable": "启用 MFA",
+          "disable": "停用 MFA",
+          "startError": "无法开始设置 MFA，请重试。",
+          "enableError": "无法启用 MFA，请重试。",
+          "scan": "使用身份验证器应用扫描此二维码。",
+          "qrAlt": "多重身份验证二维码",
+          "enterCode": "然后输入六位数验证码：",
+          "incorrect": "验证码不正确，请重试。",
+          "cancel": "取消",
+          "disableTitle": "停用多重身份验证",
+          "disableBody": "登录时将不再要求输入身份验证器应用中的验证码。",
+          "disableConfirm": "停用 MFA",
+          "disableError": "无法停用 MFA，请重试。"
+        },
+        "connected": {
+          "title": "关联账户",
+          "description": "与你的 cmux 账户关联的其他服务账户。",
+          "usedForSignIn": "用于登录",
+          "useForSignIn": "用于登录",
+          "stopUsingForSignIn": "停止用于登录",
+          "remove": "取消关联",
+          "lastMethod": "这是你唯一的登录方式。",
+          "actionsLabel": "{provider} 的操作",
+          "actionError": "无法更新关联账户，请重试。",
+          "usedBySomeoneElse": "此账户已被其他用户用于登录。",
+          "removeTitle": "取消关联 {provider}",
+          "removeBody": "你将无法再使用此账户登录。使用该账户登录即可重新关联。"
+        }
+      },
+      "notifications": {
+        "title": "通知",
+        "description": "来自 cmux 的邮件通知。",
+        "heading": "选择你想接收的邮件",
+        "empty": "没有可配置的邮件类别。",
+        "cannotDisable": "（无法停用）",
+        "saveError": "无法保存此偏好设置，请重试。"
+      },
+      "sessions": {
+        "title": "会话",
+        "description": "你已登录的设备。",
+        "heading": "活跃会话",
+        "explanation": "以下是你已登录的设备。撤销会话即可将其退出登录。",
+        "revokeAll": "撤销所有其他会话",
+        "revokeAllTitle": "撤销其他会话",
+        "revokeAllBody": "这将退出{count, plural, other {其他 # 个会话}}。当前会话将保持登录。",
+        "revokeAllConfirm": "撤销会话",
+        "revokeAllError": "无法撤销所有会话。列表中显示的是剩余的会话。",
+        "revokeError": "无法撤销会话，请重试。",
+        "empty": "未找到活跃会话。",
+        "columns": {
+          "session": "会话",
+          "ip": "IP 地址",
+          "location": "位置",
+          "lastUsed": "上次使用"
+        },
+        "current": "当前会话",
+        "other": "其他会话",
+        "impersonation": "模拟登录",
+        "signedIn": "登录于 {date}",
+        "actionsLabel": "会话操作",
+        "revoke": "撤销",
+        "cannotRevokeCurrent": "无法撤销当前会话。",
+        "unknownIp": "-",
+        "unknownLocation": "未知",
+        "never": "从未"
+      },
+      "apiKeys": {
+        "title": "API 密钥",
+        "description": "允许程序访问你账户的密钥。",
+        "disabled": "此项目未启用个人 API 密钥。",
+        "create": "创建 API 密钥",
+        "createTitle": "创建 API 密钥",
+        "createDescription": "API 密钥可让程序访问你的账户。",
+        "descriptionLabel": "描述",
+        "descriptionPlaceholder": "例如：开发、生产、CI",
+        "descriptionRequired": "描述为必填项。",
+        "expiresIn": "有效期",
+        "expiry": {
+          "1d": "1 天",
+          "7d": "7 天",
+          "30d": "30 天",
+          "90d": "90 天",
+          "1y": "1 年",
+          "never": "永不过期"
+        },
+        "cancel": "取消",
+        "createSubmit": "创建",
+        "creating": "正在创建…",
+        "createError": "无法创建 API 密钥，请重试。",
+        "showTitle": "API 密钥",
+        "showBody": "这是你的 API 密钥。",
+        "showWarning": "请将其复制到安全的地方。之后将无法再次查看。",
+        "secretLabel": "API 密钥（机密）",
+        "copy": "复制",
+        "copied": "已复制",
+        "copyError": "无法复制。请选中密钥后手动复制。",
+        "acknowledge": "我了解之后将无法再次查看此密钥。",
+        "close": "关闭",
+        "search": "搜索密钥",
+        "statusFilter": "按状态筛选",
+        "status": {
+          "valid": "有效",
+          "expired": "已过期",
+          "revoked": "已撤销"
+        },
+        "empty": "还没有 API 密钥。",
+        "noMatches": "没有符合筛选条件的 API 密钥。",
+        "columns": {
+          "description": "描述",
+          "status": "状态",
+          "key": "密钥",
+          "expiresAt": "过期时间",
+          "createdAt": "创建时间"
+        },
+        "never": "永不",
+        "actionsLabel": "{description} 的操作",
+        "revoke": "撤销",
+        "revokeTitle": "撤销 API 密钥",
+        "revokeBody": "要撤销 API 密钥 *****{lastFour} 吗？使用它的应用将立即失去访问权限。",
+        "revokeAcknowledge": "我了解这会断开所有使用此 API 密钥的应用。",
+        "revokeConfirm": "撤销密钥",
+        "revokeError": "无法撤销 API 密钥，请重试。"
+      },
+      "account": {
+        "title": "账户",
+        "description": "账单、退出登录和删除账户。",
+        "billingTitle": "账单",
+        "billingDescription": "方案、发票和付款方式。",
+        "billingLink": "打开账单",
+        "signOutTitle": "退出登录",
+        "signOutDescription": "结束当前会话。",
+        "signOut": "退出登录",
+        "signingOut": "正在退出登录…",
+        "signOutError": "无法退出登录，请重试。",
+        "deleteTitle": "删除账户",
+        "deleteDescription": "永久删除你的账户及所有相关数据。",
+        "delete": "删除账户",
+        "deleteConfirmTitle": "删除你的账户？",
+        "deleteConfirmBody": "此操作不可撤销，将删除与你的账户相关的所有数据。",
+        "deleteAcknowledge": "我了解我的账户及其数据将被永久删除。",
+        "deleteConfirm": "删除账户",
+        "deleteError": "无法删除账户，请重试。"
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "复制",
+        "copied": "已复制",
+        "copyFailed": "复制失败"
+      },
+      "plan": {
+        "free": "免费",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "管理员",
+        "member": "成员"
+      },
+      "errors": {
+        "generic": "出了点问题，请重试。",
+        "network_error": "无法连接到 cmux。请检查网络连接后重试。",
+        "unauthorized": "你的会话已结束，请重新登录。",
+        "forbidden": "你没有执行此操作的权限。",
+        "team_not_found": "此团队已不存在。",
+        "invalid_request": "请求无效。请检查各字段后重试。",
+        "rate_limited": "请求过多，请稍候再试。",
+        "last_admin": "团队必须至少保留一名管理员。请先将其他成员设为管理员。",
+        "member_not_found": "此人已不再是成员。",
+        "invitation_not_found": "该邀请已不存在。",
+        "invitation_invalid": "此邀请无效、已过期或已被使用。",
+        "email_mismatch": "此邀请发送到了另一个邮箱地址。",
+        "link_not_found": "该邀请链接已不存在。",
+        "link_invalid": "此邀请链接无效、已过期、已撤销或已满员。",
+        "team_has_active_subscription": "删除团队前，请先取消团队订阅。",
+        "service_unavailable": "服务暂时不可用，请稍后重试。"
+      },
+      "list": {
+        "title": "团队",
+        "description": "团队共享成员、账单和 coderouter 账户。打开团队即可进行管理。",
+        "create": "创建团队",
+        "count": "{count, plural, other {# 个团队}}",
+        "selected": "当前",
+        "emptyTitle": "还没有团队",
+        "emptyBody": "创建团队以邀请他人并共享同一个方案。"
+      },
+      "new": {
+        "title": "创建团队",
+        "description": "为团队命名、选择方案，然后邀请成员。",
+        "stepsLabel": "步骤",
+        "steps": {
+          "name": "名称",
+          "plan": "方案",
+          "invite": "邀请"
+        },
+        "nameTitle": "为你的团队命名",
+        "nameLabel": "团队名称",
+        "namePlaceholder": "Acme Engineering",
+        "nameError": {
+          "empty": "请输入团队名称。",
+          "tooLong": "最多使用 {max} 个字符。"
+        },
+        "cancel": "取消",
+        "createAction": "创建团队",
+        "creating": "正在创建…",
+        "planTitle": "为 {team} 选择方案",
+        "planDescription": "之后可以在团队的账单页面更改方案。",
+        "freeName": "免费",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "每席位每月 ${price}",
+        "featureMembers": "成员、角色和邀请",
+        "featureProForEveryone": "每位成员均享有 Pro 的全部功能",
+        "featureCentralBilling": "整个团队集中计费",
+        "featurePrioritySupport": "优先支持",
+        "chooseFree": "继续使用免费方案",
+        "chooseTeam": "升级到 Team（${price}/席位/月）",
+        "upgradeLater": "席位是弹性的：邀请人数可以超过已付费席位数，之后再添加席位即可。",
+        "inviteTitle": "邀请成员加入 {team}",
+        "inviteDescription": "可选。你也可以稍后在团队的成员页面邀请成员。",
+        "inviteByEmail": "通过邮箱邀请",
+        "inviteByLink": "邀请链接",
+        "backToPlan": "返回方案",
+        "finish": "前往团队"
+      },
+      "invite": {
+        "emailsLabel": "邮箱地址",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "不是有效的邮箱地址",
+        "removeEmail": "移除 {email}",
+        "roleLabel": "角色",
+        "roleMember": "成员",
+        "roleAdmin": "管理员",
+        "count": "{count}/{max}",
+        "send": "发送邀请",
+        "sending": "正在发送…",
+        "invalidCount": "{count, plural, other {发送前请修正或移除 # 个无效地址。}}",
+        "overflow": "{count, plural, other {有 # 个地址未添加：每次请求最多 {max} 个。}}",
+        "sent": "{count, plural, other {已发送 # 个邀请。}}"
+      },
+      "inviteFailure": {
+        "generic": "无法邀请",
+        "already_member": "已是成员",
+        "invite_failed": "邀请发送失败"
+      },
+      "links": {
+        "expiryLabel": "有效期",
+        "expiry": {
+          "1": "1 天后",
+          "7": "7 天后",
+          "30": "30 天后",
+          "never": "永不过期"
+        },
+        "maxUsesLabel": "最大使用次数",
+        "maxUsesPlaceholder": "不限",
+        "maxUsesInvalid": "最大使用次数必须是 1 到 {max} 之间的整数，留空表示不限。",
+        "create": "创建链接",
+        "creating": "正在创建…",
+        "memberOnly": "通过链接加入的人将成为成员。如有需要，之后可将其提升为管理员。",
+        "showOnce": "请立即复制此链接，它只会显示一次。",
+        "empty": "没有有效的邀请链接。",
+        "createdAt": "创建于 {at}",
+        "expiresAt": "{at} 过期",
+        "neverExpires": "永不过期",
+        "uses": "已使用 {count}/{max} 次",
+        "usesUnlimited": "{count, plural, other {已使用 # 次}}",
+        "revoke": "撤销",
+        "revokeTitle": "撤销此邀请链接？",
+        "revokeBody": "持有该链接的人将无法再加入。已加入的人仍是成员。",
+        "actionsFor": "链接操作（{created}）"
+      },
+      "shell": {
+        "allTeams": "所有团队",
+        "tabsLabel": "团队设置",
+        "tabs": {
+          "general": "常规",
+          "members": "成员",
+          "apiKeys": "API 密钥",
+          "billing": "账单"
+        },
+        "notFoundTitle": "未找到团队",
+        "notFoundBody": "此团队不存在，或你不是其成员。",
+        "backToTeams": "返回团队列表"
+      },
+      "general": {
+        "imageTitle": "团队图片",
+        "imageDescription": "在 cmux 中显示在团队名称旁边。",
+        "imageUpload": "上传团队图片",
+        "nameTitle": "团队名称",
+        "nameDescription": "所有成员可见。",
+        "nameReadOnly": "只有管理员可以重命名团队。",
+        "nameError": {
+          "empty": "请输入团队名称。",
+          "tooLong": "最多使用 {max} 个字符。"
+        },
+        "profileTitle": "你在此团队中的名称",
+        "profileDescription": "此团队其他成员看到的你的名称。留空则使用你的账户名称。",
+        "profileLabel": "你在团队中的显示名称",
+        "leaveTitle": "退出团队",
+        "leaveDescription": "你将无法再访问此团队的共享账户和账单。",
+        "leaveAction": "退出团队",
+        "leaveBlocked": "你是唯一的管理员。退出前，请将其他成员提升为管理员，或删除团队。",
+        "leaveConfirmTitle": "退出 {team}？",
+        "leaveConfirmBody": "你需要新的邀请才能重新加入。",
+        "deleteTitle": "删除团队",
+        "deleteDescription": "永久删除团队、其成员的访问权限及其邀请链接。",
+        "deleteAction": "删除团队",
+        "deleteConfirmTitle": "删除 {team}？",
+        "deleteConfirmBody": "此操作无法撤销。",
+        "openBilling": "打开团队账单"
+      },
+      "members": {
+        "title": "成员",
+        "count": "{count, plural, other {# 名成员}}",
+        "memberColumn": "成员",
+        "roleColumn": "角色",
+        "actionsColumn": "操作",
+        "you": "你",
+        "unnamed": "未命名成员",
+        "remove": "移除",
+        "removeTitle": "移除 {name}？",
+        "removeBody": "对方将立即失去对此团队的访问权限。之后可以重新邀请。",
+        "inviteTitle": "邀请成员",
+        "inviteDescription": "发送邮件邀请。粘贴以逗号、空格或换行分隔的列表（最多 20 个）。",
+        "pendingTitle": "待处理的邀请",
+        "pendingDescription": "尚未被接受的邀请。",
+        "pendingEmpty": "没有待处理的邀请。",
+        "unknownEmail": "未知地址",
+        "expires": "{at} 过期",
+        "resend": "重新发送",
+        "resent": "已发送",
+        "revoke": "撤销",
+        "linksTitle": "邀请链接",
+        "linksDescription": "任何人都可通过此可重复使用的链接以成员身份加入。",
+        "seatNudge": "已有 {used} 人是成员或已受邀，但方案只有 {seats} 个席位。邀请仍然有效；请添加 {over, plural, other {# 个席位}}以覆盖所有人。",
+        "seatNudgeAction": "管理席位",
+        "actions": {
+          "makeAdmin": "设为管理员",
+          "makeMember": "设为成员",
+          "remove": "从团队中移除",
+          "leave": "退出团队"
+        },
+        "actionsFor": "{name} 的操作",
+        "lastAdminReason": "团队至少需要一名管理员。请先将其他成员设为管理员。",
+        "demoteSelfTitle": "不再担任管理员？",
+        "demoteSelfBody": "你将失去此团队的管理员权限。其他管理员可以重新授予。",
+        "demoteSelfConfirm": "设为成员"
+      },
+      "apiKeys": {
+        "title": "团队 API 密钥",
+        "description": "代表此团队执行操作的密钥。任何持有密钥的人都能使用团队的访问权限，请妥善保管。",
+        "create": "创建团队 API 密钥",
+        "disabled": "此项目未启用团队 API 密钥。",
+        "forbidden": "你需要此团队的“管理 API 密钥”权限才能查看其密钥。"
+      }
     },
     "coderouterAccounts": {
       "transferAction": "转移",
@@ -455,10 +1106,6 @@
       "apiKeysTitle": "API 密钥",
       "apiKeysDescription": "为脚本和代理创建长期密钥。密钥只显示一次。",
       "apiKeysCount": "{count, plural, one {# 个密钥} other {# 个密钥}}",
-      "apiKeysLoading": "正在加载 API 密钥…",
-      "apiKeysLoadError": "无法加载 API 密钥，请稍后重试。",
-      "apiKeysRetry": "重试",
-      "apiKeysEmptyBody": "还没有 API 密钥。创建一个以验证 CodeRouter 客户端。",
       "apiKeyPrefixColumn": "密钥",
       "apiKeyStatusColumn": "状态",
       "apiKeySecretTitle": "立即复制此密钥",
@@ -478,7 +1125,38 @@
       "revokeApiKeyConfirmTitle": "撤销此 API 密钥？",
       "apiKeyUsageDetail": "过去 30 天：{completions} 次完成 · {tokens} 个令牌（输入 {input} / 输出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用数据不可用",
-      "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。"
+      "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。",
+      "apiKeysEmptyTitle": "还没有 API 密钥",
+      "apiKeysEmptyHint": "创建一个密钥来验证 CodeRouter 客户端。",
+      "unavailableTitle": "共享账户不可用",
+      "unavailableBody": "cmux 目前无法连接共享账户服务。通过 cr add 添加的账户以及 Anthropic 和 Bedrock 账户仍可使用。"
+    },
+    "notFound": {
+      "title": "找不到页面",
+      "body": "此仪表板页面不存在或已被移动。",
+      "home": "前往仪表板"
+    },
+    "states": {
+      "errorTitle": "无法加载{section}",
+      "errorTitleGeneric": "无法加载此部分",
+      "reason": {
+        "network": "请检查网络连接，然后重试。",
+        "unavailable": "cmux 暂时不可用。请稍后重试。",
+        "forbidden": "你没有访问此内容的权限。",
+        "notFound": "此内容已不存在，或你没有访问权限。",
+        "rateLimited": "请求过多。请稍等片刻后重试。",
+        "generic": "出了点问题。请重试。"
+      },
+      "retry": "重试",
+      "retrying": "正在重试…"
+    },
+    "upgrade": {
+      "title": "需要 Pro",
+      "cloud": "Cloud VM 和云端智能体包含在 Pro 中。",
+      "testflight": "cmux iOS 应用包含在 Pro 中。",
+      "mobileDevices": "连接手机和平板包含在 Pro 中。",
+      "action": "升级到 Pro",
+      "comparePlans": "比较套餐"
     }
   },
   "community": {
@@ -1355,7 +2033,8 @@
           "ampIntegration": "开启或关闭 cmux 的 Amp 钩子。关闭后，捆绑的插件仍保持安装，但处于闲置状态。",
           "suppressSubagentNotifications": "隐藏嵌套 Codex 或 Claude 子代理的可见完成通知和状态变更，同时将其事件保留在 Feed 遥测中。",
           "workspaceAutoNaming": "可选的 AI 自动命名：根据代理对话内容自动命名工作区和标签页。启用后，cmux 会使用各受支持代理自己的二进制文件将会话总结为简短标题；手动重命名始终优先。",
-          "autoNamingAgent": "为每个会话生成自动名称的代理。\"auto\"（默认）使用各会话自己的代理来命名；任意代理标识（claude、codex、grok、opencode、pi、omp 等）会覆盖所有会话的命名，包括其他代理的会话。无法驱动或未安装的代理会回退到会话自身的代理，因此命名永不中断。"
+          "autoNamingAgent": "为每个会话生成自动名称的代理。\"auto\"（默认）使用各会话自己的代理来命名；任意代理标识（claude、codex、grok、opencode、pi、omp 等）会覆盖所有会话的命名，包括其他代理的会话。无法驱动或未安装的代理会回退到会话自身的代理，因此命名永不中断。",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
@@ -1374,8 +2053,8 @@
           "sessionContentAlignment": "启用 sessionContentMaxWidth 时，终端和内置代理聊天内容的水平位置。",
           "copyOnSelect": "为 true 时，在确认选择后将所选终端文本复制到系统剪贴板。为 false 时，cmux 不会输出 Ghostty copy-on-select 覆盖项；选择剪贴板行为由 Ghostty 配置和默认值控制。",
           "scrollSpeed": "调整每次鼠标滚轮或触控板滚动事件让终端移动的距离。大于 1 的值会加快滚动，小于 1 的值会减慢滚动。",
-          "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",
-          "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
+          "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示TextBox 输入。",
+          "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦TextBox 输入。聚焦也会显示 TextBox。"
         },
         "notifications": {
           "soundWhenFocused": "即使发出通知的窗格已处于焦点状态，也播放通知声音。默认关闭，因此处于焦点的窗格只显示光环和闪烁。",
@@ -1416,7 +2095,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
+          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、terminalAlternateScreen、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
           "showModifierHoldHints": "在按住 Cmd 或 Control 时显示快捷键提示标签。"
         },
         "fileEditor": {
@@ -1470,9 +2149,17 @@
       "customActionsDesc": "<actions>actions</actions> 条目是 cmux 执行的可复用行为。当同一行为需要从 Command Palette、表面标签栏、快捷键或加号按钮菜单触发时，请使用操作。将 <commands>commands</commands> 保留给可复用的 shell 命令和工作区布局。如果某个操作不应出现在 Command Palette 中，请将 <palette>palette</palette> 设为 false。",
       "actionTypes": "操作类型",
       "actionTypeBuiltin": "为内置 cmux 操作创建别名，例如 cmux.newTerminal、cmux.newBrowser、cmux.splitRight 或 cmux.splitDown。",
+      "actionTypeBuiltinCopy": "复制类内置操作：cmux.copyWorkingDirectory 复制终端的工作目录，cmux.copyProjectRoot 复制其 Git 仓库的根目录（不在仓库中时复制工作目录），cmux.copyScreen 复制当前可见的屏幕内容。",
+      "actionTypeBuiltinCopyRemote": "在 SSH、云端或远程 tmux 工作区中，cmux 无法查找另一台主机上的 Git 仓库，因此 cmux.copyProjectRoot 会复制远程工作目录。",
       "actionTypeCommand": "在终端中运行 shell 文本。使用 target 选择当前终端或当前面板中的新标签。",
       "actionTypeAgent": "启动受支持的编码代理。目前支持 codex 和 claude，并可传入可选参数。",
       "actionTypeWorkspaceCommand": "运行 commands 中的命名工作区定义。用于多面板布局、自定义工作目录和启动命令。",
+      "actionTypeSetting": "修改全局 cmux.json 中的一项设置，例如切换 true/false 设置，或在一组值之间循环。请参阅下方的设置操作。",
+      "actionTypeSettingPreset": "一次性应用 settingPresets 中的一组命名设置。",
+      "settingActions": "设置操作",
+      "settingActionsDesc": "设置操作需指定设置的 <path>path</path>，并且只能指定以下其中一项：<set>set</set>（写入一个值）、<toggle>toggle: true</toggle>（切换 true/false 设置）、<cycle>cycle</cycle>（切换到列表中的下一个值，到末尾后回到开头）或 <unset>unset: true</unset>（从 cmux.json 中删除该键，改用设置窗口中的值或默认值）。toggle 和 cycle 从 cmux 当前使用的值开始，包括你在设置窗口中设定的值。settingPreset 操作会应用 <presets>settingPresets</presets> 中的一个条目，即一份部分 cmux.json，其中的嵌套对象按键逐一合并。cmux 在保存前会按 schema 检查每项更改，保留你的注释和其他键，并立即应用更改。设置操作和预设只能从全局 cmux.json 及其引用的包中运行，项目配置不能声明它们。",
+      "settingActionsCli": "同样的更改也可以在终端中完成：<set>cmux config set terminal.scrollSpeed 1.4</set>、<toggle>cmux config toggle fileEditor.wordWrap</toggle> 和 <preset>cmux config preset sidebar.quiet</preset>。",
+      "settingActionsLimits": "设置 <confirm>confirm: true</confirm> 后，cmux 会在保存前询问，并显示对应的 cmux config 命令。路径会在每个 \".\" 处拆分，因此本身包含 \".\" 的键（例如 ~/src/app.web 对应的 <byCwd>workspaceGroups.byCwd</byCwd> 条目）无法用这种方式修改。请直接在 cmux.json 中编辑。",
       "actionFields": "操作字段",
       "actionFieldTitle": "Command Palette 行标题、表面按钮标签、菜单项标题以及信任提示标题，除非条目自行覆盖。",
       "actionFieldSubtitle": "Command Palette 中的副标题文本。description 可作为 subtitle 的别名。",
@@ -1868,7 +2555,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox（测试版）",
+      "textBox": "TextBox",
       "ios": "iOS 应用",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "概览",
@@ -2032,12 +2719,11 @@
       "daemonPath": "守护程序二进制文件存储在远程主机上的 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote 中，并根据应用程序中嵌入的 SHA-256 清单进行验证。"
     },
     "textBox": {
-      "title": "TextBox（测试版）",
-      "metaTitle": "TextBox（测试版）",
-      "metaDescription": "为新的终端标签页、分屏和工作区配置 cmux 的测试版 TextBox 输入。",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "为新的终端标签页、分屏和工作区配置 cmux 的TextBox 输入。",
       "metaDescriptionShort": "TextBox 是 cmux 的富文本终端输入界面，可在发送到终端前编写和编辑提示，并支持多行输入、历史记录、键盘快捷键与可配置的终端集成。",
       "intro": "TextBox 是 cmux 的富文本终端输入界面，可在发送到终端前编写提示。",
-      "betaCallout": "TextBox 是测试版功能。在测试期间，默认值和行为可能会变化。",
       "defaultsTitle": "默认值",
       "defaultsDesc": "TextBox 设置位于 Settings > TextBox：",
       "showSetting": "Show TextBox on New Terminals 会让新的工作区、终端标签页和终端分屏在打开时显示 TextBox，同时将焦点保留在终端中。",
@@ -4584,5 +5270,27 @@
     "updateDetail": "需要 cmux {stableVersion} 或更高版本，或 NIGHTLY {nightlyVersion} 或更高版本。请在每台 Mac 的“设置”>“移动设备”中启用 iOS 配对。",
     "rollbackTitle": "需要保留较旧的 Mac 构建版本？",
     "rollbackDetail": "在仍可用时，从 TestFlight > 先前的构建版本中使用 cmux BETA 1.0.5 ({rollbackBuild})。请选择这个确切的构建版本，因为后续构建使用更新的连接服务。"
+  },
+  "teamInvite": {
+    "loading": "正在加载邀请…",
+    "title": "加入 {team}",
+    "titleUnknown": "加入此团队",
+    "body": "你受邀加入 cmux 上的此团队。",
+    "join": "加入团队",
+    "joining": "正在加入…",
+    "signedInAs": "已登录为 {email}",
+    "alreadyMemberTitle": "你已是 {team} 的成员",
+    "alreadyMemberTitleUnknown": "你已是此团队的成员",
+    "alreadyMemberBody": "打开团队即可进行管理。",
+    "openTeam": "打开团队",
+    "mismatchTitle": "此邀请属于另一个账户",
+    "mismatchBody": "你当前以 {email} 登录，但邀请发送到了另一个地址。请使用受邀地址登录，或在此账户中添加并验证该地址。",
+    "mismatchBodyUnknown": "邀请发送到了另一个地址。请使用受邀地址登录，或在此账户中添加并验证该地址。",
+    "switchAccount": "退出登录并切换账户",
+    "switching": "正在退出登录…",
+    "switchFailed": "无法退出登录，请重试。",
+    "invalidTitle": "此邀请已失效",
+    "invalidBody": "邀请已过期、被撤销或已被使用。请向团队管理员索取新的邀请。",
+    "goToTeams": "前往你的团队"
   }
 }

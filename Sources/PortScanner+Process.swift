@@ -31,7 +31,7 @@ extension PortScanner {
         currentProcessIdentitiesByKey: [Key: Set<AgentPIDProcessIdentity>],
         processScopeCompletenessByKey: [Key: PortScanCompleteness],
         scannedKeys: Set<Key>,
-        lsofScan: PortLsofScanResult,
+        lsofScan: PortListenerScanResult,
         inspectedPIDs: Set<Int>
     ) -> [Key: [Int: PortScanCompleteness]] {
         var result: [Key: [Int: PortScanCompleteness]] = [:]
@@ -118,7 +118,7 @@ extension PortScanner {
         panelTTYs: [PanelKey: String],
         pidToTTY: [Int: String],
         psCompleteness: PortScanCompleteness,
-        lsofScan: PortLsofScanResult?
+        lsofScan: PortListenerScanResult?
     ) -> [PanelKey: PortScanCompleteness] {
         let pidsByTTY = pidToTTY.reduce(into: [String: Set<Int>]()) { result, item in
             result[canonicalTTYName(item.value), default: []].insert(item.key)
@@ -397,7 +397,7 @@ extension PortScanner {
 
     func agentLsofCompleteness(
         ownershipByPID: [Int: Set<UUID>],
-        lsofScan: PortLsofScanResult,
+        lsofScan: PortListenerScanResult,
         workspaceIds: Set<UUID>
     ) -> [UUID: PortScanCompleteness] {
         var pidsByWorkspace: [UUID: Set<Int>] = [:]
@@ -535,131 +535,43 @@ extension PortScanner {
         return (mapping, complete ? .complete : .incomplete)
     }
 
-    func runLsof(pidsCsv: String) async -> PortLsofScanResult {
-        let pids = pidsCsv.split(separator: ",").compactMap { Int($0) }
-        guard pids.count > 256 else { return await runLsofChunk(pidsCsv: pidsCsv) }
-        var values: [Int: Set<Int>] = [:]
-        var incomplete: Set<Int> = []
-        var complete = true
-        for chunk in Self.lsofPIDChunks(pids) {
-            let result = await runLsofChunk(pidsCsv: chunk.map(String.init).joined(separator: ","))
-            for (pid, ports) in result.values { values[pid, default: []].formUnion(ports) }
-            incomplete.formUnion(result.incompletePIDs)
-            complete = complete && result.globallyComplete
-        }
-        return PortLsofScanResult(values: values, globallyComplete: complete, incompletePIDs: incomplete)
-    }
-
-    // Keep the complete argv entry below the platform's practical exec limit.
-    // The chunk builder below accounts for separators as it appends, so it
-    // never copies or re-serializes the growing prefix.
-    static let lsofArgumentByteBudget = 32 * 1024
-    static let lsofArgumentOverhead = 256
-
-    static func lsofPIDChunks(_ pids: [Int]) -> [[Int]] {
-        guard !pids.isEmpty else { return [] }
-        var chunks: [[Int]] = []
-        var chunk: [Int] = []
-        var chunkBytes = 0
-        for pid in pids {
-            let pidBytes = String(pid).utf8.count
-            let additionalBytes = chunk.isEmpty ? pidBytes : pidBytes + 1
-            if !chunk.isEmpty,
-               chunkBytes + additionalBytes + lsofArgumentOverhead > lsofArgumentByteBudget
-            {
-                chunks.append(chunk)
-                chunk = []
-                chunkBytes = 0
-            }
-            let separatorBytes = chunk.isEmpty ? 0 : 1
-            chunk.append(pid)
-            chunkBytes += pidBytes + separatorBytes
-        }
-        if !chunk.isEmpty { chunks.append(chunk) }
-        return chunks
-    }
-
-    private func runLsofChunk(pidsCsv: String) async -> PortLsofScanResult {
-        let result = await commandRunner.run(
-            directory: "/",
-            executable: "/usr/sbin/lsof",
-            // A PID-scoped TCP query does not depend on filesystem mount
-            // metadata. Suppress warning-class diagnostics such as lsof's
-            // Time Machine `can't stat()` warning so unrelated mounts cannot
-            // make every port miss permanently incomplete.
-            arguments: ["-nP", "-w", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"],
-            timeout: Self.processScanTimeout
-        )
-
-        var portsByPID: [Int: Set<Int>] = [:]
-        var currentPID: Int?
-        var parsedEveryRow = true
-        var parseIncompletePIDs: Set<Int> = []
-        for line in (result.stdout ?? "").split(separator: "\n") {
-            guard let first = line.first else { continue }
-            switch first {
-            case "p":
-                guard let pid = Int(line.dropFirst()), pid > 0 else {
-                    currentPID = nil
-                    parsedEveryRow = false
-                    continue
-                }
-                currentPID = pid
-            case "n":
-                guard let currentPID else {
-                    parsedEveryRow = false
-                    continue
-                }
-                var name = String(line.dropFirst())
-                if let arrow = name.range(of: "->") {
-                    name = String(name[..<arrow.lowerBound])
-                }
-                guard let colon = name.lastIndex(of: ":") else {
-                    parseIncompletePIDs.insert(currentPID)
-                    continue
-                }
-                let portText = name[name.index(after: colon)...]
-                guard portText.allSatisfy(\.isNumber),
-                      let port = Int(portText),
-                      port > 0,
-                      port <= 65_535 else {
-                    parseIncompletePIDs.insert(currentPID)
-                    continue
-                }
-                portsByPID[currentPID, default: []].insert(port)
-            case "f":
-                if line.dropFirst().isEmpty {
-                    if let currentPID {
-                        parseIncompletePIDs.insert(currentPID)
-                    } else {
-                        parsedEveryRow = false
-                    }
-                }
-            default:
-                if let currentPID {
-                    parseIncompletePIDs.insert(currentPID)
-                } else {
-                    parsedEveryRow = false
-                }
-            }
-        }
-        // lsof exits 1 both for "no selected files" and when one requested PID
-        // disappears. Keep the failure scoped to the PIDs that can no longer be
-        // inspected so unrelated workspaces can still consume complete evidence.
+    /// Reads listening TCP ports for each requested PID directly from the
+    /// kernel. Every PID answers for itself, so one unreadable process no
+    /// longer costs the whole scan its evidence.
+    ///
+    /// The callers are async, so this blocks a cooperative thread. That is safe
+    /// at the current scale: the libproc calls measure about 1.25us per process,
+    /// so a scan holds one thread for well under a millisecond every couple of
+    /// seconds, and scans never overlap. Give it its own queue if that stops
+    /// being true: if scans start running concurrently, or if a process with a
+    /// very large descriptor table makes one scan slow, since the cost is per
+    /// descriptor rather than per PID.
+    func scanListeningPorts(pidsCsv: String) -> PortListenerScanResult {
         let requestedPIDs = Set(pidsCsv.split(separator: ",").compactMap { Int($0) })
-        var incompletePIDs = parseIncompletePIDs
-        incompletePIDs.formUnion(requestedPIDs.filter {
-            processIdentityProvider(pid_t($0)) == nil
-                && processPresenceProvider(pid_t($0)) != .absent
-        })
-        let globallyComplete = result.executionError == nil
-            && !result.timedOut
-            && (result.exitStatus == 0 || result.exitStatus == 1)
-            && (result.stderr ?? "").isEmpty
-            && parsedEveryRow
-        return PortLsofScanResult(
+        var portsByPID: [Int: Set<Int>] = [:]
+        var incompletePIDs: Set<Int> = []
+
+        for pid in requestedPIDs {
+            switch listeningPortsProvider(pid_t(pid)) {
+            case .ports(let ports):
+                if !ports.isEmpty {
+                    portsByPID[pid] = ports
+                }
+            case .denied, .unavailable:
+                // An unprivileged caller cannot read a root-owned process's
+                // sockets, and neither could lsof. Only a PID whose identity is
+                // unreadable while it is still present counts as a miss, so a
+                // panel behind the root `login` process can still retire ports.
+                if processIdentityProvider(pid_t(pid)) == nil
+                    && processPresenceProvider(pid_t(pid)) != .absent {
+                    incompletePIDs.insert(pid)
+                }
+            }
+        }
+
+        return PortListenerScanResult(
             values: portsByPID,
-            globallyComplete: globallyComplete,
+            globallyComplete: true,
             incompletePIDs: incompletePIDs
         )
     }
