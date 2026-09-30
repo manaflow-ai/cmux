@@ -39,6 +39,35 @@ struct EmptiedWorkspaceTests {
         for _ in 0..<500 where !condition() { await Task.yield() }
     }
 
+    /// The launch snapshot drew the workspace with its pane before the
+    /// daemon answered; the live tree then shows it empty (the daemon
+    /// restarted without its terminals). No connection saw it with a pane,
+    /// so it is repaired, not closed.
+    @Test func workspaceDrawnFromTheLaunchSnapshotIsRepairedNotClosed() async throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        let recorder = Recorder()
+        services.emptyWorkspaces.canCreate = { true }
+        services.emptyWorkspaces.create = { key in
+            recorder.created.append(key)
+            return SurfaceID(rawValue: 42)
+        }
+        services.emptyWorkspaces.close = { key in recorder.closed.append(key) }
+        services.daemon.store.applyProvisional(snapshot: try BridgeTreeFixture.tree())
+        let workspace = try #require(services.daemon.store.workspaces.first { $0.key == Self.key })
+        let state = WindowState(workspaceID: workspace.id)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+        controller.applyCurrent()
+        await Self.settle { false }
+        services.daemon.store.apply(snapshot: Self.emptied())
+        controller.applyCurrent()
+        await Self.settle { !recorder.created.isEmpty }
+        await Self.settle { false }
+        #expect(recorder.closed.isEmpty)
+        #expect(recorder.created == [Self.key])
+        controller.teardown()
+        withExtendedLifetime((services, state)) {}
+    }
+
     @Test func shownWorkspaceWhoseLastTabClosedIsClosedNotRefilled() async throws {
         let (services, recorder) = try Self.services()
         let workspace = try #require(services.daemon.store.workspaces.first)
