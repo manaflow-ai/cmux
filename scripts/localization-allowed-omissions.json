@@ -3506,5 +3506,9 @@
       "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
       "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
     }
+  },
+  "browser.repl.sessionTabTitle": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
   }
 }
