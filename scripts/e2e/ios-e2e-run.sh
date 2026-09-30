@@ -28,6 +28,7 @@ TAG=""
 SIM_UDID=""
 EVIDENCE_DIR=""
 BUNDLE_ID=""
+APP_LABEL=""
 STEP_TIMEOUT=45
 
 usage() {
@@ -188,7 +189,22 @@ if [[ -z "$BUNDLE_ID" ]]; then
     | grep -oE 'dev\.cmux[A-Za-z0-9\.-]*' | sort -u | head -1)"
   [[ -n "$BUNDLE_ID" ]] || fail "no dev.cmux bundle installed on simulator"
 fi
+APP_LABEL="$(
+  xcrun simctl listapps "$SIM_UDID" 2>/dev/null \
+    | plutil -convert json -o - -- - \
+    | BUNDLE_ID="$BUNDLE_ID" python3 -c '
+import json
+import os
+import sys
+
+apps = json.load(sys.stdin)
+app = apps.get(os.environ["BUNDLE_ID"], {})
+print(app.get("CFBundleDisplayName") or app.get("CFBundleName") or "")
+' \
+    || true
+)"
 echo "bundle: $BUNDLE_ID"
+[[ -n "$APP_LABEL" ]] && echo "home icon: $APP_LABEL"
 # Establish terminal input deterministically: on a cold boot nothing is first
 # responder until a tap lands, so tap the surface, attach the keyboard, then
 # prove input works with a typed self-check before any real step. One
@@ -302,6 +318,12 @@ step "replay-after-reconnect"
 foregrounded=0
 for attempt in 1 2 3; do
   echo "relaunch $attempt: $(xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" 2>&1)"
+  # On iOS 26, simctl can return the running PID without activating its scene.
+  # Tapping the installed icon asks SpringBoard to foreground that same process,
+  # preserving the signed-in session and terminal history.
+  if [[ -n "$APP_LABEL" ]]; then
+    "$AXE" tap --label "$APP_LABEL" --udid "$SIM_UDID" >/dev/null 2>&1 || true
+  fi
   for _ in $(seq 1 10); do
     if "$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null | grep -q MobileTerminalSurface; then
       foregrounded=1
