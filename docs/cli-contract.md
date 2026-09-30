@@ -99,6 +99,7 @@ Environment:
 | `glaeda` | Emit one caller-neutral `glaeda-external-execution-request/v1` and validate/correlate one bounded Glaeda receipt. `request` and `observe` are local data operations and do not require a running cmux socket. They carry exact Git source plus caller correlation only; CMUX workspace/UI and provider placement stay outside the request. |
 | `current` | Print bounded current-work facts (`--limit <1...200>`, `--json`). Read-only: it does not refresh machines, read transcripts, or change any work item. See [Glaeda execution exchange and current-work ownership](#glaeda-execution-exchange-and-current-work-ownership). |
 | `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. Records also report metadata for matching cmux-owned scratch roots (`scratch_owned`, byte count, file count, and root path); unmarked directories are never scanned. |
+| `sessions live` | List the running app's live agent sessions across all workspaces, ordered for triage. Requires a running cmux socket and never launches one. Filters: `--needs-me` (only sessions waiting on a human), `--state <needs-input\|working\|idle\|ended>`, `--agent <name>`. Rejects a flag-shaped filter value (`--agent --needs-me`) rather than filtering on it. Shows 100 rows by default; `--limit <n>` takes a positive integer and `--all` removes the limit. A truncated text list ends with `... N more.`, and `--json` reports `total_matches`, `total_live` and the effective `limit` beside the rows, so truncation is never silent. `state_counts` describes every match, not only the rows shown. Backed by the socket v2 method `agent.sessions.list`. Distinct from `sessions [list]`, which reads saved records off disk and knows no live state. |
 | `session-debug` | Alias for `sessions debug`, kept for older debug scripts. Works without a socket. |
 | `session move <session-id> --to <ssh-destination\|local>` | Move a stopped Claude Code session between this Mac and an SSH host and resume it there. Refuses while a Claude process for the session runs on either side. Carries the cwd's git checkout (a snapshot commit of the working tree on top of HEAD at `refs/agent-move/<id>`, HEAD on the same branch when it is safe, plus modified, deleted and untracked non-ignored files; adds a worktree when the repository exists on the destination but the path does not; refuses when the destination has its own uncommitted changes or its branch has commits HEAD lacks), then the transcript, its session directory, file history, and the project memory directory (merged both ways, newest wins, nothing deleted). When the destination home is not the same directory at the same path, paths under the home are mapped and the project is re-slugged. Opens a `cmux ssh` workspace (or a local workspace for `--to local`) that resumes the session with its recorded launcher (on a host, cmux-owned launchers such as `claude-teams` fall back to the plain agent command), and clears the old local surface's resume binding. `--from` defaults to where the last move put the session (`~/.cmuxterm/agent-moves/<id>.json`). Flags: `--name`, `--no-code`, `--port`, `--identity`, `--ssh-option`, `--no-focus`. |
 | `auth`, `login`, `logout` | `auth <status\|login\|logout\|team>`, with `status` the default; `team` carries `list`, `use`, and `create`. Sign-in and sign-out run through the app, and `login` waits for the browser round trip. `login` and `logout` are top-level aliases for `auth login` and `auth logout`. |
@@ -371,6 +372,37 @@ object with:
 | `limit` | Applied result limit, or `null` when `--all` removes it. |
 | `stores` | Per-agent hook store files that were read: `agent`, `path`, `exists`, `session_count`. |
 | `sessions` | The limited result set of session records. |
+
+`cmux sessions live` asks the running app instead, because only the live
+registry knows a session's current state, when that state began, and its
+conversation title. Sessions arrive in triage order: waiting on a human first
+(longest wait first), then running (longest first), then idle and ended (most
+recent activity first). Ties break on session id, so the order is stable across
+calls. Text output opens with one `key=value` summary line over every match,
+`sessions=<n>  needs_input=<n>  working=<n>`, so a truncated list still says how
+much work is queued. Its keys are the canonical row-state names (`needs_input`);
+`--state` accepts the hyphenated spelling `needs-input` for the same state.
+`--json` prints one object with:
+
+| Field | Contract |
+| --- | --- |
+| `sessions` | The filtered result set, at most `limit` rows, in the order described above. |
+| `count` | Number of sessions in `sessions`. |
+| `total_matches` | Matching sessions counted before `--limit` is applied. |
+| `total_live` | Sessions the app reported before filtering. |
+| `limit` | Applied row limit, or `null` when `--all` removes it. |
+| `state_counts` | Per-state totals over every match, not only the rows shown: `needs_input`, `working`, `idle`, `ended`, `total`. A state name this CLI does not know is counted in `total` only, so the four buckets can sum to less. |
+| `generated_at` | When the app built the reply. |
+
+Each session object carries `session_id`, `agent`, `agent_name`, `state`,
+`attention_rank` (0 needs input, 1 working, 2 idle, 3 ended), `needs_attention`,
+`state_confirmed`, `last_activity_at`, `children_running` and `version`, plus
+`state_since` and `state_age_seconds` for `needs_input` and `working`, and
+`title`, `cwd`, `workspace_id`, `surface_id`, `transcript_path`, `pid` and
+`ended_at` when known. `state_confirmed` is false for a session discovered from
+the process table: its presence is known but its idleness was never confirmed by
+a hook, so do not report it as idle without qualification. The reply spans every
+workspace; `agent.sessions.list` is not available through a remote relay.
 
 Auth subcommands:
 
@@ -855,7 +887,7 @@ the expected text without connecting to a cmux socket.
 <!-- cli-contract-help-probes:start -->
 - `cmux --help` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `open <path-or-url>...`
-- `cmux --help` -> `sessions [list] [options]`
+- `cmux --help` -> `sessions [list|live] [options]`
 - `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `Start & Resume:`
 - `cmux --help` -> `Diagnostics / Advanced:`
@@ -888,6 +920,8 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud guide --help` -> `Usage: cmux cloud guide | cmux cloud --skill [--json]`
 - `cmux cloud --skill -h` -> `Usage: cmux cloud guide | cmux cloud --skill [--json]`
 - `cmux sessions --help` -> `Usage: cmux sessions list [options]`
+- `cmux sessions --help` -> `cmux sessions live [options]`
+- `cmux sessions live --help` -> `--needs-me            Only sessions waiting on a human`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`

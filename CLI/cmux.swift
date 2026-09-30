@@ -5028,7 +5028,13 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
-        if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
+        // `sessions live` reads the running app over the socket, so it is handled
+        // below once the socket path is resolved; every other `sessions` form is
+        // socket-free and answers here.
+        if command == "session-debug"
+            || (command == "sessions" && !Self.sessionsCommandTargetsLiveRegistry(commandArgs: commandArgs)) {
+            try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return
+        }
         if command == "glaeda" { try runGlaedaCommand(commandArgs: commandArgs); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
@@ -5168,6 +5174,16 @@ struct CMUXCLI {
         if command == "shortcuts" {
             try runShortcuts(
                 commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
+        if command == "sessions", Self.sessionsCommandTargetsLiveRegistry(commandArgs: commandArgs) {
+            try runSessionsLiveCommand(
+                commandArgs: Array(commandArgs.dropFirst()),
                 socketPath: resolvedSocketPath,
                 explicitPassword: socketPasswordArg,
                 jsonOutput: jsonOutput

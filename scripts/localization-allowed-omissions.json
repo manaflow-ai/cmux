@@ -306,7 +306,7 @@
   },
   "cli.sessions.command": {
     "class": "syntax",
-    "source": "sessions [list] [options]"
+    "source": "sessions [list|live] [options]"
   },
   "cli.sidebar.report.error": {
     "source": "ERROR %@ [%@] %@: %@",
