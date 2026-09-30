@@ -52,6 +52,7 @@ final class CloudTuiManualMirrorSession {
     private(set) var socketPath: String?
     private var nextRequestID: UInt64 = 1
     var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
+    var pendingReplay: Data?
     /// Capabilities belong to the current control connection. They must not
     /// survive a daemon restart because an older generation may not implement
     /// lease-fenced sizing or initial attach dimensions.
@@ -205,25 +206,33 @@ final class CloudTuiManualMirrorSession {
         if let previous = self.surface, previous !== surface,
            previous.hostedView.cloudTerminalOverlay.session === self {
             previous.onManualSizeApplied = nil
+            previous.onNaturalGridInputsChanged = nil
             previous.onRuntimeReady = nil
             previous.onManualWindowAttached = nil
             previous.onManualVisibilityChanged = nil
+            previous.clearAssignedGrid()
             previous.hostedView.cloudTerminalOverlay.unbindSession(self)
         }
         self.surface = surface
         bindSharing(surfaceID: surface.id)
         surface.hostedView.cloudTerminalOverlay.session = self
         manualMirrorLogger.info("bind terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID)")
-        // A color sidecar that arrived before any surface existed reaches this
-        // one now. The stored sidecar is the remote truth, and the next
-        // identical sidecar would produce an empty delta and leave the pane on
-        // the local theme.
+        // A color sidecar that arrived before any surface existed reaches this one now.
         let pendingColors = appliedRemoteColors.oscBytes
         if !pendingColors.isEmpty {
             surface.processRemoteOutput(pendingColors)
         }
         surface.onManualSizeApplied = { [weak self] sample in
             self?.apply(size: sample, validatePanePixels: false)
+        }
+        // While the grid is pinned to the daemon's, a view resize changes no
+        // Ghostty size, so it arrives here instead of onManualSizeApplied.
+        surface.onNaturalGridInputsChanged = { [weak self] in
+            // Hop out of the in-progress updateSize before re-reporting.
+            Task { @MainActor [weak self] in
+                guard let self, let sample = self.surface?.rawSizingSample() else { return }
+                self.apply(size: sample, validatePanePixels: false)
+            }
         }
         surface.onRuntimeReady = { [weak self] in
             self?.runtimeReady()
@@ -234,6 +243,7 @@ final class CloudTuiManualMirrorSession {
         surface.onManualVisibilityChanged = { [weak self] visible in
             self?.visibilityChanged(visible)
         }
+        flushPendingReplay()
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
     }
@@ -325,7 +335,7 @@ final class CloudTuiManualMirrorSession {
         remoteLease = nil
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
-        lastRemoteGrid = nil
+        lastRemoteGrid = nil; pendingReplay = nil
         diagnosticReplayReceived = false
     }
     /// Samples the grid after Ghostty has created its runtime surface. Runtime
@@ -427,11 +437,17 @@ final class CloudTuiManualMirrorSession {
         validatePanePixels: Bool = false
     ) {
         defer { localGridChanged(to: sample) }
+        // `sample` is the grid Ghostty holds (the fidelity tracker needs it).
+        // The viewport reported to the daemon is the view's own grid, which
+        // differs while the grid is pinned to the daemon's.
         guard phase != .stopped,
               let surface,
               surface.isNativeViewInRealWindow,
               surface.isRendererPortalVisible,
-              let grid = CloudTuiManualIOGrid.usable(from: sample, validatePanePixels: validatePanePixels) else {
+              let grid = CloudTuiManualIOGrid.usable(
+                  from: surface.viewSizingSample() ?? sample,
+                  validatePanePixels: validatePanePixels
+              ) else {
             return
         }
         let canSend = attachResponseReceived && !claimInFlight
@@ -508,9 +524,11 @@ final class CloudTuiManualMirrorSession {
         if let surface, surface.hostedView.cloudTerminalOverlay.session === self {
             surface.hostedView.cloudTerminalOverlay.unbindSession(self)
             surface.onManualSizeApplied = nil
+            surface.onNaturalGridInputsChanged = nil
             surface.onRuntimeReady = nil
             surface.onManualWindowAttached = nil
             surface.onManualVisibilityChanged = nil
+            surface.clearAssignedGrid()
         }
         self.surface = nil
     }
@@ -595,7 +613,7 @@ final class CloudTuiManualMirrorSession {
     private func handle(frame: CloudTuiManualIOFrame) {
         watchdog.noteFrame()
         switch frame {
-        case let .snapshot(surfaceID, columns, rows, bytes, colors):
+        case let .snapshot(surfaceID, columns, rows, bytes, colors, pending):
             // This dedicated connection has only one pending attachment. The
             // identity-capable daemon validates the receipt before sending its
             // initial frame; input still waits for the attachment acknowledgement.
@@ -606,14 +624,15 @@ final class CloudTuiManualMirrorSession {
                 inputRouter.updateSurfaceID(surfaceID)
             }
             guard surfaceID == remoteSurfaceID else { return }
-            applyReplacement(bytes, colors: colors, columns: columns, rows: rows)
+            applyReplacement(bytes, colors: colors, columns: columns, rows: rows, pending: pending)
         case let .output(surfaceID, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             surface?.processRemoteOutput(bytes)
+            if surface == nil { pendingReplay = (pendingReplay ?? Data()) + bytes }
             applyColors(colors)
-        case let .resized(surfaceID, columns, rows, bytes, colors):
+        case let .resized(surfaceID, columns, rows, bytes, colors, pending):
             guard surfaceID == remoteSurfaceID else { return }
-            applyReplacement(bytes, colors: colors, columns: columns, rows: rows)
+            applyReplacement(bytes, colors: colors, columns: columns, rows: rows, pending: pending)
         case let .colorsChanged(surfaceID, colors):
             guard surfaceID == remoteSurfaceID else { return }
             applyColors(colors)
@@ -647,9 +666,15 @@ final class CloudTuiManualMirrorSession {
     /// A snapshot or `resized` frame replaces the local VT state with a replay
     /// authored for the daemon's grid. Resetting first keeps the cells, cursor,
     /// alternate screen and SGR of a prior restore from surviving a shorter one.
-    private func applyReplacement(_ bytes: Data, colors: CloudTuiRemoteColors?, columns: Int, rows: Int) {
+    private func applyReplacement(
+        _ bytes: Data, colors: CloudTuiRemoteColors?, columns: Int, rows: Int, pending: Data
+    ) {
         lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
-        applyReplay(bytes, colors: colors, remote: lastRemoteGrid)
+        // The daemon owns the grid, and the replay addresses rows and wraps at
+        // its size. Pin Ghostty to it before parsing; the view letterboxes or
+        // clips the difference and keeps reporting its own grid.
+        surface?.setAssignedGrid(columns: columns, rows: rows)
+        applyReplay(bytes, colors: colors, remote: lastRemoteGrid, pending: pending)
         hasReceivedRemoteReplay = true
         diagnosticReplayReceived = true
         if phase == .attached { finishDiagnostics() }
@@ -658,7 +683,9 @@ final class CloudTuiManualMirrorSession {
         if geometryClaimLossPending { geometryClaimLossPending = false; geometryClaimBlockedByPeer = !explicitGeometryClaimPending && lastRemoteGrid != resizeScheduler.desired; geometryClaimed = geometryClaimed && !geometryClaimBlockedByPeer }
         reconcileRemoteGrid()
     }
-    private func applyReplay(_ bytes: Data, colors: CloudTuiRemoteColors?, remote: CloudTuiManualIOGrid?) {
+    private func applyReplay(
+        _ bytes: Data, colors: CloudTuiRemoteColors?, remote: CloudTuiManualIOGrid?, pending: Data
+    ) {
         // A sidecar replaces authored colors; an absent sidecar preserves them.
         // Restore the authoritative set after resetting the replacement VT state.
         let replayColors = colors ?? appliedRemoteColors
@@ -666,9 +693,13 @@ final class CloudTuiManualMirrorSession {
         replay.append(Self.replayReset)
         replay.append(bytes)
         replay.append(replayColors.oscBytes)
+        // The daemon's parser is inside this sequence; the next output
+        // completes it. It goes last because the color OSCs above would
+        // otherwise land inside it.
+        replay.append(pending)
         appliedRemoteColors = replayColors
+        guard let surface else { pendingReplay = replay; return }
         let token = replayFidelity.replayQueued(remote: remote, local: settledGrid())
-        guard let surface else { return }
         surface.processRemoteReplay(replay) { [weak self, weak surface] in
             surface?.forceRefresh(reason: "cloud.replay.applied")
             self?.replayApplied(token: token)
@@ -676,7 +707,6 @@ final class CloudTuiManualMirrorSession {
             self?.replayDiscarded(token: token)
         }
     }
-
     /// The replay is theme-portable: it carries no palette or default-color
     /// OSC state, so the local Ghostty theme stands for every color the
     /// remote PTY did not author. The sidecar restores the authored ones and
@@ -689,6 +719,7 @@ final class CloudTuiManualMirrorSession {
         appliedRemoteColors = colors
         guard !delta.isEmpty else { return }
         surface?.processRemoteOutput(delta)
+        if surface == nil { pendingReplay = (pendingReplay ?? Data()) + delta }
     }
 
     private func transitionToDisconnected(reason: CloudTerminalAttachmentInterruption) {
