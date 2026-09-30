@@ -1,0 +1,104 @@
+name: CI fail fast
+
+# A pull_request workflow cannot safely hold actions: write because it executes
+# repository-controlled code. This watcher is triggered from the default branch,
+# checks the trusted CI run by its stable workflow path, and cancels that run
+# when a cheap admission job fails before expensive macOS or iOS work finishes.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [in_progress]
+
+permissions: {}
+
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+
+concurrency:
+  group: ci-fail-fast-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: watch CI run for early failure
+    runs-on: ubuntu-24.04 # github-hosted-required
+    timeout-minutes: 180
+    permissions:
+      actions: write
+    steps:
+      - name: Watch the trusted CI run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_PATH: ${{ github.event.workflow_run.path }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ "$SOURCE_PATH" != "$SOURCE_WORKFLOW_PATHS" ]; then
+            echo "::error::Started by $SOURCE_PATH, not $SOURCE_WORKFLOW_PATHS; refusing to cancel anything."
+            exit 1
+          fi
+          if [ "$SOURCE_EVENT" != "pull_request" ]; then
+            echo "Ignoring CI event $SOURCE_EVENT; this watcher only handles pull requests."
+            exit 0
+          fi
+
+          RUN="repos/$REPOSITORY/actions/runs/$RUN_ID"
+          api_errors=0
+          for _ in $(seq 1 540); do
+            if ! run_state="$(gh api "$RUN" --jq '[.status, .run_attempt] | @tsv')"; then
+              api_errors=$((api_errors + 1))
+              if [ "$api_errors" -ge 10 ]; then
+                echo "::warning::The Actions API failed 10 times while reading $RUN; leaving CI running."
+                exit 0
+              fi
+              sleep 20
+              continue
+            fi
+            api_errors=0
+            read -r status current_attempt <<< "$run_state"
+            if [ "$current_attempt" != "$RUN_ATTEMPT" ]; then
+              echo "CI run attempt changed from $RUN_ATTEMPT to $current_attempt; leaving the newer attempt running."
+              exit 0
+            fi
+
+            if ! failed="$(gh api "$RUN/jobs?filter=latest&per_page=100" --paginate --jq '
+              .jobs[]
+              | select(
+                  (.name == "Fast static checks"
+                    or .name == "linux-preflight"
+                    or (.name | startswith("guards / ")))
+                  and (.conclusion != null)
+                  and (.conclusion != "success")
+                  and (.conclusion != "skipped")
+                )
+              | [.name, .conclusion]
+              | @tsv
+            ')"; then
+              api_errors=$((api_errors + 1))
+              if [ "$api_errors" -ge 10 ]; then
+                echo "::warning::The Actions API failed 10 times while reading jobs for $RUN; leaving CI running."
+                exit 0
+              fi
+              sleep 20
+              continue
+            fi
+            api_errors=0
+
+            if [ -n "$failed" ]; then
+              echo "Early CI failure detected; cancelling expensive jobs:"
+              printf '%s\n' "$failed"
+              gh api --method POST "$RUN/cancel" || true
+              exit 0
+            fi
+            if [ "$status" = "completed" ]; then
+              echo "CI completed without an early admission failure."
+              exit 0
+            fi
+            sleep 20
+          done
+
+          echo "::warning::The CI run did not settle within the watcher timeout; leaving it running."
