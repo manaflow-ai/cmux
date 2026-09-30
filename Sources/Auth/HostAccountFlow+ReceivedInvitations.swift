@@ -15,7 +15,7 @@ extension HostAccountFlow {
     /// Starts the poll on sign-in and stops it on sign-out. Called from the
     /// coordinator observation, so it runs whenever auth state changes.
     func syncReceivedInvitationsPolling() {
-        if isAuthenticated {
+        if isAuthenticated, TeamsClient.isBootstrapped {
             guard receivedInvitationsPoll == nil else { return }
             receivedInvitationsPoll = Task { @MainActor [weak self] in
                 await self?.refreshReceivedInvitations(notify: true)
@@ -39,7 +39,7 @@ extension HostAccountFlow {
     /// Re-reads the list. A failure keeps the last list; the caller that
     /// needs the error uses `cloudReceivedInvitations`.
     func refreshReceivedInvitations(notify: Bool) async {
-        guard isAuthenticated else { return }
+        guard isAuthenticated, TeamsClient.isBootstrapped else { return }
         do {
             let fresh = try await TeamsClient.shared.receivedInvitations()
             let previous = receivedInvitations
@@ -53,7 +53,7 @@ extension HostAccountFlow {
 
     /// A fresh read for the socket and CLI.
     func cloudReceivedInvitations() async throws -> [CloudReceivedInvitation] {
-        guard isAuthenticated else { throw TeamMembersFlowError.signedOut }
+        guard isAuthenticated, TeamsClient.isBootstrapped else { throw TeamMembersFlowError.signedOut }
         let fresh = try await TeamsClient.shared.receivedInvitations()
         receivedInvitations = fresh
         receivedInvitationsLoaded = true
@@ -64,7 +64,7 @@ extension HostAccountFlow {
     /// it the active team. Returns the joined team id.
     @discardableResult
     func cloudAcceptInvitation(invitationID: String) async throws -> String {
-        guard isAuthenticated else { throw TeamMembersFlowError.signedOut }
+        guard isAuthenticated, TeamsClient.isBootstrapped else { throw TeamMembersFlowError.signedOut }
         let result = try await TeamsClient.shared.acceptInvitation(invitationID: invitationID)
         receivedInvitations.removeAll { $0.id == invitationID }
         await coordinator.refreshTeams()
@@ -74,7 +74,7 @@ extension HostAccountFlow {
     }
 
     func cloudDeclineInvitation(invitationID: String) async throws {
-        guard isAuthenticated else { throw TeamMembersFlowError.signedOut }
+        guard isAuthenticated, TeamsClient.isBootstrapped else { throw TeamMembersFlowError.signedOut }
         try await TeamsClient.shared.declineInvitation(invitationID: invitationID)
         receivedInvitations.removeAll { $0.id == invitationID }
         await refreshReceivedInvitations(notify: false)

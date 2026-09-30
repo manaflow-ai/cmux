@@ -11,6 +11,10 @@ import Foundation
 public actor TeamsClient {
     @MainActor public private(set) static var shared: TeamsClient!
 
+    /// False until `bootstrap` ran; hosts that poll on sign-in check this so a
+    /// test with a fake coordinator and no client never dereferences nil.
+    @MainActor public static var isBootstrapped: Bool { shared != nil }
+
     @MainActor
     public static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared) {
         shared = TeamsClient(session: session, auth: auth)
