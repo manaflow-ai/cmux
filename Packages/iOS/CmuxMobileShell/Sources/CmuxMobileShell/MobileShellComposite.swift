@@ -2387,6 +2387,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         resumeRawTerminalInputDrainWaiters()
         reportedViewportSizesByTerminalKey = [:]
         viewportReportGenerationsBySequenceKey = [:]
+        terminalSizingBySurfaceID = [:]
         terminalPreBarrierDeliveredEndSeqBySurfaceID = [:]
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID = [:]
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID = [:]
@@ -11648,6 +11649,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         remoteClient = newValue
         if previous !== newValue {
             terminalSubscriptionHandoffFences.removeAll()
+            endTerminalSizingConnection()
         }
         return previous !== newValue ? previous : nil
     }

@@ -3360,6 +3360,7 @@ class GhosttyApp {
             DispatchQueue.main.async {
                 surfaceView.cellSize = cellSize
                 _ = terminalSurface?.fontSizeLineageSnapshot()
+                terminalSurface?.cellSizeDidChange()
                 NotificationCenter.default.post(
                     name: .ghosttyDidUpdateCellSize,
                     object: surfaceView,

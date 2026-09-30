@@ -133,7 +133,7 @@ extension TerminalController {
         localSizingControllersBySurfaceID[surfaceID] = controller
         ensureTerminalSharingPresentation()
         terminalSharing.register(controller, surfaceID: surfaceID)
-        surface.onUncappedPixelSizeChanged = { [weak self] in
+        surface.onNaturalGridInputsChanged = { [weak self] in
             // Hop out of the in-progress updateSize before re-applying.
             Task { @MainActor [weak self] in
                 self?.localSizingMacViewportChanged(surfaceID: surfaceID)
@@ -218,13 +218,22 @@ extension TerminalController {
 
     /// Drops every local host (account change or test reset).
     func resetLocalSizingHosts() {
-        for (surfaceID, controller) in localSizingControllersBySurfaceID {
-            controller.surface?.onUncappedPixelSizeChanged = nil
+        for surfaceID in Set(localSizingHostsBySurfaceID.keys).union(localSizingControllersBySurfaceID.keys) {
+            removeLocalSizingHost(surfaceID: surfaceID)
+        }
+        cloudDetachedPhonesBySurfaceID.removeAll()
+    }
+
+    /// Drops one surface's local host, its sharing controller and its store
+    /// snapshot. Called when the terminal closes (``cleanupSurfaceState``);
+    /// a surface moved to another workspace keeps its host.
+    func removeLocalSizingHost(surfaceID: UUID) {
+        if let controller = localSizingControllersBySurfaceID.removeValue(forKey: surfaceID) {
+            controller.surface?.onNaturalGridInputsChanged = nil
             terminalSharing.unregister(controller, surfaceID: surfaceID)
         }
-        localSizingHostsBySurfaceID.removeAll()
-        localSizingControllersBySurfaceID.removeAll()
-        cloudDetachedPhonesBySurfaceID.removeAll()
+        localSizingHostsBySurfaceID[surfaceID] = nil
+        cloudDetachedPhonesBySurfaceID[surfaceID] = nil
     }
 
     // MARK: - Presentation
@@ -532,6 +541,7 @@ extension TerminalController {
         guard let policy = TerminalSizingWireCoder().policy(from: params["policy"]) else {
             return .err(code: "invalid_params", message: "Missing or invalid policy", data: nil)
         }
+        guard policy.fixedSizeIsWithinLimit else { return Self.fixedSizeTooLarge }
         _ = localSizingHost(surfaceID: resolved.surfaceID, create: true)
         guard terminalSharing.setPolicy(policy, surfaceID: resolved.surfaceID) else {
             return .err(code: "unavailable", message: "Terminal size policy is unavailable", data: nil)
@@ -581,6 +591,15 @@ extension TerminalController {
         .err(code: "not_found", message: "Terminal surface not found", data: nil)
     }
 
+    private static var fixedSizeTooLarge: V2CallResult {
+        let limit = TerminalSizingPolicy.maximumFixedSize
+        return .err(
+            code: "invalid_params",
+            message: "Fixed size must be at most \(limit.cols) x \(limit.rows)",
+            data: nil
+        )
+    }
+
     /// `terminal.size_state {surface_id?}`.
     func v2TerminalSizeState(params: [String: Any]) -> V2CallResult {
         guard let surfaceID = sharingSocketSurfaceID(params: params) else { return Self.sharingSurfaceNotFound }
@@ -591,7 +610,14 @@ extension TerminalController {
     func v2TerminalSizePolicySet(params: [String: Any]) -> V2CallResult {
         guard let surfaceID = sharingSocketSurfaceID(params: params),
               let snapshot = terminalSharing.snapshot(for: surfaceID) else { return Self.sharingSurfaceNotFound }
-        var policy = TerminalSizingWireCoder().policy(from: params["policy"]) ?? snapshot.state.policy
+        var policy = snapshot.state.policy
+        if params["policy"] != nil {
+            guard let requested = TerminalSizingWireCoder().policy(from: params["policy"]) else {
+                return .err(code: "invalid_params", message: "Invalid policy", data: nil)
+            }
+            guard requested.fixedSizeIsWithinLimit else { return Self.fixedSizeTooLarge }
+            policy = requested
+        }
         if let rawMode = v2String(params, "mode") {
             guard let mode = TerminalSizingMode(rawValue: rawMode) else {
                 return .err(code: "invalid_params", message: "Unknown mode \(rawMode)", data: nil)
@@ -599,7 +625,9 @@ extension TerminalController {
             policy = policy.withMode(mode, fallbackFixed: snapshot.state.size)
         }
         if let cols = v2Int(params, "fixed_cols"), let rows = v2Int(params, "fixed_rows") {
-            policy = TerminalSizingPolicy(mode: policy.mode, priority: policy.priority, fixed: TerminalGridSize(cols: cols, rows: rows))
+            let requested = TerminalSizingPolicy(mode: policy.mode, priority: policy.priority, fixed: TerminalGridSize(cols: cols, rows: rows))
+            guard requested.fixedSizeIsWithinLimit else { return Self.fixedSizeTooLarge }
+            policy = requested
         }
         if let priority = params["priority"] as? [String] {
             policy = TerminalSizingPolicy(mode: policy.mode, priority: priority, fixed: policy.fixed)

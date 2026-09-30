@@ -501,6 +501,7 @@ class TerminalController {
             }
         }
         for surfaceId in uniqueSurfaceIds {
+            removeLocalSizingHost(surfaceID: surfaceId)
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)

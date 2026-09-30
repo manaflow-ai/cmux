@@ -16,6 +16,16 @@ extension MobileShellComposite {
     static let terminalSizeStateTopic = "mobile.terminal.size_state"
     static let terminalDetachedTopic = "mobile.terminal.detached"
 
+    // MARK: Connection
+
+    /// The connection to the Mac ended: drop every surface's published state
+    /// so the next host's generations are not ordered against the old ones.
+    func endTerminalSizingConnection() {
+        for surfaceID in Array(terminalSizingBySurfaceID.keys) {
+            terminalSizingBySurfaceID[surfaceID]?.connectionEnded()
+        }
+    }
+
     // MARK: Reads
 
     /// The sizing state of one terminal, or `nil` before the host published one.

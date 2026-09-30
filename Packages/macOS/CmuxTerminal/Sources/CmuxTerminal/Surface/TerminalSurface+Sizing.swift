@@ -216,7 +216,7 @@ extension TerminalSurface {
         lastUncappedPixelWidth = rawWpx
         lastUncappedPixelHeight = rawHpx
         defer {
-            if uncappedPixelSizeChanged { onUncappedPixelSizeChanged?() }
+            if uncappedPixelSizeChanged { onNaturalGridInputsChanged?() }
         }
         let fittedSize = mobileViewportFittedSize(
             width: rawWpx,

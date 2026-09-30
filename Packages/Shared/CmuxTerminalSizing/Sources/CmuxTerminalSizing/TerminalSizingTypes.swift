@@ -116,6 +116,17 @@ public struct TerminalSizingPolicy: Codable, Hashable, Sendable {
 
     public static let latest = TerminalSizingPolicy(mode: .latest)
 
+    /// The largest fixed grid a client may request. Every entrypoint (size
+    /// panel, socket, phone) enforces it, so no host receives a grid its
+    /// wire types cannot carry.
+    public static let maximumFixedSize = TerminalGridSize(cols: 500, rows: 200)
+
+    /// Whether ``fixed`` is absent or within ``maximumFixedSize``.
+    public var fixedSizeIsWithinLimit: Bool {
+        guard let fixed else { return true }
+        return fixed.cols <= Self.maximumFixedSize.cols && fixed.rows <= Self.maximumFixedSize.rows
+    }
+
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(

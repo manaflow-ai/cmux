@@ -123,7 +123,10 @@ struct TerminalSizePanelView: View {
         let cols = Int(fixedColumns.trimmingCharacters(in: .whitespaces)) ?? fixed.cols
         let rows = Int(fixedRows.trimmingCharacters(in: .whitespaces)) ?? fixed.rows
         _ = store.setFixedSize(
-            TerminalGridSize(cols: min(max(cols, 20), 500), rows: min(max(rows, 5), 200)),
+            TerminalGridSize(
+                cols: min(max(cols, 20), TerminalSizingPolicy.maximumFixedSize.cols),
+                rows: min(max(rows, 5), TerminalSizingPolicy.maximumFixedSize.rows)
+            ),
             surfaceID: surfaceID
         )
         fixedColumns = ""

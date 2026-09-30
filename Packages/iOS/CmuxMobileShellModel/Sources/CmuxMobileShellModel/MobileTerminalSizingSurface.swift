@@ -90,6 +90,17 @@ public struct MobileTerminalSizingSurface: Equatable, Sendable {
         return .reassertViewport
     }
 
+    /// Forgets the published state when the connection to the Mac ends.
+    ///
+    /// The next host (a relaunched Mac, or a new sizing host) restarts its
+    /// generations under the same participant id, so the old generation must
+    /// not order the new states. A user-visible detach stays: the host keeps
+    /// it across the phone's reconnect.
+    public mutating func connectionEnded() {
+        state = nil
+        selfParticipantID = nil
+    }
+
     /// Applies a `detached` push.
     /// - Parameters:
     ///   - reason: The decoded reason and actor.
