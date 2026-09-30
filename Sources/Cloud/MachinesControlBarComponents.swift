@@ -131,7 +131,7 @@ struct MachinesChromeLabelButton: View {
             .frame(height: 20)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.primary.opacity(isHovered ? 0.10 : 0.06))
+                    .fill(Color.primary.opacity(isHovered ? 0.08 : 0))
             )
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }

@@ -143,7 +143,6 @@ final class CloudTeamInviteModel {
             }
             return (String(format: String(localized: "cloudInvite.seatsOpen", defaultValue: "%1$d of %2$d seats open on this plan."), open, limit), false)
         }
-        if isLoading { return (String(localized: "cloudInvite.checkingSeats", defaultValue: "Checking seats…"), false) }
         return nil
     }
 

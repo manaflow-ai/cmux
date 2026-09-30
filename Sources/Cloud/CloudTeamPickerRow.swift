@@ -48,7 +48,9 @@ struct CloudTeamPickerRow: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 7)
+            // Flush with the tree's section chevrons below.
+            .padding(.leading, 1)
+            .padding(.trailing, 7)
             .frame(height: 22)
             .contentShape(RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous))
         }
