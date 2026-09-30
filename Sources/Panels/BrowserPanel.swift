@@ -5820,6 +5820,11 @@ final class BrowserPanel: Panel, ObservableObject {
         if consumeOneTimeInsecureHTTPBypassIfNeeded(for: url) {
             return false
         }
+        // A REPL session drives this tab and nobody can answer the prompt, so
+        // it would hang goto() and link clicks. Browsers load http pages too.
+        if BrowserReplTabAttachments.shared.attachment(for: id) != nil {
+            return false
+        }
         return browserShouldBlockInsecureHTTPURL(url)
     }
 
