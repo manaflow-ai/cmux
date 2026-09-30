@@ -588768,7 +588768,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Previewing %@ from %@."
+            "value": "Created a temporary preview at %@ from %@."
           }
         },
         "ar": {
@@ -589176,5 +589176,5 @@
       }
     }
   },
- "version": "1.0"
+  "version": "1.0"
 }

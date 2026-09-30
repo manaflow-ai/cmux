@@ -352,6 +352,10 @@ final class HostSettingsActions: SettingsHostActions {
             openEditor: openEditor
         )
         if case let .created(name) = result {
+            if let preview = customSidebarPreview {
+                removeCustomSidebarPreviewFile(preview.name)
+                customSidebarPreview = nil
+            }
             UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
             CmuxExtensionSidebarSelection.setProviderId(
                 CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
@@ -399,11 +403,14 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
-    func keepCustomSidebarPreview() {
-        guard let preview = customSidebarPreview else { return }
-        _ = useCustomSidebarTemplate(id: preview.id)
-        removeCustomSidebarPreviewFile(preview.name)
-        customSidebarPreview = nil
+    func keepCustomSidebarPreview() -> CustomSidebarOnboardingResult {
+        guard let preview = customSidebarPreview else { return .templateUnavailable }
+        let result = useCustomSidebarTemplate(id: preview.id)
+        if case .created = result {
+            removeCustomSidebarPreviewFile(preview.name)
+            customSidebarPreview = nil
+        }
+        return result
     }
 
     func revertCustomSidebarPreview() {

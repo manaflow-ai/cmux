@@ -42,7 +42,7 @@
       "wait": 1
     },
     {
-      "shot": "template-gallery-dark"
+      "shot": "template-gallery-light"
     },
     {
       "click": {
@@ -53,7 +53,7 @@
       "wait": 1
     },
     {
-      "shot": "template-agents-board-dark"
+      "shot": "template-agents-board-light"
     },
     {
       "click": {
@@ -69,7 +69,7 @@
       "wait": 1
     },
     {
-      "shot": "template-workspaces-dark"
+      "shot": "template-workspaces-light"
     },
     {
       "click": {
@@ -78,7 +78,7 @@
       "wait": 1
     },
     {
-      "shot": "template-kept-dark",
+      "shot": "template-kept-light",
       "screen": true
     }
   ],

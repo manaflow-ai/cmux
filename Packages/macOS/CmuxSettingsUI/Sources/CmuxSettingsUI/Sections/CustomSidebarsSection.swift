@@ -65,6 +65,9 @@ public struct CustomSidebarsSection: View {
                 discoveredSidebars = names
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .customSidebarTemplateGalleryRequested)) { _ in
+            galleryPresented = true
+        }
     }
 
     private func startObservingSettings() {
@@ -128,6 +131,7 @@ public struct CustomSidebarsSection: View {
 
             SettingsCardRow(
                 configurationReview: .action,
+                searchAnchorID: "setting:customSidebars:templates",
                 String(localized: "settings.customSidebars.newFromTemplate", defaultValue: "New from Template…", bundle: .module)
             ) {
                 Button {
@@ -193,7 +197,7 @@ public struct CustomSidebarsSection: View {
                 SettingsCardDivider()
                 SettingsCardRow(
                     configurationReview: .action,
-                    String(localized: "settings.customSidebars.empty.title", defaultValue: "Start with a template")
+                    String(localized: "settings.customSidebars.empty.title", defaultValue: "Start with a template", bundle: .module)
                 ) {
                     Button(String(localized: "settings.customSidebars.browseTemplates", defaultValue: "Browse Templates…", bundle: .module)) {
                         galleryPresented = true
@@ -287,9 +291,10 @@ private struct CustomSidebarTemplateGallery: View {
                     .accessibilityIdentifier("SettingsCustomSidebarTemplateRevert")
                     .keyboardShortcut(.escape, modifiers: [])
                     Button(String(localized: "settings.customSidebars.gallery.keep", defaultValue: "Keep", bundle: .module)) {
-                        hostActions.keepCustomSidebarPreview()
-                        previewingID = nil
-                        onClose()
+                        if case .created = hostActions.keepCustomSidebarPreview() {
+                            previewingID = nil
+                            onClose()
+                        }
                     }
                     .accessibilityIdentifier("SettingsCustomSidebarTemplateKeep")
                     .buttonStyle(.borderedProminent)
@@ -341,11 +346,7 @@ private struct CustomSidebarTemplateGallery: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
-            Text(String(
-                localized: template.kind == .right ? "settings.customSidebars.gallery.rightPanel" : "settings.customSidebars.gallery.leftSidebar",
-                defaultValue: template.kind == .right ? "Right panel" : "Left sidebar",
-                bundle: .module
-            ))
+            Text(placementLabel(for: template))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
             HStack {
@@ -359,6 +360,7 @@ private struct CustomSidebarTemplateGallery: View {
                 Button(String(localized: "settings.customSidebars.gallery.use", defaultValue: "Use", bundle: .module)) {
                     if case let .created(name) = hostActions.useCustomSidebarTemplate(id: template.id) {
                         installedName = name
+                        previewingID = nil
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -367,5 +369,12 @@ private struct CustomSidebarTemplateGallery: View {
         }
         .padding(10)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func placementLabel(for template: CustomSidebarTemplateDescriptor) -> String {
+        if template.kind == .right {
+            return String(localized: "settings.customSidebars.gallery.rightPanel", defaultValue: "Right panel", bundle: .module)
+        }
+        return String(localized: "settings.customSidebars.gallery.leftSidebar", defaultValue: "Left sidebar", bundle: .module)
     }
 }

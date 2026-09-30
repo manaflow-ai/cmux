@@ -21391,9 +21391,13 @@ struct CMUXCLI {
                     templateID: templateID,
                     directory: directory
                 )
-                print(String(format: String(localized: "cli.sidebar.try.created", defaultValue: "Previewing %@ from %@."), path.path, templateID))
-                print(String(format: String(localized: "cli.sidebar.try.openHint", defaultValue: "Open it with: cmux sidebar open %@"), previewName))
-                print(String(format: String(localized: "cli.sidebar.try.revertHint", defaultValue: "Remove it when finished: rm %@"), path.path))
+                if jsonOutput {
+                    print(jsonString(["name": previewName, "template": templateID, "path": path.path, "open": "cmux sidebar open \(previewName)", "remove": "rm \(path.path)"]))
+                } else {
+                    print(String(format: String(localized: "cli.sidebar.try.created", defaultValue: "Created a temporary preview at %@ from %@."), path.path, templateID))
+                    print(String(format: String(localized: "cli.sidebar.try.openHint", defaultValue: "Open it with: cmux sidebar open %@"), previewName))
+                    print(String(format: String(localized: "cli.sidebar.try.revertHint", defaultValue: "Remove it when finished: rm %@"), path.path))
+                }
             } catch CustomSidebarTemplateInstallError.unknownTemplate {
                 throw CLIError(message: String(format: String(localized: "cli.sidebar.new.unknownTemplate", defaultValue: "Unknown sidebar template '%@'. Run cmux sidebar templates."), templateID))
             } catch {

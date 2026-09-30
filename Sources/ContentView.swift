@@ -11310,6 +11310,9 @@ enum CmuxExtensionSidebarSelection {
             navigationTarget: .customSidebars
         )
         SettingsNavigationRequest.post(.customSidebars, anchorID: "setting:customSidebars:templates", highlight: true)
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .customSidebarTemplateGalleryRequested)
+        }
     }
 
     @MainActor

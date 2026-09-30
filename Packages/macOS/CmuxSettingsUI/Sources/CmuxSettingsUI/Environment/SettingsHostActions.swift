@@ -3,6 +3,11 @@ import CMUXMobileCore
 import CmuxSettings
 import Foundation
 
+/// Posted by the host when a sidebar menu or command-palette action should open the template gallery.
+public extension Notification.Name {
+    static let customSidebarTemplateGalleryRequested = Notification.Name("cmux.settings.customSidebarTemplateGalleryRequested")
+}
+
 /// Host-supplied callbacks the package's section views invoke for
 /// actions that live outside the catalog — clearing browser history,
 /// opening the user's editor on cmux.json, sending feedback, posting
@@ -67,7 +72,7 @@ public protocol SettingsHostActions: AnyObject {
     func previewCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
 
     /// Keeps or discards the active gallery preview.
-    func keepCustomSidebarPreview()
+    func keepCustomSidebarPreview() -> CustomSidebarOnboardingResult
     func revertCustomSidebarPreview()
 
     /// Copies one bundled example into the custom-sidebar directory and opens it.
@@ -565,7 +570,7 @@ public extension SettingsHostActions {
         _ = id
         return .writeFailed
     }
-    func keepCustomSidebarPreview() {}
+    func keepCustomSidebarPreview() -> CustomSidebarOnboardingResult { .templateUnavailable }
     func revertCustomSidebarPreview() {}
 
     func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
