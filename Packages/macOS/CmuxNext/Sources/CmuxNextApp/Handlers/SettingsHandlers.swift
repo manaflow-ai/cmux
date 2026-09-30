@@ -72,18 +72,27 @@ enum SettingsHandlers {
     }
 
     /// Writes a boolean setting at a dotted cmux.json path. Without `on`,
-    /// flips the current value.
+    /// flips the value that applies now (a schema setting absent from the
+    /// file flips its default). A schema setting that is not on/off is refused.
     private static func toggleSetting(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let settings = try requireSettings(context)
         guard let setting = invocation["setting"]?.stringValue, !setting.isEmpty else {
             throw ActionFailure.invalidTarget(RefusalStrings.settingArgumentRequired)
         }
         let path = CmuxConfigFile.keyPath(from: setting)
+        let descriptor = SettingsSchema.descriptor(for: path)
+        if let descriptor, descriptor.kind != .toggle {
+            throw ActionFailure.invalidTarget(RefusalStrings.settingNotToggle(descriptor.id))
+        }
         let explicit = invocation["on"]?.boolValue
         Task {
             do {
-                let current = try await settings.file.value(at: path)?.boolValue ?? false
-                try await settings.set(.bool(explicit ?? !current), at: path)
+                let root = try await settings.file.document()
+                if let descriptor {
+                    try await settings.setSetting(descriptor, to: .bool(explicit ?? descriptor.toggledValue(in: root) ?? true))
+                } else {
+                    try await settings.set(.bool(explicit ?? !(root.value(at: path)?.boolValue ?? false)), at: path)
+                }
             } catch {
                 logger.error("toggle setting \(setting, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }

@@ -90,10 +90,11 @@ enum WorkspaceHandlers {
         let browserTabs = context.services.cache.browserTabs!
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
         let fallbacks = browserTabs.fallbacks
+        let address = context.services.newTabAddress
         createAndShow(context) { connection, terminal in
             guard let pane = terminal.pane else { return }
             // On the active machine's connection (it may be a Cloud machine).
-            let created = try await connection.newFrontendBrowserTab(url: "about:blank", engine: choice.engine, in: pane)
+            let created = try await connection.newFrontendBrowserTab(url: address, engine: choice.engine, in: pane)
             if let reason = choice.fallback {
                 await fallbacks.record(reason, source: .newTab, surface: created.surface)
             }

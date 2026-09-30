@@ -7,7 +7,8 @@ nonisolated extension ActionCatalog {
                 id: "openSettings",
                 title: String(localized: "action.openSettings", defaultValue: "Settings…", bundle: .module),
                 keywords: ["preferences", "options", "config"], defaultShortcut: Shortcut(",", modifiers: [.command]),
-                category: .window, symbol: "gearshape", surfaces: [.palette, .keyboard, .menu], cliName: "app settings",
+                category: .window, symbol: "gearshape", surfaces: [.palette, .keyboard, .menu],
+                arguments: [CatalogArgument.settingsSectionChoice], cliName: "app settings",
                 mainMenu: .app
             ),
             ActionDescriptor(

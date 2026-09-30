@@ -39,5 +39,8 @@ nonisolated extension RefusalStrings {
     static func couldNotOpen(_ url: String) -> String { format("handlers.refusal.couldNotOpen", "could not open %@", url) }
     static var settingsNotLoaded: String { text("handlers.refusal.settingsNotLoaded", "cmux.json is not loaded yet") }
     static var settingArgumentRequired: String { text("handlers.refusal.settingArgumentRequired", "setting is required (a dotted cmux.json path)") }
+    static func settingNotToggle(_ key: String) -> String {
+        format("handlers.refusal.settingNotToggle", "%@ is not an on/off setting; change it in Settings", key)
+    }
     static var groupRequired: String { text("handlers.refusal.groupRequired", "group is required") }
 }

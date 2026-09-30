@@ -16,7 +16,8 @@ import PackageDescription
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
 //   CmuxNextDesign, CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
-//   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply)
+//   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
+//   CmuxNextSettingsWindow -> Settings, Design, Actions (the Settings window, SwiftUI; the App supplies SettingsWindowHost)
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
@@ -91,6 +92,7 @@ let package = Package(
                 "CmuxNextBridge",
                 "CmuxNextControl",
                 "CmuxNextSettings",
+                "CmuxNextSettingsWindow",
                 "CmuxNextCloud",
                 "CmuxNextRemote",
                 "CmuxNextMobile",
@@ -363,6 +365,16 @@ let package = Package(
             name: "CmuxNextSettingsTests",
             dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions"],
             swiftSettings: daemonSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextSettingsWindow",
+            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextSettingsWindowTests",
+            dependencies: ["CmuxNextSettingsWindow", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions"],
+            swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextControl",

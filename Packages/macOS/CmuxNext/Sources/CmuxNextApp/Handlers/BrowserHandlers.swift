@@ -81,9 +81,10 @@ enum BrowserHandlers {
                 // The default engine (never refused: no engine is requested).
                 guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
                 let intent = pane.workspace?.beginFocusIntent()
+                let address = context.services.newTabAddress
                 Task {
                     do {
-                        let surface = try await browserTabs.open(choice, in: handle, url: "about:blank")
+                        let surface = try await browserTabs.open(choice, in: handle, url: address)
                         try await connection.split(handle, direction: direction, movingTab: surface)
                         // The new pane takes focus and its address bar the keyboard.
                         // The daemon may report the tab in the source pane

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextActions
+import CmuxNextSettings
 
 /// Window and app-level actions (category `window`) not bound in
 /// `AppActions`: settings, show/hide, About, Keep Mac Awake, palette
@@ -12,7 +13,10 @@ enum WindowHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let keepAwake = KeepAwake()
-        registry.bind("openSettings", run: { _ in try SettingsHandlers.openCmuxConfig(context) })
+        registry.bind("openSettings", run: { invocation in
+            let section = invocation["section"]?.stringValue.flatMap(SettingsSection.init(rawValue:))
+            try context.services.settingsWindow.show(section: section)
+        })
         registry.bind("about", run: { _ in
             context.activateApp()
             NSApp.orderFrontStandardAboutPanel(nil)

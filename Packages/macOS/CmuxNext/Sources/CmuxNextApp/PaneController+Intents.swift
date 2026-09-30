@@ -126,11 +126,12 @@ extension PaneController {
             }
             if child != nil { choice = BrowserPageRequests.choice(adopting: child, inherited: inherited, browserTabs: browserTabs) }
             let pageRequests = services.cache.pageRequests
+            let newTabAddress = services.newTabAddress
             let handle = pane.handle
             let intent = background ? nil : workspace?.beginFocusIntent()
             services.registry.track(Task {
                 do {
-                    let surface = try await browserTabs.open(choice, in: handle, url: url?.absoluteString ?? "about:blank")
+                    let surface = try await browserTabs.open(choice, in: handle, url: url?.absoluteString ?? (child == nil ? newTabAddress : "about:blank"))
                     if let child { pageRequests.adopt(child, surface: surface) }
                     guard !background else { return nil }
                     pendingSelectSurface = surface

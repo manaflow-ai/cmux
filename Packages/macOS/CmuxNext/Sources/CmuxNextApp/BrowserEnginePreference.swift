@@ -22,3 +22,9 @@ final class BrowserEnginePreference {
         }
     }
 }
+
+extension AppServices {
+    /// What a new browser tab opens when nothing asked for a page:
+    /// `browser.newTabPage`, else a blank page.
+    var newTabAddress: String { settings?.snapshot.browserNewTabPage?.absoluteString ?? "about:blank" }
+}

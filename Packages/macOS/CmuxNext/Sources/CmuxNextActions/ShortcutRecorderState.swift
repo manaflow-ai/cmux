@@ -23,7 +23,7 @@ public enum ShortcutRecorderPending: Equatable, Sendable {
 }
 
 /// A choice the recorder offers (click, or its key).
-public enum ShortcutRecorderOption: Equatable, Sendable {
+public enum ShortcutRecorderOption: Hashable, Sendable {
     case save, replace, keepBoth, cancel, remove, restoreDefault
 }
 

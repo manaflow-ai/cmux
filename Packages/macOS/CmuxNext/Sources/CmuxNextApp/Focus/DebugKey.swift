@@ -47,6 +47,11 @@ enum DebugKey {
         } else if params["target"]?.stringValue == "palette" {
             guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
             window = panel
+        } else if params["target"]?.stringValue == "settings" {
+            guard let settings = services.settingsWindow.window, settings.isVisible else {
+                return .object(["error": .string("the Settings window is not open")])
+            }
+            window = settings
         } else if params["target"]?.stringValue == "devtools" {
             let pane = params["pane"]?.stringValue ?? controller.focus.state.pane
             guard let pane, let devTools = devToolsWindow(of: pane, in: controller) else {
@@ -110,6 +115,10 @@ enum DebugKey {
                              "pending": .bool(recorder.pending != nil), "options": .array(recorder.options.map { .string("\($0)") })])
                 } ?? .null,
             ])
+        }
+        if params["target"]?.stringValue == "settings", let model = services.settingsWindow.model {
+            return .object(["handled_by": .string(handledBy == "page" ? "settings" : handledBy), "action": action, "window_kind": .string("settings"),
+                            "settings": DebugSettings.state(model, window: window)])
         }
         let kind = window === shell ? "shell" : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"
         return .object(["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind)])

@@ -65,6 +65,8 @@ final class AppServices {
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     private(set) var keyRouter: KeyRouter!
     private(set) var chromiumWarmup: ChromiumWarmup!
+    /// The Settings window (Settings…, Cmd-,).
+    private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).

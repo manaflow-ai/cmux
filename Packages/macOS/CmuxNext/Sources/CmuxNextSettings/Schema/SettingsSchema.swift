@@ -55,6 +55,13 @@ public nonisolated enum SettingsSchema {
                 default: .string(WindowTitlebarSetting.fallback.rawValue), keywords: ["traffic lights", "title"]
             ),
             SettingDescriptor(
+                DefaultColumnWidthSetting.configPath, section: .general, group: columns,
+                title: SettingsText.text("settings.layout.defaultColumnWidth", "New Column Width"),
+                help: SettingsText.text("settings.layout.defaultColumnWidth.help", "A share of the window width."),
+                kind: .number(SettingNumber(DefaultColumnWidthSetting.range, step: 0.05, unit: .fraction)),
+                default: .number(DefaultColumnWidthSetting.fallback), keywords: ["niri", "width"]
+            ),
+            SettingDescriptor(
                 CenterFocusedColumnSetting.configPath, section: .general, group: columns,
                 title: SettingsText.text("settings.layout.centerFocusedColumn", "Center Focused Column"),
                 kind: .choice([

@@ -13231,6 +13231,137 @@
           }
         }
       }
+    },
+    "handlers.refusal.settingNotToggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not an on/off setting; change it in Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ はオン/オフの設定ではありません。設定で変更してください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ليس إعدادًا للتشغيل/الإيقاف؛ غيّره من الإعدادات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nije postavka uključeno/isključeno; promijenite je u Postavkama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke en til/fra-indstilling; skift den i Indstillinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ist keine Ein/Aus-Einstellung; ändere sie in den Einstellungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ no es un ajuste de activar/desactivar; cámbialo en Ajustes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ n’est pas un réglage activé/désactivé ; modifiez-le dans Réglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ non è un’impostazione on/off; modificala in Impostazioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ មិនមែនជាការកំណត់បើក/បិទទេ; សូមប្ដូរវានៅក្នុងការកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@은(는) 켬/끔 설정이 아닙니다. 설정에서 변경하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke en av/på-innstilling; endre den i Innstillinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nie jest ustawieniem wł./wył.; zmień je w Ustawieniach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ não é um ajuste de ativar/desativar; altere-o em Ajustes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ — не переключатель; измените это в Настройках"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ไม่ใช่การตั้งค่าเปิด/ปิด ให้เปลี่ยนในการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ açık/kapalı bir ayar değil; Ayarlar’dan değiştirin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ — не перемикач; змініть це в Параметрах"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ không phải cài đặt bật/tắt; hãy thay đổi trong Cài đặt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 不是开关设置；请在“设置”中更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 不是開關設定；請在「設定」中更改"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

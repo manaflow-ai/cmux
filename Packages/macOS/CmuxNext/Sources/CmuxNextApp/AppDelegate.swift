@@ -110,6 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerMobileMethods(services)
                 control.registerUpdateMethods(services.updater)
                 control.registerInputMethods(services)
+                control.registerSettingsDebugMethods(services)
                 if let router = control.service?.router { installCompat(on: router) }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {
