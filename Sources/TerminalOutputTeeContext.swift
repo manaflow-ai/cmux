@@ -61,17 +61,20 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private static let sessionStatusPublishInterval: TimeInterval = 0.25
 
     typealias SessionStatusSink = @MainActor @Sendable (TerminalSessionStatus) -> Void
+    typealias SessionStatusScheduler = @Sendable (@escaping @Sendable () -> Void) -> Void
 
     private var sessionStatusScanner = TerminalSessionStatusOSCScanner()
     private var sessionStatus = TerminalSessionStatus()
     private let sessionStatusOutbox = OSAllocatedUnfairLock(initialState: SessionStatusOutbox())
     private let sessionStatusSink: SessionStatusSink
+    private let sessionStatusScheduler: SessionStatusScheduler
 
     init(
         workspaceID: UUID,
         surfaceID: UUID,
         agentDefinitions: [CmuxTaskManagerCodingAgentDefinition],
-        sessionStatusSink: SessionStatusSink? = nil
+        sessionStatusSink: SessionStatusSink? = nil,
+        sessionStatusScheduler: SessionStatusScheduler? = nil
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
@@ -84,6 +87,12 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
                     .workspace
                     .applyTerminalSessionStatus(status, panelId: surfaceID)
             }
+        }
+        self.sessionStatusScheduler = sessionStatusScheduler ?? { operation in
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + Self.sessionStatusPublishInterval,
+                execute: operation
+            )
         }
         self.notificationHandler = PromptTurnNotificationHandler(
             workspaceID: workspaceID,
@@ -136,7 +145,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         guard shouldSchedule else { return }
         let outbox = sessionStatusOutbox
         let sink = sessionStatusSink
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.sessionStatusPublishInterval) {
+        sessionStatusScheduler {
             let status = outbox.withLock { outbox -> TerminalSessionStatus? in
                 defer {
                     outbox.pending = nil

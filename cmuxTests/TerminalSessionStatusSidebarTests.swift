@@ -139,30 +139,45 @@ struct TerminalSessionStatusSidebarTests {
         }
     }
 
-    private func waitForPublishes(_ published: PublishedStatuses, count: Int) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-        while published.values.count < count, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(20))
+    private func scheduler(clock: SidebarTestManualClock) -> TerminalOutputTeeContext.SessionStatusScheduler {
+        { operation in
+            Task { @MainActor in
+                do {
+                    try await clock.sleep(for: .milliseconds(250))
+                    operation()
+                } catch {
+                    // Test teardown can cancel a scheduled publication.
+                }
+            }
         }
-        #expect(published.values.count >= count)
+    }
+
+    private func advancePublication(clock: SidebarTestManualClock) async {
+        await clock.waitUntilSleeping(for: .milliseconds(250))
+        clock.advance(by: .milliseconds(250))
+        for _ in 0..<10 { await Task.yield() }
     }
 
     @Test func setThenClearInOnePublishWindowEndsCleared() async throws {
         let published = PublishedStatuses()
+        let clock = SidebarTestManualClock()
         let context = TerminalOutputTeeContext(
             workspaceID: UUID(),
             surfaceID: UUID(),
             agentDefinitions: [],
-            sessionStatusSink: { published.values.append($0) }
+            sessionStatusSink: { published.values.append($0) },
+            sessionStatusScheduler: scheduler(clock: clock)
         )
 
         consume("\u{1B}]21337;status=Working;indicator=#ffa500\u{07}", in: context)
         consume("\u{1B}]21337;status=;indicator=\u{07}", in: context)
-        try await waitForPublishes(published, count: 1)
+        await advancePublication(clock: clock)
+        #expect(published.values.count >= 1)
         // A later status is the fence: any second, wrongly scheduled publish
         // of the first window would land before it.
         consume("\u{1B}]21337;status=Done\u{07}", in: context)
-        try await waitForPublishes(published, count: 2)
+        await advancePublication(clock: clock)
+        #expect(published.values.count >= 2)
 
         #expect(published.values.first == TerminalSessionStatus())
         #expect(published.values.count == 2)
@@ -173,6 +188,7 @@ struct TerminalSessionStatusSidebarTests {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let published = PublishedStatuses()
+        let clock = SidebarTestManualClock()
         let context = TerminalOutputTeeContext(
             workspaceID: workspace.id,
             surfaceID: panelId,
@@ -180,11 +196,13 @@ struct TerminalSessionStatusSidebarTests {
             sessionStatusSink: { status in
                 published.values.append(status)
                 workspace.applyTerminalSessionStatus(status, panelId: panelId)
-            }
+            },
+            sessionStatusScheduler: scheduler(clock: clock)
         )
 
         consume("\u{1B}]21337;status=Working\u{07}", in: context)
-        try await waitForPublishes(published, count: 1)
+        await advancePublication(clock: clock)
+        #expect(published.values.count >= 1)
         #expect(entry(workspace, panelId: panelId)?.value == "Working")
 
         // e.g. `cmux clear-status` or a sidebar context reset.
@@ -192,7 +210,8 @@ struct TerminalSessionStatusSidebarTests {
         #expect(entry(workspace, panelId: panelId) == nil)
 
         consume("\u{1B}]21337;status=Working\u{07}", in: context)
-        try await waitForPublishes(published, count: 2)
+        await advancePublication(clock: clock)
+        #expect(published.values.count >= 2)
         #expect(entry(workspace, panelId: panelId)?.value == "Working")
     }
 }
