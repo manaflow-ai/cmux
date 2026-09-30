@@ -566,6 +566,45 @@ impl WorkspaceRegistry {
             .transpose()
     }
 
+    /// Every native frontend's projections (the resource API's own rows
+    /// excluded), for the launch snapshot (`launch-snapshot-v1`).
+    pub(crate) fn native_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
+        let mut statement = self.connection.prepare(
+            "SELECT frontend, scope, subject_key, schema_version,
+                    projection_revision, payload
+             FROM frontend_projections
+             WHERE frontend <> 'resource-api'
+             ORDER BY frontend ASC, scope ASC, subject_key ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })?
+            .map(|row| {
+                let (frontend, scope, subject_key, schema_version, projection_revision, payload) =
+                    row?;
+                Ok(FrontendProjection {
+                    frontend,
+                    scope,
+                    subject_key,
+                    schema_version: u32::try_from(schema_version)
+                        .context("projection schema version is invalid")?,
+                    projection_revision: u64::try_from(projection_revision)
+                        .context("projection revision is negative")?,
+                    projection: serde_json::from_str(&payload)
+                        .context("frontend projection contains invalid JSON")?,
+                })
+            })
+            .collect()
+    }
+
     pub fn public_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
         let mut statement = self.connection.prepare(
             "SELECT frontend, scope, subject_key, schema_version,

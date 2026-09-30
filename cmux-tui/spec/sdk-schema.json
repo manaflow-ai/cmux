@@ -1965,6 +1965,16 @@
      "nullable": false,
      "default": true,
      "since": 12
+    },
+    "launch_snapshot_path": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "launch-snapshot-v1"
     }
    },
    "additional_properties": false

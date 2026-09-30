@@ -1722,6 +1722,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("ghostty_commit", std::move(encoded).value());
     }
+    if (!value.launch_snapshot_path.is_absent()) {
+        auto encoded = encode_value(value.launch_snapshot_path);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("launch_snapshot_path", std::move(encoded).value());
+    }
     if (value.lifecycle_ready) {
         auto encoded = encode_value(*value.lifecycle_ready);
         if (!encoded) return std::move(encoded).error();
@@ -1816,6 +1821,16 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_ghostty_commit);
             if (!decoded) return std::move(decoded).error();
             result.ghostty_commit = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_launch_snapshot_path = value.find("launch_snapshot_path");
+    if (field_launch_snapshot_path) {
+        if (field_launch_snapshot_path->is_null()) {
+            result.launch_snapshot_path = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_launch_snapshot_path);
+            if (!decoded) return std::move(decoded).error();
+            result.launch_snapshot_path = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_lifecycle_ready = value.find("lifecycle_ready");

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 90db9acbd5797fe4bffd916191ecad7b8f1337ac670f0f03dbda978e56cf6d45.
+// cmux-tui mux protocol 12, IR adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -459,6 +459,8 @@ pub struct IdentifyResult {
     pub generation: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub ghostty_commit: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub launch_snapshot_path: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub lifecycle_ready: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]

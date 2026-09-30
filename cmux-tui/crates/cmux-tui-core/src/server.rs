@@ -97,6 +97,10 @@ pub use loopback_forward::{
 mod browser_profiles;
 mod launch_snapshot;
 mod personal;
+pub use launch_snapshot::{
+    LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
+    start_launch_snapshot_writer_with,
+};
 mod terminal_create;
 mod terminal_resources;
 mod url_open;
@@ -221,6 +225,9 @@ pub const SCREEN_METADATA_CAPABILITY: &str = "screen-metadata-v1";
 /// Chrome-style screen groups: the `*-screen-group` commands, saved screen
 /// groups, and `Workspace.screen_groups`.
 pub const SCREEN_GROUPS_CAPABILITY: &str = "screen-groups-v1";
+/// `launch_snapshot_path` in `identify`: a read-only file with the last
+/// settled tree and frontend projections, for drawing before connecting.
+pub const LAUNCH_SNAPSHOT_CAPABILITY: &str = "launch-snapshot-v1";
 /// `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and
 /// `create-terminal`: arguments for the terminal's shell.
 pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
@@ -367,6 +374,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
         TERMINAL_SHELL_ARGS_CAPABILITY,
+        LAUNCH_SNAPSHOT_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -13171,6 +13179,7 @@ fn handle_command_with_cancellation(
                 "terminal_revision": mux.terminal_registry_snapshot()?.revision,
                 "daemon_handoff": 1,
                 "lifecycle_ready": mux.server_lifecycle_ready(),
+                "launch_snapshot_path": mux.launch_snapshot_path(),
             }))
         }
         Command::ShutdownDaemon { pid, generation, force, end_terminals } => {
@@ -13478,15 +13487,7 @@ fn handle_command_with_cancellation(
             mux.emit(MuxEvent::WindowTitleRequested(String::new()));
             Ok(json!({}))
         }
-        Command::ListWorkspaces => {
-            let notifications = mux.tree_decorations();
-            let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
-            let (registry_id, generation) = mux.registry_identity();
-            workspaces["registry_id"] = json!(registry_id);
-            workspaces["generation"] = json!(generation);
-            workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
-            Ok(workspaces)
-        }
+        Command::ListWorkspaces => list_workspaces_reply(mux),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             let projection = mux.get_frontend_projection(&frontend, &scope, &subject_key)?;
             Ok(match projection {
@@ -16118,6 +16119,18 @@ fn handle_command_with_cancellation(
 }
 
 /// Validate the start options of a placement command.
+/// The `list-workspaces` reply: the tree plus the registry identity it
+/// belongs to. The launch snapshot stores the same value.
+fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
+    let notifications = mux.tree_decorations();
+    let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
+    let (registry_id, generation) = mux.registry_identity();
+    workspaces["registry_id"] = json!(registry_id);
+    workspaces["generation"] = json!(generation);
+    workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
+    Ok(workspaces)
+}
+
 fn placement_spawn_options(
     cwd: Option<String>,
     env: Option<&BTreeMap<String, String>>,

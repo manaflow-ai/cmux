@@ -2738,6 +2738,8 @@ pub struct Mux {
     /// The running reaper's event receiver, so keep and grace changes can
     /// wake it.
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
+    /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
+    launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
     /// Hosts launched ahead of their creation, by reserved terminal id.
@@ -3162,6 +3164,7 @@ impl Mux {
                 u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
             ),
             terminal_reaper_events: Mutex::new(None),
+            launch_snapshot_path: Mutex::new(None),
             terminal_work: terminal_work::TerminalWorkPool::default(),
             #[cfg(unix)]
             prelaunched_terminals: Mutex::new(HashMap::new()),
@@ -10836,6 +10839,33 @@ impl Mux {
         }
     }
 
+    /// The launch snapshot file (`launch-snapshot-v1`) while its writer runs.
+    pub fn launch_snapshot_path(&self) -> Option<std::path::PathBuf> {
+        self.launch_snapshot_path.lock().unwrap().clone()
+    }
+
+    pub(crate) fn set_launch_snapshot_path(&self, path: Option<std::path::PathBuf>) {
+        *self.launch_snapshot_path.lock().unwrap() = path;
+    }
+
+    /// Events that can change the launch snapshot.
+    pub(crate) fn subscribe_launch_snapshot(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_launch_snapshot()
+    }
+
+    /// The directory of this session's durable registry, or none for an
+    /// in-memory session.
+    pub(crate) fn session_state_directory(&self) -> Option<std::path::PathBuf> {
+        let database = self.workspace_registry.lock().unwrap().session_journal_database_path()?;
+        database.parent().map(Path::to_path_buf)
+    }
+
+    pub(crate) fn launch_snapshot_frontend_projections(
+        &self,
+    ) -> anyhow::Result<Vec<FrontendProjection>> {
+        self.workspace_registry.lock().unwrap().native_frontend_projections()
+    }
+
     /// Post a notification from the legacy `notify` verb. This is the same
     /// durable path as `notification.create`, under a fresh key, so remote
     /// subscribers of the resource feed and a restarted daemon see it too.
@@ -11041,6 +11071,7 @@ impl Mux {
     /// (agent hooks) and the legacy `notify` verb share one durable ledger
     /// with the resource API and survive a daemon restart. A fresh post
     /// returns the session-local legacy notification id.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn create_durable_notification(
         &self,
         idempotency_key: &str,
@@ -11075,7 +11106,6 @@ impl Mux {
             fingerprint["subtitle"] = serde_json::json!(subtitle);
         }
         let committed = |outcome: ResourceEffectOutcome| match outcome {
-    #[allow(clippy::too_many_arguments)]
             ResourceEffectOutcome::Success(_) => Ok(None),
             ResourceEffectOutcome::Failure(error) => Err(anyhow::Error::new(error)),
         };
