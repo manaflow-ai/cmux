@@ -64,49 +64,49 @@ struct ClaudeHookSessionStoreFile: Codable {
             defaultValue: 1,
             droppedPaths: &droppedPaths
         )
-        sessions = Self.decodeDictionary(
+        sessions = try Self.decodeDictionary(
             ClaudeHookSessionRecord.self,
             from: container,
             forKey: .sessions,
             droppedPaths: &droppedPaths
         )
-        pendingSupersededSessionCleanup = Self.decodeDictionary(
+        pendingSupersededSessionCleanup = try Self.decodeDictionary(
             ClaudeHookSessionRecord.self,
             from: container,
             forKey: .pendingSupersededSessionCleanup,
             droppedPaths: &droppedPaths
         )
-        activeSessionsByWorkspace = Self.decodeDictionary(
+        activeSessionsByWorkspace = try Self.decodeDictionary(
             ClaudeHookActiveSessionRecord.self,
             from: container,
             forKey: .activeSessionsByWorkspace,
             droppedPaths: &droppedPaths
         )
-        activeSessionsBySurface = Self.decodeDictionary(
+        activeSessionsBySurface = try Self.decodeDictionary(
             ClaudeHookActiveSessionRecord.self,
             from: container,
             forKey: .activeSessionsBySurface,
             droppedPaths: &droppedPaths
         )
-        agentHookFailureReportTimestamps = Self.decodeDictionary(
+        agentHookFailureReportTimestamps = try Self.decodeDictionary(
             TimeInterval.self,
             from: container,
             forKey: .agentHookFailureReportTimestamps,
             droppedPaths: &droppedPaths
         )
-        pendingCursorApprovalSessionsBySurface = Self.decodeDictionary(
+        pendingCursorApprovalSessionsBySurface = try Self.decodeDictionary(
             [String].self,
             from: container,
             forKey: .pendingCursorApprovalSessionsBySurface,
             droppedPaths: &droppedPaths
         )
-        pendingCursorApprovalSessionCountsBySurface = Self.decodeDictionary(
+        pendingCursorApprovalSessionCountsBySurface = try Self.decodeDictionary(
             Int.self,
             from: container,
             forKey: .pendingCursorApprovalSessionCountsBySurface,
             droppedPaths: &droppedPaths
         )
-        pendingCursorApprovalSurfaceOverflow = Self.decodeDictionary(
+        pendingCursorApprovalSurfaceOverflow = try Self.decodeDictionary(
             Bool.self,
             from: container,
             forKey: .pendingCursorApprovalSurfaceOverflow,
@@ -200,15 +200,9 @@ struct ClaudeHookSessionStoreFile: Codable {
         from container: KeyedDecodingContainer<CodingKeys>,
         forKey key: CodingKeys,
         droppedPaths: inout [String]
-    ) -> [String: Value] {
+    ) throws -> [String: Value] {
         guard container.contains(key) else { return [:] }
-        let nested: KeyedDecodingContainer<AnyCodingKey>
-        do {
-            nested = try container.nestedContainer(keyedBy: AnyCodingKey.self, forKey: key)
-        } catch {
-            droppedPaths.append(key.stringValue)
-            return [:]
-        }
+        let nested = try container.nestedContainer(keyedBy: AnyCodingKey.self, forKey: key)
 
         var decoded: [String: Value] = [:]
         for nestedKey in nested.allKeys {
