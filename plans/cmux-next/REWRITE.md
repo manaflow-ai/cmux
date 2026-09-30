@@ -16,6 +16,8 @@ Living document. Branch `feat-cmux-next`, worktree `worktrees/feat-cmux-next`.
 
 ## Visual rules
 
+- All app backgrounds and chrome colors derive from the user's Ghostty theme (terminal bg/fg/palette) via ThemeTokens, live-updated on Ghostty config reload; sidebar and tab strip are flat surfaces continuous with the terminal (user 2026-09-29).
+
 - No blue accent anywhere. Subtle grays for selection, focus, hover.
 - Compact by default (user 2026-09-28), still extremely well designed: use CmuxNextDesign `Metrics` / `Typography` tokens only (2 pt grid, 12 pt chrome body, 28 pt tab strip, 26 pt sidebar rows). No hardcoded sizes in feature modules. Density is configurable (user 2026-09-28): `appearance.density` (compact|comfortable) plus per-metric overrides `appearance.metrics.<MetricKey>` in cmux.json, a Settings control and palette actions; `DesignSettings.shared` is @Observable so changes apply live. Views must read Metrics/Typography inside Observation-tracked layout, never cache them.
 - No god files (user 2026-09-28): max 400 lines per Swift file (tests 600), max 3 top-level types per file, one responsibility per file. `scripts/cmux-next/check-no-godfiles.sh` must pass before any merge into feat-cmux-next.
