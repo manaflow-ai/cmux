@@ -109,4 +109,13 @@ import Testing
         #expect(editor.string == "github.com")
         #expect(editor.selectedRange() == NSRange(location: 2, length: 0))
     }
+
+    @Test func clampingKeepsACaretWhereItIs() {
+        #expect(AddressBarView.clampedSelection(NSRange(location: 3, length: 0), length: 3) == NSRange(location: 3, length: 0))
+        #expect(AddressBarView.clampedSelection(NSRange(location: 1, length: 0), length: 5) == NSRange(location: 1, length: 0))
+        #expect(AddressBarView.clampedSelection(NSRange(location: 2, length: 8), length: 10) == NSRange(location: 2, length: 8))
+        #expect(AddressBarView.clampedSelection(NSRange(location: 4, length: 9), length: 6) == NSRange(location: 4, length: 2))
+        #expect(AddressBarView.clampedSelection(NSRange(location: 9, length: 0), length: 6) == NSRange(location: 6, length: 0))
+        #expect(AddressBarView.clampedSelection(NSRange(location: NSNotFound, length: 0), length: 6) == NSRange(location: 6, length: 0))
+    }
 }

@@ -113,14 +113,12 @@ public final class AddressBarView: NSView {
     }
 
     /// Verification hook (`BrowserDebugWindow`): focuses the field and types
-    /// `text` one character at a time through the same path as keystrokes.
+    /// `text` one character at a time through the field editor, as keystrokes do.
     func debugType(_ text: String) {
         focus()
-        var typed = ""
         for character in text {
-            typed.append(character)
-            field.stringValue = typed
-            textDidChange()
+            guard let editor = field.currentEditor() as? NSTextView else { return }
+            editor.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0))
         }
     }
 
@@ -146,18 +144,33 @@ public final class AddressBarView: NSView {
     }
 
     /// Writes the model's text and selection into the field editor.
-    private func apply() {
+    ///
+    /// `keepCaret` is for suggestion results: when they leave the typed text
+    /// as it is (no inline completion), the user's caret stays where it is,
+    /// so typing between suggestion rounds never moves it.
+    private func apply(keepCaret: Bool = false) {
         let presentation = model.presentation
         isApplying = true
         defer { isApplying = false }
-        if field.stringValue != presentation.text { field.stringValue = presentation.text }
-        if let editor = field.currentEditor() {
-            let length = (presentation.text as NSString).length
-            let selection = NSIntersectionRange(presentation.selection, NSRange(location: 0, length: length))
-            editor.selectedRange = selection.location == NSNotFound ? NSRange(location: length, length: 0) : selection
+        let editor = field.currentEditor()
+        let shown = editor?.string ?? field.stringValue
+        let textChanged = shown != presentation.text
+        if textChanged { field.stringValue = presentation.text }
+        if let editor, !(keepCaret && !textChanged && presentation.selection.length == 0) {
+            let selection = Self.clampedSelection(presentation.selection, length: (presentation.text as NSString).length)
+            if editor.selectedRange != selection { editor.selectedRange = selection }
             if selection.length == 0 { editor.scrollRangeToVisible(selection) }
         }
-        field.textColor = OmnibarStyle.textPrimary
+        if field.textColor != OmnibarStyle.textPrimary { field.textColor = OmnibarStyle.textPrimary }
+    }
+
+    /// `selection` limited to a text of `length` UTF-16 units. A caret (an
+    /// empty range) stays a caret at its own location; `NSIntersectionRange`
+    /// would turn it into `{0, 0}` and put the caret at the start.
+    static func clampedSelection(_ selection: NSRange, length: Int) -> NSRange {
+        guard selection.location != NSNotFound else { return NSRange(location: length, length: 0) }
+        let location = min(max(selection.location, 0), length)
+        return NSRange(location: location, length: min(max(selection.length, 0), length - location))
     }
 
     /// The compact URL with the host at full strength and the rest dimmed.
@@ -179,7 +192,10 @@ public final class AddressBarView: NSView {
         let text = field.stringValue
         let deletion = pendingDeletion || text.utf16.count < model.userText.utf16.count
         pendingDeletion = false
-        model.userEdited(text, isDeletion: deletion)
+        // Inline completion only extends text typed at the end, as in Chrome.
+        let length = (text as NSString).length
+        let caretAtEnd = field.currentEditor().map { $0.selectedRange == NSRange(location: length, length: 0) } ?? true
+        model.userEdited(text, isDeletion: deletion || !caretAtEnd)
         if model.suggestions.isEmpty { panel.dismiss() }
         updateChrome()
         requestSuggestions(for: text)
@@ -192,7 +208,7 @@ public final class AddressBarView: NSView {
             let rows = await engine.suggestions(for: text)
             guard !Task.isCancelled, let self else { return }
             guard self.model.received(rows, for: text) else { return }
-            self.apply()
+            self.apply(keepCaret: true)
             self.showPanel()
             self.updateChrome()
         }
@@ -343,44 +359,6 @@ extension AddressBarView: NSTextFieldDelegate {
         default:
             return false
         }
-    }
-}
-
-/// The omnibar text field: a first click selects the whole URL (later
-/// clicks place the caret), and the edit menu offers Paste and Go.
-final class AddressField: ChromeTextField {
-    var onFocus: (() -> Void)?
-    var onPasteAndGo: (() -> Void)?
-    var pasteAndGoTitle: (() -> String?)?
-
-    override func becomeFirstResponder() -> Bool {
-        let accepted = super.becomeFirstResponder()
-        if accepted {
-            (currentEditor() as? NSTextView)?.selectedTextAttributes = [.backgroundColor: OmnibarStyle.selection]
-            onFocus?()
-        }
-        return accepted
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        // Chrome: clicking an unfocused omnibox selects everything instead
-        // of placing the caret where the click landed.
-        guard currentEditor() == nil, event.clickCount == 1 else { return super.mouseDown(with: event) }
-        window?.makeFirstResponder(self)
-    }
-
-    /// The field editor's context menu (the field is its delegate).
-    @objc func textView(_ textView: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
-        guard let title = pasteAndGoTitle?() else { return menu }
-        let item = NSMenuItem(title: title, action: #selector(performPasteAndGo(_:)), keyEquivalent: "")
-        item.target = self
-        let paste = menu.items.firstIndex { $0.action == #selector(NSText.paste(_:)) }
-        menu.insertItem(item, at: paste.map { $0 + 1 } ?? 0)
-        return menu
-    }
-
-    @objc private func performPasteAndGo(_ sender: Any?) {
-        onPasteAndGo?()
     }
 }
 
