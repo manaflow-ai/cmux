@@ -30,14 +30,11 @@ private final class ManualRemotePTYLifecycleCommitLease:
         case inFlight
         case completed
     }
-
     private struct State {
         var isCurrent = true
         var delivery = DeliveryState.available
     }
-
     private nonisolated let state = OSAllocatedUnfairLock(initialState: State())
-
     var isCurrent: Bool {
         get {
             state.withLock { $0.isCurrent }
@@ -122,6 +119,9 @@ private final class NativeSSHCleanupRecorder {
 }
 
 final class WorkspaceRemoteConnectionTests: XCTestCase {
+    private var previousCloudMarker: Any?
+    override func setUp() { super.setUp(); previousCloudMarker = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey); UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }
+    override func tearDown() { if let previousCloudMarker { UserDefaults.standard.set(previousCloudMarker, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) } else { UserDefaults.standard.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }; super.tearDown() }
     /// A control path in the resolved form the broker will claim lifecycle ownership of:
     /// cmux's socket directory followed by 40 hex digits, which is what `ssh -G` expands `%C` into
     /// before a configuration reaches the app. `NativeSSHControlMasterKey` refuses to own a

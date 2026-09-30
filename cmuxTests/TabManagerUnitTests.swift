@@ -277,20 +277,20 @@ private func runGit(
 
 @MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
+    private var previousCloudMarker: Any?
+    override func setUp() { super.setUp(); previousCloudMarker = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey); UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }
+    override func tearDown() { if let previousCloudMarker { UserDefaults.standard.set(previousCloudMarker, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) } else { UserDefaults.standard.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }; super.tearDown() }
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
         let manager = TabManager()
         let first = manager.tabs[0]
         let second = manager.addWorkspace()
         let third = manager.addWorkspace()
-
         manager.selectWorkspace(second)
         XCTAssertEqual(manager.selectedTabId, second.id)
-
         guard let secondPanelId = second.focusedPanelId else {
             XCTFail("Expected focused panel in selected workspace")
             return
         }
-
         manager.closePanelAfterChildExited(tabId: second.id, surfaceId: secondPanelId)
 
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id])

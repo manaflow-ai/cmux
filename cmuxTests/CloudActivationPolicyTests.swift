@@ -190,17 +190,9 @@ struct CloudActivationPolicyTests {
         defer { harness.tearDown() }
         let policy = harness.policy
 
-        #if DEBUG
-        #expect(policy.allowsBackgroundCloudWork)
-        #else
         #expect(policy.allowsBackgroundCloudWork == false)
-        #endif
         #expect(policy.allowsLaunchTimeTunnelAdoption == false)
-        #if DEBUG
-        #expect(policy.tunnelStartRefusal() == nil)
-        #else
         #expect(policy.tunnelStartRefusal() == .cloudMachinesOff)
-        #endif
 
         harness.turnCloudMachines(on: true)
         #expect(policy.allowsBackgroundCloudWork)
