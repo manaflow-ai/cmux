@@ -1,3 +1,4 @@
+public import CmuxFoundation
 public import Foundation
 import Network
 
@@ -42,6 +43,7 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
     private let relayToken: Data
     private let commandRewriter: any RemoteRelayCommandRewriting
     private let clock: any RemoteProxyRetryClock
+    private let localSocketPeerCheck: UnixSocketPeerCheck
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.cli-relay.\(UUID().uuidString)", qos: .utility)
 
     private var listener: NWListener?
@@ -61,12 +63,16 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
     ///     workspace model conforms).
     ///   - clock: Sleep seam for the minimum failure-response delay
     ///     (virtual time in tests).
+    ///   - localSocketPeerCheck: Check run on the local socket's listening
+    ///     peer before a forwarded command is written (default: the peer must
+    ///     run as this process's effective user).
     public init(
         localSocketPath: String,
         relayID: String,
         relayTokenHex: String,
         commandRewriter: any RemoteRelayCommandRewriting,
-        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
+        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
+        localSocketPeerCheck: UnixSocketPeerCheck = UnixSocketPeerCheck()
     ) throws {
         guard let relayToken = Session.hexData(from: relayTokenHex), !relayToken.isEmpty else {
             throw NSError(domain: "cmux.remote.relay", code: 7, userInfo: [
@@ -78,6 +84,7 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
         self.relayToken = relayToken
         self.commandRewriter = commandRewriter
         self.clock = clock
+        self.localSocketPeerCheck = localSocketPeerCheck
     }
 
     /// Starts the loopback listener (idempotent) and returns its bound port,
@@ -191,6 +198,7 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
         let session = Session(
             connection: connection,
             localSocketPath: localSocketPath,
+            localSocketPeerCheck: localSocketPeerCheck,
             relayID: relayID,
             relayToken: relayToken,
             commandEvaluator: { [weak self] commandLine in

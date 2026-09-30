@@ -73,7 +73,7 @@ When the opt-in `automation.workspaceAutoNaming` setting is enabled, turn-end ho
 
 ## Agent Hibernation
 
-Agent Hibernation kills idle background agent processes to free their RAM and CPU, then resumes each one with its saved session when you return to its tab. Routine hibernation based on the live-terminal limit is opt-in and off by default. A separate bounded safety path remains active for critical system memory pressure. cmux knows which process belongs to which terminal because the agent hooks associate each session ID with its surface (see the session-restore section above), so it can terminate the right process and bring back the right session.
+Agent Hibernation kills idle background agent processes to free their RAM and CPU, then resumes each one with its saved session when you return to its tab. Routine hibernation based on the live-terminal limit is opt-in and off by default. A separate safety path remains active under memory pressure, even when routine hibernation is off. cmux knows which process belongs to which terminal because the agent hooks associate each session ID with its surface (see the session-restore section above), so it can terminate the right process and bring back the right session.
 
 ### When a terminal hibernates
 
@@ -91,9 +91,9 @@ Before killing, cmux watches the terminal tail. It samples the last lines of out
 
 So with the defaults, routine hibernation only affects power users running more than 12 agents at once, and even then only ~1 minute after an agent has gone quiet off-screen.
 
-### Critical memory pressure
+### Memory pressure
 
-When macOS reports critical memory pressure, cmux can run the same protected teardown path independently of the `enabled` setting and live-terminal limit. Each pass selects at most two of the oldest eligible background agents. The agent must still be restorable, off-screen, explicitly idle, free of unconfirmed input, stable through the confirmation window, and backed by a transcript cmux can protect. Visible, running, needs-input, recently changed, or unprotectable agents are never selected. Before signaling anything, cmux revalidates the exact process generation and workspace/surface scope.
+Under memory pressure, cmux can run the same protected teardown path independently of the `enabled` setting and live-terminal limit. It runs on critical memory pressure (macOS reports critical pressure, which cmux holds for 120 s, or the cmux app process's own footprint reaches 16 GiB), and when cmux's total memory use (the cmux process and its descendants) passes its aggregate warning threshold, 50% of physical memory (see [configuration.md](configuration.md#aggregate-memory-pressure-safety-policy)). Each pass considers every eligible background agent; the live-terminal limit does not apply. The agent must still be restorable, off-screen, explicitly idle, free of unconfirmed input, stable through the confirmation window, and backed by a transcript cmux can protect. Visible, running, needs-input, recently changed, or unprotectable agents are never selected. Before signaling anything, cmux revalidates the exact process generation and workspace/surface scope.
 
 ### What gets killed and how it comes back
 

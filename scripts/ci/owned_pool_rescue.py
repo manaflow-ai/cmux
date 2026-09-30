@@ -37,7 +37,12 @@ within seconds, before any step of the workflow succeeds. GitHub does not
 retry it, so the pull request would stay red until someone re-ran it. A job
 on the persistent pool that failed within REFUSAL_SECONDS of starting, with
 its runner setup step failed or no workflow step succeeded, counts as refused
-(compile admission's `always()` metrics steps still succeed after a refusal): the watcher lets the rest of the
+(compile admission's `always()` metrics steps still succeed after a refusal).
+A failed job that ran no step at all counts too, whatever its length: GitHub
+fails a job whose runner went away only after 10 minutes ("The self-hosted
+runner lost communication with the server"). A failed Select Xcode or Select
+helper Xcode step also counts, without a time limit, because a missing pin is
+a machine fault even when a helper build succeeded first. The watcher lets the rest of the
 run finish, since GitHub re-runs no job of a run in progress and cancelling
 it would kill every healthy sibling, then confirms the head has not moved and
 re-runs its failed jobs. Only a run still going at the watch's end, or main's
@@ -52,6 +57,14 @@ sound only because both sides run the same Xcode: retry_runner is a macOS
 both the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images reported
 Xcode 26.6 build 17F113. If those builds ever differ, re-run the whole run
 here instead (rescue with failed_only=False).
+
+glaeda's hook does not refuse a job for the mini's capacity: it waits, with
+no limit, inside the runner's setup until the units and tokens the job needs
+are free. A job on the persistent pool still in its runner's setup
+SETUP_WAIT_SECONDS after it started is stuck like a queued one: once no
+sibling is still running (or the watch is about to end), the run is cancelled
+and re-run the same way. Until then the job is not accepted, so the watch goes
+on.
 
 A refused job never goes back to the fleet: this rescue re-runs as
 github-actions[bot], and every runs-on sends the bot's re-run to retry_runner
@@ -212,7 +225,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_runner_pool import MAX_QUEUE_ROUNDS, parse_queue_rounds, persistent  # noqa: E402
+from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, parse_queue_rounds, persistent  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
@@ -272,7 +285,7 @@ END_MARGIN_SECONDS = 60
 # One round of queue on an owned pool: the longest job a queued job commonly
 # waits behind, compile admission. Over 80 pull request runs on 2026-09-25 it
 # took a median 638 s on the minis (p90 745 s) and a p90 893 s on Blacksmith.
-QUEUE_ROUND_SECONDS = 900
+QUEUE_ROUND_SECONDS = QUEUE_ROUND_MINUTES * 60
 FIRST_LOOK_SECONDS = 45
 POLL_SECONDS = 20
 IDLE_POLL_SECONDS = 120
@@ -310,10 +323,9 @@ JOB_TIMEOUT_SECONDS = E2E_WATCH_LIMIT_SECONDS + RESCUE_GRACE_SECONDS + JOB_TIMEO
 RERUN_MARGIN_SECONDS = 60
 # A refused job fails within the runner's setup; a real failure of the first
 # step after checkout takes longer than this, and one that does not is cheap to
-# retry. glaeda's hook may wait up to 240 s inside that setup for the mini's one
-# gui token (GUI_WAIT_S) before refusing, and an app-host shard waiting there
-# costs far less than a refusal's rescue round trip and a Blacksmith re-run
-# (cmuxterm-hq#661 Workstream 7), so the window covers that wait with room.
+# retry. glaeda's hook once waited up to 240 s inside that setup for the mini's
+# capacity before refusing; it now waits with no limit (SETUP_WAIT_SECONDS
+# covers that), so a refusal is the hook's other checks, which answer at once.
 REFUSAL_SECONDS = 360
 # The last attempt of the bot's own re-runs that may run on an owned pool: a
 # stuck run's full re-run on the light tier (CI_OWNED_LIGHT_RETRY). A person's
@@ -332,6 +344,14 @@ def person_rerun(run: Mapping[str, Any]) -> bool:
             and str((run.get("triggering_actor") or {}).get("login") or "") != RESCUE_ACTOR)
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
+XCODE_SELECTION_STEPS = frozenset({"Select Xcode", "Select helper Xcode"})
+# glaeda's hook no longer refuses a job for the mini's capacity: it waits,
+# with no limit, inside the runner's setup ("Set up runner") until the units
+# and tokens it needs are free (glaeda CAPACITY_WAIT, 2026-09-28). A job still
+# there this long after it started is stuck like a queued one and is moved the
+# same way (Look "rescue"). A compile waiting for a canonical root normally
+# waits for one running compile, about 7 minutes.
+SETUP_WAIT_SECONDS = 15 * 60
 MAX_JOB_PAGES = 3
 # Main's full-suite dispatch (ci-main-full-suite.yml) runs ci.yml on this branch.
 MAIN_BRANCH = "main"
@@ -382,6 +402,23 @@ def waiting_for_runner(job: Mapping[str, Any]) -> bool:
     return job.get("status") == "queued" and not job.get("runner_name")
 
 
+def in_setup(job: Mapping[str, Any]) -> bool:
+    """A job its runner took that is still in the runner's setup, where glaeda's hook waits for capacity."""
+    if job.get("status") != "in_progress":
+        return False
+    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
+    return any(step.get("name") in SETUP_STEPS and step.get("status") == "in_progress" for step in steps)
+
+
+def setup_seconds(job: Mapping[str, Any], now: dt.datetime) -> float:
+    """How long the job has been in its current setup step (glaeda's hook runs in "Set up runner")."""
+    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
+    step = next((step for step in steps if step.get("name") in SETUP_STEPS and step.get("status") == "in_progress"),
+                None)
+    started = parse_time((step or {}).get("started_at")) or parse_time(job.get("started_at"))
+    return 0.0 if started is None else max(0.0, (now - started).total_seconds())
+
+
 def wait_start(job: Mapping[str, Any], first_seen: dt.datetime | None = None) -> dt.datetime | None:
     created = parse_time(job.get("created_at"))
     return max(filter(None, (created, first_seen)), default=None)
@@ -412,13 +449,24 @@ def job_budget(job: Mapping[str, Any], budget_seconds: int, *, deadline: dt.date
 
 
 def refused(job: Mapping[str, Any]) -> bool:
-    """A job the owned runner refused at job start (see the module docstring)."""
+    """An owned runner's setup or Xcode pin failure, or a lost runner."""
     if not job_pool(job) or job.get("status") != "completed" or job.get("conclusion") != "failure":
         return False
+    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
+    if not steps:
+        # The runner ran nothing, not even "Set up job": GitHub failed a job whose
+        # runner went away ("The self-hosted runner lost communication with the
+        # server"), which it reports only after 10 minutes, so no length applies
+        # (run 36420353579).
+        return True
+    # A helper build can precede Xcode selection, so neither elapsed time nor
+    # earlier successful steps make a missing pin a source failure.
+    if any(step.get("name") in XCODE_SELECTION_STEPS and step.get("conclusion") == "failure"
+           for step in steps):
+        return True
     started, completed = parse_time(job.get("started_at")), parse_time(job.get("completed_at"))
     if started is None or completed is None or (completed - started).total_seconds() > REFUSAL_SECONDS:
         return False
-    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
     # The hook runs inside the runner's own setup, so a failed setup step is a
     # refusal even when the job's `always()` steps still ran and succeeded.
     if any(step.get("name") in SETUP_STEPS and step.get("conclusion") == "failure" for step in steps):
@@ -428,11 +476,12 @@ def refused(job: Mapping[str, Any]) -> bool:
 
 
 def accepted(job: Mapping[str, Any], now: dt.datetime) -> bool:
-    """An owned job its runner took and has not refused: started over REFUSAL_SECONDS ago, or done."""
+    """An owned job its runner took and has not refused: past its setup and started over REFUSAL_SECONDS ago,
+    or done."""
     if job.get("status") == "completed":
         return not refused(job)
     started = parse_time(job.get("started_at"))
-    return job.get("status") == "in_progress" and started is not None and \
+    return job.get("status") == "in_progress" and not in_setup(job) and started is not None and \
         (now - started).total_seconds() > REFUSAL_SECONDS
 
 
@@ -452,6 +501,16 @@ class Look:
     waiting: bool = False  # a persistent-pool job has no runner yet
 
 
+def setup_budget(job: Mapping[str, Any], now: dt.datetime, budget_seconds: int,
+                 deadline: dt.datetime | None) -> float:
+    """SETUP_WAIT_SECONDS, cut so a job that entered setup late is still judged before the watch ends (as
+    job_budget() cuts a queued job's), and never below the queued budget."""
+    if deadline is None:
+        return SETUP_WAIT_SECONDS
+    left = setup_seconds(job, now) + (deadline - now).total_seconds() - END_MARGIN_SECONDS
+    return min(SETUP_WAIT_SECONDS, max(budget_seconds, left))
+
+
 def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_seconds: int,
            first_seen: Mapping[Any, dt.datetime] | None = None, deadline: dt.datetime | None = None,
            floor_seconds: int | None = None) -> Look:
@@ -465,12 +524,24 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
         return Look("rescue", f"{names} queued on {job_pool(stuck[0])} for at least "
                               f"{min(budgets[id(job)] for job in stuck)}s with no runner")
+    settling = [job for job in jobs if job_pool(job) and in_setup(job)]
+    held = [job for job in settling if setup_seconds(job, now) >= setup_budget(job, now, budget_seconds, deadline)]
+    # Cancelling the run would kill siblings still running (run 36198335113 lost five
+    # shards that way to a refusal), so a job held in setup waits for them, as a
+    # refusal does, until the watch is about to end.
+    running = [job for job in jobs if job.get("status") == "in_progress" and not in_setup(job)]
+    closing = deadline is not None and now >= deadline - dt.timedelta(seconds=END_MARGIN_SECONDS)
+    if held and (not running or closing):
+        names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in held))
+        return Look("rescue", f"{names} waited in {job_pool(held[0])}'s runner setup for capacity for at least "
+                              f"{SETUP_WAIT_SECONDS}s")
     turned_away = [job for job in jobs if refused(job)]
     if turned_away:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
-        return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start")
-    if waiting:
-        return Look("watch", f"{len(waiting)} job(s) waiting for a persistent runner", waiting=True)
+        return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start or Xcode selection")
+    if waiting or settling:
+        return Look("watch", f"{len(waiting)} job(s) waiting for a persistent runner, {len(settling)} in its setup",
+                    waiting=True)
     return Look("watch", "no job is waiting for a persistent runner")
 
 
