@@ -45,6 +45,14 @@ jobs:
               core.warning(body);
               if (open.data.length > 0) {
                 await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body });
+              } else {
+                try {
+                  await github.rest.issues.getLabel({ owner, repo, name: label });
+                } catch (labelError) {
+                  if (labelError.status !== 404) throw labelError;
+                  await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: 'Feature flag review dates are approaching' });
+                }
+                await github.rest.issues.create({ owner, repo, title: 'Feature flag review report failed', labels: [label], body });
               }
               return;
             }

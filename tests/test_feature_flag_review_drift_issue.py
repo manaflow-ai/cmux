@@ -102,6 +102,11 @@ run().catch(error => { console.error(error); process.exitCode = 1; });
                 self.assertEqual(len(comments), 1)
                 self.assertIn("report failed", comments[0])
 
+    def test_failed_payload_opens_an_issue_when_none_exists(self):
+        result = self.run_monitor(["{\"error\": \"collector failed\"}"])
+        self.assertEqual(result["issue"]["state"], "open")
+        self.assertIn("report failed", result["issue"]["body"])
+
     def test_report_main_error_payload_is_rejected_by_workflow(self):
         spec = importlib.util.spec_from_file_location(
             "report", ROOT / "scripts/report-feature-flag-review-lead-time.py")
