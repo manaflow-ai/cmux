@@ -108,7 +108,7 @@ enum SessionPersistencePolicy {
             let next = text.index(after: final)
             return next < text.endIndex ? next : text.endIndex
 
-        case "]", "P", "_", "^":
+        case "]", "P", "X", "_", "^":
             let allowsBEL = text[marker] == "]"
             if ansiStringSequenceEnd(
                 in: text,
