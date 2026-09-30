@@ -3141,11 +3141,10 @@ jobs:
     # itself and streams the log and exit code back. PACKAGE_TESTS_VIA_STEP
     # below restates the runs-on branch for the steps.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}
-    # The 2026-09-25..30 mini sample has p99 15.2m. Each package invocation
-    # already has a 900-second no-progress/total watchdog; 35m leaves room for
-    # checkout, helper build, and several selected packages while cutting the
-    # former 60-minute ceiling for a stuck lane.
-    timeout-minutes: 35
+    # The full suite runs many selected packages serially. Each package already
+    # has a 900-second no-progress/total watchdog, so retain the 60-minute lane
+    # ceiling until full-suite totals have their own percentile evidence.
+    timeout-minutes: 60
     env:
       # The owned label's Xcode (the lane pin) exactly when runs-on took it;
       # the pool picker's Wiring tests keep the two conditions equal.

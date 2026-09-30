@@ -78,7 +78,6 @@ PINNED_JOB_NAMES = (
 # the stable path, so it can confirm what woke it before it cancels anything.
 IDENTITY_CHECKED = (
     ".github/workflows/merge-group-fail-fast.yml",
-    ".github/workflows/ci-fail-fast.yml",
 )
 
 # `repos/:owner/:repo/actions/workflows/<file>/runs` is the identity-based way
@@ -190,38 +189,10 @@ def check_identity_before_acting(failures: list[str]) -> None:
             )
 
 
-def test_ci_fail_fast_is_a_trusted_pr_run_watcher() -> None:
-    path = WORKFLOWS / "ci-fail-fast.yml"
-    text = path.read_text(encoding="utf-8")
-    document = load(path)
-    workflow_run = triggers(document)["workflow_run"]
-
-    assert as_list(workflow_run["workflows"]) == [
-        display_name(WORKFLOWS / "ci.yml", load(WORKFLOWS / "ci.yml"))
-    ]
-    assert as_list(workflow_run["types"]) == ["in_progress"]
-    assert document["env"][DECLARATION] == ".github/workflows/ci.yml"
-    assert document["permissions"] == {}
-    assert document["jobs"]["watch"]["permissions"] == {"actions": "write"}
-    assert document["concurrency"]["cancel-in-progress"] is False
-    assert "SOURCE_EVENT" in text and '!= "pull_request"' in text
-    assert "SOURCE_PATH" in text and '!= "$SOURCE_WORKFLOW_PATHS"' in text
-    assert "RUN_ID: ${{ github.event.workflow_run.id }}" in text
-    assert "RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}" in text
-    assert "current_attempt" in text
-    assert "actions: write" in text
-    assert 'gh api --method POST "$RUN/cancel"' not in text
-    assert 'actions/jobs/$job_id/cancel' in text
-    assert "macos / macOS compile admission" in text
-    assert "macos / app-host unit tests" in text
-    assert '"Fast static checks"' in text
-    assert '"linux-preflight"' in text
-    assert 'startswith("guards / ")' in text
-    assert '"Fast static checks"' in text
-    assert '"linux-preflight"' in text
-    assert 'cancel_downstream_jobs' in text
-    assert "uses:" not in text
-    assert "actions/checkout" not in text
+def test_pr_ci_does_not_cancel_independent_jobs() -> None:
+    # GitHub has no job-cancel REST endpoint. A PR-wide watcher hides useful
+    # sibling failures and spends a hosted runner polling for the entire run.
+    assert not (WORKFLOWS / "ci-fail-fast.yml").exists()
 
 
 def test_ci_failfast_keeps_failure_rollups_and_bounds_observed_tails() -> None:
@@ -248,7 +219,7 @@ def test_ci_failfast_keeps_failure_rollups_and_bounds_observed_tails() -> None:
     assert "timeout-minutes: 60" in job_block(
         ".github/workflows/ci-macos.yml", "app-host-unit-tests"
     )
-    assert "timeout-minutes: 35" in job_block(
+    assert "timeout-minutes: 60" in job_block(
         ".github/workflows/ci-macos.yml", "swift-package-tests"
     )
     assert "timeout-minutes: 25" in job_block(
