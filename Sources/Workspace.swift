@@ -3611,7 +3611,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     nonisolated static func usesSharedSurfaceBackdrop(defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: "sidebarMatchTerminalBackground")
+        defaults.object(forKey: SidebarMatchTerminalBackgroundSettings.userDefaultsKey) as? Bool
+            ?? SidebarAppearanceCatalogSection().matchTerminalBackground.defaultValue
     }
 
     nonisolated static func usesWindowRootTerminalBackdrop() -> Bool {

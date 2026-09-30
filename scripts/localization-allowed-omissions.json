@@ -3453,5 +3453,14 @@
       "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
       "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
     }
+  },
+  "settings.section.textBox": {
+    "source": "TextBox",
+    "identityLocales": {
+      "fr": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "ko": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
+    }
   }
 }
