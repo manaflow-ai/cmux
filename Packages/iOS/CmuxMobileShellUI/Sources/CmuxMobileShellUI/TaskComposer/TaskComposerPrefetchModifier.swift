@@ -20,10 +20,6 @@ struct TaskComposerPrefetchModifier: ViewModifier {
         }.joined(separator: "\u{1F}")
         [
             scenePhase == .active ? "active" : "inactive",
-            String(store.workspaceTopologyVersion),
-            store.connectionState == .connected ? "connected" : "disconnected",
-            store.connectedMacDeviceID ?? "",
-            store.connectedMacInstanceTag ?? "",
             targetKey,
         ].joined(separator: "\u{1F}")
     }
