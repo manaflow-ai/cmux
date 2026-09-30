@@ -113,6 +113,7 @@ jobs:
           sparse-checkout: |
             /scripts/dev-backend.sh
             /scripts/lib/dev-web-port.sh
+            /scripts/lib/dev-web-port-lease.py
             /skills/infra/dev-backend/**
 
       - name: Select Xcode
