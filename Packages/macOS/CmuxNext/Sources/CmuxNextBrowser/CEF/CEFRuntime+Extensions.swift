@@ -34,7 +34,7 @@ extension CEFRuntime {
     func adoptOrphan(browser: Int32, window: Int32, created: CEFCreatedBy = .none) {
         guard !adoptions.isClosed(browser) else { return }
         let disposition = created.disposition.tabDisposition ?? .foregroundTab
-        if let host = hosts.values.first(where: { $0.owns(window: window) || $0.containsBrowser(inWindow: window) }) {
+        if let host = hosts.values.first(where: { $0.owns(window: window) }) {
             let placement = takePlacement(window: window, fallback: disposition, created: created)
             host.adoptChromiumTab(browser: browser, disposition: placement.disposition, bounds: placement.bounds)
             return

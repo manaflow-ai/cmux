@@ -158,7 +158,7 @@ extension CEFRuntime {
         switch kind {
         case .extensionActionsChanged, .inserted, .removed:
             if kind == .inserted { placeUnplaced(browser: browser, window: window) }
-            for host in hosts.values where host.owns(window: window) || host.containsBrowser(inWindow: window) {
+            for host in hosts.values where host.owns(window: window) {
                 host.refreshExtensionActions()
             }
             if kind == .extensionActionsChanged { refreshExtensionStores(window: window, browser: browser) }

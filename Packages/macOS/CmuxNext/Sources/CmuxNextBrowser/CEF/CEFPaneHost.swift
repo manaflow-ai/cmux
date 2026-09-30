@@ -43,8 +43,16 @@ final class CEFPaneHost {
         tabs.append(tab)
     }
 
+    /// True when Chromium window `id` is this host's (never window 0).
     func owns(window id: Int32) -> Bool {
-        window == .live(window: id)
+        let recorded: Int32? = if case .live(let window) = window { window } else { nil }
+        return CEFWindowIdentity.owns(recorded: recorded, reported: id) { liveWindowIDs }
+    }
+
+    /// The windows this host's tabs are in now.
+    private var liveWindowIDs: [Int32] {
+        guard let shim = runtime.shim else { return [] }
+        return tabs.compactMap { tab in tab.awaitsWindowMove ? nil : tab.browserID.map { shim.tabWindowID($0) } }
     }
 
     var isCreatingWindow: Bool {
@@ -60,13 +68,6 @@ final class CEFPaneHost {
     /// A browser of this window, to address it (cmux_tab_add, moves). A
     /// popup still in its opener's window is not one.
     var anchorBrowser: Int32? { tabs.lazy.filter { !$0.awaitsWindowMove }.compactMap(\.browserID).first }
-
-    func containsBrowser(inWindow id: Int32) -> Bool {
-        guard let shim = runtime.shim else { return false }
-        return tabs.contains { tab in
-            !tab.awaitsWindowMove && (tab.browserID.map { shim.tabWindowID($0) == id } ?? false)
-        }
-    }
 
     /// Called when a tab's content view enters a window: show that tab.
     func present(_ tab: CEFTab, in container: NSView) {
