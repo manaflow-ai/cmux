@@ -1916,6 +1916,9 @@
       "schemaDescriptions": {
         "root": "Configuration de cmux. Le fichier global cmux.json prend en charge les réglages de l’application, les raccourcis, les actions, les commandes personnalisées, les hooks de notification et les dispositions d’espaces de travail. Un fichier .cmux/cmux.json ou cmux.json local au projet prend en charge les actions, les commandes, les hooks de notification, le câblage des actions d’interface, les surcharges d’Agent Chat, les agents du coffre, les surcharges de groupes d’espaces de travail ainsi que la configuration du lancement et des boutons des espaces de travail.",
         "rightSidebar": "Configuration héritée et appartenant aux extensions de la barre latérale droite, conservée dans cmux.json.",
+        "agentActions": {
+          "turnControl": "Affiche un bouton Arrêter sur le terminal pendant que Claude Code ou Codex traite un tour. Un clic envoie Escape, la touche d’interruption propre à l’agent, et marque le tour comme arrêté."
+        },
         "packs": {
           "description": "Fichiers ou dossiers de packs cmux locaux chargés avant cette configuration. Les dossiers sont résolus en cmux.pack.json. Utilisez une chaîne de chemin ou un objet avec un champ path.",
           "path": "Chemin de fichier ou de dossier local, relatif à ce fichier de configuration sauf s’il est absolu."

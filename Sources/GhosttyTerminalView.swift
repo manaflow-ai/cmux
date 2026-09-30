@@ -10330,6 +10330,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeLabel: NSTextField
     let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
     let passwordInputIndicatorView: TerminalPasswordInputIndicatorView
+    let agentTurnControlView: TerminalAgentTurnControlView
     private let imageTransferIndicatorContainerView: NSView
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
@@ -10584,6 +10585,7 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
         linkHoverIndicatorView = TerminalLinkHoverIndicatorView(frame: .zero)
         passwordInputIndicatorView = TerminalPasswordInputIndicatorView(frame: .zero)
+        agentTurnControlView = TerminalAgentTurnControlView(frame: .zero)
         imageTransferIndicatorContainerView = NSView(frame: .zero)
         imageTransferIndicatorView = NSVisualEffectView(frame: .zero)
         imageTransferIndicatorSpinner = NSProgressIndicator(frame: .zero)
@@ -10797,6 +10799,9 @@ final class GhosttySurfaceScrollView: NSView {
         passwordInputIndicatorView.frame = bounds
         passwordInputIndicatorView.autoresizingMask = [.width, .height]
         addSubview(passwordInputIndicatorView)
+        agentTurnControlView.frame = bounds
+        agentTurnControlView.autoresizingMask = [.width, .height]
+        addSubview(agentTurnControlView)
 
         NotificationCenter.default.addObserver(
             self,
@@ -11124,6 +11129,7 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
         _ = setFrameIfNeeded(passwordInputIndicatorView, to: contentFrame)
+        _ = setFrameIfNeeded(agentTurnControlView, to: contentFrame)
         if let cloudTerminalReconnectOverlayView { _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame) }
         synchronizeCloudTerminalReconnectOverlay()
         if let overlay = searchOverlayHostingView {
@@ -11590,6 +11596,10 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func updateKeyboardCopyModeBadgeZOrder(relativeTo overlay: NSView?) {
+        // The find overlay covers the terminal; keep the agent Stop pill clickable above it.
+        if let overlay, overlay.superview === self {
+            addSubview(agentTurnControlView, positioned: .above, relativeTo: overlay)
+        }
         guard !keyboardCopyModeBadgeContainerView.isHidden else { return }
         if let overlay, overlay.superview === self {
             addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)

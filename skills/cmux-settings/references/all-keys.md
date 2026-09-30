@@ -183,6 +183,14 @@ Socket control and automation settings from Settings > Automation.
 | `automation.kiroIntegration` | boolean | `true` | Enable cmux integration hooks for Kiro CLI. |
 | `automation.kiroNotificationLevel` | `"minimal"` or `"standard"` or `"verbose"` | `"standard"` | Controls how many Kiro tool events appear in Feed. |
 
+## agentActions
+
+Clickable agent actions, one toggle per category.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `agentActions.turnControl` | boolean | `false` | Show a Stop button over a terminal while Claude Code or Codex is working on a turn. Clicking it sends Escape, the agent's own interrupt key, and marks the turn stopped. |
+
 ## browser
 
 Embedded browser settings from Settings > Browser.

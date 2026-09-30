@@ -151,6 +151,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.confirmUnsafePaste",
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
+        "agentActions.turnControl",
         "terminal.textEditingGestures",
         "terminal.textEditingCommandMovesByWord",
         "terminal.textEditingGesturesInFullScreenApps",

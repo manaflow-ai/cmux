@@ -1917,6 +1917,9 @@
       "schemaDescriptions": {
         "root": "Konfiguracja cmux. Globalny plik cmux.json obsługuje ustawienia aplikacji, skróty, akcje, niestandardowe polecenia, hooki powiadomień i układy obszarów roboczych. Plik .cmux/cmux.json lub cmux.json lokalny dla projektu obsługuje akcje, polecenia, hooki powiadomień, powiązania akcji interfejsu, nadpisania Agent Chat, agentów vault, nadpisania grup obszarów roboczych oraz konfigurację uruchamiania i przycisków obszaru roboczego.",
         "rightSidebar": "Starsza oraz należąca do rozszerzeń konfiguracja prawego paska bocznego zachowywana w cmux.json.",
+        "agentActions": {
+          "turnControl": "Wyświetla przycisk Zatrzymaj nad terminalem, gdy Claude Code lub Codex pracuje nad turą. Kliknięcie wysyła Escape, własny klawisz przerwania agenta, i oznacza turę jako zatrzymaną."
+        },
         "packs": {
           "description": "Lokalne pliki lub katalogi pakietów cmux wczytywane przed tą konfiguracją. Katalogi wskazują na cmux.pack.json. Użyj ciągu ścieżki lub obiektu z polem path.",
           "path": "Lokalna ścieżka pliku lub katalogu, względna wobec tego pliku konfiguracyjnego, jeśli nie jest bezwzględna."

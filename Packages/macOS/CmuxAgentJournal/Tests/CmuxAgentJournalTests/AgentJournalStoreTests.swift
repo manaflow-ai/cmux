@@ -25,7 +25,8 @@ struct AgentJournalStoreTests {
         eventId: String = UUID().uuidString,
         kind: AgentJournalEventKind = .turnStarted,
         surfaceId: String? = UUID().uuidString,
-        workspaceId: String? = UUID().uuidString
+        workspaceId: String? = UUID().uuidString,
+        sessionId: String? = "session-1"
     ) -> AgentJournalEventDraft {
         AgentJournalEventDraft(
             eventId: eventId,
@@ -33,7 +34,7 @@ struct AgentJournalStoreTests {
             occurredAtMs: 1_000,
             source: "claude",
             agentKey: "claude_code",
-            sessionId: "session-1",
+            sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId
         )
@@ -67,6 +68,47 @@ struct AgentJournalStoreTests {
         #expect(replay.replayed)
         #expect(try store.events(afterSequence: 0, limit: 10).count == 1)
         store.close()
+    }
+
+    @Test func conditionalAppendRejectsAStaleSession() throws {
+        try withStore { store, _ in
+            let first = try store.append(draft(eventId: "turn-started"))
+            _ = try store.append(draft(eventId: "pre-tool-use"))
+
+            let stale = try store.append(
+                draft(eventId: "user-interrupt", kind: .turnCompleted),
+                ifSessionHasNoEventAfter: first.sequence
+            )
+
+            #expect(stale == nil)
+            #expect(try store.headSequence() == 2)
+            #expect(
+                try store.events(afterSequence: 0, limit: 10).map(\.draft.eventId)
+                    == ["turn-started", "pre-tool-use"]
+            )
+        }
+    }
+
+    @Test func conditionalAppendIgnoresUnrelatedSessions() throws {
+        try withStore { store, _ in
+            let first = try store.append(draft(eventId: "turn-started"))
+            _ = try store.append(
+                draft(
+                    eventId: "other-session",
+                    surfaceId: UUID().uuidString,
+                    workspaceId: UUID().uuidString,
+                    sessionId: "session-2"
+                )
+            )
+
+            let appended = try store.append(
+                draft(eventId: "user-interrupt", kind: .turnCompleted),
+                ifSessionHasNoEventAfter: first.sequence
+            )
+
+            #expect(appended?.sequence == 3)
+            #expect(try store.headSequence() == 3)
+        }
     }
 
     @Test func appendRejectsSameIdWithDifferentContent() throws {

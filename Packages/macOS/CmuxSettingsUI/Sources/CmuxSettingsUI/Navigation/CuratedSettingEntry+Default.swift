@@ -228,6 +228,14 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["terminal.showPasswordInputDots"],
                 synonyms: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"
             ),
+            .init(
+                section: .terminal,
+                id: "agent-turn-control",
+                title: String(localized: "settings.agentActions.turnControl", defaultValue: "Agent Stop Button"),
+                detailText: String(localized: "settings.agentActions.turnControl.subtitle", defaultValue: "Shows a Stop button over a terminal while Claude Code or Codex is working. Clicking it interrupts the turn, like pressing Esc."),
+                paths: ["agentActions.turnControl"],
+                synonyms: "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click"
+            ),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(
                 section: .terminal,

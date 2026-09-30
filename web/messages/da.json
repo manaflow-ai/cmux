@@ -1916,6 +1916,9 @@
       "schemaDescriptions": {
         "root": "cmux-konfiguration. Den globale cmux.json understøtter appindstillinger, genveje, handlinger, brugerdefinerede kommandoer, notifikations-hooks og arbejdsområdelayouts. En projektspecifik .cmux/cmux.json eller cmux.json understøtter handlinger, kommandoer, notifikations-hooks, kobling af UI-handlinger, tilsidesættelser for Agent Chat, vault-agenter, tilsidesættelser for arbejdsområdegrupper samt konfiguration af opstart og knapper for arbejdsområder.",
         "rightSidebar": "Ældre og udvidelsesejet konfiguration af højre sidepanel, som bevares i cmux.json.",
+        "agentActions": {
+          "turnControl": "Viser en Stop-knap over en terminal, mens Claude Code eller Codex arbejder på en tur. Et klik sender Escape, agentens egen afbrydelsestast, og markerer turen som stoppet."
+        },
         "packs": {
           "description": "Lokale cmux-pakkefiler eller mapper, der indlæses før denne konfiguration. Mapper peger på cmux.pack.json. Brug en stistreng eller et objekt med et path-felt.",
           "path": "Lokal fil- eller mappesti, relativ til denne konfigurationsfil, medmindre den er absolut."

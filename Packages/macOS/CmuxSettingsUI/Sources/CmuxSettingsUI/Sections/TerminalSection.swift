@@ -30,6 +30,8 @@ public struct TerminalSection: View {
     @State private var textEditingGesturesInFullScreenApps: DefaultsValueModel<Bool>
     @State private var passwordInputIndicator: DefaultsValueModel<Bool>
     @State private var passwordInputDots: DefaultsValueModel<Bool>
+    @State private var agentTurnControl: DefaultsValueModel<Bool>
+    @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
@@ -67,6 +69,13 @@ public struct TerminalSection: View {
         )
         _passwordInputIndicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputIndicator))
         _passwordInputDots = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputDots))
+        _agentTurnControl = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.agentActions.turnControl))
+        _adaptiveDefaultTheme = State(
+            initialValue: DefaultsValueModel(
+                store: defaultsStore,
+                key: catalog.terminal.adaptiveDefaultTheme
+            )
+        )
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
@@ -104,6 +113,8 @@ public struct TerminalSection: View {
             textEditingGesturesInFullScreenApps,
             passwordInputIndicator,
             passwordInputDots,
+            agentTurnControl,
+            adaptiveDefaultTheme,
             autoResume,
             hibernation,
             idleSeconds,
@@ -484,6 +495,17 @@ public struct TerminalSection: View {
                     .controlSize(.small)
                     .disabled(!passwordInputIndicator.current)
                     .accessibilityIdentifier("SettingsTerminalPasswordInputDotsToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("agentActions.turnControl"),
+                String(localized: "settings.agentActions.turnControl", defaultValue: "Agent Stop Button"),
+                subtitle: String(localized: "settings.agentActions.turnControl.subtitle", defaultValue: "Shows a Stop button over a terminal while Claude Code or Codex is working. Clicking it interrupts the turn, like pressing Esc.")
+            ) {
+                Toggle("", isOn: Binding(get: { agentTurnControl.current }, set: { agentTurnControl.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAgentActionsTurnControlToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

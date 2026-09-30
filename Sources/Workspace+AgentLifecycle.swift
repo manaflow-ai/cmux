@@ -496,7 +496,12 @@ extension Workspace {
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        guard sidebarAgentRuntimeObservation.setAgentLifecycle(
+            key: key,
+            panelId: targetPanelId,
+            lifecycle: lifecycle
+        ) else { return }
+        refreshAgentTurnControls(panelIds: [targetPanelId])
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
@@ -508,12 +513,12 @@ extension Workspace {
         let recordsHibernationActivity = !AgentHibernationLifecycleStatusKeys.isManualKey(key)
         let panelIds = panelId.map { [$0] } ?? Array(agentLifecycleStatesByPanelId.keys)
         for panelId in panelIds {
-            guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
-            agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
+            guard sidebarAgentRuntimeObservation.clearAgentLifecycle(
+                key: key,
+                panelId: panelId
+            ) else { continue }
+            refreshAgentTurnControls(panelIds: [panelId])
             removePanelStatusEntry(key: key, panelId: panelId)
-            if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
-                agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
-            }
             didClear = true
             if recordsHibernationActivity {
                 recordAgentLifecycleChange(panelId: panelId)
@@ -530,7 +535,10 @@ extension Workspace {
     }
 
     func clearAgentLifecycleStates(panelId: UUID) {
-        guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else { return }
+        guard let removed = sidebarAgentRuntimeObservation.removeAgentLifecycleStates(
+            panelId: panelId
+        ) else { return }
+        refreshAgentTurnControls(panelIds: [panelId])
         for key in removed.keys {
             removePanelStatusEntry(key: key, panelId: panelId)
         }
@@ -544,8 +552,16 @@ extension Workspace {
                 panels.keys.first(where: { $0 != panelId })
             }
             if let host {
+                var changedHost = false
                 for (key, lifecycle) in manualStates {
-                    agentLifecycleStatesByPanelId[host, default: [:]][key] = lifecycle
+                    changedHost = sidebarAgentRuntimeObservation.setAgentLifecycle(
+                        key: key,
+                        panelId: host,
+                        lifecycle: lifecycle
+                    ) || changedHost
+                }
+                if changedHost {
+                    refreshAgentTurnControls(panelIds: [host])
                 }
             }
         }
@@ -555,7 +571,7 @@ extension Workspace {
     func clearAllAgentLifecycleStates() {
         let panelIds = Array(agentLifecycleStatesByPanelId.keys)
         guard !panelIds.isEmpty else { return }
-        agentLifecycleStatesByPanelId.removeAll()
+        replaceAgentLifecycleStatesByPanelId([:])
         for panelId in panelIds {
             recordAgentLifecycleChange(panelId: panelId)
         }
