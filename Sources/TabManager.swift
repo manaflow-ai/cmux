@@ -2277,6 +2277,21 @@ class TabManager: ObservableObject {
         return anchor
     }
 
+    /// Resolves the target for a group header click. A generated anchor that
+    /// has never received explicit input is only an empty shell, so a header
+    /// click should select the first real member instead of exposing it.
+    func workspaceGroupHeaderTarget(for groupId: UUID) -> Workspace? {
+        guard let group = workspaceGroups.first(where: { $0.id == groupId }),
+              let anchor = workspaceGroupAnchor(for: groupId) else {
+            return nil
+        }
+        guard group.anchorWorkspaceProvenance == .generated,
+              workspaceGroupGeneratedAnchorIsUntouched(anchor) else {
+            return anchor
+        }
+        return tabs.first { $0.groupId == groupId && $0.id != anchor.id } ?? anchor
+    }
+
     func addWorkspaceToGroup(
         workspaceId: UUID,
         groupId: UUID,
@@ -2371,6 +2386,20 @@ class TabManager: ObservableObject {
             autoWelcomeIfNeeded: false,
             normalizeWorkspaceGroupsAfterInsert: false
         )
+    }
+
+    func workspaceGroupGeneratedAnchorIsUntouched(_ anchor: Workspace) -> Bool {
+        guard anchor.customTitle == nil || anchor.customTitleSource == .auto,
+              anchor.customDescription == nil,
+              anchor.panels.count == 1,
+              let panel = anchor.panels.values.first as? TerminalPanel,
+              !panel.hasReceivedExplicitInput,
+              panel.surface.initialCommand == nil,
+              panel.surface.initialInput == nil,
+              panel.surface.tmuxStartCommand == nil else {
+            return false
+        }
+        return true
     }
 
     func createWorkspaceForGroup(
@@ -2548,6 +2577,16 @@ class TabManager: ObservableObject {
             // didSet) so transient remove/insert reorders never trigger the
             // fixup.
             let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
+
+            let orphanedGeneratedGroupIds = workspaces.workspaceGroups
+                .filter { group in
+                    group.anchorWorkspaceProvenance == .generated &&
+                    !workspaces.tabs.contains { $0.groupId == group.id && $0.id != group.anchorWorkspaceId }
+                }
+                .map(\.id)
+            for groupId in orphanedGeneratedGroupIds {
+                _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(groupId: groupId)
+            }
 
             if selectedTabId == workspace.id,
                let nextSelectedId = workspaces.selectionTargetAfterClose(closedIndex: index) {

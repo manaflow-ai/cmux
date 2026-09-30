@@ -5,7 +5,7 @@ internal import OSLog
 private let workspaceGroupLogger = Logger(subsystem: "com.cmuxterm.app", category: "WorkspaceGroupCoordinator")
 
 /// Sequences every workspace-group flow over the window's `WorkspacesModel`:
-/// group creation (fresh anchor + member adoption), member add/remove,
+/// group creation (member adoption or an empty generated anchor), member add/remove,
 /// ungroup/delete, rename, collapse/pin/color/icon/anchor mutation, and
 /// group-slot moves — lifted one-for-one from the legacy TabManager method
 /// bodies. Workspace creation/teardown, selection moves, sidebar
@@ -28,13 +28,13 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
 
     // MARK: - Creation
 
-    /// Create a new group, inserting a fresh anchor workspace above the given
-    /// child workspaces. Returns the new group id.
+    /// Create a new group around the given child workspaces. Returns the new
+    /// group id.
     ///
-    /// The anchor is always brand new (never promoted from an existing
-    /// workspace). Its cwd defaults to `anchorWorkingDirectory`, or the first
-    /// eligible child's cwd, or whatever the host's workspace creation
-    /// resolves on its own.
+    /// When children are provided, the first eligible child becomes the
+    /// anchor and no workspace is created. Empty groups receive a fresh
+    /// generated anchor whose cwd defaults to `anchorWorkingDirectory`, or
+    /// the active workspace resolved by the host.
     @discardableResult
     public func createWorkspaceGroup(
         name: String,
@@ -60,8 +60,10 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         // source group (its anchorWorkspaceId would no longer match), so we
         // reject those silently and let the user explicitly ungroup first.
         let existingAnchorIds = Set(model.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
+        var seenChildIds = Set<UUID>()
         let eligibleChildren = childWorkspaceIds.compactMap { id -> UUID? in
-            guard model.tabs.contains(where: { $0.id == id }),
+            guard seenChildIds.insert(id).inserted,
+                  model.tabs.contains(where: { $0.id == id }),
                   !existingAnchorIds.contains(id) else { return nil }
             return id
         }
@@ -77,32 +79,49 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             ?? firstChildTab?.currentDirectory
         let originalTabOrder = model.tabs.map(\.id)
 
-        guard let anchor = host.createGroupAnchorWorkspace(
-            title: resolvedName,
-            workingDirectory: inferredCwd,
-            inheritWorkingDirectory: inferredCwd == nil,
-            select: selectAnchor
-        ) else { return nil }
+        let anchorId: UUID
+        let anchorProvenance: WorkspaceGroupAnchorProvenance
+        let generatedAnchor: Tab?
+        if let firstChildId = eligibleChildren.first {
+            anchorId = firstChildId
+            anchorProvenance = .user
+            generatedAnchor = nil
+        } else {
+            guard let anchor = host.createGroupAnchorWorkspace(
+                title: resolvedName,
+                workingDirectory: inferredCwd,
+                inheritWorkingDirectory: inferredCwd == nil,
+                select: selectAnchor
+            ) else { return nil }
+            anchorId = anchor.id
+            anchorProvenance = .generated
+            generatedAnchor = anchor
+        }
 
         let group = WorkspaceGroup(
             id: UUID(),
             name: resolvedName,
             isCollapsed: false,
             isPinned: false,
-            anchorWorkspaceId: anchor.id,
+            anchorWorkspaceId: anchorId,
             customColor: nil,
             iconSymbol: nil,
             externalID: normalizedExternalID,
-            anchorWorkspaceProvenance: .generated
+            anchorWorkspaceProvenance: anchorProvenance
         )
         model.workspaceGroups.append(group)
-        anchor.groupId = group.id
+        generatedAnchor?.groupId = group.id
         for id in eligibleChildren {
             model.assignGroup(workspaceId: id, groupId: group.id)
         }
+        if generatedAnchor == nil,
+           selectAnchor,
+           let anchor = model.tabs.first(where: { $0.id == anchorId }) {
+            host.selectWorkspace(anchor)
+        }
         placeNewWorkspaceGroupAtCreationPosition(
             groupId: group.id,
-            anchorId: anchor.id,
+            anchorId: anchorId,
             childWorkspaceIds: eligibleChildren,
             originalTabOrder: originalTabOrder
         )
@@ -121,10 +140,12 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             let hiddenIds = host.sidebarSelectedWorkspaceIds
             host.collapseSidebarSelectionForGroupCreation(
                 hiddenWorkspaceIds: hiddenIds,
-                anchorId: anchor.id
+                anchorId: anchorId
             )
         }
-        host.workspaceOrderDidChange(movedWorkspaceIds: [anchor.id] + eligibleChildren)
+        host.workspaceOrderDidChange(
+            movedWorkspaceIds: [anchorId] + eligibleChildren.filter { $0 != anchorId }
+        )
         return group.id
     }
 
@@ -291,9 +312,10 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         host?.workspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
     }
 
-    /// Remove a non-anchor workspace from its group. If the workspace is its
-    /// group's anchor, the group is explicitly ungrouped instead (other
-    /// members survive as ungrouped workspaces).
+    /// Remove a non-anchor workspace from its group. If this leaves only an
+    /// untouched generated anchor, that shell is removed with the group. If the
+    /// workspace is its group's anchor, the group is explicitly ungrouped
+    /// instead (other members survive as ungrouped workspaces).
     public func removeWorkspaceFromGroup(workspaceId: UUID) {
         guard let tab = model.tabs.first(where: { $0.id == workspaceId }),
               let groupId = tab.groupId else { return }
@@ -304,7 +326,32 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         }
         model.assignGroup(workspaceId: workspaceId, groupId: nil)
         model.normalizeWorkspaceGroupContiguity()
+        if removeGeneratedAnchorIfOrphaned(groupId: groupId) {
+            return
+        }
         host?.workspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
+    }
+
+    /// Removes an untouched generated anchor after its last real member leaves.
+    @discardableResult
+    public func removeGeneratedAnchorIfOrphaned(groupId: UUID) -> Bool {
+        guard let host,
+              let group = model.workspaceGroups.first(where: { $0.id == groupId }),
+              group.anchorWorkspaceProvenance == .generated,
+              let anchorId = group.liveAnchorWorkspaceId,
+              let anchor = model.tabs.first(where: { $0.id == anchorId }),
+              host.workspaceGroupGeneratedAnchorIsUntouched(anchor),
+              !model.tabs.contains(where: { $0.groupId == groupId && $0.id != anchorId }) else {
+            return false
+        }
+        guard case .removedGeneratedAnchor = removeGeneratedAnchorWorkspace(
+            group: group,
+            groupId: groupId,
+            memberIds: [anchorId]
+        ) else {
+            return false
+        }
+        return true
     }
 
     /// Dissolve a group while preserving every member workspace (including its
@@ -604,9 +651,11 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         originalTabOrder: [UUID]
     ) {
         let childIdSet = Set(childWorkspaceIds)
-        let orderedChildIds = originalTabOrder.filter { childIdSet.contains($0) }
-        guard let insertionIndex = originalTabOrder.firstIndex(where: { childIdSet.contains($0) }),
-              !orderedChildIds.isEmpty else {
+        let orderedChildIds = originalTabOrder.filter {
+            childIdSet.contains($0) && $0 != anchorId
+        }
+        guard !childWorkspaceIds.isEmpty,
+              let insertionIndex = originalTabOrder.firstIndex(where: { childIdSet.contains($0) }) else {
             model.normalizeWorkspaceGroupContiguity()
             return
         }

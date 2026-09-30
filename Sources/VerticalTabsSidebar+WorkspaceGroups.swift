@@ -589,18 +589,19 @@ extension VerticalTabsSidebar {
     ) {
         let anchorId: UUID
         if modifiers.contains(.command) || modifiers.contains(.shift) {
-            guard let anchor = tabManager.workspaceGroupAnchor(for: groupId) else { return }
+            guard let target = tabManager.workspaceGroupHeaderTarget(for: groupId) else { return }
             let selection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
                 current: selectedTabIds.wrappedValue,
-                clickedAnchorId: anchor.id,
+                clickedAnchorId: target.id,
                 anchorIds: Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
             )
             selectedTabIds.wrappedValue = selection
-            guard let selectedAnchor = tabManager.selectWorkspaceGroupAnchor(for: groupId) else { return }
-            anchorId = selectedAnchor.id
+            tabManager.selectWorkspace(target)
+            anchorId = target.id
         } else {
-            guard let selectedAnchor = tabManager.selectWorkspaceGroupAnchor(for: groupId) else { return }
-            anchorId = selectedAnchor.id
+            guard let target = tabManager.workspaceGroupHeaderTarget(for: groupId) else { return }
+            tabManager.selectWorkspace(target)
+            anchorId = target.id
             if selectedTabIds.wrappedValue != [anchorId] {
                 selectedTabIds.wrappedValue = [anchorId]
             }

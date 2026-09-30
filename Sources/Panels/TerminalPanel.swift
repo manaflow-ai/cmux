@@ -24,6 +24,11 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The underlying terminal surface
     let surface: TerminalSurface
+    private(set) var hasReceivedExplicitInput = false
+
+    func recordExplicitInput() {
+        hasReceivedExplicitInput = true
+    }
     var fontSizePanelTransfer:
         WorkspaceTerminalFontSizePanelTransfer?
 
@@ -156,6 +161,9 @@ final class TerminalPanel: Panel, ObservableObject {
         self.workspaceId = workspaceId
         self.surface = surface
         self.title = surface.agentPanelTitle.flatMap { AutomaticTerminalTitle($0)?.value } ?? "Terminal"
+        surface.onExplicitInput = { [weak self] in
+            self?.hasReceivedExplicitInput = true
+        }
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
