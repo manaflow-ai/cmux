@@ -222,51 +222,10 @@ struct RightSidebarPanelView: View {
         return ZStack {
             WindowDragHandleView()
 
-            HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
-                let displayedModes = availableModes
-                ForEach(modeBarItems) { item in
-                    let shortcut = item.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
-                    ModeBarButton(
-                        item: item,
-                        isSelected: item.isSelected(
-                            mode: fileExplorerState.mode
-                        ),
-                        badgeCount: item.mode == .feed ? feedPendingCount : 0,
-                        shortcutHint: shortcut,
-                        showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
-                            shortcut: shortcut,
-                            alwaysShowShortcutHints: alwaysShowShortcutHints,
-                            modifierPressed: modeShortcutHintMonitor.isModifierPressed,
-                            modifierHoldHintsEnabled: showModifierHoldHints
-                        )
-                    ) {
-                        let mode = item.mode
-                        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                            mode: mode,
-                            focusFirstItem: true,
-                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                        ) != true {
-                            selectMode(mode)
-                        }
-                    }
-                    .onDrag {
-                        draggingModeBarMode = item.mode
-                        return RightSidebarModeDragPayload.provider(for: item.mode)
-                    }
-                    .onDrop(
-                        of: [RightSidebarModeDragPayload.dropContentType],
-                        delegate: RightSidebarModeBarDropDelegate(
-                            targetMode: item.mode,
-                            displayedModes: displayedModes,
-                            draggingMode: $draggingModeBarMode
-                        )
-                    )
-                }
-                Spacer(minLength: 0)
-                if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
-                    openAsPaneButton(mode: fileExplorerState.mode)
-                }
-                closeButton
+            // Labels are all or nothing because the old bar shrank every label at once when it ran out of width.
+            ViewThatFits(in: .horizontal) {
+                modeBarRow(showsLabels: true)
+                modeBarRow(showsLabels: false)
             }
         }
         .rightSidebarChromeBar(
@@ -285,6 +244,57 @@ struct RightSidebarPanelView: View {
             isVisible: true,
             titlebarHeight: titlebarHeight
         )
+    }
+
+    @ViewBuilder
+    private func modeBarRow(showsLabels: Bool) -> some View {
+        HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
+            let displayedModes = availableModes
+            ForEach(modeBarItems) { item in
+                let shortcut = item.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
+                ModeBarButton(
+                    item: item,
+                    isSelected: item.isSelected(
+                        mode: fileExplorerState.mode
+                    ),
+                    badgeCount: item.mode == .feed ? feedPendingCount : 0,
+                    shortcutHint: shortcut,
+                    showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
+                        shortcut: shortcut,
+                        alwaysShowShortcutHints: alwaysShowShortcutHints,
+                        modifierPressed: modeShortcutHintMonitor.isModifierPressed,
+                        modifierHoldHintsEnabled: showModifierHoldHints
+                    ),
+                    showsLabel: showsLabels
+                ) {
+                    let mode = item.mode
+                    if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                        mode: mode,
+                        focusFirstItem: true,
+                        preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                    ) != true {
+                        selectMode(mode)
+                    }
+                }
+                .onDrag {
+                    draggingModeBarMode = item.mode
+                    return RightSidebarModeDragPayload.provider(for: item.mode)
+                }
+                .onDrop(
+                    of: [RightSidebarModeDragPayload.dropContentType],
+                    delegate: RightSidebarModeBarDropDelegate(
+                        targetMode: item.mode,
+                        displayedModes: displayedModes,
+                        draggingMode: $draggingModeBarMode
+                    )
+                )
+            }
+            Spacer(minLength: 0)
+            if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
+                openAsPaneButton(mode: fileExplorerState.mode)
+            }
+            closeButton
+        }
     }
 
     /// Right-click menu on the mode bar: show/hide each tab in place, plus a
