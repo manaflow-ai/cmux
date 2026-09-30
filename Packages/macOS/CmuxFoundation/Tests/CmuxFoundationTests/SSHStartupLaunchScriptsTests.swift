@@ -1,6 +1,14 @@
-import CmuxFoundation
 import Foundation
 import Testing
+@testable import CmuxFoundation
+
+/// Fails every permission change, as if another process read the launcher
+/// before a create-then-chmod writer could restrict it.
+private final class PermissionChangeFailingFileManager: FileManager {
+    override func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+        throw CocoaError(.fileWriteNoPermission)
+    }
+}
 
 @Suite("SSH startup launch scripts")
 struct SSHStartupLaunchScriptsTests {
@@ -55,5 +63,52 @@ struct SSHStartupLaunchScriptsTests {
 
         #expect(permissions?.intValue == 0o700)
         launchScripts.removeUnlaunched()
+    }
+
+    @Test("A launcher is owner-only from the moment it exists")
+    func scriptIsCreatedOwnerOnly() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let launchScripts = SSHStartupLaunchScripts(
+            directory: directory,
+            fileManager: PermissionChangeFailingFileManager()
+        )
+
+        // Without a later permission change, the file keeps its creation mode.
+        let script = try? launchScripts.write(scriptBody: credentialBody, remoteRelayPort: 0)
+        defer { launchScripts.removeUnlaunched() }
+        let created = try entries(in: directory)
+        #expect(created.count == 1)
+        for name in created {
+            let path = directory.appendingPathComponent(name).path
+            let permissions = try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber
+            #expect(permissions?.intValue == 0o700, "\(name) mode \(String(permissions?.intValue ?? 0, radix: 8))")
+        }
+        let written = try #require(script)
+        #expect(try String(contentsOf: written, encoding: .utf8) == "#!/bin/sh\n\(credentialBody)\n")
+    }
+
+    @Test("A launcher is never written through a file already at its path")
+    func preplacedSymlinkIsNotFollowed() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let target = directory.appendingPathComponent("target")
+        try Data("original".utf8).write(to: target)
+        let link = directory.appendingPathComponent("cmux-ssh-startup-0-fixed.sh")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let launchScripts = SSHStartupLaunchScripts(
+            directory: directory,
+            fileManager: FileManager(),
+            scriptName: { _ in "cmux-ssh-startup-0-fixed.sh" }
+        )
+
+        #expect(throws: (any Error).self) {
+            try launchScripts.write(scriptBody: credentialBody, remoteRelayPort: 0)
+        }
+        // The file at the path is not the owner's, so cleanup leaves it.
+        launchScripts.removeUnlaunched()
+
+        #expect(try String(contentsOf: target, encoding: .utf8) == "original")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == target.path)
     }
 }

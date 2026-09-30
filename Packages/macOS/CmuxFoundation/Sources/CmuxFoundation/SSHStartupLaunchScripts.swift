@@ -18,6 +18,7 @@ public import Foundation
 public final class SSHStartupLaunchScripts {
     private let directory: URL
     private let fileManager: FileManager
+    private let scriptName: (Int) -> String
     private var unlaunched: [URL] = []
 
     /// Creates an owner that writes launchers into `directory`.
@@ -25,9 +26,18 @@ public final class SSHStartupLaunchScripts {
     /// - Parameters:
     ///   - directory: Where launchers are written, normally the user's temporary directory.
     ///   - fileManager: The file manager used to write and remove launchers.
-    public init(directory: URL, fileManager: FileManager = FileManager()) {
+    public convenience init(directory: URL, fileManager: FileManager = FileManager()) {
+        self.init(directory: directory, fileManager: fileManager) { remoteRelayPort in
+            "cmux-ssh-startup-\(remoteRelayPort)-\(UUID().uuidString.lowercased()).sh"
+        }
+    }
+
+    /// Creates an owner with a fixed launcher naming rule, so tests can
+    /// place a file where the next launcher would go.
+    init(directory: URL, fileManager: FileManager, scriptName: @escaping (Int) -> String) {
         self.directory = directory
         self.fileManager = fileManager
+        self.scriptName = scriptName
     }
 
     /// Writes an executable, owner-only launcher that runs `scriptBody` with `/bin/sh`.
@@ -38,9 +48,7 @@ public final class SSHStartupLaunchScripts {
     /// - Returns: The launcher's file URL.
     /// - Throws: An error when the launcher cannot be written.
     public func write(scriptBody: String, remoteRelayPort: Int) throws -> URL {
-        let scriptURL = directory.appendingPathComponent(
-            "cmux-ssh-startup-\(remoteRelayPort)-\(UUID().uuidString.lowercased()).sh"
-        )
+        let scriptURL = directory.appendingPathComponent(scriptName(remoteRelayPort))
         let script = "#!/bin/sh\n\(scriptBody)\n"
         // Track before writing so a failed permission change still removes the file.
         unlaunched.append(scriptURL)
