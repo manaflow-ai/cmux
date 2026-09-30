@@ -33,6 +33,7 @@ extension TerminalController {
             "system.identify",
             "system.tree",
             "sidebar.custom.open",
+            "palette.list",
             "system.top",
             "system.memory",
             "automation.list",

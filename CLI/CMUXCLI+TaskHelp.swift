@@ -303,6 +303,7 @@ extension CMUXCLI {
         reload-config
         right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud|devices> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
         sidebar <validate|reload|select|open> [name]
+        palette list [--window <id|ref|index>] [--json]
         help
         """
     }

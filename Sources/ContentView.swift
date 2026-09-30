@@ -3220,6 +3220,10 @@ struct ContentView: View {
             openCommandPaletteCommands()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteAgentCommandsRequested)) { notification in
+            handleCommandPaletteAgentCommandsRequest(notification)
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .savedLayoutSaveRequested)) { notification in
             if Self.shouldHandleSavedLayoutSaveRequest(observedWindow: observedWindow, requestedWindow: notification.object as? NSWindow, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow) {
                 presentSavedLayoutSavePrompt()
@@ -7158,6 +7162,59 @@ struct ContentView: View {
         }
 
         return commands
+    }
+
+    /// Projects this window's palette rows for the `palette.list` socket method.
+    ///
+    /// Mirrors `commandPaletteCommands(commandsContext:)` gate for gate, against
+    /// the same cached context, so an agent reads the palette this window would
+    /// draw rather than a separately maintained list. One deliberate difference:
+    /// a command whose `enablement` predicate is false is listed with
+    /// `isEnabled == false` instead of being dropped, so an agent can tell a
+    /// command that does not apply right now from one that does not exist.
+    /// `CommandPaletteAgentSurface` applies the rest of the listing rules.
+    private func commandPaletteAgentCommands() -> [CommandPaletteAgentCommand] {
+        let commandsContext = commandPaletteCachedCommandsContext()
+        let context = commandsContext.snapshot
+        let candidates = commandPaletteCommandContributions().map { contribution in
+            let configuredPaletteAction = commandPaletteConfigActionID(for: contribution.commandId)
+                .flatMap { cmuxConfigStore.resolvedAction(id: $0) }
+            return CommandPaletteAgentCommandCandidate(
+                commandId: contribution.commandId,
+                title: configuredPaletteAction?.title ?? contribution.title(context),
+                subtitle: configuredPaletteAction?.subtitle ?? contribution.subtitle(context),
+                shortcutHint: commandPaletteShortcutHint(for: contribution, context: context),
+                isVisible: contribution.when(context),
+                isEnabled: contribution.enablement(context),
+                isHiddenFromPalette: configuredPaletteAction.map { !$0.palette } ?? false
+            )
+        }
+        return CommandPaletteAgentSurface.commands(from: candidates)
+    }
+
+    /// Answers a `palette.list` request that targets this window.
+    ///
+    /// Routing reuses `shouldHandleCommandPaletteRequest`, so naming no window
+    /// resolves to the key window exactly like the other palette requests do,
+    /// and a request naming another window is ignored here and answered there.
+    private func handleCommandPaletteAgentCommandsRequest(_ notification: Notification) {
+        guard let requestId = notification.userInfo?[
+            PaletteAgentCommandsBroker.requestIdKey
+        ] as? UUID else { return }
+        guard Self.shouldHandleCommandPaletteRequest(
+            observedWindow: observedWindow,
+            requestedWindow: notification.object as? NSWindow,
+            keyWindow: NSApp.keyWindow,
+            mainWindow: NSApp.mainWindow
+        ) else { return }
+        let windowId = observedWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) }
+        PaletteAgentCommandsBroker.shared.fulfill(
+            id: requestId,
+            reply: PaletteAgentCommandsReply(
+                windowId: windowId,
+                commands: commandPaletteAgentCommands()
+            )
+        )
     }
 
     private func commandPaletteShortcutHint(

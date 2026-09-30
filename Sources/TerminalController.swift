@@ -1936,6 +1936,8 @@ class TerminalController {
         case "remote.tmux.test_perturb_divider": return v2RemoteTmuxTestPerturbDivider(id: request.id, params: request.params)
         case "remote.tmux.root_frames": return v2RemoteTmuxRootFrames(id: request.id)
 #endif
+        case "palette.list":
+            return v2Result(id: request.id, v2PaletteAgentCommandsList(params: request.params))
         case "sidebar.custom.validate":
             return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
         case "sidebar.custom.reload":

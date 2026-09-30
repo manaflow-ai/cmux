@@ -158,6 +158,7 @@ extension CMUXCLI {
         "open",
         "open-browser",
         "open-notification",
+        "palette",
         "paste",
         "paste-buffer",
         "ping",

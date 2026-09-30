@@ -8125,6 +8125,13 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 windowOverride: windowId
             )
+        case "palette":
+            try runPaletteCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowId
+            )
         case "claude-hook":
             cliTelemetry.breadcrumb("claude-hook.dispatch")
             do {
@@ -20937,6 +20944,25 @@ struct CMUXCLI {
               cmux right-sidebar set custom panel-info
               cmux right-sidebar mode
             """)
+        case "palette":
+            return String(localized: "cli.palette.usage", defaultValue: """
+            Usage: cmux palette list [--window <id|ref|index>] [--json]
+
+            List the command palette entries a window offers right now. A command the
+            palette hides is absent; one that exists but does not apply to the current
+            selection is listed and marked unavailable.
+
+            Commands:
+              list              Print every palette command with its shortcut and availability
+
+            Flags:
+              --window <id|ref|index>   Read a specific window instead of the key window
+              --json                    Print the socket payload
+
+            Examples:
+              cmux palette list
+              cmux palette list --json
+            """)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
             Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]
@@ -21463,6 +21489,98 @@ struct CMUXCLI {
         let response = try sendV1Command(command, client: client)
         if parsed.positional.first?.lowercased() == "mode" {
             print(response)
+        }
+    }
+
+    /// `cmux palette list`: the command palette rows a window offers right now.
+    ///
+    /// A command the palette gates off entirely is absent; one that exists but
+    /// does not apply to the current selection is listed with `enabled: false`,
+    /// so a caller can tell "not available here" from "no such command".
+    private func runPaletteCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput inheritedJSONOutput: Bool,
+        windowOverride: String?
+    ) throws {
+        var args = commandArgs
+        var jsonOutput = inheritedJSONOutput
+        args.removeAll { arg in
+            if arg == "--json" {
+                jsonOutput = true
+                return true
+            }
+            return false
+        }
+
+        guard let action = args.first?.lowercased() else {
+            throw CLIError(
+                message: String(
+                    localized: "cli.palette.error.missingCommand",
+                    defaultValue: "palette requires a subcommand: list"
+                )
+            )
+        }
+        guard action == "list" else {
+            throw CLIError(
+                message: String(
+                    format: String(
+                        localized: "cli.palette.error.unknownCommand",
+                        defaultValue: "Unknown palette command '%@'"
+                    ),
+                    action
+                )
+            )
+        }
+
+        let remaining = Array(args.dropFirst())
+        var params: [String: Any] = [:]
+        if let windowId = try normalizeWindowHandle(
+            windowFromArgsOrOverride(remaining, windowOverride: windowOverride),
+            client: client
+        ) {
+            params["window_id"] = windowId
+        }
+
+        let payload = try client.sendV2(method: "palette.list", params: params)
+        if jsonOutput {
+            print(jsonString(payload))
+            return
+        }
+        printPaletteCommandsReport(payload)
+    }
+
+    /// Prints one line per palette command: id, title, shortcut, and a trailing
+    /// marker for the commands that are listed but not currently available.
+    private func printPaletteCommandsReport(_ payload: [String: Any]) {
+        let commands = (payload["commands"] as? [[String: Any]]) ?? []
+        guard !commands.isEmpty else {
+            print(String(
+                localized: "cli.palette.list.empty",
+                defaultValue: "No palette commands available."
+            ))
+            return
+        }
+        let idWidth = commands.reduce(0) { width, command in
+            max(width, ((command["id"] as? String) ?? "").count)
+        }
+        for command in commands {
+            let id = (command["id"] as? String) ?? ""
+            let title = (command["title"] as? String) ?? ""
+            let shortcut = (command["shortcut"] as? String) ?? ""
+            let enabled = (command["enabled"] as? Bool) ?? true
+            var line = id.padding(toLength: max(idWidth, id.count), withPad: " ", startingAt: 0)
+            line += "  " + title
+            if !shortcut.isEmpty {
+                line += "  [" + shortcut + "]"
+            }
+            if !enabled {
+                line += "  " + String(
+                    localized: "cli.palette.list.unavailableMarker",
+                    defaultValue: "(unavailable here)"
+                )
+            }
+            print(line)
         }
     }
 
