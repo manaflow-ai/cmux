@@ -260,6 +260,38 @@ struct AgentNotificationReconcilerTests {
     }
 
     @Test(arguments: ["claude", "codex"])
+    func identitylessToolActivityReopensAContinuationWithoutPromptSubmit(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10))
+        let activity = event(2, .stateChanged, source: source, turn: nil, notify: false,
+                             occurredAt: 20, declaredPhase: .running)
+        _ = reconciler.apply(activity)
+        #expect(reconciler.lifecycleEvent(activity).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func identitylessToolResolutionReopensAContinuationWithoutPromptSubmit(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10))
+        let result = event(2, .attentionResolved, source: source, turn: nil, request: "tool",
+                           pending: false, notify: false, occurredAt: 20, declaredPhase: .running)
+        _ = reconciler.apply(result)
+        #expect(reconciler.lifecycleEvent(result).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func identitylessLateStopCannotSettleAContinuation(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10))
+        let activity = event(2, .stateChanged, source: source, turn: nil, notify: false,
+                             occurredAt: 20, declaredPhase: .running)
+        _ = reconciler.apply(activity)
+        let lateStop = event(3, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10)
+        #expect(reconciler.apply(lateStop).disposition == .stale)
+        #expect(reconciler.lifecycleEvent(activity).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
     func backgroundWorkResolutionKeepsThePaneRunning(source: String) {
         var reconciler = AgentNotificationReconciler()
         _ = reconciler.apply(event(1, .turnStarted, source: source, turn: "turn-1", notify: false))

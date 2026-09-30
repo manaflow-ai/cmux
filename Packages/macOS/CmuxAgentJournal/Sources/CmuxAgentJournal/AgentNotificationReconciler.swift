@@ -76,14 +76,17 @@ public struct AgentNotificationReconciler: Sendable {
             // event can retire an immutable request/child ID behind a newer watermark.
             // A late reply still retires its own request. Only a fresh running
             // tool event may reopen a settled turn.
-            let fresh = draft.occurredAtMs >= session.occurredAtMs
+            let fresh = draft.occurredAtMs > session.occurredAtMs
+                || (draft.occurredAtMs == session.occurredAtMs && event.sequence > session.sequence)
             let incomingTurn = context?.turnIdentity
             let isNewTurn = incomingTurn != nil
                 && session.nativeTurn != nil
                 && incomingTurn != session.nativeTurn
             if draft.kind == .attentionResolved, draft.declaredPhase == .running, fresh,
                !session.ended,
-               draft.pendingWork || (isNewTurn && incomingTurn.map { !session.seenTurns.contains($0) } == true) {
+               draft.pendingWork
+                || (isNewTurn && incomingTurn.map { !session.seenTurns.contains($0) } == true)
+                || (incomingTurn == nil && fresh) {
                 // A tool completion is progress, including a continuation
                 // that starts without UserPromptSubmit. Reopen only fresh
                 // activity with a new turn identity; an older or same-turn
@@ -260,11 +263,14 @@ public struct AgentNotificationReconciler: Sendable {
                 let isNewTurn = incomingTurn != nil
                     && incomingTurn != session.nativeTurn
                     && incomingTurn.map { !session.seenTurns.contains($0) } == true
+                let isFreshIdentitylessActivity = incomingTurn == nil
+                    && (draft.occurredAtMs > session.occurredAtMs
+                        || (draft.occurredAtMs == session.occurredAtMs && event.sequence > session.sequence))
                 // A tool event without a turn identity is ambiguous after a
-                // completion. Keep a settled turn idle unless the event names
-                // a new unseen turn; active or unknown sessions may still
-                // consume identity-less activity as a running assertion.
-                guard session.phase != .idle || isNewTurn else { break }
+                // completion. Reopen only when its event timestamp/sequence is
+                // newer than the completion watermark; this admits promptless
+                // continuations while a late older event remains stale.
+                guard session.phase != .idle || isNewTurn || isFreshIdentitylessActivity else { break }
                 if isNewTurn, let incomingTurn {
                     session.turn = incomingTurn
                     session.nativeTurn = incomingTurn
