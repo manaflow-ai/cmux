@@ -121,6 +121,11 @@ public final class SettingsController {
         try await file.set(.string(engine.rawValue), at: BrowserDefaultEngine.configPath)
     }
 
+    /// Writes `ui.animationSpeed`.
+    public func setAnimationSpeed(_ speed: MotionSpeed) async throws {
+        try await file.set(.string(speed.rawValue), at: AnimationSpeedSetting.configPath)
+    }
+
     public func setDensity(_ density: Density) async throws {
         try await file.set(.string(density.rawValue), at: ["appearance", "density"])
     }

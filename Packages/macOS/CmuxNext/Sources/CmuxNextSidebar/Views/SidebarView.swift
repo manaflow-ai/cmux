@@ -189,7 +189,7 @@ public final class SidebarView: NSView {
         guard revealed != isChromeRevealed else { return }
         isChromeRevealed = revealed
         let alpha: CGFloat = revealed ? 1 : 0
-        Motion.animate(Motion.fade) {
+        Motion.animate(.hover) {
             newButton.animator().alphaValue = alpha
         }
     }

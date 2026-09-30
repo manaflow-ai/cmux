@@ -48,7 +48,7 @@ extension TabStripView {
             }
             groups.chips[group] = chip
             groups.bands[group] = band
-            motion[id] = Motion(x: 0, width: 0, alpha: animated ? 0 : 1)
+            motion[id] = TabMotion(x: 0, width: 0, alpha: animated ? 0 : 1)
             added.insert(id)
         }
         return added

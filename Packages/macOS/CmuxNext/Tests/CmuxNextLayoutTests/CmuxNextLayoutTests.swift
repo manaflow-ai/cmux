@@ -1,5 +1,6 @@
 import CoreGraphics
 import Testing
+import CmuxNextDesign
 @testable import CmuxNextLayout
 
 private func style(gap: CGFloat = 8) -> LayoutStyle {
@@ -237,7 +238,7 @@ private func style(gap: CGFloat = 8) -> LayoutStyle {
         var value = SpringValue(0)
         value.target = 100
         var frames = 0
-        while value.advance(1.0 / 120.0, parameters: .layout, epsilon: 0.25) {
+        while value.advance(1.0 / 120.0, parameters: MotionSpring.move.base, epsilon: 0.25) {
             frames += 1
             #expect(frames < 240)
         }
@@ -250,8 +251,8 @@ private func style(gap: CGFloat = 8) -> LayoutStyle {
         var slow = SpringValue(0)
         fast.target = 100
         slow.target = 100
-        for _ in 0..<12 { fast.step(1.0 / 120.0, parameters: .layout) }
-        for _ in 0..<6 { slow.step(1.0 / 60.0, parameters: .layout) }
+        for _ in 0..<12 { fast.step(1.0 / 120.0, parameters: MotionSpring.move.base) }
+        for _ in 0..<6 { slow.step(1.0 / 60.0, parameters: MotionSpring.move.base) }
         #expect(abs(fast.value - slow.value) < 0.01)
     }
 }

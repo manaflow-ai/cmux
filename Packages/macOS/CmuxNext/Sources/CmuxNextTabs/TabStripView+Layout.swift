@@ -56,11 +56,11 @@ extension TabStripView {
             guard var m = motion[slot.id] else { continue }
             if added.contains(slot.id) {
                 if let pendingDrop, pendingDrop.id == slot.id {
-                    m = Motion(x: pendingDrop.x, width: pendingDrop.width, alpha: 1)
+                    m = TabMotion(x: pendingDrop.x, width: pendingDrop.width, alpha: 1)
                     self.pendingDrop = nil
                 } else {
                     // New tabs grow in from zero width at their slot.
-                    m = Motion(x: slot.x, width: animated ? 0 : slot.width, alpha: animated ? 0 : 1)
+                    m = TabMotion(x: slot.x, width: animated ? 0 : slot.width, alpha: animated ? 0 : 1)
                 }
             }
             if drag?.id != slot.id { m.x.target = groupDragX(for: slot) ?? slot.x }
@@ -169,6 +169,7 @@ extension TabStripView {
             displayLink = link
         }
         displayLink?.isPaused = false
+        MotionTrace.begin("tabs")
     }
 
     @objc func displayLinkFired(_ link: CADisplayLink) {
@@ -182,14 +183,16 @@ extension TabStripView {
         var active = false
         for id in Array(motion.keys) {
             guard var m = motion[id] else { continue }
-            if drag?.id == id || groups.isDragged(id) { m.x.snap() }
-            m.x.step(dt)
+            if groups.isDragged(id) { m.x.snap() }
+            // The dragged tab sits exactly under the pointer; its spring
+            // only runs after release.
+            if drag?.id != id { m.x.step(dt) }
             m.width.step(dt)
             m.alpha.step(dt)
             motion[id] = m
             if dying.contains(id), m.width.isSettled, m.alpha.isSettled {
                 removeTab(id)
-            } else if !m.isSettled {
+            } else if !m.isSettled, drag?.id != id {
                 active = true
             }
         }
@@ -205,6 +208,7 @@ extension TabStripView {
         if !active {
             displayLink?.isPaused = true
             lastFrameTime = nil
+            MotionTrace.end("tabs")
         }
     }
 }

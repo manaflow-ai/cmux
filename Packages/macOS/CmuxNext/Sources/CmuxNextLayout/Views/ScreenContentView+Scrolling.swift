@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// Column strip scrolling: focus reveal, trackpad gestures with rubber
 /// banding and fling projection, and discrete mouse-wheel snaps.

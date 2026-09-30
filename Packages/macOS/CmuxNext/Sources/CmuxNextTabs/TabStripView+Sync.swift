@@ -115,7 +115,7 @@ extension TabStripView {
         cell.accessibility.onClose = { [weak self] in self?.close(id, source: .accessibility) }
         tabsClip.layer?.addSublayer(cell.layer)
         cells[id] = cell
-        motion[id] = Motion(x: 0, width: 0, alpha: animated ? 0 : 1)
+        motion[id] = TabMotion(x: 0, width: 0, alpha: animated ? 0 : 1)
         return id
     }
 

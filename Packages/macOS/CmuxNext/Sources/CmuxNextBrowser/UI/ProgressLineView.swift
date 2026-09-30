@@ -23,16 +23,20 @@ final class ProgressLineView: NSView {
         let wasVisible = self.visible
         self.progress = visible ? progress : (wasVisible ? 1 : 0)
         self.visible = visible
-        CATransaction.begin()
-        CATransaction.setDisableActions(Motion.reduced || (!wasVisible && visible))
-        CATransaction.setAnimationDuration(0.2)
-        layoutBar()
-        if visible {
-            bar.opacity = 1
-        } else if wasVisible {
-            bar.opacity = 0
+        let apply = {
+            self.layoutBar()
+            if visible {
+                self.bar.opacity = 1
+            } else if wasVisible {
+                self.bar.opacity = 0
+            }
         }
-        CATransaction.commit()
+        // A bar that just appeared starts in place; later progress glides.
+        if !wasVisible && visible {
+            Motion.transaction(nil, apply)
+        } else {
+            Motion.transaction(spring: .move, apply)
+        }
     }
 
     override func layout() {

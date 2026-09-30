@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import QuartzCore
 
 /// Drives spring animations from the view's display link (up to 120 Hz on
@@ -34,6 +35,7 @@ final class DisplayLinkDriver: NSObject {
         guard let link, link.isPaused else { return }
         lastTimestamp = nil
         link.isPaused = false
+        MotionTrace.begin("layout")
     }
 
     @objc private func tick(_ link: CADisplayLink) {
@@ -41,6 +43,9 @@ final class DisplayLinkDriver: NSObject {
         let dt = lastTimestamp.map { now - $0 } ?? link.duration
         lastTimestamp = now
         let keepGoing = onFrame?(min(max(dt, 1.0 / 240.0), 1.0 / 30.0)) ?? false
-        if !keepGoing { link.isPaused = true }
+        if !keepGoing {
+            link.isPaused = true
+            MotionTrace.end("layout")
+        }
     }
 }

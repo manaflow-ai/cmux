@@ -23,6 +23,8 @@ public final class DesignSettings {
     public static let shared = DesignSettings()
 
     public var density: Density = .compact
+    /// `ui.animationSpeed`: how fast chrome animates (see `Motion`).
+    public var animationSpeed: MotionSpeed = .fast
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
     /// Pane padding, corner radius and border from cmux.json `layout.*`,

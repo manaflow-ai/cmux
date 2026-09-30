@@ -1,30 +1,48 @@
+public import CmuxNextDesign
 public import CoreGraphics
+public import Foundation
 
-/// A damped spring driven frame by frame by the strip's display link.
-/// Retargeting keeps velocity, so interrupted animations stay continuous.
+/// A damped spring driven frame by frame by the strip's display link, tuned
+/// by a `Motion` token that is resolved on every step (so a speed change
+/// applies mid-flight). Retargeting keeps value and velocity, so an
+/// interrupted animation continues from what is on screen.
 public struct Spring: Equatable, Sendable {
     public var value: CGFloat
     public var velocity: CGFloat = 0
     public var target: CGFloat
-    public var stiffness: CGFloat
-    public var damping: CGFloat
+    /// The spring for moves toward a nonzero target. A move to 0 (close,
+    /// collapse, fade out) uses `.disappear`, which is faster.
+    public var token: MotionSpring
+    /// Settle distance. Geometry snaps to half points at 2x, so 0.25 pt of
+    /// remaining travel is invisible; opacity uses a finer value.
+    public var epsilon: CGFloat
+    /// Pointer sample for `follow(_:at:)`.
+    private var lastSample: (value: CGFloat, time: TimeInterval)?
 
-    /// `response` is the period in seconds; `dampingRatio` 1 means no overshoot.
-    public init(value: CGFloat, response: CGFloat = 0.28, dampingRatio: CGFloat = 0.92) {
+    public init(value: CGFloat, token: MotionSpring = .move, epsilon: CGFloat = 0.25) {
         self.value = value
         self.target = value
-        let omega = 2 * .pi / response
-        self.stiffness = omega * omega
-        self.damping = 2 * dampingRatio * omega
+        self.token = token
+        self.epsilon = epsilon
+    }
+
+    public static func == (lhs: Spring, rhs: Spring) -> Bool {
+        lhs.value == rhs.value && lhs.velocity == rhs.velocity && lhs.target == rhs.target && lhs.token == rhs.token && lhs.epsilon == rhs.epsilon
+    }
+
+    /// The token this step uses.
+    public var activeToken: MotionSpring {
+        target <= 0.001 && value > target ? .disappear : token
     }
 
     public var isSettled: Bool {
-        abs(target - value) < 0.05 && abs(velocity) < 0.5
+        abs(target - value) < epsilon && abs(velocity) < epsilon * 8
     }
 
     public mutating func snap() {
         value = target
         velocity = 0
+        lastSample = nil
     }
 
     public mutating func snap(to target: CGFloat) {
@@ -32,21 +50,52 @@ public struct Spring: Equatable, Sendable {
         snap()
     }
 
-    /// Advances by `dt` seconds with fixed substeps (stable at any frame rate).
+    /// Direct manipulation: the value is exactly `value` (no lag), and the
+    /// velocity is estimated from pointer samples so a release carries it.
+    public mutating func follow(_ newValue: CGFloat, at time: TimeInterval) {
+        if let last = lastSample, time > last.time {
+            let instant = (newValue - last.value) / CGFloat(time - last.time)
+            // Light smoothing: pointer events jitter at high rates.
+            velocity = velocity * 0.4 + instant * 0.6
+        }
+        lastSample = (newValue, time)
+        value = newValue
+        target = newValue
+    }
+
+    /// Ends direct manipulation at `time`: the next steps settle with the
+    /// `settle` spring from the pointer's velocity, or from rest when the
+    /// pointer had stopped (no sample in the last 50 ms).
+    public mutating func release(at time: TimeInterval) {
+        if let last = lastSample, time - last.time > 0.05 { velocity = 0 }
+        lastSample = nil
+        token = .settle
+    }
+
+    /// Advances by `dt` seconds with the token's spring.
     public mutating func step(_ dt: CGFloat) {
+        step(dt, parameters: Motion.spring(activeToken))
+    }
+
+    /// Advances by `dt` seconds with fixed substeps (stable at any frame rate).
+    public mutating func step(_ dt: CGFloat, parameters: SpringParameters) {
+        lastSample = nil
         guard !isSettled else {
-            snap()
+            settle()
             return
         }
-        var remaining = min(dt, 0.1)
-        let substep: CGFloat = 1.0 / 480.0
-        while remaining > 0 {
-            let h = min(substep, remaining)
-            let force = -stiffness * (value - target) - damping * velocity
-            velocity += force * h
-            value += velocity * h
-            remaining -= h
-        }
-        if isSettled { snap() }
+        var state = SpringValue(value)
+        state.velocity = velocity
+        state.target = target
+        state.step(Double(dt), parameters: parameters)
+        value = state.value
+        velocity = state.velocity
+        if isSettled { settle() }
+    }
+
+    private mutating func settle() {
+        snap()
+        // A release spring is for that release only; later reflows move normally.
+        if token == .settle { token = .move }
     }
 }

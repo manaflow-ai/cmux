@@ -117,9 +117,10 @@ final class TabStripButtonGroupView: NSView {
 
     private func updateColors(animated: Bool) {
         let scale = window?.backingScaleFactor ?? 2
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.12 : 0)
-        CATransaction.setDisableActions(!animated)
+        Motion.transaction(animated ? .hover : nil) { applyColors(scale: scale) }
+    }
+
+    private func applyColors(scale: CGFloat) {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             for (index, slot) in slots.enumerated() {
                 let hovered = hoveredIndex == index, pressed = pressedIndex == index
@@ -132,7 +133,6 @@ final class TabStripButtonGroupView: NSView {
                 slot.glyph.contentsScale = scale
             }
         }
-        CATransaction.commit()
     }
 }
 

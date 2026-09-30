@@ -55,6 +55,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var commandActions: [ConfigCommandAction] = []
     /// `browser.defaultEngine`; Chromium when unset or invalid.
     public var browserDefaultEngine: BrowserDefaultEngine = .fallback
+    /// `ui.animationSpeed`; "fast" when unset or invalid.
+    public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
     public var diagnostics: [SettingsDiagnostic]
 
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
@@ -85,6 +87,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let paneChrome = PaneChromeConfigParser.parse(root)
         snapshot.paneChrome = paneChrome.overrides
         snapshot.diagnostics += paneChrome.diagnostics
+        let (speed, speedDiagnostic) = AnimationSpeedSetting.parse(root)
+        snapshot.animationSpeed = speed
+        if let speedDiagnostic { snapshot.diagnostics.append(speedDiagnostic) }
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {

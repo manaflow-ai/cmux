@@ -123,15 +123,49 @@ struct SpringTests {
         #expect(velocity > 0)
     }
 
-    @Test func criticallyDampedDoesNotOvershoot() {
-        var spring = Spring(value: 0, response: 0.3, dampingRatio: 1)
+    /// Damping 0.9 overshoots 0.05%: 0.1 pt on a 200 pt move, below a pixel.
+    @Test func overshootStaysBelowAPixel() {
+        var spring = Spring(value: 0, token: .move)
         spring.target = 100
         var peak: CGFloat = 0
         for _ in 0..<240 {
             spring.step(1.0 / 120.0)
             peak = max(peak, spring.value)
         }
-        #expect(peak <= 100.01)
+        #expect(peak <= 100.1)
+    }
+
+    @Test func closingUsesTheFasterDisappearSpring() {
+        var spring = Spring(value: 120, token: .move)
+        #expect(spring.activeToken == .move)
+        spring.target = 0
+        #expect(spring.activeToken == .disappear)
+    }
+
+    @Test func draggedValueFollowsThePointerAndReleaseCarriesItsVelocity() {
+        var spring = Spring(value: 0)
+        // Pointer at 600 pt/s, sampled at 120 Hz.
+        for frame in 0...6 { spring.follow(CGFloat(frame) * 5, at: Double(frame) / 120.0) }
+        #expect(spring.value == 30)
+        #expect(spring.target == 30)
+        #expect(spring.velocity > 500 && spring.velocity < 700)
+        // Release into a slot behind the pointer: the tab keeps moving
+        // forward for a moment before it settles back.
+        spring.release(at: 6.0 / 120.0 + 0.01)
+        #expect(spring.token == .settle)
+        spring.target = 10
+        spring.step(1.0 / 120.0)
+        #expect(spring.value > 30)
+        while !spring.isSettled { spring.step(1.0 / 120.0) }
+        #expect(spring.value == 10)
+        #expect(spring.token == .move, "the release spring ends with the release")
+    }
+
+    @Test func releaseAfterThePointerStoppedStartsAtRest() {
+        var spring = Spring(value: 0)
+        for frame in 0...6 { spring.follow(CGFloat(frame) * 5, at: Double(frame) / 120.0) }
+        spring.release(at: 1)
+        #expect(spring.velocity == 0)
     }
 }
 

@@ -180,7 +180,7 @@ public final class SidebarContainerView: NSView {
         handle.isHidden = model.isHidden
     }
 
-    /// Animates to the model's presentation with a spring (instant with
+    /// Animates to the model's presentation with the appear / disappear tokens (instant with
     /// Reduce Motion). Idempotent: a repeat call for the same target does
     /// nothing, so the observation and a synchronous caller can both run it.
     private func apply() {
@@ -202,7 +202,10 @@ public final class SidebarContainerView: NSView {
         // their real size. Forcing layout inside the animation block would
         // make every subview frame an implicit animation whose completion
         // overwrites later layout.
-        Motion.animate(Motion.width, {
+        // Constraint animators ignore SwiftUI springs (they fall back to
+        // AppKit's 0.25 s default), so this is the tokens' timed equivalent.
+        // A toggle mid-animation starts from the constant on screen.
+        Motion.animateTimed(hidden ? .disappear : .appear, {
             widthConstraint.animator().constant = target
         }, completion: { [weak self] in
             guard let self, generation == self.animationGeneration, self.model.isHidden else { return }
@@ -279,14 +282,7 @@ final class SidebarResizeHandle: NSView {
     private func updateLine() {
         let target: Float = isLineVisible ? 1 : 0
         guard line.opacity != target else { return }
-        if !Motion.reduceMotion {
-            let fade = CABasicAnimation(keyPath: "opacity")
-            fade.fromValue = line.presentation()?.opacity ?? line.opacity
-            fade.toValue = target
-            fade.duration = 0.14
-            line.add(fade, forKey: "opacity")
-        }
-        line.opacity = target
+        Motion.set(line, "opacity", to: target, fade: .hover)
     }
 
     override func mouseDown(with event: NSEvent) {

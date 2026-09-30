@@ -134,6 +134,24 @@ extension ActionCatalog {
                 symbol: "rectangle.expand.vertical", surfaces: [.palette], cliName: "settings use-comfortable-density"
             ),
             ActionDescriptor(
+                id: "appearance.animationSpeed.fast",
+                title: String(localized: "action.appearance.animationSpeed.fast", defaultValue: "Use Fast Animations", bundle: .module),
+                keywords: ["animation", "motion", "speed", "fast", "snappy", "appearance"], category: .settings,
+                symbol: "hare", surfaces: [.palette], cliName: "settings use-fast-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animationSpeed.normal",
+                title: String(localized: "action.appearance.animationSpeed.normal", defaultValue: "Use Normal Animations", bundle: .module),
+                keywords: ["animation", "motion", "speed", "normal", "slow", "appearance"], category: .settings,
+                symbol: "tortoise", surfaces: [.palette], cliName: "settings use-normal-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animationSpeed.off",
+                title: String(localized: "action.appearance.animationSpeed.off", defaultValue: "Turn Off Animations", bundle: .module),
+                keywords: ["animation", "motion", "speed", "off", "disable", "reduce", "appearance"], category: .settings,
+                symbol: "figure.stand", surfaces: [.palette], cliName: "settings turn-off-animations"
+            ),
+            ActionDescriptor(
                 id: "browser.defaultEngine.chromium",
                 title: String(localized: "action.browser.defaultEngine.chromium", defaultValue: "Use Chromium for New Browser Tabs", bundle: .module),
                 keywords: ["browser", "engine", "default", "chrome", "chromium", "cef"], category: .settings,

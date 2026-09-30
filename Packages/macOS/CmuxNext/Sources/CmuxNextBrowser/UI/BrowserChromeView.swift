@@ -130,7 +130,7 @@ public final class BrowserChromeView: NSView {
         if findBar.isHidden {
             findBar.isHidden = false
             findBar.alphaValue = 0
-            Motion.animate(duration: 0.14) { self.findBar.animator().alphaValue = 1 }
+            Motion.animate(.fadeIn) { self.findBar.animator().alphaValue = 1 }
             updateOcclusion()
         }
         findBar.focus()
@@ -138,10 +138,10 @@ public final class BrowserChromeView: NSView {
 
     public func hideFindBar() {
         guard !findBar.isHidden else { return }
-        Motion.animate(duration: 0.12, { self.findBar.animator().alphaValue = 0 }) {
+        Motion.animate(.fadeOut, { self.findBar.animator().alphaValue = 0 }, completion: {
             self.findBar.isHidden = true
             self.updateOcclusion()
-        }
+        })
         returnFocusToPage()
     }
 
@@ -364,15 +364,15 @@ public final class BrowserChromeView: NSView {
         isToolbarHidden = hidden
         let height = hidden ? 0 : Self.toolbarHeight
         if !hidden { toolbar.isHidden = false; separator.isHidden = false }
-        Motion.animate(duration: 0.2, {
+        Motion.animateTimed(hidden ? .disappear : .appear, {
             self.toolbarHeight.animator().constant = height
             self.layoutSubtreeIfNeeded()
-        }) {
+        }, completion: {
             if self.isToolbarHidden {
                 self.toolbar.isHidden = true
                 self.separator.isHidden = true
             }
-        }
+        })
     }
 
     private var containsFirstResponder: Bool {

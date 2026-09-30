@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextDesign
-import SwiftUI
 
 /// Sidebar sizes and fonts, derived only from CmuxNextDesign tokens
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
@@ -35,35 +34,6 @@ enum SidebarStyle {
         color.swatch
     }
 
-}
-
-/// Spring animations that honor Reduce Motion.
-enum Motion {
-    static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
-
-    /// Row moves, gap open/close, collapse.
-    static let layout = Animation.spring(duration: 0.32, bounce: 0.12)
-    /// Selection pill glide.
-    static let selection = Animation.spring(duration: 0.26, bounce: 0.08)
-    /// Titlebar buttons fading in on hover.
-    static let fade = Animation.easeOut(duration: 0.14)
-    /// Width changes.
-    static let width = Animation.spring(duration: 0.30, bounce: 0)
-    /// Lift and drop settle.
-    static let settle = Animation.spring(duration: 0.28, bounce: 0.18)
-
-    /// Runs `changes` inside an animation context, or instantly with Reduce
-    /// Motion. AppKit calls completion handlers on the main thread.
-    static func animate(_ animation: Animation, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)? = nil) {
-        if reduceMotion {
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0
-                changes()
-            }, completionHandler: completion.map { done in { @Sendable in MainActor.assumeIsolated { done() } } })
-            return
-        }
-        NSAnimationContext.animate(animation, changes: changes, completion: completion)
-    }
 }
 
 extension NSView {

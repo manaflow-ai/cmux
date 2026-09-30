@@ -135,11 +135,10 @@ final class DividerHandleView: NSView {
             } else {
                 color = active ? Palette.focusRing.withAlphaComponent(0.6) : (showsIdleLine ? Palette.separator : .clear)
             }
-            CATransaction.begin()
-            CATransaction.setAnimationDuration(0.12)
-            line.backgroundColor = color.cgColor
-            line.cornerRadius = isEdge ? 1 : 0
-            CATransaction.commit()
+            Motion.transaction(.hover) {
+                line.backgroundColor = color.cgColor
+                line.cornerRadius = isEdge ? 1 : 0
+            }
         }
     }
 }

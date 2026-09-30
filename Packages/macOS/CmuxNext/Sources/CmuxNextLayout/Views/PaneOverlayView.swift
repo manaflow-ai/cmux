@@ -90,17 +90,12 @@ final class PaneOverlayView: NSView {
         self.ringWidth = ringWidth
         wantsRing = showsRing
         wantsBorder = showsBorder
-        CATransaction.begin()
-        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            CATransaction.setAnimationDuration(0.16)
-        } else {
-            CATransaction.setDisableActions(true)
+        Motion.transaction(animated ? .focus : nil) {
+            ring.borderWidth = ringWidth
+            ring.opacity = showsRing ? 1 : 0
+            border.opacity = showsBorder && !showsRing ? 1 : 0
+            dimLayer.opacity = Float(dim)
         }
-        ring.borderWidth = ringWidth
-        ring.opacity = showsRing ? 1 : 0
-        border.opacity = showsBorder && !showsRing ? 1 : 0
-        dimLayer.opacity = Float(dim)
-        CATransaction.commit()
     }
 
     private func applyColors() {

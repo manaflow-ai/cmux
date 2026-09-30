@@ -66,12 +66,8 @@ final class TabGroupChipCell {
         contentChanged()
     }
 
-    private static let fade: CABasicAnimation = {
-        let animation = CABasicAnimation()
-        animation.duration = 0.14
-        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        return animation
-    }()
+    /// Takes its duration from the `Motion.transaction` it runs in.
+    private static let fade = Motion.fadeAction
 
     var frame: CGRect {
         get { layer.frame }
@@ -156,8 +152,10 @@ final class TabGroupChipCell {
     }
 
     func updateColors(animated: Bool) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(!animated)
+        Motion.transaction(animated ? .hover : nil) { applyColors() }
+    }
+
+    private func applyColors() {
         appearance.performAsCurrentDrawingAppearance {
             var fill = group.colorToken.fill
             if isPressed {
@@ -169,7 +167,6 @@ final class TabGroupChipCell {
             nameLayer.foregroundColor = Palette.textPrimary.cgColor
             countLayer.foregroundColor = Palette.textSecondary.cgColor
         }
-        CATransaction.commit()
     }
 
     private func pixel(_ value: CGFloat) -> CGFloat {

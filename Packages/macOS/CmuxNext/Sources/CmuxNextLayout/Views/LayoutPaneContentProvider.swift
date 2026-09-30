@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Supplies the view hosted in each pane. The layout does not know about
 /// terminals or browsers; the App returns a view containing the tab strip
@@ -48,7 +49,8 @@ final class LayoutViewContext {
 
     var style: LayoutStyle { model.style }
 
-    var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off" (`Motion`).
+    var reduceMotion: Bool { !Motion.animatesMovement }
 
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }

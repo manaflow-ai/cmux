@@ -108,26 +108,14 @@ final class ActivityIndicatorView: NSView {
     }
 
     private func updateAnimations() {
-        let wanted = Self.animation(for: activity, inWindow: window != nil, windowVisible: isWindowVisible, reduceMotion: Motion.reduceMotion)
+        let wanted = Self.animation(for: activity, inWindow: window != nil, windowVisible: isWindowVisible, reduceMotion: !Motion.animatesLoops)
         guard wanted != runningAnimation else { return }
         shape.removeAllAnimations()
         switch wanted {
         case .spin?:
-            let spin = CABasicAnimation(keyPath: "transform.rotation.z")
-            spin.fromValue = 0
-            spin.toValue = -2 * Double.pi
-            spin.duration = 0.9
-            spin.repeatCount = .infinity
-            shape.add(spin, forKey: "spin")
+            if let spin = Motion.spinAnimation() { shape.add(spin, forKey: "spin") }
         case .pulse?:
-            let pulse = CABasicAnimation(keyPath: "opacity")
-            pulse.fromValue = 1
-            pulse.toValue = 0.35
-            pulse.duration = 0.9
-            pulse.autoreverses = true
-            pulse.repeatCount = .infinity
-            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            shape.add(pulse, forKey: "pulse")
+            if let pulse = Motion.pulseAnimation(low: 0.35) { shape.add(pulse, forKey: "pulse") }
         case nil:
             break
         }

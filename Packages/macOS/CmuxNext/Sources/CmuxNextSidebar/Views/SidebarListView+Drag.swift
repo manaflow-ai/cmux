@@ -146,7 +146,7 @@ extension SidebarListView {
     func land(_ drag: Drag) {
         let destination = displayed.row(for: drag.grabbedKey).map(frame(for:)) ?? drag.lift.frame
         drag.lift.setLifted(false, animated: true)
-        Motion.animate(Motion.settle, {
+        Motion.animate(.settle, {
             drag.lift.animator().frame = destination
         }, completion: { [weak self] in
             drag.lift.removeFromSuperview()

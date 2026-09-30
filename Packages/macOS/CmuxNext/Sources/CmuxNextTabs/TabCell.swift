@@ -127,12 +127,8 @@ final class TabCell {
         "mask": NSNull(), "path": NSNull(), "strokeColor": NSNull(), "sublayers": NSNull(),
     ]
 
-    static let fade: CABasicAnimation = {
-        let animation = CABasicAnimation()
-        animation.duration = 0.14
-        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        return animation
-    }()
+    /// Takes its duration from the `Motion.transaction` it runs in.
+    static let fade = Motion.fadeAction
 
     private func applyItem(previous: TabItem?) {
         if previous?.title != item.title {
@@ -168,13 +164,7 @@ final class TabCell {
         let key = "spin"
         if item.isBusy {
             let spinnerLayer = makeSpinner()
-            if spinnerLayer.animation(forKey: key) == nil {
-                let spin = CABasicAnimation(keyPath: "transform.rotation.z")
-                spin.fromValue = 0
-                spin.toValue = -2 * CGFloat.pi
-                spin.duration = 0.9
-                spin.repeatCount = .infinity
-                spin.isRemovedOnCompletion = false
+            if spinnerLayer.animation(forKey: key) == nil, let spin = Motion.spinAnimation() {
                 spinnerLayer.add(spin, forKey: key)
             }
         } else {
@@ -185,8 +175,10 @@ final class TabCell {
     }
 
     func updateColors(animated: Bool) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(!animated)
+        Motion.transaction(animated ? .hover : nil) { applyColors() }
+    }
+
+    private func applyColors() {
         appearance.performAsCurrentDrawingAppearance {
             let fill: NSColor? = (isSelected || isLifted) ? Palette.selectionFill : (isHovered ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
@@ -202,7 +194,6 @@ final class TabCell {
         }
         applyCloseColors()
         applyBadgeColor()
-        CATransaction.commit()
     }
 
     var badgeColor: NSColor? {

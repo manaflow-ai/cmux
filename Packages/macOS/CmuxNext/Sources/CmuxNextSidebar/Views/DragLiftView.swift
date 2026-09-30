@@ -99,31 +99,25 @@ final class DragLiftView: NSView {
         let opacity: Float = lifted ? 0.28 : 0
         let radius = lifted ? Metrics.space5 : Metrics.space2
         let offset = CGSize(width: 0, height: lifted ? Metrics.space3 : Metrics.space1)
-        if animated && !Motion.reduceMotion {
-            let group = CAAnimationGroup()
-            let o = CABasicAnimation(keyPath: "shadowOpacity")
-            o.fromValue = layer.shadowOpacity
-            o.toValue = opacity
-            let r = CABasicAnimation(keyPath: "shadowRadius")
-            r.fromValue = layer.shadowRadius
-            r.toValue = radius
-            let off = CABasicAnimation(keyPath: "shadowOffset")
-            off.fromValue = NSValue(size: layer.shadowOffset)
-            off.toValue = NSValue(size: offset)
-            group.animations = [o, r, off]
-            group.duration = 0.22
-            group.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            layer.add(group, forKey: "lift")
+        guard animated else {
+            Motion.transaction(nil) {
+                layer.shadowOpacity = opacity
+                layer.shadowRadius = radius
+                layer.shadowOffset = offset
+            }
+            return
         }
-        layer.shadowOpacity = opacity
-        layer.shadowRadius = radius
-        layer.shadowOffset = offset
+        // Each property fades from what is on screen, so a quick drop during
+        // the lift continues from the current shadow.
+        Motion.set(layer, "shadowOpacity", to: opacity, fade: .lift)
+        Motion.set(layer, "shadowRadius", to: radius, fade: .lift)
+        Motion.set(layer, "shadowOffset", to: NSValue(size: offset), fade: .lift)
     }
 
     /// Dims the card when the current hover position cannot accept the drop.
     func setRefused(_ refused: Bool) {
         let target: CGFloat = refused ? 0.55 : 1
         guard alphaValue != target else { return }
-        Motion.animate(Motion.selection) { animator().alphaValue = target }
+        Motion.animate(.hover) { animator().alphaValue = target }
     }
 }

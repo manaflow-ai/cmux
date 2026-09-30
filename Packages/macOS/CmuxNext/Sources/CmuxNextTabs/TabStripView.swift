@@ -63,15 +63,17 @@ public final class TabStripView: NSView {
 
     // MARK: Layout and animation state
 
-    struct Motion {
+    /// Per-tab springs. A tab that grows in from zero width uses the
+    /// `appear` spring; a move to zero (close, collapse) uses `disappear`.
+    struct TabMotion {
         var x: Spring
         var width: Spring
         var alpha: Spring
 
         init(x: CGFloat, width: CGFloat, alpha: CGFloat) {
-            self.x = Spring(value: x)
-            self.width = Spring(value: width)
-            self.alpha = Spring(value: alpha, response: 0.2, dampingRatio: 1)
+            self.x = Spring(value: x, token: .move)
+            self.width = Spring(value: width, token: width == 0 ? .appear : .move)
+            self.alpha = Spring(value: alpha, token: .appear, epsilon: 0.004)
         }
 
         var isSettled: Bool { x.isSettled && width.isSettled && alpha.isSettled }
@@ -87,12 +89,12 @@ public final class TabStripView: NSView {
     var cells: [TabID: TabCell] = [:]
     /// Group chips, bands, drag, and optimistic membership.
     var groups = TabStripGroupState()
-    var motion: [TabID: Motion] = [:]
+    var motion: [TabID: TabMotion] = [:]
     var dying: Set<TabID> = []
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
-    var scroll = Spring(value: 0, response: 0.32, dampingRatio: 1)
+    var scroll = Spring(value: 0, token: .scroll)
     var closingModeWidth: CGFloat?
     var hasSynced = false
     var lastSelectedID: TabID?
@@ -381,9 +383,8 @@ public final class TabStripView: NSView {
         trackingArea = area
     }
 
-    var reduceMotion: Bool {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    }
+    /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off".
+    var reduceMotion: Bool { !Motion.animatesMovement }
 
     var viewportWidth: CGFloat { tabsClip.bounds.width }
 

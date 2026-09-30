@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// Screen views: the animated screen switch.
 extension LayoutRootView {

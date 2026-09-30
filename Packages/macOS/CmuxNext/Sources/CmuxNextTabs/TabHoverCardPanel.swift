@@ -53,7 +53,7 @@ final class TabHoverCardPanel: NSPanel {
         thumbnail.layer?.cornerCurve = .continuous
         thumbnail.layer?.masksToBounds = true
         thumbnail.layer?.contentsGravity = .resizeAspectFill
-        thumbnail.layer?.actions = ["contents": Self.crossfade]
+        thumbnail.layer?.actions = ["contents": Motion.crossfadeAction]
 
         for view in [titleLabel, subtitleLabel, thumbnail] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -78,13 +78,6 @@ final class TabHoverCardPanel: NSPanel {
         thumbnailTop = top
         thumbnailHeight = height
     }
-
-    private static let crossfade: CATransition = {
-        let transition = CATransition()
-        transition.type = .fade
-        transition.duration = 0.15
-        return transition
-    }()
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -126,7 +119,7 @@ final class TabHoverCardPanel: NSPanel {
         glass.effectiveAppearance.performAsCurrentDrawingAppearance {
             layer.backgroundColor = Palette.hoverFill.cgColor
         }
-        layer.contents = image
+        Motion.transaction(.crossfade) { layer.contents = image }
     }
 
     func present(below anchor: CGRect, parent: NSWindow, sliding: Bool) {
@@ -145,37 +138,24 @@ final class TabHoverCardPanel: NSPanel {
             origin.y = max(origin.y, visible.minY + margin)
         }
         let frame = CGRect(origin: origin, size: size)
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        if sliding, isVisible, !reduceMotion {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.16
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                animator().setFrame(frame, display: true)
-            }
+        if sliding, isVisible, Motion.animatesMovement {
+            Motion.animateTimed(.panel) { animator().setFrame(frame, display: true) }
         } else {
             setFrame(frame, display: true)
         }
         if !isVisible || alphaValue < 1 {
             if !isVisible { alphaValue = 0 }
             orderFront(nil)
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = reduceMotion ? 0 : 0.12
-                animator().alphaValue = 1
-            }
+            Motion.animateTimed(.fadeIn) { animator().alphaValue = 1 }
         }
     }
 
     func dismiss() {
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.1
-            animator().alphaValue = 0
-        } completionHandler: { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, self.alphaValue == 0 else { return }
-                self.parentWindowRef?.removeChildWindow(self)
-                self.parentWindowRef = nil
-                self.orderOut(nil)
-            }
-        }
+        Motion.animateTimed(.fadeOut, { animator().alphaValue = 0 }, completion: { [weak self] in
+            guard let self, self.alphaValue == 0 else { return }
+            self.parentWindowRef?.removeChildWindow(self)
+            self.parentWindowRef = nil
+            self.orderOut(nil)
+        })
     }
 }

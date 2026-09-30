@@ -29,6 +29,7 @@ final class PaletteContentView: NSView {
     private var appliedPage = -1
     private var appliedSize = CGSize.zero
     private var menuHeight: CGFloat = 0
+    private var actionsMenuFadingOut = false
 
     init(model: PaletteModel) {
         self.model = model
@@ -146,12 +147,13 @@ final class PaletteContentView: NSView {
 
     private func updateMenu(_ state: PaletteActionsMenuState?) {
         guard let state else {
-            if !actionsMenuView.isHidden { fade(actionsMenuView, in: false) }
+            if !actionsMenuView.isHidden, !actionsMenuFadingOut { fade(actionsMenuView, in: false) }
             return
         }
         actionsMenuView.update(state, alternateID: model.selectedItem?.alternate?.id)
         menuHeight = PaletteActionsMenuView.height(for: state)
-        let wasHidden = actionsMenuView.isHidden
+        // Fading out counts as hidden, so a reopen retargets the fade.
+        let wasHidden = actionsMenuView.isHidden || actionsMenuFadingOut
         needsLayout = true
         layoutSubtreeIfNeeded()
         if wasHidden { fade(actionsMenuView, in: true) }
@@ -204,29 +206,20 @@ final class PaletteContentView: NSView {
 
     // MARK: Animation
 
-    private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
-
-    /// Springs open from 96.5% scale anchored at the top edge, with a fade.
+    /// Opens with a fade and a spring from 97% scale anchored at the top
+    /// edge (Spotlight-like). Reopening while the close still runs continues
+    /// from what is on screen instead of restarting from zero.
     func animateIn() {
         guard let layer else { return }
         layoutSubtreeIfNeeded()
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 0
-        fade.toValue = 1
-        fade.duration = reduceMotion ? 0.12 : 0.18
-        layer.add(fade, forKey: "palette.fade")
-        guard !reduceMotion else { return }
-        let spring = CASpringAnimation(keyPath: "sublayerTransform")
-        spring.fromValue = NSValue(caTransform3D: scaleAboutTopCenter(0.965))
-        spring.toValue = NSValue(caTransform3D: CATransform3DIdentity)
-        spring.mass = 1
-        spring.stiffness = 420
-        spring.damping = 30
-        spring.duration = spring.settlingDuration
-        layer.add(spring, forKey: "palette.scale")
+        let closing = layer.animation(forKey: "opacity") != nil
+        Motion.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: closing ? nil : Float(0))
+        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .panel,
+                   from: closing ? nil : NSValue(caTransform3D: scaleAboutTopCenter(0.97)))
     }
 
-    /// Fades out (with a slight shrink) and calls `completion` when done.
+    /// Fades out (with a slight shrink) faster than it opened and calls
+    /// `completion` when done.
     func animateOut(completion: @escaping @MainActor () -> Void) {
         guard let layer else {
             completion()
@@ -234,30 +227,15 @@ final class PaletteContentView: NSView {
         }
         CATransaction.begin()
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 1
-        fade.toValue = 0
-        fade.duration = reduceMotion ? 0.1 : 0.14
-        fade.fillMode = .forwards
-        fade.isRemovedOnCompletion = false
-        layer.add(fade, forKey: "palette.fade")
-        if !reduceMotion {
-            let shrink = CABasicAnimation(keyPath: "sublayerTransform")
-            shrink.fromValue = NSValue(caTransform3D: CATransform3DIdentity)
-            shrink.toValue = NSValue(caTransform3D: scaleAboutTopCenter(0.98))
-            shrink.duration = fade.duration
-            shrink.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            shrink.fillMode = .forwards
-            shrink.isRemovedOnCompletion = false
-            layer.add(shrink, forKey: "palette.scale")
-        }
+        Motion.set(layer, "opacity", to: Float(0), fade: .fadeOut)
+        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: scaleAboutTopCenter(0.98)), fade: .fadeOut)
         CATransaction.commit()
     }
 
     /// Clears finished close animations so the next open starts clean.
     func resetAnimations() {
-        layer?.removeAnimation(forKey: "palette.fade")
-        layer?.removeAnimation(forKey: "palette.scale")
+        layer?.removeAnimation(forKey: "opacity")
+        layer?.removeAnimation(forKey: "sublayerTransform")
     }
 
     private func scaleAboutTopCenter(_ scale: CGFloat) -> CATransform3D {
@@ -271,14 +249,18 @@ final class PaletteContentView: NSView {
         return CATransform3DTranslate(transform, -dx, -dy, 0)
     }
 
+    /// Fades the actions menu. The fade starts from the view's current
+    /// presentation opacity, so a reopen mid-fade does not jump.
     private func fade(_ view: NSView, in appearing: Bool) {
-        view.isHidden = false
-        if appearing { view.alphaValue = 0 }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = reduceMotion ? 0.08 : 0.14
-            view.animator().alphaValue = appearing ? 1 : 0
-        } completionHandler: {
-            MainActor.assumeIsolated { if !appearing { view.isHidden = true } }
+        if view.isHidden {
+            view.alphaValue = 0
+            view.isHidden = false
         }
+        actionsMenuFadingOut = !appearing
+        Motion.animate(appearing ? .fadeIn : .fadeOut, { view.animator().alphaValue = appearing ? 1 : 0 }, completion: { [weak self] in
+            guard let self, self.actionsMenuFadingOut, !appearing else { return }
+            self.actionsMenuFadingOut = false
+            view.isHidden = true
+        })
     }
 }

@@ -54,7 +54,7 @@ extension TabStripView {
             index = displayed.count(where: \.isPinned) + resolution.index
             group = resolution.groupID
         }
-        motion[drag.id]?.x.snap(to: x)
+        motion[drag.id]?.x.follow(x, at: event?.timestamp ?? CACurrentMediaTime())
         let moved = index != drag.currentIndex || group != drag.targetGroup
         drag.currentIndex = index
         drag.targetGroup = group
@@ -98,6 +98,8 @@ extension TabStripView {
         self.drag = nil
         removeEscapeMonitor()
         cells[drag.id]?.isLifted = false
+        // The release settles into the slot carrying the pointer's velocity.
+        motion[drag.id]?.x.release(at: CACurrentMediaTime())
         let regrouped = drag.targetGroup != drag.originalGroup
         if drag.currentIndex != drag.originalIndex || regrouped {
             var ids = displayed.map(\.id)

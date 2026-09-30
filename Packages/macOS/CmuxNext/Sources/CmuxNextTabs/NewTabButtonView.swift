@@ -74,14 +74,12 @@ final class NewTabButtonView: NSView {
     }
 
     private func updateColors(animated: Bool) {
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(animated ? 0.14 : 0)
-        CATransaction.setDisableActions(!animated)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            fillLayer.backgroundColor = isPressed ? Palette.selectionFill.cgColor : (isHovered ? Palette.hoverFill.cgColor : nil)
-            glyphLayer.strokeColor = (isHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
+        Motion.transaction(animated ? .hover : nil) {
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                fillLayer.backgroundColor = isPressed ? Palette.selectionFill.cgColor : (isHovered ? Palette.hoverFill.cgColor : nil)
+                glyphLayer.strokeColor = (isHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
+            }
         }
-        CATransaction.commit()
     }
 
     override func accessibilityPerformPress() -> Bool {

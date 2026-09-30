@@ -174,10 +174,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         styleFieldEditor()
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.12
-            animator().alphaValue = 1
-        }
+        Motion.animateTimed(.fadeIn) { animator().alphaValue = 1 }
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.

@@ -48,48 +48,36 @@ final class SidebarDecorationView: NSView {
 
     /// Moves the pill under the active row (nil hides it).
     func setPill(_ frame: CGRect?, animated: Bool) {
-        move(pill, to: frame, animated: animated, perceptualDuration: 0.26, bounce: 0.08)
+        move(pill, to: frame, animated: animated, spring: .selection)
     }
 
     /// Shows the drag gap placeholder (nil hides it).
     func setGap(_ frame: CGRect?, animated: Bool) {
-        move(gap, to: frame, animated: animated, perceptualDuration: 0.32, bounce: 0.12)
+        move(gap, to: frame, animated: animated, spring: .move)
     }
 
-    private func move(_ layer: CALayer, to frame: CGRect?, animated: Bool, perceptualDuration: TimeInterval, bounce: CGFloat) {
+    /// Springs `layer` to `frame` from its on-screen position (a new move
+    /// mid-glide retargets without a jump) and fades it in or out.
+    private func move(_ layer: CALayer, to frame: CGRect?, animated: Bool, spring: MotionSpring) {
         updateColors()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
         let visible = frame != nil
         let wasVisible = layer.opacity > 0
-        let animate = animated && !Motion.reduceMotion
         if let frame {
-            if animate && wasVisible && layer.frame != frame {
-                let current = layer.presentation() ?? layer
-                for (key, from, to) in [
-                    ("position", NSValue(point: current.position), NSValue(point: CGPoint(x: frame.midX, y: frame.midY))),
-                    ("bounds", NSValue(rect: current.bounds), NSValue(rect: CGRect(origin: .zero, size: frame.size))),
-                ] {
-                    let spring = CASpringAnimation(perceptualDuration: perceptualDuration, bounce: bounce)
-                    spring.keyPath = key
-                    spring.fromValue = from
-                    spring.toValue = to
-                    layer.add(spring, forKey: key)
-                }
+            let position = NSValue(point: CGPoint(x: frame.midX, y: frame.midY))
+            let bounds = NSValue(rect: CGRect(origin: .zero, size: frame.size))
+            if animated && wasVisible && layer.frame != frame {
+                Motion.set(layer, "position", to: position, spring: spring)
+                Motion.set(layer, "bounds", to: bounds, spring: spring)
+            } else {
+                Motion.transaction(nil) { layer.frame = frame }
             }
-            layer.frame = frame
         }
         let opacity: Float = visible ? 1 : 0
-        if layer.opacity != opacity {
-            if animate {
-                let fade = CABasicAnimation(keyPath: "opacity")
-                fade.fromValue = layer.presentation()?.opacity ?? layer.opacity
-                fade.toValue = opacity
-                fade.duration = 0.16
-                layer.add(fade, forKey: "opacity")
-            }
-            layer.opacity = opacity
+        guard layer.opacity != opacity else { return }
+        if animated {
+            Motion.set(layer, "opacity", to: opacity, fade: visible ? .fadeIn : .fadeOut)
+        } else {
+            Motion.transaction(nil) { layer.opacity = opacity }
         }
     }
 }

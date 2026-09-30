@@ -48,15 +48,13 @@ final class OmnibarPillView: NSView {
         case .editing, .card: OmnibarStyle.cardFill
         }
         let ring = state == .editing ? OmnibarStyle.ringWidth : 0
-        CATransaction.begin()
-        CATransaction.setDisableActions(!animated || Motion.reduced)
-        CATransaction.setAnimationDuration(0.12)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = fill.cgColor
-            layer?.borderColor = OmnibarStyle.ring.cgColor
+        Motion.transaction(animated ? .hover : nil) {
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                layer?.backgroundColor = fill.cgColor
+                layer?.borderColor = OmnibarStyle.ring.cgColor
+            }
+            layer?.borderWidth = ring
         }
-        layer?.borderWidth = ring
-        CATransaction.commit()
     }
 }
 

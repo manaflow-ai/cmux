@@ -66,8 +66,8 @@ final class TabDragSession: NSObject {
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
         let scale = window?.window?.backingScaleFactor ?? 2
         let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, aspect: aspect, scale: scale)
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        let motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: reduceMotion)
+        let motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.animatesMovement,
+                                        rectSpring: Motion.spring(.track), morphSpring: Motion.spring(.appear))
         let windowFrame = window?.window?.frame ?? .zero
         let source = Source(
             item: item, payload: payload, pane: pane, window: window, screenFrame: frame, grabOffset: grabOffset,
@@ -152,6 +152,7 @@ final class TabDragSession: NSObject {
     func update(_ point: CGPoint) {
         guard let drag else { return }
         drag.point = point
+        drag.samplePointer(point, at: CACurrentMediaTime())
         if case .workspaces = drag.source.item { return updateWorkspaces(point, drag: drag) }
         let hit = hitTest(point, drag: drag)
         if let previous = drag.winner, previous.provider !== hit.winner?.provider {

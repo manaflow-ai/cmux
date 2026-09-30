@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 // A one-line notice over the bottom of the page (BrowserNoticeView). The
 // host decides when to show one; the chrome keeps at most one and removes it
@@ -16,9 +17,9 @@ extension BrowserChromeView {
     public func hideNotice() {
         guard let notice = currentNotice else { return }
         notice.isDismissing = true
-        Motion.animate(duration: 0.12, { notice.animator().alphaValue = 0 }) {
+        Motion.animate(.fadeOut, { notice.animator().alphaValue = 0 }, completion: {
             notice.removeFromSuperview()
-        }
+        })
     }
 
     /// The notice text on screen (tests, diagnostics).
@@ -39,7 +40,7 @@ extension BrowserChromeView {
             notice.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: inset),
         ])
         notice.alphaValue = 0
-        Motion.animate(duration: 0.14) { notice.animator().alphaValue = 1 }
+        Motion.animate(.fadeIn) { notice.animator().alphaValue = 1 }
         return notice
     }
 }

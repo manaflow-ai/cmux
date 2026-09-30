@@ -168,6 +168,7 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
         updateDocumentHeight()
         let realize = realizationRect()
         var targets: [(SidebarRowView, NSRect)] = []
+        var appearing: [(SidebarRowView, NSRect)] = []
         var keep = Set<SidebarRowKey>()
         let animate = animated && !old.rows.isEmpty
 
@@ -194,6 +195,8 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
             if suppressed.contains(row.key) {
                 view.frame = target
                 view.alphaValue = 0
+            } else if animate, existing == nil, old.row(for: row.key) == nil {
+                appearing.append((view, target))
             } else {
                 targets.append((view, target))
             }
@@ -215,30 +218,36 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
         decorations.setPill(pillFrame, animated: animate)
         decorations.setGap(gapFrame, animated: animate)
 
-        let changes = {
+        let moves = {
             for (view, target) in targets {
                 view.animator().frame = target
                 view.animator().alphaValue = 1
             }
+        }
+        guard animate else {
+            Motion.withoutAnimation(moves)
+            leaving.forEach(recycle)
+            return
+        }
+        // Existing rows move, new rows (group expand, insert) appear, and
+        // removed rows (group collapse, close) leave faster still.
+        Motion.animate(.move, moves)
+        Motion.animate(.appear) {
+            for (view, target) in appearing {
+                view.animator().frame = target
+                view.animator().alphaValue = 1
+            }
+        }
+        Motion.animate(.disappear, {
             for view in leaving {
                 view.animator().alphaValue = 0
                 view.animator().frame = view.frame.offsetBy(dx: 0, dy: -Metrics.space3)
             }
-        }
-        if animate {
-            Motion.animate(Motion.layout, changes) { [weak self] in
-                guard let self else { return }
-                for view in leaving where !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
-                self.pruneOffscreen()
-            }
-        } else {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0
-                context.allowsImplicitAnimation = false
-                changes()
-            }
-            leaving.forEach(recycle)
-        }
+        }, completion: { [weak self] in
+            guard let self else { return }
+            for view in leaving where !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
+            self.pruneOffscreen()
+        })
     }
 
     func activePillFrame(in layout: SidebarLayout) -> NSRect? {

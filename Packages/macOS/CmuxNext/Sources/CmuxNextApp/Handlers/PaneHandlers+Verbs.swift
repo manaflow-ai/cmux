@@ -62,10 +62,11 @@ extension PaneHandlers {
         })
     }
 
-    /// A brief gray ring over the pane (no accent color), faded by Core
-    /// Animation; Reduce Motion shortens it to a plain fade.
+    /// A brief gray ring over the pane (no accent color): two blinks
+    /// (`Motion.flashAnimation`), one fade under Reduce Motion, none when
+    /// animations are off.
     private static func flash(_ view: NSView) {
-        guard let host = view.layer else { return }
+        guard let host = view.layer, let fade = Motion.flashAnimation() else { return }
         let ring = CALayer()
         ring.frame = host.bounds.insetBy(dx: 2, dy: 2)
         ring.borderWidth = 3
@@ -73,10 +74,6 @@ extension PaneHandlers {
         ring.borderColor = Palette.focusRing.cgColor
         ring.opacity = 0
         host.addSublayer(ring)
-        let fade = CAKeyframeAnimation(keyPath: "opacity")
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        fade.values = reduceMotion ? [1, 0] : [0, 1, 1, 0, 1, 0]
-        fade.duration = reduceMotion ? 0.35 : 0.9
         CATransaction.begin()
         CATransaction.setCompletionBlock { ring.removeFromSuperlayer() }
         ring.add(fade, forKey: "flash")

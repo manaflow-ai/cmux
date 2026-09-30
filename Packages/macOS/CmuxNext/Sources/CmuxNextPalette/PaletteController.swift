@@ -119,7 +119,6 @@ public final class PaletteController {
             panel.parent?.removeChildWindow(panel)
             parent.addChildWindow(panel, ordered: .above)
         }
-        contentView?.resetAnimations()
         // Without the keys while the app is inactive (ActiveAppKeyPanel).
         panel.makeKeyAndOrderFront(nil)
         contentView?.focusField()

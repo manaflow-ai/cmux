@@ -158,13 +158,13 @@ final class ScreenContentView: NSView {
     func step(_ dt: Double) -> Bool {
         var moving = false
         for key in Array(paneFrames.keys) {
-            if paneFrames[key]!.advance(dt, parameters: .layout) { moving = true }
+            if paneFrames[key]!.advance(dt, parameters: Motion.spring(.move)) { moving = true }
         }
         for key in Array(dividerFrames.keys) {
-            if dividerFrames[key]!.advance(dt, parameters: .layout) { moving = true }
+            if dividerFrames[key]!.advance(dt, parameters: Motion.spring(.move)) { moving = true }
         }
         if !isUserScrolling {
-            if scroll.advance(dt, parameters: .scroll, epsilon: 0.25) {
+            if scroll.advance(dt, parameters: Motion.spring(.scroll), epsilon: 0.25) {
                 moving = true
             } else if reportScrollOnSettle {
                 reportScrollOnSettle = false

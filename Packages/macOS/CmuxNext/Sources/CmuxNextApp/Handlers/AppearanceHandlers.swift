@@ -4,8 +4,8 @@ import CmuxNextDesign
 import CmuxNextSettings
 import os
 
-/// Density, interface size (the chrome body font; terminal fonts come
-/// from the Ghostty config) and pane chrome (border, padding). Applied to `DesignSettings` at once, then
+/// Density, animation speed, interface size (the chrome body font; terminal
+/// fonts come from the Ghostty config) and pane chrome (border, padding). Applied to `DesignSettings` at once, then
 /// written to cmux.json, which owns settings; the watcher reapplies the
 /// same value.
 enum AppearanceHandlers {
@@ -14,6 +14,9 @@ enum AppearanceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("appearance.density.compact", run: { _ in setDensity(.compact, context) })
         registry.bind("appearance.density.comfortable", run: { _ in setDensity(.comfortable, context) })
+        for speed in MotionSpeed.allCases {
+            registry.bind(ActionID(rawValue: "appearance.animationSpeed.\(speed.rawValue)"), run: { _ in setAnimationSpeed(speed, context) })
+        }
         registry.bind("appearance.interfaceSize.increase", run: { _ in stepInterfaceSize(by: 1, context) })
         registry.bind("appearance.interfaceSize.decrease", run: { _ in stepInterfaceSize(by: -1, context) })
         registry.bind("appearance.paneBorder.toggle", run: { _ in togglePaneBorder(context) })
@@ -70,6 +73,12 @@ enum AppearanceHandlers {
         design.setPaneChrome(chrome)
         let radius = chrome.cornerRadius.map(Double.init)
         write(context, "toggle pane corners") { try await $0.setPaneCornerRadius(radius) }
+    }
+
+    /// `ui.animationSpeed`: applied at once, then written to cmux.json.
+    private static func setAnimationSpeed(_ speed: MotionSpeed, _ context: AppActionContext) {
+        DesignSettings.shared.animationSpeed = speed
+        write(context, "set animation speed") { try await $0.setAnimationSpeed(speed) }
     }
 
     /// Body size in points: the override, else the density default.

@@ -218,7 +218,7 @@ public final class LayoutRootView: NSView {
             if view.step(dt) { moving = true }
         }
         for id in Array(screenFrames.keys) {
-            if screenFrames[id]!.advance(dt, parameters: .screen) { moving = true }
+            if screenFrames[id]!.advance(dt, parameters: Motion.spring(.screen)) { moving = true }
         }
         applyScreenFrames()
         if highlight.step(dt) { moving = true }

@@ -1,4 +1,4 @@
-public import CmuxNextLayout
+public import CmuxNextDesign
 public import CoreGraphics
 
 /// Motion model of the drag ghost. The ghost tracks the pointer with zero
@@ -19,13 +19,18 @@ public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
     private var scale = SpringValue(1)
     public var reduceMotion: Bool
 
-    public static let rectSpring = SpringParameters(response: 0.22, dampingFraction: 0.84)
-    public static let morphSpring = SpringParameters(response: 0.26, dampingFraction: 1)
+    /// Spring for jumps between targets (`Motion` `.track`; `.settle` for a landing).
+    public var rectSpring: SpringParameters
+    /// Spring for card <-> inline morph, opacity and scale (`Motion` `.appear`).
+    public var morphSpring: SpringParameters
 
-    public init(rect: CGRect, cardness: CGFloat, reduceMotion: Bool = false) {
+    public init(rect: CGRect, cardness: CGFloat, reduceMotion: Bool = false,
+                rectSpring: SpringParameters = MotionSpring.track.base, morphSpring: SpringParameters = MotionSpring.appear.base) {
         targetRect = rect
         self.cardness = SpringValue(cardness)
         self.reduceMotion = reduceMotion
+        self.rectSpring = rectSpring
+        self.morphSpring = morphSpring
     }
 
     public var presentedRect: CGRect {
@@ -39,12 +44,19 @@ public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
 
     /// Moves the target. `jump` marks a discontinuity (new mode, slot, or
     /// destination): the presented rect stays where it is and springs over.
-    /// Without `jump` the ghost follows the target exactly.
-    public mutating func setTarget(_ rect: CGRect, cardness: CGFloat, opacity: CGFloat = 1, scale: CGFloat = 1, jump: Bool) {
+    /// Without `jump` the ghost follows the target exactly. `velocity`
+    /// (points per second) is the pointer's at a release: the ghost leaves
+    /// with it instead of stopping dead.
+    public mutating func setTarget(_ rect: CGRect, cardness: CGFloat, opacity: CGFloat = 1, scale: CGFloat = 1, jump: Bool,
+                                   velocity: CGVector = .zero) {
         if jump {
             let presented = presentedRect
             dx.value = presented.minX - rect.minX
             dy.value = presented.minY - rect.minY
+            if velocity != .zero {
+                dx.velocity = velocity.dx
+                dy.velocity = velocity.dy
+            }
             dw.value = presented.width - rect.width
             dh.value = presented.height - rect.height
         }
@@ -62,12 +74,12 @@ public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
             return false
         }
         var moving = false
-        for keyPath in [\Self.dx, \.dy, \.dw, \.dh] where self[keyPath: keyPath].advance(dt, parameters: Self.rectSpring, epsilon: 0.25) {
+        for keyPath in [\Self.dx, \.dy, \.dw, \.dh] where self[keyPath: keyPath].advance(dt, parameters: rectSpring, epsilon: 0.25) {
             moving = true
         }
-        if cardness.advance(dt, parameters: Self.morphSpring, epsilon: 0.002) { moving = true }
-        if opacity.advance(dt, parameters: Self.morphSpring, epsilon: 0.002) { moving = true }
-        if scale.advance(dt, parameters: Self.morphSpring, epsilon: 0.002) { moving = true }
+        if cardness.advance(dt, parameters: morphSpring, epsilon: 0.002) { moving = true }
+        if opacity.advance(dt, parameters: morphSpring, epsilon: 0.002) { moving = true }
+        if scale.advance(dt, parameters: morphSpring, epsilon: 0.002) { moving = true }
         return moving
     }
 

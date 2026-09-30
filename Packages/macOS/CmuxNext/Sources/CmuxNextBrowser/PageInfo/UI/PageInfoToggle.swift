@@ -45,9 +45,13 @@ final class PageInfoToggle: NSView {
     }
 
     private func refresh(animated: Bool) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(!animated || Motion.reduced)
-        CATransaction.setAnimationDuration(0.15)
+        // The knob slides with the selection token (instant under Reduce
+        // Motion or when animations are off).
+        guard animated else { return Motion.transaction(nil) { applyState() } }
+        Motion.transaction(spring: .selection) { applyState() }
+    }
+
+    private func applyState() {
         let size = bounds.size == .zero ? PageInfoStyle.toggleSize : bounds.size
         track.frame = CGRect(origin: .zero, size: size)
         track.cornerRadius = size.height / 2
@@ -59,7 +63,6 @@ final class PageInfoToggle: NSView {
             track.backgroundColor = (isOn ? PageInfoStyle.text : PageInfoStyle.pressed).cgColor
             knob.backgroundColor = (isOn ? PageInfoStyle.background : PageInfoStyle.secondaryText).cgColor
         }
-        CATransaction.commit()
     }
 
     override func viewDidChangeEffectiveAppearance() {

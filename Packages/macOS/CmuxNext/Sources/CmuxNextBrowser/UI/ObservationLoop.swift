@@ -27,30 +27,6 @@ final class ObservationLoop {
     }
 }
 
-enum Motion {
-    static var reduced: Bool {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    }
-
-    /// Runs `changes` inside an animation context, or directly when Reduce
-    /// Motion is on.
-    static func animate(duration: TimeInterval = 0.18, _ changes: @escaping () -> Void, completion: (@MainActor @Sendable () -> Void)? = nil) {
-        guard !reduced else {
-            changes()
-            completion?()
-            return
-        }
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = duration
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
-            context.allowsImplicitAnimation = true
-            changes()
-        }, completionHandler: {
-            MainActor.assumeIsolated { completion?() }
-        })
-    }
-}
-
 /// Backing for glass overlays that sit over web content. Glass alone picks
 /// up the page's colors, which leaves text illegible on bright pages in dark
 /// mode, so overlays add a neutral gray veil under their content.

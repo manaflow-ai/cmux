@@ -47,6 +47,9 @@ extension TabDragSession {
         let ghost: TabDragGhostPanel
         var motion: TabDragGhostMotion
         var point: CGPoint
+        /// Pointer velocity in points per second, from `samplePointer`.
+        var pointerVelocity = CGVector.zero
+        var lastPointerSample: (point: CGPoint, time: CFTimeInterval)?
         var winner: Winner?
         var outcome: TabDragOutcome = .cancel
         var presentation: Presentation = .none
@@ -67,6 +70,23 @@ extension TabDragSession {
             self.ghost = ghost
             self.motion = motion
             self.point = point
+        }
+
+        /// Records a pointer position for the release velocity.
+        func samplePointer(_ point: CGPoint, at time: CFTimeInterval) {
+            if let last = lastPointerSample, time > last.time {
+                let dt = time - last.time
+                let instant = CGVector(dx: (point.x - last.point.x) / dt, dy: (point.y - last.point.y) / dt)
+                pointerVelocity = CGVector(dx: pointerVelocity.dx * 0.4 + instant.dx * 0.6, dy: pointerVelocity.dy * 0.4 + instant.dy * 0.6)
+            }
+            lastPointerSample = (point, time)
+        }
+
+        /// The velocity to carry into a release at `time`: zero when the
+        /// pointer had stopped (no sample in the last 50 ms).
+        func releaseVelocity(at time: CFTimeInterval) -> CGVector {
+            guard let last = lastPointerSample, time - last.time <= 0.05 else { return .zero }
+            return pointerVelocity
         }
     }
 }

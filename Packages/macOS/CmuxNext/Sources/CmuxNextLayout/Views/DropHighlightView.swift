@@ -73,7 +73,7 @@ final class DropHighlightView: NSView {
     }
 
     func step(_ dt: Double) -> Bool {
-        let moving = frameSpring.advance(dt, parameters: .highlight)
+        let moving = frameSpring.advance(dt, parameters: Motion.spring(.track))
         apply()
         return moving
     }
