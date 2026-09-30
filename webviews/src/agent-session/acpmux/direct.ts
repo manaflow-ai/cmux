@@ -267,6 +267,8 @@ export class AcpmuxDirectClient {
         this.pendingPermission = undefined;
         this.emit("session purged");
         if (this.selectedSessionId) void this.attach(this.selectedSessionId, undefined, generation).catch(() => undefined);
+      } else {
+        this.emit("session purged");
       }
       return;
     }
@@ -275,8 +277,8 @@ export class AcpmuxDirectClient {
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
       this.queue = (session.queue ?? this.queue).map((entry: any) => ({ id: String(entry.promptId ?? entry.id), prompt: String(entry.text ?? entry.prompt ?? entry.preview ?? "") }));
-      this.emit("session changed");
     }
+    this.emit("session changed");
   }
 
   private applyPermission(message: any): void {
