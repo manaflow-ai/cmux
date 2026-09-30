@@ -67,7 +67,13 @@ const apiKeysRoute = createRoute({
   getParentRoute: () => settingsRoute,
   pendingComponent: sectionPending,
   path: "/api-keys",
-  loader: ({ context: { queryClient } }) => settled(queryClient.prefetchQuery(settingsOverviewQuery), queryClient.prefetchQuery(settingsApiKeysQuery)),
+  loader: async ({ context: { queryClient } }) => {
+    await queryClient.prefetchQuery(settingsOverviewQuery);
+    // The key list exists only when the project allows user API keys.
+    if (queryClient.getQueryData(settingsOverviewQuery.queryKey)?.project.allowUserApiKeys) {
+      await queryClient.prefetchQuery(settingsApiKeysQuery);
+    }
+  },
   component: lazyRouteComponent(pages, "SettingsApiKeysPage"),
 });
 

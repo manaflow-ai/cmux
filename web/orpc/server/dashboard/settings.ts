@@ -133,7 +133,10 @@ export type SettingsApiKey = z.output<typeof apiKeySchema>;
 const apiKeys = authed
   .output(z.array(apiKeySchema))
   .handler(async ({ context }) => {
-    const keys = await (await sessionStackUser(context.request)).listApiKeys();
+    const [user, project] = await Promise.all([sessionStackUser(context.request), getStackServerApp().getProject()]);
+    // Stack throws for a project without user API keys; that is a known state, not a server fault.
+    if (!project.config.allowUserApiKeys) throw dashboardRefusal(403, "api_keys_disabled");
+    const keys = await user.listApiKeys();
     return keys.map((key) => ({
       id: key.id,
       description: key.description,

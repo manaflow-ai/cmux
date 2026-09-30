@@ -83,7 +83,12 @@ function settingsPrefetches(page: string | undefined): Prefetch[] {
     case "sessions":
       return [query(settingsSessionsQuery, (client) => client.settings.sessions())];
     case "api-keys":
-      return [overview, query(settingsApiKeysQuery, (client) => client.settings.apiKeys())];
+      return [async (client, queryClient) => {
+        await overview(client, queryClient);
+        if (queryClient.getQueryData(settingsOverviewQuery.queryKey)?.project.allowUserApiKeys) {
+          await query(settingsApiKeysQuery, (server) => server.settings.apiKeys())(client, queryClient);
+        }
+      }];
     case "account":
       return [overview];
     default:
