@@ -31,6 +31,9 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
     var rename: Rename?
+    /// An inline rename ended; `byKeyboard` for Return, Escape or Tab (a
+    /// click elsewhere already moved focus).
+    var onRenameEnded: ((_ byKeyboard: Bool) -> Void)?
     var autoscrollLink: CADisplayLink?
     var external: ExternalDrag?
     /// Offered a row drag whose pointer left the sidebar sideways (another

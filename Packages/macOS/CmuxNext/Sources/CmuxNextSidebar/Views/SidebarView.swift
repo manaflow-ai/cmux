@@ -54,6 +54,13 @@ public final class SidebarView: NSView {
 
     // MARK: Public API
 
+    /// An inline rename ended (commit or cancel). `byKeyboard` is true for
+    /// Return, Escape or Tab; the host can return focus to its content.
+    public var onRenameEnded: ((_ byKeyboard: Bool) -> Void)? {
+        get { list.onRenameEnded }
+        set { list.onRenameEnded = newValue }
+    }
+
     /// Installs (or removes, with nil) the view in a footer slot.
     public func setAccessory(_ view: NSView?, for slot: SidebarAccessorySlot) {
         accessories[slot]?.removeFromSuperview()

@@ -54,7 +54,8 @@ extension SidebarListView {
         field.currentEditor()?.selectAll(nil)
     }
 
-    func endRename(commit: Bool) {
+    /// `byKeyboard`: Return, Escape or Tab ended it (not a click elsewhere).
+    func endRename(commit: Bool, byKeyboard: Bool = false) {
         guard let rename else { return }
         self.rename = nil
         rename.field.delegate = nil
@@ -70,17 +71,18 @@ extension SidebarListView {
             reload(animated: false)
         }
         window?.makeFirstResponder(self)
+        onRenameEnded?(byKeyboard)
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         guard rename?.field === control else { return false }
         if selector == #selector(NSResponder.cancelOperation(_:)) {
             rename?.cancelled = true
-            endRename(commit: false)
+            endRename(commit: false, byKeyboard: true)
             return true
         }
         if selector == #selector(NSResponder.insertNewline(_:)) {
-            endRename(commit: true)
+            endRename(commit: true, byKeyboard: true)
             return true
         }
         return false
@@ -88,6 +90,8 @@ extension SidebarListView {
 
     func controlTextDidEndEditing(_ notification: Notification) {
         guard let field = notification.object as? NSTextField, rename?.field === field else { return }
-        endRename(commit: true)
+        // Tab and Backtab end editing from the keyboard; `other` is focus loss.
+        let movement = (notification.userInfo?["NSTextMovement"] as? Int).flatMap(NSTextMovement.init(rawValue:))
+        endRename(commit: true, byKeyboard: movement == .tab || movement == .backtab || movement == .return)
     }
 }

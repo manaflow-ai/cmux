@@ -66,6 +66,12 @@ public final class BrowserChromeView: NSView {
 
     /// Where finished page loads are recorded (omnibar history suggestions).
     public var history: (any BrowserHistoryStore)?
+
+    /// Closing the find bar or ending address bar editing hands the keyboard
+    /// back to the page. When set, the host does it (a focus coordinator
+    /// that also tracks Chromium page windows); else the chrome focuses the
+    /// page itself.
+    public var onReturnFocusToPage: (() -> Void)?
     private var recordedURL: URL?
     private var recordedTitle: String?
 
@@ -121,7 +127,11 @@ public final class BrowserChromeView: NSView {
             self.findBar.isHidden = true
             self.updateOcclusion()
         }
-        tab.setFocused(true)
+        returnFocusToPage()
+    }
+
+    private func returnFocusToPage() {
+        if let onReturnFocusToPage { onReturnFocusToPage() } else { tab.setFocused(true) }
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -240,7 +250,7 @@ public final class BrowserChromeView: NSView {
         if case .didEndEditing(.commit(let url)) = event { tab.load(url) }
         if let onOmnibarEvent { return onOmnibarEvent(event) }
         switch event {
-        case .didEndEditing(.commit), .didEndEditing(.cancel): tab.setFocused(true)
+        case .didEndEditing(.commit), .didEndEditing(.cancel): returnFocusToPage()
         case .didBeginEditing, .didEndEditing(.blur): break
         }
     }

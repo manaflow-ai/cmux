@@ -145,6 +145,13 @@ struct FocusReducerTests {
         #expect(effects.contains(.revealPane("c")))
     }
 
+    @Test func sidebarRenameEndedByKeyboardReturnsToTheContent() {
+        let state = Self.run([.focusPane("c", source: .mouse), .responder(.sidebarField, source: .mouse),
+                              .responder(.sidebar, source: .keyboard), .focusTarget(.content, source: .keyboard)], from: Self.loaded()).0
+        #expect(state.resolved == .terminal(pane: "c", tab: "t3"))
+        #expect(state.context == FocusState.Context(terminal: true))
+    }
+
     @Test func responderReportsAreIgnoredWhileAnOverlayIsOpen() {
         let state = Self.run([.overlayOpened(.rename), .responder(.sidebarField, source: .keyboard)], from: Self.loaded()).0
         #expect(state.target == .content)
