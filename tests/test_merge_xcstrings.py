@@ -127,6 +127,19 @@ def test_same_key_diverging_materializes_a_conflict():
     assert_conflict_preserves(merged, '"value": "ours"', '"value": "theirs"')
 
 
+def test_multiple_conflict_hunks_keep_untouched_keys_outside_conflicts():
+    base = catalog({"k1": unit("base-1"), "k2": unit("untouched"), "k3": unit("base-3")})
+    ours = catalog({"k1": unit("ours-1"), "k2": unit("untouched"), "k3": unit("ours-3")})
+    theirs = catalog({"k1": unit("theirs-1"), "k2": unit("untouched"), "k3": unit("theirs-3")})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1, stderr
+    assert merged.count("<<<<<<<") == 2
+    first_start = merged.index("<<<<<<<")
+    last_end = merged.rindex(">>>>>>>") + len(">>>>>>> theirs")
+    conflict_body = merged[first_start:last_end]
+    assert '"value": "untouched"' not in conflict_body
+
+
 def test_git_marker_size_is_used_for_materialized_conflicts():
     base = catalog({"a": unit("old")})
     ours = catalog({"a": unit("ours")})
@@ -208,6 +221,23 @@ def test_unparseable_input_falls_back():
     assert code == 1
     assert "cannot parse" in stderr, stderr
     assert_conflict_preserves(merged, "{not json", '"value": "theirs"')
+
+
+def test_existing_markers_use_a_longer_outer_conflict_marker():
+    base = catalog({})
+    ours = "<<<<<<< embedded\n{not json\n"
+    theirs = catalog({"a": unit("theirs")})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1
+    assert "cannot parse" in stderr, stderr
+    assert merged.startswith("<<<<<<<< ours\n")
+    assert "<<<<<<< embedded\n" in merged
+    marker_runs = [
+        len(line) - len(line.lstrip("<"))
+        for line in merged.splitlines()
+        if line.startswith("<")
+    ]
+    assert max(marker_runs) > 7
 
 
 def test_non_utf8_input_materializes_a_byte_conflict():
