@@ -12,8 +12,7 @@
       "socket": "workspace.create",
       "params": {
         "title": "Setting Actions",
-        "initial_input": "mkdir -p ~/.config/cmux && printf 'eyJhY3Rpb25zIjp7InRvdXIuYXBwZWFyYW5jZS5kYXJrIjp7InR5cGUiOiJzZXR0aW5nIiwicGF0aCI6ImFwcC5hcHBlYXJhbmNlIiwic2V0IjoiZGFyayIsInRpdGxlIjoiVG91cjogRGFyayBBcHBlYXJhbmNlIiwic3VidGl0bGUiOiJTZXR0aW5nIGFjdGlvbiBmcm9tIGNtdXguanNvbiIsInBhbGV0dGUiOnRydWV9LCJ0b3VyLnByZXNlbnRhdGlvbi5taW5pbWFsIjp7InR5cGUiOiJzZXR0aW5nUHJlc2V0IiwicHJlc2V0IjoidG91ci5taW5pbWFsIiwidGl0bGUiOiJUb3VyOiBNaW5pbWFsIFByZXNlbnRhdGlvbiIsInN1YnRpdGxlIjoiU2V0dGluZyBwcmVzZXQgZnJvbSBjbXV4Lmpzb24iLCJwYWxldHRlIjp0cnVlfX0sInNldHRpbmdQcmVzZXRzIjp7InRvdXIubWluaW1hbCI6eyJhcHAiOnsibWluaW1hbE1vZGUiOiJtaW5pbWFsIn19fX0=' | base64 -D > ~/.config/cmux/cmux.json
-",
+        "initial_input": "mkdir -p ~/.config/cmux && printf 'eyJhY3Rpb25zIjp7InRvdXIuYXBwZWFyYW5jZS5kYXJrIjp7InR5cGUiOiJzZXR0aW5nIiwicGF0aCI6ImFwcC5hcHBlYXJhbmNlIiwic2V0IjoiZGFyayIsInRpdGxlIjoiVG91cjogRGFyayBBcHBlYXJhbmNlIiwic3VidGl0bGUiOiJTZXR0aW5nIGFjdGlvbiBmcm9tIGNtdXguanNvbiIsInBhbGV0dGUiOnRydWV9LCJ0b3VyLnByZXNlbnRhdGlvbi5taW5pbWFsIjp7InR5cGUiOiJzZXR0aW5nUHJlc2V0IiwicHJlc2V0IjoidG91ci5taW5pbWFsIiwidGl0bGUiOiJUb3VyOiBNaW5pbWFsIFByZXNlbnRhdGlvbiIsInN1YnRpdGxlIjoiU2V0dGluZyBwcmVzZXQgZnJvbSBjbXV4Lmpzb24iLCJwYWxldHRlIjp0cnVlfX0sInNldHRpbmdQcmVzZXRzIjp7InRvdXIubWluaW1hbCI6eyJhcHAiOnsibWluaW1hbE1vZGUiOiJtaW5pbWFsIn19fX0=' | base64 -D > ~/.config/cmux/cmux.json\n",
         "focus": true
       },
       "save": "setup"
