@@ -81,6 +81,8 @@ enum SessionPersistencePolicy {
 
     /// If truncation starts in the middle of an ANSI control sequence, advance
     /// past its terminator so replay never begins with a partial escape payload.
+    private static let maxAnsiStringSequenceScanCharacters = 1_024
+
     private static func ansiSafeTruncationStart(in text: String, initialStart: String.Index) -> String.Index {
         guard initialStart > text.startIndex else { return initialStart }
         let escape = "\u{001B}"
@@ -110,12 +112,13 @@ enum SessionPersistencePolicy {
 
         case "]", "P", "X", "_", "^":
             let allowsBEL = text[marker] == "]"
-            if ansiStringSequenceEnd(
-                in: text,
-                from: marker,
-                upperBound: initialStart,
-                allowsBEL: allowsBEL
-            ) != nil {
+            if allowsBEL,
+               ansiStringSequenceEnd(
+                   in: text,
+                   from: marker,
+                   upperBound: initialStart,
+                   allowsBEL: true
+               ) != nil {
                 return initialStart
             }
             return ansiStringSequenceEnd(
@@ -162,7 +165,8 @@ enum SessionPersistencePolicy {
         allowsBEL: Bool
     ) -> String.Index? {
         var index = text.index(after: marker)
-        while index < upperBound {
+        var scanned = 0
+        while index < upperBound, scanned < maxAnsiStringSequenceScanCharacters {
             if allowsBEL, text[index] == "\u{0007}" {
                 return text.index(after: index)
             }
@@ -173,6 +177,7 @@ enum SessionPersistencePolicy {
                 }
             }
             index = text.index(after: index)
+            scanned += 1
         }
         return nil
     }
