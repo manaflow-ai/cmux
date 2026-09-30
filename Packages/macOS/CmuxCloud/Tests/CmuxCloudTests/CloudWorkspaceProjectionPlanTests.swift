@@ -93,4 +93,28 @@ struct CloudWorkspaceProjectionPlanTests {
         #expect(plan.obsolete == [existing])
         #expect(plan.missing == [desired])
     }
+
+    @Test("A terminal tab the workspace already shows is neither missing nor obsolete")
+    func projectedTerminalPlacementIsSatisfied() {
+        let terminal = SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal-1")
+        let existing = SurfaceProjection(
+            resource: terminal,
+            workspaceID: UUID(),
+            panelID: UUID(),
+            remoteWorkspaceID: "workspace",
+            remoteTabID: "tab"
+        )
+        let desired = SurfaceResourcePlacement(
+            resource: terminal,
+            remoteWorkspaceID: "workspace",
+            remoteTabID: "tab"
+        )
+
+        let plan = CloudWorkspaceProjectionPlan(desired: [desired], existing: [existing])
+
+        // A shown tab reported as missing is reprojected on every reconcile, and
+        // each reprojection requests the next reconcile of the same machine.
+        #expect(plan.obsolete.isEmpty)
+        #expect(plan.missing.isEmpty)
+    }
 }
