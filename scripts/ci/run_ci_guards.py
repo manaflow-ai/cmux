@@ -203,6 +203,7 @@ def plan(workflow: dict, base_sha: str, head_sha: str) -> list[Unit]:
                 # Outside Actions there is no PR base branch name. Fetch the
                 # explicit local comparison revision instead.
                 "github.event.pull_request.base.ref": base_sha,
+                "github.event.merge_group.base_ref": base_sha,
                 "github.event.merge_group.base_sha": base_sha,
                 "github.event.before": base_sha,
             }
