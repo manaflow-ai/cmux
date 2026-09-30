@@ -18,7 +18,7 @@ try {
   transcriptAdapter.stop(sess);
   await Promise.resolve();
   const focusResult = await focusTranscriptTerminal(sess);
-  events.push(transcriptRpcErrorEvent(focusResult, "raw focus diagnostic"));
+  assert.equal(focusResult.ok, false);
   assert.deepEqual(calls, ["mobile.chat.send", "mobile.chat.interrupt", "surface.focus"]);
   assert.equal(events.length, 3);
   assert.equal((events[0] as Extract<AgentEvent, { kind: "error" }>).prompt, "keep this prompt for recovery");
