@@ -80,10 +80,10 @@ use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
     DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
     LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
-    Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
-    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceRenderFrame,
-    TerminalColors, TreeDecorations, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
-    WorkspaceMutation, ZoomMode, assign_short_ids,
+    Node, NotificationLevel, NotificationSource, PairingDecision, PaneId, RenderAttachFrame,
+    RenderAttachStream, Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId,
+    SurfaceKind, SurfaceRenderFrame, TerminalColors, TreeDecorations, TreeDelta, TreeDeltaKind,
+    ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -220,6 +220,11 @@ pub const SCREEN_METADATA_CAPABILITY: &str = "screen-metadata-v1";
 /// Chrome-style screen groups: the `*-screen-group` commands, saved screen
 /// groups, and `Workspace.screen_groups`.
 pub const SCREEN_GROUPS_CAPABILITY: &str = "screen-groups-v1";
+/// Notifications name who posted them: `source` (`cli`, `terminal`, `agent`,
+/// `daemon`) on `notify`, the `notification` event, the tab marker and
+/// `list-notifications`; the daemon posts OSC 9, OSC 777 and OSC 99 from
+/// every terminal's output as `terminal`.
+pub const NOTIFICATION_SOURCE_CAPABILITY: &str = "notification-source-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -356,6 +361,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         BROWSER_PROFILES_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
+        NOTIFICATION_SOURCE_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1188,6 +1194,10 @@ enum Command {
         level: Option<String>,
         #[serde(default)]
         surface: Option<SurfaceId>,
+        /// `notification-source-v1`: `cli` (default), `terminal`, `agent` or
+        /// `daemon`.
+        #[serde(default)]
+        source: Option<String>,
     },
     ListAgents {
         #[serde(default)]
@@ -11469,6 +11479,7 @@ fn pane_json(
                         "notification": n.notification,
                         "unread": n.unread,
                         "level": n.level.as_str(),
+                        "source": n.source.as_str(),
                     })
                 }),
                 "name": surface.and_then(|s| s.name()),
@@ -13726,15 +13737,20 @@ fn handle_command_with_cancellation(
             Ok(json!({ "text": text, "mode": mode }))
         }
         Command::Ids { kind } => mux.with_state(|state| ids_json(state, kind.as_deref())),
-        Command::Notify { title, body, level, surface } => {
+        Command::Notify { title, body, level, surface, source } => {
             if title.is_empty() {
                 anyhow::bail!("title is required");
             }
             let level = parse_notification_level(level.as_deref().unwrap_or("info"))?;
+            let source = match source.as_deref() {
+                None => NotificationSource::Cli,
+                Some(source) => NotificationSource::parse(source)
+                    .ok_or_else(|| anyhow::anyhow!("bad source {source}"))?,
+            };
             if let Some(surface) = surface {
                 get_surface(mux, surface)?;
             }
-            let notification = mux.post_notification(title, body, level, surface)?;
+            let notification = mux.post_notification_from(title, body, level, surface, source)?;
             Ok(json!({ "notification": notification }))
         }
         Command::ListAgents { surface, state } => {
@@ -14722,6 +14738,7 @@ fn handle_command_with_cancellation(
                             "terminal_id": row.terminal_id,
                             "surface": row.surface,
                             "created_at_ms": row.created_at_ms,
+                            "source": row.source.as_str(),
                             "acknowledged": acknowledged,
                         })
                     })
@@ -16158,6 +16175,7 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "body": notification.body,
             "level": notification.level.as_str(),
             "surface": notification.surface,
+            "source": notification.source.as_str(),
         }),
         MuxEvent::GraphicsStatus(status) => match status {
             GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => json!({
@@ -27345,8 +27363,11 @@ mod tests {
             json!({"cmd":"notify","title":"hook","body":"","surface":surface.id,"source":"agent"}),
         )
         .unwrap();
-        run_json_command(&mux, json!({"cmd":"notify","title":"cli","surface":surface.id}))
-            .unwrap();
+        run_json_command(
+            &mux,
+            json!({"cmd":"notify","title":"cli","body":"","surface":surface.id}),
+        )
+        .unwrap();
         let notes = events
             .try_iter()
             .filter(|event| matches!(event, MuxEvent::Notification(_)))
@@ -27366,12 +27387,13 @@ mod tests {
         for source in ["daemon", "terminal"] {
             run_json_command(
                 &mux,
-                json!({"cmd":"notify","title":source,"surface":surface.id,"source":source}),
+                json!({"cmd":"notify","title":source,"body":"","surface":surface.id,"source":source}),
             )
             .unwrap();
         }
         assert!(
-            run_json_command(&mux, json!({"cmd":"notify","title":"x","source":"bogus"})).is_err()
+            run_json_command(&mux, json!({"cmd":"notify","title":"x","body":"","source":"bogus"}))
+                .is_err()
         );
     }
 

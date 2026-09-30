@@ -111,7 +111,7 @@ public final class Commands {
     public static final CommandMetadata NEW_TAB = new CommandMetadata("new-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("terminal_id", "terminal-placement-env-v1")));
     public static final CommandMetadata NEW_WORKSPACE = new CommandMetadata("new-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NOTE_SIZE_ACTIVITY = new CommandMetadata("note-size-activity", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata NOTIFY = new CommandMetadata("notify", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata NOTIFY = new CommandMetadata("notify", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("source", 12L)), Map.ofEntries(Map.entry("source", "notification-source-v1")));
     public static final CommandMetadata PAIRING_RESPONSE = new CommandMetadata("pairing-response", Authority.LOCAL_ADMIN, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PANE_NEIGHBOR = new CommandMetadata("pane-neighbor", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PASTE_IMAGE = new CommandMetadata("paste-image", Authority.CONTROL, 12, "terminal-image-paste-v1", StreamKind.NONE, Map.of(), Map.of());

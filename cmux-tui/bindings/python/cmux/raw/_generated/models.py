@@ -86,6 +86,12 @@ class NotificationLevel(str, Enum):
     WARNING = 'warning'
     ERROR = 'error'
 
+class NotificationSource(str, Enum):
+    CLI = 'cli'
+    TERMINAL = 'terminal'
+    AGENT = 'agent'
+    DAEMON = 'daemon'
+
 class PaneDirection(str, Enum):
     LEFT = 'left'
     RIGHT = 'right'
@@ -751,6 +757,7 @@ class NotificationMarker:
     level: NotificationLevel
     notification: Id
     unread: bool
+    source: Union[NotificationSource, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2297,6 +2304,7 @@ class NotifyRequest:
     body: str
     level: Union[NotificationLevel, None, MissingType] = field(default=MISSING)
     surface: Union[Id, None, MissingType] = field(default=MISSING)
+    source: Union[NotificationSource, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3192,6 +3200,7 @@ class NotificationEvent(EventBase):
     level: NotificationLevel
     notification: Id
     title: str
+    source: Union[NotificationSource, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -3654,6 +3663,7 @@ __all__ = [
     'DetachReason',
     'FrontendFocusTarget',
     'NotificationLevel',
+    'NotificationSource',
     'PaneDirection',
     'RenderGraphicFormat',
     'RenderUnderline',

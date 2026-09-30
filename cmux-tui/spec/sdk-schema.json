@@ -582,6 +582,15 @@
     "error"
    ]
   },
+  "NotificationSource": {
+   "kind": "enum",
+   "values": [
+    "cli",
+    "terminal",
+    "agent",
+    "daemon"
+   ]
+  },
   "AgentState": {
    "kind": "enum",
    "values": [
@@ -1322,6 +1331,16 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "source": {
+     "type": {
+      "kind": "ref",
+      "name": "NotificationSource"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "notification-source-v1"
     }
    },
    "additional_properties": false
@@ -7346,6 +7365,17 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "source": {
+      "type": {
+       "kind": "ref",
+       "name": "NotificationSource"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": "cli",
+      "since": 12,
+      "capability": "notification-source-v1"
      }
     },
     "additional_properties": false
@@ -16369,6 +16399,16 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "source": {
+      "type": {
+       "kind": "ref",
+       "name": "NotificationSource"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "notification-source-v1"
      }
     },
     "additional_properties": false

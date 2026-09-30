@@ -84,7 +84,7 @@ pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
     CellPixelUpdateFailure, ConfigReloadError, DiagnosticReporter, Direction, GraphicsStatus,
     LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, MachineUsage,
-    Mux, MuxEvent, NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
+    Mux, MuxEvent, NotificationEvent, NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
     RunPlacement, ScreenDestination, ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec,
     SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,

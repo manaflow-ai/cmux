@@ -1570,9 +1570,16 @@ impl Drop for ReaderCompletionGuard {
 impl PtyTerminalRuntime {
     /// Feed raw child output to the generic terminal metadata parser. The
     /// parser has no knowledge of agents or plugins and keeps only bounded
-    /// terminal protocol state.
-    fn observe_terminal_output(&self, bytes: &[u8]) {
-        self.terminal_metadata.lock().unwrap().observe_output(bytes);
+    /// terminal protocol state. Returns the desktop notifications (OSC 9,
+    /// OSC 777, OSC 99) the output asked for that pass Ghostty's rate limit;
+    /// the caller posts them after it releases the terminal lock.
+    fn observe_terminal_output(
+        &self,
+        bytes: &[u8],
+    ) -> Vec<crate::terminal_metadata::TerminalNotification> {
+        let mut metadata = self.terminal_metadata.lock().unwrap();
+        metadata.observe_output(bytes);
+        metadata.take_admitted_notifications(Instant::now())
     }
 
     fn terminal_osc_progress(&self) -> String {
@@ -2845,6 +2852,7 @@ impl Surface {
                             Err(_) => break,
                         };
                         let mut scroll_changed = None;
+                        let terminal_notifications;
                         let generation = {
                             let mut term = pty.term.lock().unwrap();
                             if let Some(update) = journal_update.as_mut()
@@ -2860,7 +2868,7 @@ impl Surface {
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity");
                             let normalized = term.vt_write_with_normalized(&buf[..n]);
-                            pty.observe_terminal_output(&buf[..n]);
+                            terminal_notifications = pty.observe_terminal_output(&buf[..n]);
                             let cursor_changed = term
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity")
@@ -2918,6 +2926,11 @@ impl Surface {
                             && let Some(mux) = mux.upgrade()
                         {
                             mux.emit_terminal_scroll(surface.id, offset, at_bottom);
+                        }
+                        if !terminal_notifications.is_empty()
+                            && let Some(mux) = mux.upgrade()
+                        {
+                            mux.post_terminal_notifications(surface.id, terminal_notifications);
                         }
                         let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
                         if !responses.is_empty() {
@@ -3426,6 +3439,7 @@ impl Surface {
                                 };
                                 let mut scroll_changed = None;
                                 let mut title_update = None;
+                                let terminal_notifications;
                                 let defaults = mux
                                     .upgrade()
                                     .map(|mux| mux.default_colors())
@@ -3440,7 +3454,7 @@ impl Surface {
                                     let journal_enabled = journal_update.is_some();
                                     let before = terminal_scroll_position(&term);
                                     let normalized = term.vt_write_with_normalized(&output);
-                                    pty.observe_terminal_output(&output);
+                                    terminal_notifications = pty.observe_terminal_output(&output);
                                     let output = match normalized {
                                         Cow::Borrowed(_) => output,
                                         Cow::Owned(normalized) => normalized,
@@ -3532,6 +3546,14 @@ impl Surface {
                                     && let Some(mux) = mux.upgrade()
                                 {
                                     mux.emit_terminal_scroll(surface.id, offset, at_bottom);
+                                }
+                                if !terminal_notifications.is_empty()
+                                    && let Some(mux) = mux.upgrade()
+                                {
+                                    mux.post_terminal_notifications(
+                                        surface.id,
+                                        terminal_notifications,
+                                    );
                                 }
                             }
                             HostedTransition::Resized { cols, rows, cell_pixels } => {
@@ -5077,7 +5099,7 @@ impl Surface {
         let pty = self.as_pty()?;
         let mut term = pty.term.lock().unwrap();
         term.vt_write(bytes);
-        pty.observe_terminal_output(bytes);
+        let _ = pty.observe_terminal_output(bytes);
         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
         pty.stream_progress.notify();
         Some(())

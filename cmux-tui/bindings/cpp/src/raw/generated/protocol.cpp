@@ -2949,6 +2949,11 @@ Result<Json> Codec<NotificationMarker>::encode(const NotificationMarker& value) 
     auto encoded_notification = encode_value(value.notification);
     if (!encoded_notification) return std::move(encoded_notification).error();
     object.emplace("notification", std::move(encoded_notification).value());
+    if (value.source) {
+        auto encoded = encode_value(*value.source);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("source", std::move(encoded).value());
+    }
     auto encoded_unread = encode_value(value.unread);
     if (!encoded_unread) return std::move(encoded_unread).error();
     object.emplace("unread", std::move(encoded_unread).value());
@@ -2977,6 +2982,12 @@ Result<NotificationMarker> Codec<NotificationMarker>::decode(const Json& value) 
         if (!decoded) return std::move(decoded).error();
         result.notification = std::move(decoded).value();
     }
+    const Json* field_source = value.find("source");
+    if (field_source) {
+        auto decoded = decode_value<NotificationSource>(*field_source);
+        if (!decoded) return std::move(decoded).error();
+        result.source = std::move(decoded).value();
+    }
     const Json* field_unread = value.find("unread");
     if (!field_unread) {
         return make_error(ErrorCode::decode, "missing required field 'unread'");
@@ -2987,6 +2998,24 @@ Result<NotificationMarker> Codec<NotificationMarker>::decode(const Json& value) 
         result.unread = std::move(decoded).value();
     }
     return result;
+}
+
+Result<Json> Codec<NotificationSource>::encode(const NotificationSource& value) {
+    switch (value) {
+        case NotificationSource::cli: return Json(std::string("cli"));
+        case NotificationSource::terminal: return Json(std::string("terminal"));
+        case NotificationSource::agent: return Json(std::string("agent"));
+        case NotificationSource::daemon: return Json(std::string("daemon"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<NotificationSource> Codec<NotificationSource>::decode(const Json& value) {
+    if (value == Json(std::string("cli"))) return NotificationSource::cli;
+    if (value == Json(std::string("terminal"))) return NotificationSource::terminal;
+    if (value == Json(std::string("agent"))) return NotificationSource::agent;
+    if (value == Json(std::string("daemon"))) return NotificationSource::daemon;
+    return make_error(ErrorCode::decode, "unknown NotificationSource value");
 }
 
 Result<Json> Codec<NotifyResult>::encode(const NotifyResult& value) {
@@ -14912,6 +14941,11 @@ Result<Json> Codec<NotifyRequest>::encode(const NotifyRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("level", std::move(encoded).value());
     }
+    if (!value.source.is_absent()) {
+        auto encoded = encode_value(value.source);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("source", std::move(encoded).value());
+    }
     if (!value.surface.is_absent()) {
         auto encoded = encode_value(value.surface);
         if (!encoded) return std::move(encoded).error();
@@ -14944,6 +14978,16 @@ Result<NotifyRequest> Codec<NotifyRequest>::decode(const Json& value) {
             auto decoded = decode_value<NotificationLevel>(*field_level);
             if (!decoded) return std::move(decoded).error();
             result.level = Field<NotificationLevel>(std::move(decoded).value());
+        }
+    }
+    const Json* field_source = value.find("source");
+    if (field_source) {
+        if (field_source->is_null()) {
+            result.source = Field<NotificationSource>::null();
+        } else {
+            auto decoded = decode_value<NotificationSource>(*field_source);
+            if (!decoded) return std::move(decoded).error();
+            result.source = Field<NotificationSource>(std::move(decoded).value());
         }
     }
     const Json* field_surface = value.find("surface");
@@ -20928,6 +20972,11 @@ Result<Json> Codec<NotificationEvent>::encode(const NotificationEvent& value) {
     auto encoded_notification = encode_value(value.notification);
     if (!encoded_notification) return std::move(encoded_notification).error();
     object.emplace("notification", std::move(encoded_notification).value());
+    if (value.source) {
+        auto encoded = encode_value(*value.source);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("source", std::move(encoded).value());
+    }
     if (value.surface) {
         auto encoded = encode_value(*value.surface);
         if (!encoded) return std::move(encoded).error();
@@ -20971,6 +21020,12 @@ Result<NotificationEvent> Codec<NotificationEvent>::decode(const Json& value) {
         auto decoded = decode_value<Id>(*field_notification);
         if (!decoded) return std::move(decoded).error();
         result.notification = std::move(decoded).value();
+    }
+    const Json* field_source = value.find("source");
+    if (field_source) {
+        auto decoded = decode_value<NotificationSource>(*field_source);
+        if (!decoded) return std::move(decoded).error();
+        result.source = std::move(decoded).value();
     }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
@@ -25305,6 +25360,9 @@ constexpr std::array<CommandFieldRequirement, 3> kCommand98FieldRequirements{{
     {"keep", 12U, "terminal-reap-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand101FieldRequirements{{
+    {"source", 12U, "notification-source-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand113FieldRequirements{{
     {"view", 12U, "shared-sizing-v1"},
 }};
@@ -25462,7 +25520,7 @@ constexpr std::array<CommandMetadata, 187> kCommands{{
     {"new-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand98FieldRequirements)},
     {"new-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"note-size-activity", "control", 12U, "shared-sizing-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"notify", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"notify", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand101FieldRequirements)},
     {"pairing-response", "local-admin", 7U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"pane-neighbor", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"paste-image", "control", 12U, "terminal-image-paste-v1", false, "", "", std::span<const CommandFieldRequirement>{}},

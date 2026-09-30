@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "a6f0fd964e671efe5149e878a2c1eaaab9e440269ad4adf3bcd8c26998c63ce2";
+inline constexpr std::string_view kProtocolIrSha256 = "cabd6501831a3f1875fc4aa392d8132a3e9c476496d0b4b55cf97c2566893e0b";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -79,6 +79,7 @@ struct MoveTerminalResult;
 struct NoteSizeActivityResult;
 enum class NotificationLevel;
 struct NotificationMarker;
+enum class NotificationSource;
 struct NotifyResult;
 struct Pane;
 enum class PaneDirection;
@@ -1881,9 +1882,17 @@ enum class NotificationLevel {
     error,
 };
 
+enum class NotificationSource {
+    cli,
+    terminal,
+    agent,
+    daemon,
+};
+
 struct NotificationMarker {
     NotificationLevel level{};
     Id notification{};
+    std::optional<NotificationSource> source{};
     bool unread{};
     friend bool operator==(const NotificationMarker&, const NotificationMarker&) = default;
 };
@@ -2258,6 +2267,7 @@ struct NotificationEvent {
     std::string body{};
     NotificationLevel level{};
     Id notification{};
+    std::optional<NotificationSource> source{};
     std::optional<Id> surface{};
     std::string title{};
     friend bool operator==(const NotificationEvent&, const NotificationEvent&) = default;
@@ -2266,6 +2276,7 @@ struct NotificationEvent {
 struct NotifyRequest {
     std::string body{};
     Field<NotificationLevel> level{};
+    Field<NotificationSource> source{};
     Field<Id> surface{};
     std::string title{};
     friend bool operator==(const NotifyRequest&, const NotifyRequest&) = default;
@@ -4061,6 +4072,12 @@ template <>
 struct Codec<NotificationMarker> {
     static Result<Json> encode(const NotificationMarker& value);
     static Result<NotificationMarker> decode(const Json& value);
+};
+
+template <>
+struct Codec<NotificationSource> {
+    static Result<Json> encode(const NotificationSource& value);
+    static Result<NotificationSource> decode(const Json& value);
 };
 
 template <>

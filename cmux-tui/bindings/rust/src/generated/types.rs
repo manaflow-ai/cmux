@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a6f0fd964e671efe5149e878a2c1eaaab9e440269ad4adf3bcd8c26998c63ce2.
+// cmux-tui mux protocol 12, IR cabd6501831a3f1875fc4aa392d8132a3e9c476496d0b4b55cf97c2566893e0b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -656,7 +656,22 @@ pub enum NotificationLevel {
 pub struct NotificationMarker {
     pub level: NotificationLevel,
     pub notification: Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub source: Option<NotificationSource>,
     pub unread: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NotificationSource {
+    #[serde(rename = "cli")]
+    Cli,
+    #[serde(rename = "terminal")]
+    Terminal,
+    #[serde(rename = "agent")]
+    Agent,
+    #[serde(rename = "daemon")]
+    Daemon,
 }
 
 #[rustfmt::skip]

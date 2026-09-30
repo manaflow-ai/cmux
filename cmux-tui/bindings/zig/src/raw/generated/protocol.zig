@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "a6f0fd964e671efe5149e878a2c1eaaab9e440269ad4adf3bcd8c26998c63ce2";
+pub const ir_sha256 = "cabd6501831a3f1875fc4aa392d8132a3e9c476496d0b4b55cf97c2566893e0b";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -775,7 +775,36 @@ pub const NotificationLevel = enum {
 pub const NotificationMarker = struct {
     level: NotificationLevel,
     notification: Id,
+    source: ?NotificationSource = null,
     unread: bool,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "source",
+    };
+};
+
+pub const NotificationSource = enum {
+    cli,
+    terminal,
+    agent,
+    daemon,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "cli")) return .cli;
+        if (std.mem.eql(u8, value, "terminal")) return .terminal;
+        if (std.mem.eql(u8, value, "agent")) return .agent;
+        if (std.mem.eql(u8, value, "daemon")) return .daemon;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .cli => "cli",
+            .terminal => "terminal",
+            .agent => "agent",
+            .daemon => "daemon",
+        };
+    }
 };
 
 pub const NotifyResult = struct {
@@ -4510,6 +4539,7 @@ pub fn noteSizeActivity(client: anytype, request: NoteSizeActivityRequest) !wire
 pub const NotifyRequest = struct {
     body: []const u8,
     level: wire.Field(NotificationLevel) = .absent,
+    source: wire.Field(NotificationSource) = .absent,
     surface: wire.Field(Id) = .absent,
     title: []const u8,
 };
@@ -4522,6 +4552,9 @@ pub fn notify(client: anytype, request: NotifyRequest) !wire.Decoded(NotifyResul
             .authority = "control",
             .since = 6,
             .capability = null,
+            .fields = &.{
+                .{ .name = "source", .since = 12, .capability = "notification-source-v1" },
+            },
         },
         request,
     );
@@ -6628,8 +6661,13 @@ pub const NotificationEvent = struct {
     event: []const u8,
     level: NotificationLevel,
     notification: Id,
+    source: ?NotificationSource = null,
     surface: wire.Nullable(Id),
     title: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "source",
+    };
 };
 
 pub const OutputEvent = struct {

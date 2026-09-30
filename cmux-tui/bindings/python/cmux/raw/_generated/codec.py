@@ -392,6 +392,7 @@ ENUM_BY_PATH = {
     'types/DetachReason': models.DetachReason,
     'types/FrontendFocusTarget': models.FrontendFocusTarget,
     'types/NotificationLevel': models.NotificationLevel,
+    'types/NotificationSource': models.NotificationSource,
     'types/PaneDirection': models.PaneDirection,
     'types/RenderGraphicFormat': models.RenderGraphicFormat,
     'types/RenderUnderline': models.RenderUnderline,

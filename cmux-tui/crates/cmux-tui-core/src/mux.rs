@@ -1136,6 +1136,55 @@ impl NotificationLevel {
     }
 }
 
+/// Who posted a notification (`notification-source-v1`). Frontends apply
+/// per-source preferences from it instead of guessing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NotificationSource {
+    /// `cmux notify`, the `notify` verb without a source, or
+    /// `notification.create`.
+    Cli,
+    /// A program in the terminal: OSC 9, OSC 777 `notify` or kitty OSC 99,
+    /// parsed by the daemon from the terminal's output.
+    Terminal,
+    /// An agent hook (Claude Code, Codex, ...), daemon-side or reported by a
+    /// frontend.
+    Agent,
+    /// Any other daemon producer.
+    Daemon,
+}
+
+impl NotificationSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NotificationSource::Cli => "cli",
+            NotificationSource::Terminal => "terminal",
+            NotificationSource::Agent => "agent",
+            NotificationSource::Daemon => "daemon",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "cli" => Some(NotificationSource::Cli),
+            "terminal" => Some(NotificationSource::Terminal),
+            "agent" => Some(NotificationSource::Agent),
+            "daemon" => Some(NotificationSource::Daemon),
+            _ => None,
+        }
+    }
+
+    /// The source of a durable notification written before sources existed,
+    /// from its idempotency key: agent hooks mint `agent-hook-notification-*`;
+    /// every other producer then was `notify` or `notification.create`.
+    pub(crate) fn from_legacy_key(idempotency_key: &str) -> Self {
+        if idempotency_key.starts_with("agent-hook-notification-") {
+            NotificationSource::Agent
+        } else {
+            NotificationSource::Cli
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct NotificationEvent {
     pub notification: u64,
@@ -1143,6 +1192,7 @@ pub struct NotificationEvent {
     pub body: String,
     pub level: NotificationLevel,
     pub surface: Option<SurfaceId>,
+    pub source: NotificationSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1155,6 +1205,7 @@ pub struct ResourceNotification {
     pub level: NotificationLevel,
     pub terminal_id: Option<TerminalPublicId>,
     pub created_at_ms: u64,
+    pub source: NotificationSource,
     pub(crate) surface: Option<SurfaceId>,
 }
 
@@ -1521,6 +1572,7 @@ pub struct SurfaceNotification {
     pub notification: u64,
     pub level: NotificationLevel,
     pub unread: bool,
+    pub source: NotificationSource,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -6555,6 +6607,7 @@ impl Mux {
                 body,
                 level,
                 Some(surface),
+                NotificationSource::Agent,
             )
             .with_context(|| format!("agent hook notification for sequence {sequence}"))?;
         }
@@ -10786,9 +10839,45 @@ impl Mux {
         level: NotificationLevel,
         surface: Option<SurfaceId>,
     ) -> anyhow::Result<u64> {
+        self.post_notification_from(title, body, level, surface, NotificationSource::Cli)
+    }
+
+    /// `post_notification` with an explicit source.
+    pub fn post_notification_from(
+        &self,
+        title: String,
+        body: String,
+        level: NotificationLevel,
+        surface: Option<SurfaceId>,
+        source: NotificationSource,
+    ) -> anyhow::Result<u64> {
         let key = format!("notify-{}", crate::workspace_registry::new_uuid_v4());
-        self.create_durable_notification(&key, title, None, body, level, surface)?
+        self.create_durable_notification(&key, title, None, body, level, surface, source)?
             .context("fresh notify key unexpectedly replayed")
+    }
+
+    /// Post what a program in `surface`'s terminal asked for with OSC 9,
+    /// OSC 777 or OSC 99. Called by the terminal's output reader after it
+    /// released the terminal lock; the reader already applied the rate limit.
+    pub(crate) fn post_terminal_notifications(
+        &self,
+        surface: SurfaceId,
+        notifications: Vec<crate::terminal_metadata::TerminalNotification>,
+    ) {
+        for notification in notifications {
+            if self
+                .post_notification_from(
+                    notification.title,
+                    notification.body,
+                    NotificationLevel::Info,
+                    Some(surface),
+                    NotificationSource::Terminal,
+                )
+                .is_err()
+            {
+                self.report_internal_diagnostic("terminal notification not posted");
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -10802,6 +10891,7 @@ impl Mux {
         surface: Option<SurfaceId>,
         terminal_id: Option<TerminalPublicId>,
         created_at_ms: u64,
+        source: NotificationSource,
     ) -> u64 {
         let id = self.next_notification_id();
         {
@@ -10815,6 +10905,7 @@ impl Mux {
                 level,
                 terminal_id: terminal_id.clone(),
                 created_at_ms,
+                source,
                 surface,
             });
             let mut evicted = Vec::new();
@@ -10840,16 +10931,16 @@ impl Mux {
             Some(terminal_id) => {
                 self.terminal_notifications.lock().unwrap().insert(
                     terminal_id,
-                    SurfaceNotification { notification: id, level, unread: true },
+                    SurfaceNotification { notification: id, level, unread: true, source },
                 );
                 unread_changed = true;
             }
             None if surface.is_some() => {
                 let surface = surface.expect("checked notification surface");
-                self.placement_notifications
-                    .lock()
-                    .unwrap()
-                    .insert(surface, SurfaceNotification { notification: id, level, unread: true });
+                self.placement_notifications.lock().unwrap().insert(
+                    surface,
+                    SurfaceNotification { notification: id, level, unread: true, source },
+                );
                 unread_changed = true;
             }
             None => {}
@@ -10860,6 +10951,7 @@ impl Mux {
             body,
             level,
             surface,
+            source,
         }));
         if unread_changed {
             self.emit(MuxEvent::TreeChanged);
@@ -10930,6 +11022,9 @@ impl Mux {
         if let Some(subtitle) = &notification.subtitle {
             value["subtitle"] = serde_json::json!(subtitle);
         }
+        // Stored under `extra`, which every registry schema already accepts,
+        // so a downgraded daemon still opens the receipt.
+        value["extra"] = serde_json::json!({"source": notification.source.as_str()});
         value
     }
 
@@ -10947,6 +11042,7 @@ impl Mux {
         body: String,
         level: NotificationLevel,
         surface: Option<SurfaceId>,
+        source: NotificationSource,
     ) -> anyhow::Result<Option<u64>> {
         const OPERATION: &str = "notification.create";
         let terminal_id = surface.and_then(|surface| {
@@ -10972,6 +11068,7 @@ impl Mux {
             fingerprint["subtitle"] = serde_json::json!(subtitle);
         }
         let committed = |outcome: ResourceEffectOutcome| match outcome {
+    #[allow(clippy::too_many_arguments)]
             ResourceEffectOutcome::Success(_) => Ok(None),
             ResourceEffectOutcome::Failure(error) => Err(anyhow::Error::new(error)),
         };
@@ -10990,6 +11087,7 @@ impl Mux {
                     "level": level.as_str(),
                     "terminal_id": terminal_id,
                     "created_at_ms": now_ms(),
+                    "source": source.as_str(),
                 });
                 self.prepare_resource_effect(
                     idempotency_key,
@@ -11024,6 +11122,13 @@ impl Mux {
             .get("created_at_ms")
             .and_then(Value::as_u64)
             .context("stored notification intent has an invalid timestamp")?;
+        // An intent prepared by a daemon without sources has none; the
+        // producer retrying it now names it.
+        let source = intent
+            .get("source")
+            .and_then(Value::as_str)
+            .and_then(NotificationSource::parse)
+            .unwrap_or(source);
         let numeric_id = self.post_resource_notification(
             notification_id.clone(),
             title.clone(),
@@ -11033,6 +11138,7 @@ impl Mux {
             surface,
             terminal_id.clone(),
             created_at_ms,
+            source,
         );
         let session_id = self.workspace_registry.lock().unwrap().session_id().clone();
         let value = self.notification_snapshot_value(
@@ -11044,6 +11150,7 @@ impl Mux {
                 level,
                 terminal_id,
                 created_at_ms,
+                source,
                 surface,
             },
             &session_id,
@@ -26065,6 +26172,7 @@ mod tests {
             "".into(),
             NotificationLevel::Info,
             Some(first.id),
+            NotificationSource::Cli,
         )
         .unwrap();
         mux.create_durable_notification(
@@ -26074,6 +26182,7 @@ mod tests {
             "".into(),
             NotificationLevel::Info,
             Some(second.id),
+            NotificationSource::Cli,
         )
         .unwrap();
         mux.create_durable_notification(
@@ -26083,6 +26192,7 @@ mod tests {
             "".into(),
             NotificationLevel::Info,
             Some(first.id),
+            NotificationSource::Cli,
         )
         .unwrap();
         let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();

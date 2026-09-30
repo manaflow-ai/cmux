@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a6f0fd964e671efe5149e878a2c1eaaab9e440269ad4adf3bcd8c26998c63ce2. */
+/* cmux-tui mux protocol 12, IR cabd6501831a3f1875fc4aa392d8132a3e9c476496d0b4b55cf97c2566893e0b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a6f0fd964e671efe5149e878a2c1eaaab9e440269ad4adf3bcd8c26998c63ce2" as const;
+export const SDK_IR_SHA256 = "cabd6501831a3f1875fc4aa392d8132a3e9c476496d0b4b55cf97c2566893e0b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1241,7 +1241,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 6,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "source": {
+        "since": 12,
+        "capability": "notification-source-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -5025,6 +5030,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "source": {
+        "capability": "notification-source-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "NotificationSource"
+        }
+      },
       "unread": {
         "nullable": false,
         "presence": "required",
@@ -5035,6 +5050,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "NotificationSource": {
+    "kind": "enum",
+    "values": [
+      "cli",
+      "terminal",
+      "agent",
+      "daemon"
+    ]
   },
   "NotifyResult": {
     "additional_properties": false,
@@ -13163,6 +13187,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "NotificationLevel"
           }
         },
+        "source": {
+          "capability": "notification-source-v1",
+          "default": "cli",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "NotificationSource"
+          }
+        },
         "surface": {
           "default": null,
           "nullable": true,
@@ -17569,6 +17604,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "source": {
+        "capability": "notification-source-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "NotificationSource"
         }
       },
       "surface": {

@@ -315,8 +315,8 @@ class GeneratedClientMixin:
     def note_size_activity(self, surface: Id, *, view: Union[str, None, MissingType] = MISSING) -> NoteSizeActivityResult:
         return self._invoke_command('note-size-activity', NoteSizeActivityRequest(surface=surface, view=view))
 
-    def notify(self, title: str, body: str, *, level: Union[NotificationLevel, None, MissingType] = MISSING, surface: Union[Id, None, MissingType] = MISSING) -> NotifyResult:
-        return self._invoke_command('notify', NotifyRequest(title=title, body=body, level=level, surface=surface))
+    def notify(self, title: str, body: str, *, level: Union[NotificationLevel, None, MissingType] = MISSING, surface: Union[Id, None, MissingType] = MISSING, source: Union[NotificationSource, None, MissingType] = MISSING) -> NotifyResult:
+        return self._invoke_command('notify', NotifyRequest(title=title, body=body, level=level, surface=surface, source=source))
 
     def pairing_response(self, request: int, approve: bool) -> EmptyResult:
         return self._invoke_command('pairing-response', PairingResponseRequest(request=request, approve=approve))

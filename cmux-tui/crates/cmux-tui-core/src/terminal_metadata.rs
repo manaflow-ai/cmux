@@ -3,12 +3,31 @@
 //! The OSC string framing state machine is adapted from herdrdev/herdr's
 //! `src/pane/osc.rs`, Apache-2.0, commit
 //! `7b675f42af35508eab66ac42fe1598628597a893`. The cmux implementation is
-//! modified by manaflow: it retains only OSC 9 progress text, applies strict
-//! byte and character bounds, accepts C1 ST, and exposes the result as a
-//! terminal primitive. It has no agent names, manifests, or roster policy.
+//! modified by manaflow: it retains OSC 9 progress text and desktop
+//! notifications (OSC 9, OSC 777 `notify`, kitty OSC 99, classified as
+//! Ghostty's `osc9.zig`, `rxvt_extension.zig` and `kitty_notification.zig`
+//! do), applies strict byte and character bounds, accepts C1 ST, and exposes
+//! the result as a terminal primitive. It has no agent names, manifests, or
+//! roster policy.
+
+use base64::Engine;
+use std::time::{Duration, Instant};
 
 const MAX_OSC_BODY_BYTES: usize = 4096;
 pub(crate) const MAX_PROGRESS_CHARS: usize = 256;
+/// Shown text bounds for a terminal notification.
+pub(crate) const MAX_NOTIFICATION_TITLE_CHARS: usize = 256;
+pub(crate) const MAX_NOTIFICATION_BODY_CHARS: usize = 1024;
+/// Notifications waiting for the owner to take them. A reader that never
+/// drains the queue (a terminal host) keeps only the newest ones.
+pub(crate) const MAX_PENDING_NOTIFICATIONS: usize = 8;
+/// Kitty accumulates chunked title and body text per notification; Ghostty
+/// bounds each buffer at `Parser.MAX_BUF`.
+const MAX_KITTY_PENDING_BYTES: usize = 2048;
+/// Ghostty's `showDesktopNotification` limits: one per second, and the same
+/// text at most once per five seconds.
+const NOTIFICATION_MIN_SPACING: Duration = Duration::from_secs(1);
+const NOTIFICATION_REPEAT_SPACING: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum OscState {
@@ -197,11 +216,210 @@ fn is_string_opener(byte: u8) -> bool {
     matches!(byte, 0x90 | 0x98 | 0x9d | 0x9f | 0x9e)
 }
 
+/// A desktop notification a program in the terminal asked for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TerminalNotification {
+    /// Never empty: a notification with only body text shows it as the title,
+    /// as Ghostty's kitty parser does.
+    pub title: String,
+    pub body: String,
+}
+
+impl TerminalNotification {
+    fn new(title: &[u8], body: &[u8]) -> Option<Self> {
+        let mut title = shown_text(title, MAX_NOTIFICATION_TITLE_CHARS);
+        let mut body = shown_text(body, MAX_NOTIFICATION_BODY_CHARS);
+        if title.is_empty() {
+            if body.is_empty() {
+                return None;
+            }
+            title = body.chars().take(MAX_NOTIFICATION_TITLE_CHARS).collect();
+            body = String::new();
+        }
+        Some(Self { title, body })
+    }
+}
+
+fn shown_text(bytes: &[u8], limit: usize) -> String {
+    String::from_utf8_lossy(bytes)
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(limit)
+        .collect()
+}
+
+/// Kitty OSC 99 text accumulated across `d=0` chunks.
+#[derive(Debug, Default)]
+struct KittyPending {
+    active: bool,
+    id: Option<String>,
+    title: Vec<u8>,
+    body: Vec<u8>,
+}
+
+impl KittyPending {
+    fn reset(&mut self) {
+        self.active = false;
+        self.id = None;
+        self.title.clear();
+        self.body.clear();
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KittyPayload {
+    Title,
+    Body,
+}
+
+/// Parse one OSC 99 body (after `99;`), following Ghostty's
+/// `kitty_notification.zig`: `meta;payload`, where meta is `:`-separated
+/// `key=value` pairs (`p` payload kind, `d` done, `e` base64, `i` id).
+fn observe_kitty_notification(
+    pending: &mut KittyPending,
+    data: &[u8],
+) -> Option<TerminalNotification> {
+    let separator = data.iter().position(|byte| *byte == b';')?;
+    let (meta, payload) = (&data[..separator], &data[separator + 1..]);
+    let mut kind = Some(KittyPayload::Title);
+    let mut done = true;
+    let mut base64 = false;
+    let mut id = None;
+    for part in meta.split(|byte| *byte == b':') {
+        let Some(equals) = part.iter().position(|byte| *byte == b'=') else { continue };
+        if equals == 0 {
+            continue;
+        }
+        let value = &part[equals + 1..];
+        let flag = |default: bool| match value.first() {
+            Some(b'0') => false,
+            Some(b'1') => true,
+            _ => default,
+        };
+        match part[0] {
+            b'p' => {
+                kind = match value {
+                    b"title" => Some(KittyPayload::Title),
+                    b"body" => Some(KittyPayload::Body),
+                    _ => None,
+                }
+            }
+            b'd' => done = flag(true),
+            b'e' => base64 = flag(false),
+            b'i' => {
+                let valid = !value.is_empty()
+                    && value.iter().all(|byte| {
+                        byte.is_ascii_alphanumeric()
+                            || matches!(byte, b'-' | b'_' | b'+' | b'.' | b':')
+                    });
+                if valid {
+                    id = Some(String::from_utf8_lossy(value).into_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+    // close, alive, queries and unknown kinds carry nothing to show.
+    let kind = kind?;
+    let decoded;
+    let payload = if base64 {
+        decoded = base64::engine::general_purpose::STANDARD.decode(payload).ok()?;
+        decoded.as_slice()
+    } else {
+        payload
+    };
+    if std::str::from_utf8(payload).is_err() {
+        return None;
+    }
+    match id {
+        Some(id) if pending.active && pending.id.as_deref() == Some(id.as_str()) => {}
+        Some(id) => {
+            pending.reset();
+            pending.active = true;
+            pending.id = Some(id);
+        }
+        None => {
+            pending.reset();
+            pending.active = true;
+        }
+    }
+    let buffer = match kind {
+        KittyPayload::Title => &mut pending.title,
+        KittyPayload::Body => &mut pending.body,
+    };
+    if buffer.len() + payload.len() >= MAX_KITTY_PENDING_BYTES {
+        pending.reset();
+        return None;
+    }
+    buffer.extend_from_slice(payload);
+    if !done {
+        return None;
+    }
+    let notification = TerminalNotification::new(&pending.title, &pending.body);
+    pending.reset();
+    notification
+}
+
+/// Whether an OSC 9 body (after `9;`) is an iTerm2 desktop notification.
+/// Everything Ghostty's `osc9.zig` parses as a ConEmu command is not.
+fn osc9_is_notification(data: &[u8]) -> bool {
+    let at = |index: usize| data.get(index).copied();
+    match at(0) {
+        None => true,
+        Some(b'1') => match at(1) {
+            Some(b';') => false,
+            Some(b'0') => match (data.len(), at(2), at(3)) {
+                (2, _, _) => false,
+                (length, Some(b';'), Some(b'0'..=b'3')) if length >= 4 => false,
+                _ => true,
+            },
+            Some(b'1') => at(2) != Some(b';'),
+            Some(b'2') => false,
+            _ => true,
+        },
+        Some(b'2' | b'3' | b'6' | b'7' | b'8' | b'9') => at(1) != Some(b';'),
+        Some(b'4') => !(at(1) == Some(b';') && matches!(at(2), Some(b'0'..=b'4'))),
+        Some(b'5') => false,
+        Some(_) => true,
+    }
+}
+
+/// Ghostty's desktop notification limits, per terminal. Computed on arrival:
+/// no timer runs for it.
+#[derive(Debug, Default)]
+pub(crate) struct NotificationGate {
+    last: Option<(Instant, u64)>,
+}
+
+impl NotificationGate {
+    /// Whether `notification` may be shown at `now`; records it when it may.
+    pub(crate) fn admit(&mut self, notification: &TerminalNotification, now: Instant) -> bool {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        notification.title.hash(&mut hasher);
+        notification.body.hash(&mut hasher);
+        let digest = hasher.finish();
+        if let Some((last, last_digest)) = self.last {
+            let elapsed = now.saturating_duration_since(last);
+            if elapsed < NOTIFICATION_MIN_SPACING
+                || (last_digest == digest && elapsed < NOTIFICATION_REPEAT_SPACING)
+            {
+                return false;
+            }
+        }
+        self.last = Some((now, digest));
+        true
+    }
+}
+
 /// Generic terminal metadata retained from the output stream.
 #[derive(Debug, Default)]
 pub(crate) struct TerminalMetadata {
     osc: OscCollector,
     progress: String,
+    kitty: KittyPending,
+    notifications: Vec<TerminalNotification>,
+    gate: NotificationGate,
 }
 
 impl TerminalMetadata {
@@ -220,19 +438,59 @@ impl TerminalMetadata {
             return;
         }
         let progress = &mut self.progress;
+        let kitty = &mut self.kitty;
+        let notifications = &mut self.notifications;
         self.osc.observe(bytes, |body| {
             let Some(separator) = body.iter().position(|byte| *byte == b';') else {
                 return;
             };
-            if &body[..separator] != b"9" {
-                return;
+            let data = &body[separator + 1..];
+            let notification = match &body[..separator] {
+                b"9" => {
+                    *progress = String::from_utf8_lossy(data)
+                        .chars()
+                        .filter(|character| !character.is_control())
+                        .take(MAX_PROGRESS_CHARS)
+                        .collect();
+                    osc9_is_notification(data)
+                        .then(|| TerminalNotification::new(b"", data))
+                        .flatten()
+                }
+                b"777" => {
+                    let Some(rest) = data.strip_prefix(b"notify;") else { return };
+                    let Some(title_end) = rest.iter().position(|byte| *byte == b';') else {
+                        return;
+                    };
+                    TerminalNotification::new(&rest[..title_end], &rest[title_end + 1..])
+                }
+                b"99" => observe_kitty_notification(kitty, data),
+                _ => None,
+            };
+            if let Some(notification) = notification {
+                if notifications.len() == MAX_PENDING_NOTIFICATIONS {
+                    notifications.remove(0);
+                }
+                notifications.push(notification);
             }
-            *progress = String::from_utf8_lossy(&body[separator + 1..])
-                .chars()
-                .filter(|character| !character.is_control())
-                .take(MAX_PROGRESS_CHARS)
-                .collect();
         });
+    }
+
+    /// Desktop notifications parsed since the last call, oldest first.
+    pub(crate) fn take_notifications(&mut self) -> Vec<TerminalNotification> {
+        std::mem::take(&mut self.notifications)
+    }
+
+    /// `take_notifications` filtered by this terminal's rate limit.
+    pub(crate) fn take_admitted_notifications(
+        &mut self,
+        now: Instant,
+    ) -> Vec<TerminalNotification> {
+        if self.notifications.is_empty() {
+            return Vec::new();
+        }
+        let mut taken = self.take_notifications();
+        taken.retain(|notification| self.gate.admit(notification, now));
+        taken
     }
 
     pub(crate) fn osc_progress(&self) -> &str {
@@ -389,9 +647,25 @@ mod tests {
         // desktop notifications.
         let mut metadata = TerminalMetadata::default();
         for body in [
-            "9;1;100", "9;10", "9;10;1", "9;11;comment", "9;12", "9;2;box", "9;3;", "9;3;tab",
-            "9;4;0", "9;4;1;50", "9;4;2", "9;4;3", "9;4;4;10", "9;5", "9;5 minutes", "9;6;macro",
-            "9;7;run", "9;8;VAR", "9;9;/tmp",
+            "9;1;100",
+            "9;10",
+            "9;10;1",
+            "9;11;comment",
+            "9;12",
+            "9;2;box",
+            "9;3;",
+            "9;3;tab",
+            "9;4;0",
+            "9;4;1;50",
+            "9;4;2",
+            "9;4;3",
+            "9;4;4;10",
+            "9;5",
+            "9;5 minutes",
+            "9;6;macro",
+            "9;7;run",
+            "9;8;VAR",
+            "9;9;/tmp",
         ] {
             metadata.observe_output(format!("\x1b]{body}\x07").as_bytes());
             assert!(notes(&mut metadata).is_empty(), "{body} must not notify");
@@ -500,15 +774,15 @@ mod tests {
 
     #[test]
     fn cmux_next_terminal_notification_gate_limits_rate_and_repeats() {
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         let mut gate = NotificationGate::default();
         let note = |title: &str| TerminalNotification { title: title.into(), body: String::new() };
         assert!(gate.admit(&note("a"), start));
         // Within one second of the last shown notification: dropped.
-        assert!(!gate.admit(&note("b"), start + std::time::Duration::from_millis(500)));
-        assert!(gate.admit(&note("b"), start + std::time::Duration::from_millis(1_100)));
+        assert!(!gate.admit(&note("b"), start + Duration::from_millis(500)));
+        assert!(gate.admit(&note("b"), start + Duration::from_millis(1_100)));
         // The same text again within five seconds: dropped.
-        assert!(!gate.admit(&note("b"), start + std::time::Duration::from_millis(3_000)));
-        assert!(gate.admit(&note("b"), start + std::time::Duration::from_millis(6_200)));
+        assert!(!gate.admit(&note("b"), start + Duration::from_millis(3_000)));
+        assert!(gate.admit(&note("b"), start + Duration::from_millis(6_200)));
     }
 }

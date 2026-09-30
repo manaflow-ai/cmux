@@ -35,6 +35,9 @@ pub struct RegistryNotificationProjection {
     pub unread: bool,
     /// Client ids that acknowledged this notification, sorted and unique.
     pub read_by: Vec<String>,
+    /// `extra.source`, or derived from the idempotency key for receipts
+    /// written before sources existed.
+    pub source: crate::NotificationSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -345,7 +348,13 @@ impl WorkspaceRegistry {
                 stored.session_id,
                 self.session_id
             );
-            let _ = stored.extra;
+            let source = stored
+                .extra
+                .as_ref()
+                .and_then(|extra| extra.get("source"))
+                .and_then(Value::as_str)
+                .and_then(crate::NotificationSource::parse)
+                .unwrap_or_else(|| crate::NotificationSource::from_legacy_key(&idempotency_key));
             let _ = stored.read_by;
             let read_by = reads.remove(stored.id.as_str()).unwrap_or_default();
             let unread = stored.unread && !acked.contains(stored.id.as_str());
@@ -361,6 +370,7 @@ impl WorkspaceRegistry {
                 created_at_ms: stored.created_at_ms.get(),
                 unread,
                 read_by,
+                source,
             });
         }
         notifications.reverse();
