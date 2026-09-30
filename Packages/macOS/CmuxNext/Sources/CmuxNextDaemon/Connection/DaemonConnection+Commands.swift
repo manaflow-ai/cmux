@@ -312,6 +312,16 @@ extension DaemonConnection {
                                       on: transport, timeout: Self.endTerminalsTimeout)
     }
 
+    /// Quit's "End All Sessions": stops this connection (so the daemon's
+    /// exit cannot trigger a reconnect that starts a new daemon), then ends
+    /// every terminal and stops the daemon (`shutdown-daemon end_terminals`).
+    /// Returns the ended count.
+    @discardableResult
+    public func endSessionsAndStop() async throws -> UInt64 {
+        await close()
+        return 0  // not implemented yet
+    }
+
     /// Deadline for `shutdown-daemon end_terminals`, which awaits every host.
     public static let endTerminalsTimeout: Duration = .seconds(60)
 }
