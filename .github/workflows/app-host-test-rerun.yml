@@ -228,6 +228,12 @@ jobs:
             mkdir -p "$dest"
             rsync -aL "$(dirname "$framework_source")/" "$dest/"
           done
+          # Source-backed test fixtures resolve #fileID through this stable
+          # location, so baseline runs do not need the producer root.
+          CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source \
+            "$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/canonical-build-root.sh" \
+            --runtime-source "$PWD"
+          echo "CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source" >> "$GITHUB_ENV"
           receipt="$COMPILE_DERIVED_DATA/Build/Products/cmux-test-products.json"
           cat "$receipt"
           test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "$receipt")" = "$SOURCE_SHA"

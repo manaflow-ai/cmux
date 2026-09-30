@@ -56,6 +56,22 @@ import Testing
         #expect(rejoined?.participant.via == "c8")
     }
 
+    /// A view-only detach (a phone disconnected this Mac's view) keeps the
+    /// relay: every phone stays relayed and keeps its host participant.
+    @Test func viewOnlyDetachOfTheMirrorKeepsEveryPhoneRelayed() {
+        var relay = CloudTerminalSizingRelay()
+        relay.connectionStarted(capabilities: [CloudTerminalSizingRelay.capability, CloudTerminalSizingRelay.viewDetachCapability])
+        #expect(relay.supportsViewDetach)
+        relay.attached(selfParticipantID: "c7")
+        _ = relay.phoneReported(clientID: "p1", participant: phone())
+        relay.noteHostParticipant("c7/mobile:p1", forView: "mobile:p1")
+        let actor = TerminalDetachActor(displayName: "Maya", deviceName: "Maya's iPhone")
+        let route = relay.routeDetached(reason: .disconnectedBy(actor), view: nil, viewOnly: true)
+        #expect(route == .ownView(.disconnectedBy(actor)))
+        #expect(relay.views.count == 1)
+        #expect(relay.hostParticipantID(clientID: "p1") == "c7/mobile:p1")
+    }
+
     @Test func aNetworkDropOfTheMirrorKeepsItsPhones() {
         var relay = CloudTerminalSizingRelay()
         _ = relay.phoneReported(clientID: "p1", participant: phone())

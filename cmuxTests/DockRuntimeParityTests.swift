@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Combine
 import CmuxControlSocket
+import CmuxFoundation
 import CmuxNotifications
 import CmuxTerminal
 import Foundation
@@ -77,6 +78,53 @@ private extension DockSplitStore {
 @Suite("Dock runtime parity", .serialized)
 struct DockRuntimeParityTests {
     private static let socketWorker = DispatchQueue(label: "DockRuntimeParityTests.socketWorker")
+
+    @Test("Conversations reuses a live Dock terminal", arguments: [false, true])
+    func conversationReusesLiveDockTerminal(windowDock: Bool) async throws {
+        try await withAppContext { app, manager, workspace, windowID in
+            let dock = windowDock
+                ? app.windowDock(forWindowId: windowID)
+                : try #require(workspace.dockSplit)
+            let terminal = TerminalPanel(
+                workspaceId: dock.workspaceId,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            try dock.seedRuntimeParityPanel(terminal)
+            let other = DockRuntimeParityPanel(title: "Other terminal")
+            try dock.seedRuntimeParityPanel(other)
+            dock.focusPanel(other.id)
+            let sessionID = UUID().uuidString
+            dock.restoredAgentLifecycle.setSnapshot(
+                SessionRestorableAgentSnapshot(
+                    kind: .claude, sessionId: sessionID, workingDirectory: "/tmp", launchCommand: nil
+                ),
+                panelId: terminal.id
+            )
+            terminal.updateShellActivityState(.commandRunning)
+            let entry = SessionEntry(
+                id: "claude:\(sessionID)", agent: .claude, sessionId: sessionID,
+                title: "Dock conversation", cwd: "/tmp", gitBranch: nil,
+                pullRequest: nil, modified: Date(), fileURL: nil,
+                specifics: .claude(model: nil, permissionMode: nil, configDirectoryForResume: nil)
+            )
+            let workspaceCount = manager.tabs.count
+            let mainPanelCount = workspace.panels.count
+            let dockPanelCount = dock.panels.count
+            let target = try #require(SessionEntryResumeCoordinator.activeTarget(
+                for: entry, tabManager: manager, schedulingIndexRefresh: false
+            ))
+            guard case .dock(let panelID) = target else {
+                Issue.record("Dock session was routed to the workspace split tree")
+                return
+            }
+            #expect(panelID == terminal.id)
+            #expect(SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: manager))
+            #expect(dock.focusedPanelId == terminal.id)
+            #expect(manager.tabs.count == workspaceCount)
+            #expect(workspace.panels.count == mainPanelCount)
+            #expect(dock.panels.count == dockPanelCount)
+        }
+    }
 
     @Test("Reconciling a stale tab alias preserves the live panel owner")
     func reconcilingStaleTabAliasPreservesLivePanelOwner() throws {

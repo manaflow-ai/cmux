@@ -2441,11 +2441,11 @@ impl OrderedSession {
         );
     }
 
-    fn disconnect_size_participant(&self, participant: String) {
+    fn disconnect_size_participant(&self, surface: SurfaceId, participant: String) {
         self.enqueue_coalescing_pointer_mutation(
             "disconnect participant",
             ("disconnect participant", participant_key(&participant)),
-            move |session| match session.disconnect_size_participant(&participant) {
+            move |session| match session.disconnect_size_participant(surface, &participant) {
                 // The menu is a snapshot; a participant that already left is done.
                 Err(error) if error.to_string().contains("unknown participant") => Ok(()),
                 result => result,
@@ -20723,7 +20723,7 @@ impl App {
                         // leave through the local detach lifecycle.
                         self.run_action(Action::Detach)?;
                     } else {
-                        self.session.disconnect_size_participant(id);
+                        self.session.disconnect_size_participant(surface, id);
                     }
                 }
             }

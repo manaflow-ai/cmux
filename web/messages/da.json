@@ -2032,6 +2032,7 @@
         "automation": {
           "ampIntegration": "Slår cmux-hooks til Amp til eller fra. Når de er slået fra, forbliver det medfølgende plugin installeret, men inaktivt.",
           "suppressSubagentNotifications": "Skjul synlige fuldførelsesnotifikationer og statusændringer fra indlejrede Codex- eller Claude-underagenter, mens deres hændelser bevares i Feed-telemetri.",
+          "agentAutoResume": "Sender `continue` med backoff til en agent startet af cmux, hvis tur sluttede med en upstream-fejl, der kan prøves igen (model uden kapacitet, overbelastet eller mistet forbindelse). Ture, der venter på et menneske, genoptages aldrig.",
           "workspaceAutoNaming": "Valgfri AI-baseret automatisk navngivning af arbejdsområder og faner ud fra agentens samtaleindhold. Når den er aktiveret, opsummerer cmux understøttede agentsessioner til korte titler med hver agents egen binær; manuelle omdøbninger vinder altid.",
           "autoNamingAgent": "Hvilken agent der genererer automatiske navne for hver session. \"auto\" (standard) navngiver hver session med dens egen agent; et hvilket som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) tilsidesætter navngivningen for alle sessioner, også andre agenters. Agenter, der ikke kan styres eller ikke er installeret, falder tilbage til sessionens egen agent, så navngivningen aldrig fejler.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
@@ -2085,7 +2086,12 @@
           "compactAgentStatus": "Vis hvert workspace på én linje: ét farvet ikon før titlen viser agent-, ulæst- og pull request-status og erstatter agentstatuslinjerne (for eksempel Kører eller Kræver input), gren- og mappelinjen og pull request-linjerne, hvis detaljer flytter til ikonets værktøjstip. Andre statusposter beholder deres egne linjer.",
           "compactStatusIcons": "SF Symbol-navne, der erstatter compactAgentStatus-glyffen for hver tilstand, for eksempel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Tilstande uden værdi beholder det indbyggede symbol, og et navn, der ikke kan vises, falder tilbage til det.",
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
-          "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
+          "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse.",
+          "beta": {
+            "conversations": {
+              "enabled": "Vis den samlede samtalevisning i sidebjælkens vælger."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Indstillinger for filoversigten (filtræet) i højre sidepanel.",
@@ -2291,7 +2297,8 @@
         "wn-reload": "Genindlæs konfiguration",
         "wn-quit": "Afslut"
       },
-      "metaTitle": "Tastaturgenveje"
+      "metaTitle": "Tastaturgenveje",
+      "fileEditorWordWrap": "Slå linjeombrydning i fileditoren til eller fra (Option+Z)."
     },
     "api": {
       "title": "CLI-reference",
@@ -2729,7 +2736,8 @@
       "maxLinesSetting": "TextBox Max Lines begrænser TextBox-højden, før indholdet ruller.",
       "configTitle": "cmux.json",
       "configDesc": "Sæt de samme standarder i ~/.config/cmux/cmux.json under terminal:",
-      "focusNote": "Gendannede sessioner bevarer deres gemte TextBox-synlighed og fokusstatus. Disse standarder gælder kun for nyoprettede terminalflader."
+      "focusNote": "Gendannede sessioner bevarer deres gemte TextBox-synlighed og fokusstatus. Disse standarder gælder kun for nyoprettede terminalflader.",
+      "betaCallout": "TextBox er en beta-funktion. Standarder og adfærd kan ændre sig under test."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multi-agent i cmux",
