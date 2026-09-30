@@ -23,6 +23,9 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     private var displayLink: CADisplayLink?
     private var needsFlush = false
     private var isAdjustingScroll = false
+    /// Programmatic scroll animations in flight. Their intermediate bounds changes are not
+    /// the user scrolling away, so they must not unpin the transcript.
+    private var programmaticScrollAnimations = 0
     private var lastLayoutWidth: CGFloat = 0
     /// Rows measured exactly during the current height pass; other rows return estimates.
     private var measureWindow: Range<Int> = 0..<0
@@ -296,12 +299,17 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         let target = NSPoint(x: 0, y: maxY)
         isAdjustingScroll = true
         if animated {
+            programmaticScrollAnimations += 1
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.22
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 clip.animator().setBoundsOrigin(target)
             } completionHandler: { [weak self] in
-                self?.scrollView.reflectScrolledClipView(clip)
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.programmaticScrollAnimations -= 1
+                    self.scrollView.reflectScrolledClipView(clip)
+                }
             }
         } else {
             clip.scroll(to: target)
@@ -313,13 +321,13 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     }
 
     /// Jumps to the newest row and re-pins.
-    func jumpToLatest() {
-        scrollToBottom(animated: !reduceMotion)
+    func jumpToLatest(animated: Bool = true) {
+        scrollToBottom(animated: animated && !reduceMotion)
         onScrollStateChanged?(true, 0)
     }
 
     @objc private func clipViewBoundsChanged(_ notification: Notification) {
-        guard !isAdjustingScroll else { return }
+        guard !isAdjustingScroll, programmaticScrollAnimations == 0 else { return }
         let clip = scrollView.contentView.bounds
         let distanceFromBottom = tableView.frame.height - clip.maxY
         let pinned = distanceFromBottom < 28
@@ -451,15 +459,27 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     private func toggle(_ rowID: String) {
         guard let index = rows.firstIndex(where: { $0.id == rowID }) else { return }
         if expandedRowIDs.contains(rowID) { expandedRowIDs.remove(rowID) } else { expandedRowIDs.insert(rowID) }
-        let wasPinned = isPinnedToBottom && index == rows.count - 1
+        let visible = tableView.rows(in: scrollView.contentView.bounds)
+        let isOnScreen = visible.length > 0 && index >= visible.location && index < visible.location + visible.length
+        let pinned = isPinnedToBottom
+        // Keep the content the user is looking at still: the bottom when pinned, otherwise
+        // the first visible row. Only an on-screen row animates its height.
+        let anchor = pinned ? nil : captureAnchor()
+        let animate = isOnScreen && !reduceMotion
+        isAdjustingScroll = true
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = reduceMotion ? 0 : 0.25
-            context.allowsImplicitAnimation = !reduceMotion
+            context.duration = animate ? 0.25 : 0
+            context.allowsImplicitAnimation = animate
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.9, 0.3, 1)
             tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: index))
+            if pinned {
+                self.scrollToBottom(animated: false)
+            } else if let anchor {
+                self.restore(anchor)
+            }
         }
+        isAdjustingScroll = false
         reconfigure(row: index)
-        if wasPinned { scrollToBottom(animated: !reduceMotion) }
     }
 
     private func animateInsertion(row: Int) {

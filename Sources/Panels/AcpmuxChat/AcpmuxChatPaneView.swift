@@ -49,6 +49,7 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
         queueStrip.onSteer = { [weak self] entry in self?.model.steer(entry) }
         queueStrip.onRemove = { [weak self] entry in self?.model.removeQueued(entry) }
         transcript.onScrollStateChanged = { [weak self] pinned, unread in self?.updateJumpPill(pinned: pinned, unread: unread) }
+        transcript.onDidFlush = { [weak self] in self?.checkMorphTarget() }
         model.onTranscriptChanged = { [weak self] in self?.transcript.setNeedsFlush() }
         applyTheme()
         observeModel()
@@ -252,11 +253,19 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
     private func submit(_ text: String) {
         let startFrame = convert(composer.textFrame, from: composer)
         composer.clear()
-        transcript.jumpToLatest()
-        guard let rowID = model.send(text) else { return }
-        guard !reduceMotion, window != nil else { return }
+        guard let rowID = model.send(text) else {
+            transcript.jumpToLatest()
+            return
+        }
+        guard !reduceMotion, window != nil else {
+            transcript.jumpToLatest()
+            return
+        }
+        // Lay the new row out and scroll it into its final slot before measuring the target,
+        // so the morph lands exactly where the cell will be.
         transcript.setRowHidden(rowID, hidden: true)
         transcript.flush()
+        transcript.jumpToLatest(animated: false)
         guard let target = transcript.bubbleFrame(of: rowID).map({ convert($0, from: transcript) }) else {
             transcript.setRowHidden(rowID, hidden: false)
             return
@@ -270,13 +279,33 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
             textWidth: max(1, target.width - 2 * horizontal)
         )
         addSubview(overlay)
+        activeMorph = (rowID, overlay, target)
         overlay.morph(to: target, textOrigin: CGPoint(x: horizontal, y: vertical)) { [weak self, weak overlay] in
-            // Reveal the real cell and drop the overlay in one transaction: no flicker frame.
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            self?.transcript.setRowHidden(rowID, hidden: false)
-            overlay?.removeFromSuperview()
-            CATransaction.commit()
+            self?.finishMorph(overlay)
+        }
+    }
+
+    private var activeMorph: (rowID: String, overlay: AcpmuxMorphBubbleView, target: CGRect)?
+
+    /// Reveals the real cell and drops the overlay in one transaction: no flicker frame.
+    private func finishMorph(_ overlay: AcpmuxMorphBubbleView?) {
+        guard let morph = activeMorph, overlay == nil || morph.overlay === overlay else { return }
+        activeMorph = nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        transcript.setRowHidden(morph.rowID, hidden: false)
+        morph.overlay.layer?.removeAllAnimations()
+        morph.overlay.removeFromSuperview()
+        CATransaction.commit()
+    }
+
+    /// Ends the morph early when rows arriving mid-flight move its slot, so the overlay
+    /// never finishes at a stale position.
+    private func checkMorphTarget() {
+        guard let morph = activeMorph,
+              let current = transcript.bubbleFrame(of: morph.rowID).map({ convert($0, from: transcript) }) else { return }
+        if abs(current.minY - morph.target.minY) > 0.5 || abs(current.minX - morph.target.minX) > 0.5 {
+            finishMorph(nil)
         }
     }
 

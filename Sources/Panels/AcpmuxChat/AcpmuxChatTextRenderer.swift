@@ -274,11 +274,12 @@ struct AcpmuxChatTextRenderer {
             status = String(localized: "acpmuxChat.permission.cancelled", defaultValue: "Cancelled")
             color = theme.tertiaryText
         }
-        let output = NSMutableAttributedString(string: "\u{26BF}  \(title)", attributes: [
+        let output = NSMutableAttributedString(attributedString: Self.symbol("lock.shield", color: theme.secondaryText, font: theme.smallFont))
+        output.append(NSAttributedString(string: "  \(title)", attributes: [
             .font: NSFont.systemFont(ofSize: 12, weight: .medium),
             .foregroundColor: theme.secondaryText,
             .paragraphStyle: paragraph(spacingAfter: 0),
-        ])
+        ]))
         output.append(NSAttributedString(string: "  \u{00B7}  \(status)", attributes: [
             .font: NSFont.systemFont(ofSize: 12, weight: .regular),
             .foregroundColor: color,

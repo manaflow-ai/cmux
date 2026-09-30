@@ -30,8 +30,10 @@ final class AcpmuxMorphBubbleView: NSView {
             label.isSelectable = false
             label.drawsBackground = false
             label.isBordered = false
+            label.lineBreakMode = .byWordWrapping
             label.preferredMaxLayoutWidth = textWidth
-            label.frame = CGRect(origin: .zero, size: CGSize(width: textWidth, height: label.fittingSize.height))
+            let height = (label.cell?.cellSize(forBounds: CGRect(x: 0, y: 0, width: textWidth, height: .greatestFiniteMagnitude)).height).map { ceil($0) } ?? 20
+            label.frame = CGRect(origin: .zero, size: CGSize(width: textWidth + 4, height: height))
             addSubview(label)
         }
         finalLabel.alphaValue = 0

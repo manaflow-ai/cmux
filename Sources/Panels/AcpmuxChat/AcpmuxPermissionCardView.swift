@@ -31,10 +31,10 @@ final class AcpmuxPermissionCardView: AcpmuxFlippedView {
         guard card != self.card else { return }
         self.card = card
         let format = String(localized: "acpmuxChat.permission.prompt", defaultValue: "Allow %@?")
-        titleLabel.stringValue = String.localizedStringWithFormat(
-            format,
-            card.request.toolCall?.title ?? String(localized: "acpmuxChat.permission.fallbackTitle", defaultValue: "Tool call")
-        )
+        // Titles often end in "?" already ("may I edit the file?"); the format adds its own.
+        var title = card.request.toolCall?.title ?? String(localized: "acpmuxChat.permission.fallbackTitle", defaultValue: "Tool call")
+        while let last = title.last, last == "?" || last == "？" { title.removeLast() }
+        titleLabel.stringValue = String.localizedStringWithFormat(format, title)
         let input = card.request.toolCall?.rawInput
         detailLabel.stringValue = input?["command"]?.stringValue
             ?? input?["file_path"]?.stringValue
@@ -64,7 +64,7 @@ final class AcpmuxPermissionCardView: AcpmuxFlippedView {
     }
 
     var preferredHeight: CGFloat {
-        detailLabel.stringValue.isEmpty ? 70 : 96
+        detailLabel.stringValue.isEmpty ? 64 : 96
     }
 
     override func layout() {
