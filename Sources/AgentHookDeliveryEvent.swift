@@ -160,6 +160,13 @@ struct AgentHookDeliveryEvent: Sendable {
     /// Returns whether this newer terminal state can supersede an older
     /// buffered state snapshot without discarding an independent side effect.
     func canReplaceBufferedLifecycleState(_ earlier: Self) -> Bool {
+        // Stop delivery has independent side effects: it journals the turn
+        // boundary, updates the resumable session record, and may publish a
+        // completion notification. Session teardown must not coalesce that
+        // work away while replacing stale state in the same lane.
+        if subcommand == "session-end", earlier.subcommand == "stop" {
+            return false
+        }
         guard Self.terminalStateSubcommands.contains(subcommand),
               Self.supersedableStateSubcommands.contains(earlier.subcommand),
               agent == earlier.agent,

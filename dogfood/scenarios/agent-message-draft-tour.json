@@ -3,6 +3,7 @@
     "Sources/*AgentMessage*",
     "Sources/TerminalController+AgentMessages.swift",
     "CLI/*AgentMessage*",
+    "CLI/CMUXCLI+AgentMessages.swift",
     "cmuxCLITests/CLIAgentMessage*",
     "Packages/macOS/CmuxAgentJournal/*"
   ],
