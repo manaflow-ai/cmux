@@ -113,6 +113,17 @@ Use `Cmd+Shift+U` to jump to the latest unread notification. Use `Ctrl+Cmd+U` to
 
 Focusing a pane marks that pane's notifications read. A notification posted without a surface belongs to the workspace instead of to a pane (cmux's own memory-pressure warning is one), so switching to the workspace marks the workspace's own notifications read. The other panes in that workspace keep their notifications and any manual or restored unread markers. "Mark Workspace as Read" in the workspace context menu still clears everything in the workspace at once.
 
+## Native banner lifetime and notification history
+
+cmux keeps its notification record and unread state until you open, mark, or
+dismiss it (subject to the existing focused-surface dismissal policy). The
+native macOS presentation is separate: macOS controls how long a **Banner** is
+visible and may remove it after a few seconds. cmux cannot extend that native
+Banner lifetime. To keep the system alert visible until you dismiss it, open
+**System Settings → Notifications → cmux** and choose **Alert** instead of
+**Banner**. The cmux notification panel remains the durable place to review
+notifications regardless of that macOS presentation choice.
+
 ## Suppress only the focused surface
 
 By default cmux withdraws a delivered banner when its workspace becomes visible/active, which can retract a banner for a non-focused surface (e.g. a second agent in the same visible workspace) before you notice it. Set the opt-in flag below to `true` so the auto-withdraw fires **only** for the exact focused surface — matching the delivery gate. A banner for a non-focused surface then stays up until you focus that surface (or click/dismiss it). Workspace-visible-but-not-focused surfaces and surfaces in non-visible workspaces keep their banners; explicit "mark workspace read" and clicking/typing still clear notifications as before.

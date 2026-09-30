@@ -575,6 +575,10 @@ path = "tests/test_ci_macos_xcode_selection.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_xcode_pin_audit.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_required_checks_drift.py"
 lane = "linux-guard"
 
@@ -1401,6 +1405,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_check_repo_variables.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cloud_overflow_switch.py"
 lane = "linux-guard"
 
 [[test]]

@@ -3,6 +3,8 @@ import Foundation
 
 extension Notification.Name {
     static let cmuxCloudTeamScopeDidChange = Notification.Name("cmux.cloudTeamScopeDidChange")
+    /// Posted after the registry has retired the old team and resumed the new scope.
+    static let cmuxCloudTeamScopeReady = Notification.Name("cmux.cloudTeamScopeReady")
 }
 
 /// Reconciles local Cloud transports whenever the authenticated team changes.
@@ -102,6 +104,7 @@ final class CloudTeamScopeObserver {
             }
             guard generation == desiredGeneration else { continue }
             guard auth.isAuthenticatedTeamScopeCurrent(scope) else { return }
+            NotificationCenter.default.post(name: .cmuxCloudTeamScopeReady, object: self)
             return
         }
     }
