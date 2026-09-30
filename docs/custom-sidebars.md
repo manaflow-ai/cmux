@@ -21,7 +21,7 @@ It is a beta, on by default. Turn it off in **Settings → Custom Sidebars**
 
 ## Start from a template
 
-Six curated custom sidebars are available as built-in templates while the Custom Sidebars beta is enabled: Workspaces, Agents Board, Panel Sessions, Panel Subagents, btop Agents, and Panel Todo. Right-click the sidebar toggle button, choose **Browse Sidebar Templates…**, and open the gallery. Each card shows a preview, placement, and description. **Try** temporarily selects it in the sidebar; use **Keep** or **Revert** in the gallery bar. **Use** installs an editable file and offers **Edit** in your preferred editor.
+Six curated custom sidebars are available as built-in templates while the Custom Sidebars beta is enabled: Workspaces, Agents Board, Panel Sessions, Panel Subagents, btop Agents, and Panel Todo. Right-click the sidebar toggle button, choose **Browse Sidebar Templates…**, and open the gallery. Each card shows a preview, placement, and description. **Try** temporarily selects the bundled source without writing to your sidebar folder; use **Keep** or **Revert** in the gallery bar. **Use** installs an editable file and offers **Edit** in your preferred editor. Right-panel templates open in the right sidebar when it is available.
 
 The same templates are available from the CLI:
 
