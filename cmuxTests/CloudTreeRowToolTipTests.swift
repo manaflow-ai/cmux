@@ -256,6 +256,24 @@ struct CloudTreeRowToolTipTests {
         #expect(content.toolTip.contains("build box"))
     }
 
+    @Test("A pre-contract machine explains the Cloud replay recovery path")
+    func staleCmuxTuiContractIsVisibleInRowDetails() {
+        let summary = VMSummary(
+            id: "vm-stale",
+            provider: "freestyle",
+            status: "running",
+            image: "devbox",
+            createdAt: 1_700_000_000_000,
+            base: nil,
+            cmuxTuiContract: nil
+        )
+        let machine = MachineSnapshotBuilder.snapshot(from: summary)
+        let content = CloudTreeMachineRowContent(machine: machine, style: .defaultStyle)
+
+        #expect(content.toolTip.contains("Older Cloud daemon contract recorded"))
+        #expect(content.accessibilityLabel.contains("recreate this machine"))
+    }
+
     /// `CloudTreeBrowserDetail.text` returns the URL host, else the local
     /// workspace showing the page. A browser with neither has nothing past the
     /// title the row already draws, and a popup that repeats the row covers the

@@ -17,8 +17,10 @@ struct CloudTreeMachineRowContent: View {
             HStack(alignment: .top, spacing: scaled(style.iconGap)) {
                 CloudTreeRowIcon(
                     style: style,
-                    systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud",
-                    tint: CloudTreeIconPalette.machine
+                    systemName: machine.freeAccess == .expired
+                        ? "lock.fill"
+                        : machine.cmuxTuiContractStatus.isStale ? "exclamationmark.triangle.fill" : "cloud",
+                    tint: machine.cmuxTuiContractStatus.isStale ? .orange : CloudTreeIconPalette.machine
                 )
                 .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight))
                 VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
@@ -69,6 +71,7 @@ struct CloudTreeMachineRowContent: View {
         var parts = [machine.displayName, machine.activityLabel, metrics.summary]
         parts.append(subtitle)
         parts.append(usageSummary)
+        if let contractNotice { parts.append(contractNotice) }
         return parts.joined(separator: ", ")
     }
 
@@ -84,6 +87,7 @@ struct CloudTreeMachineRowContent: View {
         lines.append(subtitle)
         lines.append(machine.image)
         lines.append(usageSummary)
+        if let contractNotice { lines.append(contractNotice) }
         // A machine the catalog found before the fleet list named it is built
         // with `image: info.image ?? ""`, and an empty line in the middle of a
         // popup reads as a missing fact rather than an absent one.
@@ -96,6 +100,14 @@ struct CloudTreeMachineRowContent: View {
     /// A missing backend report remains visible instead of looking like a removed feature.
     var usageSummary: String {
         resources?.usageSummary ?? usageLine ?? String(localized: "machines.usage.unavailable", defaultValue: "Token usage unavailable")
+    }
+
+    private var contractNotice: String? {
+        guard machine.cmuxTuiContractStatus.isStale else { return nil }
+        return String(
+            localized: "machines.cmuxTuiContract.stale",
+            defaultValue: "Older Cloud daemon contract recorded; recreate this machine for reliable terminal replay"
+        )
     }
 
     private var metrics: CloudMachineResourcePresentation {
