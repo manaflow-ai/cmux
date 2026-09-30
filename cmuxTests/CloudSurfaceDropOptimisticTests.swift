@@ -27,10 +27,10 @@ struct CloudSurfaceDropOptimisticTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let d = try DropFixture()
             defer { d.close() }
-            d.f.provider.gate = CloudLinkFirstValue<Bool>()
-            defer { d.f.provider.gate?.resolve(true) }
+            d.provider.gate = CloudLinkFirstValue<Bool>()
+            defer { d.provider.gate?.resolve(true) }
             #expect(d.drop(try d.terminalRow("term-one"), at: spot))
-            #expect(await d.f.provider.started.result == true)
+            #expect(await d.signal(d.provider.started))
             // The machine has not answered: the pane already holds the drop spot,
             // has focus, and carries the Cloud identity it will keep.
             let pending = try #require(d.workspace.cloudPendingCreations.values.first)
@@ -43,15 +43,15 @@ struct CloudSurfaceDropOptimisticTests {
             }
             let projection = try #require(d.catalog.projection(forPanel: pending.panelID))
             #expect(projection.resource == d.terminal("term-one"))
-            #expect(projection.remoteWorkspaceID == d.f.remote.id)
+            #expect(projection.remoteWorkspaceID == d.remote.id)
             #expect(projection.remoteTabID == "tab-one")
 
-            d.f.provider.gate?.resolve(true)
+            d.provider.gate?.resolve(true)
             try await d.waitUntil { d.workspace.cloudPendingCreations.isEmpty }
             #expect(d.workspace.panels.count == d.panelCount + 1)
             #expect(d.catalog.projections == [projection])
             #expect(d.workspace.focusedPanelId == pending.panelID)
-            #expect(d.f.provider.materializations == 1)
+            #expect(d.provider.materializations == 1)
         }
     }
 
@@ -61,18 +61,18 @@ struct CloudSurfaceDropOptimisticTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let d = try DropFixture(secondTab: true)
             defer { d.close() }
-            d.f.provider.gate = CloudLinkFirstValue<Bool>()
-            d.f.provider.failAt = 1
-            defer { d.f.provider.gate?.resolve(true) }
+            d.provider.gate = CloudLinkFirstValue<Bool>()
+            d.provider.failAt = 1
+            defer { d.provider.gate?.resolve(true) }
             #expect(d.drop(try d.terminalRow("term-one"), at: spot))
-            #expect(await d.f.provider.started.result == true)
+            #expect(await d.signal(d.provider.started))
             #expect(d.workspace.cloudPendingCreations.count == 1)
 
-            d.f.provider.gate?.resolve(true)
+            d.provider.gate?.resolve(true)
             try await d.waitUntil { d.workspace.cloudPendingCreations.isEmpty && d.workspace.panels.count == d.panelCount }
             d.expectOriginalLayout()
             #expect(d.catalog.projections.isEmpty)
-            #expect(d.f.provider.remoteCloses == 0)
+            #expect(d.provider.remoteCloses == 0)
         }
     }
 
@@ -81,9 +81,9 @@ struct CloudSurfaceDropOptimisticTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let d = try DropFixture()
             defer { d.close() }
-            d.f.provider.answeredTabID = "tab-two"
+            d.provider.answeredTabID = "tab-two"
             #expect(d.drop(try d.terminalRow("term-one"), at: .split))
-            #expect(await d.f.provider.started.result == true)
+            #expect(await d.signal(d.provider.started))
             try await d.waitUntil { d.workspace.cloudPendingCreations.isEmpty && d.workspace.panels.count == d.panelCount }
             d.expectOriginalLayout()
             #expect(d.catalog.projections.isEmpty)
@@ -95,19 +95,19 @@ struct CloudSurfaceDropOptimisticTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let d = try DropFixture(secondTab: true)
             defer { d.close() }
-            d.f.provider.gate = CloudLinkFirstValue<Bool>()
-            defer { d.f.provider.gate?.resolve(true) }
+            d.provider.gate = CloudLinkFirstValue<Bool>()
+            defer { d.provider.gate?.resolve(true) }
             #expect(d.drop(try d.terminalRow("term-one"), at: .tab))
-            #expect(await d.f.provider.started.result == true)
+            #expect(await d.signal(d.provider.started))
             #expect(d.workspace.cloudPendingCreations.count == 1)
 
-            d.catalog.unregister(machine: d.f.provider.machine)
+            d.catalog.unregister(machine: d.provider.machine)
             #expect(d.workspace.cloudPendingCreations.isEmpty)
             d.expectOriginalLayout()
 
-            d.f.provider.gate?.resolve(true)
+            d.provider.gate?.resolve(true)
             // The late answer has been handed back to the rolled-back drop.
-            #expect(await d.f.provider.answered.result == true)
+            #expect(await d.signal(d.provider.answered))
             d.expectOriginalLayout()
             #expect(d.catalog.projections.isEmpty)
         }
@@ -118,11 +118,11 @@ struct CloudSurfaceDropOptimisticTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let d = try DropFixture()
             defer { d.close() }
-            d.f.provider.gate = CloudLinkFirstValue<Bool>()
-            defer { d.f.provider.gate?.resolve(true) }
+            d.provider.gate = CloudLinkFirstValue<Bool>()
+            defer { d.provider.gate?.resolve(true) }
             let row = try d.terminalRow("term-one")
             #expect(d.drop(row, at: .split))
-            #expect(await d.f.provider.started.result == true)
+            #expect(await d.signal(d.provider.started))
             let pending = try #require(d.workspace.cloudPendingCreations.values.first).panelID
 
             // Again while it is still connecting: focus returns to the same pane.
@@ -132,7 +132,7 @@ struct CloudSurfaceDropOptimisticTests {
             #expect(d.workspace.cloudPendingCreations.count == 1)
             #expect(d.workspace.panels.count == d.panelCount + 1)
 
-            d.f.provider.gate?.resolve(true)
+            d.provider.gate?.resolve(true)
             try await d.waitUntil { d.workspace.cloudPendingCreations.isEmpty }
 
             // And once it is attached.
@@ -141,7 +141,7 @@ struct CloudSurfaceDropOptimisticTests {
             try await d.waitUntil { d.workspace.focusedPanelId == pending }
             #expect(d.workspace.panels.count == d.panelCount + 1)
             #expect(d.catalog.projections.map(\.panelID) == [pending])
-            #expect(d.f.provider.materializations == 1)
+            #expect(d.provider.materializations == 1)
         }
     }
 
@@ -150,16 +150,16 @@ struct CloudSurfaceDropOptimisticTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let d = try DropFixture(neighborPane: true)
             defer { d.close() }
-            d.f.provider.gate = CloudLinkFirstValue<Bool>()
-            d.f.provider.failTabID = "tab-two"
-            defer { d.f.provider.gate?.resolve(true) }
-            #expect(d.drop(try d.f.row(), at: .tab))
-            #expect(await d.f.provider.started.result == true)
+            d.provider.gate = CloudLinkFirstValue<Bool>()
+            d.provider.failTabID = "tab-two"
+            defer { d.provider.gate?.resolve(true) }
+            #expect(d.drop(try d.workspaceRow(), at: .tab))
+            #expect(await d.signal(d.provider.started))
             let lead = try #require(d.catalog.projections.first { $0.remoteTabID == "tab-one" }).panelID
             let neighbor = try #require(d.neighbor)
             d.workspace.focusPanel(neighbor)
 
-            d.f.provider.gate?.resolve(true)
+            d.provider.gate?.resolve(true)
             try await d.waitUntil { d.workspace.cloudPendingCreations.isEmpty }
             #expect(d.catalog.projections.map(\.panelID) == [lead])
             #expect(d.workspace.bonsplitController.selectedTab(inPane: d.pane)?.id == d.workspace.surfaceIdFromPanelId(lead))
@@ -185,17 +185,17 @@ struct CloudSurfaceDropOptimisticTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let d = try DropFixture()
             defer { d.close() }
-            d.f.provider.gate = CloudLinkFirstValue<Bool>()
-            defer { d.f.provider.gate?.resolve(true) }
-            #expect(d.drop(try d.f.row(), at: .split))
-            #expect(await d.f.provider.started.result == true)
+            d.provider.gate = CloudLinkFirstValue<Bool>()
+            defer { d.provider.gate?.resolve(true) }
+            #expect(d.drop(try d.workspaceRow(), at: .split))
+            #expect(await d.signal(d.provider.started))
             let reserved = d.workspace.cloudPendingCreations.values.map(\.panelID)
             #expect(reserved.count == 2)
             // The first terminal takes the drop spot; the rest join it as tabs.
             #expect(Set(reserved.map { d.workspace.paneId(forPanelId: $0) }).count == 1)
             #expect(Set(d.catalog.projections.compactMap(\.remoteTabID)) == ["tab-one", "tab-two"])
 
-            d.f.provider.gate?.resolve(true)
+            d.provider.gate?.resolve(true)
             try await d.waitUntil { d.workspace.cloudPendingCreations.isEmpty }
             #expect(Set(d.catalog.projections.map(\.panelID)) == Set(reserved))
             #expect(d.workspace.panels.count == d.panelCount + 2)
@@ -203,11 +203,16 @@ struct CloudSurfaceDropOptimisticTests {
     }
 }
 
-/// A local workspace beside the Cloud fixture graph (`ws-open`: `term-one`/`tab-one`
-/// and `term-two`/`tab-two`), with a provider whose attachment the test releases.
+/// A real main window beside a Cloud graph (`ws-open`: `term-one`/`tab-one` and
+/// `term-two`/`tab-two`) whose provider attaches only when the test releases it.
+/// The window is created like any other so split drops lay out as they do in use.
 @MainActor
 private final class DropFixture {
-    let f: CloudWorkspaceRowOpenFixture
+    let appDelegate: AppDelegate
+    let windowID: UUID
+    let catalog = SurfaceCatalog()
+    let provider = CloudWorkspaceRowOpenProvider(machine: .cloud("drop-fixture-\(UUID().uuidString)"))
+    let remote = SurfaceRemoteWorkspace(id: "ws-open", name: "Existing", index: 0, focused: true)
     let workspace: Workspace
     let pane: PaneID
     let original: UUID
@@ -217,14 +222,22 @@ private final class DropFixture {
     /// A terminal in a second pane beside the drop target, when requested.
     let neighbor: UUID?
 
-    var catalog: SurfaceCatalog { f.base.catalog }
-
     /// `secondTab` adds a later tab while the first stays selected, so a rollback
     /// must restore the pane's selection rather than accept Bonsplit's neighbor.
     init(secondTab: Bool = false, neighborPane: Bool = false) throws {
-        f = try CloudWorkspaceRowOpenFixture()
-        workspace = try #require(f.base.manager.workspacesById[f.base.originalWorkspaceID])
-        workspace.bonsplitController.setContainerFrame(CGRect(x: 0, y: 0, width: 1_000, height: 700))
+        appDelegate = try #require(AppDelegate.shared)
+        windowID = appDelegate.createMainWindow()
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
+        workspace = try #require(manager.selectedWorkspace)
+        // createMainWindow copies the current main window's size, which earlier
+        // tests may have shrunk below what a side-by-side split admits.
+        let size = CGSize(width: 1_000, height: 700)
+        let window = try #require(appDelegate.mainWindow(for: windowID))
+        window.setContentSize(size)
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: size))
+        catalog.register(provider)
+        try publish()
         pane = try #require(workspace.bonsplitController.allPaneIds.first)
         original = try #require(workspace.focusedPanelId)
         if secondTab {
@@ -243,15 +256,44 @@ private final class DropFixture {
         focused = workspace.focusedPanelId
     }
 
+    private func publish() throws {
+        let document: [String: Any] = [
+            "cursor": ["generation": "drop", "revision": "1"],
+            "workspaces": [["id": remote.id, "name": remote.name]],
+            "screens": [["id": "screen", "workspace_id": remote.id, "layout": ["root": [
+                "kind": "split", "direction": "horizontal", "ratio": 0.6,
+                "first": ["kind": "leaf", "pane_id": "one", "tab_ids": ["tab-one"]],
+                "second": ["kind": "leaf", "pane_id": "two", "tab_ids": ["tab-two"]]
+            ]]]],
+            "panes": [["id": "one", "screen_id": "screen"], ["id": "two", "screen_id": "screen"]],
+            "tabs": [["id": "tab-one", "pane_id": "one", "content_kind": "terminal", "content_id": "term-one"],
+                     ["id": "tab-two", "pane_id": "two", "content_kind": "terminal", "content_id": "term-two"]],
+            "terminals": [["id": "term-one", "lifecycle": "running"], ["id": "term-two", "lifecycle": "running"]],
+            "browsers": [], "agents": []
+        ]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: provider.machine))
+        var info = provider.info
+        info.remoteWorkspaces = [remote]
+        catalog.replaceCloudState(state, resources: CmuxTuiSnapshotParser.resources(from: state), info: info)
+        catalog.reconcileCloudRemoteState(machine: provider.machine, state: state)
+    }
+
     func terminal(_ key: String) -> SurfaceResourceID {
-        SurfaceResourceID(machine: f.provider.machine, kind: .terminal, key: key)
+        SurfaceResourceID(machine: provider.machine, kind: .terminal, key: key)
+    }
+
+    private func rows() -> [CloudTreeNode] {
+        CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: catalog.snapshot, localWorkspaces: [], includeLocalMachine: false
+        ))
     }
 
     func terminalRow(_ key: String) throws -> CloudTreeNode {
-        let rows = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
-            machines: [], snapshot: catalog.snapshot, localWorkspaces: [], includeLocalMachine: false
-        ))
-        return try #require(rows.first { $0.dragGroup?.resources == [terminal(key)] })
+        try #require(rows().first { $0.dragGroup?.resources == [terminal(key)] })
+    }
+
+    func workspaceRow() throws -> CloudTreeNode {
+        try #require(rows().first { $0.structureTag == "workspace" })
     }
 
     /// The real workspace drop action, as a pane or tab-strip drop target calls it.
@@ -268,6 +310,19 @@ private final class DropFixture {
         #expect(workspace.panels.count == panelCount, sourceLocation: sourceLocation)
         #expect(Self.shape(workspace.bonsplitController.treeSnapshot()) == layout, sourceLocation: sourceLocation)
         #expect(workspace.focusedPanelId == focused, sourceLocation: sourceLocation)
+    }
+
+    /// Awaits a provider signal, failing at the caller's line instead of the suite's
+    /// time limit when it never arrives.
+    func signal(_ value: CloudLinkFirstValue<Bool>) async -> Bool {
+        let outcome = CloudLinkFirstValue<Bool>()
+        let waiter = Task { outcome.resolve(await value.result) }
+        let deadline = Task {
+            try? await Task.sleep(for: .seconds(5))
+            outcome.resolve(false)
+        }
+        defer { waiter.cancel(); deadline.cancel() }
+        return await outcome.result
     }
 
     /// Bounded so a missing transition fails here, not at the suite's time limit.
@@ -288,6 +343,12 @@ private final class DropFixture {
     }
 
     func close() {
-        f.close()
+        provider.gate?.resolve(true)
+        catalog.unregister(machine: provider.machine)
+        let identifier = "cmux.main.\(windowID.uuidString)"
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == identifier }) {
+            window.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
     }
 }

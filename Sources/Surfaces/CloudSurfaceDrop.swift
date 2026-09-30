@@ -44,7 +44,9 @@ final class CloudSurfaceDropRollback {
     /// Reselects what the removed pane displaced: a sibling from the same drop
     /// that is still there, otherwise the pre-drop tab. Focus moves only when the
     /// removed pane held it; otherwise the user's current focus is kept even
-    /// though restoring a tab selection moves Bonsplit focus.
+    /// though restoring a tab selection moves Bonsplit focus. The workspace focus
+    /// transaction always runs, because closing a tab schedules a handoff to its
+    /// neighbor that only a newer focus request supersedes.
     func restore(
         in workspace: Workspace,
         removing removedPanelID: UUID,
@@ -62,7 +64,7 @@ final class CloudSurfaceDropRollback {
             }
         }
         let target = wasFocused ? survivor ?? previousFocusedPanelID : focusBeforeRemoval
-        guard let target, workspace.panels[target] != nil, workspace.focusedPanelId != target else { return }
+        guard let target, workspace.panels[target] != nil else { return }
         workspace.focusPanel(target)
     }
 }
