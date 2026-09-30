@@ -170,6 +170,8 @@ describe("devbox image template", () => {
       );
       expect((await run({ CMUX_WORKSPACE_ID: "ws_abc", ANTHROPIC_CUSTOM_HEADERS: "x-mine: 1" })).stdout).toBe("x-mine: 1");
       const codexConfig = readFileSync(path.join(home, ".codex", "config.toml"), "utf8");
+      expect(codexConfig).toContain('approval_policy = "never"');
+      expect(codexConfig).toContain('sandbox_mode = "danger-full-access"');
       expect(codexConfig).toContain("[model_providers.cmux.env_http_headers]");
       expect(codexConfig).toContain('"x-cmux-workspace-id" = "CMUX_WORKSPACE_ID"');
       expect(codexConfig).toContain('"x-cmux-surface-id" = "CMUX_SURFACE_ID"');
@@ -830,6 +832,11 @@ describe("devbox image template", () => {
       const merged = readFileSync(path.join(home, ".codex/config.toml"), "utf8");
       const parsed = Bun.TOML.parse(merged) as Record<string, unknown>;
       expect(parsed.model_provider).toBe("cmux");
+      // Cloud defaults are written before the first table so the hook state
+      // remains valid TOML. They are user config, so a CLI --sandbox or
+      // --ask-for-approval override can opt an invocation down.
+      expect(parsed.approval_policy).toBe("never");
+      expect(parsed.sandbox_mode).toBe("danger-full-access");
       expect(parsed.hooks).toEqual({ state: { "/home/cmux/.codex/hooks.json:Stop:0:0": { trusted_hash: "3f0c" } } });
       expect(parsed.model_providers).toEqual({
         cmux: {
@@ -852,6 +859,13 @@ describe("devbox image template", () => {
       // Idempotent: a second login sees the provider and rewrites nothing.
       expect((await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env })).status).toBe(0);
       expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(merged);
+      // A policy already present in a hook-created file belongs to the user;
+      // adding the provider must not silently turn it into full access.
+      writeFileSync(path.join(home, ".codex/config.toml"), `approval_policy = "on-request"\nsandbox_mode = "workspace-write"\n\n${hooks}`);
+      expect((await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env })).status).toBe(0);
+      const preserved = Bun.TOML.parse(readFileSync(path.join(home, ".codex/config.toml"), "utf8")) as Record<string, unknown>;
+      expect(preserved.approval_policy).toBe("on-request");
+      expect(preserved.sandbox_mode).toBe("workspace-write");
       // A config that already names a provider is the user's, even without
       // ours, however the key is spaced (TOML allows none around "=").
       for (const theirs of [
@@ -943,6 +957,44 @@ describe("devbox image template", () => {
       expect(existsSync(path.join(home, ".claude"))).toBe(false);
       // opencode config is lazy; a normal shell never contacts the endpoint.
       expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("agent config upgrades an older generated Codex config without overwriting policy", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-codex-policy-migration-"));
+    try {
+      mkdirSync(path.join(home, ".codex"), { recursive: true });
+      writeFileSync(
+        path.join(home, ".codex/config.toml"),
+        [
+          'model_provider = "cmux"',
+          "",
+          "[model_providers.cmux]",
+          'name = "cmux"',
+          'base_url = "https://old.invalid/v1"',
+          "",
+          "[history]",
+          'persistence = "save-all"',
+          "",
+        ].join("\n"),
+      );
+      const env = {
+        ...process.env,
+        HOME: home,
+        OPENAI_BASE_URL: "https://example.invalid/v1",
+        OPENAI_API_KEY: "cmux-vm-edge-placeholder",
+        CMUX_CODEROUTER_URL: "https://example.invalid",
+      };
+      expect((await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env })).status).toBe(0);
+      const migrated = Bun.TOML.parse(readFileSync(path.join(home, ".codex/config.toml"), "utf8")) as Record<string, unknown>;
+      expect(migrated.approval_policy).toBe("never");
+      expect(migrated.sandbox_mode).toBe("danger-full-access");
+      expect((migrated.model_providers as Record<string, unknown>).cmux).toEqual({
+        name: "cmux",
+        base_url: "https://old.invalid/v1",
+      });
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
