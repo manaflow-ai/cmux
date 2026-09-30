@@ -551,6 +551,26 @@ describe("device revocation", () => {
     expect(back.types()).toEqual(["relay_passes"]);
   });
 
+  // The relay broker treats endpoint IDs case-insensitively (it
+  // canonicalizes to lowercase), so revocation must too: a revoked device
+  // asking with another spelling of its ID gets no relay credentials, and a
+  // revocation sent in another spelling closes the device's sockets.
+  it("revocation holds for every spelling of the endpoint id", async () => {
+    const harness = new Harness();
+    harness.serveDiscovery(() => discoveryResponse(42));
+    harness.serveMint(() => ({ status: 200, json: mintResponse(ENDPOINT_A) }));
+    const mac = await snapshotted(harness, "mac", ENDPOINT_A);
+
+    await harness.core.handleRevocation({ endpointId: ENDPOINT_A.toUpperCase(), revoked: true });
+    expect(mac.closes).toEqual([{ code: 1008, reason: "revoked" }]);
+
+    const back = await harness.connect("mac2");
+    await harness.hello(back, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
+    back.clearFrames();
+    await harness.send(back, { v: 1, type: "mint_request", payload: { endpointId: ENDPOINT_A.toUpperCase() } });
+    expect(back.frame("error")?.payload).toMatchObject({ code: "mint_revoked", retryable: false });
+  });
+
   it("revoking a never-seen endpoint materializes a seeded row so the flag sticks", async () => {
     const harness = new Harness();
     const result = await harness.core.handleRevocation({ endpointId: ENDPOINT_B, revoked: true });
