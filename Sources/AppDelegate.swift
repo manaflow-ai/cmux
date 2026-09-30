@@ -1772,10 +1772,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
-        // key-equivalent routing flaky. Force defaults for deterministic tests.
+        // key-equivalent routing flaky. Force defaults for deterministic tests. The same
+        // profile carries the last closed window's frame, which sizes the launch window.
         if isRunningUnderXCTest {
             SystemWideHotkeySettings.reset()
             KeyboardShortcutSettings.resetAll()
+            Self.forgetPersistedWindowGeometryForTestProcess()
         }
 #endif
 
@@ -2690,7 +2692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 return .retryable
             }
-            switch controller.v2MobileTerminalPaste(params: routedParams) {
+            switch await controller.v2MobileTerminalPaste(params: routedParams) {
             case .ok:
                 // `terminal.paste` applies the text before it attempts the
                 // named key. A false `submitted` flag is therefore a partial
@@ -3904,6 +3906,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         defaults: UserDefaults = .standard
     ) {
         legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
+    }
+
+    /// Forgets the last closed main window's frame so a test process opens its
+    /// first window at the default size.
+    ///
+    /// Every main-window close writes its frame to the app's standard
+    /// defaults, and the launch window and any window created without a source
+    /// window read it back. App-host test processes on one machine share that
+    /// domain, so without this reset a process inherits whatever window an
+    /// earlier process closed last, often a 320-point fixture. Every later
+    /// `createMainWindow()` copies that launch window, and split admission then
+    /// refuses side-by-side splits (#15392).
+    nonisolated static func forgetPersistedWindowGeometryForTestProcess(
+        defaults: UserDefaults = .standard
+    ) {
+        removeLegacyPersistedWindowGeometry(defaults: defaults)
+        defaults.removeObjectIfPresent(forKey: persistedWindowGeometryDefaultsKey)
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
@@ -11322,29 +11341,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc private func handleFeedRequestSendText(_ notification: Notification) {
-        guard let surfaceId = notification.userInfo?["surfaceId"] as? String,
+        guard let workspaceId = notification.userInfo?["workspaceId"] as? String,
+              let surfaceId = notification.userInfo?["surfaceId"] as? String,
               let text = notification.userInfo?["text"] as? String,
               !text.isEmpty
         else { return }
 
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params,
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
+        // Share the phone composer's literal paste and provider-aware submit
+        // key. Appending CR to paste text inserts a newline in agent editors.
+        Task { @MainActor in
+            _ = await TerminalController.shared.v2MobileTerminalPaste(params: [
+                "workspace_id": workspaceId,
+                "surface_id": surfaceId,
+                "text": text,
+                "submit_key": "return",
+            ])
         }
-        // Terminal-mode Return is CR. sendNamedKey "Return" also works
-        // but one send_text is atomic, so append CR directly.
-        invoke("surface.send_text", [
-            "surface_id": surfaceId,
-            "text": text + "\r",
-        ])
     }
 
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {
@@ -18479,7 +18491,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         Task { @MainActor [weak self] in
-            self?.notificationDelivery.handleNotificationResponse(response)
+            await self?.notificationDelivery.handleNotificationResponse(response)
             completionHandler()
         }
     }
