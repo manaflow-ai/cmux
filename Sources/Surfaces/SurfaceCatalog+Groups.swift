@@ -30,13 +30,19 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
         SurfaceResourceGroup(title: title, placements: placements, remoteWorkspaceID: id ?? remoteWorkspaceID, representsWorkspace: representsWorkspace)
     }
 
-    init(title: String, resources: [SurfaceResourceID], remoteWorkspaceID: String? = nil) {
+    init(
+        title: String,
+        resources: [SurfaceResourceID],
+        remoteWorkspaceID: String? = nil,
+        representsWorkspace: Bool = false
+    ) {
         self.init(
             title: title,
             placements: resources.map {
                 SurfaceResourcePlacement(resource: $0, remoteWorkspaceID: remoteWorkspaceID)
             },
-            remoteWorkspaceID: remoteWorkspaceID
+            remoteWorkspaceID: remoteWorkspaceID,
+            representsWorkspace: representsWorkspace
         )
     }
 
