@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A cmux-authored display name for one agent session.
 ///
@@ -6,6 +6,11 @@ import Foundation
 /// carries a name cmux may write: the hook-session payloads have no title field,
 /// and hooks rewrite them. A label is the cmux-owned side of that, which is why
 /// it validates on the way in rather than on the way out to a sidebar row.
+///
+/// ```swift
+/// let label = try AgentSessionLabel(text: "auditing the socket rows", updatedAt: .now)
+/// print(label.text)
+/// ```
 public struct AgentSessionLabel: Sendable, Hashable {
     /// The longest label this type accepts, in characters.
     ///
@@ -13,18 +18,42 @@ public struct AgentSessionLabel: Sendable, Hashable {
     /// directory, both in `cmux sessions` output and in the vault sidebar. Past
     /// this length it is not a name any more, and the line it shares stops being
     /// readable.
+    ///
+    /// This counts characters, so it does not bound how wide a label renders: a
+    /// label of 120 CJK characters or flag emoji is about 240 terminal columns.
+    /// ``maximumByteCount`` is what bounds the stored size.
     public static let maximumLength = 120
+
+    /// The largest UTF-8 size this type accepts, in bytes.
+    ///
+    /// A character count alone does not bound size, because one character can
+    /// carry any number of combining marks. Every label shares one document, so
+    /// this is also what keeps the store from growing without limit. It is set
+    /// well above any label a person would write by hand.
+    public static let maximumByteCount = 512
 
     /// The label as it is shown, with leading and trailing whitespace removed.
     public let text: String
-    /// When this label was last written.
+    /// When this label was last written, truncated to a whole second.
+    ///
+    /// The store writes ISO 8601 seconds, so a sub-second value would not
+    /// survive the round trip and a caller comparing what it wrote against what
+    /// it read back would see a change that did not happen.
     public let updatedAt: Date
 
     /// Creates a label from text a person typed.
     ///
-    /// - Throws: ``AgentSessionLabelError`` when `text` is empty once trimmed,
-    ///   longer than ``maximumLength``, or holds a character that would make the
-    ///   line it is printed on lie about itself.
+    /// - Parameters:
+    ///   - text: the label as typed. Leading and trailing whitespace is removed
+    ///     rather than refused, because a pasted name usually carries some.
+    ///   - updatedAt: when the label was written. Truncated to a whole second,
+    ///     for the reason on ``updatedAt``.
+    /// - Throws: ``AgentSessionLabelError/emptyLabel`` when `text` is empty once
+    ///   trimmed, ``AgentSessionLabelError/labelTooLong(length:maximum:)`` or
+    ///   ``AgentSessionLabelError/labelTooManyBytes(bytes:maximum:)`` when it is
+    ///   past a limit, and
+    ///   ``AgentSessionLabelError/disallowedCharacter(scalar:)`` when it holds a
+    ///   character that would make the line it is printed on lie about itself.
     public init(text: String, updatedAt: Date) throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw AgentSessionLabelError.emptyLabel }
@@ -33,29 +62,16 @@ public struct AgentSessionLabel: Sendable, Hashable {
                 length: trimmed.count, maximum: Self.maximumLength
             )
         }
-        if let offending = trimmed.unicodeScalars.first(where: Self.isRejected) {
+        let byteCount = trimmed.utf8.count
+        guard byteCount <= Self.maximumByteCount else {
+            throw AgentSessionLabelError.labelTooManyBytes(
+                bytes: byteCount, maximum: Self.maximumByteCount
+            )
+        }
+        if let offending = AgentSessionLabelScalarRule.firstRejected(in: trimmed) {
             throw AgentSessionLabelError.disallowedCharacter(scalar: offending)
         }
         self.text = trimmed
-        self.updatedAt = updatedAt
-    }
-
-    /// The one invisible scalar a label may contain.
-    ///
-    /// Emoji are joined with it, and a label is a name a person chose, so
-    /// rejecting every invisible scalar would reject "👩‍💻" for no reason.
-    private static let zeroWidthJoiner = Unicode.Scalar(0x200D)
-
-    /// Whether a scalar may not appear in a label.
-    ///
-    /// Controls, including the newline and tab that would break a one-line
-    /// listing into two rows, and the formatting scalars, which can make a label
-    /// render as text it does not contain: a zero-width space hides a word
-    /// boundary, and a right-to-left override reverses the rest of the row.
-    private static func isRejected(_ scalar: Unicode.Scalar) -> Bool {
-        if scalar == zeroWidthJoiner { return false }
-        if scalar.properties.isBidiControl { return true }
-        return scalar.properties.generalCategory == .control
-            || scalar.properties.generalCategory == .format
+        self.updatedAt = Date(timeIntervalSince1970: updatedAt.timeIntervalSince1970.rounded(.down))
     }
 }

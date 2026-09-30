@@ -18,6 +18,12 @@ struct AgentSessionLabelDocument: Codable, Equatable {
         }
     }
 
+    /// Reads only the version, so a document of a later shape can be refused by
+    /// its version rather than by whatever its body failed to decode into.
+    struct VersionProbe: Decodable {
+        var version: Int?
+    }
+
     var version: Int
     var agents: [String: [String: Record]]
 

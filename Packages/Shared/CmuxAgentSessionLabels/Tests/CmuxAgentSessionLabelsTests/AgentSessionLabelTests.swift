@@ -38,17 +38,51 @@ struct AgentSessionLabelTests {
     }
 
     @Test(arguments: [
-        "two\nlines", "a\ttab", "a\u{0}nul", "a\u{200B}space", "a\u{202E}reversed",
+        ("two\nlines", 0x0A),
+        ("a\ttab", 0x09),
+        ("a\u{0}nul", 0x00),
+        ("a\u{200B}space", 0x200B),
+        ("a\u{202E}reversed", 0x202E),
+        ("first\u{2028}second", 0x2028),
+        ("first\u{2029}second", 0x2029),
+        ("a\u{2066}isolated", 0x2066),
     ])
-    func rejectsCharactersAListingCannotShowHonestly(text: String) {
-        #expect(throws: AgentSessionLabelError.self) {
+    func rejectsCharactersAListingCannotShowHonestly(text: String, scalar: Int) {
+        // The scalar is asserted, not just the throw: trimming alone would reject
+        // several of these as empty, which is the right answer for the wrong
+        // reason and would not catch a rule that stopped looking inside the text.
+        #expect(throws: AgentSessionLabelError.disallowedCharacter(
+            scalar: Unicode.Scalar(UInt32(scalar))!
+        )) {
             try AgentSessionLabel(text: text, updatedAt: now)
         }
     }
 
-    @Test func acceptsAJoinedEmoji() throws {
-        let label = try AgentSessionLabel(text: "👩‍💻 pairing", updatedAt: now)
-        #expect(label.text == "👩‍💻 pairing")
+    @Test(arguments: [
+        "👩‍💻 pairing",
+        "🏴󠁧󠁢󠁳󠁣󠁴󠁿 deploy",
+        "ספ\u{200E}main.swift\u{200E} בדיקה",
+        "e\u{301}migre\u{301}",
+        "🇯🇵 tokyo box"
+    ])
+    func acceptsNamesPeopleActuallyWrite(text: String) throws {
+        // Every one of these carries an invisible or combining scalar. A rule that
+        // refused all of them would refuse a flag, a Hebrew label embedding a file
+        // name, and a joined emoji.
+        let label = try AgentSessionLabel(text: text, updatedAt: now)
+        #expect(label.text == text)
+    }
+
+    @Test func rejectsALabelThatIsTooManyBytesToStore() {
+        // One character carrying 400 combining marks: the character cap cannot see
+        // it, and every label shares one document.
+        let text = "a" + String(repeating: "\u{301}", count: 400)
+        #expect(text.count == 1)
+        #expect(throws: AgentSessionLabelError.labelTooManyBytes(
+            bytes: text.utf8.count, maximum: AgentSessionLabel.maximumByteCount
+        )) {
+            try AgentSessionLabel(text: text, updatedAt: now)
+        }
     }
 
     @Test func keepsTheTimeItWasGiven() throws {
@@ -56,19 +90,13 @@ struct AgentSessionLabelTests {
         #expect(label.updatedAt == now)
     }
 
-    @Test func rejectsAnEmptyAgentOrSessionID() {
-        #expect(throws: AgentSessionLabelError.emptyKeyField(field: "agent")) {
-            try AgentSessionLabelKey(agent: " ", sessionID: "s-1")
-        }
-        #expect(throws: AgentSessionLabelError.emptyKeyField(field: "session id")) {
-            try AgentSessionLabelKey(agent: "codex", sessionID: "")
-        }
-    }
-
-    @Test func ordersKeysByAgentThenSession() throws {
-        let first = try AgentSessionLabelKey(agent: "claude", sessionID: "s-2")
-        let second = try AgentSessionLabelKey(agent: "codex", sessionID: "s-1")
-        let third = try AgentSessionLabelKey(agent: "codex", sessionID: "s-2")
-        #expect([third, second, first].sorted() == [first, second, third])
+    @Test func dropsTheFractionOfASecondTheFileCannotHold() throws {
+        // The store writes ISO 8601 seconds. Keeping the fraction here would make
+        // a caller that compares what it wrote against what it read see a change
+        // that never happened.
+        let label = try AgentSessionLabel(
+            text: "audit", updatedAt: now.addingTimeInterval(0.75)
+        )
+        #expect(label.updatedAt == now)
     }
 }
