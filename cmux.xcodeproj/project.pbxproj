@@ -2205,6 +2205,8 @@
 		C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
+		5A1E8C7866363ED4E3F52AAA /* KernelPortProcessTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A597DA23A05CA2BFB5DD1197 /* KernelPortProcessTable.swift */; };
+		760F50073314FF73A5034B3B /* KernelPortProcessTableTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 433D21021D6AFA724DAC5574 /* KernelPortProcessTableTests.swift */; };
 		E89950040000000000000001 /* KeyboardCopyModeGridMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89950040000000000000002 /* KeyboardCopyModeGridMetrics.swift */; };
 		E89950030000000000000001 /* KeyboardCopyModeResolvedCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89950030000000000000002 /* KeyboardCopyModeResolvedCell.swift */; };
 		E89950020000000000000001 /* KeyboardCopyModeSelectionKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89950020000000000000002 /* KeyboardCopyModeSelectionKind.swift */; };
@@ -2641,6 +2643,7 @@
 		D0C658660000000000000002 /* PortalSplitDividerRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000001 /* PortalSplitDividerRegion.swift */; };
 		D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */; };
 		B79500310000000000000001 /* PortListenerScanResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500310000000000000002 /* PortListenerScanResult.swift */; };
+		4751BA5EA6A261502E116415 /* PortProcessTableReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D73814AACE7C58BF8E4A217 /* PortProcessTableReading.swift */; };
 		F11294000000000000000001 /* PortRetirementPublicationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11294000000000000000002 /* PortRetirementPublicationRegressionTests.swift */; };
 		B79500030000000000000001 /* PortScanCoordination.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500030000000000000002 /* PortScanCoordination.swift */; };
 		B79500070000000000000001 /* PortScanner+PanelKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500070000000000000002 /* PortScanner+PanelKey.swift */; };
@@ -2654,6 +2657,7 @@
 		B79500100000000000000001 /* PortScanPublicationBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500100000000000000002 /* PortScanPublicationBatch.swift */; };
 		B79500080000000000000001 /* PortScanPublicationBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500080000000000000002 /* PortScanPublicationBuffer.swift */; };
 		B79500060000000000000001 /* PortScanPublicationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500060000000000000002 /* PortScanPublicationState.swift */; };
+		9262420B51295D47DC7065BD /* PortTerminalDeviceLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = C037CA7A6B20B3F495BAB401 /* PortTerminalDeviceLookup.swift */; };
 		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
 		A5001521 /* PostHogAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001520 /* PostHogAnalytics.swift */; };
 		B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */; };
@@ -6445,6 +6449,8 @@
 		A5FB1310 /* JSONCObjectEditor+Set.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JSONCObjectEditor+Set.swift"; sourceTree = "<group>"; };
 		C0DEF0B10000000000000002 /* JSONCParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCParser.swift; sourceTree = "<group>"; };
 		B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
+		A597DA23A05CA2BFB5DD1197 /* KernelPortProcessTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KernelPortProcessTable.swift; sourceTree = "<group>"; };
+		433D21021D6AFA724DAC5574 /* KernelPortProcessTableTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KernelPortProcessTableTests.swift"; sourceTree = "<group>"; };
 		E89950040000000000000002 /* KeyboardCopyModeGridMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardCopyModeGridMetrics.swift; sourceTree = "<group>"; };
 		E89950030000000000000002 /* KeyboardCopyModeResolvedCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardCopyModeResolvedCell.swift; sourceTree = "<group>"; };
 		E89950020000000000000002 /* KeyboardCopyModeSelectionKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardCopyModeSelectionKind.swift; sourceTree = "<group>"; };
@@ -6875,6 +6881,7 @@
 		D0C658660000000000000001 /* PortalSplitDividerRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalSplitDividerRegion.swift; sourceTree = "<group>"; };
 		D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalTabDragRoutingTests.swift; sourceTree = "<group>"; };
 		B79500310000000000000002 /* PortListenerScanResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortListenerScanResult.swift; sourceTree = "<group>"; };
+		1D73814AACE7C58BF8E4A217 /* PortProcessTableReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortProcessTableReading.swift; sourceTree = "<group>"; };
 		F11294000000000000000002 /* PortRetirementPublicationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortRetirementPublicationRegressionTests.swift; sourceTree = "<group>"; };
 		B79500030000000000000002 /* PortScanCoordination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanCoordination.swift; sourceTree = "<group>"; };
 		B79500070000000000000002 /* PortScanner+PanelKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortScanner+PanelKey.swift"; sourceTree = "<group>"; };
@@ -6888,6 +6895,7 @@
 		B79500100000000000000002 /* PortScanPublicationBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanPublicationBatch.swift; sourceTree = "<group>"; };
 		B79500080000000000000002 /* PortScanPublicationBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanPublicationBuffer.swift; sourceTree = "<group>"; };
 		B79500060000000000000002 /* PortScanPublicationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanPublicationState.swift; sourceTree = "<group>"; };
+		C037CA7A6B20B3F495BAB401 /* PortTerminalDeviceLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortTerminalDeviceLookup.swift; sourceTree = "<group>"; };
 		A5001520 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalytics.swift; sourceTree = "<group>"; };
 		B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalyticsPropertiesTests.swift; sourceTree = "<group>"; };
 		B7F100060000000000000002 /* PreparedNotificationSound.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedNotificationSound.swift; sourceTree = "<group>"; };
@@ -11457,6 +11465,9 @@
 				2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */,
 				A9FA91EF89C03A74979E6EF7 /* GhosttyNSView+CodexActionCommand.swift */,
 				DFA8781ABBE7A67C2E61F17D /* WorkspaceCloudVMBinding+OwningTeam.swift */,
+				A597DA23A05CA2BFB5DD1197 /* KernelPortProcessTable.swift */,
+				1D73814AACE7C58BF8E4A217 /* PortProcessTableReading.swift */,
+				C037CA7A6B20B3F495BAB401 /* PortTerminalDeviceLookup.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -12910,6 +12921,7 @@
 				34A1987FFA112D2457B20A9C /* LocalTerminalSizingHostLifecycleTests.swift */,
 				78F253D557E6B9613AC4DB5C /* CloudLinkFailureMessageTests.swift */,
 				C7A99CD111C8F6166A22186B /* SidebarBoundedDisplayStringTests.swift */,
+				433D21021D6AFA724DAC5574 /* KernelPortProcessTableTests.swift */,
 				FDBA44492C11EA6B5FBBB74F /* MachinesPanelZeroCapPlanTests.swift */,
 				5B0721B2F3007FE4325E6702 /* GhosttyNamedCtrlLetterTests.swift */,
 				C851974591E32B011E9704A7 /* ClaudeHookWorkStateTests.swift */,
@@ -14804,6 +14816,7 @@
 				A5FB1307 /* JSONCObjectEditor+Remove.swift in Sources */,
 				A5FB1311 /* JSONCObjectEditor+Set.swift in Sources */,
 				C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
+				5A1E8C7866363ED4E3F52AAA /* KernelPortProcessTable.swift in Sources */,
 				E89950040000000000000001 /* KeyboardCopyModeGridMetrics.swift in Sources */,
 				E89950030000000000000001 /* KeyboardCopyModeResolvedCell.swift in Sources */,
 				E89950020000000000000001 /* KeyboardCopyModeSelectionKind.swift in Sources */,
@@ -15082,6 +15095,7 @@
 				D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */,
 				D0C658660000000000000002 /* PortalSplitDividerRegion.swift in Sources */,
 				B79500310000000000000001 /* PortListenerScanResult.swift in Sources */,
+				4751BA5EA6A261502E116415 /* PortProcessTableReading.swift in Sources */,
 				B79500030000000000000001 /* PortScanCoordination.swift in Sources */,
 				B79500070000000000000001 /* PortScanner+PanelKey.swift in Sources */,
 				B79500010000000000000001 /* PortScanner+Process.swift in Sources */,
@@ -15090,6 +15104,7 @@
 				B79500100000000000000001 /* PortScanPublicationBatch.swift in Sources */,
 				B79500080000000000000001 /* PortScanPublicationBuffer.swift in Sources */,
 				B79500060000000000000001 /* PortScanPublicationState.swift in Sources */,
+				9262420B51295D47DC7065BD /* PortTerminalDeviceLookup.swift in Sources */,
 				A5001521 /* PostHogAnalytics.swift in Sources */,
 				B7F100060000000000000001 /* PreparedNotificationSound.swift in Sources */,
 				D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */,
@@ -17244,6 +17259,7 @@
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
 				C0DE71450000000000000003 /* InMemoryWorkspaceCreateIdempotencyStore.swift in Sources */,
 				875900000000000000000001 /* Issue8759FreezeRegressionTests.swift in Sources */,
+				760F50073314FF73A5034B3B /* KernelPortProcessTableTests.swift in Sources */,
 				C34670050000000000000001 /* KeyboardShortcutContextSwiftTests.swift in Sources */,
 				C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */,
 				6042A0026042A0026042A002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift in Sources */,
