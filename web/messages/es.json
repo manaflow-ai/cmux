@@ -977,7 +977,9 @@
       "apiKeys": {
         "title": "Claves de API del equipo",
         "description": "Claves que actúan en nombre de este equipo. Cualquiera que tenga una clave puede usar el acceso del equipo, así que guárdalas de forma segura.",
-        "create": "Crear clave de API del equipo"
+        "create": "Crear clave de API del equipo",
+        "disabled": "Las claves de API de equipo no están habilitadas en este proyecto.",
+        "forbidden": "Necesitas el permiso Administrar claves de API en este equipo para ver sus claves."
       }
     },
     "coderouterAccounts": {

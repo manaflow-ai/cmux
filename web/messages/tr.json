@@ -977,7 +977,9 @@
       "apiKeys": {
         "title": "Ekip API anahtarları",
         "description": "Bu ekip adına işlem yapan anahtarlar. Anahtara sahip olan herkes ekibin erişimini kullanabilir; bu nedenle anahtarları güvenli şekilde saklayın.",
-        "create": "Ekip API anahtarı oluştur"
+        "create": "Ekip API anahtarı oluştur",
+        "disabled": "Bu projede ekip API anahtarları etkin değil.",
+        "forbidden": "Bu ekibin anahtarlarını görmek için ekipte API anahtarlarını yönetme izni gerekir."
       }
     },
     "coderouterAccounts": {

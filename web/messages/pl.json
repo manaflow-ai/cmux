@@ -977,7 +977,9 @@
       "apiKeys": {
         "title": "Klucze API zespołu",
         "description": "Klucze działające w imieniu tego zespołu. Każdy, kto ma klucz, może korzystać z dostępu zespołu, więc przechowuj klucze bezpiecznie.",
-        "create": "Utwórz klucz API zespołu"
+        "create": "Utwórz klucz API zespołu",
+        "disabled": "Klucze API zespołu nie są włączone w tym projekcie.",
+        "forbidden": "Aby zobaczyć klucze tego zespołu, potrzebujesz w nim uprawnienia Zarządzanie kluczami API."
       }
     },
     "coderouterAccounts": {

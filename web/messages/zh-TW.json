@@ -977,7 +977,9 @@
       "apiKeys": {
         "title": "團隊 API 金鑰",
         "description": "代表此團隊執行操作的金鑰。任何持有金鑰的人都能使用團隊的存取權，請妥善保管。",
-        "create": "建立團隊 API 金鑰"
+        "create": "建立團隊 API 金鑰",
+        "disabled": "此專案未啟用團隊 API 金鑰。",
+        "forbidden": "你需要此團隊的「管理 API 金鑰」權限才能檢視其金鑰。"
       }
     },
     "coderouterAccounts": {

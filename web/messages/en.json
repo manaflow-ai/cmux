@@ -1250,7 +1250,9 @@
       "apiKeys": {
         "title": "Team API keys",
         "description": "Keys that act for this team. Anyone with a key can use the team's access, so store keys securely.",
-        "create": "Create team API key"
+        "create": "Create team API key",
+        "disabled": "Team API keys are not enabled for this project.",
+        "forbidden": "You need the Manage API keys permission in this team to see its keys."
       }
     },
     "notFound": {

@@ -977,7 +977,9 @@
       "apiKeys": {
         "title": "团队 API 密钥",
         "description": "代表此团队执行操作的密钥。任何持有密钥的人都能使用团队的访问权限，请妥善保管。",
-        "create": "创建团队 API 密钥"
+        "create": "创建团队 API 密钥",
+        "disabled": "此项目未启用团队 API 密钥。",
+        "forbidden": "你需要此团队的“管理 API 密钥”权限才能查看其密钥。"
       }
     },
     "coderouterAccounts": {

@@ -118,7 +118,7 @@ const sessions = authed
     }));
   });
 
-const apiKeySchema = z.object({
+export const apiKeySchema = z.object({
   id: z.string(),
   description: z.string(),
   createdAt: z.string(),
@@ -136,17 +136,31 @@ const apiKeys = authed
     const [user, project] = await Promise.all([sessionStackUser(context.request), getStackServerApp().getProject()]);
     // Stack throws for a project without user API keys; that is a known state, not a server fault.
     if (!project.config.allowUserApiKeys) throw dashboardRefusal(403, "api_keys_disabled");
-    const keys = await user.listApiKeys();
-    return keys.map((key) => ({
-      id: key.id,
-      description: key.description,
-      createdAt: key.createdAt.toISOString(),
-      expiresAt: key.expiresAt ? key.expiresAt.toISOString() : null,
-      manuallyRevokedAt: key.manuallyRevokedAt ? key.manuallyRevokedAt.toISOString() : null,
-      lastFour: key.value.lastFour,
-      whyInvalid: key.whyInvalid(),
-    }));
+    return (await user.listApiKeys()).map(apiKeyRow);
   });
+
+type StackApiKey = {
+  readonly id: string;
+  readonly description: string;
+  readonly createdAt: Date;
+  readonly expiresAt?: Date | null;
+  readonly manuallyRevokedAt?: Date | null;
+  readonly value: { readonly lastFour: string };
+  whyInvalid(): "manually-revoked" | "expired" | null;
+};
+
+/** One Stack API key (user or team) as the typed row both key pages show. */
+export function apiKeyRow(key: StackApiKey): SettingsApiKey {
+  return {
+    id: key.id,
+    description: key.description,
+    createdAt: key.createdAt.toISOString(),
+    expiresAt: key.expiresAt ? key.expiresAt.toISOString() : null,
+    manuallyRevokedAt: key.manuallyRevokedAt ? key.manuallyRevokedAt.toISOString() : null,
+    lastFour: key.value.lastFour,
+    whyInvalid: key.whyInvalid(),
+  };
+}
 
 const oauthProviderSchema = z.object({
   id: z.string(),

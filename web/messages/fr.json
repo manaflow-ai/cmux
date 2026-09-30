@@ -977,7 +977,9 @@
       "apiKeys": {
         "title": "Clés API de l’équipe",
         "description": "Clés qui agissent au nom de cette équipe. Toute personne disposant d’une clé peut utiliser l’accès de l’équipe : conservez donc les clés en lieu sûr.",
-        "create": "Créer une clé API d’équipe"
+        "create": "Créer une clé API d’équipe",
+        "disabled": "Les clés API d'équipe ne sont pas activées pour ce projet.",
+        "forbidden": "Vous devez disposer de l'autorisation Gérer les clés API dans cette équipe pour voir ses clés."
       }
     },
     "coderouterAccounts": {

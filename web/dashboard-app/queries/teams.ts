@@ -76,6 +76,11 @@ export function isNotMemberError(error: unknown): boolean {
   return status === 403 || status === 404;
 }
 
+/** Team API keys; `enabled: false` when the project turns team keys off. */
+export function teamApiKeysQuery(teamId: string) {
+  return rpc.teams.apiKeys.queryOptions({ input: { teamId }, context: timeout.context });
+}
+
 /** Members, invitations, links, billing summary, and viewer permissions. */
 export function teamDetailQuery(teamId: string) {
   return rpc.teams.detail.queryOptions({

@@ -977,7 +977,9 @@
       "apiKeys": {
         "title": "Team-API-Schlüssel",
         "description": "Schlüssel, die im Namen dieses Teams handeln. Wer einen Schlüssel hat, kann den Zugriff des Teams nutzen. Bewahre Schlüssel daher sicher auf.",
-        "create": "Team-API-Schlüssel erstellen"
+        "create": "Team-API-Schlüssel erstellen",
+        "disabled": "Team-API-Schlüssel sind für dieses Projekt nicht aktiviert.",
+        "forbidden": "Sie benötigen in diesem Team die Berechtigung „API-Schlüssel verwalten“, um die Schlüssel zu sehen."
       }
     },
     "coderouterAccounts": {

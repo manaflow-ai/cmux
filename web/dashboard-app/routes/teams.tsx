@@ -2,7 +2,7 @@ import { createRoute, lazyRouteComponent } from "@tanstack/react-router";
 import { z } from "zod";
 import { DashboardSectionSkeleton, DashboardSkeleton } from "../components/dashboard-skeleton";
 import { teamBillingQuery } from "../queries/billing";
-import { teamCatalogQuery, teamDetailQuery } from "../queries/teams";
+import { teamApiKeysQuery, teamCatalogQuery, teamDetailQuery } from "../queries/teams";
 import { shellRoute } from "./root";
 
 const teamsList = () => import("../screens/teams/teams-list");
@@ -48,6 +48,9 @@ const teamMembersRoute = createRoute({
 const teamApiKeysRoute = createRoute({
   getParentRoute: () => teamRoute,
   path: "/api-keys",
+  // A refusal (no permission) renders inside the panel, so the prefetch never throws.
+  loader: ({ context, params }) => context.queryClient.prefetchQuery(teamApiKeysQuery(params.teamId)),
+  pendingComponent: () => <DashboardSectionSkeleton />,
   component: lazyRouteComponent(() => import("../screens/teams/team-api-keys"), "TeamApiKeys"),
 });
 
