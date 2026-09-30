@@ -122,6 +122,12 @@ pub const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
 /// sub-views on `resize-attached-view`, client identity on `set-client-info`,
 /// and `reason`/`by` on `detached`.
 pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
+/// A client that lists this in `set-client-info` survives losing its own
+/// view of a terminal: `detach-client` naming that view's participant
+/// detaches the view only (event `detached` with `scope:"view"`) and keeps
+/// the connection and its relay sub-views; `reattach-view` restores it. The
+/// daemon advertises it in `identify`.
+pub const SIZING_VIEW_DETACH_CAPABILITY: &str = "sizing-view-detach-v1";
 pub const TERMINAL_COLOR_OVERRIDES_CAPABILITY: &str = "terminal-color-overrides-v1";
 /// Byte viewers that write their own sequences after a replay advertise this
 /// to receive the replay's incomplete sequence as a separate `pending` field.
@@ -300,6 +306,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEW_ATTACHMENT_LEASE_CAPABILITY,
         VIEW_ATTACHMENT_DETACH_CAPABILITY,
         SHARED_SIZING_CAPABILITY,
+        SIZING_VIEW_DETACH_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
@@ -797,6 +804,9 @@ struct ClientIdentityWire {
     device_kind: Option<String>,
     #[serde(default)]
     device_name: Option<String>,
+    /// Stable per-install device id; tells two devices of one user apart.
+    #[serde(default)]
+    device_id: Option<String>,
 }
 
 impl ClientIdentityWire {
@@ -805,6 +815,7 @@ impl ClientIdentityWire {
             && self.display_name.is_none()
             && self.device_kind.is_none()
             && self.device_name.is_none()
+            && self.device_id.is_none()
     }
 
     fn into_identity(self) -> ClientSizingIdentity {
@@ -816,6 +827,7 @@ impl ClientIdentityWire {
                 .as_deref()
                 .map_or(TerminalDeviceKind::Unknown, TerminalDeviceKind::parse),
             device_name: self.device_name.map(clamp_client_label),
+            device_id: self.device_id.map(clamp_client_label),
         }
     }
 }
@@ -859,6 +871,24 @@ fn detached_event_json(surface: SurfaceId, notice: &DetachNotice, view: Option<&
         event["view"] = json!(view);
     }
     event
+}
+
+/// The connection's own view that a `detach-client` target names, when that
+/// connection opted into [`SIZING_VIEW_DETACH_CAPABILITY`]: the view leaves
+/// and the connection stays. `None` keeps the whole-client kick.
+fn own_view_detach_target(
+    mux: &Mux,
+    target: &DetachClientTarget,
+    surface: Option<SurfaceId>,
+) -> Option<(u64, SurfaceId)> {
+    let DetachClientTarget::Participant(participant) = target else { return None };
+    let (client, placement, view) = match surface {
+        Some(surface) => mux.terminal_participant_member_on(surface, participant)?,
+        None => mux.terminal_participant_member(participant)?,
+    };
+    (view.is_none()
+        && mux.control_clients.supports_capability(client, SIZING_VIEW_DETACH_CAPABILITY))
+    .then_some((client, placement))
 }
 
 fn size_state_event_json(
@@ -955,6 +985,8 @@ enum Command {
         device_kind: Option<String>,
         #[serde(default)]
         device_name: Option<String>,
+        #[serde(default)]
+        device_id: Option<String>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
@@ -999,6 +1031,17 @@ enum Command {
         client: DetachClientTarget,
         #[serde(default)]
         by: Option<TerminalDetachActor>,
+        /// Resolves a participant id on this terminal only (participant ids
+        /// are per terminal).
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+    },
+    /// Restore the caller's own view of a terminal after a view detach.
+    /// `counts:false` reattaches as a viewer.
+    ReattachView {
+        surface: SurfaceId,
+        #[serde(default)]
+        counts: Option<bool>,
     },
     /// Set the shared sizing policy of one terminal (override) or the default
     /// of one workspace. `policy:null` clears it.
@@ -2059,6 +2102,7 @@ impl Command {
             | Self::DetachAttachedView { surface, .. }
             | Self::SetSizeCounts { surface, .. }
             | Self::GetSizeState { surface }
+            | Self::ReattachView { surface, .. }
             | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
             Self::AttachSurface { surface, .. }
@@ -5055,6 +5099,7 @@ impl ClientRegistry {
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
+                    || capability == SIZING_VIEW_DETACH_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
@@ -5082,6 +5127,9 @@ impl ClientRegistry {
         }
         if identity.device_name.is_some() {
             current.device_name = identity.device_name;
+        }
+        if identity.device_id.is_some() {
+            current.device_id = identity.device_id;
         }
     }
 
@@ -6823,17 +6871,39 @@ fn complete_daemon_shutdown_after_ack(
     requester_notice_sent
 }
 
+/// Detaches `owner`'s own view of `placement` and tells it with
+/// `detached {scope:"view"}`; its connection and relay sub-views stay.
+fn detach_own_view(mux: &Mux, owner: u64, placement: SurfaceId, by: TerminalDetachActor) {
+    mux.detach_terminal_own_view(placement, owner);
+    let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
+    let mut event = detached_event_json(placement, &notice, None);
+    event["scope"] = json!("view");
+    mux.control_clients.send_surface_event(owner, placement, None, &event);
+}
+
 /// Disconnects one shared-sizing participant on behalf of `requester` (the
 /// in-process frontend's `detach-client {client: <participant>}`): a relay
-/// sub-view leaves alone and its relay forwards the notice; any other
-/// participant's whole client is kicked with `disconnected-by`.
+/// sub-view leaves alone and its relay forwards the notice; the own view of
+/// a client with [`SIZING_VIEW_DETACH_CAPABILITY`] leaves alone and that
+/// client stays; any other participant's whole client is kicked with
+/// `disconnected-by`.
 pub fn detach_size_participant(
     mux: &Arc<Mux>,
     requester: u64,
     participant: &str,
+    surface: Option<SurfaceId>,
 ) -> anyhow::Result<()> {
     let by = detach_actor(mux, requester, None);
-    let Some((client, placement, view)) = mux.terminal_participant_member(participant) else {
+    let target = DetachClientTarget::Participant(participant.to_string());
+    if let Some((owner, placement)) = own_view_detach_target(mux, &target, surface) {
+        detach_own_view(mux, owner, placement, by);
+        return Ok(());
+    }
+    let member = match surface {
+        Some(surface) => mux.terminal_participant_member_on(surface, participant),
+        None => mux.terminal_participant_member(participant),
+    };
+    let Some((client, placement, view)) = member else {
         anyhow::bail!("unknown participant {participant}");
     };
     if let Some(view) = view {
@@ -10498,7 +10568,10 @@ fn handle_request_with_cancellation(
     }
 
     let detach_self = match &cmd {
-        Command::DetachClient { client: target, by } if target.whole_client() == Some(client) => {
+        Command::DetachClient { client: target, by, surface }
+            if target.whole_client() == Some(client)
+                && own_view_detach_target(mux, target, *surface).is_none() =>
+        {
             Some(detach_actor(mux, client, by.clone()))
         }
         _ => None,
@@ -12826,8 +12899,10 @@ fn handle_command_with_cancellation(
             display_name,
             device_kind,
             device_name,
+            device_id,
         } => {
-            let identity = ClientIdentityWire { user_id, display_name, device_kind, device_name };
+            let identity =
+                ClientIdentityWire { user_id, display_name, device_kind, device_name, device_id };
             let identity_changed = !identity.is_empty();
             let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
             if identity_changed {
@@ -12960,11 +13035,19 @@ fn handle_command_with_cancellation(
             }
             Ok(json!({}))
         }
-        Command::DetachClient { client: target, by } => {
+        Command::DetachClient { client: target, by, surface } => {
             let by = detach_actor(mux, client, by);
+            if let Some((owner, placement)) = own_view_detach_target(mux, &target, surface) {
+                // The view leaves; the connection, its stream and its relay
+                // sub-views stay (docs/shared-terminal-sizing.md).
+                detach_own_view(mux, owner, placement, by);
+                return Ok(json!({"scope": "view"}));
+            }
             if let DetachClientTarget::Participant(participant) = &target
-                && let Some((relay, placement, Some(view))) =
-                    mux.terminal_participant_member(participant)
+                && let Some((relay, placement, Some(view))) = match surface {
+                    Some(surface) => mux.terminal_participant_member_on(surface, participant),
+                    None => mux.terminal_participant_member(participant),
+                }
             {
                 // A relay sub-view leaves alone; its relay stays attached and
                 // forwards the notice to that leaf only.
@@ -13064,6 +13147,14 @@ fn handle_command_with_cancellation(
                 .note_terminal_activity(surface, client, view.as_deref())
                 .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
             Ok(json!({"participant": participant, "changed": changed}))
+        }
+        Command::ReattachView { surface, counts } => {
+            get_surface(mux, surface)?;
+            let participant = mux.reattach_terminal_own_view(surface, client, counts)?;
+            let state = mux
+                .terminal_size_state(surface)
+                .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?;
+            Ok(json!({"participant": participant, "state": state}))
         }
         Command::GetSizeState { surface } => {
             get_surface(mux, surface)?;
@@ -19400,6 +19491,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &owner_writer,
         )
@@ -21521,7 +21613,11 @@ mod tests {
         handle_command(
             &mux,
             initiator,
-            Command::DetachClient { client: DetachClientTarget::Client(target), by: None },
+            Command::DetachClient {
+                client: DetachClientTarget::Client(target),
+                by: None,
+                surface: None,
+            },
             &initiator_writer,
         )
         .unwrap();
@@ -21533,7 +21629,11 @@ mod tests {
         let error = handle_command(
             &mux,
             initiator,
-            Command::DetachClient { client: DetachClientTarget::Client(target), by: None },
+            Command::DetachClient {
+                client: DetachClientTarget::Client(target),
+                by: None,
+                surface: None,
+            },
             &initiator_writer,
         )
         .unwrap_err();
@@ -21784,6 +21884,132 @@ mod tests {
         assert!(error.to_string().contains("unknown participant"));
     }
 
+    /// docs/shared-terminal-sizing.md: disconnecting a relay Mac's own view
+    /// (for example from the phone it relays) detaches that view only. The
+    /// connection, its byte stream and the phones it relays stay; Reattach
+    /// restores the view without reconnecting.
+    #[test]
+    fn detaching_a_relay_macs_own_view_keeps_its_connection_and_phones() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
+        let (writer, outbound) = captured_writer();
+        let relay = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "set-client-info", "kind": "mac",
+                "capabilities": [SHARED_SIZING_CAPABILITY, SIZING_VIEW_DETACH_CAPABILITY],
+                "user_id": "u1", "display_name": "Maya", "device_kind": "mac",
+                "device_name": "Maya's MacBook Pro", "device_id": "laptop",
+            })),
+            &writer,
+        )
+        .unwrap();
+        attach_test_view(&mux, relay, surface.id, &writer);
+        mux.resize_surface_for_client(surface.id, relay, 150, 42).unwrap();
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "resize-attached-view", "surface": surface.id, "view": "mobile:p1",
+                "identity": {"user_id": "u1", "device_kind": "iphone", "device_id": "p1"},
+                "cols": 54, "rows": 26,
+            })),
+            &writer,
+        )
+        .unwrap();
+        let mac = format!("c{relay}");
+        let phone = format!("c{relay}/mobile:p1");
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert_eq!(state.participant(&mac).unwrap().priority_key, "u1/mac/laptop");
+        assert_eq!(surface.size(), (150, 42));
+        drain_json(&outbound);
+
+        // The phone asks its own Mac to disconnect the Mac: the Mac forwards
+        // detach-client for its own participant, scoped to this terminal.
+        assert!(handle_message(
+            &mux,
+            relay,
+            &json!({
+                "id": 1, "cmd": "detach-client", "client": mac, "surface": surface.id,
+                "by": {"display_name": "Maya", "device_name": "Maya's iPhone"},
+            })
+            .to_string(),
+            &writer,
+        ));
+        assert!(mux.control_clients.contains(relay), "the relay connection stays");
+        let events = drain_json(&outbound);
+        let detached = events.iter().find(|event| event["event"] == "detached").unwrap();
+        assert_eq!(
+            *detached,
+            json!({
+                "event": "detached", "surface": surface.id, "reason": "disconnected-by",
+                "by": {"display_name": "Maya", "device_name": "Maya's iPhone"}, "scope": "view",
+            })
+        );
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert!(state.participant(&mac).is_none());
+        assert!(state.participant(&phone).unwrap().counts, "the phone no longer defers");
+        assert_eq!(state.owners, [phone]);
+        assert_eq!(surface.size(), (54, 26));
+
+        // The detached view's own reports and activity do not count.
+        mux.resize_surface_for_client(surface.id, relay, 160, 50).unwrap();
+        assert!(mux.terminal_size_state(surface.id).unwrap().participant(&mac).is_none());
+        assert_eq!(surface.size(), (54, 26));
+
+        // Reattach as a viewer: back without reconnecting, not counting.
+        let reattached = handle_command(
+            &mux,
+            relay,
+            json_command(json!({"cmd": "reattach-view", "surface": surface.id, "counts": false})),
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(reattached["participant"], mac);
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        let row = state.participant(&mac).unwrap();
+        assert_eq!(row.participant.counts_override, Some(false));
+        assert_eq!(
+            row.participant.viewport,
+            Some(crate::sizing_policy::TerminalGridSize::new(160, 50))
+        );
+        assert_eq!(surface.size(), (54, 26));
+        let again = handle_command(
+            &mux,
+            relay,
+            json_command(json!({"cmd": "reattach-view", "surface": surface.id})),
+            &writer,
+        )
+        .unwrap_err();
+        assert!(again.to_string().contains("not detached"));
+    }
+
+    /// A client that did not opt into view detach is still kicked whole, the
+    /// tmux `detach-client` behavior older Macs and TUIs expect.
+    #[test]
+    fn detach_client_kicks_a_client_without_view_detach() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let kicker_writer = test_writer();
+        let kicker = mux.control_clients.register(ClientTransport::Unix, kicker_writer.clone());
+        let target_writer = test_writer();
+        let target = mux.control_clients.register(ClientTransport::Unix, target_writer.clone());
+        attach_test_view(&mux, target, surface.id, &target_writer);
+        handle_command(
+            &mux,
+            kicker,
+            json_command(json!({
+                "cmd": "detach-client", "client": format!("c{target}"), "surface": surface.id,
+            })),
+            &kicker_writer,
+        )
+        .unwrap();
+        assert!(!mux.control_clients.contains(target));
+    }
+
     #[test]
     fn relay_forwarded_input_counts_as_the_phone_sub_view_activity() {
         let mux = test_mux();
@@ -21856,7 +22082,11 @@ mod tests {
         let error = handle_command(
             &mux,
             client,
-            Command::DetachClient { client: DetachClientTarget::Client(0), by: None },
+            Command::DetachClient {
+                client: DetachClientTarget::Client(0),
+                by: None,
+                surface: None,
+            },
             &writer,
         )
         .unwrap_err();
@@ -22592,6 +22822,7 @@ mod tests {
                     display_name: None,
                     device_kind: None,
                     device_name: None,
+                    device_id: None,
                 },
                 writer,
             )
@@ -22697,6 +22928,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -22788,6 +23020,7 @@ mod tests {
                     display_name: None,
                     device_kind: None,
                     device_name: None,
+                    device_id: None,
                 },
                 writer,
             )
@@ -23250,6 +23483,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &owner_writer,
         )
@@ -23314,6 +23548,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &owner_writer,
         )
@@ -23364,6 +23599,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &late_writer,
         )
@@ -24053,6 +24289,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -24071,6 +24308,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -24086,6 +24324,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -25304,6 +25543,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -25551,6 +25791,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -25622,6 +25863,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )

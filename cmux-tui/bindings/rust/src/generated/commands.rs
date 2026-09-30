@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af.
+// cmux-tui mux protocol 12, IR 554c67c2504878a653b22e333e7d883a5e685d3e236df8db99c3f998d4a63796.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -588,6 +588,8 @@ pub struct DetachClientRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub by: Optional<T::SizeDetachActor>,
     pub client: T::DetachClientTarget,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
 }
 
 #[rustfmt::skip]
@@ -1240,6 +1242,14 @@ pub struct ReadScrollbackRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReattachViewRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub counts: Optional<bool>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RegisterBrowserProviderRequest {
     pub authentication: T::BrowserProviderAuthentication,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1548,6 +1558,8 @@ pub struct SetCellPixelsRequest {
 pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub capabilities: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub device_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub device_kind: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2204,6 +2216,10 @@ impl CmuxClient {
             self.require_protocol_field("detach-client", 12)?;
             self.require_capability_field("detach-client", "shared-sizing-v1")?;
         }
+        if !request.surface.is_missing() {
+            self.require_protocol_field("detach-client", 12)?;
+            self.require_capability_field("detach-client", "shared-sizing-v1")?;
+        }
         self.execute(&DETACH_CLIENT_METADATA, &request)
     }
 
@@ -2487,6 +2503,10 @@ impl CmuxClient {
         self.execute(&READ_SCROLLBACK_METADATA, &request)
     }
 
+    pub fn reattach_view(&mut self, request: ReattachViewRequest) -> Result<T::ReattachViewResult> {
+        self.execute(&REATTACH_VIEW_METADATA, &request)
+    }
+
     pub fn register_browser_provider(&mut self, request: RegisterBrowserProviderRequest) -> Result<RegisterBrowserProviderResult> {
         self.execute(&REGISTER_BROWSER_PROVIDER_METADATA, &request)
     }
@@ -2626,6 +2646,10 @@ impl CmuxClient {
     }
 
     pub fn set_client_info(&mut self, request: SetClientInfoRequest) -> Result<SetClientInfoResult> {
+        if !request.device_id.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+            self.require_capability_field("set-client-info", "shared-sizing-v1")?;
+        }
         if !request.device_kind.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
             self.require_capability_field("set-client-info", "shared-sizing-v1")?;

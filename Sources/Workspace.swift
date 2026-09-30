@@ -312,14 +312,14 @@ extension Workspace {
             (snapshot.surfaceProjections ?? []).filter { !$0.resource.machine.isLocal }.map(\.panelID)
         )
         let cloudProjectionRecordsByPanelID = Dictionary((snapshot.surfaceProjections ?? []).map { ($0.panelID, $0) }, uniquingKeysWith: { first, _ in first })
-        let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { panel in
+        let panelSnapshotsById = Dictionary(snapshot.panels.map { panel in
             var panel = panel
             if cloudVMBinding != nil || cloudProjectedPanelIDs.contains(panel.id) {
                 panel.directoryIsTrustedRemoteReport = false
                 panel.directoryRequiresRemoteTrust = true
             }
             return (panel.id, panel)
-        })
+        }, uniquingKeysWith: { first, _ in first })
         let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
         let shouldRestoreSingleDefaultCloudTerminal =
             isDefaultFreestyleSSHDRemoteWorkspace &&
@@ -1334,7 +1334,12 @@ extension Workspace {
         let existingPanelIds = bonsplitController
             .tabs(inPane: paneId)
             .compactMap { panelIdFromSurfaceId($0.id) }
-        let desiredOldPanelIds = snapshot.panelIds.filter { panelSnapshotsById[$0] != nil }
+        var restoredPanelIdsInPane: Set<UUID> = []
+        let desiredOldPanelIds = snapshot.panelIds.filter {
+            panelSnapshotsById[$0] != nil &&
+                oldToNewPanelIds[$0] == nil &&
+                restoredPanelIdsInPane.insert($0).inserted
+        }
         _ = bonsplitController.setFullWidthTabMode(false, inPane: paneId)
 
         var createdPanelIds: [UUID] = []
@@ -4165,6 +4170,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configuration: config,
             tabDragTransferRegistry: tabDragTransferRegistry
         )
+        self.bonsplitController.tabMiddleClickCapture = { onMiddleClick in
+            AnyView(MiddleClickCapture(onMiddleClick: onMiddleClick))
+        }
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
@@ -4854,7 +4862,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     func markTabStripMiddleClickClose(surfaceId: TabID) {
         markExplicitClose(surfaceId: surfaceId)
-        tabStripCloseButtonByTabId[surfaceId] = false
+        // Middle-click is the tab-strip equivalent of the inline x button. Keep
+        // it on that close path so the x-button warning and agent-session safety
+        // prompt are applied consistently.
+        tabStripCloseButtonByTabId[surfaceId] = true
     }
     @discardableResult
     func markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(surfaceId: TabID, tabStripClose: Bool, tabCloseButton: Bool, explicitUserClose: Bool = false) -> Bool {
@@ -6869,6 +6880,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         panel,
                         workspace: self
                     )
+                self.syncRemoteRelayIDAliasesToController()
             }
             mirror.onTerminalPanelRemoved = { [weak self] panel in
                 guard let self else { return }
@@ -6878,6 +6890,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         panel,
                         workspace: self
                     )
+                self.syncRemoteRelayIDAliasesToController()
             }
             for panel in mirror.panelsByPaneId.values {
                 terminalFontSizeChangeCoordinator?
@@ -6889,6 +6902,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         } else {
             remoteTmuxWindowMirrors.removeValue(forKey: panelId)
         }
+        syncRemoteRelayIDAliasesToController()
     }
 
     var isRestorableInSessionSnapshot: Bool {
@@ -7449,6 +7463,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             remotePTYSessionIDsByPanelId[panelId] = Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
         }
         let inserted = activeRemoteTerminalSurfaceIds.insert(panelId).inserted
+        syncRemoteRelayIDAliasesToController()
         guard inserted else {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
             return
@@ -7468,7 +7483,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let previousPresentedDirectory = presentedCurrentDirectory
         let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(panelId) != nil; if removedTrustedDirectory { clearPanelGitBranch(panelId: panelId) }
         clearRemoteTerminalSessionPhase(surfaceId: panelId)
-        guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else {
+        let wasTracked = activeRemoteTerminalSurfaceIds.remove(panelId) != nil
+        syncRemoteRelayIDAliasesToController()
+        guard wasTracked else {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
             return
         }
@@ -7554,7 +7571,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return trimmed
     }
 
-    func syncRemoteRelayIDAliasesToController() {
+    func remoteRelayIDAliasesForController() -> (
+        workspaceAliases: [UUID: UUID],
+        surfaceAliases: [UUID: UUID]
+    ) {
         var workspaceAliases = remoteRelayWorkspaceIDAliases
         var surfaceAliases = remoteRelaySurfaceIDAliases
         if isRemoteWorkspace {
@@ -7569,9 +7589,24 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 surfaceAliases[panelId] = panelId
             }
         }
+        for mirror in remoteTmuxWindowMirrors.values {
+            for surfaceID in mirror.surfaceIDsInLayoutOrder {
+                surfaceAliases[surfaceID] = surfaceID
+            }
+        }
+        if let sessionMirror = remoteTmuxSessionMirror {
+            for location in sessionMirror.controlPaneLocations() {
+                surfaceAliases[location.pane.panel.id] = location.pane.panel.id
+            }
+        }
+        return (workspaceAliases, surfaceAliases)
+    }
+
+    func syncRemoteRelayIDAliasesToController() {
+        let aliases = remoteRelayIDAliasesForController()
         remoteSessionController?.updateRemoteRelayIDAliases(
-            workspaceAliases: workspaceAliases,
-            surfaceAliases: surfaceAliases
+            workspaceAliases: aliases.workspaceAliases,
+            surfaceAliases: aliases.surfaceAliases
         )
     }
 
@@ -15087,12 +15122,16 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             copyIdentifiersToPasteboard(surfaceId: panelId)
         case .close:
+            guard controller.configuration.allowCloseTabs, !tab.isPinned else { return }
             closeTabsFromContextMenu([tab.id])
         case .closeToLeft:
+            guard controller.configuration.allowCloseTabs else { return }
             closeTabs(tabIdsToLeft(of: tab.id, inPane: pane))
         case .closeToRight:
+            guard controller.configuration.allowCloseTabs else { return }
             closeTabs(tabIdsToRight(of: tab.id, inPane: pane))
         case .closeOthers:
+            guard controller.configuration.allowCloseTabs else { return }
             closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
         case .move:
             if let destination = bonsplitTabMoveDestinations(for: tab.id).first {

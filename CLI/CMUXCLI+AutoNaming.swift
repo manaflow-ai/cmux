@@ -149,6 +149,49 @@ struct AutoNamingEnvironmentPolicy: Sendable {
     /// can produce a title (cmux#9457).
     static let emptyMCPConfigJSON = #"{"mcpServers":{}}"#
 
+    /// OpenCode's `--pure` switch disables external plugins, but its default
+    /// agent still allows built-in tools. Deny every permission for the
+    /// summarizer so transcript text cannot trigger file, shell, MCP, or web
+    /// tools while the provider credentials remain available for the model
+    /// request itself.
+    static let openCodeDenyAllPermissionsJSON = #"{"*":"deny"}"#
+
+    /// A local agent rule is merged after OpenCode's global `agent.build`
+    /// rules, so a user-global allow cannot override the deny-all policy.
+    static let openCodeIsolationConfigJSON = #"{"agent":{"build":{"permission":{"*":"deny"}}}}"#
+
+    /// Returns the provider-capable environment for an isolated OpenCode pass.
+    /// User-selected config paths are removed so only cmux's temporary project
+    /// and the global provider discovery path remain visible.
+    func openCodeSummarizerEnvironment(from env: [String: String]) -> [String: String] {
+        let configOverrideKeys = [
+            "OPENCODE_CONFIG",
+            "OPENCODE_CONFIG_CONTENT",
+            "OPENCODE_CONFIG_DIR",
+            "OPENCODE_PROJECT_CONFIG"
+        ]
+        var selected = summarizerEnvironment(from: env).filter { key, _ in
+            !configOverrideKeys.contains(key)
+        }
+        selected["OPENCODE_DISABLE_PROJECT_CONFIG"] = "1"
+        selected["OPENCODE_CONFIG_CONTENT"] = Self.openCodeIsolationConfigJSON
+        selected["OPENCODE_PERMISSION"] = Self.openCodeDenyAllPermissionsJSON
+        selected["OPENCODE_PURE"] = "1"
+        return selected
+    }
+
+    /// Argument vector for the tool-disabled `opencode run` summarizer call.
+    static func openCodeSummarizerArguments(directory: String, promptPath: String) -> [String] {
+        [
+            "run",
+            "--pure",
+            "--format", "default",
+            "--dir", directory,
+            "--file", promptPath,
+            "Generate a 2-5 word title from the attached conversation excerpt. Output only the title."
+        ]
+    }
+
     /// Argument vector for the tool-disabled `claude -p` summarizer call.
     func claudeSummarizerArguments(from env: [String: String]) -> [String] {
         [
@@ -167,9 +210,11 @@ struct AutoNamingEnvironmentPolicy: Sendable {
 ///
 /// `--ignore-user-config` keeps tools, MCP servers, and rules out of the
 /// summarizer, but it also removes the user's model provider. Re-apply only
-/// the provider selection, its provider table, and the selected model.
+/// the provider selection, its non-secret provider settings, and the selected
+/// model. When the caller supplies a temporary `CODEX_HOME`, the provider
+/// credentials remain in its mode-restricted config file instead of argv.
 struct CodexAutoNamingArguments: Sendable {
-    static func build(configToml: String?) -> [String] {
+    static func build(configToml: String?, usesTemporaryConfig: Bool = false) -> [String] {
         var arguments = [
             "exec",
             "-c", "default_tools_enabled=false",
@@ -180,10 +225,12 @@ struct CodexAutoNamingArguments: Sendable {
             "-c", "shell_environment_policy.inherit=none",
             "--skip-git-repo-check",
             "--ephemeral",
-            "--ignore-user-config",
             "--ignore-rules",
             "--sandbox", "read-only"
         ]
+        if !usesTemporaryConfig {
+            arguments.insert("--ignore-user-config", at: arguments.firstIndex(of: "--ignore-rules")!)
+        }
         guard let configToml else { return arguments }
         let overrides = providerOverrides(from: configToml)
         for override in overrides.reversed() {
@@ -221,8 +268,10 @@ struct CodexAutoNamingArguments: Sendable {
         }
         var result = ["model_provider=\(modelProvider)"]
         if let model { result.append("model=\(model)") }
+        guard !usesTemporaryConfig else { return result }
         result.append(contentsOf: providerEntries
             .filter { $0.section.hasPrefix("model_providers.\(providerName)") }
+            .filter { !isCredentialBearingKey($0.key) }
             .map {
                 let prefix = "model_providers.\(providerName)"
                 let nestedPath = String($0.section.dropFirst(prefix.count))
@@ -231,6 +280,19 @@ struct CodexAutoNamingArguments: Sendable {
                 return "model_providers.\(providerName).\(keyPath)=\($0.value)"
             })
         return result
+    }
+
+    private static func isCredentialBearingKey(_ key: String) -> Bool {
+        let normalized = key.lowercased().replacingOccurrences(of: "-", with: "_")
+        return normalized.contains("token")
+            || normalized.contains("secret")
+            || normalized.contains("password")
+            || normalized.contains("credential")
+            || normalized.contains("auth")
+            || normalized.contains("api_key")
+            || normalized.contains("apikey")
+            || normalized.hasSuffix("_key")
+            || normalized == "key"
     }
 
     private static func providerNameFromValue(_ value: String) -> String? {
