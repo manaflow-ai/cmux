@@ -11,6 +11,8 @@ final class DisplayLinkDriver: NSObject {
     private var lastTimestamp: CFTimeInterval?
 
     var isAttached: Bool { link != nil }
+    /// The link is ticking (an animation is in flight).
+    var isRunning: Bool { link.map { !$0.isPaused } ?? false }
 
     func attach(to view: NSView) {
         detach()
