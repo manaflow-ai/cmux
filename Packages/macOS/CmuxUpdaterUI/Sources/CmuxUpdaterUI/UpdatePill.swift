@@ -8,6 +8,7 @@ public struct UpdatePill: View {
     private let model: UpdateStateModel
     private let appearance: UpdateAppearance
     private let actions: any UpdateActionsHost
+    private let isCompact: Bool
     @State private var showPopover = false
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
@@ -21,10 +22,13 @@ public struct UpdatePill: View {
     ///   - model: The observable update state.
     ///   - accent: The host accent color used for "update available" emphasis.
     ///   - actions: The host that performs update actions the pill triggers.
-    public init(model: UpdateStateModel, accent: Color, actions: any UpdateActionsHost) {
+    ///   - compact: Show only the status icon, for a footer too narrow for the
+    ///     text. The text stays in the tooltip and accessibility label.
+    public init(model: UpdateStateModel, accent: Color, actions: any UpdateActionsHost, compact: Bool = false) {
         self.model = model
         self.appearance = UpdateAppearance(accent: accent)
         self.actions = actions
+        self.isCompact = compact
     }
 
     public var body: some View {
@@ -52,13 +56,15 @@ public struct UpdatePill: View {
                 UpdateBadge(model: model, appearance: appearance)
                     .frame(width: 14, height: 14)
 
-                Text(model.text)
-                    .cmuxFont(size: 11, weight: .medium)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: textWidth, alignment: .leading)
+                if !isCompact {
+                    Text(model.text)
+                        .cmuxFont(size: 11, weight: .medium)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: textWidth, alignment: .leading)
+                }
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, isCompact ? 4 : 8)
             .padding(.vertical, 4)
             .background(
                 Capsule()

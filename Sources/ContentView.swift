@@ -12090,7 +12090,6 @@ struct VerticalTabsSidebar: View, Equatable {
                 SidebarFooter(
                     updateViewModel: updateViewModel,
                     fileExplorerState: fileExplorerState,
-                    modifierKeyMonitor: modifierKeyMonitor,
                     onSendFeedback: onSendFeedback
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -15600,14 +15599,13 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
 private struct SidebarFooter: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
-    let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     let onSendFeedback: () -> Void
 
     var body: some View {
 #if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
+        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
 #else
-        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
+        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
             .padding(.leading, 6)
             .padding(.trailing, 10)
             .padding(.bottom, 6)
@@ -15619,20 +15617,11 @@ struct SidebarFooterButtons: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
-    let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     let onSendFeedback: () -> Void
     @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
-    // Reuse the exact Command-hold shortcut-hint signal that drives the per-row
-    // shortcut badges (`showModifierHoldHints && modifierKeyMonitor.isModifierPressed`,
-    // see `resolvedShowsModifierShortcutHints`). Reading `isModifierPressed`
-    // (the monitor is `@Observable`) here localizes the reveal re-render to the
-    // footer instead of the whole sidebar body.
-    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
-    /// Owns the discovery popover so it persists after ⌘ is released.
-    @State private var isShortcutPopoverPresented = false
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
@@ -15643,35 +15632,51 @@ struct SidebarFooterButtons: View {
     }
 
     var body: some View {
+        // The footer never asks the sidebar for width. As it narrows, the
+        // update pill shrinks to its icon first, so the menu button keeps its
+        // name as long as possible; then the name truncates, then the button
+        // drops to icon and chevron. Anything still too wide is clipped at
+        // the trailing edge instead of widening or shifting the sidebar.
+        ViewThatFits(in: .horizontal) {
+            row(showsAccountName: true, compactUpdate: false)
+            row(showsAccountName: true, compactUpdate: true)
+            row(showsAccountName: false, compactUpdate: true)
+        }
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .clipped()
+    }
+
+    /// The footer menu button takes the free width on the left; the other
+    /// controls keep fixed slots to its right.
+    private func row(showsAccountName: Bool, compactUpdate: Bool) -> some View {
         HStack(spacing: 4) {
-            if shows(.account) || shows(.mobileConnect) || shows(.help) {
-                HStack(spacing: 0) {
-                    if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
-                        SidebarAccountMenuButton()
-                    }
-                    if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
-                        SidebarMobileConnectButton()
-                    }
-                    if shows(.help) {
-                        SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
-                    }
-                }
+            if shows(.account) || shows(.help) {
+                SidebarFooterMenuButton(onSendFeedback: onSendFeedback, showsName: showsAccountName)
+            } else {
+                Spacer(minLength: 0)
             }
-            // Command-hold reveal: appears immediately before Upgrade. It stays
-            // mounted while its popover is open so releasing ⌘ does not dismiss it.
-            if shows(.shortcutDiscovery),
-               (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
-                ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
+            if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
+                SidebarMobileConnectButton()
             }
-            if shows(.upgrade) {
+            // The badge is an upgrade prompt, so Pro accounts don't get it.
+            if shows(.upgrade), AppDelegate.shared?.auth?.accountFlow.isProActive != true {
                 SidebarProBadge()
             }
             // The puzzle button opens the extensions browser; it only shows
             // while the experimental Extensions feature is enabled.
             if shows(.extensions), extensionsExperimentalEnabled {
                 Button {
+                    // Every candidate of the ViewThatFits above builds this row,
+                    // so all three write the one anchor below and the last one
+                    // wins. Only the row actually on screen has a window, so an
+                    // anchor without one belongs to a candidate that is not
+                    // displayed and would place the popover away from the
+                    // button. Nil falls back to the unanchored path.
+                    let anchor = extensionBrowserAnchorView?.window == nil
+                        ? nil
+                        : extensionBrowserAnchorView
                     _ = AppDelegate.shared?.openSidebarExtensionBrowser(
-                        from: extensionBrowserAnchorView,
+                        from: anchor,
                         title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
                     )
                 } label: {
@@ -15686,342 +15691,9 @@ struct SidebarFooterButtons: View {
                 .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
             }
             if shows(.update), let updateActionsHost = AppDelegate.shared {
-                UpdatePill(model: updateViewModel, accent: cmuxAccent.color, actions: updateActionsHost)
+                UpdatePill(model: updateViewModel, accent: cmuxAccent.color, actions: updateActionsHost, compact: compactUpdate)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private enum SidebarHelpMenuAction {
-    case settings
-    case upgrade
-    case importBrowserData
-    case keyboardShortcuts
-    case docs
-    case changelog
-    case github
-    case githubIssues
-    case discord
-    case checkForUpdates
-    case sendFeedback
-    case welcome
-    case whatsNew
-}
-
-private struct SidebarHelpMenuButton: View {
-    private let docsURL = URL(string: "https://cmux.com/docs")
-    private let changelogURL = URL(string: "https://cmux.com/docs/changelog")
-    private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
-    private let githubIssuesURL = URL(string: "https://github.com/manaflow-ai/cmux/issues")
-    private let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ")
-    private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
-    private let buttonSize = SidebarFooterButtonMetrics.buttonSize
-#if DEBUG
-    @AppStorage(SidebarFooterHelpIconDebugSettings.sizeKey)
-    private var debugIconSize = SidebarFooterHelpIconDebugSettings.defaultSize
-    @AppStorage(SidebarFooterHelpIconDebugSettings.weightKey)
-    private var debugIconWeight = SidebarFooterHelpIconDebugSettings.defaultWeight.rawValue
-#endif
-    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @Environment(BrowserDataImportCoordinator.self) private var browserDataImportCoordinator: BrowserDataImportCoordinator?
-
-    let onSendFeedback: () -> Void
-
-    @State private var isPopoverPresented = false
-    private var whatsNewCenter: WhatsNewCenter { .shared }
-
-    private var iconSize: CGFloat {
-#if DEBUG
-        CGFloat(debugIconSize)
-#else
-        SidebarFooterButtonMetrics.helpIconSize
-#endif
-    }
-
-    private var iconWeight: Font.Weight {
-#if DEBUG
-        SidebarFooterHelpIconDebugWeight(rawValue: debugIconWeight)?.fontWeight
-            ?? SidebarFooterCircularIconStyle.standard.weight
-#else
-        SidebarFooterCircularIconStyle.standard.weight
-#endif
-    }
-
-    private var settingsShortcutHint: String {
-        let _ = keyboardShortcutSettingsObserver.revision
-        return KeyboardShortcutSettings.shortcut(for: .openSettings).displayString
-    }
-
-    private var sendFeedbackShortcutHint: String {
-        let _ = keyboardShortcutSettingsObserver.revision
-        return KeyboardShortcutSettings.shortcut(for: .sendFeedback).displayString
-    }
-
-    var body: some View {
-        Button {
-            isPopoverPresented.toggle()
-        } label: {
-            SidebarFooterHelpIcon(pointSize: iconSize, weight: iconWeight)
-                .frame(width: buttonSize, height: buttonSize, alignment: .center)
-                .overlay(alignment: .topTrailing) {
-                    // Quiet What's New: a static dot, no motion, cleared once opened.
-                    if whatsNewCenter.hasUnseenHighlights {
-                        SidebarWhatsNewDot()
-                            .offset(x: -3, y: 3)
-                    }
-                }
-        }
-        .buttonStyle(SidebarFooterIconButtonStyle())
-        .frame(width: buttonSize, height: buttonSize, alignment: .center)
-        .background(ArrowlessPopoverAnchor(
-            isPresented: $isPopoverPresented,
-            preferredEdge: .maxY,
-            detachedGap: 4
-        ) {
-            helpPopover
-        })
-        .accessibilityElement(children: .ignore)
-        .safeHelp(helpTitle)
-        .accessibilityLabel(helpTitle)
-        .accessibilityIdentifier("SidebarHelpMenuButton")
-    }
-
-    private var helpPopover: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            helpOptionButton(
-                title: String(localized: "sidebar.help.welcome", defaultValue: "Welcome to cmux!"),
-                action: .welcome,
-                accessibilityIdentifier: "SidebarHelpMenuOptionWelcome",
-                isExternalLink: false
-            )
-            helpOptionButton(
-                title: String(localized: "sidebar.help.whatsNew", defaultValue: "What's New"),
-                action: .whatsNew,
-                accessibilityIdentifier: "SidebarHelpMenuOptionWhatsNew",
-                isExternalLink: false,
-                showsUnseenDot: whatsNewCenter.hasUnseenHighlights
-            )
-            if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
-                helpOptionButton(
-                    title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
-                    action: .upgrade,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionUpgrade",
-                    isExternalLink: false,
-                    trailingSystemImage: "sparkles"
-                )
-            }
-            helpOptionButton(
-                title: String(localized: "menu.app.settings", defaultValue: "Settings…"),
-                action: .settings,
-                accessibilityIdentifier: "SidebarHelpMenuOptionSettings",
-                isExternalLink: false,
-                shortcutHint: settingsShortcutHint
-            )
-            helpOptionButton(
-                title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
-                action: .keyboardShortcuts,
-                accessibilityIdentifier: "SidebarHelpMenuOptionKeyboardShortcuts",
-                isExternalLink: false
-            )
-            helpOptionButton(
-                title: String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"),
-                action: .importBrowserData,
-                accessibilityIdentifier: "SidebarHelpMenuOptionImportBrowserData",
-                isExternalLink: false
-            )
-            helpOptionButton(
-                title: String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
-                action: .sendFeedback,
-                accessibilityIdentifier: "SidebarHelpMenuOptionSendFeedback",
-                isExternalLink: false,
-                shortcutHint: sendFeedbackShortcutHint,
-                trailingSystemImage: "bubble.left.and.text.bubble.right"
-            )
-            if docsURL != nil {
-                helpOptionButton(
-                    title: String(localized: "about.docs", defaultValue: "Docs"),
-                    action: .docs,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionDocs",
-                    isExternalLink: true
-                )
-            }
-            if changelogURL != nil {
-                helpOptionButton(
-                    title: String(localized: "sidebar.help.changelog", defaultValue: "Changelog"),
-                    action: .changelog,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionChangelog",
-                    isExternalLink: true
-                )
-            }
-            if githubURL != nil {
-                helpOptionButton(
-                    title: String(localized: "about.github", defaultValue: "GitHub"),
-                    action: .github,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionGitHub",
-                    isExternalLink: true
-                )
-            }
-            if githubIssuesURL != nil {
-                helpOptionButton(
-                    title: String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues"),
-                    action: .githubIssues,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionGitHubIssues",
-                    isExternalLink: true
-                )
-            }
-            if discordURL != nil {
-                helpOptionButton(
-                    title: String(localized: "sidebar.help.discord", defaultValue: "Discord"),
-                    action: .discord,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionDiscord",
-                    isExternalLink: true
-                )
-            }
-            helpOptionButton(
-                title: String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates"),
-                action: .checkForUpdates,
-                accessibilityIdentifier: "SidebarHelpMenuOptionCheckForUpdates",
-                isExternalLink: false
-            )
-        }
-        .padding(8)
-        .frame(minWidth: 200)
-    }
-
-    private func helpOptionButton(
-        title: String,
-        action: SidebarHelpMenuAction,
-        accessibilityIdentifier: String,
-        isExternalLink: Bool,
-        shortcutHint: String? = nil,
-        trailingSystemImage: String? = nil,
-        showsUnseenDot: Bool = false
-    ) -> some View {
-        Button {
-            isPopoverPresented = false
-            perform(action)
-        } label: {
-            HStack(spacing: 8) {
-                Text(title)
-                    .cmuxFont(size: 12)
-                if showsUnseenDot {
-                    SidebarWhatsNewDot()
-                }
-                Spacer(minLength: 0)
-                if let shortcutHint {
-                    helpOptionShortcutHint(text: shortcutHint)
-                }
-                if let trailingSystemImage {
-                    helpOptionTrailingIcon(systemName: trailingSystemImage)
-                }
-                if isExternalLink {
-                    helpOptionTrailingIcon(systemName: "arrow.up.right", size: 8)
-                }
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 24)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(accessibilityIdentifier)
-    }
-
-    private func helpOptionShortcutHint(text: String) -> some View {
-        Text(text)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .cmuxFont(size: 10, weight: .regular, design: .rounded)
-            .monospacedDigit()
-            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-    }
-
-    private func helpOptionTrailingIcon(systemName: String, size: CGFloat = 13) -> some View {
-        CmuxSystemSymbolImage(systemName: systemName, pointSize: size, tint: Color(nsColor: .secondaryLabelColor))
-    }
-
-    private func perform(_ action: SidebarHelpMenuAction) {
-        switch action {
-        case .settings:
-            Task { @MainActor in
-                if let appDelegate = AppDelegate.shared {
-                    appDelegate.openPreferencesWindow(debugSource: "sidebarHelpMenu.settings")
-                } else {
-                    AppDelegate.presentPreferencesWindow()
-                }
-            }
-        case .upgrade:
-            ProUpgradePresenter.present(source: .sidebarHelpMenu)
-        case .importBrowserData:
-            isPopoverPresented = false
-            DispatchQueue.main.async {
-                browserDataImportCoordinator?.presentImportDialog()
-            }
-        case .keyboardShortcuts:
-            isPopoverPresented = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                Task { @MainActor in
-                    if let appDelegate = AppDelegate.shared {
-                        appDelegate.openPreferencesWindow(
-                            debugSource: "sidebarHelpMenu.keyboardShortcuts",
-                            navigationTarget: .keyboardShortcuts
-                        )
-                    } else {
-                        AppDelegate.presentPreferencesWindow(navigationTarget: .keyboardShortcuts)
-                    }
-                }
-            }
-        case .docs:
-            guard let docsURL else { return }
-            NSWorkspace.shared.open(docsURL)
-        case .changelog:
-            guard let changelogURL else { return }
-            NSWorkspace.shared.open(changelogURL)
-        case .github:
-            guard let githubURL else { return }
-            NSWorkspace.shared.open(githubURL)
-        case .githubIssues:
-            guard let githubIssuesURL else { return }
-            NSWorkspace.shared.open(githubIssuesURL)
-        case .discord:
-            guard let discordURL else { return }
-            NSWorkspace.shared.open(discordURL)
-        case .checkForUpdates:
-            Task { @MainActor in
-                AppDelegate.shared?.checkForUpdates(nil)
-            }
-        case .sendFeedback:
-            isPopoverPresented = false
-            onSendFeedback()
-        case .welcome:
-            isPopoverPresented = false
-            Task { @MainActor in
-                if let appDelegate = AppDelegate.shared {
-                    appDelegate.openWelcomeWorkspace()
-                }
-            }
-        case .whatsNew:
-            isPopoverPresented = false
-            Task { @MainActor in
-                WhatsNewCenter.shared.presentOnDemand(source: "sidebarHelpMenu")
-            }
-        }
-    }
-
-}
-
-/// The quiet What's New indicator: a small accent dot with no animation.
-private struct SidebarWhatsNewDot: View {
-    @Environment(\.cmuxAccentColor) private var cmuxAccent
-
-    var body: some View {
-        Circle()
-            .fill(cmuxAccent.color)
-            .frame(width: 6, height: 6)
-            // A bare shape is not an accessibility element, so the label needs
-            // one to attach to or VoiceOver never mentions the dot.
-            .accessibilityElement()
-            .accessibilityLabel(String(localized: "sidebar.help.whatsNew.unseen", defaultValue: "New highlights"))
     }
 }
 
