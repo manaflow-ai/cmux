@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 import stat
 import subprocess
@@ -94,7 +95,11 @@ def make_package_fixture(packages: Path) -> None:
                     "version": VERSION,
                     "os": [os_name],
                     "cpu": [cpu],
-                    "files": ["bin/cmux-tui", "bin/cmux-tui-hook"],
+                    "files": [
+                        "bin/cmux-tui",
+                        "bin/cmux-tui-hook",
+                        "bin/cmux-tui-ssh/manifest.json",
+                    ],
                 }
             )
             + "\n"
@@ -104,6 +109,25 @@ def make_package_fixture(packages: Path) -> None:
             executable.parent.mkdir(parents=True, exist_ok=True)
             executable.write_text("#!/bin/sh\nexit 0\n")
             executable.chmod(0o755)
+    # Every platform package pins each remote binary's SHA-256; the fixture
+    # binaries are identical, so one digest serves them all.
+    digest = hashlib.sha256(b"#!/bin/sh\nexit 0\n").hexdigest()
+    manifest = {
+        "commit": "0123456789abcdef0123456789abcdef01234567",
+        "binaries": {
+            f"cmux-tui-{target}": digest
+            for target in (
+                "aarch64-unknown-linux-musl",
+                "x86_64-unknown-linux-musl",
+                "aarch64-apple-darwin",
+                "x86_64-apple-darwin",
+            )
+        },
+    }
+    for name in TARGETS:
+        path = packages / name / "bin/cmux-tui-ssh/manifest.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(manifest) + "\n")
 
     launcher = packages / "cmux"
     launcher.mkdir(parents=True, exist_ok=True)

@@ -79,11 +79,12 @@ Agent Hibernation kills idle background agent processes to free their RAM and CP
 
 For routine hibernation, a live terminal is only a candidate when all of these hold:
 
-- it has a saved restorable agent session, and the saved launch data can build a resume command
+- it has a saved restorable agent session, and the saved launch data can relaunch it the way it was started (a Claude session needs its captured launch arguments, so a `sr claude proxy` launch resumes through `sr`; a declared `agents.launchers` entry must still resolve)
 - the agent lifecycle is `idle` (not running, not waiting on input)
 - the terminal is in the background (its panel is not currently visible)
 - you have more live restorable agent terminals than the live-terminal limit (`maxLiveTerminals`, default `12`)
 - the terminal has had no output, input, or lifecycle change for at least the idle window (`idleSeconds`, default `5`)
+- the agent has no background work still running: no shell it started after launch is alive, and its Claude transcript shows no unfinished `run_in_background` command, Monitor, or async subagent
 
 The live-terminal limit is the first gate. Under the limit, nothing hibernates no matter how long it sits idle. Once you are over the limit, cmux frees only the oldest-idle background terminals, just enough to get back under the limit. Visible terminals are never touched.
 
