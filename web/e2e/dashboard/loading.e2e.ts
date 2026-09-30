@@ -38,7 +38,7 @@ test("settings pages load their reads with the page, and hover preloads the next
   await expect.poll(() => calls.includes("settings/sessions")).toBe(true);
   await sessionsLink.click();
   await expect(page).toHaveURL(/\/dashboard\/settings\/sessions$/);
-  await expect(page.getByText(/current/i).first()).toBeVisible();
+  await expect(page.getByText("Active sessions")).toBeVisible();
   await expectNoErrorCard(page);
   expect(calls.filter((call) => call === "settings/sessions")).toHaveLength(1);
 
