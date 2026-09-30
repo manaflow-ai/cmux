@@ -147,7 +147,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testVMRunCreateIdempotencyKeySurvivesUnknownOutcome() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-vm-run-create-(UUID().uuidString.prefix(8))")
+            .appendingPathComponent("cmux-vm-run-create-\(UUID().uuidString.prefix(8))")
         let storeURL = root.appendingPathComponent("vm-run-create-idempotency.json")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
