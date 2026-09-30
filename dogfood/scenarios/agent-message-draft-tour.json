@@ -1,0 +1,39 @@
+{
+  "paths": [
+    "Sources/*AgentMessage*",
+    "Sources/TerminalController+AgentMessages.swift",
+    "CLI/*AgentMessage*",
+    "cmuxCLITests/CLIAgentMessage*",
+    "Packages/macOS/CmuxAgentJournal/*"
+  ],
+  "launch": {
+    "args": [
+      "-cmux.flags.override.agent-chat-ui-enabled-release",
+      "YES"
+    ]
+  },
+  "steps": [
+    {"socket": "workspace.current", "save": "workspace"},
+    {"socket": "surface.current", "save": "surface"},
+    {"type": "draft message stays in the terminal"},
+    {"shot": "draft-before-message"},
+    {"key": "p", "modifiers": ["command", "shift"]},
+    {"wait": 0.5},
+    {"type": "Open terminal as chat"},
+    {"key": "return"},
+    {"wait": 2},
+    {
+      "socket": "agent.message.send",
+      "params": {
+        "target": "${surface.surface_id}",
+        "body": "A message delivered without touching the terminal draft.",
+        "from": "Coordinator"
+      },
+      "save": "message"
+    },
+    {"wait": 3},
+    {"shot": "draft-intact-message-queued"},
+    {"tree": "draft-intact-message-queued"},
+    {"shot": "end", "screen": true}
+  ]
+}
