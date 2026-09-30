@@ -88,6 +88,7 @@ extension CmuxSettingsFileStore {
                     "warnBeforeClosingWorkspace": AppCatalogSection().warnBeforeClosingWorkspace.defaultValue,
                     "warnBeforeClosingWindow": AppCatalogSection().warnBeforeClosingWindow.defaultValue,
                     "hideTabCloseButton": AppCatalogSection().hideTabCloseButton.defaultValue,
+                    "tabBarVisibility": AppCatalogSection().tabBarVisibility.defaultValue.rawValue,
                     "renameSelectsExistingName": AppCatalogSection().renameSelectsExistingName.defaultValue,
                     "commandPaletteSearchesAllSurfaces": AppCatalogSection().commandPaletteSearchesAllSurfaces.defaultValue,
                 ],
@@ -170,6 +171,8 @@ extension CmuxSettingsFileStore {
                     "showProgress": SidebarWorkspaceDetailDefaults.showProgress,
                     "showAgentActivity": SidebarWorkspaceDetailDefaults.showAgentActivity,
                     "showCustomMetadata": SidebarWorkspaceDetailDefaults.showCustomMetadata,
+                    "compactAgentStatus": SidebarWorkspaceDetailDefaults.compactAgentStatus,
+                    "compactStatusIcons": [String: String](),
                 ],
             ],
             [
@@ -185,7 +188,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "sidebarAppearance": [
-                    "matchTerminalBackground": false,
+                    "matchTerminalBackground": SettingCatalog().sidebarAppearance.matchTerminalBackground.defaultValue,
                     "tintColor": SidebarTintDefaults().hex,
                     "lightModeTintColor": NSNull(),
                     "darkModeTintColor": NSNull(),
@@ -235,6 +238,9 @@ extension CmuxSettingsFileStore {
             [
                 "mobile": [
                     "artifactFolderAccess": SettingCatalog().mobile.artifactFolderAccess.defaultValue.rawValue,
+                    "browserTunnel": [
+                        "allowOtherHosts": SettingCatalog().mobile.browserTunnelAllowOtherHosts.defaultValue,
+                    ],
                 ],
             ],
             [

@@ -688,14 +688,12 @@ final class ComputerUseWatchTargetController {
             isAuthorized = false
         }
         if focusMode == .callingTerminal {
-            guard isAuthorized, let currentSession else {
+            guard isAuthorized else {
                 scheduleCoalescedRefresh()
                 return
             }
-            presentationController.reassertCallingTerminal(
+            presentationController.reassertCursorBehindCallingTerminal(
                 driverSessionID: driverSessionID,
-                workspaceID: currentSession.workspaceID,
-                surfaceID: currentSession.surfaceID,
                 targetWindowID: activity.state.targetWindowID
             )
             advanceWatermark(for: activity)

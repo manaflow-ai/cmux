@@ -747,7 +747,17 @@ import SwiftUI
             windowId = appDelegate.createMainWindow()
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             workspace = try #require(manager.selectedWorkspace)
+            // createMainWindow copies the size of the current main window, and
+            // earlier tests in the host leave 320-point windows behind. Split
+            // admission then correctly refuses a side-by-side split, so give
+            // the window and its split container a realistic size first.
+            let window = try #require(appDelegate.mainWindow(for: windowId))
+            window.setContentSize(Self.contentSize)
+            window.contentView?.layoutSubtreeIfNeeded()
+            workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: Self.contentSize))
         }
+
+        private static let contentSize = CGSize(width: 1_000, height: 700)
 
         func tearDown() {
             let identifier = "cmux.main.\(windowId.uuidString)"
