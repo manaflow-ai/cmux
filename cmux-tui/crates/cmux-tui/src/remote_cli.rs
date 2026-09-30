@@ -1820,12 +1820,21 @@ fn parent_process_is(_: u32) -> bool {
 /// waits on a kernel process-exit event (kqueue `NOTE_EXIT`, Linux pidfd);
 /// it used to re-check `getppid` every 100 ms. Kernels without pidfd keep
 /// the old check as a fallback.
+///
+/// The kernel wait runs on a detached thread, not tokio's blocking pool: a
+/// blocking task cannot be cancelled, so a runtime shut down by a signal
+/// would wait for the parent to exit before the process could.
 async fn wait_for_parent_exit(expected: u32) {
     if !parent_process_is(expected) {
         return;
     }
-    let watched = tokio::task::spawn_blocking(move || wait_for_process_exit(expected)).await;
-    if matches!(watched, Ok(Ok(()))) {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let waiter = std::thread::Builder::new()
+        .name("cmux-parent-exit".into())
+        .spawn(move || {
+            let _ = sender.send(wait_for_process_exit(expected));
+        });
+    if waiter.is_ok() && matches!(receiver.await, Ok(Ok(()))) {
         return;
     }
     while parent_process_is(expected) {

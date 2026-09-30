@@ -492,7 +492,14 @@ impl Mux {
         transaction: Option<&str>,
     ) -> anyhow::Result<TabGroupOutcome> {
         let group_id = group.to_string();
-        let added = surfaces.to_vec();
+        // First occurrence only: a repeated surface would be spliced into the
+        // pane's tab order twice and committed as the durable order.
+        let mut added = Vec::with_capacity(surfaces.len());
+        for surface in surfaces {
+            if !added.contains(surface) {
+                added.push(*surface);
+            }
+        }
         self.commit_tab_group_change("tab.group.add", None, |mux, state, groups| {
             let presentation = mux.presentation_snapshot();
             let record = groups
@@ -1038,8 +1045,10 @@ mod tests {
             ("", "cyan", true)
         );
 
-        mux.add_tabs_to_tab_group("g1", &[t3], None).unwrap();
+        // A repeated surface joins once and appears once in the tab order.
+        mux.add_tabs_to_tab_group("g1", &[t3, t3], None).unwrap();
         assert_eq!(runs(&mux, pane), vec![("g1".to_string(), vec![t2, t4, t3])]);
+        assert_eq!(tabs(&mux, pane), vec![t1, t2, t4, t3]);
         mux.remove_tabs_from_tab_group(&[t2], None).unwrap();
         assert_eq!(tabs(&mux, pane), vec![t1, t4, t3, t2]);
         assert_eq!(runs(&mux, pane), vec![("g1".to_string(), vec![t4, t3])]);
