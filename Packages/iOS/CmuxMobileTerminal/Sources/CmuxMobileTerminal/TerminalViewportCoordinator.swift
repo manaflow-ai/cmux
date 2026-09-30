@@ -9,14 +9,11 @@ import CoreGraphics
 /// coordinator turns the current main-actor inputs into one immutable snapshot
 /// so every participant consumes the same viewport for a frame.
 ///
-/// The keyboard is NOT a grid input. The terminal grid always has its
-/// keyboard-down size; the host translates the rendered terminal so its bottom
-/// edge rides the dock (composer bar) when the keyboard is up. In surface
-/// coordinates the dock therefore always sits directly below the viewport,
-/// which is why `composerFrame` and `toolbarFrame` stack under
-/// `layoutViewportRect` regardless of keyboard state. `keyboardOccupancy` is
-/// exposed solely for seating the dock's bottom constraint in host/screen
-/// coordinates.
+/// Primary-screen terminals keep their keyboard-independent grid. Alternate-
+/// screen terminals provide the keyboard target height so the grid itself ends
+/// at the fully visible dock seam. The host still translates the full-height
+/// surface during the UIKit transition while the surface holds one last-good
+/// frame until the target grid presents.
 struct TerminalViewportCoordinator {
     func snapshot(inputs: TerminalViewportInputs) -> TerminalViewportSnapshot {
         let bounds = CGSize(
@@ -33,17 +30,30 @@ struct TerminalViewportCoordinator {
                 keyboardHeight: inputs.keyboardHeight,
                 bottomSafeAreaInset: inputs.bottomSafeAreaInset
             )
+        let topContentInset = max(0, inputs.topContentInset)
         let containerSize = TerminalLetterboxGeometry.terminalContainerSize(
             bounds: bounds,
             composerBandHeight: inputs.composerBandHeight,
             toolbarHeight: inputs.reservedToolbarHeight,
             bottomSafeAreaInset: inputs.bottomSafeAreaInset,
-            chromeHidden: inputs.chromeHidden
+            chromeHidden: inputs.chromeHidden,
+            keyboardHeight: inputs.gridKeyboardHeight,
+            topContentInset: topContentInset
         )
 
+        // The grid viewport starts below the top scroll-edge band; the band
+        // above it belongs to the render layer's overscan rows only.
         let layoutViewport = CGRect(
             x: 0,
-            y: 0,
+            // Keep a resized alternate-screen grid's bottom edge in the same
+            // surface coordinate as the dock seam. The host surface remains
+            // full-height while UIKit animates the keyboard, so the settled
+            // keyboard overlap shifts the shorter grid down inside it. The
+            // keyboard replaces the bottom safe area when chrome is visible,
+            // hence only the excess over that inset changes the origin.
+            y: topContentInset + (inputs.chromeHidden
+                ? max(0, inputs.gridKeyboardHeight)
+                : max(0, inputs.gridKeyboardHeight - inputs.bottomSafeAreaInset)),
             width: bounds.width,
             height: max(1, containerSize.height)
         )
@@ -72,7 +82,8 @@ struct TerminalViewportCoordinator {
             keyboardOccupancy: occupancy,
             composerFrame: composerFrame,
             toolbarFrame: toolbarFrame,
-            layoutViewportRect: layoutViewport
+            layoutViewportRect: layoutViewport,
+            renderTopInset: topContentInset
         )
     }
 

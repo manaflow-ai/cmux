@@ -285,6 +285,76 @@ extension TerminalImageTransferConcurrencyTests {
     }
 
     @MainActor
+    @Test("a timed-out paste reports the deadline to its caller and still beeps")
+    func timedOutPasteReportsDeadlineToCaller() async {
+        let operation = ControlledPastePreparationOperation()
+        let deadlines = ControlledPastePreparationDeadlines()
+        let failures = PastePreparationFailureProbe()
+        let service = TerminalImageTransferPreparationService(
+            deadline: .seconds(30),
+            deadlineSleep: { _ in try await deadlines.sleep() },
+            admissionSignal: { operation.signalAdmission($0) },
+            operation: { try await operation.run($0) },
+            cleanup: { _ in },
+            failureSignal: { failures.record($0) }
+        )
+        var started = operation.startedEvents().makeAsyncIterator()
+        var reportedFailures = failures.events().makeAsyncIterator()
+        let (pasteboard, request) = makeReadRequest(label: "timeout-notice")
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+
+        let task = Task {
+            await service.prepareReportingFailure(request: request, mode: .paste)
+        }
+        await deadlines.waitForArrivalCount(1)
+        #expect(await started.next() == request.pasteboardName)
+        #expect(await deadlines.fireNext())
+
+        let outcome = await task.value
+        #expect(outcome.content == .reject)
+        #expect(outcome.failure == .deadlineExceeded)
+        // The failure signal (the beep in the app) still fires.
+        #expect(await reportedFailures.next() == .deadlineExceeded)
+        #expect(TerminalPasteFailureNotice.notice(for: outcome) == .timedOut)
+    }
+
+    @MainActor
+    @Test("a completed paste reports no failure to its caller")
+    func completedPasteReportsNoFailure() async {
+        let operation = ControlledPastePreparationOperation()
+        let deadlines = ControlledPastePreparationDeadlines()
+        let service = TerminalImageTransferPreparationService(
+            deadline: .seconds(30),
+            deadlineSleep: { _ in try await deadlines.sleep() },
+            admissionSignal: { operation.signalAdmission($0) },
+            operation: { try await operation.run($0) },
+            cleanup: { _ in },
+            failureSignal: { _ in }
+        )
+        var started = operation.startedEvents().makeAsyncIterator()
+        let (pasteboard, request) = makeReadRequest(label: "completed-notice")
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+
+        let task = Task {
+            await service.prepareReportingFailure(request: request, mode: .paste)
+        }
+        await deadlines.waitForArrivalCount(1)
+        #expect(await started.next() == request.pasteboardName)
+        await operation.release(request.pasteboardName)
+
+        let outcome = await task.value
+        #expect(outcome.content == .insertText(request.pasteboardName))
+        #expect(outcome.failure == nil)
+        #expect(TerminalPasteFailureNotice.notice(for: outcome) == nil)
+    }
+
+    @MainActor
     func makeReadRequest(
         label: String
     ) -> (NSPasteboard, TerminalPasteboardReadRequest) {

@@ -16,6 +16,7 @@ import Testing
 struct RoutingTestRuntime: MobileSyncRuntime {
     var transportFactory: any CmxByteTransportFactory
     var terminalLaneProvider: MobileTerminalLaneProvider? = nil
+    var terminalInputLaneProvider: MobileTerminalLaneProvider? = nil
     var stackAccessTokenProvider: @Sendable () async throws -> String = { "test-stack-token" }
     var stackAccessTokenForceRefresher: @Sendable () async throws -> String = { "test-stack-token" }
     var rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
@@ -62,6 +63,14 @@ actor RoutingHostRouter {
     let terminalInputRecorder = RoutingTerminalInputRecorder()
     private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
+    private(set) var notificationReconciles: [[String]] = []
+    private var handledNotificationIDs: [String] = []
+    private var rejectsNotificationReconcile = false
+
+    func setNotificationReconcile(handledIDs: [String], rejects: Bool = false) {
+        handledNotificationIDs = handledIDs
+        rejectsNotificationReconcile = rejects
+    }
     private var notificationFeedMarkAllReadCount = 0
     private var workspaceCreates: [WorkspaceCreateRecord] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
@@ -89,10 +98,13 @@ actor RoutingHostRouter {
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
     private var firstWorkspaceCreateReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var createdTerminalExists = false
+    private var terminalCreateWaiters: [CheckedContinuation<Void, Never>] = []
 
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
     static let terminalB = "term-route-b"
+    static let createdTerminal = "term-route-created"
 
     /// Reject every terminal.paste_image with an error frame, modeling a host
     /// that cannot accept the image (the composer must keep the attachment).
@@ -125,6 +137,11 @@ actor RoutingHostRouter {
         let continuation = firstPasteImageContinuation
         firstPasteImageContinuation = nil
         continuation?.resume()
+    }
+
+    func awaitTerminalCreateRequested() async {
+        if createdTerminalExists { return }
+        await withCheckedContinuation { terminalCreateWaiters.append($0) }
     }
 
     func setRejectWorkspaceCreate(_ reject: Bool) {
@@ -224,6 +241,7 @@ actor RoutingHostRouter {
         var imageFormat: String?
         var text: String?
         var notificationIDs: [String]?
+        var deliveredIDs: [String]?
         var clientID: String?
         var groupID: String?
         var title: String?
@@ -247,32 +265,13 @@ actor RoutingHostRouter {
         let id = info.id
         switch method {
         case "workspace.list", "mobile.workspace.list":
-            return try? Self.resultFrame(id: id, result: [
-                "workspaces": [
-                    [
-                        "id": Self.workspaceID,
-                        "title": "Routing Workspace",
-                        "current_directory": "/tmp/route",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": Self.terminalA,
-                                "title": "A",
-                                "current_directory": "/tmp/route",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
-                            [
-                                "id": Self.terminalB,
-                                "title": "B",
-                                "current_directory": "/tmp/route",
-                                "is_ready": true,
-                                "is_focused": false,
-                            ],
-                        ],
-                    ],
-                ],
-            ])
+            return try? workspaceListFrame(id: id)
+        case "terminal.create":
+            createdTerminalExists = true
+            let waiters = terminalCreateWaiters
+            terminalCreateWaiters = []
+            for waiter in waiters { waiter.resume() }
+            return try? workspaceListFrame(id: id, createdTerminalID: Self.createdTerminal)
         case "mobile.host.status":
             return try? Self.resultFrame(id: id, result: [
                 "terminal_fidelity": "render_grid",
@@ -480,6 +479,16 @@ actor RoutingHostRouter {
                 clientID: info.clientID
             ))
             return try? Self.resultFrame(id: id, result: [:])
+        case "notification.reconcile":
+            let delivered = info.deliveredIDs ?? []
+            notificationReconciles.append(delivered)
+            if rejectsNotificationReconcile {
+                return try? Self.errorFrame(id: id, message: "Notification state unavailable")
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "handled_ids": delivered.filter { handledNotificationIDs.contains($0) },
+                "unread_count": 1,
+            ])
         case "notification.feed.mark_all_read":
             notificationFeedMarkAllReadCount += 1
             return try? Self.resultFrame(id: id, result: [
@@ -496,6 +505,47 @@ actor RoutingHostRouter {
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }
+    }
+
+    private func workspaceListFrame(id: String?, createdTerminalID: String? = nil) throws -> Data {
+        var terminals: [[String: Any]] = [
+            [
+                "id": Self.terminalA,
+                "title": "A",
+                "current_directory": "/tmp/route",
+                "is_ready": true,
+                "is_focused": true,
+            ],
+            [
+                "id": Self.terminalB,
+                "title": "B",
+                "current_directory": "/tmp/route",
+                "is_ready": true,
+                "is_focused": false,
+            ],
+        ]
+        if createdTerminalExists {
+            terminals.append([
+                "id": Self.createdTerminal,
+                "title": "Created",
+                "current_directory": "/tmp/route",
+                "is_ready": false,
+                "is_focused": false,
+            ])
+        }
+        var result: [String: Any] = [
+            "workspaces": [[
+                "id": Self.workspaceID,
+                "title": "Routing Workspace",
+                "current_directory": "/tmp/route",
+                "is_selected": true,
+                "terminals": terminals,
+            ]],
+        ]
+        if let createdTerminalID {
+            result["created_terminal_id"] = createdTerminalID
+        }
+        return try Self.resultFrame(id: id, result: result)
     }
 
     static func resultFrame(id: String?, result: [String: Any]) throws -> Data {
@@ -569,6 +619,7 @@ private actor RoutingTransport: CmxByteTransport {
                 imageFormat: params?["image_format"] as? String,
                 text: params?["text"] as? String,
                 notificationIDs: params?["notification_ids"] as? [String],
+                deliveredIDs: params?["delivered_ids"] as? [String],
                 clientID: params?["client_id"] as? String,
                 groupID: params?["group_id"] as? String,
                 title: params?["title"] as? String,

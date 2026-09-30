@@ -123,12 +123,32 @@ final class MainWindowVisibilityController {
     }
 
     private var dependencies: Dependencies
+    private let committedClosedWindows = NSHashTable<NSWindow>.weakObjects()
+    private let workspaceSwitchSignposts = WorkspaceSwitchSignposts()
     var appHiddenWindowRestoreTargets: [NSWindow] = []
     var dismissedWindowRestoreTargets: [NSWindow] = []
     var pendingApplicationActivationKeyRestoreTarget: NSWindow?
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
+    }
+
+    func commitClose(_ window: NSWindow) {
+        committedClosedWindows.add(window)
+        discardClosedWindow(window)
+    }
+
+    func hasCommittedClose(for window: NSWindow) -> Bool {
+        committedClosedWindows.contains(window)
+    }
+
+    /// Returns whether a hidden window was explicitly retained for a later
+    /// visibility restore. Generic `orderOut` calls do not enter this topology,
+    /// so stale ordered-out windows remain fail-closed for routing.
+    func participatesInRestoreTopology(_ window: NSWindow) -> Bool {
+        appHiddenWindowRestoreTargets.contains { $0 === window }
+            || dismissedWindowRestoreTargets.contains { $0 === window }
+            || pendingApplicationActivationKeyRestoreTarget === window
     }
 
     @discardableResult
@@ -142,6 +162,15 @@ final class MainWindowVisibilityController {
         unhide: Bool = true,
         respectActivationSuppression: Bool = true
     ) -> Bool {
+        let switchInterval = workspaceSwitchSignposts.begin(
+            "ws.switch.window-focus",
+            "window=\(window.identifier?.rawValue ?? "unknown") reason=\(reason.rawValue)"
+        )
+        guard !hasCommittedClose(for: window) else {
+            log("focus.closed", reason: reason, windows: [window])
+            return false
+        }
+        defer { workspaceSwitchSignposts.end(switchInterval) }
         if respectActivationSuppression, dependencies.isActivationSuppressed() {
             dependencies.setActiveMainWindow(window)
             log("focus.suppressed", reason: reason, windows: [window])
@@ -192,6 +221,15 @@ final class MainWindowVisibilityController {
     }
 
     func focusForInWindowCommand(_ window: NSWindow, reason: Reason) {
+        let switchInterval = workspaceSwitchSignposts.begin(
+            "ws.switch.window-focus",
+            "window=\(window.identifier?.rawValue ?? "unknown") reason=\(reason.rawValue)"
+        )
+        guard !hasCommittedClose(for: window) else {
+            log("focus.inWindow.closed", reason: reason, windows: [window])
+            return
+        }
+        defer { workspaceSwitchSignposts.end(switchInterval) }
         dependencies.setActiveMainWindow(window)
         guard !dependencies.windowOperations.isKeyWindow(window) else {
             log("focus.inWindow.key", reason: reason, windows: [window])
@@ -471,7 +509,9 @@ final class MainWindowVisibilityController {
 
     private func uniqueWindows(_ windows: [NSWindow]) -> [NSWindow] {
         var result: [NSWindow] = []
-        for window in windows where !result.contains(where: { $0 === window }) {
+        for window in windows where
+            !hasCommittedClose(for: window) &&
+            !result.contains(where: { $0 === window }) {
             result.append(window)
         }
         return result

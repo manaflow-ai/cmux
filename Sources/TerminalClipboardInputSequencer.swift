@@ -199,6 +199,12 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
         return true
     }
 
+    /// Returns whether a clipboard request is currently holding input for the
+    /// given runtime epoch. Unsequenced reads intentionally return `false`.
+    func hasInputDeferral(for epoch: UInt64 = 0) -> Bool {
+        hasRequestInFlight(for: epoch)
+    }
+
     /// Cancels a request whose native surface lifetime ended. Deferred input
     /// from that epoch is discarded without touching replacement-surface input.
     func cancelRequest(

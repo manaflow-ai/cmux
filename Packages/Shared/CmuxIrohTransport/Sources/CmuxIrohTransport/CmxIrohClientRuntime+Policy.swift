@@ -260,7 +260,7 @@ extension CmxIrohClientRuntime {
         _ state: CmxIrohRegistrationPublicationState,
         at now: Date
     ) -> Bool {
-        !state.requiresPublication(after: lastRegistrationRefreshState, now: now)
+        state.publicationDecision(after: lastRegistrationRefreshState, now: now) == .unchanged
     }
 
     func registrationRefreshState(

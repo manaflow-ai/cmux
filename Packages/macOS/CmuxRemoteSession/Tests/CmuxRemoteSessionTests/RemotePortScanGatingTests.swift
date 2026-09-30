@@ -22,7 +22,7 @@ struct RemotePortScanGatingTests {
         let runner = SpyProcessRunner()
         let host = RecordingRemoteSessionHost()
         let coordinator = Self.makeCoordinator(runner: runner, host: host, terminalStartupCommand: "true")
-        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 49152)
+        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 49152, credential: .random())
 
         coordinator.queue.sync {
             coordinator.proxyEndpoint = endpoint
@@ -46,6 +46,27 @@ struct RemotePortScanGatingTests {
             coordinator.updateRemotePortPollingStateLocked()
         }
 
+        #expect(coordinator.queue.sync { coordinator.remotePortPollTimer != nil } == false)
+        #expect(runner.runCount == 0)
+        coordinator.stop()
+    }
+
+    @Test("vm-baked Cloud VMs never run the ssh port scan, so connected is not held behind its timeout")
+    func vmBakedConfigurationSkipsSSHPortScan() {
+        let runner = SpyProcessRunner()
+        let coordinator = Self.makeCoordinator(
+            runner: runner,
+            terminalStartupCommand: "true",
+            skipDaemonBootstrap: true
+        )
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.updateRemotePortPollingStateLocked()
+        }
+
+        // No ssh-exec channel exists on these machines: a scan could only time out,
+        // and the first poll runs synchronously ahead of publishState(.connected).
         #expect(coordinator.queue.sync { coordinator.remotePortPollTimer != nil } == false)
         #expect(runner.runCount == 0)
         coordinator.stop()
@@ -338,7 +359,10 @@ struct RemotePortScanGatingTests {
             buildInfo: StubBuildInfo(),
             daemonStrings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "",
-                missingRequiredFunctionality: ""
+                missingRequiredFunctionality: "",
+                cloudNotificationClearWorkspaceInvalid: "",
+                cloudNotificationClearWorkspaceDenied: "",
+                cloudNotificationClearSurfaceInvalid: ""
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",

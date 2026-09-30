@@ -28,6 +28,9 @@ struct BrowserActionDispatcher {
         case .reload:
             panel.reload()
             return true
+        case .hardReload:
+            appDelegate.hardReloadBrowserPanelForShortcut(panel)
+            return true
         case .openInDefaultBrowser:
             return openInDefaultBrowser(panel)
         case .focusAddressBar:
@@ -161,11 +164,12 @@ struct BrowserActionDispatcher {
                 preferredProfileID: panel.profileID,
                 websiteDataStore:
                     panel.explicitEphemeralWebsiteDataStoreForSibling,
-                focus: true
+                focus: false
             ),
             let splitPanel = dock.browserPanel(for: splitPanelId) else {
                 return false
             }
+            dock.focusPanelFromDockInteraction(splitPanelId, window: nil)
             _ = appDelegate.focusBrowserAddressBar(in: splitPanel)
             return true
         }

@@ -598,7 +598,9 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         // Development rail: the Stable row is incompatible, visible to the
         // cleanup enumeration but historically
         // silently skipped by the compatibility guard on exact-scope deletes.
-        let compatible = MobileMacBuildCompatibilityPolicy.development.scoping(base)
+        let compatible = MobileMacBuildCompatibilityPolicy.development(
+            expectedInstanceTag: "feature"
+        ).scoping(base)
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,

@@ -3,114 +3,46 @@ import CmuxFoundation
 
 extension CMUXCLI {
     func availableThemeNames() -> [String] {
-        let fileManager = FileManager.default
-        var seen: Set<String> = []
-        var themes: [String] = []
-
-        for directoryURL in themeDirectoryURLs() {
-            guard let entries = try? fileManager.contentsOfDirectory(
-                at: directoryURL,
-                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            ) else {
-                continue
-            }
-
-            for entry in entries {
-                let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
-                guard values?.isDirectory != true else { continue }
-                guard values?.isRegularFile == true || values?.isRegularFile == nil else { continue }
-                let name = entry.lastPathComponent
-                let folded = name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-                if seen.insert(folded).inserted {
-                    themes.append(name)
-                }
-            }
-        }
-
-        return themes.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        GhosttyThemeCatalog(directories: themeDirectoryURLs()).entries().map(\.name)
     }
 
     func themeDirectoryURLs() -> [URL] {
+        GhosttyThemeDirectories(
+            environment: ProcessInfo.processInfo.environment,
+            bundledThemeDirectories: bundledThemeDirectoryURLs()
+        ).urls
+    }
+
+    /// Theme directories inside this CLI's app bundle, or the repo checkout
+    /// when running a development build.
+    private func bundledThemeDirectoryURLs() -> [URL] {
         let fileManager = FileManager.default
-        let processEnv = ProcessInfo.processInfo.environment
         var urls: [URL] = []
-        var seen: Set<String> = []
+        if let resourceURL = Bundle.main.resourceURL {
+            urls.append(resourceURL.appendingPathComponent("ghostty/themes", isDirectory: true))
+        }
+        guard let executableURL = resolvedExecutableURL() else { return urls }
 
-        func appendIfExisting(_ url: URL?) {
-            guard let url else { return }
-            let standardized = url.standardizedFileURL
-            guard fileManager.fileExists(atPath: standardized.path) else { return }
-            if seen.insert(standardized.path).inserted {
-                urls.append(standardized)
+        var current = executableURL.deletingLastPathComponent().standardizedFileURL
+        while true {
+            if current.lastPathComponent == "Resources" {
+                urls.append(current.appendingPathComponent("ghostty/themes", isDirectory: true))
             }
-        }
-
-        if let resourcesDir = processEnv["GHOSTTY_RESOURCES_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !resourcesDir.isEmpty {
-            appendIfExisting(URL(fileURLWithPath: resourcesDir, isDirectory: true).appendingPathComponent("themes", isDirectory: true))
-        }
-
-        appendIfExisting(
-            Bundle.main.resourceURL?
-                .appendingPathComponent("ghostty", isDirectory: true)
-                .appendingPathComponent("themes", isDirectory: true)
-        )
-
-        if let executableURL = resolvedExecutableURL() {
-            var current = executableURL.deletingLastPathComponent().standardizedFileURL
-            while true {
-                if current.lastPathComponent == "Resources" {
-                    appendIfExisting(
-                        current
-                            .appendingPathComponent("ghostty", isDirectory: true)
-                            .appendingPathComponent("themes", isDirectory: true)
-                    )
-                }
-                if current.lastPathComponent == "Contents" {
-                    appendIfExisting(
-                        current
-                            .appendingPathComponent("Resources", isDirectory: true)
-                            .appendingPathComponent("ghostty", isDirectory: true)
-                            .appendingPathComponent("themes", isDirectory: true)
-                    )
-                }
-
-                let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
-                let repoThemes = current.appendingPathComponent("Resources/ghostty/themes", isDirectory: true)
-                if fileManager.fileExists(atPath: projectMarker.path),
-                   fileManager.fileExists(atPath: repoThemes.path) {
-                    appendIfExisting(repoThemes)
-                    break
-                }
-
-                guard let parent = parentSearchURL(for: current) else { break }
-                current = parent
+            if current.lastPathComponent == "Contents" {
+                urls.append(current.appendingPathComponent("Resources/ghostty/themes", isDirectory: true))
             }
-        }
 
-        if let xdgDataDirs = processEnv["XDG_DATA_DIRS"] {
-            for dataDir in xdgDataDirs.split(separator: ":").map(String.init).filter({ !$0.isEmpty }) {
-                appendIfExisting(
-                    homeExpandedURL(dataDir, isDirectory: true)
-                        .appendingPathComponent("ghostty/themes", isDirectory: true)
-                )
+            let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
+            let repoThemes = current.appendingPathComponent("Resources/ghostty/themes", isDirectory: true)
+            if fileManager.fileExists(atPath: projectMarker.path),
+               fileManager.fileExists(atPath: repoThemes.path) {
+                urls.append(repoThemes)
+                break
             }
-        }
 
-        appendIfExisting(URL(fileURLWithPath: "/Applications/Ghostty.app/Contents/Resources/ghostty/themes", isDirectory: true))
-        appendIfExisting(homeExpandedURL("~/.config/ghostty/themes", isDirectory: true))
-        for appSupportDirectory in CmuxApplicationSupportDirectories(environment: processEnv).userDirectories {
-            appendIfExisting(
-                appSupportDirectory
-                    .appendingPathComponent(Self.cmuxThemeOverrideBundleIdentifier, isDirectory: true)
-                    .appendingPathComponent("themes", isDirectory: true)
-            )
+            guard let parent = parentSearchURL(for: current) else { break }
+            current = parent
         }
-        appendIfExisting(
-            homeExpandedURL("~/Library/Application Support/com.mitchellh.ghostty/themes", isDirectory: true)
-        )
-
         return urls
     }
 
@@ -245,80 +177,15 @@ extension CMUXCLI {
         rawThemeValue: String,
         targetBundleIdentifier: String
     ) throws -> URL {
-        let fileManager = FileManager.default
         let configURL = try cmuxThemeOverrideConfigURL(targetBundleIdentifier: targetBundleIdentifier)
-        let directoryURL = configURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
-
-        let existingContents = try readOptionalThemeOverrideContents(at: configURL) ?? ""
-        let strippedContents = removingManagedThemeOverride(from: existingContents)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let block = """
-        \(Self.cmuxThemesBlockStart)
-        theme = \(rawThemeValue)
-        \(Self.cmuxThemesBlockEnd)
-        """
-
-        let nextContents = strippedContents.isEmpty ? "\(block)\n" : "\(strippedContents)\n\n\(block)\n"
-        try nextContents.write(to: configURL, atomically: true, encoding: .utf8)
+        try CmuxManagedThemeConfigFile(url: configURL).write(rawThemeValue: rawThemeValue)
         return configURL
     }
 
     func clearManagedThemeOverride(targetBundleIdentifier: String) throws -> URL {
-        let fileManager = FileManager.default
         let configURL = try cmuxThemeOverrideConfigURL(targetBundleIdentifier: targetBundleIdentifier)
-        guard let existingContents = try readOptionalThemeOverrideContents(at: configURL) else {
-            return configURL
-        }
-
-        let strippedContents = removingManagedThemeOverride(from: existingContents)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if strippedContents.isEmpty {
-            do {
-                try fileManager.removeItem(at: configURL)
-            } catch {
-                guard !isThemeOverrideFileNotFoundError(error) else {
-                    return configURL
-                }
-                throw error
-            }
-        } else {
-            try strippedContents.appending("\n").write(to: configURL, atomically: true, encoding: .utf8)
-        }
-
+        try CmuxManagedThemeConfigFile(url: configURL).clear()
         return configURL
-    }
-
-    private func readOptionalThemeOverrideContents(at url: URL) throws -> String? {
-        do {
-            return try String(contentsOf: url, encoding: .utf8)
-        } catch {
-            guard isThemeOverrideFileNotFoundError(error) else {
-                throw error
-            }
-            return nil
-        }
-    }
-
-    private func isThemeOverrideFileNotFoundError(_ error: Error) -> Bool {
-        let nsError = error as NSError
-        if nsError.domain == NSCocoaErrorDomain {
-            return nsError.code == NSFileNoSuchFileError || nsError.code == NSFileReadNoSuchFileError
-        }
-        if nsError.domain == NSPOSIXErrorDomain {
-            return nsError.code == ENOENT
-        }
-        return false
-    }
-
-    private func removingManagedThemeOverride(from contents: String) -> String {
-        let pattern = #"(?ms)\n?# cmux themes start\n.*?\n# cmux themes end\n?"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return contents
-        }
-        let fullRange = NSRange(contents.startIndex..<contents.endIndex, in: contents)
-        return regex.stringByReplacingMatches(in: contents, options: [], range: fullRange, withTemplate: "")
     }
 
     func reloadThemesIfPossible(
@@ -353,6 +220,8 @@ extension CMUXCLI {
             return "com.cmuxterm.app.debug"
         case "cmux-nightly.sock":
             return "com.cmuxterm.app.nightly"
+        case "cmux-rc.sock":
+            return "com.cmuxterm.app.rc"
         case "cmux-staging.sock":
             return "com.cmuxterm.app.staging"
         default:
@@ -368,6 +237,9 @@ extension CMUXCLI {
         }
         if let slug = themeReloadSocketSlug(name, prefix: "cmux-nightly-", suffix: ".sock") {
             return "com.cmuxterm.app.nightly.\(slug)"
+        }
+        if let slug = themeReloadSocketSlug(name, prefix: "cmux-rc-", suffix: ".sock") {
+            return "com.cmuxterm.app.rc.\(slug)"
         }
         if let slug = themeReloadSocketSlug(name, prefix: "cmux-staging-", suffix: ".sock") {
             return "com.cmuxterm.app.staging.\(slug)"
@@ -432,7 +304,7 @@ extension CMUXCLI {
 
     func isRightSidebarCLIMode(_ value: String) -> Bool {
         switch value.lowercased() {
-        case "files", "find", "vault", "sessions", "feed", "dock":
+        case "files", "find", "vault", "sessions", "feed", "dock", "cloud", "machines", "vms", "devices", "device", "macs", "custom", "custom-sidebar":
             return true
         default:
             return false
@@ -441,8 +313,10 @@ extension CMUXCLI {
 
     func normalizedRightSidebarCLIArgument(_ value: String) -> String {
         switch value.lowercased() {
-        case "files", "find", "vault", "sessions", "feed", "dock":
+        case "files", "find", "vault", "sessions", "feed", "dock", "machines", "custom", "custom-sidebar":
             return value.lowercased()
+        case "cloud", "vms", "devices", "device", "macs":
+            return "machines"
         default:
             return value
         }

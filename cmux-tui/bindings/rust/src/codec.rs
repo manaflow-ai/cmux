@@ -572,10 +572,11 @@ fn wait_for_connect_with_poll_checks(
 }
 
 fn connect_error(socket_path: &Path, error: std::io::Error) -> CmuxError {
-    CmuxError::Connection(format!(
-        "cannot connect to session socket {}: {error}",
-        socket_path.display()
-    ))
+    let kind = error.kind();
+    CmuxError::ConnectionIo {
+        message: format!("cannot connect to session socket {}: {error}", socket_path.display()),
+        kind,
+    }
 }
 
 fn connect_timeout_error(socket_path: &Path) -> CmuxError {

@@ -18,6 +18,20 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 SMOKE_TOOL="${CMUX_SMOKE_TOOL:-$ROOT_DIR/scripts/smoke-launch-macos-app.sh}"
 VERIFY_METADATA_TOOL="${CMUX_VERIFY_METADATA_TOOL:-$ROOT_DIR/scripts/verify-app-bundle-channel-metadata.sh}"
 VERIFY_LICENSES_TOOL="${CMUX_VERIFY_LICENSES_TOOL:-$ROOT_DIR/scripts/verify-app-bundle-licenses.sh}"
+NOTARIZE_COMPUTER_USE_HELPER_TOOL="${CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL:-$ROOT_DIR/scripts/ci/notarize-computer-use-helper.sh}"
+COMPUTER_USE_NOTARY_SUBMISSION_FILE="${CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE:-}"
+# Release channel of the app being packaged: `nightly` (default) or `rc`. It
+# selects the entitlements file and the bundle-metadata check; the packaging,
+# notarization, and stapling steps are identical for both.
+CHANNEL="${CMUX_CHANNEL:-nightly}"
+case "$CHANNEL" in
+  nightly|rc) ;;
+  *)
+    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly or rc)" >&2
+    exit 2
+    ;;
+esac
+APP_ENTITLEMENTS="${CMUX_APP_ENTITLEMENTS:-$ROOT_DIR/cmux.${CHANNEL}.entitlements}"
 
 if [ ! -d "$APP_PATH/Contents" ]; then
   echo "Signed app not found: $APP_PATH" >&2
@@ -48,13 +62,34 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if [ -n "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" ]; then
+  "$NOTARIZE_COMPUTER_USE_HELPER_TOOL" \
+    --finish "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" \
+    "$APP_PATH" \
+    "$APP_ENTITLEMENTS" \
+    "$APPLE_SIGNING_IDENTITY"
+else
+  "$NOTARIZE_COMPUTER_USE_HELPER_TOOL" \
+    "$APP_PATH" \
+    "$APP_ENTITLEMENTS" \
+    "$APPLE_SIGNING_IDENTITY"
+fi
+
 "$CREATE_DMG_TOOL" --no-code-sign "$APP_PATH" "$DMG_TMP_DIR"
 CREATED_DMG="$(find "$DMG_TMP_DIR" -maxdepth 1 -name '*.dmg' -print -quit)"
 if [ -z "$CREATED_DMG" ]; then
   echo "Failed to locate created DMG for $APP_PATH" >&2
   exit 1
 fi
-mv "$CREATED_DMG" "$DMG_RELEASE"
+# create-dmg emits an LZFSE (ULFO) image. Re-encode to LZMA (ULMO): same bundle,
+# about a quarter smaller download, and every supported macOS (14+) mounts it.
+"$HDIUTIL_TOOL" convert "$CREATED_DMG" -quiet -format ULMO -ov -o "$DMG_RELEASE"
+rm -f "$CREATED_DMG"
+DMG_FORMAT="$("$HDIUTIL_TOOL" imageinfo "$DMG_RELEASE" | awk -F': *' '/^Format:/ {print $2; exit}')"
+if [ "$DMG_FORMAT" != "ULMO" ]; then
+  echo "Expected ULMO (LZMA) DMG after conversion, got: ${DMG_FORMAT:-unknown}" >&2
+  exit 1
+fi
 
 "$CODESIGN_TOOL" --force --timestamp --keychain build.keychain \
   --sign "$APPLE_SIGNING_IDENTITY" \
@@ -77,7 +112,7 @@ fi
 "$SPCTL_TOOL" -a -vv --type execute "$APP_PATH"
 CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP_PATH"
 CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP_PATH"
-"$VERIFY_METADATA_TOOL" "$APP_PATH" nightly
+"$VERIFY_METADATA_TOOL" "$APP_PATH" "$CHANNEL"
 "$VERIFY_LICENSES_TOOL" "$APP_PATH"
 
 "$XCRUN_TOOL" stapler staple "$DMG_RELEASE"
@@ -94,13 +129,13 @@ fi
 "$HDIUTIL_TOOL" attach "$DMG_RELEASE" -nobrowse -readonly -mountpoint "$MOUNT_DIR"
 MOUNTED_APP="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d -print -quit)"
 if [ -z "$MOUNTED_APP" ]; then
-  echo "No app found in mounted nightly DMG" >&2
+  echo "No app found in mounted $CHANNEL DMG" >&2
   exit 1
 fi
 "$SPCTL_TOOL" -a -vv --type execute "$MOUNTED_APP"
 CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$MOUNTED_APP"
 CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$MOUNTED_APP"
-"$VERIFY_METADATA_TOOL" "$MOUNTED_APP" nightly
+"$VERIFY_METADATA_TOOL" "$MOUNTED_APP" "$CHANNEL"
 "$VERIFY_LICENSES_TOOL" "$MOUNTED_APP"
 detach_mounted_dmg
 

@@ -19,6 +19,11 @@ import {
 } from "../src/node.js";
 import {
   UnixSocketTransport,
+  defaultSocketPath,
+  defaultSocketPaths,
+  envSocketPath,
+  validateSessionName,
+  validateUnixSocketPath,
   type UnixSocketTransportOptions,
 } from "../src/node-transport.js";
 import { CmuxClient } from "../src/raw/node-client.js";
@@ -31,6 +36,243 @@ const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
 const RESOURCE_WORKSPACE = workspaceId(`ws_${"b".repeat(32)}`);
 const RESOURCE_TERMINAL = terminalId(`term_${"c".repeat(32)}`);
 
+function withSocketRuntime<T>(run: () => T): T {
+  const previousXdg = process.env.XDG_RUNTIME_DIR;
+  const previousTmp = process.env.TMPDIR;
+  process.env.XDG_RUNTIME_DIR = "/run/user/501";
+  delete process.env.TMPDIR;
+  try {
+    return run();
+  } finally {
+    if (previousXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = previousXdg;
+    if (previousTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTmp;
+  }
+}
+
+async function withSocketRuntimeAsync<T>(run: () => Promise<T>): Promise<T> {
+  const previousXdg = process.env.XDG_RUNTIME_DIR;
+  const previousTmp = process.env.TMPDIR;
+  process.env.XDG_RUNTIME_DIR = "/run/user/501";
+  delete process.env.TMPDIR;
+  try {
+    return await run();
+  } finally {
+    if (previousXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = previousXdg;
+    if (previousTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTmp;
+  }
+}
+
+test("session socket helpers enforce the relaxed safe-name contract", () => {
+  for (const session of [
+    "",
+    ".",
+    "..",
+    "../escape",
+    "nested/session",
+    "nested\\session",
+    "bad\u0000name",
+    "bad\nname",
+    "bad\u0085name",
+    "bad\u2028name",
+    "bad\u2029name",
+    "bad\ud800name",
+  ]) {
+    assert.throws(
+      () => validateSessionName(session),
+      /session name must be a non-empty path component/,
+      `accepted unsafe session ${JSON.stringify(session)}`,
+    );
+    assert.throws(() => defaultSocketPath(session));
+  }
+
+  for (const session of [
+    "legacy name",
+    "名前",
+    "_leading",
+    "-leading",
+    ".leading",
+    "legacy:colon",
+  ]) {
+    assert.doesNotThrow(() => validateSessionName(session));
+    assert.ok(defaultSocketPath(session).endsWith(`/${session}.sock`));
+  }
+  assert.doesNotThrow(() => validateSessionName(`legacy-${"x".repeat(200)}`));
+});
+
+test("preferred runtime socket wins over the raw /tmp compatibility path", () => {
+  withSocketRuntime(() => {
+    const session = "main";
+    assert.equal(
+      defaultSocketPath(session),
+      join("/run/user/501", `cmux-tui-${process.getuid?.() ?? 0}`, `${session}.sock`),
+    );
+  });
+});
+
+test("long session socket paths use a bindable digest fallback", async () => {
+  await withSocketRuntimeAsync(async () => {
+    const session = `legacy-${"x".repeat(200)}`;
+    const digest = "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2";
+    const socketPath = defaultSocketPath(session);
+    assert.equal(
+      socketPath,
+      join(
+        "/run/user/501",
+        `cmux-tui-hashed-${process.getuid?.() ?? 0}`,
+        `${digest}.sock`,
+      ),
+    );
+    const capacity = process.platform === "darwin" ? 104 : 108;
+    assert.ok(Buffer.byteLength(socketPath) < capacity);
+
+    const directory = await mkdtemp(join(tmpdir(), "c-"));
+    const leafLength = Buffer.byteLength(socketPath) - Buffer.byteLength(directory) - 1;
+    assert.ok(leafLength >= 5);
+    const bindPath = join(directory, `${"x".repeat(leafLength - 5)}.sock`);
+    assert.equal(Buffer.byteLength(bindPath), Buffer.byteLength(socketPath));
+    const server = createServer();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(bindPath, resolve);
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+test("non-ASCII long session paths use the shared UTF-8 SHA-256 digest", () => {
+  withSocketRuntime(() => {
+    const session = "\u540D\u524D".repeat(100);
+    const digest = "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3";
+    const socketPath = defaultSocketPath(session);
+    assert.equal(
+      socketPath,
+      join(
+        "/run/user/501",
+        `cmux-tui-hashed-${process.getuid?.() ?? 0}`,
+        `${digest}.sock`,
+      ),
+    );
+  });
+});
+
+test("hashed session paths fall back to /tmp when the runtime base is too long", () => {
+  const previousXdg = process.env.XDG_RUNTIME_DIR;
+  const previousTmp = process.env.TMPDIR;
+  process.env.XDG_RUNTIME_DIR = join("/tmp", "x".repeat(200));
+  delete process.env.TMPDIR;
+  try {
+    const session = `legacy-${"x".repeat(200)}`;
+    const socketPath = defaultSocketPath(session);
+    assert.ok(
+      socketPath.startsWith(
+        join("/tmp", `cmux-tui-hashed-${process.getuid?.() ?? 0}`) + "/",
+      ),
+    );
+  } finally {
+    if (previousXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = previousXdg;
+    if (previousTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTmp;
+  }
+});
+
+test("socket discovery ignores TMP and TEMP outside the contract", () => {
+  const previousXdg = process.env.XDG_RUNTIME_DIR;
+  const previousTmpdir = process.env.TMPDIR;
+  const previousTmp = process.env.TMP;
+  const previousTemp = process.env.TEMP;
+  delete process.env.XDG_RUNTIME_DIR;
+  delete process.env.TMPDIR;
+  process.env.TMP = "/tmp/node-tmp-override";
+  process.env.TEMP = "/tmp/node-temp-override";
+  try {
+    assert.equal(
+      defaultSocketPath("main"),
+      join("/tmp", `cmux-tui-${process.getuid?.() ?? 0}`, "main.sock"),
+    );
+  } finally {
+    if (previousXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = previousXdg;
+    if (previousTmpdir === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTmpdir;
+    if (previousTmp === undefined) delete process.env.TMP;
+    else process.env.TMP = previousTmp;
+    if (previousTemp === undefined) delete process.env.TEMP;
+    else process.env.TEMP = previousTemp;
+  }
+});
+
+test("socket candidates keep long sessions bindable and short sessions canonical", () => {
+  withSocketRuntime(() => {
+    const capacity = process.platform === "darwin" ? 104 : 108;
+    const longSession = `legacy-${"x".repeat(200)}`;
+    const longCandidates = defaultSocketPaths(longSession);
+    assert.ok(longCandidates.length > 0);
+    assert.ok(longCandidates.every((candidate) => Buffer.byteLength(candidate) < capacity));
+    assert.ok(longCandidates.every((candidate) => candidate.includes("-hashed-")));
+    assert.ok(longCandidates.every((candidate) => !candidate.endsWith(`/${longSession}.sock`)));
+
+    const shortSession = "main";
+    const shortCandidates = defaultSocketPaths(shortSession);
+    assert.ok(
+      shortCandidates[0].endsWith(
+        `/cmux-tui-${process.getuid?.() ?? 0}/${shortSession}.sock`,
+      ),
+    );
+    assert.ok(shortCandidates.every((candidate) => !candidate.includes("-hashed-")));
+    assert.equal(defaultSocketPath(shortSession), shortCandidates[0]);
+  });
+});
+
+test("explicit and environment socket paths remain authoritative", () => {
+  const previousTui = process.env.CMUX_TUI_SOCKET;
+  const previousMux = process.env.CMUX_MUX_SOCKET;
+  try {
+    process.env.CMUX_MUX_SOCKET = "/tmp/legacy-authority.sock";
+    delete process.env.CMUX_TUI_SOCKET;
+    assert.equal(envSocketPath(), "/tmp/legacy-authority.sock");
+    process.env.CMUX_TUI_SOCKET = "/tmp/explicit-authority.sock";
+    assert.equal(envSocketPath(), "/tmp/explicit-authority.sock");
+  } finally {
+    if (previousTui === undefined) delete process.env.CMUX_TUI_SOCKET;
+    else process.env.CMUX_TUI_SOCKET = previousTui;
+    if (previousMux === undefined) delete process.env.CMUX_MUX_SOCKET;
+    else process.env.CMUX_MUX_SOCKET = previousMux;
+  }
+});
+
+test("explicit socket paths are rejected before Node attempts an invalid bind", () => {
+  const capacity = process.platform === "darwin" ? 104 : 108;
+  assert.doesNotThrow(() => validateUnixSocketPath("/tmp/short.sock"));
+  assert.throws(
+    () => validateUnixSocketPath(`/tmp/${"x".repeat(capacity)}.sock`),
+    /exceeds .*byte platform limit/,
+  );
+  assert.throws(
+    () => new UnixSocketTransport(`/tmp/${"x".repeat(capacity)}.sock`),
+    /exceeds .*byte platform limit/,
+  );
+});
+
+test("Linux abstract socket paths remain supported", () => {
+  if (process.platform === "linux") {
+    assert.doesNotThrow(() => validateUnixSocketPath("\u0000cmux-tui-test"));
+  } else {
+    assert.throws(
+      () => validateUnixSocketPath("\u0000cmux-tui-test"),
+      /only supported on Linux/,
+    );
+  }
+});
+
 test("explicit empty socket paths fail with a typed validation error", () => {
   const message = "socketPath must be a non-empty path";
   assert.throws(() => new NodeClient({ socketPath: "" }), (error: unknown) =>
@@ -40,7 +282,6 @@ test("explicit empty socket paths fail with a typed validation error", () => {
     error instanceof TypeError && error.message === message,
   );
 });
-
 interface DelayedUnixFixture {
   readonly transport: UnixSocketTransport;
   readonly received: string[];
@@ -203,6 +444,21 @@ test("Unix resource transport drops a read that expires before connect", async (
   } finally {
     client.close();
     await fixture.close();
+  }
+});
+
+test("Unix transport close suppresses queued connect errors", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cmux-tui-close-"));
+  try {
+    const transport = new UnixSocketTransport(join(directory, "missing.sock"));
+    const errors: Error[] = [];
+    transport.onError((error) => errors.push(error));
+    const closed = new Promise<void>((resolve) => transport.onClose(resolve));
+    transport.close();
+    await closed;
+    assert.deepEqual(errors, []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
 
@@ -856,6 +1112,21 @@ test("Unix framing stops coalesced delivery after reentrant disposal", () => {
   framing.push(Buffer.from("{\"first\":1}\n{\"second\":2}\n"));
 
   assert.deepEqual(frames, ["{\"first\":1}"]);
+});
+
+test("Unix framing reset discards a partial line without stopping decoding", () => {
+  const frames: string[] = [];
+  const framing = new NewlineFrameBuffer(
+    128,
+    (frame) => frames.push(frame),
+    (error) => assert.fail(error),
+  );
+
+  framing.push(Buffer.from('{"stale":'));
+  framing.reset();
+  framing.push(Buffer.from('{"fresh":true}\n'));
+
+  assert.deepEqual(frames, ['{"fresh":true}']);
 });
 
 test("Unix transport close stops active coalesced frame delivery", async () => {

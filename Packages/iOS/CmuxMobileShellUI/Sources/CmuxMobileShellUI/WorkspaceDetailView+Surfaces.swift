@@ -75,20 +75,9 @@ extension WorkspaceDetailView {
                     // dark theme (and vice versa).
                     .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
                     // Same recovery chrome as the terminal: the last synced
-                    // surface stays visible underneath while the pill shows
-                    // reconnect progress (it renders nothing when connected).
-                    .overlay(alignment: .topLeading) {
-                        MobileMacConnectionStatusPill(
-                            host: host,
-                            status: effectiveConnectionStatus,
-                            reconnect: Self.reconnectAction(
-                                connectionRequiresReauth: store.connectionRequiresReauth,
-                                reconnect: { reconnectToWorkspaceMac() }
-                            )
-                        )
-                        .padding(.top, 10)
-                        .padding(.leading, 10)
-                    }
+                    // surface stays visible, and connection state lives in
+                    // the shared title bar (spinner while reconnecting, red
+                    // dot + Reconnect menu item while disconnected).
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -181,14 +170,19 @@ extension WorkspaceDetailView {
 
     @ViewBuilder
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
+        let serverRoute = browserServerRoute
         MobileBrowserPane(
             state: browser,
-            onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) },
+            serverRoute: serverRoute,
+            modePicker: onDeviceModePicker(browser),
+            addressIdentifier: sshHostID == nil ? nil : "ssh.browser.address",
             onDiagnosticEvent: { event in
                 recordLocalBrowserDiagnostic(event, surfaceID: browser.id.rawValue)
             }
         )
-        .id(browser.id.rawValue)
+        // The route (proxy and data store) is fixed for a web view's
+        // lifetime, so a Mac that gains or loses the tunnel gets a new one.
+        .id("\(browser.id.rawValue)|\(serverRoute?.id ?? "")")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -215,8 +209,6 @@ extension WorkspaceDetailView {
             store.recordAppEvent(.browserReloadRequested, correlationID: surfaceID)
         case .stopRequested:
             store.recordAppEvent(.browserStopRequested, correlationID: surfaceID)
-        case .closed:
-            store.recordAppEvent(.browserClosed, correlationID: surfaceID)
         }
     }
 
@@ -238,7 +230,8 @@ extension WorkspaceDetailView {
                 reload: { await store.reloadMobileBrowser(panelID: $0) },
                 respondToDialog: { await store.respondToMobileBrowserDialog($0) }
             ),
-            reconnect: { Task { await store.reconnectOrRefresh() } }
+            reconnect: { Task { await store.reconnectBrowserStream(panelID: browser.id) } },
+            modePicker: streamedModePicker(browser)
         )
         .id(browser.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -2,7 +2,7 @@ import AppKit
 import CmuxTerminalCore
 import Foundation
 import GhosttyKit
-import GhosttyRuntimeTestStubs
+import CmuxTerminalGhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
@@ -16,6 +16,37 @@ import Testing
 /// native free to the runtime teardown coordinator.
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceTeardownCallbackLifetimeTests {
+    @Test func explicitTeardownRetiresLogicalRegistryOwnershipExactlyOnce() throws {
+        let registry = TerminalSurfaceRegistry()
+        var surface: TerminalSurface? = makeSurface(registry: registry)
+        let surfaceId = try #require(surface?.id)
+        let registeredGeneration = registry.topologyGeneration
+        #expect(registry.surface(id: surfaceId) != nil)
+
+        surface?.teardownSurface()
+        let teardownGeneration = registry.topologyGeneration
+        #expect(registry.surface(id: surfaceId) == nil)
+        #expect(teardownGeneration > registeredGeneration)
+
+        surface?.teardownSurface()
+        #expect(registry.topologyGeneration == teardownGeneration)
+
+        surface = nil
+        #expect(registry.topologyGeneration == teardownGeneration)
+    }
+
+    @Test func deinitOnlyTeardownStillRetiresRegistryOwnership() throws {
+        let registry = TerminalSurfaceRegistry()
+        var surface: TerminalSurface? = makeSurface(registry: registry)
+        let surfaceId = try #require(surface?.id)
+        let registeredGeneration = registry.topologyGeneration
+
+        surface = nil
+
+        #expect(registry.surface(id: surfaceId) == nil)
+        #expect(registry.topologyGeneration > registeredGeneration)
+    }
+
     @Test func cancellingEventWaitReturnsWithoutWaitingForDeadline() async {
         let recorder = TeardownOrderRecorder()
         let wait = Task {
@@ -129,6 +160,55 @@ import Testing
         let completed = await recorder.waitForEventCount(2)
         #expect(completed, "timed out waiting for native free and tee-lease release")
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
+    }
+
+    /// A released runtime never reports echo back on, so the pane host must
+    /// hear about the release to clear runtime-driven chrome such as the
+    /// password input badge.
+    @Test func teardownSurfaceNotifiesPaneHostOfRuntimeRelease() async throws {
+        let recorder = TeardownOrderRecorder()
+        let surface = makeSurface()
+        let paneHost = try #require(surface.paneHost as? FakeTerminalSurfacePaneHost)
+        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+        #expect(paneHost.runtimeReleaseCount == 0)
+
+        surface.teardownSurface()
+
+        #expect(paneHost.runtimeReleaseCount == 1)
+        #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
+    }
+
+    @Test func teardownWithoutRuntimeDoesNotNotifyPaneHost() throws {
+        let surface = makeSurface()
+        let paneHost = try #require(surface.paneHost as? FakeTerminalSurfacePaneHost)
+
+        surface.teardownSurface()
+
+        #expect(paneHost.runtimeReleaseCount == 0)
+    }
+
+    @Test func agentHibernationNotifiesPaneHostOfRuntimeRelease() async throws {
+        let recorder = TeardownOrderRecorder()
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let paneHost = try #require(surface.paneHost as? FakeTerminalSurfacePaneHost)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer { runtimeSurface.deallocate() }
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        #expect(surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.hibernate"))
+
+        #expect(paneHost.runtimeReleaseCount == 1)
+        #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
     }
 
     @Test func agentHibernationEndsCurrentTerminalProcessGeneration() {
@@ -324,7 +404,7 @@ import Testing
                 runtimeTeardown: runtimeTeardown,
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+                    agentCommandShimRootDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
                     installAgentCommandShims: { _, _, _ in nil },
                     isExecutableFile: { _ in false }
                 ),

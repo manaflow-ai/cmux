@@ -36,13 +36,23 @@ final class MobilePrimarySearchCoordinator {
 
     func setPresentation(_ presented: Bool) {
         if isPresented, !presented {
-            commitNativeDraft(for: scope)
+            resetSearchQuery(for: scope)
             beginDeactivation(for: scope)
         }
         isPresented = presented
         if presented {
             activate(scope: scope)
         }
+    }
+
+    /// Starts search for an explicitly chosen destination. The split (iPad)
+    /// sidebar presents one search field over whichever destination is
+    /// visible, so the scope must be selected before the searchable
+    /// presentation activates; presenting first would seed the field from the
+    /// previous scope's committed query.
+    func beginSearch(for scope: MobilePrimarySearchScope) {
+        self.scope = scope
+        setPresentation(true)
     }
 
     func commitSubmit() -> MobilePrimaryTab {
@@ -59,13 +69,25 @@ final class MobilePrimarySearchCoordinator {
         isPresented = false
     }
 
+    /// A TabView-driven selection change away from a presented search is the
+    /// search tab's round X: while search is presented the tab bar is the
+    /// search field, so no other tab control can move selection. The X
+    /// cancels the query instead of committing it. Programmatic transitions
+    /// (result taps, deep links) keep committing through
+    /// ``deactivateCurrentSearch()``.
+    func cancelPresentedSearch() {
+        resetSearchQuery(for: scope)
+        beginDeactivation(for: scope)
+        isPresented = false
+    }
+
     func updateLifecycle(scope: MobilePrimarySearchScope, isSearching: Bool) {
         if isSearching {
             activate(scope: scope)
             platformSearchingScope = scope
         } else if phase == .active(scope) {
             guard platformSearchingScope == scope else { return }
-            commitNativeDraft(for: scope)
+            resetSearchQuery(for: scope)
             beginDeactivation(for: scope)
         }
     }
@@ -178,6 +200,16 @@ final class MobilePrimarySearchCoordinator {
             searchQueryBounds.normalizedFilterText(nativeSearchText(for: scope)).value,
             for: scope
         )
+    }
+
+    /// Dismissing search without submitting (the search tab's round X, or a
+    /// platform-driven end of searching) cancels the query outright: draft and
+    /// committed text both clear so the scope returns to its unfiltered list
+    /// and the next activation starts empty. Submit and in-search navigation
+    /// keep committing through ``commitNativeDraft(for:)``.
+    private func resetSearchQuery(for scope: MobilePrimarySearchScope) {
+        setCommittedSearchText("", for: scope)
+        setNativeSearchText("", for: scope)
     }
 
     private func syncNativeSearchText(fromCommittedQueryFor scope: MobilePrimarySearchScope) {

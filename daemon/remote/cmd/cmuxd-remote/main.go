@@ -95,8 +95,9 @@ type streamState struct {
 }
 
 type stdioFrameWriter struct {
-	mu     sync.Mutex
-	writer *bufio.Writer
+	mu               sync.Mutex
+	writer           *bufio.Writer
+	setWriteDeadline func(time.Time) error
 }
 
 type rpcServer struct {
@@ -580,6 +581,7 @@ const (
 	persistentDaemonAuthMethod    = "daemon.auth"
 	persistentDaemonReadyFDEnv    = "CMUX_REMOTE_DAEMON_READY_FD"
 	persistentDaemonAuthTimeout   = 5 * time.Second
+	persistentDaemonWriteTimeout  = 10 * time.Second
 	persistentDaemonSocketDirFile = "socket-dir"
 )
 
@@ -1418,6 +1420,9 @@ func handlePersistentDaemonConnWithAuthTimeout(
 			return
 		}
 	}
+	// Authentication uses its own deadline. Bound every later socket write so
+	// a peer that stops consuming output cannot pin the connection indefinitely.
+	writer.setWriteDeadline = conn.SetWriteDeadline
 	if err := runRPCServerWithReader(reader, writer, hub, false, requestShutdown, func() {
 		_ = conn.Close()
 	}); err != nil {
@@ -1537,6 +1542,11 @@ func runRPCServerWithReader(
 	connectionCtx, cancelConnection := context.WithCancel(context.Background())
 	defer func() {
 		cancelConnection()
+		// This callback closes the owned transport, interrupting any output
+		// pump already holding the writer mutex before teardown waits on it.
+		if interruptRead != nil {
+			interruptRead()
+		}
 		server.closeAll()
 		_ = writer.flush()
 	}()
@@ -1735,7 +1745,17 @@ func (w *stdioFrameWriter) writeEvent(event rpcEvent) error {
 func (w *stdioFrameWriter) flush() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if err := w.prepareWriteLocked(); err != nil {
+		return err
+	}
 	return w.writer.Flush()
+}
+
+func (w *stdioFrameWriter) prepareWriteLocked() error {
+	if w.setWriteDeadline != nil {
+		return w.setWriteDeadline(time.Now().Add(persistentDaemonWriteTimeout))
+	}
+	return nil
 }
 
 func (w *stdioFrameWriter) writeJSONFrame(payload any) error {
@@ -1745,6 +1765,9 @@ func (w *stdioFrameWriter) writeJSONFrame(payload any) error {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if err := w.prepareWriteLocked(); err != nil {
+		return err
+	}
 	if _, err := w.writer.Write(data); err != nil {
 		return err
 	}

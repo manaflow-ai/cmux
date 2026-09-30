@@ -114,7 +114,7 @@ extension CmxIrohClientRuntime {
     }
 
     static func isConnectivity(_ error: any Error) -> Bool {
-        (error as? CmxIrohTrustBrokerClientError) == .connectivity
+        (error as? CmxIrohTrustBrokerClientError)?.isConnectivity == true
     }
 
     /// Failures that may fall back to the verified offline policy cache.
