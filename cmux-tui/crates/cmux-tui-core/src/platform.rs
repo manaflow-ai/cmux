@@ -1292,6 +1292,9 @@ fn default_terminal_cwd_from(launch: Option<&Path>) -> Option<String> {
 /// name a safe local spawn directory, so callers should fall back to the
 /// surface's original working directory when this returns `None`.
 pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
+    if let Some(path) = kitty_shell_cwd_to_local_path(value, false) {
+        return path;
+    }
     // Hosted surfaces never trust hostless OSC 7 values. Their authenticated
     // spawn CWD is the only safe fallback when no local host is identified.
     let mut url = url::Url::parse(value).ok()?;
@@ -1324,6 +1327,9 @@ pub fn local_terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     if terminal_pwd_path_is_safe(plain) {
         return Some(plain.to_owned());
     }
+    if let Some(path) = kitty_shell_cwd_to_local_path(value, true) {
+        return path;
+    }
 
     let mut url = url::Url::parse(value).ok()?;
     if url.scheme() != "file" {
@@ -1338,6 +1344,20 @@ pub fn local_terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
         url.set_host(Some("localhost")).ok()?;
     }
     url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
+}
+
+/// Ghostty's bash and zsh integration, which cmux-tui injects into the
+/// shells it launches, report `kitty-shell-cwd://HOST/PATH` with the path
+/// unencoded. Returns `None` when `value` is another format, and `Some(None)`
+/// for a report that names no safe local directory (a remote host, or no
+/// host where `allow_hostless` is false).
+fn kitty_shell_cwd_to_local_path(value: &str, allow_hostless: bool) -> Option<Option<PathBuf>> {
+    let rest = value.strip_prefix("kitty-shell-cwd://")?;
+    let Some(slash) = rest.find('/') else { return Some(None) };
+    let (host, path) = rest.split_at(slash);
+    let host_ok = if host.is_empty() { allow_hostless } else { terminal_pwd_host_is_local(host) };
+    let path = Path::new(path);
+    Some((host_ok && terminal_pwd_path_is_safe(path)).then(|| path.to_owned()))
 }
 
 /// Convert a trusted spawn working directory into a local path. Spawn CWDs
@@ -2109,6 +2129,27 @@ mod tests {
         assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd:///tmp/hostless"), None);
         assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost"), None);
         assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost/tmp/\0nul"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_pwd_accepts_ghostty_kitty_shell_cwd_reports() {
+        let hostname = local_hostname().unwrap();
+        assert_eq!(
+            terminal_pwd_to_local_path(&format!("kitty-shell-cwd://{hostname}/tmp/a b")),
+            Some(PathBuf::from("/tmp/a b"))
+        );
+        assert_eq!(
+            terminal_pwd_to_local_path("kitty-shell-cwd://localhost/tmp/local"),
+            Some(PathBuf::from("/tmp/local"))
+        );
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd:///tmp/hostless"), None);
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://remote.invalid/tmp"), None);
+        assert_eq!(
+            local_terminal_pwd_to_local_path("kitty-shell-cwd:///tmp/hostless"),
+            Some(PathBuf::from("/tmp/hostless"))
+        );
+        assert_eq!(local_terminal_pwd_to_local_path("kitty-shell-cwd://remote.invalid/tmp"), None);
     }
 
     #[cfg(unix)]
