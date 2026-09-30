@@ -85,6 +85,11 @@ public final class SSHStartupLaunchScripts {
         POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
 
+    /// Paths of launchers written but not yet handed off to a terminal.
+    public var unlaunchedPaths: [String] {
+        unlaunched.map(\.path)
+    }
+
     /// Records that a terminal now runs every launcher written so far.
     ///
     /// Each launcher deletes itself when it runs, so ``removeUnlaunched()``
