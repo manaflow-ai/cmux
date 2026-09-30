@@ -23,11 +23,7 @@ struct CloudMachineSleepGateTests {
         await links.recordLocalMachineStatus("paused", for: machineID)
 
         #expect(await links.setMachineStatus("running", for: machineID, observedAt: Date().addingTimeInterval(1)))
-        await #expect(throws: CloudMachineLinkManager.ManagerError.self) {
-            try await CloudMachineLinkManager.$isBackgroundUpkeep.withValue(true) {
-                try await links.connected(machineID: machineID)
-            }
-        }
+        await expectNotRetryLater(links)
     }
 
     @Test("a poll cannot tear down a user resume in flight")
@@ -56,11 +52,7 @@ struct CloudMachineSleepGateTests {
         })
         await links.setMachineStatus("paused", for: machineID)
 
-        await #expect(throws: CloudMachineLinkManager.ManagerError.self) {
-            try await CloudMachineLinkManager.$isBackgroundUpkeep.withValue(true) {
-                try await links.connected(machineID: machineID)
-            }
-        }
+        await expectRetryLater(links)
         #expect(await calls.values.isEmpty)
     }
 
@@ -75,11 +67,7 @@ struct CloudMachineSleepGateTests {
 
         _ = try? await links.connected(machineID: machineID)
         #expect(await calls.values == [machineID])
-        await #expect(throws: CloudMachineLinkManager.ManagerError.self) {
-            try await CloudMachineLinkManager.$isBackgroundUpkeep.withValue(true) {
-                try await links.connected(machineID: machineID)
-            }
-        }
+        await expectNotRetryLater(links)
     }
 
     @Test("only explicit asleep states gate connects and stale facts are pruned")
@@ -96,11 +84,7 @@ struct CloudMachineSleepGateTests {
         await links.setMachineStatus("paused", for: machineID)
         await links.retainAddresses(machineIDs: [])
         #expect(await links.privateAddresses(for: machineID).isEmpty)
-        await #expect(throws: CloudMachineLinkManager.ManagerError.self) {
-            try await CloudMachineLinkManager.$isBackgroundUpkeep.withValue(true) {
-                try await links.connected(machineID: machineID)
-            }
-        }
+        await expectNotRetryLater(links)
     }
 
     private func makeLinks(
@@ -114,9 +98,34 @@ struct CloudMachineSleepGateTests {
     }
 
     private func expectUpkeepRetry(_ links: CloudMachineLinkManager) async {
-        await #expect(throws: CloudMachineLinkManager.ManagerError.self) {
+        await expectRetryLater(links)
+    }
+
+    private func expectRetryLater(_ links: CloudMachineLinkManager) async {
+        do {
             try await CloudMachineLinkManager.$isBackgroundUpkeep.withValue(true) {
                 try await links.connected(machineID: machineID)
+            }
+            Issue.record("Expected the paused machine gate to reject upkeep")
+        } catch let error as CloudMachineLinkManager.ManagerError {
+            guard case .retryLater(let message) = error else {
+                Issue.record("Expected retryLater from the paused machine gate, got \(error)")
+                return
+            }
+            #expect(message.contains("waiting for it to run"))
+        } catch {
+            Issue.record("Expected retryLater from the paused machine gate, got \(error)")
+        }
+    }
+
+    private func expectNotRetryLater(_ links: CloudMachineLinkManager) async {
+        do {
+            try await CloudMachineLinkManager.$isBackgroundUpkeep.withValue(true) {
+                try await links.connected(machineID: machineID)
+            }
+        } catch let error as CloudMachineLinkManager.ManagerError {
+            if case .retryLater = error {
+                Issue.record("A non-paused machine was rejected by the paused machine gate")
             }
         }
     }
@@ -130,6 +139,7 @@ private actor ResumeCalls {
 private actor ResumeGate {
     private var continuation: CheckedContinuation<Void, Never>?
     private var didStart = false
+    private var released = false
 
     func started() {
         didStart = true
@@ -140,10 +150,12 @@ private actor ResumeGate {
     }
 
     func wait() async {
+        guard !released else { return }
         await withCheckedContinuation { continuation = $0 }
     }
 
     func release() {
+        released = true
         continuation?.resume()
         continuation = nil
     }
