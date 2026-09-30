@@ -17153,10 +17153,12 @@ extension String {
         var lineCount = 1
         var characterCount = 0
         var truncated = false
+        var cutMidToken = false
 
         for character in self {
             if characterCount >= maxDisplayedCharacters {
                 truncated = true
+                cutMidToken = true
                 break
             }
             if character == "\n" {
@@ -17172,15 +17174,24 @@ extension String {
 
         guard truncated else { return self }
         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A single ellipsis character, not three periods. Sidebar text is
-        // scanned for GitHub references after it is bounded, and the reference
-        // parser trims trailing `.` before reading a number, so an ASCII marker
-        // lets a row cut mid-number parse as a shorter reference and offer a
-        // link to a different issue than the author wrote. `…` is not trimmed,
-        // so the cut fails to parse and stays plain text. It is also what the
-        // rest of the app already uses wherever it shortens something a person
-        // reads.
-        return trimmed.isEmpty ? "…" : trimmed + "…"
+        guard !trimmed.isEmpty else { return "…" }
+
+        // A single ellipsis character, not three periods, and attached in the
+        // way the cut earns. Sidebar text is scanned for GitHub references
+        // after it is bounded, and the reference parser trims a trailing `.`
+        // before reading a number but leaves `…` alone, so the marker decides
+        // whether the last token still parses.
+        //
+        // The character bound can stop in the middle of a token, and a cut
+        // `owner/repo#8471` reads as `owner/repo#847`, which links to an issue
+        // nobody wrote. Attaching the marker to that token is what keeps it
+        // from parsing, so the row shows text instead of a wrong link.
+        //
+        // The line bound cannot: the loop breaks on `\n` before appending it,
+        // so the kept text always ends with a whole line and a whole token.
+        // Attaching the marker there would only break a reference that is
+        // complete and correct, which is why it gets a space first.
+        return cutMidToken ? trimmed + "…" : trimmed + " …"
     }
 }
 
