@@ -214,6 +214,15 @@ The dev driver implements all of them.
   for frame locators, DOM-order frame prefixes and snapshot stitching. Without
   it the runtime falls back to matching the iframe's content box against each
   child's `frame.ownerBox`, which fails for overlapping or hidden frames.
+- `frame.contentFrames { targetId, frameId, elements: [handle] }` returns one
+  `{ frameId }` or `null` per handle, in order: every iframe of a frame in one
+  call. Snapshots use it; without it (`unsupported`) they call
+  `frame.contentFrame` per iframe.
+- Frame calls must not cost a frame-tree walk each. The app's driver keeps
+  one tree read per tab (`BrowserReplFrameRegistry`), finds a frame by id
+  without a read, and gives callers that need the current tree
+  (`frames.list`, `frame.contentFrame(s)`, `frame.ownerBox`) a read that starts
+  after their request, shared with concurrent callers.
 - `frame.evaluate` takes `handles: [agentHandleId]`. The driver resolves them
   to elements in the target world and passes them before `args`, so
   `locator.evaluate` and `evaluateAll` run user functions in the page world on

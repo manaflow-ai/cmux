@@ -163,6 +163,48 @@ smaller page.
 | live-hn-thread | 207 | 196 | 206 | 265 | 1,833 | 610 | 9,136 |
 | cards-200k | | 2,102 | | 2,220 | failed | timeout | not run |
 
+## Frame calls and Playwright MCP (round 2)
+
+The app with the frame registry and batched iframe resolution (fleet build
+job `e2caae86412457153a5b4865`, runtime of `80e062e5051`) against the build
+before it (job `201035b028490968f42acc7f`) and Playwright MCP
+(`_snapshotForAI()` on headless Chrome), run back to back while the
+machine's load average was about 290 (other agents), so absolute numbers
+are higher than in the idle runs above; compare within a row. p50 / p95 of
+five snapshots in milliseconds; p95 is the first, cold snapshot on most
+pages.
+
+| Page | cmux app before | cmux app after | Playwright MCP | cmux printed | Playwright MCP printed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| iframes-300 | 6,216 / 6,980 | 179 / 686 | 155 / 4,522 | 19,876 | 30,964 |
+| nested-frames | 14 / 34 | 6 / 38 | 9 / 35 | 490 | 511 |
+| cards-50k | 454 / 588 | 419 / 522 | 577 / 3,105 | 19,967 | 2,679,497 |
+| cards-200k | 2,229 / 2,298 | 2,224 / 2,505 | timeout (30 s) | 19,970 | |
+| table-10k | | 392 / 511 | 886 / 967 | 19,864 | 2,543,522 |
+| list-5k | | 123 / 158 | 160 / 257 | 19,959 | 713,094 |
+| shadow-2k | | 78 / 84 | 89 / 134 | 19,943 | 189,140 |
+| text-2m | | 46 / 67 | 41 / 221 | 5,321 | 2,000,154 |
+| select-5k | | 12 / 32 | 112 / 197 | 19,932 | 366,950 |
+| wikipedia | 28 / 54 | 33 / 54 | 68 / 91 | 19,855 | 197,896 |
+| hackernews | 8 / 23 | 10 / 24 | 35 / 177 | 9,991 | 57,509 |
+| github | 30 / 44 | 31 / 48 | 89 / 228 | 19,830 | 217,559 |
+| mdn | 14 / 27 | 16 / 35 | 66 / 109 | 19,799 | 66,991 |
+| mdn-iframe | 19 / 36 | 19 / 44 | 35 / 51 | 19,869 | 134,276 |
+| npr | 3 / 25 | 3 / 15 | 3 / 19 | 2,499 | 5,020 |
+| bbc | 18 / 39 | 15 / 41 | 17 / 44 | 16,586 | 48,935 |
+| books | 8 / 23 | 8 / 28 | 8 / 23 | 8,869 | 32,973 |
+| vercel | 8 / 42 | 9 / 35 | 12 / 57 | 6,696 | 24,862 |
+| live Wikipedia cities | | 51 / 114 | 106 / 123 | 19,423 | 364,023 |
+| live GitHub PR files | | 225 / 282 | 1,820 / 3,073 | 19,607 | 1,433,802 |
+| live Hacker News thread | | 187 / 265 | 788 / 859 | 19,932 | 2,884,237 |
+
+By p50, cmux is as fast as Playwright MCP or faster on every page but two: on
+`iframes-300` its warm p50 is 24 ms slower (its cold first snapshot is 6.6x
+faster), and on `text-2m` 5 ms. On Amazon Playwright's Chrome got a
+703-character bot page, so that row is left out. Playwright MCP prints the
+whole tree (up to 2.9 MB); cmux prints at most 20,000 characters and keeps
+the rest in `.tree`. `perf/results/round2*.json` has every number.
+
 ## What was slow, and the fixes
 
 **Naming controls was quadratic on WebKit.** Playwright's accessible-name
@@ -191,15 +233,37 @@ quadratic in the number of changes, are linear. A 100,000-line tree with one
 change diffs in about 50 ms, a full rewrite of 50,000 lines in about 150 ms,
 and 1,000 scattered changes in about 200 ms.
 
-**Frames were read one after another.** Each iframe cost two sequential
-round trips (resolve the frame, read its tree). Frame trees are now read
-concurrently, at most 32 calls in flight, and stitched afterwards in
-document order, so ref prefixes (`f1`, `f2`) do not depend on which frame
-answered first. The app's driver stopped answering with 300 calls in
-flight, which hung the snapshot and the session; 32 is under that and the
-app is as fast at 8 as at 64 (its driver serves frame calls about one at a
-time; that is the remaining cost of `iframes-300` in the app, about 20 ms a
-frame).
+**Frames were read one after another, and every frame call read the whole
+frame tree.** Each iframe cost two sequential round trips (resolve the frame,
+read its tree), and the app's driver looked every frame up with WebKit's
+`_frames:`, which asks every web process of the page for its frames (about
+5 ms on 400 frames), also for main-frame calls once the runtime knew the main
+frame's id. A burst of calls queued those reads behind each other: 100
+concurrent calls to the main frame of `iframes-300` all finished together
+after 526 ms, 400 did not finish in 15 s, and a snapshot with 300 frame
+calls in flight never finished (CPU idle, every later call on the tab
+queued too). Plain WebKit with the frame infos cached answers 400
+concurrent calls in 25 ms. Now:
+
+- `BrowserReplFrameRegistry` (CmuxBrowser) keeps one tree read per web
+  view. A frame call finds its frame by id without a read (frame ids are
+  stable for a frame's life); an unknown id reads once. Callers that need
+  the tree as it is now (`frames.list`, iframe to frame, the owner box) get
+  a read that starts after their request, and requests during a read share
+  the next one, so at most one read is in flight and a burst costs at most
+  two. `frames.list` reads frame names in parallel.
+- `frame.contentFrames` resolves all iframes of a frame in one call (one
+  evaluation, one tree read) instead of one call per iframe.
+- Frame trees are read concurrently, up to 256 calls in flight, and stitched
+  in document order, so ref prefixes (`f1`, `f2`) do not depend on which
+  frame answered first. On `iframes-300` the app takes 137 ms at 256 in
+  flight, 257 ms at 32, 549 ms at 8.
+- A frame that does not answer within 10 s is left out and its iframe line
+  says `[not read: timed out]`; the rest of the page still reads.
+
+Scenario 31 guards this on the real app: 300 iframes against 30 and 400
+concurrent calls against 40 must scale linearly (the old driver was 61x
+for 10x the frames).
 
 **Transport and tables.** The dev driver now returns agent results as JSON
 text like the app's driver (Playwright's per-value serializer was 90% of the
@@ -286,11 +350,6 @@ url: http://localhost:60483/stress/stress.html?kind=list&n=5000
 
 ## Remaining limits
 
-- `iframes-300` in the app costs about 20 ms a frame because the app's
-  driver resolves and evaluates frames one at a time, and it stops
-  answering past a few hundred concurrent frame calls. Both are in the
-  Swift driver (`WebKitBrowserReplDriver.swift`); the runtime bounds its own
-  concurrency to stay clear of the second.
 - The first snapshot of a page pays for installing the page agent in every
   frame (Playwright's injected script is about 300 KB); `iframes-300` spends
   most of its first snapshot there.
