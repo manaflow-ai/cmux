@@ -722,6 +722,38 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(truncated.hasPrefix("m"))
     }
 
+    func testTruncatedScrollbackAvoidsLeadingPartialOSCSequence() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let sequence = "\u{001B}]8;;https://example.com/path\u{0007}"
+        let cutOffset = 10
+        let tailCount = maxChars - (sequence.count - cutOffset)
+        let source = sequence + String(repeating: "X", count: tailCount)
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("X"))
+        XCTAssertFalse(truncated.contains("example.com/path"))
+    }
+
+    func testTruncatedScrollbackAvoidsLeadingPartialOSCSequenceWithSTTerminator() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let sequence = "\u{001B}]2;window title\u{001B}\\"
+        let cutOffset = 6
+        let tailCount = maxChars - (sequence.count - cutOffset)
+        let source = sequence + String(repeating: "Y", count: tailCount)
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("Y"))
+        XCTAssertFalse(truncated.contains("window title"))
+    }
+
     func testNormalizedExportedScreenPathAcceptsAbsoluteAndFileURL() {
         XCTAssertEqual(
             TerminalController.normalizedExportedScreenPath("/tmp/cmux-screen.txt"),
