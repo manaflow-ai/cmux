@@ -151,7 +151,7 @@ struct CLISendDraftGuardTests {
     @Test func sendSubmitPastesThenSendsASeparateSubmitKey() throws {
         let run = try runCLI(
             arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
-            inputStates: [Self.empty, Self.empty]
+            inputStates: [Self.empty, Self.draft, Self.empty]
         )
 
         #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
@@ -173,9 +173,13 @@ struct CLISendDraftGuardTests {
             "state": "empty", "agent": true, "terminal": true,
             "agent_kind": "codex", "lifecycle": "running", "waiting_on_human": false, "blocks_typing": false,
         ]
+        let busyCodexDraft: [String: Any] = [
+            "state": "draft", "agent": true, "terminal": true,
+            "agent_kind": "codex", "lifecycle": "running", "waiting_on_human": false, "blocks_typing": true,
+        ]
         let run = try runCLI(
             arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
-            inputStates: [busyCodex, Self.empty],
+            inputStates: [busyCodex, busyCodexDraft, Self.empty],
             screenText: "OpenAI Codex\n› hello\nWorking…"
         )
 
