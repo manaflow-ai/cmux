@@ -234,7 +234,7 @@ struct CLISendDraftGuardTests {
     @Test func sendSubmitStopsWhenADialogOpensAfterSubmitKey() throws {
         let run = try runCLI(
             arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
-            inputStates: [Self.empty, Self.draft, Self.dialog]
+            inputStates: [Self.empty, Self.dialog]
         )
 
         #expect(run.result.status != 0, Comment(rawValue: run.result.stderr))
