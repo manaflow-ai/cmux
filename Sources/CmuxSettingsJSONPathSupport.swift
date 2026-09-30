@@ -445,6 +445,7 @@ enum AutomationSettingsFileMapping {
         .init(jsonKey: "geminiIntegration", defaultsKey: automation.geminiIntegration.userDefaultsKey),
         .init(jsonKey: "kiroIntegration", defaultsKey: automation.kiroIntegration.userDefaultsKey),
         .init(jsonKey: "workspaceAutoNaming", defaultsKey: automation.workspaceAutoNaming.userDefaultsKey),
+        .init(jsonKey: "agentAutoResume", defaultsKey: automation.agentAutoResume.userDefaultsKey),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [

@@ -42,6 +42,150 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    @Test("agent message methods allow targets owned by the remote session")
+    func allowsOwnedAgentMessageTargets() throws {
+        let workspace = UUID()
+        let surface = UUID()
+        try withServer(
+            workspaceAliases: [workspace: workspace],
+            surfaceAliases: [surface: surface]
+        ) { port, unixServer in
+            for (id, method, params) in [
+                ("m1", "agent.message.poll", [
+                    "surface_id": surface.uuidString,
+                    "poller_key": "poller",
+                ]),
+                ("m2", "agent.message.claim", [
+                    "surface_id": surface.uuidString,
+                    "via": "hook",
+                ]),
+                ("m3", "agent.message.mark_read", [
+                    "surface_id": surface.uuidString,
+                ]),
+                ("m4", "agent.message.list", [
+                    "surface": surface.uuidString,
+                ]),
+                ("m5", "agent.message.send", [
+                    "target": workspace.uuidString,
+                    "body": "hello",
+                ]),
+            ] {
+                let request: [String: Any] = [
+                    "id": id,
+                    "method": method,
+                    "params": params,
+                ]
+                let data = try JSONSerialization.data(withJSONObject: request)
+                let exchange = try runPolicyRelayExchange(
+                    port: port,
+                    relayID: relayID,
+                    tokenHex: tokenHex,
+                    commandLine: String(decoding: data, as: UTF8.self)
+                )
+                #expect(exchange.responseLines.first?["ok"] as? Bool == true, "\(method): \(exchange.rawResponse)")
+            }
+            #expect(unixServer.requests.count == 5)
+        }
+    }
+
+    @Test("agent message send rejects an unowned target")
+    func deniesUnownedAgentMessageTarget() throws {
+        let ownedWorkspace = UUID()
+        let unownedWorkspace = UUID()
+        try withServer(workspaceAliases: [ownedWorkspace: ownedWorkspace]) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"m6","method":"agent.message.send","params":{"target":"\(unownedWorkspace.uuidString)","body":"hello"}}
+                """
+            )
+            expectDenial(exchange, unixServer, "unowned agent message target")
+        }
+    }
+
+    @Test("agent message send requires a target")
+    func deniesMissingAgentMessageTarget() throws {
+        try withServer { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: #"{"id":"m7","method":"agent.message.send","params":{"body":"hello"}}"#
+            )
+            expectDenial(exchange, unixServer, "missing agent message target")
+        }
+    }
+
+    @Test("agent message mark_read rejects unscoped message ids", arguments: ["id", "ids"])
+    func deniesUnscopedAgentMessageIDs(key: String) throws {
+        let surface = UUID()
+        try withServer(surfaceAliases: [surface: surface]) { port, unixServer in
+            let value: Any = key == "id" ? "message-id" : ["message-id"]
+            let request: [String: Any] = [
+                "id": "m8-\(key)",
+                "method": "agent.message.mark_read",
+                "params": [
+                    "surface_id": surface.uuidString,
+                    key: value,
+                ],
+            ]
+            let data = try JSONSerialization.data(withJSONObject: request)
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: String(decoding: data, as: UTF8.self)
+            )
+            expectDenial(exchange, unixServer, "mark_read \(key)")
+        }
+    }
+
+    @Test("agent message send rejects replies through the relay")
+    func deniesAgentMessageReplyTo() throws {
+        try withServer { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: #"{"id":"m9","method":"agent.message.send","params":{"reply_to":"message-id","body":"hello"}}"#
+            )
+            expectDenial(exchange, unixServer, "agent message reply_to")
+        }
+    }
+
+    @Test("agent message send rejects spoofed sender ids", arguments: [
+        "sender_surface_id", "sender_workspace_id"
+    ])
+    func deniesSpoofedAgentMessageSenderID(key: String) throws {
+        let ownedWorkspace = UUID()
+        let ownedSurface = UUID()
+        let unownedID = UUID()
+        try withServer(
+            workspaceAliases: [ownedWorkspace: ownedWorkspace],
+            surfaceAliases: [ownedSurface: ownedSurface]
+        ) { port, unixServer in
+            let request: [String: Any] = [
+                "id": "m10-\(key)",
+                "method": "agent.message.send",
+                "params": [
+                    "target": ownedWorkspace.uuidString,
+                    "body": "hello",
+                    key: unownedID.uuidString,
+                ],
+            ]
+            let data = try JSONSerialization.data(withJSONObject: request)
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: String(decoding: data, as: UTF8.self)
+            )
+            expectDenial(exchange, unixServer, "spoofed \(key)")
+        }
+    }
+
     private func withServer(
         workspaceAliases: [UUID: UUID] = [:],
         surfaceAliases: [UUID: UUID] = [:],
