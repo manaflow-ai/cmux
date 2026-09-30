@@ -305,14 +305,21 @@ final class LineTransport: Sendable {
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
+            // Only the new bytes can hold a newline: the buffered rest is one
+            // unfinished line. Rescanning it on every read was quadratic in
+            // the line size (a 10 MiB replay missed the attach deadline).
+            let scanFrom = buffer.count
             buffer.append(contentsOf: chunk[0..<count])
-            var start = buffer.startIndex
-            while let newline = buffer[start...].firstIndex(of: 0x0A) {
-                let line = buffer[start..<newline]
-                start = buffer.index(after: newline)
-                if !line.isEmpty { route(Data(line), decoder: decoder, onEvent: onEvent) }
+            let lineEnds = Self.newlineOffsets(in: buffer, from: scanFrom)
+            var start = 0
+            for end in lineEnds {
+                if end > start {
+                    let base = buffer.startIndex
+                    route(Data(buffer[(base + start)..<(base + end)]), decoder: decoder, onEvent: onEvent)
+                }
+                start = end + 1
             }
-            buffer.removeSubrange(buffer.startIndex..<start)
+            if start > 0 { buffer.removeSubrange(buffer.startIndex..<(buffer.startIndex + start)) }
             if buffer.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
                 break reading
@@ -331,6 +338,21 @@ final class LineTransport: Sendable {
             }
         }
         onClose(reason)
+    }
+
+    /// Offsets (from `data.startIndex`) of every newline at or after `offset`.
+    static func newlineOffsets(in data: Data, from offset: Int) -> [Int] {
+        data.withUnsafeBytes { raw -> [Int] in
+            guard let base = raw.baseAddress, offset < raw.count else { return [] }
+            var offsets: [Int] = []
+            var position = offset
+            while position < raw.count, let hit = memchr(base + position, 0x0A, raw.count - position) {
+                let found = base.distance(to: UnsafeRawPointer(hit))
+                offsets.append(found)
+                position = found + 1
+            }
+            return offsets
+        }
     }
 
     /// Events routed so far. Read after a command's reply, it bounds every
