@@ -1,0 +1,97 @@
+{
+  "paths": [
+    "Sources/SettledSessionCloseCoordinator.swift",
+    "Sources/SidebarWorkspaceSnapshot*",
+    "Sources/ContentView.swift",
+    "Packages/macOS/CmuxSettingsUI/*",
+    "Sources/Settings*"
+  ],
+  "launch": {"zoom": true},
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {"title": "Settled Agent", "initial_input": "printf 'last agent output: changes are ready\\n'\\n", "focus": true},
+      "save": "settled"
+    },
+    {"wait": 1},
+    {
+      "socket": "surface.list",
+      "params": {"workspace_id": "${settled.workspace_id}"},
+      "save": "settledSurfaces"
+    },
+    {
+      "socket": "feed.push",
+      "params": {
+        "event": {
+          "session_id": "55555555-5555-4555-8555-555555555555",
+          "hook_event_name": "SessionStart",
+          "_source": "claude",
+          "workspace_id": "${settled.workspace_id}",
+          "surface_id": "${settledSurfaces.surfaces.0.id}",
+          "cwd": "/tmp",
+          "_received_at": 0
+        },
+        "wait_timeout_seconds": 0
+      },
+      "save": "sessionStart"
+    },
+    {
+      "socket": "feed.push",
+      "params": {
+        "event": {
+          "session_id": "55555555-5555-4555-8555-555555555555",
+          "hook_event_name": "UserPromptSubmit",
+          "_source": "claude",
+          "workspace_id": "${settled.workspace_id}",
+          "surface_id": "${settledSurfaces.surfaces.0.id}",
+          "cwd": "/tmp",
+          "prompt": "Finish the release checklist",
+          "_received_at": 0
+        },
+        "wait_timeout_seconds": 0
+      },
+      "save": "prompt"
+    },
+    {
+      "socket": "feed.push",
+      "params": {
+        "event": {
+          "session_id": "55555555-5555-4555-8555-555555555555",
+          "hook_event_name": "Stop",
+          "_source": "claude",
+          "workspace_id": "${settled.workspace_id}",
+          "surface_id": "${settledSurfaces.surfaces.0.id}",
+          "cwd": "/tmp",
+          "last_assistant_message": "Release checklist complete. No open pull requests.",
+          "_received_at": 0
+        },
+        "wait_timeout_seconds": 0
+      },
+      "save": "stop"
+    },
+    {"wait": 2},
+    {"shot": "settled-sidebar-row"},
+    {"tree": "settled-sidebar-tree"},
+    {
+      "socket": "settings.open",
+      "params": {"target": "terminal"},
+      "save": "terminalSettings"
+    },
+    {"wait": 2},
+    {"click": {"label": "Search"}},
+    {"type": "settled sessions"},
+    {"wait": 1},
+    {"shot": "settings-auto-close-off"},
+    {"tree": "settings-auto-close-tree"},
+    {"key": "w", "modifiers": ["command"]},
+    {"wait": 1},
+    {"key": "p", "modifiers": ["command", "shift"]},
+    {"wait": 1},
+    {"type": "close settled sessions"},
+    {"wait": 1},
+    {"shot": "command-palette-close-settled"},
+    {"tree": "command-palette-close-settled-tree"},
+    {"key": "escape"},
+    {"shot": "settled-sidebar-final", "screen": true}
+  ]
+}
