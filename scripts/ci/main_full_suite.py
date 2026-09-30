@@ -24,6 +24,12 @@ does not count. Any API error fails open and dispatches.
 a red run opens the issue or comments on it once, and a green run closes it.
 A red report carries the "New since" section main_regression_attribution.py
 writes: which tests newly fail and the pull requests suspected of it.
+
+`report --tracker macos-15` keeps a second issue the same way for
+ci-macos-15.yml, the scheduled non-gating full suite on macOS 15 (Xcode 26.3).
+That workflow reports from inside its own run, so it passes the run's
+`--conclusion` (the run is not completed yet) and the failed-test section
+lane_failed_tests.py writes.
 """
 
 from __future__ import annotations
@@ -35,6 +41,7 @@ import subprocess
 import sys
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 CI_WORKFLOW_FILE = "ci.yml"
@@ -44,6 +51,41 @@ FAILED_JOB_CONCLUSIONS = frozenset({"failure", "timed_out"})
 ISSUE_LABEL = "main-full-suite-failure"
 ISSUE_TITLE = "Main full-suite CI is red"
 MAX_LISTED_JOBS = 40
+
+
+class Tracker(NamedTuple):
+    """One tracking issue: its label, title, and how its report names the run."""
+
+    label: str
+    title: str
+    label_description: str
+    # The subject of "... failed at <sha>" and "... is green again at <sha>".
+    subject: str
+    footer: str
+
+
+MAIN_TRACKER = Tracker(
+    label=ISSUE_LABEL,
+    title=ISSUE_TITLE,
+    label_description="Full-suite CI on main is failing",
+    subject="Full-suite CI on `main`",
+    footer=(
+        "Pull requests run a subset of the suite, so this run is the first place "
+        "a regression outside that subset shows up. This issue closes itself on the next green run."
+    ),
+)
+MACOS_15_TRACKER = Tracker(
+    label="macos-15-full-suite-failure",
+    title="macOS 15 full-suite CI is red",
+    label_description="The scheduled macOS 15 full suite (ci-macos-15.yml) is failing",
+    subject="The scheduled macOS 15 full suite (Xcode 26.3)",
+    footer=(
+        "Pull requests and main test on macOS 26, and cmux supports macOS 14 and later, so this "
+        "scheduled run (ci-macos-15.yml, not a required check) is where a macOS 15-only "
+        "failure shows up. This issue closes itself on the next green run."
+    ),
+)
+TRACKERS = {"main": MAIN_TRACKER, "macos-15": MACOS_15_TRACKER}
 # Well past a full-suite run plus a long runner queue.
 STALE_IN_FLIGHT = timedelta(hours=6)
 
@@ -137,9 +179,10 @@ def issue_plan(conclusion: str, has_open_issue: bool, already_reported: bool) ->
     return "none"
 
 
-def failure_body(run: Mapping[str, object], jobs: list[Mapping[str, object]], extra: str = "") -> str:
+def failure_body(run: Mapping[str, object], jobs: list[Mapping[str, object]], extra: str = "",
+                 tracker: Tracker = MAIN_TRACKER) -> str:
     lines = [
-        f"Full-suite CI on `main` failed at {run.get('head_sha')}: {run.get('html_url')}",
+        f"{tracker.subject} failed at {run.get('head_sha')}: {run.get('html_url')}",
         "",
     ]
     if jobs:
@@ -152,11 +195,7 @@ def failure_body(run: Mapping[str, object], jobs: list[Mapping[str, object]], ex
         lines.append("No individual job reported failure; see the run summary.")
     if extra.strip():
         lines += ["", extra.strip()]
-    lines += [
-        "",
-        "Pull requests run a subset of the suite, so this run is the first place "
-        "a regression outside that subset shows up. This issue closes itself on the next green run.",
-    ]
+    lines += ["", tracker.footer]
     return "\n".join(lines)
 
 
@@ -207,10 +246,10 @@ def command_gate(args: argparse.Namespace) -> int:
     return 0
 
 
-def open_issue(repo: str) -> dict | None:
+def open_issue(repo: str, label: str = ISSUE_LABEL) -> dict | None:
     issues = gh_json_lines([
         "-X", "GET", f"repos/{repo}/issues",
-        "-f", f"labels={ISSUE_LABEL}", "-f", "state=open", "-f", "per_page=1",
+        "-f", f"labels={label}", "-f", "state=open", "-f", "per_page=1",
         "--jq", ".[] | tojson",
     ])
     return issues[0] if issues else None
@@ -226,14 +265,14 @@ def issue_mentions(repo: str, issue: Mapping[str, object], text: str) -> bool:
     return any(text in str(body) for body in bodies)
 
 
-def ensure_label(repo: str) -> None:
-    probe = subprocess.run(["gh", "api", f"repos/{repo}/labels/{ISSUE_LABEL}"], capture_output=True, text=True)
+def ensure_label(repo: str, tracker: Tracker = MAIN_TRACKER) -> None:
+    probe = subprocess.run(["gh", "api", f"repos/{repo}/labels/{tracker.label}"], capture_output=True, text=True)
     if probe.returncode == 0:
         return
     subprocess.run([
         "gh", "api", f"repos/{repo}/labels",
-        "-f", f"name={ISSUE_LABEL}", "-f", "color=b60205",
-        "-f", "description=Full-suite CI on main is failing",
+        "-f", f"name={tracker.label}", "-f", "color=b60205",
+        "-f", f"description={tracker.label_description}",
     ], check=True, capture_output=True, text=True)
 
 
@@ -249,7 +288,20 @@ def read_extra_section(path: str | None) -> str:
 
 
 def command_report(args: argparse.Namespace) -> int:
-    if args.run_id:
+    tracker = TRACKERS[args.tracker]
+    if args.conclusion:
+        # Reported from inside the run itself (ci-macos-15.yml), which is not
+        # completed yet: the caller passes the verdict its jobs reached.
+        if not args.run_id:
+            print("--conclusion needs --run-id", file=sys.stderr)
+            return 2
+        run = gh_json_lines([f"repos/{args.repo}/actions/runs/{args.run_id}", "--jq", "tojson"])[0]
+        run = {**run, "conclusion": args.conclusion}
+    elif tracker is not MAIN_TRACKER:
+        print(f"--tracker {args.tracker} reports from inside its run; pass --run-id and --conclusion.",
+              file=sys.stderr)
+        return 2
+    elif args.run_id:
         run = gh_json_lines([f"repos/{args.repo}/actions/runs/{args.run_id}", "--jq", "tojson"])[0]
         if not is_main_full_suite_run(run, args.branch) or run.get("status") != "completed":
             print(f"Run {args.run_id} is not a completed full-suite CI run on {args.branch}; nothing to report.")
@@ -262,7 +314,7 @@ def command_report(args: argparse.Namespace) -> int:
 
     conclusion = str(run.get("conclusion") or "")
     run_url = str(run.get("html_url") or "")
-    issue = open_issue(args.repo)
+    issue = open_issue(args.repo, tracker.label)
     already_reported = bool(issue) and issue_mentions(args.repo, issue, run_url)
     plan = issue_plan(conclusion, issue is not None, already_reported)
     print(f"Run {run.get('id')} ({conclusion}) -> {plan}")
@@ -273,12 +325,12 @@ def command_report(args: argparse.Namespace) -> int:
             "-X", "GET", "-f", "filter=latest", "-f", "per_page=100",
             "--jq", ".jobs[] | {name, conclusion, html_url} | tojson",
         ]))
-        body = failure_body(run, jobs, read_extra_section(args.extra_section))
+        body = failure_body(run, jobs, read_extra_section(args.extra_section), tracker)
         if plan == "open":
-            ensure_label(args.repo)
+            ensure_label(args.repo, tracker)
             subprocess.run([
                 "gh", "api", f"repos/{args.repo}/issues",
-                "-f", f"title={ISSUE_TITLE}", "-f", f"body={body}", "-f", f"labels[]={ISSUE_LABEL}",
+                "-f", f"title={tracker.title}", "-f", f"body={body}", "-f", f"labels[]={tracker.label}",
             ], check=True, capture_output=True, text=True)
         else:
             subprocess.run([
@@ -287,7 +339,7 @@ def command_report(args: argparse.Namespace) -> int:
     elif plan == "close":
         subprocess.run([
             "gh", "api", f"repos/{args.repo}/issues/{issue['number']}/comments",
-            "-f", f"body=Full-suite CI on `main` is green again at {run.get('head_sha')}: {run_url}",
+            "-f", f"body={tracker.subject} is green again at {run.get('head_sha')}: {run_url}",
         ], check=True, capture_output=True, text=True)
         subprocess.run([
             "gh", "api", "-X", "PATCH", f"repos/{args.repo}/issues/{issue['number']}",
@@ -312,6 +364,10 @@ def main(argv: list[str]) -> int:
     report = commands.add_parser("report", help="sync the tracking issue with a completed run")
     report.add_argument("--run-id", help="defaults to the newest green or red full-suite run")
     report.add_argument("--extra-section", help="markdown to add to a failure report, e.g. new-failure attribution")
+    report.add_argument("--tracker", choices=sorted(TRACKERS), default="main",
+                        help="which tracking issue to sync (default: main's full suite)")
+    report.add_argument("--conclusion", choices=sorted(TESTED_CONCLUSIONS),
+                        help="the run's verdict, when reporting from inside a run that has not completed")
     report.set_defaults(handler=command_report)
 
     args = parser.parse_args(argv)
