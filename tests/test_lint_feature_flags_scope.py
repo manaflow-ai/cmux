@@ -7,7 +7,10 @@ rule -- including the zombie reviewBy check the flag was relying on.
 """
 
 import importlib.util
+import contextlib
+import io
 from pathlib import Path
+import tempfile
 from unittest import mock
 import unittest
 
@@ -60,6 +63,27 @@ class FlagLinterScopeTests(unittest.TestCase):
             "the collector must include at least one Swift registry",
         )
 
+    def test_collect_flags_preserves_declarations_with_non_utf8_bytes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            web = root / "flags.ts"
+            web.write_bytes(b'// \xff\n{ key: "web-release", reviewBy: "2030-01-01" }')
+            (root / "Example.swift").write_bytes(
+                b'// \xff\n// FLAG(key: swift-release, reviewBy: 2030-01-01)\n')
+            with mock.patch.object(self.linter, "REPO", root), \
+                 mock.patch.object(self.linter, "WEB_REGISTRY", web), \
+                 mock.patch.object(self.linter, "swift_registry_files", return_value=["Example.swift"]):
+                flags, registries = self.linter.collect_flags()
+            self.assertEqual({flag["key"] for flag in flags}, {"web-release", "swift-release"})
+            self.assertIn("Example.swift", registries)
+
+    def test_main_discovers_registries_only_once(self):
+        with mock.patch.object(self.linter, "swift_registry_files", return_value=[]) as discover, \
+             mock.patch.object(self.linter, "parse_web_registry", return_value=[]), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(self.linter.main(), 0)
+        discover.assert_called_once_with()
+
     def test_prose_flag_references_are_not_declarations(self):
         """Discovery and parsing must agree on what a declaration is.
 
@@ -106,7 +130,8 @@ class FlagLinterScopeTests(unittest.TestCase):
         grep_keys = lambda key: {"Example.swift"} if key == "malformed-date-release" else set()
         with mock.patch.object(self.linter, "parse_web_registry", return_value=parsed), \
              mock.patch.object(self.linter, "swift_registry_files", return_value=[]), \
-             mock.patch.object(self.linter, "grep_key_files", side_effect=grep_keys):
+             mock.patch.object(self.linter, "grep_key_files", side_effect=grep_keys), \
+             contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(self.linter.main(), 1)
         self.assertTrue(
             any("malformed-date-release" in error and "Example.swift" in error
