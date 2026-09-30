@@ -4,7 +4,9 @@ Vault restores built-in agent sessions and can also read custom agent registrati
 `cmux.json`. Registrations define how cmux detects a running terminal process, where the
 agent's native session id comes from, and which command resumes that session.
 
-Pi Coding Agent, OMP, and Campfire are registered by default:
+Pi Coding Agent, OMP, Campfire, Amp, Antigravity, Grok, Kimi, and Hermes Agent are
+registered by default. The following partial example shows the Pi, OMP, and Campfire
+registrations:
 
 ```jsonc
 {
