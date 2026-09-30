@@ -23,8 +23,8 @@ def test_watcher_is_requested_ci_workflow_run() -> None:
     assert document["env"]["SOURCE_WORKFLOW_PATHS"] == ".github/workflows/ci.yml"
     assert document["permissions"] == {}
     watcher_env = document["jobs"]["guard"]["steps"][-1]["env"]
-    assert "SOURCE_EVENT_NAME" in watcher_env
-    assert "SOURCE_REPOSITORY" in watcher_env
+    for key in ("SOURCE_EVENT_NAME", "SOURCE_REPOSITORY", "SOURCE_REF_NAME", "SOURCE_SHA", "SOURCE_RUN_ID"):
+        assert key in watcher_env
     assert "GITHUB_EVENT_NAME" not in watcher_env
 
 
