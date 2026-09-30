@@ -42,6 +42,7 @@ public nonisolated enum ActionCatalog {
         all += agentsActions()
         all += cloudActions()
         all += settingsActions()
+        all += hibernationActions()
         all += layoutActions()
         return all
     }

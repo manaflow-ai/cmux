@@ -27,6 +27,25 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
+    /// Kept mounted off screen by its window (a recently shown workspace):
+    /// its panes are paused in the keep-alive band and it sends no focus
+    /// events, because the window's focus follows the shown workspace.
+    private(set) var isParked = false
+
+    /// Parks this content before its window shows another workspace.
+    func park() {
+        isParked = true
+        layoutView.keepsPanesWhenDetached = true
+    }
+
+    /// Shows this parked content again (the window installs its view next).
+    func unpark() {
+        isParked = false
+        layoutView.keepsPanesWhenDetached = false
+        // Window-level state that changed while parked.
+        if layoutModel.showsScreenSwitcher != state.showsScreenSwitcher { layoutModel.showsScreenSwitcher = state.showsScreenSwitcher }
+        applyCurrent()
+    }
 
     init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState) {
         self.workspace = workspace

@@ -131,7 +131,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     }
 
     /// WebKit draws in-view and throttles hidden views itself.
-    public func setOccluded(_ occluded: Bool) async {}
+    public func setContentVisible(_ visible: Bool) {}
 
     // MARK: Snapshot, script, find
 

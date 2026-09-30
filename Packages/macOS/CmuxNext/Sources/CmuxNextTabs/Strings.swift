@@ -7,6 +7,7 @@ enum Strings {
     static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .module) }
     static var axPinned: String { String(localized: "tabs.ax.pinned", defaultValue: "Pinned", bundle: .module) }
     static var axUnread: String { String(localized: "tabs.ax.unread", defaultValue: "Unread", bundle: .module) }
+    static var axHibernated: String { String(localized: "tabs.ax.hibernated", defaultValue: "Hibernated", bundle: .module) }
     static var axBusy: String { String(localized: "tabs.ax.busy", defaultValue: "Running", bundle: .module) }
     static var axNeedsInput: String { String(localized: "tabs.ax.needsInput", defaultValue: "Needs input", bundle: .module) }
     static var axSuccess: String { String(localized: "tabs.ax.success", defaultValue: "Done", bundle: .module) }

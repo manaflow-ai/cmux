@@ -26,6 +26,10 @@ final class CEFPaneHost {
     private var windowTab: CEFTab?
     /// The tab currently shown in `hostView`.
     private(set) weak var visibleTab: CEFTab?
+    /// The browser this host last made Chromium's active tab (its own
+    /// `cmux_tab_activate`, or the window's first tab). Chromium echoes an
+    /// activation for it, often after the user has moved on.
+    private(set) var lastActivated: Int32?
 
     init(key: CEFPaneKey, runtime: CEFRuntime) {
         self.key = key
@@ -68,14 +72,26 @@ final class CEFPaneHost {
             hostView.autoresizingMask = []
             container.addSubview(hostView, positioned: .below, relativeTo: nil)
         }
-        hostView.isHidden = false
+        // The content lifecycle decides visibility; entering a window does
+        // not override a hide it applied (a pane parked off screen).
+        hostView.isHidden = tab.isContentHidden
         visibleTab = tab
         runtime.lastShownHost = self
         ensureCreated(tab)
         if let browser = tab.browserID {
+            lastActivated = browser
             _ = runtime.shim?.tabActivate(browser)
             hostView.postGeometryChange()
         }
+    }
+
+    /// True when Chromium activating `tab` is a choice made inside Chromium
+    /// (an extension switching the window's tab), not the echo of this
+    /// host's own activation or tab creation: only then may the App select
+    /// the tab. A window with one tab has nothing to switch.
+    func isForeignActivation(of tab: CEFTab) -> Bool {
+        guard tabs.count > 1, visibleTab !== tab, let browser = tab.browserID else { return false }
+        return browser != lastActivated
     }
 
     /// Called when a tab's content view leaves its window.
@@ -140,6 +156,7 @@ final class CEFPaneHost {
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else { return }
         let windowID = runtime.shim?.tabWindowID(browser) ?? 0
         window = .live(window: windowID)
+        lastActivated = browser
         runtime.register(tab, browser: browser)
         // Tabs shown or created while the window was being built.
         for waiting in tabs where waiting !== tab && waiting.browserID == nil && waiting.isCreationPending {
@@ -147,6 +164,7 @@ final class CEFPaneHost {
             addToWindow(waiting)
         }
         if let visible = visibleTab, let id = visible.browserID {
+            lastActivated = id
             _ = runtime.shim?.tabActivate(id)
         }
         refreshExtensionActions()

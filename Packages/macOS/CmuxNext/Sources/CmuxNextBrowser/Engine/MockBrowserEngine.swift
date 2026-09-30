@@ -190,7 +190,7 @@ public final class MockBrowserTab: BrowserTab {
 
     public func setFocused(_ focused: Bool) { commands.append(.focus(focused)) }
 
-    public func setOccluded(_ occluded: Bool) async { commands.append(.occlude(occluded)) }
+    public func setContentVisible(_ visible: Bool) { commands.append(.occlude(!visible)) }
 
     public func snapshot() async throws -> CGImage {
         guard !isClosed else { throw BrowserTabError.closed }

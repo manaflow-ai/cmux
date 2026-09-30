@@ -165,6 +165,8 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_move_to_window, "cmux_tab_move_to_window");
   CMUX_BIND(set_window_request_handler, "cmux_set_window_request_handler");
   CMUX_BIND(foreign_browser_count, "cmux_foreign_browser_count");
+  CMUX_BIND(tab_navigation_state, "cmux_tab_navigation_state");
+  CMUX_BIND(tab_restore_navigation, "cmux_tab_restore_navigation");
 #undef CMUX_BIND
 }
 

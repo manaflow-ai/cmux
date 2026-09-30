@@ -27,6 +27,7 @@ enum SurfaceDiagnosticsReport {
             if case .object(var object) = pane {
                 object["workspace"] = .string(row.window.content?.workspace.id ?? "")
                 object["focused"] = .bool(row.pane.isFocusedInWorkspace)
+                if let tab = row.status.selectedTab { object["phase"] = .string(services.cache.phase(of: tab).rawValue) }
                 pane = .object(object)
             }
             windows[key, default: []].append(pane)
@@ -41,6 +42,22 @@ enum SurfaceDiagnosticsReport {
             "live_terminals": JSONValue(services.cache.liveTerminalCount),
             "invariant_violations": JSONValue(services.surfaceInvariant.violations),
             "invariant_checks": JSONValue(services.surfaceInvariant.checks),
+            "warm_terminal_capacity": JSONValue(services.cache.warmBudget.terminalCapacity),
+            "parked_workspaces": JSONValue(services.windows.controllers.reduce(0) { $0 + $1.parked.count }),
+            "hibernation": hibernation(services),
+        ]
+    }
+
+    private static func hibernation(_ services: AppServices) -> JSONValue {
+        guard let hibernation = services.cache.hibernation else { return .null }
+        let setting = hibernation.setting
+        return [
+            "mode": setting.configValue.stringValue.map(JSONValue.string) ?? .number(setting.hiddenMinutes ?? 0),
+            "pressure": .string(hibernation.pressure.rawValue),
+            "hibernated": .array(services.cache.dormantTabs.ids.sorted().map(JSONValue.string)),
+            "hibernated_total": JSONValue(hibernation.hibernatedCount),
+            "restored_total": JSONValue(hibernation.restoredCount),
+            "exemptions": .object(hibernation.exemptions.mapValues { .string($0.rawValue) }),
         ]
     }
 }

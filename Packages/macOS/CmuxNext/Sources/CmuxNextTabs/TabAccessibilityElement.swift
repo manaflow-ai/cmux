@@ -37,6 +37,7 @@ extension TabCell {
         var parts = [displayTitle]
         if item.isPinned { parts.append(Strings.axPinned) }
         if item.isBusy { parts.append(Strings.axBusy) }
+        if item.isDormant { parts.append(Strings.axHibernated) }
         switch item.status {
         case .needsInput: parts.append(Strings.axNeedsInput)
         case .success: parts.append(Strings.axSuccess)

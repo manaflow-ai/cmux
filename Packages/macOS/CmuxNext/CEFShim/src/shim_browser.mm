@@ -235,6 +235,18 @@ void cmux_shim_context_menu_done(int token, int command_id, int event_flags) {
   }
 }
 
+char* cmux_shim_tab_navigation_state(int browser_id) {
+  return fork_api().tab_navigation_state ? fork_api().tab_navigation_state(browser_id) : nullptr;
+}
+
+int cmux_shim_tab_restore_navigation(int browser_id, const char* state) {
+  return fork_api().tab_restore_navigation && state ? fork_api().tab_restore_navigation(browser_id, state) : 0;
+}
+
+int cmux_shim_navigation_restore_supported(void) {
+  return fork_api().tab_navigation_state && fork_api().tab_restore_navigation ? 1 : 0;
+}
+
 void cmux_shim_free(char* s) {
   if (s && fork_api().free_string) fork_api().free_string(s);
 }

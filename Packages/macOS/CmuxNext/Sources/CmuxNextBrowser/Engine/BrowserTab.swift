@@ -33,9 +33,11 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
 
     /// Gives or removes keyboard focus from the page.
     func setFocused(_ focused: Bool)
-    /// Called around animations and when the tab is hidden. `.childWindow`
-    /// engines swap in a snapshot; `.inView` engines may throttle.
-    func setOccluded(_ occluded: Bool) async
+    /// Shows or hides and pauses the page, synchronously, before returning.
+    /// The App's content lifecycle is the only caller (one event per
+    /// transition, in order); `.childWindow` engines hide their page window
+    /// at once, which Chromium sees as the page becoming hidden.
+    func setContentVisible(_ visible: Bool)
 
     /// Page pixels for hover previews and occlusion placeholders.
     func snapshot() async throws -> CGImage

@@ -227,6 +227,13 @@ CMUX_SHIM_EXPORT void cmux_shim_ext_action_hide_popup(int browser_id, const char
 CMUX_SHIM_EXPORT void cmux_shim_ext_action_context_menu(int browser_id, const char* extension_id, int screen_x, int screen_y);
 CMUX_SHIM_EXPORT void cmux_shim_free(char* s);
 
+// Navigation state (fork API v7; NULL/0 on older forks): the tab's history
+// with page state as an opaque string (freed with cmux_shim_free), restored
+// into a browser created with an empty URL. 1 when the fork has both.
+CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_state(int browser_id);
+CMUX_SHIM_EXPORT int cmux_shim_tab_restore_navigation(int browser_id, const char* state);
+CMUX_SHIM_EXPORT int cmux_shim_navigation_restore_supported(void);
+
 // Extension management and commands (fork API v3; 0/NULL on older forks).
 CMUX_SHIM_EXPORT char* cmux_shim_ext_list(int browser_id);
 CMUX_SHIM_EXPORT int cmux_shim_ext_set_enabled(int browser_id, const char* extension_id, int enabled);

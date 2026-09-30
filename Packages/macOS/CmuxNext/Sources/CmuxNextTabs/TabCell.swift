@@ -194,7 +194,7 @@ final class TabCell {
                 // A lifted tab reads as solid so it does not show tabs sliding under it.
                 backgroundLayer.backgroundColor = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary)?.cgColor
             }
-            let text = isSelected ? Palette.textPrimary : Palette.textSecondary
+            let text = isSelected ? Palette.textPrimary : item.isDormant ? Palette.textTertiary : Palette.textSecondary
             titleLayer.foregroundColor = text.cgColor
             spinnerLayer?.strokeColor = Palette.textSecondary.cgColor
             separatorLayer.backgroundColor = Palette.separator.cgColor
@@ -279,7 +279,8 @@ final class TabCell {
         let iconFrame = CGRect(x: pixel(iconX), y: pixel(midY - iconSide / 2), width: iconSide, height: iconSide)
         let showsIconArt = visibility.showsIcon && !item.isBusy
         iconLayer.frame = iconFrame
-        iconLayer.opacity = showsIconArt ? 1 : 0
+        // A hibernated page's icon is dimmed until it is selected.
+        iconLayer.opacity = showsIconArt ? (item.isDormant && !isSelected ? 0.55 : 1) : 0
         if let spinnerLayer {
             spinnerLayer.opacity = visibility.showsIcon ? 1 : 0
             let spinnerRect = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)

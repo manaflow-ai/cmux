@@ -42,7 +42,7 @@ public final class DeferredBrowserTab: BrowserTab {
     public func goForward() {}
     public func stop() {}
     public func setFocused(_ focused: Bool) {}
-    public func setOccluded(_ occluded: Bool) async {}
+    public func setContentVisible(_ visible: Bool) {}
     public func snapshot() async throws -> CGImage { throw BrowserTabError.snapshotUnavailable }
     public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
         throw BrowserTabError.closed

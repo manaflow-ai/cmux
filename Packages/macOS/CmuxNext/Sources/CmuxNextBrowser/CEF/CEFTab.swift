@@ -54,6 +54,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// True until the first real page commits: Chromium paints the theme
     /// color behind the page (`PageBackground`), then its white default.
     @ObservationIgnored private(set) var usesThemeBackground = true
+    /// Navigation state to restore once the browser exists (created with
+    /// an empty URL so its history starts empty).
+    @ObservationIgnored var pendingRestore: String?
     /// The renderer ended while the tab was hidden: reload when shown
     /// (Chrome reloads a crashed background tab when it is selected).
     @ObservationIgnored var reloadWhenShown = false
@@ -85,7 +88,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public var contentView: NSView { container }
 
-    var initialURLString: String { pendingURL?.absoluteString ?? "about:blank" }
+    var initialURLString: String {
+        // An empty URL creates the browser without navigating, which
+        // `cmux_tab_restore_navigation` needs.
+        pendingRestore != nil ? "" : pendingURL?.absoluteString ?? "about:blank"
+    }
 
     // MARK: Lifetime (called by CEFPaneHost / CEFRuntime)
 
@@ -94,8 +101,25 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         isCreationPending = false
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
-        BrowserLifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(host.visibleTab === self)")
-        if pendingFocus { runtime.shim?.setFocus(browser, 1) }
+        // Focus asked for while the page was being created applies only if
+        // the page is still shown: CEF's SetFocus activates (orders front)
+        // the page window, which for a page that is no longer selected put
+        // it back on screen over the pane's current tab.
+        let shown = host.visibleTab === self && !isOccluded
+        BrowserLifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(shown)")
+        if pendingFocus, shown { runtime.shim?.setFocus(browser, 1) }
+        if let state = pendingRestore {
+            pendingRestore = nil
+            let restored = state.withCString { runtime.shim?.tabRestoreNavigation(browser, $0) } == 1
+            BrowserLifecycleTrace.record(id, "restore-navigation \(restored ? "ok" : "failed")")
+            if !restored, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
+        }
+        if let state = pendingRestore {
+            pendingRestore = nil
+            let restored = state.withCString { runtime.shim?.tabRestoreNavigation(browser, $0) } == 1
+            BrowserLifecycleTrace.record(id, "restore-navigation \(restored ? "ok" : "failed")")
+            if !restored, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
+        }
         refreshExtensionActions()
     }
 
@@ -236,31 +260,30 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     public func setFocused(_ focused: Bool) {
-        BrowserLifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(host.visibleTab === self)")
+        let shown = host.visibleTab === self && !isOccluded
+        BrowserLifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
         pendingFocus = focused
+        // Never activate a hidden page's window (see `attach`).
+        guard !focused || shown else { return }
         browserID.map { runtime.shim?.setFocus($0, focused ? 1 : 0) }
     }
 
-    public func setOccluded(_ occluded: Bool) async {
-        BrowserLifecycleTrace.record(id, "occlude(\(occluded)) was=\(isOccluded) shown=\(host.visibleTab === self)")
-        guard occluded != isOccluded else { return }
-        isOccluded = occluded
-        if occluded {
-            let image = try? await snapshot()
-            guard isOccluded else {
-                BrowserLifecycleTrace.record(id, "occlude-snapshot-late dropped")
-                return
-            }
-            container.showSnapshot(image)
-            BrowserLifecycleTrace.record(id, "occlude-snapshot-late apply shown=\(host.visibleTab === self) hide=\(host.visibleTab === self)")
-            if host.visibleTab === self { host.hostView.isHidden = true }
-            devToolsViews?.host.isHidden = true
-        } else {
-            if host.visibleTab === self { host.hostView.isHidden = false }
-            devToolsViews?.host.isHidden = false
-            container.showSnapshot(nil)
-        }
+    /// Hides the page window (and a docked DevTools) at once, or shows it.
+    /// Nothing here awaits: the page is hidden before this returns, so a
+    /// later show can never be undone by a completion of this hide (the
+    /// old implementation hid the page after awaiting a screenshot, and
+    /// that late hide could land on a page shown again meanwhile).
+    public func setContentVisible(_ visible: Bool) {
+        BrowserLifecycleTrace.record(id, "visible(\(visible)) was=\(!isOccluded) shown=\(host.visibleTab === self)")
+        guard visible == isOccluded else { return }
+        isOccluded = !visible
+        if host.visibleTab === self { host.hostView.isHidden = !visible }
+        devToolsViews?.host.isHidden = !visible
     }
+
+    /// Whether the content lifecycle hid this page (read by the pane host
+    /// when the tab's content view enters a window).
+    var isContentHidden: Bool { isOccluded }
 
     public func snapshot() async throws -> CGImage {
         guard let browserID, !isClosed else { throw BrowserTabError.snapshotUnavailable }

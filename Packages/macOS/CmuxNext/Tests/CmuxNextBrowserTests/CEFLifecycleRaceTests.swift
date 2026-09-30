@@ -47,12 +47,12 @@ import Testing
     /// The content lifecycle hid the page; its content view entering a
     /// window again (a pane re-installing the same view) must not show it.
     /// Visibility has one owner.
-    @Test func enteringAWindowDoesNotShowAPageTheLifecycleHid() async {
+    @Test func enteringAWindowDoesNotShowAPageTheLifecycleHid() {
         let tab = makeTab()
         let window = makeWindow()
         window.contentView?.addSubview(tab.contentView)
         #expect(tab.host.visibleTab === tab)
-        await tab.setOccluded(true)
+        tab.setContentVisible(false)
         #expect(tab.host.hostView.isHidden)
         tab.contentView.removeFromSuperview()
         window.contentView?.addSubview(tab.contentView)

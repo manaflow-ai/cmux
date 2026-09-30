@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -18,6 +19,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var focus: FocusCoordinator { state.focus }
     private(set) var focusApplier: FocusEffectApplier!
     private(set) var content: WorkspaceContentController?
+    /// Recently shown workspaces kept mounted and paused, oldest first
+    /// (plans/cmux-next/tab-lifecycle.md): switching back to one swaps its
+    /// view in within the frame, with no surface re-attach or blank frame.
+    private(set) var parked: [WorkspaceContentController] = []
+    private var parkedLimit = WarmSetBudget.standard.parkedWorkspaces
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
@@ -69,6 +75,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         startupObservation?.cancel()
         content?.teardown()
         content = nil
+        parked.forEach { $0.teardown() }
+        parked.removeAll()
         sidebar.teardown()
     }
 
@@ -100,6 +108,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// (launch, a Cloud machine reconnecting) the connecting state shows.
     private func showWorkspace(requested: String?) {
         let machines = services.machines
+        // A parked workspace that closed (or whose machine left) goes now.
+        parked.removeAll { controller in
+            guard machines.workspace(id: controller.workspace.id)?.0 !== controller.workspace else { return false }
+            controller.teardown()
+            return true
+        }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
             show(workspace, on: daemon)
             return
@@ -142,10 +156,19 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return }
-        content?.teardown()
-        let controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
+        if let current = content { park(current) }
+        let controller: WorkspaceContentController
+        if let index = parked.firstIndex(where: { $0.workspace === workspace && $0.daemon === daemon }) {
+            controller = parked.remove(at: index)
+            controller.unpark()
+        } else {
+            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
+        }
         content = controller
+        // One synchronous swap: the old view leaves (its panes stay mounted,
+        // paused) and the new one draws in the same frame.
         root.show(controller.layoutView)
+        trimParked()
         startupObservation?.cancel()
         startupObservation = nil
         connectingView = nil
@@ -163,6 +186,26 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
+
+    // MARK: Parked workspaces
+
+    private func park(_ controller: WorkspaceContentController) {
+        controller.park()
+        parked.removeAll { $0 === controller }
+        parked.append(controller)
+    }
+
+    /// Memory pressure or the budget changed.
+    func setParkedWorkspaceLimit(_ limit: Int) {
+        parkedLimit = limit
+        trimParked()
+    }
+
+    private func trimParked() {
+        while parked.count > parkedLimit {
+            parked.removeFirst().teardown()
+        }
+    }
 
     // MARK: NSWindowDelegate
 

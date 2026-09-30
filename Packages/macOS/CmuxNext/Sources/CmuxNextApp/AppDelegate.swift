@@ -93,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.tabBarButtons.start(settings: settings)
         services.cache.browserTabs.preference.follow(settings)
         services.notifications.follow(settings)
+        services.startHibernation(settings: settings)
         Task {
             await settings.waitForLoad(atLeast: 1)
             do {

@@ -179,10 +179,16 @@ extension CEFRuntime {
             // The event arrives inside Chromium's tab strip notification, which
             // forbids re-entrant tab strip changes (cmux_tab_activate); the
             // host selects the tab on the next main-actor turn.
+            // An echo of our own activation (or of the tab's creation) that
+            // lands after the user selected another tab must not select this
+            // one again: that stale completion jumped the selection back.
             if let tab = tabsByBrowser[browser], tab.host.visibleTab !== tab {
-                BrowserLifecycleTrace.record(tab.id, "chromium-activated while hidden")
+                guard tab.host.isForeignActivation(of: tab) else {
+                    BrowserLifecycleTrace.record(tab.id, "chromium-activated echo dropped")
+                    return
+                }
                 Task { @MainActor [weak tab] in
-                    guard let tab, tab.host.visibleTab !== tab else { return }
+                    guard let tab, tab.host.isForeignActivation(of: tab) else { return }
                     BrowserLifecycleTrace.record(tab.id, "chromium-activated selects tab")
                     tab.emit(.activate)
                 }

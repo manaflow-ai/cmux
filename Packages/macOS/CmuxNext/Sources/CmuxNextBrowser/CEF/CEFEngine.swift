@@ -117,6 +117,9 @@ public final class CEFEngine: BrowserEngine {
         let tab = CEFTab(id: configuration.id, profile: configuration.profile, host: host, runtime: runtime)
         host.add(tab)
         if configuration.zoom != 1 { tab.setZoom(configuration.zoom) }
+        if case .chromium(let state)? = configuration.restoreState, CEFRuntime.shared.shim?.navigationRestoreSupported() == 1 {
+            tab.pendingRestore = state
+        }
         if let url = configuration.initialURL { tab.load(url) }
         return tab
     }

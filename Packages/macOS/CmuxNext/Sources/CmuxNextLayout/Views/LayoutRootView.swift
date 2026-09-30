@@ -240,12 +240,22 @@ public final class LayoutRootView: NSView {
         return moving || model.hasPendingGestureIntents
     }
 
+    /// While detached from its window, report the panes that were visible
+    /// or in the keep-alive band as keep-alive instead of hidden (a parked
+    /// workspace: its surfaces stay mounted and paused, so showing it again
+    /// draws in one frame with no re-attach).
+    public var keepsPanesWhenDetached = false
+
     func updateVisibility() {
         var visible: Set<PaneID> = []
         var keepAlive: Set<PaneID> = []
         if window != nil, let active = model.activeScreenID, let view = screenViews[active] {
             visible = view.visiblePanes()
             keepAlive = view.keepAlivePanes().union(visible)
+        } else if keepsPanesWhenDetached {
+            // Parked (a recently shown workspace kept warm): what showed or
+            // was in the band stays in the band, paused but never released.
+            keepAlive = reportedKeepAlive.union(reportedVisible)
         }
         guard visible != reportedVisible || keepAlive != reportedKeepAlive else { return }
         var changes: [(PaneID, PanePresence)] = []

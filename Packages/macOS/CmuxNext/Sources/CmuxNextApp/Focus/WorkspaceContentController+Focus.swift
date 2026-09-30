@@ -7,6 +7,7 @@ import CmuxNextLayout
 extension WorkspaceContentController {
     /// Tells the coordinator the current panes, tabs and selections.
     func sendTopology() {
+        guard !isParked else { return }
         focus.send(.topology(focusTopology()))
     }
 

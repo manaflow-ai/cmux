@@ -70,14 +70,14 @@ import Testing
         .window: 23,
         .workspace: 135, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs
         .pane: 73, // + Move Pane to New Workspace
-        .tab: 72,
+        .tab: 74,
         .terminal: 33,
         .browser: 78,
         .sidebar: 30,
         .notifications: 18,
         .agents: 16,
         .cloud: 23,
-        .settings: 43,
+        .settings: 46,
     ]
 
     @Test func everyKeyboardShortcutIDExists() {

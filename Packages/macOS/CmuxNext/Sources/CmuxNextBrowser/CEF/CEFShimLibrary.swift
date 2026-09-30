@@ -75,6 +75,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let extActionHidePopup: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void
     let extActionContextMenu: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Void
     let free: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
+    let tabNavigationState: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
+    let tabRestoreNavigation: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
+    let navigationRestoreSupported: @convention(c) () -> Int32
     // Fork API v3 (the shim returns 0/NULL on older forks).
     let extList: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let extSetEnabled: @convention(c) (Int32, UnsafePointer<CChar>?, Int32) -> Int32
@@ -179,6 +182,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         extActionHidePopup = try r("cmux_shim_ext_action_hide_popup")
         extActionContextMenu = try r("cmux_shim_ext_action_context_menu")
         free = try r("cmux_shim_free")
+        tabNavigationState = try r("cmux_shim_tab_navigation_state")
+        tabRestoreNavigation = try r("cmux_shim_tab_restore_navigation")
+        navigationRestoreSupported = try r("cmux_shim_navigation_restore_supported")
         extList = try r("cmux_shim_ext_list")
         extSetEnabled = try r("cmux_shim_ext_set_enabled")
         extUninstall = try r("cmux_shim_ext_uninstall")

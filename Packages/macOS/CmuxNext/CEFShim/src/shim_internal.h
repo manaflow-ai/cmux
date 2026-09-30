@@ -43,6 +43,9 @@ struct ForkApi {
   // API version 8: Chromium never shows a window of its own.
   void (*set_window_request_handler)(int (*)(void*, const void*), void*) = nullptr;
   int (*foreign_browser_count)() = nullptr;
+  // API version 7: navigation state (tab hibernation, session restore).
+  char* (*tab_navigation_state)(int) = nullptr;
+  int (*tab_restore_navigation)(int, const char*) = nullptr;
 };
 
 struct Host {

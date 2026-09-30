@@ -11,6 +11,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// Replaces the icon with a spinner (process running, page loading).
     public var isBusy: Bool
     public var status: TabStatus
+    /// The page hibernated (released to save memory; reloads when
+    /// selected): the icon and title are drawn dimmed.
+    public var isDormant = false
     /// Group this tab belongs to. Ignored for pinned tabs (Chrome rule) and
     /// for ids missing from `TabStripModel.groups`.
     public var groupID: TabGroupID?

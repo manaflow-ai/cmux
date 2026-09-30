@@ -55,6 +55,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var commandActions: [ConfigCommandAction] = []
     /// `browser.defaultEngine`; Chromium when unset or invalid.
     public var browserDefaultEngine: BrowserDefaultEngine = .fallback
+    /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
+    public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
@@ -94,6 +96,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (engine, engineDiagnostic) = BrowserDefaultEngine.parse(root)
         snapshot.browserDefaultEngine = engine
         if let engineDiagnostic { snapshot.diagnostics.append(engineDiagnostic) }
+        let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
+        snapshot.browserHibernation = hibernation
+        snapshot.diagnostics += hibernationDiagnostics
         let paneChrome = PaneChromeConfigParser.parse(root)
         snapshot.paneChrome = paneChrome.overrides
         snapshot.diagnostics += paneChrome.diagnostics

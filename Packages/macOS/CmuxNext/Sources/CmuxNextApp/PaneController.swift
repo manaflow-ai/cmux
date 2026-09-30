@@ -99,13 +99,16 @@ final class PaneController: SurfacePresenter, PresentablePane {
             var item = TabItemMapping.item(tab, fallbackTitle: tab.kind == .browser ? Strings.untitledBrowser : fallback)
             item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
             if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
+            item.isDormant = services.cache.dormantTabs.contains(tab.id)
             return item
         }
         for local in state?.localBrowserTabs[paneKey] ?? [] where !pendingClosed.contains(local.id) {
             let page = services.cache.existingBrowser(local.id)?.tab.state
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? page?.url?.host() ?? Strings.untitledBrowser
-            items.append(StripTabItem(id: StripTabID(local.id), title: title, subtitle: page?.url?.absoluteString,
-                                      icon: .symbol("globe"), isBusy: page?.isLoading ?? false))
+            var item = StripTabItem(id: StripTabID(local.id), title: title, subtitle: page?.url?.absoluteString,
+                                    icon: .symbol("globe"), isBusy: page?.isLoading ?? false)
+            item.isDormant = services.cache.dormantTabs.contains(local.id)
+            items.append(item)
         }
         let saved = Set(store.savedTabGroups.compactMap(\.openGroup))
         let groups = pane.tabGroups.map { group in
@@ -169,7 +172,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.show(content?.view)
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
-        workspace?.focus.send(.contentPresented(pane: paneKey))
+        if workspace?.isParked == false { workspace?.focus.send(.contentPresented(pane: paneKey)) }
         services.surfaceInvariant.noteChange()
     }
 
