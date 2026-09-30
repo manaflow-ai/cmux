@@ -197,6 +197,7 @@ def plan(workflow: dict, base_sha: str, head_sha: str) -> list[Unit]:
             context = {
                 "matrix.group": group or "",
                 "github.sha": head_sha,
+                "github.token": "",
                 "github.event.pull_request.head.sha": head_sha,
                 "github.event.pull_request.base.sha": base_sha,
                 "github.event.merge_group.base_sha": base_sha,

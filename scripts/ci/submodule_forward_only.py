@@ -12,25 +12,38 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-MARKER = "submodule-forward-only: allow"
+MARKER_PREFIX = "submodule-forward-only: allow "
 
 
 def run(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
-def gitlink(ref: str, path: str) -> str:
+def gitlink(ref: str, path: str) -> str | None:
     result = run("git", "rev-parse", f"{ref}:{path}")
     if result.returncode:
-        raise RuntimeError(result.stderr.strip() or f"gitlink {ref}:{path} is unavailable")
+        ref_exists = run("git", "rev-parse", f"{ref}^{{commit}}")
+        if ref_exists.returncode:
+            raise RuntimeError(result.stderr.strip() or f"gitlink {ref}:{path} is unavailable")
+        return None
     return result.stdout.strip()
 
 
 def submodule_paths() -> list[tuple[str, str]]:
     parser = configparser.ConfigParser()
     parser.read(".gitmodules")
-    return [(section.split('"', 2)[1] if '"' in section else section, parser[section]["url"])
+    return [(parser[section]["path"], parser[section]["url"])
             for section in parser.sections() if parser.has_option(section, "path")]
+
+
+def merge_base(base: str, head: str) -> str:
+    result = run("git", "merge-base", base, head)
+    if result.returncode or not result.stdout.strip():
+        raise RuntimeError(
+            f"cannot compute merge base of {base} and {head}: "
+            f"{result.stderr.strip() or 'git merge-base returned no result'}"
+        )
+    return result.stdout.strip()
 
 
 def local_relation(path: str, base: str, new: str) -> str | None:
@@ -72,12 +85,14 @@ def github_relation(url: str, new: str, base: str) -> str | None:
     # The API compares new...base. Thus base ahead means new is backward.
     if status == "identical" or (ahead == 0 and behind == 0):
         return "unchanged"
+    if status == "diverged" or (
+        isinstance(ahead, int) and ahead > 0 and isinstance(behind, int) and behind > 0
+    ):
+        return "diverged"
     if status == "behind" or (isinstance(behind, int) and behind > 0):
         return "forward"
     if status == "ahead" or (isinstance(ahead, int) and ahead > 0):
         return "backward"
-    if status == "diverged":
-        return "diverged"
     return None
 
 
@@ -86,9 +101,16 @@ def dropped(path: str, new: str, base: str) -> list[str]:
     return result.stdout.splitlines() if result.returncode == 0 else []
 
 
-def rollback_declared(base: str, head: str) -> bool:
+def rollback_declared(base: str, head: str) -> set[str]:
     result = run("git", "log", "--format=%B", f"{base}..{head}")
-    return result.returncode == 0 and any(line.strip().lower() == MARKER for line in result.stdout.splitlines())
+    if result.returncode:
+        return set()
+    return {
+        line.strip()[len(MARKER_PREFIX):].strip()
+        for line in result.stdout.splitlines()
+        if line.strip().lower().startswith(MARKER_PREFIX)
+        and line.strip()[len(MARKER_PREFIX):].strip()
+    }
 
 
 def main() -> int:
@@ -101,14 +123,26 @@ def main() -> int:
     except (configparser.Error, KeyError) as exc:
         print(f"submodule-forward-only: cannot read .gitmodules: {exc}", file=sys.stderr)
         return 1
-    declared = rollback_declared(args.base, args.head)
+    try:
+        comparison = merge_base(args.base, args.head)
+    except RuntimeError as exc:
+        print(f"submodule-forward-only: {exc}", file=sys.stderr)
+        return 1
+    declared = rollback_declared(comparison, args.head)
     failures = 0
     for path, url in modules:
         try:
-            base_sha = gitlink(args.base, path)
+            base_sha = gitlink(comparison, path)
             new_sha = gitlink(args.head, path)
         except RuntimeError as exc:
             print(f"submodule-forward-only: {path}: cannot read gitlink: {exc}", file=sys.stderr)
+            failures += 1
+            continue
+        if base_sha is None and new_sha is not None:
+            print(f"PASS {path}: submodule added at {new_sha}")
+            continue
+        if new_sha is None:
+            print(f"FAIL {path}: gitlink is absent at {args.head} but present at merge base {base_sha}", file=sys.stderr)
             failures += 1
             continue
         if base_sha == new_sha:
@@ -121,11 +155,11 @@ def main() -> int:
         if relation == "unchanged":
             print(f"PASS {path}: unchanged at {new_sha}")
             continue
-        if relation in {"backward", "diverged"} and declared:
-            print(f"PASS {path}: {base_sha} -> {new_sha} ({relation}; {MARKER} declared)")
+        if relation in {"backward", "diverged"} and path in declared:
+            print(f"PASS {path}: {base_sha} -> {new_sha} ({relation}; {MARKER_PREFIX}{path} declared)")
             continue
         if relation is None:
-            print(f"FAIL {path}: could not determine ancestry for {base_sha} -> {new_sha}; local git and GitHub compare both failed. Add '{MARKER}' to a branch commit only for a deliberate rollback.", file=sys.stderr)
+            print(f"FAIL {path}: could not determine ancestry for {base_sha} -> {new_sha}; local git and GitHub compare both failed. Add '{MARKER_PREFIX}{path}' to a branch commit only for a deliberate rollback.", file=sys.stderr)
             failures += 1
             continue
         subjects = dropped(path, new_sha, base_sha)
@@ -133,7 +167,7 @@ def main() -> int:
         detail = "; ".join(subjects[:8]) if subjects else "subjects unavailable"
         if count > 8:
             detail += f"; ... ({count - 8} more)"
-        print(f"FAIL {path}: {base_sha} -> {new_sha} ({relation}); drops {count} commit(s): {detail}. Usual cause: branch cut before a submodule bump followed by a squash merge. Remedy: merge main into the branch. For a deliberate rollback, add a commit containing '{MARKER}'.", file=sys.stderr)
+        print(f"FAIL {path}: {base_sha} -> {new_sha} ({relation}); drops {count} commit(s): {detail}. Usual cause: branch cut before a submodule bump followed by a squash merge. Remedy: merge main into the branch. For a deliberate rollback, add a commit containing '{MARKER_PREFIX}{path}'.", file=sys.stderr)
         failures += 1
     if failures:
         return 1

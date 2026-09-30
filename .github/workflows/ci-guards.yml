@@ -42,6 +42,7 @@ jobs:
         env:
           GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || 'HEAD^' }}
           GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/submodule_forward_only.py
 
       - name: Test submodule forward-only guard
