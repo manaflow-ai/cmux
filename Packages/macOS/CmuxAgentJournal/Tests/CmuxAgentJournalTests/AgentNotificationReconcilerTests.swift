@@ -250,6 +250,37 @@ struct AgentNotificationReconcilerTests {
     }
 
     @Test(arguments: ["claude", "codex"])
+    func toolActivityReopensAContinuationWithoutPromptSubmit(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: "first", notify: false))
+        let activity = event(2, .stateChanged, source: source, turn: "continuation", notify: false,
+                             occurredAt: 20, declaredPhase: .running)
+        _ = reconciler.apply(activity)
+        #expect(reconciler.lifecycleEvent(activity).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func idlePromptDoesNotSettleAnActiveTurn(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: source, turn: "turn-1", notify: false))
+        let idlePrompt = event(2, .idleObserved, source: source, turn: "turn-1", notify: false, occurredAt: 20)
+        _ = reconciler.apply(idlePrompt)
+        #expect(reconciler.lifecycleEvent(idlePrompt).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func lateStopCannotSettleAContinuationReopenedByActivity(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: "first", notify: false, occurredAt: 10))
+        let activity = event(2, .stateChanged, source: source, turn: "continuation", notify: false,
+                             occurredAt: 20, declaredPhase: .running)
+        _ = reconciler.apply(activity)
+        let lateStop = event(3, .turnCompleted, source: source, turn: "first", notify: false, occurredAt: 10)
+        #expect(reconciler.apply(lateStop).disposition == .stale)
+        #expect(reconciler.lifecycleEvent(activity).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
     func anonymousReminderReusesPendingAttentionWithoutMaskingAnotherRequest(source: String) {
         var reconciler = AgentNotificationReconciler()
         let known = reconciler.apply(event(1, .approvalRequested, source: source, request: "known", occurredAt: 10))
