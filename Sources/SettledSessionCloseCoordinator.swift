@@ -10,6 +10,7 @@ struct SettledSessionCloseCandidate: Identifiable {
 }
 
 enum SettledSessionClosePolicy {
+    @MainActor
     static func isEligible(
         record: AgentChatSessionRecord,
         hibernationRecord: AgentHibernationRecord?,
@@ -50,7 +51,7 @@ extension AppDelegate {
         )
         let hibernationByKey = Dictionary(uniqueKeysWithValues: hibernationRecords.map { ($0.key, $0) })
         var candidates: [SettledSessionCloseCandidate] = []
-        let workspaces = workspacesForRead(Set(records.compactMap { $0.workspaceID.flatMap(UUID.init(uuidString:)) }))
+        let workspaces = workspacesForRead(tabIds: Set(records.compactMap { $0.workspaceID.flatMap(UUID.init(uuidString:)) }))
         let idleHours = AgentHibernationSettings.settledAutoCloseIdleHours()
         for record in records {
             guard let workspaceID = record.workspaceID.flatMap(UUID.init(uuidString:)),
