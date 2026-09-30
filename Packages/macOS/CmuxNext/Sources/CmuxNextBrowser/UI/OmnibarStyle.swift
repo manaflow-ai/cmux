@@ -23,8 +23,11 @@ enum OmnibarStyle {
     static var barHeight: CGFloat { compact ? 24 : 28 }
     /// Toolbar row: the bar plus Helium's 3 pt vertical interior margin.
     static var toolbarHeight: CGFloat { barHeight + 2 * basePadding }
-    /// Helium's 6 pt horizontal interior margin.
-    static var toolbarInset: CGFloat { 2 * basePadding }
+    /// Horizontal interior margin: the pane's chrome line, so the first
+    /// button's hover shape starts where the tab pills above it start and
+    /// its glyph near the tabs' icons (`Metrics.paneChromeInset`; Helium
+    /// uses 6 pt).
+    static var toolbarInset: CGFloat { Metrics.paneChromeInset }
     /// Toolbar buttons: square, bar height, 8 pt hover shape.
     static var buttonSize: CGFloat { barHeight }
     static let buttonCornerRadius: CGFloat = 8

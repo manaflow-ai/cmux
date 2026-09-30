@@ -80,6 +80,27 @@ public enum Metrics {
         DesignSettings.shared.paneChrome.padding ?? (density == .compact ? 2 : 4)
     }
 
+    // MARK: Pane alignment grid
+
+    // Every pane lines up on two vertical lines measured from its content
+    // edge (the rounded border's left side, which the tab strip shares):
+    // the chrome line, where tab pills and toolbar button shapes start, and
+    // the content line, where the tab icon, the terminal's first text
+    // column and the first toolbar glyph start (dogfood nxdog12: "need
+    // proper left alignment here").
+
+    /// Horizontal padding inside a pane's tab strip (its vertical inset, so
+    /// tabs sit in an even frame).
+    public static var tabStripEdgeInset: CGFloat { max(0, (tabStripHeight - tabHeight) / 2) }
+    /// Inset of a tab's rounded background inside its slot.
+    public static let tabBackgroundInset: CGFloat = space1 / 2
+    /// Inset of a tab's icon from its slot's leading edge.
+    public static let tabContentLeadingInset: CGFloat = space4
+    /// The chrome line: tab pills and toolbar button shapes.
+    public static var paneChromeInset: CGFloat { tabStripEdgeInset + tabBackgroundInset }
+    /// The content line: tab icons, the terminal's first column, glyphs.
+    public static var paneContentInset: CGFloat { tabStripEdgeInset + tabContentLeadingInset }
+
     // MARK: Shape
 
     /// Corner radius of a pane's rounded rect (`layout.paneCornerRadius`; 0 is

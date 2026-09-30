@@ -85,7 +85,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         pinnedTabWidth = Metrics.tabMinWidth
         compactTabWidth = (Metrics.tabMaxWidth * 3 / 4).rounded()
         pinnedGroupGap = Metrics.space2
-        contentLeadingInset = Metrics.space4
+        contentLeadingInset = Metrics.tabContentLeadingInset
         contentTrailingInset = Metrics.space2
         iconSize = Metrics.iconSize
         closeButtonSize = Metrics.space6
@@ -99,7 +99,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleMinWidth = Metrics.tabMinWidth * 2
         stripHeight = Metrics.tabStripHeight
         tabHeight = Metrics.tabHeight
-        stripHorizontalPadding = max(0, (Metrics.tabStripHeight - Metrics.tabHeight) / 2)
+        stripHorizontalPadding = Metrics.tabStripEdgeInset
         newTabButtonWidth = Metrics.tabHeight
         trailingButtonSize = Metrics.tabHeight - Metrics.space2
         trailingButtonSpacing = Metrics.space1
@@ -107,7 +107,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         trailingIconSize = Metrics.iconSize
         trailingIconPointSize = Metrics.smallIconSize
         scrollFadeWidth = Metrics.space6 + Metrics.space4
-        tabBackgroundInset = Metrics.space1 / 2
+        tabBackgroundInset = Metrics.tabBackgroundInset
         separatorHeight = Metrics.tabHeight / 2
         tearOffDistance = Metrics.space6 + Metrics.space4
         cornerRadius = Metrics.itemCornerRadius
