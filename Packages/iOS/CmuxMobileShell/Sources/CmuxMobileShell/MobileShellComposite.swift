@@ -3882,10 +3882,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// paired-Mac load still replaces these rows and remains the authority for
     /// every action.
     private func restoreWorkspaceSnapshots(
-        scope: MobileShellScopeSnapshot
+        scope: MobileShellScopeSnapshot,
+        loadGeneration: UInt64? = nil
     ) async {
         guard let workspaceSnapshotStore else { return }
         let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
+        // The hidden-Mac read can suspend while sign-out, a team switch, or a
+        // newer paired-Mac load invalidates this scope. Do not publish rows
+        // from the old scope after that boundary has passed.
+        guard await isScopeCurrent(scope),
+              loadGeneration == nil || loadGeneration == pairedMacLoadGeneration else {
+            return
+        }
         var changed = false
         for (key, cached) in workspaceSnapshotStore.loadAll(
             userID: scope.userID,
@@ -3911,11 +3919,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         with visibleMacs: [MobilePairedMac]
     ) {
         let visibleKeys = Set(visibleMacs.map(MacPairingKey.init))
-        workspacesByMac = workspacesByMac.filter { key, state in
-            state.status == .connected
+        let liveControlKeys = Set(secondaryMacSubscriptions.keys)
+        let liveForegroundKey = foregroundMacKey
+        let reconciled = workspacesByMac.filter { key, state in
+            (key == liveForegroundKey || liveControlKeys.contains(key))
+                && state.status == .connected
                 || visibleKeys.contains(key)
                 || sshOwnsPairingKey(key)
         }
+        workspacesByMac = reconciled
     }
 
     /// Persist only a complete live workspace list. The snapshot is scoped by
@@ -3936,12 +3948,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // new scope if sign-out or team switching wins the race.
         let sourceGeneration = secondaryAggregationScopeGeneration
         let sourceUserID = identityProvider?.currentUserID
+        let sourceStateRevision = foregroundWorkspaceStateRevision
         Task { @MainActor [weak self] in
             guard let self,
                   self.secondaryAggregationScopeGeneration == sourceGeneration,
                   self.identityProvider?.currentUserID == sourceUserID,
                   let scope = await self.currentScopeSnapshot(),
-                  await self.isScopeCurrent(scope) else { return }
+                  await self.isScopeCurrent(scope),
+                  self.secondaryAggregationScopeGeneration == sourceGeneration,
+                  self.identityProvider?.currentUserID == sourceUserID,
+                  self.foregroundWorkspaceStateRevision == sourceStateRevision else { return }
             workspaceSnapshotStore.save(
                 state: state,
                 userID: scope.userID,
@@ -4544,7 +4560,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Hydrate the last authenticated workspace metadata immediately. The
         // paired-Mac directory is still loaded below, but its disk read must
         // not delay the first useful row on a cold launch.
-        await restoreWorkspaceSnapshots(scope: scope)
+        await restoreWorkspaceSnapshots(scope: scope, loadGeneration: loadGeneration)
         pairedMacLoadState = .notLoaded
         let storeLoad = await Self.raceAgainstDeadline(
             nanoseconds: 5_000_000_000
