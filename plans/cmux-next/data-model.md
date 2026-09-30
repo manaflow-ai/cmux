@@ -1,302 +1,360 @@
-# cmux next: shared tree data model (rooms, browser profiles, themes, screens)
+# cmux next: data model (sessions, ownership, rooms, browser profiles, themes)
 
-Living design note for the daemon tree that cmux-tui owns and every frontend
-projects (architecture.md 1). It records the model for the user's "profiles"
-request (2026-09-30), revised the same day into two kinds of profile, and the
-schema shared with screen tabs and screen groups (feat-cmux-next-screens).
+Living design note for what cmux-tui owns and what the app projects
+(architecture.md 1). Revised 2026-09-30 three times: profiles (user), two
+kinds of profile (user), and ownership across many cmux-tui sessions (user:
+"main use case is a bunch of cmux tuis on other computers that we want to be
+able to connect to"; "it's ok if we change up a lot about cmux tui"). Screen
+schema agreed with feat-cmux-next-screens (section 9).
 
-## 0. Two kinds of profile (user, 2026-09-30)
+## 1. Sessions and ownership
 
-| | Browser profile | Room (working name, section 1) |
+### 1.1 Sessions
+
+Each cmux-tui daemon is a **session**:
+
+- Identity: its durable `registry_id` (a UUID the registry already mints and
+  every mutation result already returns; wire alias `session_id`). Stable
+  across restarts, upgrades and renames.
+- Name: `machine_name` + session name (for example `build-box` / `main`),
+  shown as `build-box` when the session name is the default.
+- Reach: the local Unix socket, SSH stdio (carrier authentication,
+  remote-daemon.md), or a Cloud VM (existing provider path).
+
+The app keeps a **session registry**: every session it knows, with its name,
+how to reconnect (transport kind and route, never secrets), last connection
+state, cached capabilities, and last seen time. The registry is personal
+state (1.2c), stored in the home session. The app is the only federation
+point: daemons never connect to each other and never learn about each other.
+
+The **home session** is the user's local daemon on this Mac (today
+`cmux-app` / `cmux-dev-<tag>`). There is exactly one per app install.
+
+### 1.2 Three layers of ownership
+
+(a) **Terminals** belong to the session whose machine runs the process. They
+never migrate. "Move terminal to machine X" is an explicit re-create (new
+process in the same directory on X), never a transfer.
+
+(b) **Layout** of a workspace (screens, columns, splits, panes, tab order,
+pinned tabs, tab groups, screen groups) belongs to exactly one session, the
+workspace's **home session**. A tab in that tree is a reference:
+
+| Tab kind | Reference | Rendered by |
 | --- | --- | --- |
-| What it holds | browser data only: cookies, logins, history, extensions, site permissions | a switchable set of workspaces and workspace groups, with its own theme and colors, and a default browser profile |
-| Switched how | per tab, by where the tab was opened (section 5) | per window: the sidebar dots, a swipe, shortcuts |
-| Like | Chrome profiles, Arc profiles | Arc Spaces |
-| Created by | the user, a room creation, or an import from another browser (onboarding, later) | the user |
+| terminal | a terminal on the same session (existing) | attach on that session |
+| remote terminal | `{session_id, terminal_id}` of a terminal on another session | the app attaches on the other session |
+| browser | a frontend browser record (existing `frontend_browser_tabs`) | the local app (browsers always run locally) |
 
-Internal names: the wire and Swift model call a room a `profile` (commands
-`*-profile`, `profiles-v1`, `ProfileID`), because the daemon work started
-under that name and a wire name must not follow product naming. A browser
-profile is always `browser_profile` on the wire and `BrowserProfile*` in
-Swift. User-visible strings, action IDs and CLI verbs use the product name.
+Mixed workspaces are allowed (user choice): a split on the Mac can hold a
+build-box terminal next to a local one. A tab whose terminal is not on this
+Mac shows a very subtle machine badge (user choice).
 
-## 1. Name for the switchable set
+(c) **Personal state** lives only in the home session and is never written to
+a remote daemon: the session registry, rooms and their membership, browser
+profiles, windows, sidebar order and workspace groups, saved tab and screen
+groups, per-workspace browser profile and theme, shortcuts. Two Macs attached
+to the same remote session therefore organize its workspaces independently.
 
-Candidates (avoid "Spaces": macOS Spaces):
+Workspace identity (name, custom title, color, icon) stays shared on the
+workspace's home session: it names the workspace on every client, like a tab
+title. Organization (order, groups, room, browser profile, theme) is
+personal.
 
-| Name | Reason for | Reason against |
+### 1.3 Qualified IDs
+
+Every object ID the app, CLI and palette show is qualified by session:
+`<session>:<kind>:<id>`, for example `build-box:workspace:3` or
+`build-box:tab:tab_9f…`. `<session>` is the session name when unique, else a
+`registry_id` prefix. The home session may omit its prefix, so every current
+ID keeps working. The CLI gains `--session <name|uuid>` (alias `--machine`),
+which scopes unqualified IDs and creation commands. Window and room IDs are
+personal and never qualified.
+
+### 1.4 Unavailable references
+
+A tab that references a session this app is not connected to (offline, or
+never connected on this Mac) shows a placeholder: the machine name, the last
+screen snapshot when one exists, and Connect or "Reconnecting…". The
+reference is never dropped. The home session keeps, per remote-terminal tab,
+the last title and a bounded text snapshot (64 KiB) so the placeholder
+survives relaunch. Workspaces of an offline followed session (3.2) show
+greyed with its status.
+
+### 1.5 Moves
+
+Moving a tab or a workspace between windows, rooms or workspaces moves
+references, never processes. Moving a tab whose terminal lives on session S
+into a workspace whose home is H != S turns it into a remote-terminal tab on
+H that references S (and back into a plain terminal tab when it returns to a
+workspace homed on S). Changing a workspace's home session re-creates its
+layout on the target: every terminal tab becomes a remote reference to its
+old session (and every remote reference to the target becomes local), so no
+process restarts.
+
+## 2. Protocol changes (cmux-tui)
+
+| Change | Where | Capability |
 | --- | --- | --- |
-| **Rooms** | spatial, like walking into another room: its own furniture (workspaces) and paint (theme); short; reads well in every verb ("New Room", "Move Workspace to Room", "Switch Room"); no collision in macOS or terminals | slightly playful |
-| Hats | catchy ("wear another hat": work, personal, oncall) | reads badly in verbs ("Move Workspace to Hat") |
-| Worlds | strong sense of full separation | grandiose for a work context |
-| Contexts | precise | collides with kubectl/docker contexts that cmux users type daily |
-| Modes | short | vague; collides with Vim modes and focus modes |
+| `identify` adds `session_id` (= `registry_id`) and `machine_name`; the remote attach reply carries both | identify, remote protocol 5 service setup | `session-identity-v1` |
+| New tab kind `remote-terminal`: `new-remote-terminal-tab {pane?, session_id, terminal_id, session_name, title?}`, `update-remote-terminal-tab {surface, title?, session_name?, snapshot?}`, tab JSON `{kind:"remote-terminal", remote:{session_id, terminal_id, session_name}, title}`; the daemon stores it like a frontend browser record, never attaches or spawns, keeps it across restarts; `move-tab`, tab groups, pins and closes treat it like any tab | home session | `remote-terminal-tabs-v1` |
+| Personal tables (section 3, 5, 6) and their commands, served by every daemon (one binary) but written by the app only on its home session | home session | `profiles-v1` |
+| Per-client geometry claims (already built) | all | existing |
+| Capability negotiation for older daemons and older apps | all | with the remote compat agent |
 
-Pick: **Rooms**. The coordinator confirms with the user; until then code uses
-the internal `profile`, and only strings, action IDs and CLI verbs say room.
+A remote daemon needs nothing new beyond `session-identity-v1` to take part:
+the app attaches to its terminals by `{generation, terminal_id}`
+(`attach-identity-v1`) and reads its shared tree.
 
-## 2. The tree today and the decision: a tag, not a level
+### 2.1 Breaking changes
 
-```
-session (one daemon, one SQLite registry)
-├── workspace groups          workspace_groups(group_id, name, color, position, collapsed)
-├── saved tab groups          saved_tab_groups(saved_id, ..., members_json, position)
-└── workspaces (one order)    workspace_presentation(key, group_id, color, icon, title)
-    └── screens -> columns / splits / stacks -> panes -> tab groups, tabs
-```
+1. **Workspace groups become personal.** Groups and membership move from each
+   daemon's shared tree to the home session. A new app ignores `groups` and
+   the `group` field on remote daemons and stops calling the group commands on
+   them. The TUI and shipped iOS keep reading the old shared groups of a
+   daemon, which then go stale for workspaces the Mac regroups.
+2. **Sidebar order becomes personal.** The app orders its sidebar from a home
+   table and stops calling `move-workspace` on remote daemons for sidebar
+   drags (the shared registry order stays as the order other clients see).
+3. **Workspace IDs in the app control socket and CLI output become
+   qualified** for non-home sessions (`build-box:workspace:3`). Scripts that
+   parse IDs of Cloud workspaces see the prefix. Home IDs are unchanged.
+4. **`no mixed-machine workspaces in v1` (REWRITE.md) is reversed**:
+   remote-terminal tabs appear in home layouts; older apps and the TUI show
+   them as an unknown tab kind (the TUI renders a labeled placeholder).
+5. The `personal` window projection gains session-qualified workspace keys
+   (`WindowRecord.workspace_keys` entries become `{session_id, key}`; old bare
+   keys decode as home).
 
-Workspace groups are a partition over the one durable workspace order
-(`workspace_presentation.group_id`), not a tree level. A room is the same kind
-of partition one level up:
+Nothing else breaks: every new field is additive and every old command keeps
+its meaning.
 
-| | New level (`rooms[].workspaces[]`) | Tag (`workspace.profile`) |
+### 2.2 Migration
+
+- Home session: on first launch of the new app, current `workspace_groups`
+  and `workspace_presentation.group_id` rows of the local daemon become
+  personal group rows with the home `session_id` (same group ids; one
+  transaction). Registry order seeds the personal sidebar order.
+- Remote sessions (Cloud today): on the first connect after the upgrade, the
+  app copies that daemon's groups and order into personal rows qualified by
+  its `session_id` once (recorded per session in the home registry) and never
+  writes groups to it again.
+- Window records: bare keys decode as home keys; the next save writes
+  qualified keys.
+- Rooms start with one `default` room that follows every session (3.2), so
+  every existing workspace is visible after the upgrade with no data change.
+
+## 3. Rooms (the Arc-like switchable set)
+
+### 3.1 Two kinds of profile
+
+| | Browser profile | Room (working name, 3.4) |
 | --- | --- | --- |
-| Wire | nests workspaces under rooms: breaks every existing client (shipped iOS adapter, TUI, v2 SDKs, older app builds) | additive field; old clients see a flat list and keep working |
-| Order | one order per room, new cross-room move | one global order filtered per room, exactly like groups |
-| Registry | new parent key, schema version bump, rollback breaks | one table, nullable columns; older binaries open it and show every workspace |
-| Old remote daemons | cannot express it | one implicit room |
+| Holds | browser data only: cookies, logins, history, extensions, site permissions | a switchable set of workspaces and groups with its own theme, a default browser profile, a default session for new workspaces |
+| Switched | per tab, by where it was opened (section 5) | per window: sidebar dots, swipe, shortcuts |
+| Like | Chrome and Arc profiles | Arc Spaces |
 
-Chosen: the tag. Invariants:
+Both are personal state in the home session. Internal names: the wire and
+Swift call a room a `profile` (`*-profile`, `profiles-v1`, `ProfileID`)
+because the work started under that name and wire names must not follow
+product naming; a browser profile is `browser_profile` / `BrowserProfile*`.
+Strings, action IDs and CLI verbs use the product name.
 
-- Every workspace belongs to exactly one room; no tag = the built-in room
-  `default` (all workspaces from before this change, or created by a client
-  that does not know rooms). No data migration.
-- A workspace group belongs to one room; a workspace in a group is in the
-  group's room. Moving a workspace to another room ungroups it unless the move
-  names a group of that room; moving a group moves its members.
-- Screens, screen groups, columns, panes, tabs and tab groups follow their
-  workspace. Session-wide records not under a workspace carry an optional
-  room: saved tab groups and saved screen groups (null = `default`).
-- `default` always exists, can be renamed, recolored, themed and reordered,
-  and cannot be deleted.
+### 3.2 Membership: follow sessions and pin workspaces (user choice "both")
 
-## 3. Daemon schema and wire (capability `profiles-v1`)
+A room has `follows` (session IDs) and `pins` (qualified workspaces). Rule for
+workspace W on session S:
 
-Tables (additive; `workspace_registry/profile_store.rs`):
+- W is in room R when W is pinned to R, or R follows S and W is pinned to no
+  room.
+- A workspace is pinned to at most one room. "Move Workspace to Room R" pins it
+  to R (exclusive). New workspaces created in the app in room R are pinned to
+  R.
+- A workspace in no room (its session followed by none, not pinned) shows in
+  `default`, so nothing is ever unreachable.
+- `default` follows every session unless the user edits it; a new session
+  (first connect) is followed by `default` and by the room active when it was
+  added.
+- New workspaces on a followed session made elsewhere (CLI on build-box,
+  another Mac) appear in its followers automatically.
+
+A room has a **default session** for New Workspace (home when unset); every
+create action accepts an explicit session ("New Workspace on build-box").
+
+Workspace groups are personal and belong to one room; members are qualified
+workspaces of that room. Pinned tabs, tab groups and screens stay in the
+workspace layout (1.2b).
+
+### 3.3 Home tables and commands (capability `profiles-v1`)
 
 ```sql
-CREATE TABLE IF NOT EXISTS profiles (             -- rooms
-  profile_id TEXT PRIMARY KEY NOT NULL,           -- 'default' or 'prof_<32 hex>'
-  name TEXT NOT NULL, color TEXT, icon TEXT,
-  theme TEXT,                                     -- Ghostty theme spec (section 6)
+CREATE TABLE IF NOT EXISTS profiles (                 -- rooms
+  profile_id TEXT PRIMARY KEY NOT NULL,               -- 'default' or 'prof_<32 hex>'
+  name TEXT NOT NULL, color TEXT, icon TEXT, theme TEXT,
   position INTEGER NOT NULL CHECK(position >= 0),
-  browser_profile_id TEXT,                        -- default browser profile of its workspaces; null = 'default'
-  defaults_json TEXT                              -- {"cwd": "...", "env": {"K": "V"}} for new terminals
+  browser_profile_id TEXT,                            -- default browser profile; null = 'default'
+  default_session_id TEXT,                            -- null = home
+  defaults_json TEXT                                  -- {"cwd","env"} for new terminals
 );
-CREATE TABLE IF NOT EXISTS browser_profiles (
-  browser_profile_id TEXT PRIMARY KEY NOT NULL,   -- 'default' or a lowercase UUID
-  name TEXT NOT NULL, color TEXT, icon TEXT,
-  position INTEGER NOT NULL CHECK(position >= 0),
-  source_json TEXT                                -- import origin, e.g. {"browser":"chrome","profile":"Profile 1"}
-);
--- guarded by a column probe:
-ALTER TABLE workspace_presentation ADD COLUMN profile_id TEXT;
-ALTER TABLE workspace_presentation ADD COLUMN browser_profile_id TEXT;  -- workspace override
-ALTER TABLE workspace_presentation ADD COLUMN theme TEXT;               -- workspace theme
-ALTER TABLE workspace_groups ADD COLUMN profile_id TEXT;
-ALTER TABLE saved_tab_groups ADD COLUMN profile_id TEXT;
+CREATE TABLE IF NOT EXISTS profile_follows (profile_id TEXT NOT NULL, session_id TEXT NOT NULL,
+  PRIMARY KEY(profile_id, session_id));
+CREATE TABLE IF NOT EXISTS profile_pins (session_id TEXT NOT NULL, workspace_key TEXT NOT NULL,
+  profile_id TEXT NOT NULL, PRIMARY KEY(session_id, workspace_key));     -- at most one room
+CREATE TABLE IF NOT EXISTS sessions (                 -- the session registry
+  session_id TEXT PRIMARY KEY NOT NULL, machine_name TEXT, session_name TEXT,
+  transport_json TEXT NOT NULL, last_seen_ms INTEGER, capabilities_json TEXT, migrated INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS personal_groups (          -- replaces shared workspace groups
+  group_id TEXT PRIMARY KEY NOT NULL, profile_id TEXT NOT NULL, name TEXT NOT NULL,
+  color TEXT, collapsed INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS personal_workspaces (      -- order, group, browser profile, theme per qualified workspace
+  session_id TEXT NOT NULL, workspace_key TEXT NOT NULL, position INTEGER NOT NULL,
+  group_id TEXT, browser_profile_id TEXT, theme TEXT, PRIMARY KEY(session_id, workspace_key));
 ```
 
-Schema creation inserts the `default` room and the `default` browser profile
-once (`INSERT OR IGNORE`). Every mutation appends one advisory `state` journal
-record.
+Commands (home session; all emit `tree-changed` or a new `personal-changed`
+event with no body, refetch `list-personal`):
 
-Wire (raw protocol v12):
+- `list-personal` returns sessions, rooms (with follows), pins, personal
+  groups, personal workspaces and browser profiles in one read.
+- Rooms: `create-profile`, `update-profile` (name, color, icon, theme,
+  browser_profile_id, default_session_id, defaults; null clears),
+  `move-profile`, `delete-profile {profile, move_to?}` (`default` refused;
+  pins move to `move_to` or are removed, which returns those workspaces to
+  their followers; with `close_workspaces:true` the app closes them on their
+  sessions first), `set-profile-follows {profile, session_ids}`,
+  `pin-workspace {session_id, workspace_key, profile}` (exclusive; replaces a
+  pin), `unpin-workspace {session_id, workspace_key}`.
+- Sessions: `put-session {session_id, machine_name, session_name, transport}`,
+  `forget-session {session_id}` (refused while a room pins its workspaces
+  unless `force`).
+- Groups and order: `create-personal-group`, `update-personal-group`,
+  `delete-personal-group`, `move-personal-group`, `set-personal-workspace
+  {session_id, workspace_key, position?, group?, browser_profile_id?,
+  theme?}`.
 
-- `list-workspaces` gains `profiles: [{id, name, color, icon, theme, index,
-  browser_profile_id, defaults}]` and `browser_profiles: [{id, name, color,
-  icon, index, source}]`.
-- Workspace entities gain `profile` (always present) and, when set,
-  `browser_profile_id` and `theme`. Workspace groups and saved tab groups gain
-  `profile`.
+Terminal defaults (`defaults.cwd` / `defaults.env`) are applied by the app
+when it creates a terminal in a room's workspace (it knows the room; a remote
+daemon never does). A terminal created without the app (CLI on a machine)
+gets none.
 
-| Command | Fields | Result / event |
-| --- | --- | --- |
-| `list-profiles` | | `{profiles}` |
-| `create-profile` | `name, profile?, color?, icon?, theme?, index?, browser_profile_id?, defaults?` | `{profile, changed}`; retry with same id and name is a no-op; `tree-changed` |
-| `update-profile` | `profile, name?, color?, icon?, theme?, browser_profile_id?, defaults?` (null clears) | `{profile, changed}`; `tree-changed` |
-| `move-profile` | `profile, index` | `{profile, changed}`; `tree-changed` |
-| `delete-profile` | `profile, move_to?` | with `move_to` its workspaces, groups and saved groups move there; without it its workspaces close and their terminals end in one batch commit, its groups and saved groups are deleted; `default` refused. `{profile, workspace_keys, moved_to}`; `tree-changed` |
-| `move-workspace-to-profile` | `workspace\|key, profile, group?, index?, origin, mutation_id, expected_*` | durable workspace mutation; `workspace-moved` with the entity |
-| `move-workspace-group-to-profile` | `group, profile` | `{group, workspace_keys, changed}`; `tree-changed` |
-| `create-workspace` | new optional `profile` | born in that room |
-| `create-workspace-group` | new optional `profile` | born in that room |
-| `set-workspace-metadata` | new optional `browser_profile_id`, `theme` (null clears) | `workspace-changed` |
-| `list-browser-profiles` | | `{browser_profiles}` |
-| `create-browser-profile` | `name, browser_profile?, color?, icon?, index?, source?` | `{browser_profile, changed}`; `tree-changed` |
-| `update-browser-profile` | `browser_profile, name?, color?, icon?` | same |
-| `move-browser-profile` | `browser_profile, index` | same |
-| `delete-browser-profile` | `browser_profile` | `default` refused; rooms and workspaces that name it fall back to inherit (null); frontend browser tabs that use it are retagged `default`; `{browser_profile, retagged_tabs}`; `tree-changed` |
-| `new-frontend-browser-tab` | `profile_id` absent: the daemon fills the effective browser profile of the target workspace (section 5) | unchanged otherwise |
+### 3.4 Name
 
-Terminal defaults: when a terminal is created in a workspace whose room has
-defaults and the request has no `cwd`, it starts in `defaults.cwd`;
-`defaults.env` goes under the request's own `env`. The daemon applies them, so
-the plain `cmux-tui` CLI, iOS and agents behave like the app.
+Candidates (avoid "Spaces": macOS Spaces): **Rooms** (spatial, like walking
+into another room with its own furniture and paint; short; every verb reads
+well: New Room, Move Workspace to Room, Switch Room; no collision); Hats
+(catchy, "wear another hat", but "Move Workspace to Hat" reads badly); Worlds
+(strong separation, grandiose); Contexts (precise, collides with kubectl and
+docker contexts); Modes (vague, collides with Vim and Focus modes). Pick:
+**Rooms**, pending the user's confirmation through the coordinator.
 
-Duplicating a workspace into a room is a frontend composite (create in the
-target room, replay the layout with new terminals in the same directories and
-new browser tabs with the same URLs); a duplicate never shares a terminal.
+## 4. Windows
 
-### Compatibility
+Which room a window shows is personal (`WindowRecord.profile`, absent =
+`default`; `profile_workspaces` remembers the last workspace per room). A
+window owns qualified workspaces of several rooms (`WindowRegistry`) and
+lists those in its current room. Switching window W to room R:
 
-- Without `profiles-v1` (older local or Cloud daemon) the app shows one
-  implicit room, hides the dots, browser tabs use the default browser profile,
-  and every room and browser-profile action is typed unavailable. Nothing is
-  written.
-- Older clients against a new daemon ignore the new fields and list every
-  workspace: nobody loses access to a workspace. iOS can filter by `profile`
-  later.
-- Resource API v2 is unchanged in this pass (optional additive fields later).
-- Rooms and browser profiles belong to one daemon. A window's room filters the
-  workspaces of each machine that has a room with that id; a machine without it
-  (an older daemon, or a Cloud machine with only `default`) shows all of its
-  workspaces in every room. Rooms do not span machines in v1.
-
-## 4. Windows: the frontend projection
-
-Which room a window shows is per window and per user, so it lives in the
-`personal` window document: `WindowRecord.profile` (absent = `default`) and
-`profile_workspaces` (`{room id: workspace key}`, the workspace last shown
-there). Membership stays in `WindowRegistry` (each workspace owned by at most
-one window); a window owns workspaces of several rooms and lists those of its
-current room.
-
-Switching window W to room R:
-
-1. W shows the workspaces it owns in R and selects the one it last showed there.
+1. W shows the workspaces it owns in R and selects the one it last showed.
 2. Else W takes every workspace of R that no open window currently showing R
-   owns (hidden in other windows, in the closed window, or unplaced). With one
-   window this is the whole room.
-3. Else the app creates a workspace in R for W (no empty window).
+   owns.
+3. Else the app creates a workspace in R on R's default session.
 
-When W loses the last workspace of its room, W shows the most recent other
-room it owns workspaces in; with none, the existing rule closes the window.
-Selecting a workspace of another room (palette, CLI, a notification) switches
-the window to that room. New workspaces, new windows (Cmd-N) and new groups are
-born in the window's room. The switch changes only what the window lists and
-shows, in one main-actor turn: terminals keep running and hidden surfaces take
-the normal hidden-tab path, so there is no flash and no restart.
+When W loses the last workspace of its room it shows the most recent other
+room it owns workspaces in, else the existing rule closes it. Selecting a
+workspace of another room (palette, CLI, notification) switches the window.
+New workspaces, windows and groups are born in the window's room. A switch
+changes only what the window lists and shows, in one main-actor turn;
+terminals keep running and hidden surfaces take the hidden-tab path.
 
-## 5. Browser profiles: assignment and display
+## 5. Browser profiles
 
-Cascade for a new browser tab (first set wins):
+Records in the home session: `browser_profiles(browser_profile_id: 'default'
+| lowercase UUID, name, color, icon, position, source_json)`. `source_json`
+records an import origin; the onboarding import creates a record, then fills
+the engine store for its id.
 
-1. an explicit choice (New Tab with Browser Profile X, Open Link in Browser
-   Profile X, a CLI `--browser-profile`),
-2. the workspace override (`workspace.browser_profile_id`),
-3. the room default (`profile.browser_profile_id`),
-4. `default`.
+Cascade for a new browser tab: explicit choice (New Tab with Browser Profile
+X, Open Link in Browser Profile X, `--browser-profile`), else the workspace's
+personal browser profile, else its room's, else `default`. No window level: a
+window's browser profile is its room's. The resolved id is stored on the tab
+at creation (`frontend_browser_tabs.profile_id`) and never changes by
+inheritance, so no live page silently changes cookie jar; Move Tab to Browser
+Profile reopens its URL in the target.
 
-No window level: a window's browser profile is its room's, so a workspace
-looks the same in every window. The resolved id is stored on the tab at
-creation (`frontend_browser_tabs.profile_id`, the existing field) and never
-changes by inheritance: changing a room or workspace default, or moving a
-workspace to another room, never moves a live page to another cookie jar (no
-silent logout). A tab changes browser profile only by an explicit Move Tab to
-Browser Profile, which reopens its URL in the target profile.
+Display: the omnibar shows the tab's browser profile (dot or icon, name in the
+tooltip and Page Info) whenever more than one exists; a tab whose browser
+profile differs from its workspace's effective one shows a small profile dot
+on the tab and in its hover card.
 
-Display:
-
-- The omnibar shows the tab's browser profile (color dot or icon, name in the
-  tooltip and Page Info) whenever more than one browser profile exists.
-- A tab whose browser profile differs from its workspace's effective one shows
-  a small profile dot on the tab, and its hover card names it, so two tabs of
-  one workspace with different browser data are always visible as such.
-
-Engine mapping: `default` -> the app's `BrowserProfileID.default` (existing
-data stays there); a UUID id -> that UUID
-(`WKWebsiteDataStore(forIdentifier:)`, CEF request context
-`Chromium/Profile-<uuid>`). Deleting a browser profile removes its engine data
-after its tabs moved to `default`. A room created without a choice uses the
-current room's browser profile (logins keep working); New Room offers "new
-browser profile" as an option.
-
-Import (onboarding agent, later): an import calls `create-browser-profile`
-with `source` (browser and source profile) and then fills the engine store
-for the returned id. The model needs nothing else.
+Engines: `default` -> `BrowserProfileID.default` (existing data stays); a UUID
+-> that UUID (`WKWebsiteDataStore(forIdentifier:)`, CEF
+`Chromium/Profile-<uuid>`). Deleting one moves its tabs to `default`, then
+removes its engine data. A new room shares the current room's browser profile
+unless the user picks "new browser profile".
 
 ## 6. Themes and colors
 
-Levels and what each one colors:
-
 | Level | Colors | Reason |
 | --- | --- | --- |
-| Room | the whole window: sidebar, titlebar, tab strips, pane chrome, floating cards, and every terminal without its own override | a window shows one room; chrome is continuous with the terminal background (REWRITE.md visual rules), so the room that owns the window owns its chrome; the recolor on a switch is the strongest cue of which room you are in (Arc) |
-| Workspace | only its content area: its terminals, tab strips and pane chrome; its sidebar row shows its color swatch | the sidebar lists many workspaces: recoloring it on every selection would flash the whole window and hide the room cue. A seam between sidebar and content is the intended signal ("prod is red") |
-| Terminal | only that terminal surface (the daemon's per-terminal color overrides, `terminal-color-overrides-v1`) | a pane-level cue such as an ssh session |
+| Room | the whole window: sidebar, titlebar, tab strips, pane chrome, floating cards, and every terminal without an override | a window shows one room and chrome is continuous with the terminal background, so the room owns the chrome; the recolor on a switch is the clearest cue of the current room |
+| Workspace | only its content area (terminals, pane tab strips, pane chrome, the screen bar); its sidebar row shows its color | recoloring the sidebar on every selection would flash the window and hide the room cue; the seam is the intended signal ("prod is red") |
+| Terminal | only its surface (`terminal-color-overrides-v1`) | a pane-level cue, such as ssh to prod |
 
-Precedence: terminal over workspace over room over the Ghostty config.
-Storage: a theme is a Ghostty theme spec string (`theme` syntax, including
-`light:A,dark:B`); the app resolves it through Ghostty's theme search path and
-derives chrome tokens exactly as for the global config. `color` and `icon`
-(section 7) are the small accents (dots, swatches), not themes.
+Precedence: terminal, workspace, room, Ghostty config. A theme is a Ghostty
+theme spec (`theme` syntax, `light:A,dark:B`), resolved like the global
+config. Room and workspace themes are personal. `Palette` resolves colors
+from one process-wide snapshot today; room and workspace themes need a
+window- and view-scoped `ThemeScope` in CmuxNextDesign (own stage).
 
-Implementation risk: `Palette` resolves every chrome color from one
-process-wide `ThemeSnapshot`. Room and workspace themes need window-scoped and
-view-scoped tokens: a `ThemeScope` on each window (and each workspace content
-view) that views resolve through their scope, replacing the global lookup.
-That is a CmuxNextDesign change touching every module's color reads, so it is
-its own stage with its own review.
+## 7. App surfaces (action contract)
 
-## 7. Shared appearance shape (agreed with feat-cmux-next-screens)
+Sidebar bottom center: one dot per room (icon when set, tinted by its color),
+current one emphasized; click switches this window, right-click opens the
+room menu, drag reorders, `+` creates; hidden while there is one room. A
+two-finger horizontal swipe over the sidebar switches rooms.
 
-One shape on every entity with appearance: workspaces, workspace groups,
-tabs (later), tab groups, screens, screen groups, rooms, browser profiles.
-
-- Flat nullable `color` and `icon` fields; two TEXT columns; updates like
-  `set-workspace-metadata` (JSON null clears, absent keeps).
-- Color vocabulary: the 9 Chrome names grey, blue, red, yellow, green, pink,
-  purple, cyan, orange, as muted tints. Required colors (tab groups, screen
-  groups) check the strict 9 names; optional ones use the permissive
-  `validate_presentation_color`.
-- Icon: an SF Symbol name or exactly one emoji grapheme, checked by the one
-  shared `validate_presentation_icon`.
-
-Screen schema (feat-cmux-next-screens, `screen-metadata-v1`,
-`screen-groups-v1`): screen JSON gains `color`, `icon`, `pinned`, `group`;
-workspace JSON gains `screen_groups`; saved screen groups carry nullable
-`profile_id`. Code in `mux/screen_groups.rs` and
-`workspace_registry/screen_store.rs`; rooms in `mux/profiles.rs` and
-`workspace_registry/profile_store.rs`.
-
-## 8. App surfaces (action contract)
-
-Sidebar footer, bottom center: one dot per room (its icon when set, tinted
-with its color), the current one emphasized. Click switches this window,
-right-click opens the room menu, drag reorders, `+` creates. Hidden while
-there is one room (New Room stays in the sidebar background menu, palette,
-menu bar and CLI). A two-finger horizontal swipe over the sidebar switches to
-the previous or next room.
-
-Actions (one descriptor each: palette, context menu where it has a target,
-CLI verb, bindable shortcut):
-
-| Area | Actions |
+| Area | Actions (each: palette, context menu where targeted, CLI verb, bindable shortcut) |
 | --- | --- |
-| Rooms | New Room, Rename, Set Color (9) / Clear, Set Icon / Clear, Set Theme / Clear, Set Default Browser Profile, Set Terminal Defaults, Move Left / Right / to Position, Delete (confirmation, optional move target), Next / Previous (Cmd-Opt-] / Cmd-Opt-[), Select 1-9 (Ctrl-Opt-1..9), Switch to Room, New Window in Room |
-| Workspaces | New Workspace in Room, Move to Room, Duplicate into Room, Set Browser Profile / Clear, Set Theme / Clear |
-| Workspace groups | Move Group to Room |
-| Browser profiles | New Browser Profile, Rename, Set Color / Icon, Delete (confirmation), New Tab with Browser Profile, Open Link in Browser Profile, Move Tab to Browser Profile, Duplicate Tab into Browser Profile |
+| Rooms | New Room, New Window in Room, New Workspace in Room, Rename, Set Color (9) / Clear, Set Icon / Clear, Set Theme / Clear, Set Default Browser Profile, Set Default Session, Follow / Unfollow Session, Set Terminal Defaults, Move Left / Right / to Position, Delete (confirmation), Next / Previous (Cmd-Opt-] / [), Select 1-9 (Ctrl-Opt-1..9), Switch to Room |
+| Workspaces | New Workspace on Session, Move to Room, Duplicate into Room, Set Browser Profile / Clear, Set Theme / Clear, Move to Session (re-home layout) |
+| Groups | Move Group to Room |
+| Browser profiles | New, Rename, Set Color / Icon, Delete (confirmation), New Tab with Browser Profile, Open Link in Browser Profile, Move Tab to Browser Profile, Duplicate Tab into Browser Profile |
+| Sessions | Connect, Disconnect, Forget, Rename, Move Terminal to Session (re-create) |
 
-Shortcut defaults avoid the existing families: Cmd-Shift-[ ] tabs, Cmd-Ctrl-[
-] workspaces, Cmd-Ctrl-Opt-[ ] workspace reorder, Cmd-1..9 workspaces,
-Ctrl-1..9 tabs and right sidebar.
+## 8. Stages
 
-## 9. Stages
+1. Sessions registry and qualified IDs: `session-identity-v1`; the app's
+   session registry (home table), qualified IDs in the control socket, CLI
+   `--session`.
+2. Remote terminal references in home layouts: `remote-terminal-tabs-v1`,
+   placeholder and snapshot, machine badge, moves across sessions.
+3. Rooms on personal membership rules (section 3), personal groups and
+   order, the migration, dots, switching, actions.
+4. Browser profiles (section 5).
+5. Themes (`ThemeScope`, section 6).
 
-1. Rooms: daemon tag, window switching, dots, swipe, room and workspace
-   actions, strings in 21 languages.
-2. Browser profiles: daemon records and cascade, engine mapping, omnibar and
-   tab display, browser-profile actions.
-3. Themes: `ThemeScope` in CmuxNextDesign, room and workspace themes.
+The app work already written for rooms (dots, swipe, window switching,
+actions) carries over; its membership test changes from a workspace tag to
+the rules in 3.2.
+
+## 9. Shared appearance and screen schema (feat-cmux-next-screens)
+
+- Flat nullable `color` and `icon` on every entity with appearance; two TEXT
+  columns; JSON null clears, absent keeps. Colors: the 9 Chrome names (grey,
+  blue, red, yellow, green, pink, purple, cyan, orange) as muted tints; strict
+  for required colors (tab and screen groups), permissive
+  (`validate_presentation_color`) for optional ones. Icon: SF Symbol name or
+  one emoji, one shared `validate_presentation_icon`.
+- Screens (`screen-metadata-v1`, `screen-groups-v1`): screen JSON gains
+  `color`, `icon`, `pinned`, `group`; workspace JSON gains `screen_groups`.
+  Screens and screen groups are layout (1.2b) and live on the workspace's home
+  session. Saved screen groups are personal (1.2c): they move to the home
+  session like saved tab groups, keyed by room.
 
 ## 10. Open points for the user
 
-- The name (section 1).
-- Delete Room without a target closes its workspaces and ends their terminals;
-  the confirmation offers moving them instead.
-- A new room shares the current room's browser profile unless the user picks
-  "new browser profile" (logins keep working by default).
-- Moving a workspace to another room keeps each live page in its browser
-  profile; mismatches show the tab dot (section 5).
+- The room name (3.4).
+- Delete Room: its pinned workspaces return to their followers by default;
+  closing them is an explicit option in the confirmation.
+- Breaking changes 2.1, above all workspace groups and sidebar order becoming
+  personal (the TUI and iOS stop seeing the Mac's grouping).
