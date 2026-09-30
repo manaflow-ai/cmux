@@ -47,40 +47,28 @@ When we change the fork, update this document and the parent submodule SHA.
   soft-wrapped line counts; a hard newline in a multi-line buffer takes no
   cell, so offsets across it would not map onto arrow keys.
 
-### Prompt input caret stops and selection
 
-- Branches: `cmux/prompt-input-selection` ([manaflow-ai/ghostty#235](https://github.com/manaflow-ai/ghostty/pull/235)),
-  `cmux/prompt-input-right-prompt` ([manaflow-ai/ghostty#237](https://github.com/manaflow-ai/ghostty/pull/237)),
-  `cmux/prompt-input-erased-spaces` ([manaflow-ai/ghostty#238](https://github.com/manaflow-ai/ghostty/pull/238))
-- Commits: `218d80ead`, `d3edc8ede`, `cda3f06df`, `aa2472dbb`; merged to fork
-  `main` as `1015e149c`, `f8f8f828a` and `b93ab4222`
-- Summary: `ghostty_surface_prompt_input` reports the OSC 133 shell input the
-  cursor is editing (length and caret in caret stops, plus the selection when it
-  lies wholly inside the input), and `ghostty_surface_select_prompt_input`
-  selects a range of it without writing a clipboard. A caret stop is an `.input`
-  cell holding text, wide spacers skipped, so one stop is one Left/Right step
-  for zle or readline. cmux's `terminal.promptSelection` uses them for
-  text-field selection at the prompt. Both refuse the alternate screen, a
-  running command, a line with no `.prompt` cell before its input (fzf
-  `--height` and completion menus draw in input mode), and a line holding a
-  multi-codepoint grapheme. The input ends at the first empty cell at or after
-  the cursor, because zle draws RPROMPT after OSC 133 B by moving across the
-  gap, which makes a right prompt `.input` text. Spaces at or after the cursor
-  that run into that end are dropped too: with RPROMPT shown, zle erases
-  deleted text by writing spaces.
-- Coverage: eleven `Screen: promptInput ...` Zig tests, run by
-  `build-ghosttykit.yml` before packaging (`-Dtest-filter="promptInput"`).
-  Hosted [run 36319683313](https://github.com/manaflow-ai/cmux/actions/runs/36319683313) passed 84 tests with this filter at `b93ab4222` (74 with
-  the single-test pacer filter, so all eleven ran) and published GhosttyKit.
-- Artifact:
-  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b93ab422284ad3ae982bf7e2fc7651a55ddf1e4f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-- SHA-256 `6aadd3e2ae583ef323212a95aeacd73eed1056d7dae51b0f76ade1c3dfaaaedb`
+### VT replay blank cells keep the default style
+
+- Branch: `fix-formatter-blank-cell-style-9d8d`
+  ([manaflow-ai/ghostty#249](https://github.com/manaflow-ai/ghostty/pull/249)),
+  based on `9d8d40319`. The same commits on top of `e1b8bf5f4` are
+  [manaflow-ai/ghostty#246](https://github.com/manaflow-ai/ghostty/pull/246);
+  cmux does not pin them because of
+  [#16040](https://github.com/manaflow-ai/cmux/issues/16040).
+- Commits: `1a3d3584c` (regression test), `559740279` (fix)
+- Summary: the VT and HTML formatters wrote pending blank cells as spaces
+  before switching to the next cell's style, so the spaces took the previous
+  cell's colors. Claude Code's mascot sets a black background and skips three
+  cells with CHA, which a Cloud replay painted as a black box. The formatter
+  now closes a non-default style before the pending blanks.
+- Coverage: Ghostty's `Page VT unstyled blank cells do not inherit the
+  previous background`.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-55974027991e4230210712796cd87c7b3a2018ee-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `fadcca35636c45690dcfd180d0889f0adc3b0e636fadf7a97c74b14017031cf8`
   is pinned in `scripts/ghosttykit-checksums.txt`.
-- Conflict note: everything lives in new functions (`Screen.promptInput`,
-  `Screen.promptInputSelection`, `Surface.promptInput`,
-  `Surface.selectPromptInput`, and two `CAPI` exports). Only the cursor's
-  soft-wrapped line counts; a hard newline in a multi-line buffer takes no
-  cell, so offsets across it would not map onto arrow keys.
+- Conflict note: upstream has the same bug. Keep the close before
+  `splatByteAll(' ', blank_cells)`; it mirrors the row-break reset above it.
 
 ### Cloud VT replay keeps the active viewport anchored
 
@@ -195,12 +183,27 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `e1b8bf5f4`, the OSC 133;A prompt
-line fix (section 15, manaflow-ai/ghostty#245) on top of `9d8d40319`, which
-corrects the styled blank row test. Artifact
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e1b8bf5f478c6aadbf70e51cdbb41930e92fda10-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-has SHA-256 `d18c7ddcc9f503cf2b03dff07b7001f4fc04f60d3d22bf84b2b4d5d5ce9ec885`,
-pinned in `scripts/ghosttykit-checksums.txt`. The previous pin was `9961d09be`,
+The submodule pinned by this branch is `9c1e67c07`, a merge of `c318e7825` (the
+133;P prompt and wrap padding fix, section 16, manaflow-ai/ghostty#247) and
+`559740279` (the VT replay blank-cell style fix, manaflow-ai/ghostty#249),
+landed on fork main by manaflow-ai/ghostty#250. It carries `e1b8bf5f4` again;
+see [#16040](https://github.com/manaflow-ai/cmux/issues/16040). Artifact
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-9c1e67c073cce77d7c2bb2592b2bf84d502bb74e-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `4538cfea411ca43a420055594b96bcaf7e7b9bea70cb68fb669e2f1242e098d4`, pinned in
+`scripts/ghosttykit-checksums.txt`.
+Earlier: the submodule pinned by this branch is `559740279`, the VT replay blank-cell
+style fix (manaflow-ai/ghostty#249) on top of `9d8d40319`, which is `9961d09be`
+plus its styled blank row test fix. It leaves out `e1b8bf5f4`: with it, cmux
+DEV.app does not open its socket on current main
+([#16040](https://github.com/manaflow-ai/cmux/issues/16040)). Artifact
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-55974027991e4230210712796cd87c7b3a2018ee-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `fadcca35636c45690dcfd180d0889f0adc3b0e636fadf7a97c74b14017031cf8`,
+pinned in `scripts/ghosttykit-checksums.txt`. The previous pin was `9961d09be`
+(set by #15747); the pin before that was `e1b8bf5f4`,
+the OSC 133;A prompt line fix (section 15, manaflow-ai/ghostty#245) on top of
+`9d8d40319`, which corrects the styled blank row test (artifact SHA-256
+`d18c7ddcc9f503cf2b03dff07b7001f4fc04f60d3d22bf84b2b4d5d5ce9ec885`). The pin
+before that was `9961d09be`,
 the Cloud VT replay
 styled-blank-row fix on top of fork `main`, Ghostty #241's carried trailing
 row state, and the exact #239 startup-input commits. The previous pin was
@@ -2118,7 +2121,28 @@ tend to conflict together during rebases.
     semantic-prompt reflow should keep a prompt at column 0 of its own
     logical line.
 
-The current cmux pin is the merged head `34cbf180d`, which merges the surface
+### 16) Primary 133;P prompts and wrap padding
+
+- Commits:
+  - `f1906ae5a` (test: a 133;P primary prompt after a padded partial line must stay on its own line)
+  - `1975783f4` (terminal: start a 133;P primary prompt on its own logical line)
+  - `33620abfb` (terminal: drop the padding that forced a wrap before a prompt)
+  - `c318e7825` (test: narrow to a width that still fits the cursor)
+- Files:
+  - `src/terminal/Terminal.zig`
+  - `src/terminal/Screen.zig`
+- Summary:
+  - Ghostty's bash integration marks a ble.sh prompt with `133;P;k=i`, not
+    `133;A`. An explicit primary prompt start at column 0 of a soft-wrap
+    continuation row now breaks that wrap too.
+  - Breaking the wrap also clears the trailing unstyled spaces on the row
+    above. They were padding that forced the wrap, and as text they reflowed
+    into blank rows where a shell redraw could land.
+- Conflict notes:
+  - Keep `cursorBreakWrapIntoRow` limited to primary prompts: continuation
+    and right prompts must keep their wrap.
+
+An earlier cmux pin was the merged head `34cbf180d`, which merges the surface
 registry serialization (`e5c962a72`, section 14, landed on cmux `main` via
 branch `issue-5458-surface-registry-lock`) into the Cmd-click link fix line
 (`df789cd4b`, section 13) on top of the iOS render bounded-acquire pin

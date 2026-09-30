@@ -353,26 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "aperçu",
-      "team": "équipe",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Aperçu",
+      "team": "Équipe",
       "mobileDevices": "Appareils mobiles",
-      "settings": "réglages",
-      "teams": "équipes"
+      "settings": "Réglages",
+      "teams": "Équipes"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Acheminez les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
-      "coderouterLink": "ouvrir coderouter",
-      "iosAppName": "application iOS",
+      "coderouterLink": "Ouvrir coderouter",
+      "iosAppName": "Application iOS",
       "iosAppDescription": "Installez l'application iOS cmux via TestFlight (accès bêta).",
       "iosLink": "Ouvrir l'application iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Gérez les comptes d’IA partagés et acheminez les requêtes avec coderouter.",
-      "title": "coderouter",
-      "description": "coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
+      "title": "Coderouter",
+      "description": "Coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
       "machines": {
         "title": "Machines",
         "description": "Utilisation de coderouter par machine pour {team} sur les {days} derniers jours.",
@@ -407,7 +407,8 @@
       "signingOut": "Déconnexion…",
       "signOutError": "Impossible de se déconnecter. Réessayez.",
       "organizationSwitchError": "Impossible de changer d’organisation. Réessayez.",
-      "signIn": "Se connecter"
+      "signIn": "Se connecter",
+      "upgrade": "Passer à un forfait supérieur"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "Créer une équipe"
+      },
+      "title": "Forfait et facturation",
+      "picker": {
+        "current": "Forfait actuel",
+        "upgradeTo": "Passer à {plan}",
+        "switchTo": "Basculer vers {plan}",
+        "cancelPlan": "Résilier le forfait",
+        "resume": "Reprendre {plan}",
+        "renewsOn": "Renouvellement le {date}",
+        "endsOn": "Se termine le {date}",
+        "perMonth": "par mois",
+        "perSeatMonth": "par siège et par mois",
+        "paymentMethod": "Gérer le moyen de paiement",
+        "invoices": "Factures",
+        "heading": "Forfaits",
+        "actionError": "Impossible de modifier le forfait. Réessayez.",
+        "unavailable": {
+          "cancelScheduled": "Reprenez votre forfait pour le modifier.",
+          "granted": "Accordé par cmux. Il n'y a rien à modifier.",
+          "adminOnly": "Seuls les administrateurs de l'équipe peuvent modifier le forfait."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "Le terminal cmux complet pour macOS",
+            "N'importe quel agent CLI avec vos propres clés",
+            "Historique des sessions en local"
+          ],
+          "go": [
+            "1 Cloud VM active",
+            "40 heures de VM par mois",
+            "2 VM enregistrées"
+          ],
+          "pro": [
+            "Agents cloud sur des Cloud VMs",
+            "24 Go de RAM et 6 vCPU partagés entre les VM",
+            "L'app cmux pour iOS"
+          ],
+          "max": [
+            "64 Go de RAM et 16 vCPU partagés entre les VM",
+            "Des machines plus grandes",
+            "Tout ce qu'inclut Pro"
+          ],
+          "team": [
+            "Tout ce qu'inclut Pro pour chaque membre",
+            "Une seule facture pour toute l'équipe",
+            "Support prioritaire"
+          ]
+        },
+        "billedAnnually": "facturé annuellement"
+      },
+      "change": {
+        "title": "Basculer vers {plan} ?",
+        "upgradeBody": "{plan} démarre maintenant. Vous payez {amount} aujourd'hui pour le reste de cette période de facturation. À partir du {date}, vous payez {price} par mois.",
+        "downgradeBody": "{plan} démarre maintenant. La partie non utilisée de votre forfait actuel, {credit}, est créditée sur vos prochaines factures. Votre prochaine facture, le {date}, est de {amount}.",
+        "confirm": "Basculer vers {plan}",
+        "keep": "Garder le forfait actuel",
+        "switching": "Changement…",
+        "previewError": "Impossible de calculer le prix. Réessayez.",
+        "paymentFailed": "Votre carte a été refusée. Mettez à jour votre moyen de paiement, puis réessayez.",
+        "error": "Impossible de changer de forfait. Réessayez."
+      },
+      "cancelDialog": {
+        "title": "Résilier {plan} ?",
+        "body": "Vous gardez {plan} jusqu'au {date}. Ensuite, vous perdez :",
+        "bodyNoDate": "Vous gardez {plan} jusqu'à la fin de cette période de facturation. Ensuite, vous perdez :",
+        "reasonLabel": "Pourquoi résiliez-vous ? (facultatif)",
+        "otherPlaceholder": "Dites-nous-en plus (facultatif)",
+        "confirm": "Résilier le forfait",
+        "keep": "Garder {plan}",
+        "error": "Impossible de résilier le forfait. Réessayez.",
+        "resumeError": "Impossible de reprendre le forfait. Réessayez.",
+        "reasons": {
+          "too_expensive": "Trop cher",
+          "missing_feature": "Il manque une fonctionnalité",
+          "not_using": "Je ne l'utilise pas assez",
+          "other": "Autre"
+        }
+      },
+      "welcome": {
+        "title": "Bienvenue dans {plan}",
+        "body": "Votre forfait est actif. À essayer en premier :",
+        "ios": "Installer l'app iOS",
+        "cloud": "Ouvrir Cloud",
+        "team": "Créer une équipe",
+        "banner": "Vous êtes maintenant sur {plan}.",
+        "bannerLink": "Forfait et facturation"
       }
     },
     "mobileDevices": {
@@ -467,7 +561,7 @@
       "relaySettings": "Paramètres du relais",
       "relaySettingsDescription": "Choisissez les serveurs relais utilisés par cette équipe. Saisissez une URL par ligne.",
       "saveRelaySettings": "Enregistrer les paramètres du relais",
-      "eyebrow": "cloud / appareils",
+      "eyebrow": "Cloud / appareils",
       "scopeActive": "Affichage de cette équipe",
       "emptyTitle": "Aucun appareil connecté pour le moment",
       "emptyDescription": "Lorsqu’un appareil cmux est associé à cette équipe, il apparaît ici avec sa plateforme, sa version et ses contrôles d’accès.",
@@ -488,7 +582,10 @@
         "account": "Compte",
         "billing": "Facturation",
         "teamsGroup": "Équipes",
-        "createTeam": "Créer une équipe"
+        "createTeam": "Créer une équipe",
+        "accountGroup": "Compte",
+        "billingGroup": "Facturation",
+        "planBilling": "Forfait et facturation"
       },
       "ui": {
         "save": "Enregistrer",
@@ -1015,8 +1112,8 @@
       "apiKeySecretBody": "Ce secret ne sera plus affiché.",
       "apiKeyCopy": "Copier la clé API",
       "apiKeyCopied": "Copié",
-      "apiKeyCreatedAt": "créée {at}",
-      "apiKeyLastUsed": "dernier usage {at}",
+      "apiKeyCreatedAt": "Créée {at}",
+      "apiKeyLastUsed": "Dernier usage {at}",
       "apiKeyRevoked": "Révoquée",
       "apiKeyLabelPlaceholder": "Par exemple, CI ou production",
       "createApiKeyAction": "Créer une clé API",
@@ -1030,7 +1127,9 @@
       "apiKeyUsageUnavailable": "Utilisation indisponible",
       "revokeApiKeyConfirmBody": "Les clients utilisant cette clé ne pourront plus s’authentifier immédiatement.",
       "apiKeysEmptyTitle": "Aucune clé API pour l’instant",
-      "apiKeysEmptyHint": "Créez-en une pour authentifier un client CodeRouter."
+      "apiKeysEmptyHint": "Créez-en une pour authentifier un client CodeRouter.",
+      "unavailableTitle": "Les comptes partagés sont indisponibles",
+      "unavailableBody": "cmux ne parvient pas à joindre le service des comptes partagés pour le moment. Les comptes ajoutés avec cr add et les comptes Anthropic et Bedrock fonctionnent toujours."
     },
     "notFound": {
       "title": "Page introuvable",
@@ -1050,6 +1149,14 @@
       },
       "retry": "Réessayer",
       "retrying": "Nouvelle tentative…"
+    },
+    "upgrade": {
+      "title": "Nécessite Pro",
+      "cloud": "Les Cloud VMs et les agents cloud font partie de Pro.",
+      "testflight": "L'app cmux pour iOS fait partie de Pro.",
+      "mobileDevices": "La connexion de votre téléphone et de votre tablette fait partie de Pro.",
+      "action": "Passer à Pro",
+      "comparePlans": "Comparer les forfaits"
     }
   },
   "community": {

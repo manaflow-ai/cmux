@@ -85,6 +85,12 @@ def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL
 
 
 class PreferenceOrder(unittest.TestCase):
+    def test_blacksmith_headroom_must_fit_the_whole_run(self):
+        snap = backlog(small=0, large=0, old=0)
+        for entry in snap["pools"].values():
+            entry["running"] = 0
+        self.assertEqual(choose(snap, jobs=6, queue_rounds="0").runner, LARGE)
+
     def test_12vcpu_first_while_it_has_headroom(self):
         choice = choose(backlog(small=0, large=0))
         self.assertEqual((choice.runner, choice.xcode_app), (LARGE, ""))
@@ -695,7 +701,8 @@ class OwnedPools(unittest.TestCase):
         ids = [step.get("id") for step in steps]
         mint = steps[ids.index("route-token")]
         self.assertLess(ids.index("route-token"), ids.index("macos-pool"))
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", mint["if"])
+        self.assertIn("contains(fromJSON(env.CI_OWNED_HEAD_REPOS)", mint["if"])
+        self.assertIn("teamleaderleo/cmux", yaml.safe_load((WORKFLOWS / "ci.yml").read_text()).get("env", {}).get("CI_OWNED_HEAD_REPOS", ""))
         self.assertIs(mint["continue-on-error"], True)
         self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
         self.assertEqual(mint["with"]["permission-administration"], "read")
@@ -2373,7 +2380,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(changes["permissions"]["actions"], "read")
         step = next(step for step in changes["steps"] if step.get("id") == "macos-pool")
         self.assertIs(step["continue-on-error"], True)
-        self.assertEqual(step["run"], "python3 scripts/ci/pr_runner_pool.py")
+        self.assertEqual(step["run"], "python3 scripts/ci/simple_pool_picker.py")
         self.assertEqual(step["env"]["DEFAULT_RUNNER"], "${{ vars.MACOS_RUNNER_PR }}")
 
     def test_a_persistent_choice_publishes_the_rescue_marker(self):
@@ -2473,7 +2480,7 @@ class Wiring(unittest.TestCase):
     def test_xcode_pins_follow_the_chosen_pool(self):
         # A fork pull request never reads the lane's pin (see
         # tests/test_ci_fork_runner_routing.py); main's dispatch still does.
-        same = "github.event.pull_request.head.repo.full_name == github.repository"
+        same = "contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
         dispatch_lane = (f"(inputs.pr_xcode_app || (github.event_name != 'pull_request' || {same}) "
                          "&& vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)")
         main_dispatch = ("${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' "
@@ -2492,7 +2499,7 @@ class Wiring(unittest.TestCase):
             step = steps[ids.index(step_id)]
             self.assertEqual(step["env"]["XCODE_APP"],
                              "${{ steps.macos-pool.outputs.xcode_app || "
-                             "github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR "
+                             "contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name) && vars.CMUX_CI_XCODE_APP_PR "
                              "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}", step_id)
 
     def test_reusable_inputs_default_to_todays_route(self):
@@ -2582,19 +2589,18 @@ class Wiring(unittest.TestCase):
                  "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
                  "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner)")
-        self.assertEqual(job["runs-on"], (
-            "${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && "
-            "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || "
-            # The opt-in build-fleet gateway (hq#794), which builds no helper.
-            "github.event_name == 'pull_request' && "
-            "!(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || "
-            f"{owned} || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || "
-            "'blacksmith-6vcpu-macos-15') }}"))
+        self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
+        self.assertIn("contains(inputs.pr_owned_jobs, ' swift-package ')", job["runs-on"])
+        self.assertNotIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith", job["runs-on"])
+        self.assertIn("contains(fromJSON(inputs.owned_head_repos)", job["env"]["CMUX_CI_XCODE_APP"])
+        self.assertIn("contains(inputs.pr_owned_jobs, ' swift-package ')", job["env"]["CMUX_CI_XCODE_APP"])
+        self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", job["env"]["CMUX_CI_XCODE_APP"])
+        self.assertEqual(job["runs-on"].count("swift-package"), 1)
+        self.assertEqual(job["runs-on"].count("blacksmith-6vcpu-macos-15"), 2)
         # The Xcode follows the same condition: the lane pin on the owned
         # label, the macOS 15 pin everywhere else.
-        self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"],
-                         f"${{{{ {owned} && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) "
-                         "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}")
+        self.assertIn("inputs.owned_head_repos", job["env"]["CMUX_CI_XCODE_APP"])
+        self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", job["env"]["CMUX_CI_XCODE_APP"])
         block = yaml.safe_dump(job)
         for lane in ("pr_retry_runner", "pr_root_runner", "pr_shard_runner", "MACOS_RUNNER_PR"):
             self.assertNotIn(lane, block, lane)
@@ -2616,15 +2622,12 @@ class Wiring(unittest.TestCase):
                  "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
                  "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner)")
-        expected = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && "
-                    "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
-                    f"{owned} || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}}}")
-        self.assertEqual(job["runs-on"], expected)
-        self.assertEqual(job["env"]["CMUX_PRODUCT_RUNNER"], expected)
+        self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
+        self.assertIn("contains(inputs.pr_owned_jobs, ' release-build ')", job["runs-on"])
+        self.assertEqual(job["runs-on"], job["env"]["CMUX_PRODUCT_RUNNER"])
         # The Xcode follows the same condition: the lane pin on the owned label.
-        self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"],
-                         f"${{{{ {owned} && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) "
-                         "|| vars.CMUX_CI_XCODE_APP_MACOS_26 }}")
+        self.assertIn("inputs.owned_head_repos", job["env"]["CMUX_CI_XCODE_APP"])
+        self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", job["env"]["CMUX_CI_XCODE_APP"])
         self.assertEqual(pool.RELEASE_BUILD_JOB, "release-build")
 
     def test_release_build_is_a_side_lane_of_a_full_suite_with_release_build(self):
