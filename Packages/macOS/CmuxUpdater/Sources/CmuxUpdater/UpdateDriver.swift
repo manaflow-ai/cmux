@@ -227,15 +227,13 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// later check waiting on a session that never ends). Restart Now is an explicit confirmation,
     /// so it continues through Sparkle once without reopening the relaunch gate.
     private func showRestartToComplete(install: @escaping () -> Void) {
-        let once = InstallOnce(install)
+        let once = InstallOnce { [weak self] in
+            self?.allowNextRelaunch = true
+            install()
+        }
         setState(.installing(.init(
             isAutoUpdate: true,
-            retryTerminatingApplication: { [weak self] in
-                if let self {
-                    self.allowNextRelaunch = true
-                }
-                once.run()
-            },
+            retryTerminatingApplication: { once.run() },
             dismiss: {}
         )))
     }
