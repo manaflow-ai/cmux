@@ -145,6 +145,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
+    func testVMRunCreateIdempotencyKeySurvivesUnknownOutcome() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-run-create-(UUID().uuidString.prefix(8))")
+        let storeURL = root.appendingPathComponent("vm-run-create-idempotency.json")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let first = try CMUXCLI.activeVMRunCreateIdempotency(to: storeURL)
+        let retry = try CMUXCLI.activeVMRunCreateIdempotency(to: storeURL)
+        XCTAssertEqual(retry.key, first.key, "a retry must join the unresolved create")
+
+        CMUXCLI.clearVMRunCreateIdempotency(first, at: storeURL)
+        let next = try CMUXCLI.activeVMRunCreateIdempotency(to: storeURL)
+        XCTAssertNotEqual(next.key, first.key, "a completed create must allow the next run to start fresh")
+    }
+
     func testVMRunReusesIdlePoolMachine() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-run-reuse")
