@@ -23,6 +23,18 @@ import Testing
         return machine
     }
 
+    /// A same-document URL change (pushState, a fragment) keeps what the
+    /// engine found about the page: a mixed-content, broken-certificate or
+    /// dangerous page never turns "secure" because its path changed.
+    @Test func sameDocumentURLChangesKeepEngineSecurity() {
+        for refined in [BrowserSecurityState.mixedContent, .broken, .dangerous] {
+            var machine = loaded(a, id: nav1)
+            machine.apply(.securityChanged(refined))
+            machine.apply(.urlChanged(URL(string: "https://a.example/next?x=1#top")!))
+            #expect(machine.state.security == refined, "\(refined)")
+        }
+    }
+
     @Test func fullNavigationLifecycle() {
         var machine = BrowserTabStateMachine()
         #expect(machine.state.phase == .idle)
