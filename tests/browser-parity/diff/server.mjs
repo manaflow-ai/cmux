@@ -144,6 +144,10 @@ function handler(ctx) {
         ],
       });
     }
+    if (p === "/cookies/set-domain") {
+      const domain = req.headers.host.replace(/:\d+$/, "").split(".").slice(-2).join(".");
+      return html(200, "Domain cookie", "<h1>domain cookie set</h1>", { "set-cookie": [`dom=1; Domain=${domain}; Path=/`, "host_only=1; Path=/"] });
+    }
     if (p === "/cookies/echo") {
       const names = (req.headers.cookie || "").split(/;\s*/).filter(Boolean).map((c) => c.split("=")[0]).sort();
       return send(200, "application/json", JSON.stringify({ host: req.headers.host.replace(/:\d+$/, ""), names }), { "access-control-allow-origin": "*" });

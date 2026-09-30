@@ -1,5 +1,6 @@
 // capabilities.json must map every reference capability to a cmux equivalent
-// proven by a scenario golden, or to an exclusion the design doc lists.
+// with differential cases (tests/browser-parity/diff), or to an exclusion the
+// design doc lists.
 //
 //   node --test tests/browser-parity/unit/
 import test from "node:test";
@@ -16,8 +17,8 @@ const ASIDE_GLOBALS = ["page", "tabs", "listBrowserTabs", "attachBrowserTab", "a
   "openTab", "closeTab", "snapshot", "snapshot.interactive", "snapshot.showHidden", "snapshot.ref", "snapshot.selector",
   "snapshot.diff", "annotatedScreenshot", "fetch", "fs", "path", "Buffer", "sleep", "display", "pwd", "console"];
 // docs/browser-repl/README.md, "Excluded from the references".
-const ALLOWED_EXCLUSIONS = new Set(["Browser.capabilities", "Browser.history", "BrowserUser.claimTab", "Tabs.content",
-  "ContentAPI.exportGsuite", "ContentAPI.exportYouTubeTranscript"]);
+// Only raw CDP: WebKit has no DevTools protocol.
+const ALLOWED_EXCLUSIONS = new Set(["Browser.capabilities"]);
 
 function asideMembers() {
   const sections = { PAGE: "Page", LOC: "Locator", KB: "Keyboard", MOUSE: "Mouse" };
@@ -41,19 +42,6 @@ function chatgptMembers() {
   });
 }
 
-const goldenKeys = new Map();
-function hasGoldenKey(proof) {
-  const at = proof.indexOf(":");
-  const scenario = proof.slice(0, at);
-  const key = proof.slice(at + 1);
-  if (!goldenKeys.has(scenario)) {
-    const file = path.join(root, "goldens", `${scenario}.json`);
-    const g = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : { oracle: {}, cmux: {} };
-    goldenKeys.set(scenario, new Set([...Object.keys(g.oracle), ...Object.keys(g.cmux)]));
-  }
-  return goldenKeys.get(scenario).has(key);
-}
-
 function checkEntry(name, entry) {
   assert.ok(entry, `${name} is not mapped in capabilities.json`);
   if (entry.excluded !== undefined) {
@@ -62,8 +50,9 @@ function checkEntry(name, entry) {
     return;
   }
   assert.ok(entry.cmux, `${name} has no cmux equivalent`);
-  assert.match(entry.proof || "", /^\d\d-[\w-]+:.+$/, `${name} needs a proof "<scenario>:<key>"`);
-  assert.ok(hasGoldenKey(entry.proof), `${name}: proof ${entry.proof} is not a key in that scenario's golden`);
+  // unit/diff.test.mjs checks the cases and their verdicts.
+  assert.ok(Array.isArray(entry.cases) && entry.cases.length, `${name} needs differential cases`);
+  assert.equal(entry.proof, undefined, `${name}: proof keys were replaced by cases`);
 }
 
 test("every Aside global maps to cmux", () => {

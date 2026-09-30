@@ -4,6 +4,7 @@
 // See tests/browser-parity/README.md, "Differential cases".
 //
 //   node tests/browser-parity/diff/run.mjs run --backend cmux-dev|cmux|aside|chatgpt [--only TEXT]
+//   node tests/browser-parity/diff/run.mjs check --backend cmux-dev|cmux [--only TEXT]
 //   node tests/browser-parity/diff/run.mjs verdicts [--only TEXT] [-v]
 //   node tests/browser-parity/diff/run.mjs report
 //
@@ -18,6 +19,7 @@ import { startDiffServer } from "./server.mjs";
 import { MARK, REFERENCES, loadCases, dialectSource, expand, prelude, readResults, writeResults, allVerdicts, normalizeStrings } from "./lib.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const CASE_TIMEOUT_MS = Number(process.env.DIFF_CASE_TIMEOUT_MS ?? 150_000);
 
 function parseArgs(argv) {
   const a = { mode: argv[0], backend: null, only: null, verbose: false, jobs: 1 };
@@ -25,6 +27,7 @@ function parseArgs(argv) {
     if (argv[i] === "--backend") a.backend = argv[++i];
     else if (argv[i] === "--only") a.only = argv[++i];
     else if (argv[i] === "--jobs") a.jobs = Number(argv[++i]);
+    else if (argv[i] === "--ids") a.ids = new Set(argv[++i].split(","));
     else if (argv[i] === "-v") a.verbose = true;
     else throw new Error(`unknown argument ${argv[i]}`);
   }
@@ -137,7 +140,7 @@ async function devBackend() {
   };
 }
 
-async function runReplBackend(backend, cases, origins, server) {
+async function runReplBackend(backend, cases, origins, server, onResult) {
   const out = {};
   const dev = backend === "cmux-dev" ? await devBackend() : null;
   const suffix = Math.random().toString(36).slice(2, 7);
@@ -164,13 +167,30 @@ async function runReplBackend(backend, cases, origins, server) {
       try {
         if (c.custom) {
           const fn = c.custom[backend] ?? c.custom.cmux;
-          r = fn ? { value: await fn(ctx) } : { uncaught: `no ${backend} runner` };
-        } else r = await repl(wrap(c, backend, origins), c.session ? { session: ctx.session(c.session) } : {});
+          let timer;
+          r = fn
+            ? await Promise.race([
+                fn(ctx).then((value) => ({ value })),
+                new Promise((resolve) => (timer = setTimeout(() => resolve({ uncaught: `case did not finish in ${CASE_TIMEOUT_MS} ms` }), CASE_TIMEOUT_MS))),
+              ])
+            : { uncaught: `no ${backend} runner` };
+          clearTimeout(timer);
+        } else {
+          // A case that never settles (a lost event, a held dialog) must not
+          // stop the run; the call is abandoned and reported.
+          let timer;
+          r = await Promise.race([
+            repl(wrap(c, backend, origins), c.session ? { session: ctx.session(c.session) } : {}),
+            new Promise((resolve) => (timer = setTimeout(() => resolve({ uncaught: `case did not finish in ${CASE_TIMEOUT_MS} ms` }), CASE_TIMEOUT_MS))),
+          ]);
+          clearTimeout(timer);
+        }
       } catch (e) {
         r = { uncaught: String(e.stack || e).slice(0, 800) };
       }
       out[c.id] = { ...r, ms: Date.now() - t0 };
       log(backend, c, out[c.id]);
+      onResult?.(c.id, out[c.id]);
     }
   } finally {
     for (const name of sessions) {
@@ -230,7 +250,38 @@ function meta(backend) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const cases = (await loadCases()).filter((c) => !args.only || c.id.includes(args.only) || c.file.includes(args.only));
+  const cases = (await loadCases()).filter((c) => (!args.only || c.id.includes(args.only) || c.file.includes(args.only)) && (!args.ids || args.ids.has(c.id)));
+  // check: run cmux (dev driver or app) now and judge it against the
+  // recorded reference evidence, without writing results.
+  if (args.mode === "check") {
+    const server = await startDiffServer();
+    const selected = cases.filter((c) => !(c.appOnly && args.backend === "cmux-dev"));
+    let out;
+    try {
+      out = await runReplBackend(args.backend, selected, server.origins, server);
+    } finally {
+      await server.close();
+    }
+    const fresh = { meta: {}, cases: Object.fromEntries(Object.entries(out).map(([id, r]) => [id, normalizeStrings(r, server.origins)])) };
+    const results = { cmux: args.backend === "cmux" ? fresh : { cases: {} }, "cmux-dev": args.backend === "cmux-dev" ? fresh : { cases: {} }, aside: readResults("aside"), chatgpt: readResults("chatgpt") };
+    let bad = 0;
+    for (const row of allVerdicts(selected, results)) {
+      if (row.cmuxProblems.length) {
+        bad++;
+        console.log(`FAIL ${row.id}: ${row.cmuxProblems.join("; ")}`);
+      }
+      for (const ref of REFERENCES) {
+        const v = row.refs[ref];
+        if (v.verdict === "cmux-worse") {
+          bad++;
+          console.log(`WORSE ${ref} ${row.id}: ${v.reason}`);
+        }
+      }
+    }
+    console.log(`${selected.length} cases, ${bad} failures or cmux-worse verdicts`);
+    process.exitCode = bad ? 1 : 0;
+    return;
+  }
   if (args.mode === "run") {
     const server = await startDiffServer();
     const selected = cases.filter((c) => !(c.appOnly && args.backend === "cmux-dev"));
@@ -238,7 +289,13 @@ async function main() {
     try {
       if (args.backend === "aside") out = await runAside(selected, server.origins, server);
       else if (args.backend === "chatgpt") out = await runChatgpt(selected, server.origins);
-      else out = await runReplBackend(args.backend, selected, server.origins, server);
+      else {
+        const partial = readResults(args.backend);
+        out = await runReplBackend(args.backend, selected, server.origins, server, (id, r) => {
+          partial.cases[id] = normalizeStrings(r, server.origins);
+          writeResults(args.backend, partial);
+        });
+      }
     } finally {
       await server.close();
     }
@@ -258,6 +315,10 @@ async function main() {
     const rows = allVerdicts(cases, results);
     const totals = {};
     for (const row of rows) {
+      if (row.cmuxProblems.length) {
+        totals["cmux:fails-expect"] = (totals["cmux:fails-expect"] ?? 0) + 1;
+        console.log(`FAIL ${row.id} [${row.cmuxBackend}]: ${row.cmuxProblems.join("; ")}`);
+      }
       for (const ref of REFERENCES) {
         const v = row.refs[ref];
         totals[`${ref}:${v.verdict}`] = (totals[`${ref}:${v.verdict}`] ?? 0) + 1;
@@ -265,7 +326,32 @@ async function main() {
       }
     }
     console.log(JSON.stringify(totals, null, 1));
-    process.exitCode = Object.keys(totals).some((k) => k.endsWith(":cmux-worse")) ? 1 : 0;
+    process.exitCode = Object.keys(totals).some((k) => k.endsWith(":cmux-worse") || k === "cmux:fails-expect") ? 1 : 0;
+    return;
+  }
+  // Writes each capability's `cases` (every case that lists the member),
+  // replacing the old single `proof` key.
+  if (args.mode === "sync-capabilities") {
+    const file = path.join(here, "..", "capabilities.json");
+    const caps = JSON.parse(fs.readFileSync(file, "utf8"));
+    const index = new Map();
+    for (const c of cases) for (const m of c.members ?? []) index.set(m, [...(index.get(m) ?? []), c.id]);
+    const apply = (ref, name, entry) => {
+      if (entry.excluded !== undefined) return entry;
+      const { proof, ...rest } = entry;
+      return { ...rest, cases: index.get(`${ref}:${name}`) ?? [] };
+    };
+    for (const [group, members] of Object.entries(caps.aside)) {
+      if (group === "$comment") continue;
+      for (const [name, entry] of Object.entries(members)) members[name] = apply("aside", group === "globals" ? name : `${group}.${name}`, entry);
+    }
+    for (const [name, entry] of Object.entries(caps.chatgpt)) caps.chatgpt[name] = apply("chatgpt", name, entry);
+    fs.writeFileSync(file, JSON.stringify(caps, null, 2) + "\n");
+    const empty = [];
+    for (const [ref, group] of [["aside", caps.aside], ["chatgpt", { chatgpt: caps.chatgpt }]]) {
+      for (const [g, members] of Object.entries(group)) for (const [name, e] of Object.entries(members)) if (e.cases && !e.cases.length) empty.push(`${ref} ${g === "globals" || g === "chatgpt" ? name : `${g}.${name}`}`);
+    }
+    console.log(empty.length ? `members without cases:\n  ${empty.join("\n  ")}` : "every member has cases");
     return;
   }
   if (args.mode === "report") {

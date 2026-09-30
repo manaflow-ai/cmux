@@ -55,6 +55,8 @@ function validateCase(c) {
 // override it. null means the reference cannot express the task.
 export function dialectSource(c, dialect) {
   const d = dialect === "cmux-dev" ? "cmux" : dialect;
+  // A reference the case is out of scope for does not run it.
+  if (c.scope?.[d]) return null;
   if (Object.prototype.hasOwnProperty.call(c, d)) return c[d];
   return c.code ?? null;
 }
@@ -76,9 +78,12 @@ export function prelude(origins) {
   return [
     `const ORIGINS = ${JSON.stringify(origins)};`,
     "const U = (p, o = 'primary') => ORIGINS[o] + p;",
-    "const E = async (f) => { try { const v = await f(); return v === undefined ? { ok: true } : { ok: true, value: v }; } catch (e) { return { error: String((e && e.message) || e).slice(0, 600), name: (e && e.name) || null }; } };",
+    "const small = (v) => { try { const s = JSON.stringify(v); return s === undefined || s.length > 2000 ? { type: Object.prototype.toString.call(v) } : v; } catch { return { type: Object.prototype.toString.call(v) }; } };",
+    "const E = async (f) => { try { const v = await f(); return v === undefined ? { ok: true } : { ok: true, value: small(v) }; } catch (e) { return { error: String((e && e.message) || e).slice(0, 600), name: (e && e.name) || null }; } };",
     "const ms = async (f) => { const t0 = Date.now(); const r = await E(f); return { ms: Date.now() - t0, ...r }; };",
     "const pause = (n) => new Promise((r) => setTimeout(r, n));",
+    // Format and pixel size of PNG or JPEG bytes (Uint8Array, Buffer or array).
+    "const imgInfo = (b) => { b = Array.from(b.subarray ? b.subarray(0, 65536) : b.slice(0, 65536)); const u32 = (i) => ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0; if (b[0] === 0x89 && b[1] === 0x50) return { format: 'png', width: u32(16), height: u32(20) }; if (b[0] === 0xff && b[1] === 0xd8) { for (let i = 2; i + 9 < b.length;) { if (b[i] !== 0xff) break; const m = b[i + 1], len = (b[i + 2] << 8) | b[i + 3]; if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { format: 'jpeg', width: (b[i + 7] << 8) | b[i + 8], height: (b[i + 5] << 8) | b[i + 6] }; i += 2 + len; } return { format: 'jpeg' }; } return { format: 'unknown', first: b.slice(0, 4) }; };",
   ].join("\n");
 }
 
@@ -113,7 +118,7 @@ const ERROR_CLASSES = [
   ["strict", /strict mode violation|resolved to [2-9]\d* elements/i],
   ["intercepted", /intercepts pointer events|intercepted|is covered|obscured|receives the click|would receive the click/i],
   ["stale", /\bstale\b|detached|not attached|no longer attached/i],
-  ["not-visible", /not visible|is hidden|element is not displayed/i],
+  ["not-visible", /not visible|is hidden|element is not displayed|resolved to hidden/i],
   ["disabled", /not enabled|is disabled|element is disabled/i],
   ["not-editable", /not editable|readonly|read-only/i],
   ["dialog", /dialog is open|blocked by (a|the) (javascript )?dialog/i],
@@ -123,8 +128,10 @@ const ERROR_CLASSES = [
   ["refused", /ERR_CONNECTION_REFUSED|Could not connect|NSURLErrorCannotConnectToHost|connection refused|ECONNREFUSED/i],
   ["redirects", /too many redirects|ERR_TOO_MANY_REDIRECTS|redirect loop|HTTPTooManyRedirects/i],
   ["aborted", /ERR_ABORTED|interrupted by another navigation|navigation (was )?(cancel|abort)|NSURLErrorCancelled|frame load interrupted/i],
-  ["closed", /has been closed|tab (was |is )?closed|No open tab|Target closed|page is closed|No tab with id|Tab not found/i],
-  ["no-element", /no_matches|"matchCount":0|resolved to 0 elements|no element|does not exist|not found|waiting for (locator|selector|getBy)|waiting on \w+ for selector/i],
+  ["crashed", /Target crashed|page crashed|web content process (terminated|crashed)/i],
+  ["closed", /has been closed|already handled|tab (was |is )?closed|No open tab|Target closed|page is closed|No tab with id|Tab not found/i],
+  ["invalid-arg", /Not a checkbox or radio button|Cannot (un)?check|is not a <select>|not an <input>|Malformed value|Non-input element|not an HTMLInputElement|Node is not an/i],
+  ["no-element", /did not find some options|no_matches|"matchCount":0|resolved to 0 elements|no element|does not exist|not found|waiting for (locator|selector|getBy)|waiting on \w+ for selector/i],
   ["timeout", /timeout|timed out|deadline/i],
   ["invalid-arg", /requires|invalid|expected|must be|not a valid|unknown (key|option|event|role)|TypeError|RangeError|SyntaxError|received an? /i],
 ];
@@ -133,7 +140,7 @@ export function classifyError(msg) {
   for (const [cls, re] of ERROR_CLASSES) if (re.test(m)) return cls;
   return "other";
 }
-const SPECIFIC = new Set(["strict", "intercepted", "stale", "not-visible", "disabled", "not-editable", "dialog", "auth", "tls", "dns", "refused", "redirects", "aborted", "closed", "no-element"]);
+const SPECIFIC = new Set(["crashed", "strict", "intercepted", "stale", "not-visible", "disabled", "not-editable", "dialog", "auth", "tls", "dns", "refused", "redirects", "aborted", "closed", "no-element"]);
 export const isSpecific = (cls) => SPECIFIC.has(cls);
 
 export function timingClass(n) {
@@ -190,7 +197,8 @@ export function differences(a, b, prefix = "") {
 export function checkExpect(c, cmuxValue) {
   if (!c.expect) return [];
   const got = comparable(cmuxValue ?? {});
-  const want = comparable(c.expect);
+  // Expectations name error classes and time classes directly.
+  const want = c.expect;
   const problems = [];
   for (const [k, v] of Object.entries(want)) if (stable(got[k]) !== stable(v)) problems.push(`expect ${k}: got ${JSON.stringify(got[k])}, want ${JSON.stringify(v)}`.slice(0, 300));
   return problems;
@@ -208,7 +216,7 @@ export function verdictFor(c, ref, cmuxRes, refRes) {
   // Cases capture expected failures with E(); an uncaught reference error is
   // a broken run, not evidence either way.
   if (refRes.uncaught) return { verdict: "not-run", reason: `${ref} run failed: ${refRes.uncaught}`.slice(0, 300) };
-  const keys = c.compare;
+  const keys = Array.isArray(c.compare) ? c.compare : c.compare?.[ref];
   const a = project(comparable(cmuxRes.value), keys);
   const b = project(comparable(refRes.value), keys);
   if (stable(a) === stable(b)) return { verdict: "same" };
@@ -250,6 +258,8 @@ export function allVerdicts(cases, results) {
     const { res, backend } = cmuxResultFor(c, results.cmux, results["cmux-dev"]);
     const row = { id: c.id, file: c.file, members: c.members ?? [], edge: c.edge ?? null, cmuxBackend: backend, refs: {} };
     for (const ref of REFERENCES) row.refs[ref] = verdictFor(c, ref, res, results[ref].cases[c.id]);
+    // cmux must meet the case's expectation whatever the references do.
+    row.cmuxProblems = !res ? ["not run"] : res.uncaught ? [`uncaught: ${res.uncaught}`.slice(0, 300)] : checkExpect(c, res.value);
     out.push(row);
   }
   return out;

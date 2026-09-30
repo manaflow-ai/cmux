@@ -1,7 +1,7 @@
 {
  "meta": {
   "backend": "chatgpt",
-  "recordedAt": "2026-09-30T08:44:47.721Z"
+  "recordedAt": "2026-09-30T09:41:08.564Z"
  },
  "cases": {
   "smoke.title-click": {
@@ -23,7 +23,2859 @@
      ]
     ]
    },
-   "ms": 1733
+   "ms": 1193,
+   "mode": "ax"
+  },
+  "page.goto.basic": {
+   "value": {
+    "url": "<primary>/diff/next.html",
+    "title": "Next page",
+    "returns": "void"
+   },
+   "ms": 1537,
+   "mode": "ax"
+  },
+  "page.goto.errors": {
+   "value": {
+    "empty": {
+     "error": "tab.goto requires a url",
+     "name": "Error"
+    },
+    "junk": {
+     "error": "Browser Use rejected this action due to browser security policy. Reason: The browser URL policy blocks this action. Browser use cannot visit the requested page. The requested URL is invalid. The agent must not attempt to achieve the same outcome via workaround, indirect execution, raw CDP or browser commands, alternate browser surfaces, or policy circumvention. Proceed only with a materially safer alternative that does not require this blocked browser action; if none exists, stop and request user input.",
+     "name": "Error"
+    }
+   },
+   "ms": 506,
+   "mode": "ax"
+  },
+  "page.reload": {
+   "value": {
+    "before": "Count 1",
+    "after": "Count 0"
+   },
+   "ms": 1023,
+   "mode": "ax"
+  },
+  "page.back-forward": {
+   "value": {
+    "afterBack": "<primary>/diff/lab.html",
+    "afterForward": "<primary>/diff/next.html",
+    "title": "Next page"
+   },
+   "ms": 879,
+   "mode": "ax"
+  },
+  "page.back-forward.no-entry": {
+   "value": {
+    "back": null,
+    "forward": null,
+    "url": "<primary>/diff/lab.html"
+   },
+   "ms": 659,
+   "mode": "ax"
+  },
+  "page.url-title.push-state": {
+   "value": {
+    "before": [
+     "<primary>/diff/lab.html",
+     "Diff lab"
+    ],
+    "after": [
+     "<primary>/diff/lab.html?pushed=1",
+     "Diff lab pushed"
+    ]
+   },
+   "ms": 643,
+   "mode": "ax"
+  },
+  "page.content": {
+   "value": {
+    "doctype": false,
+    "heading": true,
+    "frameText": true,
+    "typedValue": null
+   },
+   "ms": 688,
+   "mode": "ax"
+  },
+  "page.evaluate.forms": {
+   "value": {
+    "noArg": "Diff lab",
+    "arg": 2,
+    "promise": "later",
+    "string": 3,
+    "nested": {
+     "a": [
+      1,
+      "b",
+      null
+     ],
+     "d": true
+    },
+    "undef": true,
+    "thrown": {
+     "error": "Error: page boom\n    at __playwrightEvaluate (<anonymous>:2686:45)\n    at <anonymous>:2687:14\n    at runUserScript (<anonymous>:2688:10)\n    at <anonymous>:2692:10\n    at <anonymous>:2693:3",
+     "name": "Error"
+    }
+   },
+   "ms": 840,
+   "mode": "ax"
+  },
+  "page.evaluate.mutation": {
+   "value": {
+    "set": {
+     "error": "TypeError: Cannot set property textContent of [object Object] which has only a getter\n    at __playwrightEvaluate (<anonymous>:2686:85)\n    at <anonymous>:2687:14\n    at runUserScript (<anonymous>:2688:10)\n    at <anonymous>:2692:10\n    at <anonymous>:2693:3",
+     "name": "Error"
+    },
+    "status": "ready"
+   },
+   "ms": 502,
+   "mode": "ax"
+  },
+  "page.evaluate.options": {
+   "value": {
+    "withArg": 2
+   },
+   "ms": 636,
+   "mode": "ax"
+  },
+  "page.query.dollar": {
+   "value": {
+    "one": "Action",
+    "none": null,
+    "count": 3,
+    "texts": [
+     "First",
+     "Second",
+     "Third"
+    ],
+    "arg": 13,
+    "invalid": {
+     "error": "Playwright selector deadline exceeded",
+     "name": "Error"
+    }
+   },
+   "ms": 3753,
+   "mode": "ax"
+  },
+  "page.getters.page-level": {
+   "value": {
+    "locator": 3,
+    "role": 2,
+    "roleExact": 0,
+    "roleRegex": 1,
+    "checkbox": 1,
+    "text": 1,
+    "textExact": 0,
+    "textRegex": 1,
+    "label": 1,
+    "labelRegex": 1,
+    "placeholder": 1,
+    "testId": 3
+   },
+   "ms": 1524,
+   "mode": "ax"
+  },
+  "page.getters.errors": {
+   "value": {
+    "css": {
+     "error": "Playwright selector deadline exceeded",
+     "name": "Error"
+    },
+    "role": {
+     "error": "Timed out after 3000ms waiting for selector internal:role=notarole!: Timed out after 2ms waiting for CDP command Runtime.evaluate.",
+     "name": "Error"
+    },
+    "label": {
+     "error": "getByLabel requires a string or RegExp",
+     "name": "Error"
+    },
+    "text": {
+     "error": "getByText requires a string or RegExp",
+     "name": "Error"
+    },
+    "frame": {
+     "error": "Timed out after 3000ms waiting for selector !!! >> internal:control=enter-frame >> input: Browser Use encountered an error interacting with this webpage: M: Unexpected token \"!\" while parsing css selector \"!!!\". Did you mean to CSS.escape it?\n    at o (<anonymous>:8:4051)\n    at K (<anonymous>:8:5856)\n    at ge (<anonymous>:8:5001)\n    at L (<anonymous>:8:4846)\n    at y (<anonymous>:8:4754)\n    at ni (<anonymous>:8:6028)\n    at yt (<anonymous>:8:6750)\n    at to.parseSelector (<anonymous>:13:7107)\n    at <anonymous>:221:50\n    at <anonymous>:285:11",
+     "name": "Error"
+    }
+   },
+   "ms": 10006,
+   "mode": "ax"
+  },
+  "page.frame-locator": {
+   "value": {
+    "value": "in frame",
+    "label": 1,
+    "testId": 1,
+    "text": 1,
+    "regex": 1
+   },
+   "ms": 1443,
+   "mode": "ax"
+  },
+  "page.frame-locator.nested": {
+   "value": {
+    "text": "deep clicked"
+   },
+   "ms": 1203,
+   "mode": "ax"
+  },
+  "page.click-fill": {
+   "value": {
+    "status": "clicked",
+    "name": "via page.fill",
+    "missing": {
+     "error": "Error: Playwright selector deadline exceeded\nwaiting on click for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"click\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    }
+   },
+   "ms": 1608,
+   "mode": "ax"
+  },
+  "page.screenshot.forms": {
+   "value": {
+    "image": true,
+    "fullTaller": true,
+    "clipRatio": 2,
+    "jpeg": "jpeg",
+    "_plain": {
+     "format": "jpeg",
+     "width": 1225,
+     "height": 1071
+    }
+   },
+   "ms": 868,
+   "mode": "ax"
+  },
+  "page.screenshot.errors": {
+   "value": {
+    "clip": {
+     "error": "tab.screenshot clip requires x, y, width, and height",
+     "name": "Error"
+    },
+    "type": {
+     "ok": true,
+     "value": {
+      "type": "[object Uint8Array]"
+     }
+    }
+   },
+   "ms": 761,
+   "mode": "ax"
+  },
+  "page.wait-for-selector": {
+   "value": {
+    "late": "found",
+    "hidden": true,
+    "attached": true,
+    "detached": true,
+    "timeout": {
+     "ms": 469,
+     "error": "Error: Playwright selector deadline exceeded\nlocator.waitFor(visible) timed out for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"waitFor\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    }
+   },
+   "ms": 1775,
+   "mode": "ax"
+  },
+  "page.wait-for-load-state": {
+   "value": {
+    "domcontentloaded": true,
+    "load": true,
+    "networkidle": true,
+    "bogus": {
+     "ok": true
+    }
+   },
+   "ms": 850,
+   "mode": "ax"
+  },
+  "page.wait-for-url": {
+   "value": {
+    "exact": true,
+    "glob": true,
+    "regex": false,
+    "fn": false,
+    "opts": true,
+    "never": {
+     "ms": 417,
+     "error": "Timed out waiting for URL <primary>/never in tab 370922784.",
+     "name": "Error"
+    }
+   },
+   "ms": 1364,
+   "mode": "ax"
+  },
+  "page.wait-for-timeout": {
+   "value": {
+    "waited": true,
+    "slept": true,
+    "bad": {
+     "error": "playwright.waitForTimeout requires a non-negative integer",
+     "name": "Error"
+    }
+   },
+   "ms": 1229,
+   "mode": "ax"
+  },
+  "page.wait-for-event.errors": {
+   "value": {
+    "bad": {
+     "error": "playwright.waitForEvent only supports 'download' and 'filechooser'",
+     "name": "Error"
+    },
+    "none": {
+     "ms": 314,
+     "error": "Timed out after 300ms waiting for file chooser.",
+     "name": "Error"
+    }
+   },
+   "ms": 766,
+   "mode": "ax"
+  },
+  "page.on-off": {
+   "value": {
+    "seen": [
+     "log:lab log 42",
+     "warning:lab warn",
+     "error:lab error"
+    ]
+   },
+   "ms": 877,
+   "mode": "ax"
+  },
+  "page.viewport": {
+   "value": {
+    "shape": false,
+    "inner": {
+     "error": "Capability is not available: viewport",
+     "name": "Error"
+    }
+   },
+   "ms": 345,
+   "mode": "ax"
+  },
+  "page.bring-to-front": {
+   "value": {
+    "ok": false,
+    "visible": "visible"
+   },
+   "ms": 453,
+   "mode": "ax"
+  },
+  "page.close": {
+   "value": {
+    "closed": true,
+    "listed": false,
+    "again": {
+     "error": "Tab not found: 370922808. Existing tabs: none",
+     "name": "Error"
+    }
+   },
+   "ms": 333,
+   "mode": "ax"
+  },
+  "page.keyboard-mouse-objects": {
+   "value": {
+    "canvas": 1,
+    "keys": "hi"
+   },
+   "ms": 1654,
+   "mode": "legacy"
+  },
+  "tabs.open-current": {
+   "value": {
+    "same": true,
+    "url": "<primary>/diff/lab.html",
+    "title": "Diff lab"
+   },
+   "ms": 616,
+   "mode": "ax"
+  },
+  "tabs.list-get": {
+   "value": {
+    "count": 2,
+    "keys": [
+     "id",
+     "title",
+     "url"
+    ],
+    "titles": [
+     "Diff lab",
+     "Next page"
+    ],
+    "getTitle": "Diff lab",
+    "userRows": 2,
+    "missing": {
+     "error": "Expected a positive integer",
+     "name": "Error"
+    }
+   },
+   "ms": 1048,
+   "mode": "ax"
+  },
+  "tabs.attach": {
+   "value": {
+    "afterId": "<primary>/diff/next.html",
+    "byId": true,
+    "byRow": true,
+    "context": {
+     "error": "b.user.getTabContext is not a function",
+     "name": "TypeError"
+    },
+    "bad": {
+     "error": "Expected a positive integer",
+     "name": "Error"
+    }
+   },
+   "ms": 1002,
+   "mode": "ax"
+  },
+  "tabs.open-errors": {
+   "value": {
+    "bad": {
+     "error": "browsers.get requires a browser id",
+     "name": "Error"
+    },
+    "session": "string",
+    "listed": true,
+    "forUrl": {
+     "error": "Invalid URL",
+     "name": "Error"
+    }
+   },
+   "ms": 386,
+   "mode": "ax"
+  },
+  "session.name-docs": {
+   "value": {
+    "named": "undefined",
+    "docs": true,
+    "empty": {
+     "error": "browser.nameSession requires a name",
+     "name": "Error"
+    },
+    "topic": true,
+    "missing": {
+     "error": "Documentation is not available: nope-doc",
+     "name": "Error"
+    }
+   },
+   "ms": 768,
+   "mode": "ax"
+  },
+  "tabs.keep-deliverable": {
+   "value": {
+    "kept": true,
+    "_raw": {
+     "deliverable": "ok",
+     "handoff": "ok",
+     "listed": true
+    }
+   },
+   "ms": 685,
+   "mode": "ax"
+  },
+  "snapshot.full": {
+   "value": {
+    "heading": true,
+    "frame": true,
+    "shadow": true,
+    "offscreen": true,
+    "typed": true,
+    "clicked": "clicked"
+   },
+   "ms": 1082,
+   "mode": "ax"
+  },
+  "snapshot.diff": {
+   "value": {
+    "diffMentions": true,
+    "diffShort": true,
+    "printed": true
+   },
+   "ms": 1212,
+   "mode": "ax"
+  },
+  "snapshot.ax-get-modes": {
+   "value": {
+    "shot": true,
+    "state": true,
+    "both": true
+   },
+   "ms": 891,
+   "mode": "ax"
+  },
+  "snapshot.ax-errors": {
+   "value": {
+    "click": {
+     "error": "Accessibility element 99999 is stale or missing",
+     "name": "Error"
+    },
+    "get": {
+     "ok": true,
+     "value": {
+      "type": "[object String]"
+     }
+    },
+    "unknownRef": {
+     "error": "Accessibility element 99999 is stale or missing",
+     "name": "Error"
+    }
+   },
+   "ms": 684,
+   "mode": "ax"
+  },
+  "screenshot.annotated": {
+   "value": {
+    "image": false,
+    "differs": false
+   },
+   "ms": 523,
+   "mode": "ax"
+  },
+  "element-at": {
+   "value": {
+    "role": {
+     "error": "Chrome does not support command \"playwright_element_info\".",
+     "name": "Error"
+    }
+   },
+   "ms": 625,
+   "mode": "ax"
+  },
+  "loc.click.options": {
+   "value": {
+    "left": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "click",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ]
+    ],
+    "right": [
+     [
+      "mousedown",
+      2,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "contextmenu",
+      2,
+      0,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      2,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "auxclick",
+      2,
+      1,
+      false,
+      false,
+      false,
+      false
+     ]
+    ],
+    "middle": [
+     [
+      "mousedown",
+      1,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      1,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "auxclick",
+      1,
+      1,
+      false,
+      false,
+      false,
+      false
+     ]
+    ],
+    "force": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "click",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ]
+    ],
+    "timeout": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "click",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ]
+    ],
+    "alt": [
+     [
+      "mousedown",
+      0,
+      1,
+      true,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      true,
+      false,
+      false,
+      false
+     ],
+     [
+      "click",
+      0,
+      1,
+      true,
+      false,
+      false,
+      false
+     ]
+    ],
+    "control": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      true,
+      false,
+      false
+     ],
+     [
+      "contextmenu",
+      0,
+      0,
+      false,
+      true,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      true,
+      false,
+      false
+     ]
+    ],
+    "controlOrMeta": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "click",
+      0,
+      1,
+      false,
+      false,
+      true,
+      false
+     ]
+    ],
+    "meta": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "click",
+      0,
+      1,
+      false,
+      false,
+      true,
+      false
+     ]
+    ],
+    "shift": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      false,
+      false,
+      true
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      false,
+      false,
+      true
+     ],
+     [
+      "click",
+      0,
+      1,
+      false,
+      false,
+      false,
+      true
+     ]
+    ]
+   },
+   "ms": 3536,
+   "mode": "ax"
+  },
+  "loc.dblclick.options": {
+   "value": {
+    "left": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "click",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mousedown",
+      0,
+      2,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      2,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "click",
+      0,
+      2,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "dblclick",
+      0,
+      2,
+      false,
+      false,
+      false,
+      false
+     ]
+    ],
+    "right": [
+     [
+      "mousedown",
+      2,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "contextmenu",
+      2,
+      0,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      2,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "auxclick",
+      2,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mousedown",
+      2,
+      2,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "contextmenu",
+      2,
+      0,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      2,
+      2,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "auxclick",
+      2,
+      2,
+      false,
+      false,
+      false,
+      false
+     ]
+    ],
+    "middle": [
+     [
+      "mousedown",
+      1,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      1,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "auxclick",
+      1,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mousedown",
+      1,
+      2,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      1,
+      2,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "auxclick",
+      1,
+      2,
+      false,
+      false,
+      false,
+      false
+     ]
+    ],
+    "force": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "click",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mousedown",
+      0,
+      2,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      2,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "click",
+      0,
+      2,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "dblclick",
+      0,
+      2,
+      false,
+      false,
+      false,
+      false
+     ]
+    ],
+    "timeout": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "click",
+      0,
+      1,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mousedown",
+      0,
+      2,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      2,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "click",
+      0,
+      2,
+      false,
+      false,
+      false,
+      false
+     ],
+     [
+      "dblclick",
+      0,
+      2,
+      false,
+      false,
+      false,
+      false
+     ]
+    ],
+    "alt": [
+     [
+      "mousedown",
+      0,
+      1,
+      true,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      true,
+      false,
+      false,
+      false
+     ],
+     [
+      "click",
+      0,
+      1,
+      true,
+      false,
+      false,
+      false
+     ],
+     [
+      "mousedown",
+      0,
+      2,
+      true,
+      false,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      2,
+      true,
+      false,
+      false,
+      false
+     ],
+     [
+      "click",
+      0,
+      2,
+      true,
+      false,
+      false,
+      false
+     ],
+     [
+      "dblclick",
+      0,
+      2,
+      true,
+      false,
+      false,
+      false
+     ]
+    ],
+    "control": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      true,
+      false,
+      false
+     ],
+     [
+      "contextmenu",
+      0,
+      0,
+      false,
+      true,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      true,
+      false,
+      false
+     ],
+     [
+      "mousedown",
+      0,
+      2,
+      false,
+      true,
+      false,
+      false
+     ],
+     [
+      "contextmenu",
+      0,
+      0,
+      false,
+      true,
+      false,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      2,
+      false,
+      true,
+      false,
+      false
+     ]
+    ],
+    "controlOrMeta": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "click",
+      0,
+      1,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "mousedown",
+      0,
+      2,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      2,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "click",
+      0,
+      2,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "dblclick",
+      0,
+      2,
+      false,
+      false,
+      true,
+      false
+     ]
+    ],
+    "meta": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "click",
+      0,
+      1,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "mousedown",
+      0,
+      2,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "mouseup",
+      0,
+      2,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "click",
+      0,
+      2,
+      false,
+      false,
+      true,
+      false
+     ],
+     [
+      "dblclick",
+      0,
+      2,
+      false,
+      false,
+      true,
+      false
+     ]
+    ],
+    "shift": [
+     [
+      "mousedown",
+      0,
+      1,
+      false,
+      false,
+      false,
+      true
+     ],
+     [
+      "mouseup",
+      0,
+      1,
+      false,
+      false,
+      false,
+      true
+     ],
+     [
+      "click",
+      0,
+      1,
+      false,
+      false,
+      false,
+      true
+     ],
+     [
+      "mousedown",
+      0,
+      2,
+      false,
+      false,
+      false,
+      true
+     ],
+     [
+      "mouseup",
+      0,
+      2,
+      false,
+      false,
+      false,
+      true
+     ],
+     [
+      "click",
+      0,
+      2,
+      false,
+      false,
+      false,
+      true
+     ],
+     [
+      "dblclick",
+      0,
+      2,
+      false,
+      false,
+      false,
+      true
+     ]
+    ]
+   },
+   "ms": 3811,
+   "mode": "ax"
+  },
+  "loc.check.options": {
+   "value": {
+    "states": [
+     true,
+     false,
+     true,
+     false,
+     true,
+     false,
+     true,
+     true
+    ],
+    "radioUncheck": {
+     "error": "Error: Cannot uncheck a radio button\nlocator.setChecked(false) failed for selector #radio-b\nLocator diagnostics: {\"kind\":\"action_failed\",\"action\":\"setChecked\",\"locator\":\"#radio-b\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":null,\"disabled\":false,\"role\":null,\"tag\":\"input\",\"text\":\"\",\"type\":\"radio\",\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+     "name": "Error"
+    },
+    "notCheckbox": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.setChecked(true) failed for selector #action\nLocator diagnostics: {\"kind\":\"action_failed\",\"action\":\"setChecked\",\"locator\":\"#action\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":null,\"disabled\":false,\"role\":null,\"tag\":\"button\",\"text\":\"Action\",\"type\":null,\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+     "name": "Error"
+    }
+   },
+   "ms": 4200,
+   "mode": "ax"
+  },
+  "loc.timeout-options": {
+   "value": {
+    "all": [
+     "First",
+     "Second",
+     "Third"
+    ],
+    "attr": "Enter name",
+    "inner": "ready",
+    "text": "ready",
+    "value": "typedabcd",
+    "valueWithArg": "typedabcd!",
+    "items": 3,
+    "itemsWithArg": 4
+   },
+   "ms": 1695,
+   "mode": "ax"
+  },
+  "loc.errors.missing": {
+   "value": {
+    "click": {
+     "error": "Error: Playwright selector deadline exceeded\nwaiting on click for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"click\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "dblclick": {
+     "error": "Error: Playwright selector deadline exceeded\nwaiting on dblclick for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"dblclick\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "check": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.setChecked(true) failed for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"setChecked\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "uncheck": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.setChecked(false) failed for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"setChecked\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "setChecked": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.setChecked(true) failed for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"setChecked\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "fill": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.fill failed for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"fill\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "getAttribute": {
+     "error": "Playwright selector deadline exceeded",
+     "name": "Error"
+    },
+    "innerText": {
+     "error": "Playwright selector deadline exceeded",
+     "name": "Error"
+    },
+    "textContent": {
+     "error": "Playwright selector deadline exceeded",
+     "name": "Error"
+    },
+    "press": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.press failed for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"press\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "pressSequentially": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.pressSequentially failed for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"pressSequentially\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "type": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.type failed for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"type\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "selectOption": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.selectOption failed for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"selectOption\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "waitFor": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.waitFor(visible) timed out for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"waitFor\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    }
+   },
+   "ms": 5514,
+   "mode": "ax"
+  },
+  "loc.errors.evaluate": {
+   "value": {
+    "evaluate": {
+     "error": "Error: boom\n    at __playwrightEvaluate (<anonymous>:2687:45)\n    at <anonymous>:2688:14\n    at runUserScript (<anonymous>:2689:10)\n    at <anonymous>:2693:10\n    at <anonymous>:2694:3",
+     "name": "Error"
+    },
+    "evaluateAll": {
+     "error": "Error: boom all\n    at __playwrightEvaluate (<anonymous>:2911:45)\n    at <anonymous>:2912:14\n    at runUserScript (<anonymous>:2913:10)\n    at <anonymous>:2917:10\n    at <anonymous>:2918:3\n    at <anonymous>:2919:9",
+     "name": "Error"
+    },
+    "strict": {
+     "error": "Browser Use encountered an error interacting with this webpage: Error: strict mode violation: locator('li') resolved to 3 elements:\n    1) <li data-testid=\"item\">First</li> aka getByText('First')\n    2) <li data-testid=\"item\">Second</li> aka getByText('Second')\n    3) <li data-testid=\"item\">Third</li> aka getByText('Third')\n",
+     "name": "Error"
+    },
+    "allTextBad": {
+     "error": "Playwright selector deadline exceeded",
+     "name": "Error"
+    },
+    "emptyAll": 0
+   },
+   "ms": 3796,
+   "mode": "ax"
+  },
+  "loc.failure-kinds": {
+   "value": {
+    "hidden": {
+     "error": "Error: Playwright selector deadline exceeded\nwaiting on click for selector #hidden\nLocator diagnostics: {\"kind\":\"no_visible_match\",\"action\":\"click\",\"locator\":\"#hidden\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":null,\"disabled\":false,\"role\":null,\"tag\":\"button\",\"text\":\"Hidden\",\"type\":null,\"visible\":false}],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "disabled": {
+     "error": "Error: Playwright selector deadline exceeded\nwaiting on click for selector #disabled\nLocator diagnostics: {\"kind\":\"action_failed\",\"action\":\"click\",\"locator\":\"#disabled\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":null,\"disabled\":true,\"role\":null,\"tag\":\"button\",\"text\":\"Disabled\",\"type\":null,\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+     "name": "Error"
+    },
+    "disabledFill": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.fill failed for selector #disabled\nLocator diagnostics: {\"kind\":\"action_failed\",\"action\":\"fill\",\"locator\":\"#disabled\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":null,\"disabled\":true,\"role\":null,\"tag\":\"button\",\"text\":\"Disabled\",\"type\":null,\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+     "name": "Error"
+    },
+    "readonlyFill": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.fill failed for selector #readonly\nLocator diagnostics: {\"kind\":\"action_failed\",\"action\":\"fill\",\"locator\":\"#readonly\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":\"Readonly\",\"disabled\":false,\"role\":null,\"tag\":\"input\",\"text\":\"\",\"type\":null,\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+     "name": "Error"
+    },
+    "notInput": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.fill failed for selector #status\nLocator diagnostics: {\"kind\":\"action_failed\",\"action\":\"fill\",\"locator\":\"#status\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":null,\"disabled\":false,\"role\":\"status\",\"tag\":\"p\",\"text\":\"ready\",\"type\":null,\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+     "name": "Error"
+    },
+    "role": {
+     "error": "Error: Playwright selector deadline exceeded\nwaiting on click for selector internal:role=button[name=\"Nope\"i]\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"click\",\"locator\":\"internal:role=button[name=\\\"Nope\\\"i]\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "text": {
+     "error": "Error: Playwright selector deadline exceeded\nwaiting on click for selector internal:text=\"Nope\"i\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"click\",\"locator\":\"internal:text=\\\"Nope\\\"i\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "chained": {
+     "error": "Error: Playwright selector deadline exceeded\nwaiting on click for selector ul >> #nope\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"click\",\"locator\":\"ul >> #nope\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "frame": {
+     "error": "Error: Timed out after 400ms waiting for selector #frame >> internal:control=enter-frame >> #nope: Browser Use encountered an error interacting with this webpage: Error: No element matched selector\n    at <anonymous>:227:31\n    at <anonymous>:229:11\n    at <anonymous>:230:11\nwaiting on click for selector #frame >> internal:control=enter-frame >> #nope\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"click\",\"locator\":\"#frame >> internal:control=enter-frame >> #nope\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "many": {
+     "error": "Error: Browser Use encountered an error interacting with this webpage: Error: strict mode violation: locator('li') resolved to 3 elements:\n    1) <li data-testid=\"item\">First</li> aka getByText('First')\n    2) <li data-testid=\"item\">Second</li> aka getByText('Second')\n    3) <li data-testid=\"item\">Third</li> aka getByText('Third')\n\nlocator.fill failed for selector li\nLocator diagnostics: {\"kind\":\"multiple_matches\",\"action\":\"fill\",\"locator\":\"li\",\"matchCount\":3,\"matches\":[{\"ariaLabel\":null,\"disabled\":false,\"role\":null,\"tag\":\"li\",\"text\":\"First\",\"type\":null,\"visible\":true},{\"ariaLabel\":null,\"disab",
+     "name": "Error"
+    }
+   },
+   "ms": 4726,
+   "mode": "ax"
+  },
+  "loc.composition-errors": {
+   "value": {
+    "and": {
+     "error": "locator.and requires a PlaywrightLocator",
+     "name": "Error"
+    },
+    "or": {
+     "error": "locator.or requires a PlaywrightLocator",
+     "name": "Error"
+    },
+    "nth": {
+     "error": "locator.nth requires a numeric index",
+     "name": "Error"
+    },
+    "filter": {
+     "error": "locator.filter has requires a PlaywrightLocator",
+     "name": "Error"
+    },
+    "locator": {
+     "error": "Playwright selector deadline exceeded",
+     "name": "Error"
+    },
+    "getByLabel": {
+     "error": "getByLabel requires a string or RegExp",
+     "name": "Error"
+    },
+    "getByPlaceholder": {
+     "error": "getByPlaceholder requires a string or RegExp",
+     "name": "Error"
+    },
+    "getByRole": {
+     "error": "Playwright selector deadline exceeded",
+     "name": "Error"
+    },
+    "getByTestId": {
+     "error": "getByTestId requires a testId",
+     "name": "Error"
+    },
+    "getByText": {
+     "error": "getByText requires a string or RegExp",
+     "name": "Error"
+    }
+   },
+   "ms": 6693,
+   "mode": "ax"
+  },
+  "loc.filter-options": {
+   "value": {
+    "has": 1,
+    "hasNot": 0,
+    "hasText": 1,
+    "hasTextRe": 1,
+    "hasNotTextRe": 2,
+    "visible": true,
+    "hidden": 2,
+    "lHas": 1,
+    "lHasNot": 0,
+    "lHasText": 1,
+    "lHasTextRe": 1,
+    "lHasNotText": 2,
+    "lHasNotTextRe": 2
+   },
+   "ms": 742,
+   "mode": "ax"
+  },
+  "loc.regexp-getters": {
+   "value": {
+    "page": [
+     1,
+     1,
+     1,
+     1
+    ],
+    "locator": [
+     1,
+     1,
+     1,
+     1
+    ],
+    "frame": [
+     1,
+     1,
+     1,
+     1
+    ],
+    "frameExact": [
+     1,
+     1,
+     1,
+     2
+    ],
+    "locatorExact": [
+     1,
+     1
+    ]
+   },
+   "ms": 1244,
+   "mode": "ax"
+  },
+  "loc.select-option.forms": {
+   "value": {
+    "values": [
+     "b",
+     "a",
+     "b",
+     "a",
+     "b",
+     {
+      "error": "Error: Playwright selector deadline exceeded\nlocator.selectOption failed for selector #choice\nLocator diagnostics: {\"kind\":\"action_failed\",\"action\":\"selectOption\",\"locator\":\"#choice\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":\"Choice\",\"disabled\":false,\"role\":null,\"tag\":\"select\",\"text\":\"AlphaBetaGamma\",\"type\":null,\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+      "name": "Error"
+     }
+    ],
+    "multi": [
+     "r",
+     "b"
+    ],
+    "returned": null,
+    "events": [
+     "input",
+     "change"
+    ],
+    "missing": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.selectOption failed for selector #choice\nLocator diagnostics: {\"kind\":\"action_failed\",\"action\":\"selectOption\",\"locator\":\"#choice\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":\"Choice\",\"disabled\":false,\"role\":null,\"tag\":\"select\",\"text\":\"AlphaBetaGamma\",\"type\":null,\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+     "name": "Error"
+    },
+    "notSelect": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.selectOption failed for selector #name\nLocator diagnostics: {\"kind\":\"action_failed\",\"action\":\"selectOption\",\"locator\":\"#name\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":\"Name\",\"disabled\":false,\"role\":null,\"tag\":\"input\",\"text\":\"\",\"type\":null,\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+     "name": "Error"
+    }
+   },
+   "ms": 5461,
+   "mode": "ax"
+  },
+  "loc.wait-for.states": {
+   "value": {
+    "done": true,
+    "late": {
+     "ms": 0,
+     "error": "Cannot destructure property 'state' of 'undefined' as it is undefined.",
+     "name": "TypeError"
+    },
+    "hiddenVisible": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.waitFor(visible) timed out for selector #hidden\nLocator diagnostics: {\"kind\":\"no_visible_match\",\"action\":\"waitFor\",\"locator\":\"#hidden\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":null,\"disabled\":false,\"role\":null,\"tag\":\"button\",\"text\":\"Hidden\",\"type\":null,\"visible\":false}],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    },
+    "bogus": {
+     "error": "Error: Unsupported waitFor state: bogus\nlocator.waitFor(bogus) timed out for selector #action\nLocator diagnostics: {\"kind\":\"action_failed\",\"action\":\"waitFor\",\"locator\":\"#action\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":null,\"disabled\":false,\"role\":null,\"tag\":\"button\",\"text\":\"Action\",\"type\":null,\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+     "name": "Error"
+    }
+   },
+   "ms": 1476,
+   "mode": "ax"
+  },
+  "loc.fill.forms": {
+   "value": {
+    "name": "new value",
+    "area": "multi\nline",
+    "rich": "rich text",
+    "cleared": "",
+    "events": [
+     "focus:true",
+     "input:false",
+     "blur:true"
+    ]
+   },
+   "ms": 1654,
+   "mode": "ax"
+  },
+  "loc.typing": {
+   "value": {
+    "value": "abcx",
+    "keys": [
+     "a",
+     "b",
+     "Shift",
+     "D",
+     "Backspace",
+     "x",
+     "y",
+     "ArrowLeft",
+     "Delete"
+    ],
+    "trusted": false,
+    "slow": false,
+    "badKey": {
+     "error": "Error: Unknown key: \"NoSuchKey\"\nlocator.press failed for selector #keys\nLocator diagnostics: {\"kind\":\"action_failed\",\"action\":\"press\",\"locator\":\"#keys\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":\"Keys\",\"disabled\":false,\"role\":null,\"tag\":\"input\",\"text\":\"\",\"type\":null,\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+     "name": "Error"
+    }
+   },
+   "ms": 1312,
+   "mode": "ax"
+  },
+  "loc.focus-blur": {
+   "value": {
+    "focused": "name"
+   },
+   "ms": 924,
+   "mode": "ax"
+  },
+  "loc.set-input-files": {
+   "value": {
+    "one": "file: parity-upload.txt(Disposable browser parity upload)",
+    "many": "multi: parity-upload.txt(Disposable browser parity upload)",
+    "single": false,
+    "multiple": true
+   },
+   "ms": 2061,
+   "mode": "ax"
+  },
+  "loc.drag-to.ax": {
+   "value": {
+    "drop": "dropped payload"
+   },
+   "ms": 1394,
+   "mode": "ax"
+  },
+  "loc.scroll-into-view": {
+   "value": {
+    "moved": true
+   },
+   "ms": 3317,
+   "mode": "ax"
+  },
+  "loc.screenshot": {
+   "value": {
+    "format": {
+     "error": "Chrome does not support command \"playwright_element_screenshot\".",
+     "name": "Error"
+    }
+   },
+   "ms": 709,
+   "mode": "ax"
+  },
+  "loc.reads": {
+   "value": {
+    "text": "alpha beta gamma",
+    "inner": "alpha beta gamma",
+    "html": "alpha <b>beta</b> gamma",
+    "value": "initial",
+    "attr": "Enter name",
+    "noAttr": null,
+    "hiddenText": "Hidden",
+    "hiddenInner": "Hidden",
+    "all": [
+     "First",
+     "Second",
+     "Third"
+    ],
+    "allInner": [
+     "First",
+     "Second",
+     "Third"
+    ]
+   },
+   "ms": 1080,
+   "mode": "ax"
+  },
+  "loc.states": {
+   "value": {
+    "visible": [
+     true,
+     false,
+     false
+    ],
+    "hidden": [
+     false,
+     true,
+     true
+    ],
+    "enabled": [
+     true,
+     false
+    ],
+    "disabled": [
+     false,
+     true
+    ],
+    "checked": [
+     true,
+     false
+    ],
+    "editable": [
+     true,
+     false,
+     null
+    ],
+    "enabledMissing": {
+     "ok": true,
+     "value": false
+    }
+   },
+   "ms": 2284,
+   "mode": "ax"
+  },
+  "loc.collections": {
+   "value": {
+    "count": 3,
+    "all": 3,
+    "allTexts": [
+     "First",
+     "Second",
+     "Third"
+    ],
+    "first": "First",
+    "last": "Third",
+    "nth": "Second",
+    "nthNeg": "Third",
+    "nthOut": 0,
+    "none": 0
+   },
+   "ms": 968,
+   "mode": "ax"
+  },
+  "loc.and-or": {
+   "value": {
+    "and": 1,
+    "andNone": 0,
+    "or": 2,
+    "orText": "Second"
+   },
+   "ms": 755,
+   "mode": "ax"
+  },
+  "loc.scoped-getters": {
+   "value": {
+    "label": 1,
+    "placeholder": 1,
+    "role": 3,
+    "testId": 3,
+    "text": 1,
+    "chained": "Third",
+    "outside": 0
+   },
+   "ms": 1073,
+   "mode": "ax"
+  },
+  "loc.evaluate": {
+   "value": {
+    "tag": "BUTTON",
+    "arg": "action!",
+    "promise": "action",
+    "rect": "number",
+    "all": "First|Second|Third",
+    "shadow": true
+   },
+   "ms": 1960,
+   "mode": "ax"
+  },
+  "loc.download-media": {
+   "uncaught": "Timed out after 8000ms waiting for download.",
+   "ms": 8885,
+   "mode": "ax"
+  },
+  "keyboard.errors": {
+   "value": {
+    "unknown": {
+     "error": "Unknown key: \"NoSuchKey\"",
+     "name": "Error"
+    },
+    "empty": {
+     "error": "keypress requires at least one key",
+     "name": "Error"
+    },
+    "notText": {
+     "error": "r is not iterable",
+     "name": "Error"
+    }
+   },
+   "ms": 1121,
+   "mode": "ax"
+  },
+  "keyboard.shortcuts": {
+   "value": {
+    "value": "x",
+    "combos": [
+     "Meta,false,false,true,false",
+     "a,false,false,true,false",
+     "Alt,true,false,false,false",
+     "Shift,true,false,false,true",
+     "K,true,false,false,true",
+     "Control,false,true,false,false",
+     "Shift,false,true,false,true",
+     "ArrowLeft,false,true,false,true"
+    ]
+   },
+   "ms": 1853,
+   "mode": "ax"
+  },
+  "ax.click-forms": {
+   "uncaught": "[12:18-12:23]: Await is only valid in async functions",
+   "ms": 652,
+   "mode": "ax"
+  },
+  "ax.text-forms": {
+   "value": {
+    "set": [
+     "set",
+     3,
+     3
+    ],
+    "typed": [
+     "setT",
+     4,
+     4
+    ],
+    "pressed": [
+     "setTa",
+     5,
+     5
+    ],
+    "pasted": [
+     "setTaP",
+     6,
+     6
+    ],
+    "select": [
+     "setTaP",
+     0,
+     3
+    ],
+    "before": [
+     "setTaP",
+     3,
+     3
+    ]
+   },
+   "ms": 2147,
+   "mode": "ax"
+  },
+  "ax.scroll-forms": {
+   "value": {
+    "inner": true,
+    "page": true
+   },
+   "ms": 2483,
+   "mode": "ax"
+  },
+  "ax.secondary-action": {
+   "value": {
+    "contextmenu": 0,
+    "bad": {
+     "error": "Accessibility element 99999 is stale or missing",
+     "name": "Error"
+    },
+    "_menu": {
+     "error": "Accessibility element 6 does not support secondary action \"AXShowMenu\"",
+     "name": "Error"
+    }
+   },
+   "ms": 1702,
+   "mode": "ax"
+  },
+  "clipboard.members": {
+   "value": {
+    "text": "plain text",
+    "mimes": true,
+    "pasted": "plain",
+    "empty": {
+     "error": "tab.clipboard.write requires at least one clipboard item",
+     "name": "Error"
+    },
+    "notText": {
+     "error": "tab_clipboard_write_text requires text",
+     "name": "Error"
+    }
+   },
+   "ms": 1883,
+   "mode": "ax"
+  },
+  "dev.logs": {
+   "value": {
+    "all": [],
+    "warn": [],
+    "error": [],
+    "limited": 0,
+    "badLimit": {
+     "error": "tab.dev.logs received an invalid limit",
+     "name": "Error"
+    },
+    "badLevel": {
+     "error": "tab.dev.logs received invalid level \"unknown\"",
+     "name": "Error"
+    },
+    "badFilter": {
+     "error": "tab.dev.logs received an invalid filter",
+     "name": "Error"
+    }
+   },
+   "ms": 829,
+   "mode": "ax"
+  },
+  "dialogs.held": {
+   "value": {
+    "none": null,
+    "alert": [
+     "alert",
+     "Alert text"
+    ],
+    "afterAlert": "after alert",
+    "confirm": "confirm",
+    "accepted": "confirm true",
+    "dismissed": "confirm false",
+    "prompt": [
+     "prompt",
+     "default"
+    ],
+    "prompted": "prompt typed",
+    "promptDismissed": "prompt null"
+   },
+   "ms": 2384,
+   "mode": "ax"
+  },
+  "dialogs.errors": {
+   "value": {
+    "acceptError": {
+     "error": "prompt.accept requires text",
+     "name": "Error"
+    },
+    "twice": {
+     "error": "JavaScript dialog is no longer active",
+     "name": "Error"
+    },
+    "result": "prompt null"
+   },
+   "ms": 991,
+   "mode": "ax"
+  },
+  "dialogs.snapshot-blocked": {
+   "value": {
+    "shows": true,
+    "title": "Dialogs Fixture"
+   },
+   "ms": 2327,
+   "mode": "ax"
+  },
+  "dialogs.beforeunload": {
+   "value": {
+    "type": null,
+    "stayed": false
+   },
+   "ms": 5564,
+   "mode": "ax"
+  },
+  "filechooser.event": {
+   "value": {
+    "multiple": false,
+    "result": "multi: parity-upload.txt(Disposable browser parity upload)",
+    "heldMultiple": true,
+    "shown": false,
+    "none": {
+     "ms": 341,
+     "error": "Timed out after 300ms waiting for file chooser.",
+     "name": "Error"
+    },
+    "missing": {
+     "error": "Error: Unknown file chooser id \"50bdc067-a883-4bf7-ac3f-5968466d4dcd\"\nfileChooser.setFiles failed",
+     "name": "Error"
+    }
+   },
+   "ms": 2135,
+   "mode": "ax"
+  },
+  "navigation.expect": {
+   "value": {
+    "value": "navigated",
+    "title": "Next page",
+    "stay": {
+     "ms": 17,
+     "ok": true,
+     "value": "stay"
+    },
+    "wrong": {
+     "error": "Timed out waiting for URL http://127.0.0.1:1/never in tab 370923024.",
+     "name": "Error"
+    },
+    "after": "Next page"
+   },
+   "ms": 1807,
+   "mode": "ax"
+  },
+  "content.export": {
+   "value": {
+    "export": {
+     "error": "t.content.export is not a function",
+     "name": "TypeError"
+    }
+   },
+   "ms": 610,
+   "mode": "ax"
+  },
+  "content.export-site": {
+   "value": {
+    "gsuite": {
+     "error": "Tab is not a Google Workspace document",
+     "name": "Error"
+    },
+    "yt": {
+     "error": "Tab is not a supported YouTube watch page",
+     "name": "Error"
+    },
+    "bad": {
+     "error": "tab_content_export_gsuite requires supported format",
+     "name": "Error"
+    }
+   },
+   "ms": 1572,
+   "mode": "ax"
+  },
+  "tabs.content": {
+   "value": {
+    "rows": {
+     "error": "b.tabs.content is not a function",
+     "name": "TypeError"
+    },
+    "current": "<primary>/diff/lab.html",
+    "tabsAfter": true,
+    "bad": {
+     "error": "b.tabs.content is not a function",
+     "name": "TypeError"
+    }
+   },
+   "ms": 1150,
+   "mode": "ax"
+  },
+  "browser.history": {
+   "value": {
+    "invalid": {
+     "error": "browser.history received an invalid limit",
+     "name": "Error"
+    },
+    "badDate": {
+     "error": "browser.history received an invalid from date",
+     "name": "Error"
+    }
+   },
+   "ms": 710,
+   "mode": "ax"
+  },
+  "browser.capabilities": {
+   "value": {
+    "cdp": {
+     "error": "Capability is not available: cdp",
+     "name": "Error"
+    },
+    "_listed": {
+     "ok": true,
+     "value": [
+      {
+       "id": "viewport",
+       "description": "Controls an explicit browser viewport override for responsive or device-size testing. Use it when a task calls for specific dimensions or breakpoint validation; otherwise leave it unset so the browser uses its normal viewport. Reset temporary overrides before finishing unless the user asked to keep them."
+      }
+     ]
+    }
+   },
+   "ms": 1217,
+   "mode": "ax"
+  },
+  "edge.auth-basic": {
+   "value": {
+    "noCreds": {
+     "ms": 275,
+     "error": "Browser Use cannot open <primary>/auth/basic in tab 370923048. Browser reported: net::ERR_INVALID_AUTH_CREDENTIALS",
+     "name": "Error"
+    },
+    "noCredsMs": 275,
+    "withCreds": "Authed as parity"
+   },
+   "ms": 1026,
+   "mode": "ax"
+  },
+  "edge.auth-digest": {
+   "value": {
+    "noCreds": {
+     "ms": 156,
+     "error": "Browser Use cannot open <primary>/auth/digest in tab 370923052. Browser reported: net::ERR_INVALID_AUTH_CREDENTIALS",
+     "name": "Error"
+    },
+    "withCreds": "Digest authed as parity"
+   },
+   "ms": 695,
+   "mode": "ax"
+  },
+  "edge.permission-geolocation": {
+   "value": {
+    "result": "error 3",
+    "settledMs": 3216,
+    "dialog": false
+   },
+   "ms": 5671,
+   "mode": "ax"
+  },
+  "edge.permission-notifications": {
+   "value": {
+    "result": "pending",
+    "settledMs": 9965,
+    "dialog": false
+   },
+   "ms": 11280,
+   "mode": "ax"
+  },
+  "edge.permission-camera": {
+   "value": {
+    "result": "pending",
+    "settledMs": 8845,
+    "dialog": false
+   },
+   "ms": 9444,
+   "mode": "ax"
+  },
+  "edge.permission-clipboard-read": {
+   "value": {
+    "result": "pending",
+    "settledMs": 8054,
+    "dialog": false
+   },
+   "ms": 8880,
+   "mode": "ax"
+  },
+  "edge.tls-self-signed": {
+   "uncaught": "rb is not defined",
+   "ms": 23,
+   "mode": "ax"
+  },
+  "edge.nav-dns": {
+   "uncaught": "rb is not defined",
+   "ms": 15,
+   "mode": "ax"
+  },
+  "edge.nav-refused": {
+   "uncaught": "rb is not defined",
+   "ms": 12,
+   "mode": "ax"
+  },
+  "edge.nav-http-errors": {
+   "value": {
+    "threw": false,
+    "t404": "Missing",
+    "t500": "Broken"
+   },
+   "ms": 1503,
+   "mode": "ax"
+  },
+  "edge.nav-aborted": {
+   "value": {
+    "first": "finished",
+    "url": "<primary>/diff/next.html",
+    "title": "Next page"
+   },
+   "ms": 3920,
+   "mode": "ax"
+  },
+  "edge.nav-redirect-loop": {
+   "value": {
+    "loop": {
+     "error": "Browser Use cannot open <primary>/redirect-loop in tab 370923080. Browser reported: net::ERR_TOO_MANY_REDIRECTS"
+    },
+    "loopMs": 416,
+    "redirected": "<primary>/diff/next.html"
+   },
+   "ms": 1693,
+   "mode": "ax"
+  },
+  "edge.download-blob": {
+   "value": {
+    "name": {
+     "error": "Timed out after 8000ms waiting for download.",
+     "name": "Error"
+    },
+    "body": null
+   },
+   "ms": 9392,
+   "mode": "ax"
+  },
+  "edge.download-data": {
+   "value": {
+    "name": {
+     "error": "Timed out after 8000ms waiting for download.",
+     "name": "Error"
+    },
+    "body": null
+   },
+   "ms": 9388,
+   "mode": "ax"
+  },
+  "edge.download-cd": {
+   "value": {
+    "name": {
+     "error": "Timed out after 8000ms waiting for download.",
+     "name": "Error"
+    },
+    "body": null
+   },
+   "ms": 8764,
+   "mode": "ax"
+  },
+  "edge.download-post": {
+   "value": {
+    "name": {
+     "error": "Timed out after 8000ms waiting for download.",
+     "name": "Error"
+    },
+    "body": null,
+    "url": "<primary>/diff/files.html"
+   },
+   "ms": 8856,
+   "mode": "ax"
+  },
+  "edge.download-concurrent": {
+   "value": {
+    "files": {
+     "error": "Timed out after 8000ms waiting for download.",
+     "name": "Error"
+    }
+   },
+   "ms": 8960,
+   "mode": "ax"
+  },
+  "edge.file-drop": {
+   "value": {
+    "result": {
+     "error": "ChatGPT for Chrome cannot drop files: evaluate is read-only and drag carries no files"
+    }
+   },
+   "ms": 911,
+   "mode": "ax"
+  },
+  "edge.input-types": {
+   "value": {
+    "date": "2026-09-30",
+    "time": "13:45",
+    "dtl": "2026-09-30T13:45",
+    "color": "#ff0000",
+    "range": "70",
+    "number": "42",
+    "badDate": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.fill failed for selector #date\nLocator diagnostics: {\"kind\":\"action_failed\",\"action\":\"fill\",\"locator\":\"#date\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":null,\"disabled\":false,\"role\":null,\"tag\":\"input\",\"text\":\"\",\"type\":\"date\",\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+     "name": "Error"
+    }
+   },
+   "ms": 5072,
+   "mode": "ax"
+  },
+  "edge.contenteditable-bold": {
+   "value": {
+    "html": true,
+    "bolded": "alpha beta gamma end",
+    "text": "alpha beta gamma end"
+   },
+   "ms": 1493,
+   "mode": "ax"
+  },
+  "edge.typing-unicode": {
+   "value": {
+    "input": "héllo wörld 😀 中文 👩‍👩‍👧",
+    "rich": "héllo wörld 😀 中文 👩‍👩‍👧"
+   },
+   "ms": 4561,
+   "mode": "ax"
+  },
+  "edge.nested-scroll": {
+   "value": {
+    "deep": 1,
+    "inner": true,
+    "outer": true
+   },
+   "ms": 1870,
+   "mode": "ax"
+  },
+  "edge.infinite-scroll": {
+   "value": {
+    "many": true,
+    "last": 1
+   },
+   "ms": 3340,
+   "mode": "ax"
+  },
+  "edge.iframe-sandboxed": {
+   "value": {
+    "sb": "sandbox clicked",
+    "csp": "csp clicked",
+    "inertText": true
+   },
+   "ms": 1558,
+   "mode": "ax"
+  },
+  "edge.iframe-srcdoc": {
+   "value": {
+    "text": "frame clicked"
+   },
+   "ms": 1009,
+   "mode": "ax"
+  },
+  "edge.iframe-navigation": {
+   "value": {
+    "heading": "Next page",
+    "inSnapshot": true
+   },
+   "ms": 3965,
+   "mode": "ax"
+  },
+  "edge.window-open": {
+   "value": {
+    "opener1": "opener present",
+    "didClose": true,
+    "opener2": null,
+    "listedAfter": 0
+   },
+   "ms": 2733,
+   "mode": "ax"
+  },
+  "edge.alert-during-navigation": {
+   "value": {
+    "seen": [
+     "alert",
+     "loaded alert"
+    ],
+    "nav": "loaded",
+    "after": "after alert"
+   },
+   "ms": 4047,
+   "mode": "ax"
+  },
+  "edge.spa-route-wait": {
+   "value": {
+    "url": "<primary>/diff/spa.html#/users",
+    "title": "SPA users",
+    "items": [
+     "Ada",
+     "Linus"
+    ]
+   },
+   "ms": 1432,
+   "mode": "ax"
+  },
+  "edge.service-worker": {
+   "value": {
+    "state": "controlled",
+    "out": "from service worker"
+   },
+   "ms": 897,
+   "mode": "ax"
+  },
+  "edge.websocket": {
+   "value": {
+    "out": "echo:hi"
+   },
+   "ms": 863,
+   "mode": "ax"
+  },
+  "edge.cookies-flags": {
+   "uncaught": "Browser Use cannot open <primary>/cookies/echo in tab 370923166. Browser reported: net::ERR_BLOCKED_BY_CLIENT",
+   "ms": 733,
+   "mode": "ax"
+  },
+  "edge.cookies-subdomain": {
+   "uncaught": "rb is not defined",
+   "ms": 91,
+   "mode": "ax"
+  },
+  "edge.storage-isolation": {
+   "value": {
+    "a": "ls=L ss=S",
+    "b": "ls=L ss=null"
+   },
+   "ms": 1304,
+   "mode": "ax"
+  },
+  "edge.slow-load": {
+   "value": {
+    "title": "Slow",
+    "ms": 3121,
+    "ok": true
+   },
+   "ms": 3679,
+   "mode": "ax"
+  },
+  "edge.never-finishing-load": {
+   "value": {
+    "dcl": "ok",
+    "text": "pressed"
+   },
+   "ms": 10589,
+   "mode": "ax"
+  },
+  "edge.main-thread-blocked": {
+   "value": {
+    "read": "unblocked",
+    "readMs": 166,
+    "after": "after clicked"
+   },
+   "ms": 3789,
+   "mode": "ax"
+  },
+  "edge.stale-ref": {
+   "value": {
+    "stale": "clicked",
+    "ms": 62,
+    "status": "clicked"
+   },
+   "ms": 887,
+   "mode": "ax"
+  },
+  "edge.detached-mid-click": {
+   "value": {
+    "rerender": "clicked",
+    "out": true,
+    "vanish": "clicked",
+    "gone": 0
+   },
+   "ms": 1085,
+   "mode": "ax"
+  },
+  "edge.overlay-intercepts": {
+   "value": {
+    "blocked": "clicked",
+    "out1": "cover clicked",
+    "out2": "under clicked"
+   },
+   "ms": 1490,
+   "mode": "ax"
+  },
+  "edge.zoom-scale": {
+   "value": {
+    "small": "scaled clicked",
+    "zoomed": "zoom clicked",
+    "clipPx": true
+   },
+   "ms": 1265,
+   "mode": "ax"
+  },
+  "edge.large-page": {
+   "value": {
+    "hasLast": false,
+    "picked": "picked 4321",
+    "count": 5001
+   },
+   "ms": 5645,
+   "mode": "ax"
+  },
+  "snapshot.interactive": {
+   "value": {
+    "button": true,
+    "listText": false,
+    "smaller": true
+   },
+   "ms": 573,
+   "mode": "legacy"
+  },
+  "loc.hover": {
+   "value": {
+    "status": "menu picked",
+    "enter": true
+   },
+   "ms": 1974,
+   "mode": "legacy"
+  },
+  "loc.drag-to": {
+   "value": {
+    "drop": "dropped payload",
+    "events": [
+     "dragstart:true",
+     "dragenter:true",
+     "dragover:true",
+     "drop:true",
+     "dragend:true"
+    ]
+   },
+   "ms": 1401,
+   "mode": "legacy"
+  },
+  "keyboard.members": {
+   "value": {
+    "value": "abCDé",
+    "keys": [
+     [
+      "Shift",
+      false,
+      false,
+      false,
+      true
+     ],
+     [
+      "C",
+      false,
+      false,
+      false,
+      true
+     ],
+     [
+      "Shift",
+      false,
+      false,
+      false,
+      true
+     ],
+     [
+      "D",
+      false,
+      false,
+      false,
+      true
+     ],
+     [
+      "Backspace",
+      false,
+      false,
+      false,
+      false
+     ]
+    ],
+    "trusted": false
+   },
+   "ms": 1210,
+   "mode": "legacy"
+  },
+  "mouse.members": {
+   "value": {
+    "clicks": 3,
+    "right": true,
+    "moves": true,
+    "at": [
+     20,
+     20
+    ],
+    "wheel": true,
+    "trusted": true
+   },
+   "ms": 2333,
+   "mode": "legacy"
+  },
+  "cua.options": {
+   "value": {
+    "shiftClick": false,
+    "errors": {
+     "click": {
+      "error": "cua.click requires x and y",
+      "name": "Error"
+     },
+     "move": {
+      "error": "cua.move requires x and y",
+      "name": "Error"
+     },
+     "wheel": {
+      "error": "cua.scroll requires x, y, scrollX, and scrollY",
+      "name": "Error"
+     },
+     "type": {
+      "error": "cua.type requires text",
+      "name": "Error"
+     },
+     "press": {
+      "error": "cua.keypress requires a non-empty keys array",
+      "name": "Error"
+     }
+    }
+   },
+   "ms": 949,
+   "mode": "legacy"
+  },
+  "cua.download-media": {
+   "value": {
+    "name": {
+     "error": "Chrome does not support command \"cua_download_media\".",
+     "name": "Error"
+    },
+    "body": null
+   },
+   "ms": 1157,
+   "mode": "legacy"
+  },
+  "dom-cua.forms": {
+   "value": {
+    "status": "clicked",
+    "dbl": true,
+    "value": "initialX",
+    "scrolled": true,
+    "badRef": {
+     "error": "DOM node nope is stale or missing",
+     "name": "Error"
+    },
+    "_ids": [
+     "3",
+     "1",
+     "<input node_id=1 aria-label=\"Name\" placeholder=\"Enter name\" value=\"initial\" />\n<input node_id=2 aria-label=\"Decoy\" value=\"leave\" />\n<button node_id=3 title=\"Action tip\">Action</button>\n<input node_id=4 type=\"checkbox\" />\n<input node_id=5 name=\"r\" type=\"radio\" value=\"a\" />\n<input node_id=6 name=\"r\" t",
+     {
+      "ok": true
+     },
+     {
+      "ok": true
+     }
+    ]
+   },
+   "ms": 2664,
+   "mode": "legacy"
+  },
+  "edge.composition": {
+   "value": {
+    "text": "日本語",
+    "inputTypes": [
+     "insertText",
+     null
+    ],
+    "trusted": true
+   },
+   "ms": 837,
+   "mode": "legacy"
   }
  }
 }

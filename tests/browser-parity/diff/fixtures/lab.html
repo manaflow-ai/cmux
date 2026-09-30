@@ -25,6 +25,10 @@
 <button id="make-late" onclick="setTimeout(()=>{document.getElementById('late-slot').innerHTML='<button id=late>Late button</button>'},400)">Make late</button>
 <button id="remove-self" onclick="this.remove()">Remove me</button>
 <a id="next" href="/diff/next.html">Next page</a>
+<button id="push" onclick="history.pushState({}, '', '/diff/lab.html?pushed=1');document.title='Diff lab pushed'">Push state</button>
+<button id="log-btn" onclick="console.log('lab log', 42);console.warn('lab warn');console.error('lab error')">Log</button>
+<button id="throw-btn" onclick="setTimeout(()=>{throw new Error('lab boom')})">Throw</button>
+<a id="popup-link" href="/diff/next.html" target="_blank">Popup link</a>
 <div id="shadow-host"></div>
 <iframe id="frame" title="Inner frame" srcdoc="<label for=inside>Frame label</label><input id=inside placeholder='Frame placeholder' data-testid=frame-input><button onclick=&quot;this.textContent='frame clicked'&quot;>Frame action</button>"></iframe>
 <div style="height:1500px"></div><button id="far" onclick="this.textContent='far clicked'">Far away</button>

@@ -29,9 +29,9 @@ const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), "brepl-diff-cg-"));
 const upload = path.join(uploadDir, "parity-upload.txt");
 fs.writeFileSync(upload, "Disposable browser parity upload\n");
 
-const c = new CuaReferenceClient();
-fs.mkdirSync(path.join(here, "results/.cache"), { recursive: true });
-fs.writeFileSync(path.join(here, "results/.cache/chatgpt-session.txt"), c.sessionId + "\n");
+const out: Record<string, unknown> = {};
+const approvals: unknown[] = [];
+let c: any = null;
 
 async function closeAll() {
   try {
@@ -41,48 +41,61 @@ async function closeAll() {
   }
 }
 
-const out: Record<string, unknown> = {};
 const stop = async () => {
-  await closeAll();
-  await c.close();
+  if (c) {
+    await closeAll();
+    await c.close();
+  }
   process.exit(130);
 };
 process.once("SIGINT", stop);
 process.once("SIGTERM", stop);
-try {
-  await c.initialize();
-  c.authorizeLocalFixture(origins.primary, upload);
-  await c.js('var rb=await cua.getBrowser({id:"chrome"}); await rb.nameSession("🧪 cmux parity");');
-  await c.js(`var PARITY_UPLOAD=${JSON.stringify(upload)};`);
-  for (const k of cases) {
-    const t0 = Date.now();
-    let r: any;
-    try {
-      if (k.custom?.chatgpt) {
-        r = { value: await k.custom.chatgpt({ c, origins, upload, prelude: prelude(origins) }) };
-      } else {
-        const body = expand(dialectSource(k, "chatgpt"), "chatgpt");
-        await c.js(`var __t=await rb.tabs.new();${k.path == null ? "" : `await __t.goto(${JSON.stringify(origins.primary + k.path)});`}`);
-        const v = await c.value(`(async () => { ${prelude(origins)}\nconst t = __t, b = rb;\n${body}\n})()`);
-        r = { value: v === undefined ? null : v };
+
+// Two passes: AX mode (the production default) and legacy mode, the only
+// mode with tab.cua and tab.dom_cua.
+for (const mode of ["ax", "legacy"]) {
+  const group = cases.filter((k: any) => (k.chatgptMode ?? "ax") === mode);
+  if (!group.length) continue;
+  process.env.CUA_REFERENCE_AX_MODE = mode === "ax" ? "1" : "0";
+  c = new CuaReferenceClient();
+  fs.mkdirSync(path.join(here, "results/.cache"), { recursive: true });
+  fs.writeFileSync(path.join(here, "results/.cache/chatgpt-session.txt"), c.sessionId + "\n");
+  try {
+    await c.initialize();
+    c.authorizeLocalFixture(origins.primary, upload);
+    await c.js('var rb=await cua.getBrowser({id:"chrome"}); await rb.nameSession("🧪 cmux parity");');
+    await c.js(`var PARITY_UPLOAD=${JSON.stringify(upload)};`);
+    for (const k of group) {
+      const t0 = Date.now();
+      let r: any;
+      try {
+        // A js call that runs past the tool's limit resets the kernel; set
+        // the session up again when that happened.
+        await c.js(`if (typeof rb === "undefined") { globalThis.rb = await cua.getBrowser({id:"chrome"}); await rb.nameSession("🧪 cmux parity"); globalThis.PARITY_UPLOAD = ${JSON.stringify(upload)}; }`);
+        if (k.custom?.chatgpt) {
+          r = { value: await k.custom.chatgpt({ c, origins, upload, prelude: prelude(origins) }) };
+        } else {
+          const body = expand(dialectSource(k, "chatgpt"), "chatgpt");
+          await c.js(`var __t=await rb.tabs.new();${k.path == null ? "" : `await __t.goto(${JSON.stringify(origins.primary + k.path)});`}`);
+          const v = await c.value(`(async () => { ${prelude(origins)}\nconst t = __t, b = rb;\n${body}\n})()`);
+          r = { value: v === undefined ? null : v };
+        }
+      } catch (e) {
+        r = { uncaught: errText(e) };
       }
-    } catch (e) {
-      r = { uncaught: errText(e) };
+      await closeAll();
+      out[k.id] = { ...r, ms: Date.now() - t0, mode };
+      console.log(`  chatgpt ${k.id} ${Date.now() - t0}ms ${r.uncaught ? "UNCAUGHT " + r.uncaught.slice(0, 160) : JSON.stringify(r.value).slice(0, 160)}`);
     }
+    approvals.push(...c.approvalRequests.map((a: any) => ({ mode, decision: a.decision, tool: a.params?._meta?.tool_name ?? null, origin: a.params?._meta?.origin ?? a.params?._meta?.tool_params?.origin ?? null })));
+  } catch (e) {
+    console.log(`chatgpt runner failed (${mode}): ${errText(e)}`);
+  } finally {
     await closeAll();
-    out[k.id] = { ...r, ms: Date.now() - t0 };
-    console.log(`  chatgpt ${k.id} ${out[k.id] && (out[k.id] as any).ms}ms ${r.uncaught ? "UNCAUGHT " + r.uncaught.slice(0, 160) : JSON.stringify(r.value).slice(0, 160)}`);
+    await c.close();
   }
-  out.__approvals = c.approvalRequests.map((a: any) => ({ decision: a.decision, tool: a.params?._meta?.tool_name ?? null, origin: a.params?._meta?.origin ?? a.params?._meta?.tool_params?.origin ?? null }));
-} catch (e) {
-  console.log(`chatgpt runner failed: ${errText(e)}`);
-} finally {
-  await closeAll();
-  await c.close();
-  fs.rmSync(uploadDir, { recursive: true, force: true });
 }
-const approvals = out.__approvals;
-delete out.__approvals;
+fs.rmSync(uploadDir, { recursive: true, force: true });
 fs.writeFileSync(output, JSON.stringify(out));
-if (approvals) fs.writeFileSync(path.join(here, "results/.cache/chatgpt-approvals.json"), JSON.stringify(approvals, null, 1));
+if (approvals.length) fs.writeFileSync(path.join(here, "results/.cache/chatgpt-approvals.json"), JSON.stringify(approvals, null, 1));
 process.exit(0);
