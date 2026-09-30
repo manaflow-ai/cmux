@@ -39,7 +39,10 @@ public enum GhosttyCellHeightAdjustment: Equatable, Sendable {
     public var configValue: String {
         switch self {
         case .percent(let percent):
-            return percent == percent.rounded() ? "\(Int(percent))%" : "\(percent)%"
+            if percent == percent.rounded(), let integer = Int(exactly: percent) {
+                return "\(integer)%"
+            }
+            return "\(percent)%"
         case .pixels(let pixels):
             return String(pixels)
         }

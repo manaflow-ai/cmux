@@ -112,6 +112,8 @@ struct GhosttyTerminalOptionsTests {
         #expect(GhosttyCellHeightAdjustment.pixels(2).stepped(by: 1) == .pixels(3))
         #expect(GhosttyCellHeightAdjustment.percent(8).stepped(by: -1) == .percent(6))
         #expect(GhosttyCellHeightAdjustment.percent(12.5).configValue == "12.5%")
+        let hugePercent = GhosttyCellHeightAdjustment.percent(1e20)
+        #expect(GhosttyCellHeightAdjustment(configValue: hugePercent.configValue) == hugePercent)
         #expect(GhosttyTerminalOptionChange.cellHeight(.percent(12)).key.rawValue == "adjust-cell-height")
         #expect(GhosttyTerminalOptionChange.cellHeight(.percent(12)).configValues == ["12%"])
         #expect(GhosttyTerminalOptionChange.fontThicken(true).key.rawValue == "font-thicken")
