@@ -25,7 +25,7 @@ struct MachinesListStatusToolbarRowTests {
     /// and every translation of it uses an em or en dash, so this holds on a
     /// non-English Mac too. The comma form these keys used to carry has no
     /// dash at all, which is the regression this catches and the resolved-copy
-    /// comparisons above cannot: they read the same catalog the view reads.
+    /// comparisons below cannot: they read the same catalog the view reads.
     private static func hasDashSeparator(_ line: String) -> Bool {
         line.contains("\u{2014}") || line.contains("\u{2013}")
     }
@@ -52,23 +52,23 @@ struct MachinesListStatusToolbarRowTests {
     /// end is what a revert to the comma form would break.
     @Test("Each failure renders its own line and symbol, not the panel headline")
     func failuresReadDifferently() throws {
-        // Resolve the expected copy through the catalog using the host locale,
-        // matching String(localized:defaultValue:) in the presentation. This
-        // keeps the strong copy assertion green on non-English development Macs.
+        // Resolve the expected copy through the catalog exactly as the
+        // presentation does, so the key-selection assertion stays green on a
+        // non-English development Mac instead of asserting English words.
         let expected: [(MachinesPanelViewModel.CloudListProblem, String, String)] = [
             (
                 .unreachable,
-                String(localized: "machines.listUnavailable.stale", defaultValue: "Machine list unavailable — showing last known", locale: .current),
+                String(localized: "machines.listUnavailable.stale", defaultValue: "Machine list unavailable — showing last known"),
                 "exclamationmark.icloud"
             ),
             (
                 .sessionRejected,
-                String(localized: "machines.sessionRejected.stale", defaultValue: "Sign-in needs a refresh — showing last known", locale: .current),
+                String(localized: "machines.sessionRejected.stale", defaultValue: "Sign-in needs a refresh — showing last known"),
                 "person.crop.circle.badge.exclamationmark"
             ),
             (
                 .requiresPro,
-                String(localized: "machines.requiresPro.stale", defaultValue: "Cloud machines need cmux Pro — showing last known", locale: .current),
+                String(localized: "machines.requiresPro.stale", defaultValue: "Cloud machines need cmux Pro — showing last known"),
                 "sparkles"
             ),
         ]
