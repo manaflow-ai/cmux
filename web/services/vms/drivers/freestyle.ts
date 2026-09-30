@@ -187,6 +187,7 @@ export type FreestylePreconnectOptions = {
   readonly baseUrl?: string;
   readonly fetch?: typeof fetch;
   readonly timeoutMs?: number;
+  readonly now?: () => number;
 };
 
 type FreestyleWarmupState = { promise?: Promise<void>; succeeded?: boolean; succeededAtMs?: number };
@@ -195,6 +196,7 @@ const freestyleWarmupStates = new WeakMap<object, Map<string, FreestyleWarmupSta
 // Keep a successful probe only for the provider's normal idle-pool window;
 // after a longer suspension the next Cloud request probes again.
 const FREESTYLE_WARMUP_REUSE_MS = 30_000;
+const FREESTYLE_CLIENT_CACHE_LIMIT = 8;
 
 const globalForFreestyle = globalThis as typeof globalThis & {
   __cmuxFreestyleClients?: Map<string, Freestyle>;
@@ -213,7 +215,7 @@ function warmupStateFor(fetchImpl: typeof fetch, baseUrl: string): FreestyleWarm
 }
 
 /** Performs the bounded same-origin probe that establishes the provider connection pool. */
-async function warmFreestyleConnection(options: Required<FreestylePreconnectOptions>): Promise<void> {
+async function warmFreestyleConnection(options: Required<Omit<FreestylePreconnectOptions, "now">>): Promise<void> {
   await options.fetch(`${options.baseUrl}/`, {
     method: "HEAD",
     signal: AbortSignal.timeout(options.timeoutMs),
@@ -237,14 +239,15 @@ export function preconnectFreestyle(options: FreestylePreconnectOptions = {}): P
   const baseUrl = options.baseUrl?.trim() || process.env.FREESTYLE_API_URL?.trim() || "https://api.freestyle.sh";
   const fetchImpl = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? 3_000;
+  const now = options.now ?? Date.now;
   const state = warmupStateFor(fetchImpl, baseUrl);
-  if (state.succeeded && state.succeededAtMs !== undefined && Date.now() - state.succeededAtMs < FREESTYLE_WARMUP_REUSE_MS) {
+  if (state.succeeded && state.succeededAtMs !== undefined && now() - state.succeededAtMs < FREESTYLE_WARMUP_REUSE_MS) {
     return Promise.resolve();
   }
   state.succeeded = undefined;
   if (state.promise) return state.promise;
   const promise = warmFreestyleConnection({ baseUrl, fetch: fetchImpl, timeoutMs })
-    .then(() => { state.succeeded = true; state.succeededAtMs = Date.now(); })
+    .then(() => { state.succeeded = true; state.succeededAtMs = now(); })
     .catch(() => { state.succeeded = false; state.succeededAtMs = undefined; });
   const settled = promise.finally(() => {
     if (state.promise === settled) state.promise = undefined;
@@ -284,6 +287,12 @@ export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
       "freestyle",
       "freestyle requires FREESTYLE_API_KEY (or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID)",
     );
+  }
+  // Exec accepts a caller-selected timeout; bound the account-wide wrapper
+  // cache so arbitrary timeout values cannot retain clients indefinitely.
+  if (clients.size >= FREESTYLE_CLIENT_CACHE_LIMIT) {
+    const oldest = clients.keys().next().value;
+    if (oldest !== undefined) clients.delete(oldest);
   }
   clients.set(cacheKey, client);
   return client;
