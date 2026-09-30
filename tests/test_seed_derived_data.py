@@ -270,10 +270,11 @@ class SeedDerivedData(unittest.TestCase):
         os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
         (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
         (self.derived / seed.MANIFEST).write_text("{}")
-        for index, key in enumerate(("k-1", "k-2", "k-3")):
-            seed.stash(self.derived, key)
-            os.utime(cache / key, (1000 + index, 1000 + index))
-        seed.stash(self.derived, "k-4")
+        with mock.patch.object(seed, "free_bytes", return_value=0):
+            for index, key in enumerate(("k-1", "k-2", "k-3")):
+                seed.stash(self.derived, key)
+                os.utime(cache / key, (1000 + index, 1000 + index))
+            seed.stash(self.derived, "k-4")
         self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-3", "k-4"])
         # Never a path outside the cache, whatever the key.
         seed.stash(self.derived, "../escape")
@@ -297,13 +298,14 @@ class SeedDerivedData(unittest.TestCase):
         (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
         (self.derived / seed.MANIFEST).write_text("{}")
         import time
-        seed.stash(self.derived, "k-old")
-        os.utime(cache / "k-old", (1000, 1000))
-        seed.stash(self.derived, "k-1")
-        # Touched a minute ago, as adopt does just before cloning it.
-        os.utime(cache / "k-1", (time.time() - 60, time.time() - 60))
-        seed.stash(self.derived, "k-2")
-        seed.stash(self.derived, "k-3")
+        with mock.patch.object(seed, "free_bytes", return_value=0):
+            seed.stash(self.derived, "k-old")
+            os.utime(cache / "k-old", (1000, 1000))
+            seed.stash(self.derived, "k-1")
+            # Touched a minute ago, as adopt does just before cloning it.
+            os.utime(cache / "k-1", (time.time() - 60, time.time() - 60))
+            seed.stash(self.derived, "k-2")
+            seed.stash(self.derived, "k-3")
         # Past the newest two, but only the stale one goes.
         self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-1", "k-2", "k-3"])
 
