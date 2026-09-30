@@ -1104,6 +1104,18 @@ def test_macos_ios_package_closure_matches_current_desktop_graph() -> None:
     )
 
 
+def test_ios_package_tests_skip_macos_compile_but_keep_package_lane() -> None:
+    # Tests are never compiled into the desktop app target. Shared iOS
+    # packages still need their dedicated package-test lane, so only the
+    # macOS area is neutralized here.
+    actual = module.classify_files([
+        "Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCTransportDrainTests.swift"
+    ])
+    assert actual.macos is False, actual
+    assert actual.release_build is False, actual
+    assert actual.swift_packages is True, actual
+
+
 def test_ios_package_routing_follows_desktop_dependency_closure() -> None:
     mac_relevant = (
         "CmuxMobileDiagnostics",
@@ -6754,7 +6766,7 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     # the venv.
     # preflight needs YAML traversal for the macOS runner identity guard.
     assert (
-        "if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
+        "if: ${{ matrix.group == 'preflight' || (matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true') || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || "
         "matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}"
     ) in prepare_block
