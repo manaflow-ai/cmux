@@ -108,11 +108,10 @@ final class RemoteLocalhostService {
         SHA256.hash(data: Data(registryID.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// The same short name as the machine badge of the machine's terminal
+    /// tabs (Cloud title or SSH host), else the daemon's session name.
     func machineName(of daemon: DaemonService) -> String {
-        if let session = machines.session(daemon.machineID) {
-            return session.machine.displayName ?? session.machine.slug ?? session.machineID
-        }
-        return daemon.identity?.session ?? daemon.machineID
+        machines.machineBadge(daemon.machineID) ?? daemon.identity?.session ?? daemon.machineID
     }
 
     // MARK: Badge
