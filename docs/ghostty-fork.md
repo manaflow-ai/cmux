@@ -151,8 +151,10 @@ The submodule pinned by this branch is `9c1e67c07`, a merge of `c318e7825` (the
 133;P prompt and wrap padding fix, section 16, manaflow-ai/ghostty#247) and
 `559740279` (the VT replay blank-cell style fix, manaflow-ai/ghostty#249),
 landed on fork main by manaflow-ai/ghostty#250. It carries `e1b8bf5f4` again;
-see [#16040](https://github.com/manaflow-ai/cmux/issues/16040). Artifact:
-GHOSTTYKIT_ARTIFACT_PENDING.
+see [#16040](https://github.com/manaflow-ai/cmux/issues/16040). Artifact
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-9c1e67c073cce77d7c2bb2592b2bf84d502bb74e-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `4538cfea411ca43a420055594b96bcaf7e7b9bea70cb68fb669e2f1242e098d4`, pinned in
+`scripts/ghosttykit-checksums.txt`.
 Earlier: the submodule pinned by this branch is `559740279`, the VT replay blank-cell
 style fix (manaflow-ai/ghostty#249) on top of `9d8d40319`, which is `9961d09be`
 plus its styled blank row test fix. It leaves out `e1b8bf5f4`: with it, cmux
