@@ -4,6 +4,8 @@
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
 
+#[cfg(unix)]
+mod app;
 mod command;
 mod lifecycle;
 mod raw;
@@ -79,7 +81,7 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
     while index < args.len() {
         match args[index].as_str() {
             "--" => return false,
-            "--socket" | "--session" | "--machine" => {
+            "--socket" | "--session" | "--machine" | "--app-socket" => {
                 if args.get(index + 1).is_none_or(|value| value.starts_with("--")) {
                     return false;
                 }
@@ -89,7 +91,8 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
             value
                 if value.starts_with("--socket=")
                     || value.starts_with("--session=")
-                    || value.starts_with("--machine=") =>
+                    || value.starts_with("--machine=")
+                    || value.starts_with("--app-socket=") =>
             {
                 if value.split_once('=').is_some_and(|(_, value)| value.is_empty()) {
                     return false;
@@ -117,6 +120,8 @@ pub(super) struct GlobalArgs {
     pub socket: Option<PathBuf>,
     pub session: Option<String>,
     pub machine: Option<String>,
+    /// The cmux app's control socket, for the scopes the app owns.
+    pub app_socket: Option<PathBuf>,
     pub output: OutputMode,
 }
 
@@ -152,6 +157,10 @@ pub(super) fn canonical_scope(value: &str) -> &str {
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
+    #[cfg(unix)]
+    if let Some(code) = run_app_scope(args) {
+        return code;
+    }
     match parse(args) {
         Ok(ParsedCommand::Help(scope)) => {
             if scope.as_deref() == Some("start") {
@@ -175,6 +184,13 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             CommandPlan::RawCommand(command) => raw::run(global, command),
         },
         Err(failure) => {
+            // Words the mux grammar does not know may name an app action
+            // (`cmux workspace move-to-window …`). Only an action the app
+            // reports replaces the usage error.
+            #[cfg(unix)]
+            if let Some(code) = run_app_action_fallback(args) {
+                return code;
+            }
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
                 format!("cmux: {}", failure.error)
             } else {
@@ -191,6 +207,49 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 2,
             )
         }
+    }
+}
+
+/// The scopes the cmux app owns (`app`, `action`, `settings`, `window`,
+/// `events`). `None` when `args` names a mux scope.
+#[cfg(unix)]
+fn run_app_scope(args: &[String]) -> Option<i32> {
+    let (global, command_args) = parse_globals(args).ok()?;
+    if has_help_option(&command_args) {
+        return None;
+    }
+    match app::parse(&command_args) {
+        Ok(Some(command)) => Some(app::run(&global, command)),
+        Ok(None) => None,
+        Err(error) => Some(wire::print_local_error(
+            &serde_json::json!({
+                "code":"usage.invalid",
+                "message":format!("cmux: {error}"),
+                "details":{},
+                "retryable":false,
+            }),
+            global.output,
+            2,
+        )),
+    }
+}
+
+/// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name when
+/// the app has one. `None` when it does not, or no app answers.
+#[cfg(unix)]
+fn run_app_action_fallback(args: &[String]) -> Option<i32> {
+    let (global, command_args) = parse_globals(args).ok()?;
+    let words = command_args.iter().take_while(|arg| !arg.starts_with('-')).count();
+    if words < 2 {
+        return None;
+    }
+    let name = command_args[..words].join(" ");
+    if !app::has_action(&global, &name) {
+        return None;
+    }
+    match app::run_action(&name, &command_args[words..]) {
+        Ok(command) => Some(app::run(&global, command)),
+        Err(_) => None,
     }
 }
 
@@ -328,7 +387,7 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
         // This keeps one-token invocations convenient without changing the
         // existing separated-value grammar.
         if let Some((flag, inline_value)) = value.split_once('=')
-            && matches!(flag, "--socket" | "--session" | "--machine")
+            && matches!(flag, "--socket" | "--session" | "--machine" | "--app-socket")
         {
             if inline_value.is_empty() {
                 return Err((UsageError::new(format!("{flag} needs a value")), global.output));
@@ -337,6 +396,7 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
                 "--socket" => global.socket = Some(PathBuf::from(inline_value)),
                 "--session" => global.session = Some(inline_value.to_owned()),
                 "--machine" => global.machine = Some(inline_value.to_owned()),
+                "--app-socket" => global.app_socket = Some(PathBuf::from(inline_value)),
                 _ => unreachable!(),
             }
             index += 1;
@@ -357,6 +417,12 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
             "--machine" => {
                 global.machine =
                     Some(global_value(args, index, value).map_err(|error| (error, global.output))?);
+                index += 2;
+            }
+            "--app-socket" => {
+                global.app_socket = Some(PathBuf::from(
+                    global_value(args, index, value).map_err(|error| (error, global.output))?,
+                ));
                 index += 2;
             }
             "--json" | "--jsonl" | "--quiet" => {
@@ -538,11 +604,12 @@ Run `cmux <scope> --help` for scope-specific paths.
 
 fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
     format!(
-        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{}\n{ROOT_HELP_SCOPES_SUFFIX}",
+        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{}\n{ROOT_HELP_SCOPES_SUFFIX}\n{}",
         messages.root_remote_usage,
         messages.root_server_usage,
         messages.root_server_scope,
         messages.root_acp_scope,
+        crate::localization::catalog().app_control.root_scopes,
     )
 }
 

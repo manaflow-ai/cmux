@@ -12,6 +12,8 @@ mod acp;
 mod agent_browser_provider;
 mod agent_hook_install;
 mod app;
+#[cfg(unix)]
+mod app_identity;
 mod browser_input;
 #[cfg(unix)]
 mod claude_wrapper;

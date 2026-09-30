@@ -933,6 +933,7 @@ dependencies = [
  "glob",
  "libc",
  "parking_lot",
+ "plist",
  "ratatui",
  "reqwest",
  "rusqlite",

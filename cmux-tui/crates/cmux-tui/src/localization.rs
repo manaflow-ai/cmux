@@ -1211,6 +1211,26 @@ pub(crate) struct AgentWrapperMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+/// `cmux app|action|settings|window|events` and action verbs: the scopes the
+/// cmux app owns (cli/app.rs).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AppControlMessages {
+    pub action_describe_usage: &'static str,
+    pub action_run_usage: &'static str,
+    pub settings_usage: &'static str,
+    pub events_after_invalid: &'static str,
+    pub scope_usage: &'static str,
+    pub unexpected_argument: &'static str,
+    pub missing_value: &'static str,
+    pub arg_shape: &'static str,
+    pub no_app: &'static str,
+    pub unreachable: &'static str,
+    pub timeout: &'static str,
+    pub closed: &'static str,
+    pub invalid_response: &'static str,
+    pub root_scopes: &'static str,
+}
+
 pub(crate) struct Catalog {
     japanese: bool,
     pub startup: StartupMessages,
@@ -1234,6 +1254,7 @@ pub(crate) struct Catalog {
     pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
+    pub app_control: AppControlMessages,
 }
 
 impl Catalog {
@@ -1245,6 +1266,22 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    app_control: AppControlMessages {
+        action_describe_usage: "usage: cmux action describe <action id or CLI name>",
+        action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]",
+        settings_usage: "usage: cmux settings get [PATH] | set PATH VALUE | unset PATH",
+        events_after_invalid: "--after needs an event sequence number, not \"{value}\"",
+        scope_usage: "usage: cmux {scope} <action>; `cmux action list --noun {scope}` lists the actions",
+        unexpected_argument: "unexpected argument \"{value}\"",
+        missing_value: "{flag} needs a value",
+        arg_shape: "--arg needs NAME=VALUE, not \"{value}\"",
+        no_app: "no cmux app found: run this inside a cmux terminal, use the cmux bundled in the app, or pass --app-socket PATH",
+        unreachable: "the cmux app is not running at {path} ({error})",
+        timeout: "the cmux app did not answer within {seconds} s",
+        closed: "the cmux app closed the connection without an answer",
+        invalid_response: "the cmux app sent an answer this cmux cannot read",
+        root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read and change cmux.json settings\n  events        Stream app events as JSON lines\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
+    },
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: starting the agent without cmux status updates",
         agent_not_found: "cmux: the agent executable was not found",
@@ -1974,6 +2011,22 @@ socket.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    app_control: AppControlMessages {
+        action_describe_usage: "使い方: cmux action describe <アクション ID または CLI 名>",
+        action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]",
+        settings_usage: "使い方: cmux settings get [パス] | set パス 値 | unset パス",
+        events_after_invalid: "--after にはイベント番号が必要です (「{value}」は不正)",
+        scope_usage: "使い方: cmux {scope} <アクション>。`cmux action list --noun {scope}` で一覧を表示",
+        unexpected_argument: "予期しない引数「{value}」",
+        missing_value: "{flag} には値が必要です",
+        arg_shape: "--arg には 名前=値 が必要です (「{value}」は不正)",
+        no_app: "cmux アプリが見つかりません: cmux のターミナル内で実行するか、アプリ同梱の cmux を使うか、--app-socket パス を指定してください",
+        unreachable: "cmux アプリが {path} で動作していません ({error})",
+        timeout: "cmux アプリが {seconds} 秒以内に応答しませんでした",
+        closed: "cmux アプリが応答せずに接続を閉じました",
+        invalid_response: "cmux アプリの応答を読み取れません",
+        root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux.json の設定の読み取りと変更\n  events        アプリのイベントを JSON 行で表示\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
+    },
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: cmux のステータス更新なしでエージェントを起動します",
         agent_not_found: "cmux: エージェントの実行ファイルが見つかりません",
