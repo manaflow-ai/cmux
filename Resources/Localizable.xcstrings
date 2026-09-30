@@ -597234,6 +597234,242 @@
           }
         }
       }
+    },
+    "agent.autoResume.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-resumed ×%lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch fortgesetzt ×%lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprise automatique ×%lld"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استئناف تلقائي ×%lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reanudado automáticamente ×%lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已自動繼續 ×%lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已自动继续 ×%lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 재개 ×%lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動再開 ×%lld"
+          }
+        }
+      }
+    },
+    "settings.automation.agentAutoResume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Resume Agents After Errors"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten nach Fehlern automatisch fortsetzen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relancer automatiquement les agents après une erreur"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استئناف الوكلاء تلقائيًا بعد الأخطاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reanudar agentes automáticamente tras errores"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "錯誤後自動恢復代理"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出错后自动恢复代理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 후 에이전트 자동 재개"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー後にエージェントを自動再開"
+          }
+        }
+      }
+    },
+    "settings.automation.agentAutoResume.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send “continue” when an agent's turn ends on a retryable error such as model capacity or a dropped connection."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendet „continue“, wenn der Zug eines Agenten mit einem wiederholbaren Fehler endet, etwa ausgelasteter Modellkapazität oder einer getrennten Verbindung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoie « continue » quand le tour d’un agent se termine sur une erreur réessayable, comme un modèle saturé ou une connexion interrompue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرسل \"continue\" عندما ينتهي دور الوكيل بخطأ يمكن إعادة المحاولة بعده، مثل امتلاء سعة النموذج أو انقطاع الاتصال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía «continue» cuando el turno de un agente termina con un error reintentable, como falta de capacidad del modelo o una conexión perdida."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當代理的回合因可重試的錯誤（例如模型容量不足或連線中斷）而結束時，傳送「continue」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当代理的回合因可重试的错误（例如模型容量不足或连接中断）而结束时，发送“continue”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 용량 초과나 연결 끊김처럼 재시도 가능한 오류로 에이전트의 턴이 끝나면 “continue”를 보냅니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルの容量不足や接続切断など、再試行可能なエラーでエージェントのターンが終了したときに「continue」を送信します。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.automation.agent-error-auto-resume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentAutoResume auto resume continue retry capacity overloaded agent error"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentAutoResume auto resume continue retry capacity overloaded agent error automatisch fortsetzen fortfahren wiederholen kapazität überlastet agent fehler"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentAutoResume auto resume continue retry capacity overloaded agent error reprise automatique continuer réessayer capacité surchargé agent erreur"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentAutoResume auto resume continue retry capacity overloaded agent error استئناف تلقائي متابعة إعادة المحاولة سعة حمل زائد وكيل خطأ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentAutoResume auto resume continue retry capacity overloaded agent error reanudar automáticamente continuar reintentar capacidad sobrecargado agente error"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentAutoResume auto resume continue retry capacity overloaded agent error 自動恢復 繼續 重試 容量 過載 代理 錯誤"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentAutoResume auto resume continue retry capacity overloaded agent error 自动恢复 继续 重试 容量 过载 代理 错误"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentAutoResume auto resume continue retry capacity overloaded agent error 자동 재개 계속 재시도 용량 과부하 에이전트 오류"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentAutoResume auto resume continue retry capacity overloaded agent error 自動再開 続行 再試行 容量 過負荷 エージェント エラー"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

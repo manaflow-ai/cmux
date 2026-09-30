@@ -2032,6 +2032,7 @@
         "automation": {
           "ampIntegration": "Activa o desactiva los hooks de cmux para Amp. Al desactivarlos, el plugin incluido sigue instalado pero inactivo.",
           "suppressSubagentNotifications": "Suprime las notificaciones visibles de finalización y los cambios de estado de agentes secundarios anidados de Codex o Claude, manteniendo sus eventos en la telemetría de Feed.",
+          "agentAutoResume": "Envía `continue` con espera progresiva a un agente iniciado por cmux cuyo turno terminó con un error reintentable del servicio (modelo sin capacidad, sobrecargado o conexión perdida). Los turnos que esperan a una persona nunca se reanudan.",
           "workspaceAutoNaming": "Nombrado automático opcional de espacios de trabajo y pestañas mediante IA a partir del contenido de la conversación del agente. Cuando está activado, cmux resume las sesiones de agentes compatibles en títulos cortos usando el binario propio de cada agente; los renombrados manuales siempre prevalecen.",
           "autoNamingAgent": "Qué agente genera los nombres automáticos en cada sesión. «auto» (predeterminado) nombra cada sesión con su propio agente; cualquier identificador de agente (claude, codex, grok, opencode, pi, omp, …) anula el nombrado de todas las sesiones, incluso las de otros agentes. Los agentes no compatibles o no instalados recurren al agente propio de la sesión, por lo que el nombrado nunca falla.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."

@@ -23,6 +23,8 @@
 		D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */; };
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
+		06DC4DD731DBDF26D8745640 /* AgentAutoResumeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7C3AC76ACCBE9F64AA3F526 /* AgentAutoResumeCoordinator.swift */; };
+		8EA083841777B442E3FA7E72 /* AgentAutoResumeScreenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BB6ECEBC1833C9D1E53FCF5 /* AgentAutoResumeScreenTests.swift */; };
 		5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */; };
 		C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */; };
 		C7A53F000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */; };
@@ -4430,6 +4432,8 @@
 		D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AcknowledgmentsWindowController.swift; sourceTree = "<group>"; };
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
+		E7C3AC76ACCBE9F64AA3F526 /* AgentAutoResumeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentAutoResumeCoordinator.swift; sourceTree = "<group>"; };
+		1BB6ECEBC1833C9D1E53FCF5 /* AgentAutoResumeScreenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentAutoResumeScreenTests.swift"; sourceTree = "<group>"; };
 		5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatChildRunTests.swift; sourceTree = "<group>"; };
 		C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatEndedTranscriptListabilityCache.swift"; sourceTree = "<group>"; };
 		C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatFallbackTranscriptResolutionCoordinator.swift"; sourceTree = "<group>"; };
@@ -10520,6 +10524,7 @@
 				0F58EB2DE58F4E5EF8752CF2 /* TerminalNotificationStore+FocusState.swift */,
 				F49FD681C026A6B0C83211C6 /* AgentJournalLifecycleCenter+Notifications.swift */,
 				2DDAD1AC31A52ED5D308536B /* AgentJournalLifecycleCenter+Projection.swift */,
+				E7C3AC76ACCBE9F64AA3F526 /* AgentAutoResumeCoordinator.swift */,
 				110438011104380111043801 /* AgentJournalLifecycleCenter+Database.swift */,
 				A77A000FA1B2C3D4E5F60001 /* AgentJournalLazyStore.swift */,
 				A77A0008A1B2C3D4E5F60001 /* TerminalController+AgentJournal.swift */,
@@ -12939,6 +12944,7 @@
 				34A1987FFA112D2457B20A9C /* LocalTerminalSizingHostLifecycleTests.swift */,
 				78F253D557E6B9613AC4DB5C /* CloudLinkFailureMessageTests.swift */,
 				C7A99CD111C8F6166A22186B /* SidebarBoundedDisplayStringTests.swift */,
+				1BB6ECEBC1833C9D1E53FCF5 /* AgentAutoResumeScreenTests.swift */,
 				433D21021D6AFA724DAC5574 /* KernelPortProcessTableTests.swift */,
 				FDBA44492C11EA6B5FBBB74F /* MachinesPanelZeroCapPlanTests.swift */,
 				5B0721B2F3007FE4325E6702 /* GhosttyNamedCtrlLetterTests.swift */,
@@ -13748,6 +13754,7 @@
 				A5C017000000000000000007 /* AccountSignInView.swift in Sources */,
 				D0B102020000000000000001 /* AcknowledgmentsView.swift in Sources */,
 				D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */,
+				06DC4DD731DBDF26D8745640 /* AgentAutoResumeCoordinator.swift in Sources */,
 					C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */,
 				C7A53F000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinator.swift in Sources */,
 				A6E57A0D0000000000000001 /* AgentChatProseStreamWakeDriver.swift in Sources */,
@@ -16623,6 +16630,7 @@
 
 				A11CE0010000000000000001 /* AboutLicensesResourceTests.swift in Sources */,
 				A5C01700000000000000000F /* AccountSignInModelTests.swift in Sources */,
+				8EA083841777B442E3FA7E72 /* AgentAutoResumeScreenTests.swift in Sources */,
 				5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */,
 				C7A540000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift in Sources */,
 				99230001992300019923000C /* AgentChatResumeIntentRecorder.swift in Sources */,
