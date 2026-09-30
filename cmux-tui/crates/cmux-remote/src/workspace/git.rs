@@ -761,6 +761,42 @@ mod tests {
         (directory, root)
     }
 
+    /// A workspace opened at a subdirectory of a repository never diffs files
+    /// outside that directory: Git pathspec magic such as `:(top)` would name
+    /// paths from the repository top, and a diff without paths would cover
+    /// the whole repository.
+    #[tokio::test]
+    async fn sec_audit_diff_stays_inside_a_subdirectory_workspace() {
+        let directory = tempdir().unwrap();
+        git(directory.path(), &["init", "-q"]);
+        git(directory.path(), &["config", "user.email", "test@example.com"]);
+        git(directory.path(), &["config", "user.name", "Test"]);
+        write_test_file(directory.path(), "outside.txt", b"secret before\n");
+        write_test_file(directory.path(), "sub/inside.txt", b"before\n");
+        git(directory.path(), &["add", "."]);
+        git(directory.path(), &["commit", "-qm", "initial"]);
+        write_test_file(directory.path(), "outside.txt", b"secret after\n");
+        write_test_file(directory.path(), "sub/inside.txt", b"after\n");
+        let sub = directory.path().join("sub");
+        let root =
+            WorkspaceRoot::open(WorkspaceId("sub".into()), sub.to_str().unwrap()).await.unwrap();
+        let queries = WorkspaceQueryService::default();
+        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
+        for paths in [vec![":(top)outside.txt".to_string()], vec![]] {
+            let text = match diff(&context, &paths, false, 3, DiffFormat::Unified, None, None).await {
+                Ok(prepared) => match prepared.commit() {
+                    WorkspaceResponse::Diff { data, .. } => {
+                        String::from_utf8_lossy(&data.decode().unwrap()).into_owned()
+                    }
+                    other => format!("{other:?}"),
+                },
+                Err(error) => format!("{error:?}"),
+            };
+            assert!(!text.contains("secret"), "{paths:?} leaked the parent repository: {text}");
+        }
+    }
+
     #[tokio::test]
     async fn status_and_structured_diff_are_bounded_and_typed() {
         let (_directory, root) = git_root().await;

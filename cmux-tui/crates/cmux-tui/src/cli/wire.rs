@@ -535,23 +535,28 @@ pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i3
             eprintln!();
         }
         OutputMode::Quiet | OutputMode::Human => {
-            let message =
-                error.get("message").and_then(Value::as_str).unwrap_or("operation failed");
-            eprintln!("{message}");
-            if let Some(candidates) = error
-                .get("details")
-                .and_then(|details| details.get("candidates"))
-                .and_then(Value::as_array)
-            {
-                for candidate in candidates {
-                    if let Some(candidate) = candidate.as_str() {
-                        eprintln!("  {candidate}");
-                    }
-                }
-            }
+            let _ = io::stderr().lock().write_all(human_error_text(error).as_bytes());
         }
     }
     exit_code
+}
+
+/// The human form of a local error: its message, then any candidates.
+fn human_error_text(error: &Value) -> String {
+    let message = error.get("message").and_then(Value::as_str).unwrap_or("operation failed");
+    let mut text = format!("{message}\n");
+    if let Some(candidates) = error
+        .get("details")
+        .and_then(|details| details.get("candidates"))
+        .and_then(Value::as_array)
+    {
+        for candidate in candidates {
+            if let Some(candidate) = candidate.as_str() {
+                text.push_str(&format!("  {candidate}\n"));
+            }
+        }
+    }
+    text
 }
 
 pub(super) fn print_local_success(value: &Value, output: OutputMode) -> i32 {
@@ -872,6 +877,26 @@ mod tests {
             stream: false,
         };
         assert!(request_value(&read).unwrap().get("idempotency_key").is_none());
+    }
+
+    /// Daemon and terminal-derived strings never write raw control
+    /// sequences (ESC, BEL, C1, OSC, CSI) to the terminal that runs the CLI.
+    #[test]
+    fn sec_audit_human_output_shows_controls_instead_of_sending_them() {
+        let hostile = "title\u{1b}]0;owned\u{7}\u{9b}2J\u{1b}[2Jend";
+        let outputs = [
+            human_text(&json!(hostile)),
+            human_text(&json!([{"name": hostile}])),
+            human_text(&json!({"name": hostile})),
+            human_error_text(&json!({"message": hostile, "details": {"candidates": [hostile]}})),
+        ];
+        for output in outputs {
+            assert!(
+                !output.chars().any(|c| c.is_control() && c != '\n' && c != '\t'),
+                "{output:?}"
+            );
+            assert!(output.contains("title") && output.contains("end"), "{output:?}");
+        }
     }
 
     #[test]

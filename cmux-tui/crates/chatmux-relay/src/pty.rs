@@ -2918,6 +2918,39 @@ mod tests {
         assert!(!h.manager.has_attachment("p1"));
     }
 
+    /// Output of a PTY goes only to the transport that opened it, with that
+    /// transport's trust: a later frame from another transport (another
+    /// user's tunnel, a relay) must not redirect it.
+    #[tokio::test]
+    async fn sec_audit_pty_output_stays_on_the_opening_transport() {
+        let h = harness(None, None);
+        let captured = |sink: Arc<StdMutex<Vec<Value>>>, transport: &str, trust: &str| {
+            let mut context = h.context_with_transport(trust, h.owner.clone(), Some(transport));
+            context.send = Arc::new(move |frame| sink.lock().unwrap().push(frame));
+            context
+        };
+        let relay_frames = Arc::new(StdMutex::new(Vec::new()));
+        let tunnel_frames = Arc::new(StdMutex::new(Vec::new()));
+        let relay = captured(Arc::clone(&relay_frames), "transport-relay", "supervised");
+        let tunnel = captured(Arc::clone(&tunnel_frames), "transport-tunnel", "supervised");
+        let open = serde_json::json!({
+            "version": 4, "type": "pty_open", "ptyId": "p-relay", "session": "relay-side",
+            "cols": 80, "rows": 24, "actorId": "user_owner", "trust": "supervised",
+            "allowedRoots": Value::Null,
+        });
+        h.manager.handle_frame(&open, &relay).await;
+        // Any frame from the other transport, even one for an unknown PTY.
+        let other =
+            serde_json::json!({ "type": "pty_resize", "ptyId": "p-none", "cols": 90, "rows": 30 });
+        h.manager.handle_frame(&other, &tunnel).await;
+        h.spawned()[0].emit("secret output\r\n");
+        let outputs = |frames: &Arc<StdMutex<Vec<Value>>>| {
+            frames.lock().unwrap().iter().filter(|f| f["type"] == "pty_output").count()
+        };
+        assert_eq!(outputs(&tunnel_frames), 0, "output leaked to another transport");
+        assert_eq!(outputs(&relay_frames), 1, "output did not reach the opening transport");
+    }
+
     #[tokio::test]
     async fn detach_transport_releases_only_that_transports_attachments() {
         let h = harness(None, None);
