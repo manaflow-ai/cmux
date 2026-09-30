@@ -87,8 +87,7 @@ public final class BrowserChromeView: NSView {
     /// that also tracks Chromium page windows); else the chrome focuses the
     /// page itself.
     public var onReturnFocusToPage: (() -> Void)?
-    /// The omnibar machine chip for a URL (remote localhost), nil for none.
-    public var machineBadge: ((URL?) -> (text: String, help: String)?)? { didSet { updateMachineBadge() } }
+    public var machineBadge: ((URL?) -> (text: String, help: String)?)? { didSet { updateMachineBadge() } } // remote localhost
     var recordedURL: URL?
     var recordedTitle: String?
 
