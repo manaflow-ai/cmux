@@ -31,7 +31,11 @@ import Testing
         scroll.documentView = document
         let fade = ScrollEdgeFade(scrollView: scroll)
         #expect(fade.edges == .bottom)
-        #expect(scroll.layer?.mask != nil)
+        let mask = try #require(scroll.layer?.mask as? CAGradientLayer)
+        // Location 0 is the top edge of the list on screen.
+        #expect(mask.startPoint.y == (scroll.layer?.isGeometryFlipped == true ? 0 : 1))
+        #expect(mask.locations?.first?.doubleValue == 0)
+        #expect((mask.locations?[2].doubleValue ?? 1) < 1)
         scroll.contentView.scroll(to: NSPoint(x: 0, y: 400))
         #expect(fade.edges == [.top, .bottom])
         scroll.contentView.scroll(to: NSPoint(x: 0, y: 800))

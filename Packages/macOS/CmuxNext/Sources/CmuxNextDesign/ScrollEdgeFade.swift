@@ -41,8 +41,6 @@ public final class ScrollEdgeFade {
         self.scrollView = scrollView
         scrollView.wantsLayer = true
         mask.colors = [NSColor.clear.cgColor, NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
-        mask.startPoint = CGPoint(x: 0.5, y: 1)
-        mask.endPoint = CGPoint(x: 0.5, y: 0)
         let clip = scrollView.contentView
         clip.postsBoundsChangedNotifications = true
         clip.postsFrameChangedNotifications = true
@@ -73,6 +71,11 @@ public final class ScrollEdgeFade {
         Motion.transaction(nil) {
             if layer.mask !== mask { layer.mask = mask }
             mask.frame = layer.bounds
+            // Gradient location 0 is the list's top: y 0 in a flipped layer
+            // (NSScrollView's backing layer is), y 1 otherwise.
+            let top: CGFloat = layer.isGeometryFlipped ? 0 : 1
+            mask.startPoint = CGPoint(x: 0.5, y: top)
+            mask.endPoint = CGPoint(x: 0.5, y: 1 - top)
         }
         let fade = min(Metrics.scrollEdgeFade / height, 0.4)
         let locations = [0, next.contains(.top) ? fade : 0, next.contains(.bottom) ? 1 - fade : 1, 1].map { NSNumber(value: Double($0)) }
