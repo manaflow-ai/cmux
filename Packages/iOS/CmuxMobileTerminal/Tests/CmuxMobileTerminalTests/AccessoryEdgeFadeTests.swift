@@ -1,5 +1,6 @@
 import CoreGraphics
 import Testing
+import UIKit
 
 @testable import CmuxMobileTerminal
 
@@ -45,5 +46,28 @@ struct AccessoryEdgeFadeTests {
         #expect(maskBounds.minY < rowBounds.minY)
         #expect(maskBounds.maxY > rowBounds.maxY)
         #expect(maskBounds.midY == rowBounds.midY)
+    }
+
+    @MainActor
+    @Test("shortcut row does not elastically overscroll its trailing edge")
+    func shortcutRowDoesNotRubberBand() throws {
+        let input = TerminalInputTextView()
+        let scrollView = try #require(Self.findAccessoryScrollView(in: input.toolbarView))
+
+        #expect(!scrollView.bounces)
+        #expect(!scrollView.alwaysBounceHorizontal)
+    }
+
+    @MainActor
+    private static func findAccessoryScrollView(in view: UIView) -> AccessoryEdgeFadeScrollView? {
+        if let scrollView = view as? AccessoryEdgeFadeScrollView {
+            return scrollView
+        }
+        for subview in view.subviews {
+            if let scrollView = findAccessoryScrollView(in: subview) {
+                return scrollView
+            }
+        }
+        return nil
     }
 }
