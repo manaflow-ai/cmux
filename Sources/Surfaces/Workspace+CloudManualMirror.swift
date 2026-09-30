@@ -63,7 +63,8 @@ extension Workspace {
         onResize: @escaping @MainActor @Sendable (TerminalSurfaceRawSizingSample) -> Void,
         onRuntimeReady: @escaping @MainActor @Sendable () -> Void,
         onFocus: @escaping @MainActor @Sendable () -> Void,
-        attachment: CloudTerminalAttachmentStatus? = nil
+        attachment: CloudTerminalAttachmentStatus? = nil,
+        allowsRemoteClipboardWrites: Bool = false
     ) throws -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface) {
         guard let workspace = Self.liveWorkspace(id: destination.workspaceID),
               !workspace.isRetiredFromOwningTabManager else {
@@ -73,7 +74,8 @@ extension Workspace {
         guard let panel = workspace.makeRemoteTmuxPanePanel(
             id: loading?.id ?? UUID(),
             onInput: onInput,
-            keyNameResolver: keyNameResolver
+            keyNameResolver: keyNameResolver,
+            allowsRemoteClipboardWrites: allowsRemoteClipboardWrites
         ) else {
             throw SurfaceCatalogError.unsupported("manual cloud terminal panel")
         }

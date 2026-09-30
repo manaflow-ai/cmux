@@ -19,9 +19,21 @@ extension ContentView {
             return CmuxSurfaceTabBarBuiltInAction.splitRight.configID
         case "palette.terminalSplitDown":
             return CmuxSurfaceTabBarBuiltInAction.splitDown.configID
+        case Self.commandPaletteCopyActionCommandID(.copyWorkingDirectory):
+            return CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory.configID
+        case Self.commandPaletteCopyActionCommandID(.copyProjectRoot):
+            return CmuxSurfaceTabBarBuiltInAction.copyProjectRoot.configID
+        case Self.commandPaletteCopyActionCommandID(.copyScreen):
+            return CmuxSurfaceTabBarBuiltInAction.copyScreen.configID
         default:
             return nil
         }
+    }
+
+    /// Palette command id for a built-in copy action, e.g.
+    /// `palette.copyWorkingDirectory` for `cmux.copyWorkingDirectory`.
+    static func commandPaletteCopyActionCommandID(_ action: CmuxSurfaceTabBarBuiltInAction) -> String {
+        "palette." + action.configID.replacingOccurrences(of: "cmux.", with: "")
     }
 
     /// Returns the built-in Agent Chat palette contribution when its rollout is enabled.

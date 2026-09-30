@@ -36,18 +36,21 @@ struct MachinesListStatusToolbarRowTests {
         }
     }
 
-    /// Each row must carry its own sentence, not merely differ from the other
-    /// two: a different glyph and a different button already make three
-    /// identical sentences compare unequal, so pairwise inequality proves
-    /// nothing. Each rendered row is matched against its own stale line, and
-    /// the three stale lines are checked to be distinct. Comparing against the
-    /// catalog rather than English literals keeps a copy edit or a non-`en`
-    /// host from reddening this for reasons unrelated to the behavior.
-    @Test("Each failure renders its own line, and the stale one, not the panel headline")
+    /// Each row must carry its own sentence and symbol, not merely differ from
+    /// the other two because of its action button. The stale copy is asserted
+    /// explicitly so punctuation changes cannot make the surfaces drift.
+    @Test("Each failure renders its own line and symbol, not the panel headline")
     func failuresReadDifferently() throws {
-        for problem in Self.problems {
+        let expected: [(MachinesPanelViewModel.CloudListProblem, String, String)] = [
+            (.unreachable, "Machine list unavailable \u{2014} showing last known", "exclamationmark.icloud"),
+            (.sessionRejected, "Sign-in needs a refresh \u{2014} showing last known", "person.crop.circle.badge.exclamationmark"),
+            (.requiresPro, "Cloud machines need cmux Pro \u{2014} showing last known", "sparkles"),
+        ]
+        for (problem, expectedStale, expectedSymbol) in expected {
             let presentation = MachineListStatusPresentation(.failed(problem))
             let stale = try #require(presentation.staleTitle, "\(problem) has no stale line")
+            #expect(stale == expectedStale, "\(problem) rendered the wrong stale line")
+            #expect(presentation.symbolName == expectedSymbol, "\(problem) rendered the wrong symbol")
             let text = Self.text(of: Self.host(.failed(problem)))
             #expect(text.contains(stale), "\(problem) rendered \(text), not \(stale)")
             // The toolbar sits beside cached rows, so it takes the one-line
@@ -56,7 +59,7 @@ struct MachinesListStatusToolbarRowTests {
             let paragraph = try #require(presentation.subtitle, "\(problem) has no panel subtitle")
             #expect(!text.contains(paragraph), "\(problem) rendered the panel subtitle in the toolbar")
         }
-        let lines = Self.problems.compactMap { MachineListStatusPresentation(.failed($0)).staleTitle }
+        let lines = expected.map(\.1)
         #expect(Set(lines).count == Self.problems.count, "two failures share a stale line: \(lines)")
     }
 
@@ -177,6 +180,73 @@ struct MachinesListStatusToolbarRowTests {
 
     /// Presses `element` the way VoiceOver would, through the modern protocol
     /// method when it is implemented and the legacy action API otherwise.
+    private static func press(_ element: NSObject) -> Bool {
+        let modern = NSSelectorFromString("accessibilityPerformPress")
+        if element.responds(to: modern) {
+            _ = element.perform(modern)
+            return true
+        }
+        let legacy = NSSelectorFromString("accessibilityPerformAction:")
+        guard element.responds(to: legacy) else { return false }
+        _ = element.perform(legacy, with: NSAccessibility.Action.press.rawValue)
+        return true
+    }
+}
+
+@MainActor
+@Suite("The Cloud toolbar can dismiss tree errors")
+struct MachinesCloudStatusTests {
+    @Test("A tree error offers a persistent dismissal action")
+    func treeErrorOffersDismissal() throws {
+        let dismissed = ActionLog()
+        let hosted = Self.host(treeError: "Unsupported: Browsers on another Mac can’t be opened here yet.") {
+            dismissed.error = $0
+        }
+        let button = try #require(
+            Self.element("CloudBannerDismissButton", in: hosted),
+            "tree errors need a close affordance"
+        )
+        try #require(Self.press(button), "tree error close affordance exposes no press action")
+        #expect(dismissed.error == "Unsupported: Browsers on another Mac can’t be opened here yet.")
+    }
+
+    @MainActor
+    private final class ActionLog {
+        var error: String?
+    }
+
+    private struct Hosted {
+        let window: NSWindow
+        let view: NSView
+    }
+
+    private static func host(
+        treeError: String,
+        onDismissTreeError: @escaping (String) -> Void
+    ) -> Hosted {
+        let view = NSHostingView(
+            rootView: MachinesCloudStatus(
+                activeOperation: nil,
+                listStatus: nil,
+                listError: nil,
+                treeError: treeError,
+                onDismissStale: { _ in },
+                onDismissTreeError: onDismissTreeError,
+                performListStatusAction: { _ in }
+            )
+            .environment(\.accessibilityEnabled, true)
+        )
+        view.frame = NSRect(x: 0, y: 0, width: 420, height: 28)
+        let window = NSWindow(contentRect: view.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        return Hosted(window: window, view: view)
+    }
+
+    private static func element(_ identifier: String, in hosted: Hosted) -> NSObject? {
+        CloudTreeHeaderActionsTests.accessibilityElement(identifier, in: hosted.view)
+    }
+
     private static func press(_ element: NSObject) -> Bool {
         let modern = NSSelectorFromString("accessibilityPerformPress")
         if element.responds(to: modern) {

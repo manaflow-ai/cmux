@@ -288,6 +288,9 @@ struct CmuxTUIEventWire: Decodable {
     var rows: Int?
     var data: String?
     var replay: String?
+    /// The incomplete sequence the daemon's parser is inside when it built a
+    /// `vt-state` or `resized` replay; the next output completes it.
+    var pending: String?
     var title: String?
     var colors: CmuxTUIColorsWire?
 }

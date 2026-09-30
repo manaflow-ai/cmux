@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import CmuxSettingsUI
 import CmuxSidebarProviderKit
+import CmuxSettings
 import CmuxSwiftRenderUI
 
 #if canImport(cmux_DEV)
@@ -26,7 +27,7 @@ import CmuxSwiftRenderUI
 @MainActor
 @Suite(.serialized)
 struct SidebarProviderMenuRegressionTests {
-    /// Stable ids of the seven built-in sidebar views, in menu order.
+    /// Stable ids of the built-in sidebar views, in menu order.
     private static let builtInViewIDs: [String] = [
         "cmux.sidebar.default",
         "com.example.cmux.sidebar.project-worktrees",
@@ -38,12 +39,21 @@ struct SidebarProviderMenuRegressionTests {
     ]
 
     private static let extensionsBetaKey = "extensions.beta.enabled"
+    private static let conversationBetaKey = "sidebar.beta.conversations.enabled"
 
     private func withExtensionsBeta(_ enabled: Bool, _ body: () -> Void) {
         let defaults = UserDefaults.standard
         let previous = defaults.object(forKey: Self.extensionsBetaKey)
         defaults.set(enabled, forKey: Self.extensionsBetaKey)
         defer { restore(previous, forKey: Self.extensionsBetaKey) }
+        body()
+    }
+
+    private func withConversationBeta(_ enabled: Bool, _ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: Self.conversationBetaKey)
+        defaults.set(enabled, forKey: Self.conversationBetaKey)
+        defer { restore(previous, forKey: Self.conversationBetaKey) }
         body()
     }
 
@@ -78,6 +88,89 @@ struct SidebarProviderMenuRegressionTests {
                 )
             }
         }
+    }
+
+    @Test
+    func conversationSidebarRequiresBetaAndReleaseGate() {
+        withConversationBeta(false) {
+            #expect(!CmuxExtensionSidebarSelection.descriptors.map(\.id).contains(
+                CmuxExtensionSidebarSelection.conversationSidebarProviderId
+            ))
+            #expect(
+                CmuxExtensionSidebarSelection.effectiveProviderId(
+                    CmuxExtensionSidebarSelection.conversationSidebarProviderId,
+                    extensionsEnabled: false,
+                    customSidebarsEnabled: true,
+                    conversationSidebarEnabled: false
+                ) == CmuxExtensionSidebarSelection.defaultProviderId
+            )
+        }
+        // The local toggle cannot bypass the remote release gate. The explicit
+        // resolver overload remains covered so a remotely enabled rollout can
+        // preserve an existing selection while the beta setting is on.
+        withConversationBeta(true) {
+            #expect(!CmuxExtensionSidebarSelection.descriptors.map(\.id).contains(
+                CmuxExtensionSidebarSelection.conversationSidebarProviderId
+            ))
+            #expect(
+                CmuxExtensionSidebarSelection.effectiveProviderId(
+                    CmuxExtensionSidebarSelection.conversationSidebarProviderId,
+                    extensionsEnabled: false,
+                    customSidebarsEnabled: true,
+                    conversationSidebarEnabled: true
+                ) == CmuxExtensionSidebarSelection.conversationSidebarProviderId
+            )
+        }
+    }
+
+    @Test
+    func settingsFileParsesConversationSidebarBetaSetting() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().betaFeatures.conversationSidebar.userDefaultsKey
+        let backupsKey = "cmux.settingsFile.backups.v1"
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: backupsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: backupsKey)
+            } else {
+                defaults.removeObject(forKey: backupsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: backupsKey)
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("conversation-sidebar-settings-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let file = directory.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "sidebar": {
+            "beta": {
+              "conversations": {
+                "enabled": true
+              }
+            }
+          }
+        }
+        """.write(to: file, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: file.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        #expect(defaults.object(forKey: managedKey) as? Bool == true)
     }
 
     /// Persisting a built-in view as the selection drives the menu's active-view

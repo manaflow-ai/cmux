@@ -5,10 +5,10 @@ pr-media.yml runs this from the default branch for every same-repository pull
 request CI run, next to CI and never inside it:
 
 - `plan` waits for the CI run's app build (and its dogfood build job, when
-  the dev-build label runs one), then picks the dogfood tours (dogfood/scenarios/*.json at the
+  the dev-build label runs one), then picks one dogfood tour (dogfood/scenarios/*.json at the
   head) whose `paths` globs match the changed files. A `Dogfood-tours:` line in
   the pull request body overrides the pick; `Dogfood-tours: none` turns media
-  off. With no match it takes DEFAULT_TOUR. Tours already published for this
+  off. A product-only change with no UI scenario match gets no tour. Tours already published for this
   head are not run again.
 - `tour` runs one tour through scripts/run-e2e.sh with --adopt-only, so it loads
   the app and UI test bundle the pull request's CI compiled (or, when CI reused
@@ -50,7 +50,10 @@ SECTION_END = "<!-- cmux:pr-media:end -->"
 MEDIA_BRANCH = "pr-media"
 SCENARIOS_DIR = "dogfood/scenarios"
 DEFAULT_TOUR = "sidebar-and-chrome-tour"
-MAX_TOURS = 2
+# A head gets one representative tour. Multiple tours multiplied dispatch and
+# queue cost without adding a required check; the author can still name a
+# different tour in the PR body when a focused recording is useful.
+MAX_TOURS = 1
 TOUR_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 SHA = re.compile(r"[0-9a-f]{40}")
 OVERRIDE_LINE = re.compile(r"^\s*dogfood-tours\s*:\s*(.*?)\s*$", re.IGNORECASE | re.MULTILINE)
@@ -147,6 +150,17 @@ def tour_globs(scenario: object) -> list[str]:
     if not isinstance(paths, list):
         return []
     return [path for path in paths if isinstance(path, str) and path.strip()]
+
+
+def has_ui_surface(scenarios: dict[str, object], changed: Iterable[str]) -> bool:
+    """Whether a changed path is covered by a checked-in UI tour surface."""
+    changed = list(changed)
+    return any(
+        path == f"{SCENARIOS_DIR}/{name}.json"
+        or any(fnmatch.fnmatchcase(path, glob) for glob in tour_globs(scenario))
+        for name, scenario in scenarios.items()
+        for path in changed
+    )
 
 
 def select_tours(scenarios: dict[str, object], changed: Iterable[str], body: str | None,
@@ -345,6 +359,14 @@ def plan(repository: str) -> int:
             write_outputs({"tours": "[]", "run": "[]"})
             print("Not a same-repository pull request CI run.", flush=True)
             return 0
+        # A rerun only repeats failed jobs. It cannot produce a new complete
+        # app build for media, and dispatching another UI tour just duplicates
+        # work for the same head. A later ordinary push still gets its one
+        # tour through the normal workflow_run event.
+        if int(run.get("run_attempt") or attempt or 1) > 1:
+            write_outputs({"tours": "[]", "run": "[]"})
+            print(f"CI run {run_id} is retry attempt {run.get('run_attempt')}; skipping duplicate media.", flush=True)
+            return 0
         head_sha = run["head_sha"]
         numbers = [p.get("number") for p in run.get("pull_requests") or [] if p.get("number")]
         if not numbers:
@@ -424,6 +446,10 @@ def plan(repository: str) -> int:
         # that changes nothing a tour shows gets no media section.
         write_outputs({"tours": "[]", "run": "[]"})
         print(f"#{pr} changes nothing a tour shows.", flush=True)
+        return 0
+    if parse_override(pull.get("body")) is None and not has_ui_surface(scenarios, changed):
+        write_outputs({"tours": "[]", "run": "[]"})
+        print(f"#{pr} changes no checked-in UI tour surface; skipping media.", flush=True)
         return 0
     force = os.environ.get("FORCE", "").lower() == "true"
     pending = [tour for tour in tours if force or published(repository, pr, head_sha, tour) is None]
@@ -824,7 +850,7 @@ def publish(repository: str, pr: int, head_sha: str, tours: list[str], media: Pa
                 if not re.fullmatch(r"[A-Za-z0-9._-]+", file) or not (folder / file).is_file():
                     continue
                 upload(tool, repository, f"{prefix}/{tour_name}/{file}", folder / file,
-                       f"PR #{pr} media: {tour_name} at {head_sha[:8]}")
+                       f"pr-media: {tour_name} at {head_sha[:8]}")
         else:
             manifest = published(repository, pr, head_sha, tour_name)
         if not manifest:

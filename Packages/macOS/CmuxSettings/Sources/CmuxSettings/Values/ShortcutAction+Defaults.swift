@@ -188,6 +188,7 @@ extension ShortcutAction {
         case .attachTextBoxFile: return ShortcutStroke(key: "a", command: true, shift: true, option: true)
         case .sendCtrlFToTerminal: return nil
         case .pasteLastScreenshot: return nil
+        case .sizeTerminalToMyWindow: return ShortcutStroke(key: "=", command: true, option: true, control: true)
         case .clearScreenKeepScrollback: return ShortcutStroke(key: "k", command: true, shift: true)
         case .toggleRightSidebar: return ShortcutStroke(key: "b", command: true, option: true)
         case .fileExplorerOpenSelection: return ShortcutStroke(key: "\r")
@@ -234,6 +235,9 @@ extension ShortcutAction {
         case .simulatorToggleSoftwareKeyboard: return ShortcutStroke(key: "k", command: true)
         case .diffViewerNextFile: return nil
         case .diffViewerPreviousFile: return nil
+        case .diffViewerNextHunk: return ShortcutStroke(key: "n")
+        case .diffViewerPreviousHunk: return ShortcutStroke(key: "p")
+        case .diffViewerToggleViewed: return ShortcutStroke(key: "v")
         }
     }
 }

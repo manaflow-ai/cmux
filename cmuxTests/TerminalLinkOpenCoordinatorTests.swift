@@ -146,6 +146,95 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(externallyOpened.isEmpty)
     }
 
+    @Test("A request naming the system browser leaves cmux even with the setting on")
+    @MainActor
+    func systemBrowserDestinationOverridesTheSetting() throws {
+        // "Open Link in Default Browser" in the terminal context menu must mean
+        // what it says on a link the setting would have embedded, otherwise the
+        // item is indistinguishable from the one above it.
+        let defaults = makeDefaults()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == terminalPanelId ? store : nil
+            },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
+        let url = try #require(URL(string: "https://example.com/system"))
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: url.absoluteString,
+            sourceWorkspaceId: nil,
+            sourcePanelId: terminalPanelId,
+            workingDirectory: nil,
+            destination: .systemBrowser
+        )))
+
+        #expect(externallyOpened == [url])
+        #expect(store.bonsplitController.allPaneIds.count == 1)
+    }
+
+    @Test("A request naming the cmux browser embeds even with the setting off")
+    @MainActor
+    func cmuxBrowserDestinationOverridesTheSetting() throws {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == terminalPanelId ? store : nil
+            },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
+        let url = try #require(URL(string: "https://example.com/embedded"))
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: url.absoluteString,
+            sourceWorkspaceId: nil,
+            sourcePanelId: terminalPanelId,
+            workingDirectory: nil,
+            destination: .cmuxBrowser
+        )))
+
+        #expect(externallyOpened.isEmpty)
+        let browserPanels = store.bonsplitController.allTabIds.compactMap {
+            store.panel(for: $0) as? BrowserPanel
+        }
+        #expect(browserPanels.compactMap { $0.preferredURLStringForOmnibar() } == [url.absoluteString])
+    }
+
     @Test(
         "Visible HTML paths open in Browser instead of File Preview",
         arguments: ["html", "htm"]
