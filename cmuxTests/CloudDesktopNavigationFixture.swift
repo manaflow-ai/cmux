@@ -83,7 +83,7 @@ final class CloudDesktopNavigationFixture {
 
     func open(_ entryPoint: EntryPoint = .click) async throws -> BrowserPanel {
         if entryPoint == .drop {
-            try await app.drop(try app.poolNode(), into: app.owner)
+            try await app.drop(try app.poolNode(), into: app.owner, expectedProjections: 1)
         } else {
             try app.activate(try app.poolNode(), menu: entryPoint == .menu)
             await app.waitForOpen()
