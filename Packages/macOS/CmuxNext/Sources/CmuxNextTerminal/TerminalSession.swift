@@ -54,7 +54,7 @@ public final class TerminalSession {
     private var recentReports: [TerminalGridSize] = []
     /// True once the current surface received a replay or output; a later
     /// replay then needs a fresh surface.
-    private var surfaceHasContent = false
+    private(set) var surfaceHasContent = false
 
     public init(io: any TerminalIO, ownsGeometry: Bool = true) {
         self.io = io

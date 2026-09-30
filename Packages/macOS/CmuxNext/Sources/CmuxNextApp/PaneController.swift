@@ -161,6 +161,7 @@ final class PaneController {
             if let key { services.cache.setVisible(key, isVisible) }
         }
         view.show(content?.view)
+        services.surfaceInvariant.noteChange()
         if let pending = pendingAddressBarFocus, case .browser(let entry) = content, selectedTab?.surface == pending {
             pendingAddressBarFocus = nil
             entry.chrome.perform(.focusAddressBar)
@@ -190,6 +191,12 @@ final class PaneController {
     }
 
     var currentContent: TabContent? { currentTabKey.flatMap(content(for:)) }
+
+    /// `key`'s live content, if its surface or page exists.
+    func existingContent(for key: String) -> TabContent? {
+        if let entry = services.cache.existingTerminal(key) { return .terminal(entry) }
+        return services.cache.existingBrowser(key).map(TabContent.browser)
+    }
 
     /// True when showing the selection needs no new surface or page.
     var selectedContentIsAlive: Bool {

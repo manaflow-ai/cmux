@@ -62,6 +62,12 @@ final class PaneContentView: NSView {
         return previous
     }
 
+    /// `content` is installed in this pane (another pane may have taken it).
+    var hostsContent: Bool {
+        guard let content else { return false }
+        return content.superview === contentHost
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil { onWindow?() }

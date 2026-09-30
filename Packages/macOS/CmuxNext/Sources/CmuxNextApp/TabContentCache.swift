@@ -22,6 +22,8 @@ final class TabContentCache {
     private var pendingBrowsers: Set<String> = []
     /// A CEF page finished its asynchronous creation; panes showing `key` re-show.
     var onBrowserReady: ((String) -> Void)?
+    /// Presentation changed (for the blank-pane invariant).
+    var onPresentationChange: (() -> Void)?
     weak var sessionDelegate: (any TerminalSessionDelegate)?
 
     init(daemon: DaemonService) {
@@ -33,6 +35,8 @@ final class TabContentCache {
 
     /// True when `key` has a live surface or page (showing it is cheap).
     func hasContent(for key: String) -> Bool { terminals[key] != nil || browsers[key] != nil }
+
+    func existingTerminal(_ key: String) -> TerminalEntry? { terminals[key] }
 
     // MARK: Terminals
 
@@ -120,6 +124,7 @@ final class TabContentCache {
         for evicted in retention.setVisible(key, visible) {
             terminals.removeValue(forKey: evicted)?.close()
         }
+        onPresentationChange?()
     }
 
     /// The tab closed: free everything it held.
