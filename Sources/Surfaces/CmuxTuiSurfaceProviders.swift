@@ -841,7 +841,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let closing = CloudTerminalPaneClosure.panelsToClose(
             boundTerminals: manualMirrorSessions.mapValues(\.terminalID),
             liveTerminalKeys: live,
-            freshness: observation.freshness
+            freshness: observation.freshness,
+            graphComplete: cloudState.map { catalog.cloudGraphIsComplete(machine: machine, state: $0) } ?? false
         )
         for panelID in closing {
             guard let terminalID = manualMirrorSessions[panelID]?.terminalID else { continue }

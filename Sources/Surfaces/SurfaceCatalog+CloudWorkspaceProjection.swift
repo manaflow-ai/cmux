@@ -36,11 +36,26 @@ extension SurfaceCatalog {
         state: CloudVMState,
         workspaceID: String
     ) -> Bool {
+        isCloudGraphComplete(machine: machine, state: state, workspaceID: workspaceID)
+    }
+
+    /// Returns false while any recognized tab in the accepted graph lacks its
+    /// catalog resource. Provider attachment cleanup uses this stronger
+    /// machine-wide fence so an incomplete inventory cannot close a live pane.
+    func cloudGraphIsComplete(machine: SurfaceMachineID, state: CloudVMState) -> Bool {
+        isCloudGraphComplete(machine: machine, state: state, workspaceID: nil)
+    }
+
+    private func isCloudGraphComplete(
+        machine: SurfaceMachineID,
+        state: CloudVMState,
+        workspaceID: String?
+    ) -> Bool {
         let resources = Set(snapshot.resources(on: machine).map(\.id))
         for tab in state.tabs {
             guard let pane = state.lookupIndex.pane(id: tab.paneID),
                   let screen = state.lookupIndex.screen(id: pane.screenID),
-                  screen.workspaceID == workspaceID else { continue }
+                  workspaceID == nil || screen.workspaceID == workspaceID else { continue }
             let kind: SurfaceResourceKind
             switch tab.contentKind {
             case "terminal": kind = .terminal
