@@ -1,0 +1,11 @@
+{
+  "oracle": {},
+  "cmux": {
+    "frame-buttons": 400,
+    "snapshot-under-3s": true,
+    "main-calls": true,
+    "main-calls-under-3s": true,
+    "frame-calls": "400 frames, 400 with a button",
+    "frame-calls-under-3s": true
+  }
+}
