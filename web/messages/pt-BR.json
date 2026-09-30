@@ -25,6 +25,11 @@
       "message": "A configuração da VM Cloud falhou e a limpeza ainda está pendente.",
       "action": "Entre em contato com o suporte e informe o ID de rastreamento antes de criar outra máquina."
     },
+    "recreateRequired": {
+      "title": "Recrie esta máquina",
+      "message": "Esta máquina foi criada antes de uma atualização do Cloud e não pode ser conectada.",
+      "action": "Crie uma nova máquina, copie seus arquivos com cmux vm pull e cmux vm push e depois exclua esta."
+    },
     "unsupported": {
       "title": "Operação de Cloud VM indisponível",
       "reason": "Este tipo de máquina não oferece esta operação.",
@@ -134,7 +139,9 @@
     "backToBlog": "Voltar ao blog",
     "readTheDocs": "Ler a Documentação",
     "viewChangelog": "Ver Changelog",
-    "otherPlatforms": "Outras plataformas"
+    "otherPlatforms": "Outras plataformas",
+    "copyCode": "Copiar código",
+    "copied": "Copiado"
   },
   "nav": {
     "docs": "Documentação",
@@ -1538,7 +1545,6 @@
       "restartNew": "Criar um novo workspace (padrão)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Alternar quebra de linha no editor de arquivos (Option+Z).",
       "title": "Atalhos de Teclado",
       "description": "Todos os atalhos de teclado disponíveis no cmux, agrupados por categoria.",
       "metaDescription": "Todos os atalhos de teclado do cmux para workspaces, superfícies, painéis divididos, navegador, notificações, busca e gerenciamento de janelas no macOS.",
@@ -2324,6 +2330,28 @@
       "fixTransferDisabled": "Uma política gerenciada desativa a transferência de arquivos. Fale com o administrador.",
       "supportTitle": "Obter ajuda",
       "supportDesc": "Se uma criação falhar, use Copy Error na notificação e inclua o erro, com o ID de rastreamento se houver, ao entrar em contato com o suporte."
+    },
+    "ui": {
+      "onThisPage": "Nesta página",
+      "copyPage": "Copiar página",
+      "copyPageDesc": "Copiar a página como Markdown para LLMs",
+      "copied": "Copiado",
+      "pageActions": "Mais ações da página",
+      "openInChatGPT": "Abrir no ChatGPT",
+      "openInClaude": "Abrir no Claude",
+      "openInDesc": "Faça perguntas sobre esta página",
+      "askPrompt": "Leia {url} para que eu possa fazer perguntas sobre ela.",
+      "previous": "Anterior",
+      "next": "Próxima",
+      "helpful": "Esta página foi útil?",
+      "yes": "Sim",
+      "no": "Não",
+      "thanks": "Obrigado pelo feedback.",
+      "raiseIssue": "Abrir issue",
+      "openNavigation": "Abrir navegação",
+      "closeNavigation": "Fechar navegação",
+      "searchShortcut": "Pesquisar na documentação (⌘K)",
+      "navigation": "Documentação"
     }
   },
   "legal": {

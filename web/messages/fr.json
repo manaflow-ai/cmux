@@ -25,6 +25,11 @@
       "message": "La configuration de la VM Cloud a échoué et le nettoyage est encore en attente.",
       "action": "Contactez le support avec l’identifiant de trace avant de créer une autre machine."
     },
+    "recreateRequired": {
+      "title": "Recréez cette machine",
+      "message": "Cette machine a été créée avant une mise à jour de Cloud et ne peut pas être connectée.",
+      "action": "Créez une nouvelle machine, copiez vos fichiers avec cmux vm pull et cmux vm push, puis supprimez celle-ci."
+    },
     "unsupported": {
       "title": "Opération de Cloud VM indisponible",
       "reason": "Ce type de machine ne propose pas cette opération.",
@@ -134,7 +139,9 @@
     "backToBlog": "Retour au blog",
     "readTheDocs": "Lire la documentation",
     "viewChangelog": "Voir le changelog",
-    "otherPlatforms": "Autres plateformes"
+    "otherPlatforms": "Autres plateformes",
+    "copyCode": "Copier le code",
+    "copied": "Copié"
   },
   "nav": {
     "docs": "Docs",
@@ -1539,7 +1546,6 @@
       "restartNew": "Créer un nouveau workspace (par défaut)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Activer ou désactiver le retour à la ligne de l’éditeur de fichiers (Option+Z).",
       "title": "Raccourcis clavier",
       "description": "Tous les raccourcis clavier disponibles dans cmux, classés par catégorie.",
       "metaDescription": "Tous les raccourcis clavier cmux pour les espaces de travail, surfaces, panneaux divisés, navigateur, notifications, recherche et gestion des fenêtres sur macOS.",
@@ -2326,6 +2332,28 @@
       "fixTransferDisabled": "Une stratégie gérée désactive le transfert de fichiers. Contactez votre administrateur.",
       "supportTitle": "Obtenir de l'aide",
       "supportDesc": "Si une création échoue, utilisez Copy Error dans la notification et joignez l'erreur, avec l'identifiant de trace s'il y en a un, lorsque vous contactez l'assistance."
+    },
+    "ui": {
+      "onThisPage": "Sur cette page",
+      "copyPage": "Copier la page",
+      "copyPageDesc": "Copier la page en Markdown pour les LLM",
+      "copied": "Copié",
+      "pageActions": "Autres actions de la page",
+      "openInChatGPT": "Ouvrir dans ChatGPT",
+      "openInClaude": "Ouvrir dans Claude",
+      "openInDesc": "Poser des questions sur cette page",
+      "askPrompt": "Lis {url} pour que je puisse poser des questions dessus.",
+      "previous": "Précédent",
+      "next": "Suivant",
+      "helpful": "Cette page vous a-t-elle été utile ?",
+      "yes": "Oui",
+      "no": "Non",
+      "thanks": "Merci pour votre retour.",
+      "raiseIssue": "Signaler un problème",
+      "openNavigation": "Ouvrir la navigation",
+      "closeNavigation": "Fermer la navigation",
+      "searchShortcut": "Rechercher dans la documentation (⌘K)",
+      "navigation": "Documentation"
     }
   },
   "legal": {

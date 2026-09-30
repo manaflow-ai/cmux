@@ -25,6 +25,11 @@
       "message": "Postavljanje Cloud VM-a nije uspjelo i čišćenje je još na čekanju.",
       "action": "Obratite se podršci s ID-jem praćenja prije kreiranja druge mašine."
     },
+    "recreateRequired": {
+      "title": "Ponovo kreirajte ovu mašinu",
+      "message": "Ova mašina je kreirana prije ažuriranja Clouda i ne može se povezati.",
+      "action": "Kreirajte novu mašinu, kopirajte datoteke pomoću cmux vm pull i cmux vm push, a zatim obrišite ovu."
+    },
     "unsupported": {
       "title": "Operacija Cloud VM-a nije dostupna",
       "reason": "Ova vrsta mašine ne pruža ovu operaciju.",
@@ -134,7 +139,9 @@
     "backToBlog": "Nazad na blog",
     "readTheDocs": "Pročitaj dokumentaciju",
     "viewChangelog": "Pogledaj zapisnik promjena",
-    "otherPlatforms": "Druge platforme"
+    "otherPlatforms": "Druge platforme",
+    "copyCode": "Kopiraj kod",
+    "copied": "Kopirano"
   },
   "nav": {
     "docs": "Dokumentacija",
@@ -1538,7 +1545,6 @@
       "restartNew": "Kreiraj novi radni prostor (zadano)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Uključi ili isključi prelamanje redova u uređivaču datoteka (Option+Z).",
       "title": "Prečice na tastaturi",
       "description": "Sve prečice na tastaturi dostupne u cmux-u, grupirane po kategorijama.",
       "metaDescription": "Sve cmux prečice na tastaturi za radne prostore, površine, podijeljene panele, preglednik, notifikacije, pretragu i upravljanje prozorima na macOS-u.",
@@ -2324,6 +2330,28 @@
       "fixTransferDisabled": "Upravljana politika isključuje prijenos datoteka. Obratite se administratoru.",
       "supportTitle": "Pomoć",
       "supportDesc": "Ako kreiranje ne uspije, koristite Copy Error u notifikaciji i priložite grešku, s trace ID-jem ako postoji, kada kontaktirate podršku."
+    },
+    "ui": {
+      "onThisPage": "Na ovoj stranici",
+      "copyPage": "Kopiraj stranicu",
+      "copyPageDesc": "Kopiraj stranicu kao Markdown za LLM",
+      "copied": "Kopirano",
+      "pageActions": "Više radnji za stranicu",
+      "openInChatGPT": "Otvori u ChatGPT-u",
+      "openInClaude": "Otvori u Claudeu",
+      "openInDesc": "Postavi pitanja o ovoj stranici",
+      "askPrompt": "Pročitaj {url} kako bih mogao postavljati pitanja o njoj.",
+      "previous": "Prethodno",
+      "next": "Sljedeće",
+      "helpful": "Je li vam ova stranica bila korisna?",
+      "yes": "Da",
+      "no": "Ne",
+      "thanks": "Hvala na povratnoj informaciji.",
+      "raiseIssue": "Prijavi problem",
+      "openNavigation": "Otvori navigaciju",
+      "closeNavigation": "Zatvori navigaciju",
+      "searchShortcut": "Pretraži dokumentaciju (⌘K)",
+      "navigation": "Dokumentacija"
     }
   },
   "legal": {

@@ -25,6 +25,11 @@
       "message": "Cloud VM 設定失敗，清理仍未完成。",
       "action": "建立另一台機器之前，請提供追蹤 ID 聯絡支援團隊。"
     },
+    "recreateRequired": {
+      "title": "重新建立這台機器",
+      "message": "這台機器建立於 Cloud 更新之前，無法連線。",
+      "action": "請建立一台新機器，用 cmux vm pull 和 cmux vm push 複製檔案，然後刪除這台機器。"
+    },
     "unsupported": {
       "title": "雲端虛擬機操作無法使用",
       "reason": "此機器類型不提供這項操作。",
@@ -134,7 +139,9 @@
     "backToBlog": "返回部落格",
     "readTheDocs": "閱讀文件",
     "viewChangelog": "查看更新日誌",
-    "otherPlatforms": "其他平台"
+    "otherPlatforms": "其他平台",
+    "copyCode": "複製程式碼",
+    "copied": "已複製"
   },
   "nav": {
     "docs": "文件",
@@ -1538,7 +1545,6 @@
       "restartNew": "建立新的 workspace（預設）"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "切換檔案編輯器自動換行 (Option+Z).",
       "title": "鍵盤快捷鍵",
       "description": "cmux 中所有可用的鍵盤快捷鍵，依類別分組。",
       "metaDescription": "cmux 所有鍵盤快捷鍵，涵蓋工作區、surface、分割窗格、瀏覽器、通知、搜尋和 macOS 視窗管理。",
@@ -2323,6 +2329,28 @@
       "fixTransferDisabled": "受管理的原則已關閉檔案傳輸。請聯絡你的管理員。",
       "supportTitle": "取得協助",
       "supportDesc": "如果建立失敗，請使用通知中的 Copy Error，並在聯絡支援時附上錯誤訊息以及追蹤 ID（如有）。"
+    },
+    "ui": {
+      "onThisPage": "本頁內容",
+      "copyPage": "複製頁面",
+      "copyPageDesc": "以 Markdown 格式複製，供 LLM 使用",
+      "copied": "已複製",
+      "pageActions": "更多頁面操作",
+      "openInChatGPT": "在 ChatGPT 中開啟",
+      "openInClaude": "在 Claude 中開啟",
+      "openInDesc": "就本頁提問",
+      "askPrompt": "請閱讀 {url}，以便我就其內容提問。",
+      "previous": "上一頁",
+      "next": "下一頁",
+      "helpful": "這個頁面對你有幫助嗎？",
+      "yes": "是",
+      "no": "否",
+      "thanks": "感謝你的回饋。",
+      "raiseIssue": "提交 Issue",
+      "openNavigation": "開啟導覽",
+      "closeNavigation": "關閉導覽",
+      "searchShortcut": "搜尋文件 (⌘K)",
+      "navigation": "文件"
     }
   },
   "legal": {
