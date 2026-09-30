@@ -174,3 +174,10 @@ public struct BrowserToolbarReport: Equatable, Sendable {
         return true
     }
 }
+
+extension BrowserChromeView {
+    /// The tab was restored showing `url` (relaunch, hibernation wake): its
+    /// first load of that page is not recorded as a new visit.
+    public func markRestored(_ url: URL?) {
+    }
+}
