@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { env } from "@/app/env";
+import { reportMissingRateLimitRule } from "../../../services/rateLimitObservability";
 import {
   recordSpanError,
   setSpanAttributes,
@@ -53,6 +54,9 @@ export async function POST(request: Request) {
       // and unique domains miss the cache, so an unthrottled path would let a
       // public POST flood the resolver as well as Slack. Reuses the feedback
       // rule. Only active on Vercel.
+      if (process.env.VERCEL === "1" && !env.CMUX_FEEDBACK_RATE_LIMIT_ID) {
+        void reportMissingRateLimitRule({ route: "/api/waitlist", reason: "unset" });
+      }
       if (process.env.VERCEL === "1" && env.CMUX_FEEDBACK_RATE_LIMIT_ID) {
         let result: Awaited<ReturnType<typeof checkRateLimit>>;
         try {
@@ -75,7 +79,7 @@ export async function POST(request: Request) {
         if (error === "not-found") {
           // The rule was deleted; treat as "no limit" instead of taking the
           // endpoint down.
-          console.warn("waitlist.route.rate_limit_not_found; failing open", env.CMUX_FEEDBACK_RATE_LIMIT_ID);
+          void reportMissingRateLimitRule({ route: "/api/waitlist", reason: "not-found" });
         } else if (error) {
           console.error("waitlist.route.rate_limit_error", error);
           return jsonError("service_unavailable", 503);

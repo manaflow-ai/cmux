@@ -1,4 +1,7 @@
+import CMUXAgentLaunch
+import CmuxControlSocket
 import CmuxSettings
+import CryptoKit
 import Darwin
 import Foundation
 import SQLite3
@@ -108,15 +111,9 @@ import Testing
                 ofItemAtPath: executableURL.path
             )
         }
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
         environment["CMUX_TEST_AGENT_LAUNCH_MARKER"] = launchMarker.path
         environment["PATH"] = "\(binURL.path):/usr/bin:/bin"
-        environment["HOME"] = home.path
-        environment["CFFIXED_USER_HOME"] = home.path
         // Pin this no-socket command to a per-run path so the fixture cannot use
         // any ambient discovery marker from the host machine.
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-agent-teams-help-\(UUID().uuidString.prefix(8)).sock"
@@ -215,6 +212,225 @@ import Testing
             methods == ["surface.resume.get", "surface.resume.get"],
             "An unknown flag must be rejected before a binding mutation request is sent: \(methods)"
         )
+    }
+
+    @Test func testSurfaceResumeJSONDoesNotExposePrivateSubrouterRoutingMetadata() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-resume-private-\(UUID().uuidString.prefix(8)).sock"
+        let privateRestoreRecord: [String: Any] = [
+            "kind": "codex",
+            "legacy_command": "env 'SUBROUTER_CODEX_USER_EMAIL=legacy-private@example.test' sr codex resume session-id",
+            "prepared_arguments": [
+                "/private/custom/codex",
+                "-c", "model_provider=subrouter",
+                "--config=model_providers.subrouter.base_url=https://prepared-router.example.test/v1",
+            ],
+            "launch_command": [
+                "arguments": [
+                    "/private/custom/codex", "-c", "model_provider=\"subrouter\"",
+                    "-c", "model_providers.subrouter.base_url=https://router.example.test/v1",
+                ],
+                "executable_path": "/private/custom/codex",
+                "environment": [
+                    "PATH": "/usr/bin:/bin",
+                    "SUBROUTER_CODEX_ACCOUNT_ID": "private-account",
+                    "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+                    "SUBROUTER_CODEX_BIN": "/opt/bin/codex",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "CMUX_CUSTOM_CODEX_PATH": "/private/custom/codex",
+                    "SUBROUTER_CODEX_SERVER": "private-server",
+                    "SUBROUTER_CODEX_USER_EMAIL": "private@example.test",
+                ],
+            ],
+        ]
+        let response = try jsonResponse(result: [
+            "resume_binding": [
+                "command": "env 'SUBROUTER_CODEX_USER_EMAIL=private@example.test' sr codex resume session-id",
+                "environment": [
+                    "PATH": "/usr/bin:/bin",
+                    "SUBROUTER_CODEX_SERVER": "private-server",
+                ],
+            ],
+            "restore_record": privateRestoreRecord,
+        ])
+        let listResponse = try jsonResponse(result: [
+            "surfaces": [[
+                "id": UUID().uuidString.lowercased(),
+                "ref": "surface:1",
+                "type": "terminal",
+                "restore_record": privateRestoreRecord,
+            ]],
+        ])
+        let directCommand = "codex resume direct-session -- 'discuss SUBROUTER_CODEX_USER_EMAIL and model_provider=subrouter'"
+        let directResponse = try jsonResponse(result: [
+            "resume_binding": [
+                "command": directCommand,
+                "environment": ["PATH": "/usr/bin:/bin"],
+            ],
+        ])
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [response, response, listResponse, directResponse]
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        #expect(result.combinedOutput.contains("SUBROUTER_CODEX_") == false)
+        #expect(result.combinedOutput.contains("CMUX_CUSTOM_CODEX_PATH") == false)
+        #expect(result.combinedOutput.contains("/private/custom/codex") == false)
+        #expect(result.combinedOutput.contains("[private routing metadata]") == false)
+        #expect(result.combinedOutput.contains("model_provider") == false)
+        #expect(result.combinedOutput.contains("private@example.test") == false)
+        #expect(result.combinedOutput.contains("legacy-private@example.test") == false)
+        #expect(result.combinedOutput.contains("router.example.test") == false)
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let record = try #require(payload["restore_record"] as? [String: Any])
+        #expect(record["legacy_command"] is NSNull)
+        let preparedArguments = try #require(record["prepared_arguments"] as? [Any])
+        #expect(preparedArguments.first is NSNull)
+        #expect(preparedArguments.count == 1)
+        let launchCommand = try #require(record["launch_command"] as? [String: Any])
+        #expect(launchCommand["executable_path"] is NSNull)
+        let launchArguments = try #require(launchCommand["arguments"] as? [Any])
+        #expect(launchArguments.first is NSNull)
+        #expect(launchArguments.count == 1)
+        let launchEnvironment = try #require(launchCommand["environment"] as? [String: Any])
+        #expect(Set(launchEnvironment.keys) == Set(["PATH"]))
+        #expect(launchEnvironment["PATH"] as? String == "/usr/bin:/bin")
+
+        let plainResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!plainResult.timedOut, Comment(rawValue: plainResult.diagnostics))
+        #expect(plainResult.status == 0, Comment(rawValue: plainResult.diagnostics))
+        #expect(plainResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "null")
+        #expect(plainResult.combinedOutput.contains("SUBROUTER_CODEX_") == false)
+        #expect(plainResult.combinedOutput.contains("CMUX_CUSTOM_CODEX_PATH") == false)
+        #expect(plainResult.combinedOutput.contains("/private/custom/codex") == false)
+        #expect(plainResult.combinedOutput.contains("[private routing metadata]") == false)
+        #expect(plainResult.combinedOutput.contains("model_provider") == false)
+        #expect(plainResult.combinedOutput.contains("private@example.test") == false)
+        #expect(plainResult.combinedOutput.contains("legacy-private@example.test") == false)
+        #expect(plainResult.combinedOutput.contains("router.example.test") == false)
+
+        let listResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-panels", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!listResult.timedOut, Comment(rawValue: listResult.diagnostics))
+        #expect(listResult.status == 0, Comment(rawValue: listResult.diagnostics))
+        #expect(listResult.combinedOutput.contains("SUBROUTER_CODEX_") == false)
+        #expect(listResult.combinedOutput.contains("CMUX_CUSTOM_CODEX_PATH") == false)
+        #expect(listResult.combinedOutput.contains("/private/custom/codex") == false)
+        #expect(listResult.combinedOutput.contains("model_provider") == false)
+        #expect(listResult.combinedOutput.contains("private@example.test") == false)
+        #expect(listResult.combinedOutput.contains("legacy-private@example.test") == false)
+        #expect(listResult.combinedOutput.contains("router.example.test") == false)
+
+        let directResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!directResult.timedOut, Comment(rawValue: directResult.diagnostics))
+        #expect(directResult.status == 0, Comment(rawValue: directResult.diagnostics))
+        #expect(directResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == directCommand)
+    }
+
+    @Test func testSurfaceListJSONRedactsCustomCodexPathPerSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-list-private-\(UUID().uuidString.prefix(8)).sock"
+        let routedRecord: [String: Any] = [
+            "kind": "codex",
+            "launch_command": [
+                "arguments": ["/private/custom/codex"],
+                "environment": [
+                    "SUBROUTER_CODEX_SERVER": "private-server",
+                    "CMUX_CUSTOM_CODEX_PATH": "/private/custom/codex",
+                ],
+            ],
+        ]
+        let ordinaryRecord: [String: Any] = [
+            "kind": "codex",
+            "launch_command": [
+                "arguments": ["/opt/ordinary/codex"],
+                "environment": [
+                    "CMUX_CUSTOM_CODEX_PATH": "/opt/ordinary/codex",
+                ],
+            ],
+        ]
+        let listResponse = try jsonResponse(result: [
+            "surfaces": [
+                [
+                    "id": UUID().uuidString.lowercased(),
+                    "ref": "surface:1",
+                    "type": "terminal",
+                    "restore_record": routedRecord,
+                ],
+                [
+                    "id": UUID().uuidString.lowercased(),
+                    "ref": "surface:2",
+                    "type": "terminal",
+                    "restore_record": ordinaryRecord,
+                ],
+            ],
+        ])
+        let responder = try UnixSocketResponder(path: socketPath, responses: [listResponse])
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-panels", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        #expect(result.combinedOutput.contains("SUBROUTER_CODEX_") == false)
+        #expect(result.combinedOutput.contains("/private/custom/codex") == false)
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let surfaces = try #require(payload["surfaces"] as? [[String: Any]])
+        try #require(surfaces.count == 2)
+        let ordinary = surfaces[1]
+        let ordinaryLaunch = try #require(
+            (ordinary["restore_record"] as? [String: Any])?["launch_command"] as? [String: Any]
+        )
+        let ordinaryEnvironment = try #require(ordinaryLaunch["environment"] as? [String: Any])
+        #expect(ordinaryEnvironment["CMUX_CUSTOM_CODEX_PATH"] as? String == "/opt/ordinary/codex")
+        #expect(ordinaryLaunch["arguments"] as? [String] == ["/opt/ordinary/codex"])
     }
 
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
@@ -452,6 +668,67 @@ import Testing
         XCTAssertEqual(clearParams["agent_session_ended"] as? Bool, true)
     }
 
+    @Test func testRestoreUsesPreparedArgumentsWhenLaunchCaptureHasNoArgv() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux restore prepared argv \(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("prepared-agent", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        printf 'prepared=%s\\n' "$1"
+        printf 'environment=%s\\n' "$REJECTED_CAPTURE_ENV"
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "prepared-\(UUID().uuidString)"
+        let response = try restoreResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "custom",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                // A rejected capture has no replayable argv, but the producer
+                // may still provide a prepared argv for this restore request.
+                "launch_command": [
+                    "launcher": "custom",
+                    "arguments": [],
+                    "source": "rejected",
+                    "rejectionReason": "argvDecodeFailed",
+                    "environment": ["REJECTED_CAPTURE_ENV": "preserved"],
+                ],
+                "prepared_arguments": [executable.path, "from-prepared"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-prepared-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "custom", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(
+            result.stdout,
+            "prepared=from-prepared\nenvironment=preserved\n",
+            result.diagnostics
+        )
+    }
+
     @Test func testRestoreDoesNotResolveBareExecutableFromEmptyPATHComponent() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -593,20 +870,16 @@ import Testing
                     "working_directory": root.path,
                 ],
             ],
-        ])
+        ], workspaceID: workspaceID, surfaceID: surfaceID)
         let socketPath = "/tmp/cmux-hermes-restore-recovery-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: root)
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = surfaceID
         environment["CMUX_WORKSPACE_ID"] = workspaceID
-        environment["HOME"] = root.path
+        environment["HERMES_HOME"] = root.appendingPathComponent(".hermes", isDirectory: true).path
         try writeHermesStateDatabase(
             homeDirectory: root,
             sessionID: realSessionID,
@@ -636,6 +909,8 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try """
         #!/bin/sh
+        # Resumed Hermes pins its profile before the config subcommand.
+        if [ "$1" = "--profile" ]; then shift 2; fi
         if [ "$1" = "config" ]; then
           printf 'preflight stdout chatter\\n'
           printf 'preflight stderr chatter\\n' >&2
@@ -674,19 +949,27 @@ import Testing
         let socketPath = "/tmp/cmux-restore-preflight-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: root)
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["HERMES_HOME"] = root.appendingPathComponent(".hermes", isDirectory: true).path
+        // The preflight child below never exits on its own, so restore has to reach its
+        // timeout for this test to observe the quiet failure. The size of that window is
+        // production policy, asserted as a value; the run itself narrows it.
+        #expect(AgentRestorePreflightInvocation.defaultTimeoutSeconds == 10)
+        #expect(
+            AgentRestorePreflightInvocation.timeoutSeconds(environment: [:])
+                == AgentRestorePreflightInvocation.defaultTimeoutSeconds
+        )
+        environment[AgentRestorePreflightInvocation.timeoutEnvironmentKey] = "0.5"
 
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["restore", "hermes-agent", checkpointID],
             environment: environment,
-            timeout: 15
+            // A deliberate cap, not a hang guard: the preflight window above is 0.5s, so
+            // the run has to finish well inside 5s.
+            timeout: 5
         )
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
@@ -1188,11 +1471,25 @@ import Testing
 
     @Test func testRestorePositionalFormRequiresSurfaceContext() throws {
         let cliPath = try bundledCLIPath()
+        // Answer on a socket this test owns. Without one, implicit discovery
+        // depends on whether the app host happens to be listening, and with no
+        // live listener restore deliberately waits for a launching app (see
+        // testLaunchCapableCommandsReachTheirDispatchPathWithoutLiveImplicitSocket).
+        let socketPath = "/tmp/cmux-restore-no-ctx-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: try jsonErrorResponse(
+                code: "not_found",
+                message: "No caller surface"
+            )
+        )
+        defer { responder.stop() }
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1210,6 +1507,14 @@ import Testing
             ),
             result.diagnostics
         )
+        let methods = try responder.receivedRequests.map { request in
+            let data = try XCTUnwrap(request.data(using: .utf8))
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: data) as? [String: Any]
+            )
+            return object["method"] as? String
+        }
+        #expect(methods == ["system.identify"], Comment(rawValue: result.diagnostics))
     }
 
     @Test func testRestorePositionalFormFailsClosedWhenBindingIdentityDrifts() throws {
@@ -1392,6 +1697,99 @@ import Testing
         ])
     }
 
+    @Test func testForkWaitsForControlSocketDuringAppStartup() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = UUID().uuidString.lowercased()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let currentWorkspaceResponse = try jsonResponse(result: [
+            "workspace_id": workspaceID,
+        ])
+        let identifyResponse = try jsonResponse(result: [
+            "caller": [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ],
+            "focused": [:],
+        ])
+        let recordResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "resumeAgent",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "source": "session-snapshot",
+                "working_directory": "/tmp",
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                    "working_directory": "/tmp",
+                ],
+                "fork_arguments": ["/usr/bin/true", "--fork", checkpointID],
+                "fork_arguments_working_directory": "/tmp",
+            ],
+        ])
+        let fixtureDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-fork-startup-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        let socketPath = fixtureDirectory.appendingPathComponent("cmux.sock", isDirectory: false).path
+        let debugLogPath = fixtureDirectory.appendingPathComponent("cli.log", isDirectory: false).path
+        var startupSocketFD = try bindUnavailableUnixSocket(at: socketPath)
+        var responder: UnixSocketResponder?
+        defer {
+            if startupSocketFD >= 0 {
+                close(startupSocketFD)
+            }
+            responder?.stop()
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: fixtureDirectory)
+        }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_DEBUG_LOG"] = debugLogPath
+        environment["CMUX_SURFACE_ID"] = surfaceID
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["fork", "pi", checkpointID],
+            environment: environment,
+            timeout: 5,
+            afterLaunch: {
+                guard self.waitForFileContentsUsingKqueue(
+                    URL(fileURLWithPath: debugLogPath),
+                    containing: "socket.connect.wait.entered",
+                    timeout: 3
+                ) else {
+                    return
+                }
+                close(startupSocketFD)
+                startupSocketFD = -1
+                responder = try? UnixSocketResponder(
+                    path: socketPath,
+                    responses: [currentWorkspaceResponse, identifyResponse, recordResponse]
+                )
+            }
+        )
+
+        let requiredResponder = try #require(responder)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        let methods = try requiredResponder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            return try #require(payload["method"] as? String)
+        }
+        #expect(methods == [
+            "workspace.current",
+            "system.identify",
+            "surface.resume.get",
+        ])
+    }
+
     @Test func testRestoreWaitsForRelayDuringAppStartup() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = "pi-\(UUID().uuidString.lowercased())"
@@ -1460,7 +1858,7 @@ import Testing
                 ) else {
                     return
                 }
-                // Keep the bound TCP endpoint unavailable through the waiter's
+                // Keep the TCP endpoint unavailable through the waiter's
                 // first connection attempt. Without relay error classification,
                 // that attempt fails permanently instead of reaching a retry.
                 usleep(100_000)
@@ -2045,17 +2443,12 @@ import Testing
             sourceCLIPath: cliPath,
             tagSlug: tagSlug
         )
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
         // No CMUX_SOCKET_PATH on purpose: where the CLI lands with no override is the
         // whole subject. That stays inside the test because the tag slug is unique per
         // run, so the tagged default socket and the marker file the CLI consults are both
-        // named after this run. CFFIXED_USER_HOME moves the stable socket into the temp
-        // home (it overrides homeDirectoryForCurrentUser).
-        environment["CFFIXED_USER_HOME"] = home.path
+        // named after this run. The hermetic environment moves the stable socket into the
+        // temp home and keeps discovery off the machine-wide /tmp markers.
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -2103,13 +2496,8 @@ import Testing
             sourceCLIPath: cliPath,
             tagSlug: tagSlug
         )
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
         environment["CMUX_TAG"] = tagSlug
-        environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -2160,12 +2548,7 @@ import Testing
             sourceCLIPath: cliPath,
             tagSlug: tagSlug
         )
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CFFIXED_USER_HOME"] = home.path
+        let environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -2209,13 +2592,8 @@ import Testing
             sourceCLIPath: cliPath,
             tagSlug: tagSlug
         )
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
         environment["CMUX_TAG"] = tagSlug
-        environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -2245,12 +2623,17 @@ import Testing
             sourceCLIPath: cliPath,
             tagSlug: tagSlug
         )
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CFFIXED_USER_HOME"] = home.path
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
+        // restore and fork deliberately outwait a launching app before they report
+        // that cmux is still opening. This test is about which dispatch path the
+        // commands reach, not about the size of that window, so it narrows the
+        // window instead of spending the production default twice.
+        #expect(SocketStartupWaiter.appStartupTimeoutDefaultSeconds == 45)
+        #expect(
+            SocketStartupWaiter.appStartupTimeoutSeconds(environment: [:])
+                == SocketStartupWaiter.appStartupTimeoutDefaultSeconds
+        )
+        environment[SocketStartupWaiter.appStartupTimeoutEnvironmentKey] = "0.2"
 
         let cases: [(arguments: [String], expectedError: String)] = [
             (["settings", "invalid-target"], "Unknown settings subcommand 'invalid-target'"),
@@ -2258,6 +2641,7 @@ import Testing
             (["open"], "open requires at least one path or URL"),
             (["diff", "one.patch", "two.patch"], "diff accepts at most one patch file"),
             (["restore", "codex", UUID().uuidString.lowercased()], "restore: cmux is still opening."),
+            (["fork", "pi", UUID().uuidString.lowercased()], "fork: cmux is still opening."),
             (["restore-session", "--invalid"], "restore-session: unknown flag '--invalid'"),
             (["feedback", "--invalid"], "feedback: unknown flag '--invalid'"),
         ]
@@ -2280,6 +2664,170 @@ import Testing
                 Comment(rawValue: result.diagnostics)
             )
         }
+    }
+
+    @Test func testHermeticCLIEnvironmentNeverExposesTheRealHomeOrSocketPins() throws {
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        var realHomes: Set<String> = [NSHomeDirectory()]
+        if let passwd = getpwuid(getuid()), let directory = passwd.pointee.pw_dir {
+            realHomes.insert(String(cString: directory))
+        }
+        if let inheritedHome = ProcessInfo.processInfo.environment["HOME"] {
+            realHomes.insert(inheritedHome)
+        }
+        realHomes = realHomes.filter { !$0.isEmpty && $0 != "/" }
+        let realHome = try #require(realHomes.first)
+        // A host shaped like the CI runner that exposed the leak: a real cmux runs as
+        // the same user, and the test process inherits its home and socket pins.
+        let hostEnvironment = [
+            "PATH": "/usr/bin:/bin",
+            "HOME": realHome,
+            "CFFIXED_USER_HOME": realHome,
+            "XDG_STATE_HOME": realHome + "/.local/state",
+            "XDG_CONFIG_HOME": realHome + "/.config",
+            "XDG_RUNTIME_DIR": realHome + "/run",
+            "TMPDIR": realHome + "/tmp/",
+            "CMUX_SOCKET_PATH": realHome + "/.local/state/cmux/cmux.sock",
+            "CMUX_SOCKET": realHome + "/.local/state/cmux/cmux.sock",
+            "CMUX_TAG": "real-user-tag",
+            "CMUX_SURFACE_ID": UUID().uuidString,
+            "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC": "60",
+        ]
+
+        for base in [hostEnvironment, ProcessInfo.processInfo.environment] {
+            let environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home, base: base)
+            let homeScopedKeys = ["HOME", "CFFIXED_USER_HOME", "TMPDIR"]
+                + environment.keys.filter { $0.hasPrefix("XDG_") }
+            for key in homeScopedKeys {
+                let value = try #require(environment[key], "\(key) must be set")
+                #expect(value.hasPrefix(home.path), "\(key)=\(value) escapes the temp home")
+            }
+            for (key, value) in environment
+            where key.hasPrefix("CMUX") || homeScopedKeys.contains(key) {
+                for realHome in realHomes {
+                    #expect(!value.hasPrefix(realHome), "\(key)=\(value) points into the real home")
+                }
+            }
+            let cmuxKeys = Set(environment.keys.filter { $0.hasPrefix("CMUX") })
+            #expect(cmuxKeys == [
+                "CMUX_CLI_SENTRY_DISABLED",
+                BundledCLITestSupport.isolatedSocketDiscoveryEnvironmentKey,
+            ])
+        }
+    }
+
+    /// Regression for the CI runner whose own cmux (same user) was reached by tests
+    /// that expect no live socket: the CLI followed a machine-wide `/tmp` marker to
+    /// `/Users/cmux/.local/state/cmux/cmux-501.sock`. The per-tag `/tmp` marker stands in
+    /// for the stable app's `/tmp/cmux-last-socket-path`, which a test must never write.
+    @Test func testHermeticTaggedCLIIgnoresMachineWideTmpMarkerToLiveSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let tagSlug = "cli-tmp-marker-leak-\(UUID().uuidString.lowercased())"
+        let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
+        let leakedSocketPath = "/tmp/cmux-leak-\(UUID().uuidString.prefix(8).lowercased()).sock"
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try writeStableSocketMarker(home: home)
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+        let bundleIdentifier = "com.cmuxterm.app.debug.\(tagSlug.replacingOccurrences(of: "-", with: "."))"
+        let tmpMarkerPath = SocketPathMarkerFiles.variant(
+            bundleIdentifier: bundleIdentifier,
+            environment: ["CMUX_TAG": tagSlug]
+        ).tmpPath
+        #expect(tmpMarkerPath.hasPrefix("/tmp/"))
+        #expect(tmpMarkerPath.contains(tagSlug))
+        try "\(leakedSocketPath)\n".write(toFile: tmpMarkerPath, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: tmpMarkerPath) }
+        let leakedResponder = try UnixSocketResponder(path: leakedSocketPath, response: "PONG LEAKED")
+        defer { leakedResponder.stop() }
+
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
+        environment["CMUX_TAG"] = tagSlug
+
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["ping"],
+            environment: environment
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status != 0, Comment(rawValue: result.diagnostics))
+        #expect(leakedResponder.receivedRequests.isEmpty, Comment(rawValue: result.diagnostics))
+        #expect(!result.stdout.contains("PONG LEAKED"), Comment(rawValue: result.diagnostics))
+        #expect(!result.stderr.contains(leakedSocketPath), Comment(rawValue: result.diagnostics))
+        #expect(result.stderr.contains("No live cmux socket found"), Comment(rawValue: result.diagnostics))
+        #expect(result.stderr.contains(taggedSocketPath), Comment(rawValue: result.diagnostics))
+    }
+
+    @Test func testIsolatedImplicitDiscoveryStaysInsideTheStateDirectory() throws {
+        #expect(
+            BundledCLITestSupport.isolatedSocketDiscoveryEnvironmentKey
+                == CLISocketPathResolver.isolatedDiscoveryEnvironmentKey
+        )
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stateDirectory = CmuxStateDirectory.url(homeDirectory: home)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        let tagSlug = "resolver-isolated-\(UUID().uuidString.prefix(8).lowercased())"
+        let bundleIdentifier = "com.cmuxterm.app.debug.\(tagSlug.replacingOccurrences(of: "-", with: "."))"
+        let tagEnvironment = ["CMUX_TAG": tagSlug]
+        let variant = SocketPathMarkerFiles.variant(
+            bundleIdentifier: bundleIdentifier,
+            environment: tagEnvironment
+        )
+        // The machine-wide marker names a live listener outside the state directory; the
+        // per-home marker names one of the test's own. Both paths are fake: the probes
+        // below report them live without any socket existing.
+        let tmpMarkerTarget = "/tmp/cmux-resolver-tmp-marker-\(tagSlug).sock"
+        let homeMarkerTarget = "/tmp/cmux-resolver-home-marker-\(tagSlug).sock"
+        try "\(tmpMarkerTarget)\n".write(toFile: variant.tmpPath, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: variant.tmpPath) }
+        try "\(homeMarkerTarget)\n".write(
+            to: stateDirectory.appendingPathComponent(variant.markerFileName, isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        func resolve(isolated: Bool) -> CLISocketPathResolution {
+            var environment = tagEnvironment
+            if isolated {
+                environment[BundledCLITestSupport.isolatedSocketDiscoveryEnvironmentKey] = "1"
+            }
+            let resolver = CLISocketPathResolver(
+                environment: environment,
+                bundleIdentifier: bundleIdentifier,
+                currentUserID: getuid(),
+                inspectSocketPathEntry: { _ in .socket(ownerUserID: getuid()) },
+                socketAcceptsConnections: { $0 == tmpMarkerTarget },
+                stateDirectory: stateDirectory
+            )
+            return resolver.resolve(
+                requestedPath: "/tmp/cmux-debug-\(tagSlug).sock",
+                source: .implicitDefault
+            )
+        }
+
+        // Production discovery is unchanged: the /tmp marker and legacy aliases count.
+        let ambient = resolve(isolated: false)
+        #expect(ambient.candidatePaths.contains(tmpMarkerTarget))
+        #expect(ambient.candidatePaths.contains(CLISocketPathResolver.legacyDefaultSocketPath))
+        #expect(ambient.selectedPath == tmpMarkerTarget)
+
+        let isolated = resolve(isolated: true)
+        #expect(isolated.selectedPath == nil)
+        #expect(!isolated.candidatePaths.contains(tmpMarkerTarget))
+        #expect(!isolated.candidatePaths.contains(CLISocketPathResolver.legacyDefaultSocketPath))
+        #expect(!isolated.candidatePaths.contains("/tmp/cmux-\(getuid()).sock"))
+        #expect(isolated.candidatePaths.contains("/tmp/cmux-debug-\(tagSlug).sock"))
+        #expect(isolated.candidatePaths.contains(homeMarkerTarget))
+        #expect(isolated.candidatePaths.contains(
+            stateDirectory.appendingPathComponent("cmux.sock", isDirectory: false).path
+        ))
     }
 
     @Test func testImplicitDiscoveryDoesNotConsiderUnmarkedTaggedSockets() throws {
@@ -2323,14 +2871,9 @@ import Testing
             sourceCLIPath: cliPath,
             tagSlug: tagSlug
         )
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
         environment["CMUX_TAG"] = tagSlug
         environment["CMUX_SOCKET_PATH"] = stableSocketURL.path
-        environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -2367,16 +2910,11 @@ import Testing
             sourceCLIPath: cliPath,
             tagSlug: tagSlug
         )
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
         // An environment override is an explicit pin, even when it names the
         // stable default that implicit discovery would otherwise consider.
         environment["CMUX_SOCKET_PATH"] = stableSocketPath
-        environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -2418,16 +2956,11 @@ import Testing
             sourceCLIPath: cliPath,
             tagSlug: tagSlug
         )
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: fixedHomeURL)
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
         // The tagged socket is absent, but an explicit stable environment path
         // remains pinned and is still used directly.
         environment["CMUX_SOCKET_PATH"] = stableSocketURL.path
-        environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -2469,16 +3002,11 @@ import Testing
                     sourceCLIPath: cliPath,
                     tagSlug: tagSlug
                 )
-                var environment = ProcessInfo.processInfo.environment
-                for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-                    environment.removeValue(forKey: key)
-                }
-                environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+                var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: fixedHomeURL)
                 environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
                 // A user-scoped stable path supplied in the environment is an
                 // explicit pin and remains the target.
                 environment["CMUX_SOCKET_PATH"] = alias
-                environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
                 let result = runProcess(
                     executablePath: fakeCLIPath,
@@ -2528,16 +3056,11 @@ import Testing
         let userScopedResponder = try UnixSocketResponder(path: userScopedStableSocketPath, response: "OK USER")
         defer { userScopedResponder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: fixedHomeURL)
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
         // An environment path is explicit even when it names a known stable
         // alias; discovery must not reinterpret it.
         environment["CMUX_SOCKET_PATH"] = userScopedStableSocketPath
-        environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
         let result = runProcess(
             executablePath: fakeStableCLIPath,
@@ -2591,16 +3114,11 @@ import Testing
         let defaultResponder = try UnixSocketResponder(path: defaultStableSocketPath, response: "OK DEFAULT")
         defer { defaultResponder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: fixedHomeURL)
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
         // Explicit environment paths stay pinned. A dead path must fail rather
         // than silently selecting the default responder.
         environment["CMUX_SOCKET_PATH"] = userScopedStableSocketPath
-        environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
         let result = runProcess(
             executablePath: fakeStableCLIPath,
@@ -2648,15 +3166,10 @@ import Testing
         defer { targetResponder.stop() }
         XCTAssertEqual(symlink(symlinkTargetSocketPath, symlinkedStableSocketPath), 0)
 
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: fixedHomeURL)
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
         // The symlink is an explicit environment path, not an implicit alias.
         environment["CMUX_SOCKET_PATH"] = symlinkedStableSocketPath
-        environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
         let result = runProcess(
             executablePath: fakeStableCLIPath,
@@ -2691,14 +3204,9 @@ import Testing
             sourceCLIPath: cliPath,
             tagSlug: tagSlug
         )
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
         environment["CMUX_SOCKET_PATH"] = explicitSocketPath
-        environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -2739,14 +3247,9 @@ import Testing
             tagSlug: tagSlug,
             nestedIdentifierlessApp: true
         )
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
         // No CMUX_SOCKET_PATH again: resolution from the bundle layout is the subject. The
         // temp home and the unique tag slug keep that resolution inside the test.
-        environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -2785,13 +3288,7 @@ import Testing
             sourceCLIPath: cliPath,
             tagSlug: tagSlug
         )
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CFFIXED_USER_HOME"] = root.path
-        environment["HOME"] = root.path
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: root)
         environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
 
         let result = runProcess(
@@ -2838,16 +3335,10 @@ import Testing
         let notificationLock = NSLock()
         var observedReloads: [(bundleIdentifier: String?, phase: String?)] = []
 
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CFFIXED_USER_HOME"] = root.path
-        environment["HOME"] = root.path
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: root)
         environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLE_ID"] = bundleIdentifier
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let configURL = root
             .appendingPathComponent("Library", isDirectory: true)
@@ -2948,16 +3439,10 @@ import Testing
             DistributedNotificationCenter.default().removeObserver(observer)
         }
 
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CFFIXED_USER_HOME"] = root.path
-        environment["HOME"] = root.path
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: root)
         environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLE_ID"] = staleBundleIdentifier
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -2983,70 +3468,7 @@ import Testing
     }
 
     @Test func testThemesSetNightlyOverridePathIsReadableByNightlyAppConfigResolution() throws {
-        let cliPath = try bundledCLIPath()
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-themes-nightly-path-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
-        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
-        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
-        try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
-
-        // The reload target comes from the socket file name before CMUX_BUNDLE_ID is even
-        // consulted: `cmux-nightly-<slug>.sock` becomes `com.cmuxterm.app.nightly.<slug>`.
-        // So scoping the identifier means scoping the socket name it is read from, and both
-        // take the same hex-only suffix — a raw UUID's dashes would turn into dots in the
-        // identifier. Scoping matters because the reload goes out machine-wide: on the
-        // plain nightly socket name this test told a real nightly build to re-read its
-        // config, and two runs at once shared one identifier.
-        let uniqueSuffix = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
-        let socketPath = "/tmp/cmux-nightly-\(uniqueSuffix).sock"
-        let bundleIdentifier = "com.cmuxterm.app.nightly.\(uniqueSuffix)"
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CFFIXED_USER_HOME"] = root.path
-        environment["HOME"] = root.path
-        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_BUNDLE_ID"] = bundleIdentifier
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["--json", "themes", "set", "Theme A"],
-            environment: environment
-        )
-
-        XCTAssertFalse(result.timedOut, result.diagnostics)
-        XCTAssertEqual(result.status, 0, result.diagnostics)
-
-        // Parsed from stdout alone. This is the check that used to break when a stray
-        // diagnostic line from the runtime shared the pipe with the payload.
-        let payload = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
-            result.diagnostics
-        )
-        let configPath = try XCTUnwrap(payload["config_path"] as? String, result.diagnostics)
-        XCTAssertEqual(payload["reload_target_bundle_id"] as? String, bundleIdentifier)
-
-        let appSupportDirectory = root
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-        let expectedConfigURL = appSupportDirectory
-            .appendingPathComponent(bundleIdentifier, isDirectory: true)
-            .appendingPathComponent("config.ghostty", isDirectory: false)
-        XCTAssertEqual(configPath, expectedConfigURL.path)
-
-        let appReadablePaths = GhosttyApp.cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        ).map(\.path)
-        XCTAssertEqual(appReadablePaths, [expectedConfigURL.path])
+        try assertThemesSetOverridePathIsReadableByChannelApp(channel: "nightly")
     }
 
     @Test func testBareInteractiveThemesReloadsRunningAppAfterPickerExits() throws {
@@ -3255,10 +3677,43 @@ import Testing
     }
 
     @Test func testBrowserDownloadWaitDefaultTimeoutMatchesServerDefaultWindow() throws {
+        // The window itself is a value, not a latency: the app-side handler and the
+        // CLI client both take it from BrowserDownloadWaitTimeout.standard, so the
+        // client outwaits the handler by the reply slack rather than by coincidence.
+        // Spending the real window here would mean a >10s test that still could not
+        // tell 15s from a minute.
+        let window = BrowserDownloadWaitTimeout.standard
+        #expect(window.defaultTimeoutMilliseconds == 10_000)
+        #expect(
+            window.handlerTimeoutMilliseconds(requestedMilliseconds: nil)
+                == window.defaultTimeoutMilliseconds
+        )
+        #expect(
+            window.clientResponseTimeoutSeconds(requestedMilliseconds: nil)
+                == TimeInterval(window.defaultTimeoutMilliseconds) / 1000.0
+                    + window.clientResponseSlackSeconds
+        )
+        #expect(window.clientResponseSlackSeconds > 0)
+        // The agreement is a property of the pair, not of the shipped numbers: a
+        // narrower window the client still outwaits keeps the same invariant.
+        let narrow = BrowserDownloadWaitTimeout(
+            defaultTimeoutMilliseconds: 50,
+            maximumTimeoutMilliseconds: 200,
+            clientResponseSlackSeconds: 0.1
+        )
+        #expect(
+            narrow.clientResponseTimeoutSeconds(requestedMilliseconds: nil)
+                > TimeInterval(narrow.handlerTimeoutMilliseconds(requestedMilliseconds: nil))
+                    / 1000.0
+        )
+
+        // And the default path really uses that window: with no --timeout-ms the CLI
+        // must ignore the generic response timeout below, which is short enough that
+        // a CLI falling back to it would give up before the responder answers.
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-dw-\(UUID().uuidString.prefix(8)).sock"
         let response = #"{"ok":true,"result":{"downloaded":true}}"#
-        let responder = try UnixSocketResponder(path: socketPath, response: response, responseDelay: 10.5)
+        let responder = try UnixSocketResponder(path: socketPath, response: response, responseDelay: 0.4)
         defer { responder.stop() }
 
         var environment = ProcessInfo.processInfo.environment
@@ -3278,12 +3733,9 @@ import Testing
                 "wait",
             ],
             environment: environment,
-            // A deliberate cap, and the only upper bound that gives this test meaning: the
-            // responder answers after 10.5s, so waiting the server's default window has to
-            // land between there and 16s. Under the suite default a CLI that waited a full
-            // minute would still pass, and "matches the server default window" would stop
-            // being a claim about anything.
-            timeout: 16
+            // A deliberate cap, not a hang guard: the responder answers after 0.4s, so
+            // this run has to finish well inside 3s.
+            timeout: 3
         )
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
@@ -3742,8 +4194,27 @@ import Testing
         )
         guard kevent(queue, &event, 1, nil, 0, nil) == 0 else { return false }
 
+        var fileFD: Int32 = -1
+        defer { if fileFD >= 0 { close(fileFD) } }
         let deadline = Date.now.addingTimeInterval(max(timeout, 0))
         while true {
+            // A directory event observes file creation, not later appends.
+            // Watch the log itself before reading so a marker appended after
+            // its first line cannot be missed until the deadline.
+            if fileFD < 0 {
+                fileFD = open(url.path, O_EVTONLY)
+                if fileFD >= 0 {
+                    var fileEvent = kevent(
+                        ident: UInt(fileFD),
+                        filter: Int16(EVFILT_VNODE),
+                        flags: UInt16(EV_ADD | EV_ENABLE | EV_CLEAR),
+                        fflags: UInt32(NOTE_WRITE | NOTE_EXTEND | NOTE_DELETE | NOTE_RENAME),
+                        data: 0,
+                        udata: nil
+                    )
+                    guard kevent(queue, &fileEvent, 1, nil, 0, nil) == 0 else { return false }
+                }
+            }
             if let contents = try? String(contentsOf: url, encoding: .utf8),
                contents.contains(expected) {
                 return true
@@ -3764,12 +4235,12 @@ import Testing
 
     /// Points the stable last-socket-path marker inside `home` at a path of the test's own.
     ///
-    /// `CFFIXED_USER_HOME` moves the socket directory but not socket discovery: the CLI
-    /// reads the first marker file it can open, and the second candidate is the
-    /// machine-wide `/tmp/cmux-last-socket-path`, which on a developer's machine names the
-    /// socket of the cmux they are running. Writing the per-home marker keeps the candidate
-    /// list inside the test even when the test's own default socket is missing. The path
-    /// written is deliberately one that does not exist, so it can never be connected to.
+    /// `CFFIXED_USER_HOME` moves the socket directory but not the machine-wide
+    /// `/tmp/cmux-last-socket-path` marker, which names the socket of any cmux running as
+    /// the same user. ``BundledCLITestSupport/hermeticCLIEnvironment(home:base:)`` keeps
+    /// discovery off that marker; the per-home marker written here gives the candidate list
+    /// a stable-marker entry of the test's own. The path written is deliberately one that
+    /// does not exist, so it can never be connected to.
     private func writeStableSocketMarker(home: URL) throws {
         let directory = CmuxStateDirectory.url(homeDirectory: home)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -3781,7 +4252,7 @@ import Testing
             .write(to: markerURL, atomically: true, encoding: .utf8)
     }
 
-    private func writeTheme(named name: String, background: String, to directory: URL) throws {
+    func writeTheme(named name: String, background: String, to directory: URL) throws {
         try """
         background = \(background)
         foreground = #eeeeee
@@ -3863,6 +4334,29 @@ import Testing
             [.posixPermissions: 0o755],
             ofItemAtPath: fakeCLIURL.path
         )
+        // The copy keeps the bundled CLI's rpaths. Its bundle-relative one,
+        // @executable_path/../../Frameworks, is where the app ships the package
+        // frameworks the CLI was linked against. Without that directory, a copy
+        // run with a scrubbed environment (`env -i`) loads them from the
+        // machine-wide fallback rpath instead, which CI refills with whatever
+        // commit last ran on that Mac, and dyld aborts on any symbol newer than
+        // that commit. Link the fake bundle's Frameworks to the source app's.
+        let sourceFrameworksURL = URL(fileURLWithPath: sourceCLIPath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Frameworks", isDirectory: true)
+        let fakeFrameworksURL = binURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Frameworks", isDirectory: true)
+        if FileManager.default.fileExists(atPath: sourceFrameworksURL.path),
+           !FileManager.default.fileExists(atPath: fakeFrameworksURL.path) {
+            try FileManager.default.createSymbolicLink(
+                at: fakeFrameworksURL,
+                withDestinationURL: sourceFrameworksURL
+            )
+        }
         return fakeCLIURL.path
     }
 
@@ -4497,6 +4991,7 @@ final class RelaySocketResponder {
     private var stopped = false
     private var requests: [String] = []
     private var listenerFD: Int32 = -1
+    private var deferredBindAddress: sockaddr_in?
 
     init(
         relayID: String,
@@ -4551,6 +5046,13 @@ final class RelaySocketResponder {
         endpoint = "127.0.0.1:\(UInt16(bigEndian: boundAddress.sin_port))"
         if startListening {
             self.startListening()
+        } else {
+            // A bound, non-listening TCP socket can leave macOS connects in
+            // SYN_SENT. Close the reservation so startup observes refusal and
+            // enters its retry path before this fixture begins listening.
+            close(fd)
+            listenerFD = -1
+            deferredBindAddress = boundAddress
         }
     }
 
@@ -4566,7 +5068,32 @@ final class RelaySocketResponder {
 
     func startListening() {
         lock.lock()
-        guard !stopped, listenerFD >= 0 else {
+        guard !stopped else {
+            lock.unlock()
+            return
+        }
+        if listenerFD < 0, var address = deferredBindAddress {
+            let fd = socket(AF_INET, SOCK_STREAM, 0)
+            guard fd >= 0 else {
+                lock.unlock()
+                return
+            }
+            var reuse: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+            let bindResult = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                    Darwin.bind(fd, socketPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            guard bindResult == 0 else {
+                close(fd)
+                lock.unlock()
+                return
+            }
+            listenerFD = fd
+            deferredBindAddress = nil
+        }
+        guard listenerFD >= 0 else {
             lock.unlock()
             return
         }
@@ -4620,8 +5147,8 @@ final class RelaySocketResponder {
             socklen_t(MemoryLayout<Int32>.size)
         )
         let challenge = #"{"protocol":"cmux-relay-auth","version":1,"relay_id":"\#(relayID)","nonce":"test-nonce"}"#
-        guard writeLine(challenge, to: clientFD), readLine(from: clientFD) != nil else { return }
-        guard writeLine(#"{"ok":true}"#, to: clientFD),
+        guard writeLine(challenge, to: clientFD), let authLine = readLine(from: clientFD) else { return }
+        guard writeLine(Self.authResult(authLine: authLine, relayID: relayID), to: clientFD),
               let request = readLine(from: clientFD) else { return }
 
         lock.lock()
@@ -4657,6 +5184,22 @@ final class RelaySocketResponder {
             }
             return true
         }
+    }
+
+    /// Token the relay tests pass in `CMUX_RELAY_TOKEN`.
+    static let relayToken = Data(repeating: 0x11, count: 32)
+
+    /// Success line proving the token over the client's nonce, as the app's
+    /// relay does; the CLI sends nothing further without it.
+    private static func authResult(authLine: String, relayID: String) -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(authLine.utf8)) as? [String: Any],
+              let clientNonce = object["client_nonce"] as? String else {
+            return #"{"ok":true}"#
+        }
+        let message = "cmux-relay-server-proof\nrelay_id=\(relayID)\nclient_nonce=\(clientNonce)\nserver_nonce=test-nonce\nversion=1"
+        let proof = HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: SymmetricKey(data: relayToken))
+        let proofHex = Data(proof).map { String(format: "%02x", $0) }.joined()
+        return #"{"ok":true,"relay_mac":"\#(proofHex)"}"#
     }
 
     private static func posixError(_ operation: String) -> NSError {

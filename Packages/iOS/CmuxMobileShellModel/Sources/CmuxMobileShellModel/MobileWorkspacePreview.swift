@@ -186,6 +186,24 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
 }
 
 extension MobileWorkspacePreview {
+    /// Stable key for device-local per-workspace UI state (the last opened
+    /// tab), mirroring ``MobileWorkspaceGroupPreview/collapseStateID``.
+    ///
+    /// ``id`` cannot key persisted state: aggregation Mac-scopes row ids only
+    /// while more than one Mac is live, so the same workspace flips between a
+    /// plain and a scoped id. This key is always owner-scoped when the owning
+    /// Mac is known, and falls back to the Mac-local id otherwise.
+    public var lastTabStateID: String {
+        guard let macDeviceID, !macDeviceID.isEmpty else {
+            return rpcWorkspaceID.rawValue
+        }
+        let ownerID = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: macInstanceTag
+        ).id
+        return "\(ownerID)\u{1F}\(rpcWorkspaceID.rawValue)"
+    }
+
     /// The non-terminal surface the owning Mac currently has focused, when it
     /// reports one. This is separate from the terminal fallback because an
     /// explicitly selected terminal on iOS must remain authoritative.

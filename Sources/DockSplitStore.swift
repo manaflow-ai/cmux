@@ -56,6 +56,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    let fileContentChangeCoordinator: FileContentChangeCoordinator
     @ObservationIgnored weak var notificationStore: TerminalNotificationStore?
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
@@ -91,6 +92,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         terminalStartupRestoreCoordinator.lifecycle
     }
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Journals agent sessions ended by closing their terminal. Tests point it
+    /// at a private journal.
+    @ObservationIgnored var agentSessionCloseJournal = AgentSessionCloseJournal()
     /// In-memory compare-and-claim state held while a CLI restore hands the
     /// validated binding to its child process.
     @ObservationIgnored var surfaceResumeRestoreClaimsByPanelId: [
@@ -311,6 +315,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
         closedItemHistoryStore: ClosedItemHistoryStore? = nil,
         restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
@@ -321,6 +326,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
+        self.fileContentChangeCoordinator =
+            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
         self.terminalTitleUpdateCoalescer =
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
@@ -619,7 +626,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> UUID? {
-        guard !isRetired else { return nil }
+        guard !isRetired, kind != .browser || acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId, preferredPaneId: paneId)
         let resolvedBrowserProfileID = kind == .browser
@@ -702,7 +709,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         websiteDataStore: WKWebsiteDataStore? = nil,
         focus: Bool = true
     ) -> UUID? {
-        guard !isRetired else { return nil }
+        guard !isRetired, kind != .browser || acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId)
         let resolvedBrowserProfileID = kind == .browser
@@ -793,7 +800,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         )
         recordExplicitPanelCreation()
         if focus {
-            focusPanel(panel.id)
+            // Low-level creation may request visual selection without claiming
+            // the window's keyboard-routing intent. Explicit Dock affordances
+            // call ``focusPanelFromDockInteraction`` after creation.
+            focusPanel(panel.id, claimKeyboardFocus: false)
         } else {
             restoreDockPaneSelection(previousFocus)
         }
@@ -1100,7 +1110,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             focusPlacement: .rightSidebarDock,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .immediate,
-                willRunStartupCommand: false,
                 willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
             )
         )
@@ -1116,7 +1125,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             panel: terminal,
             snapshot: snapshot,
             manualResumeAvailable: true,
-            willRunStartupCommand: false,
             willRunStartupInput: initialInput != nil,
             resumeWorkingDirectory: snapshot.workingDirectory
         )
@@ -1325,8 +1333,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
               ) else {
             return false
         }
-        let title = change.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return true }
+        let title = AutomaticTerminalTitle(change.title)?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let title, !title.isEmpty else { return true }
         guard shouldApplyRestoredPanelTitle(
             panelId: change.surfaceId,
             rawTitle: title

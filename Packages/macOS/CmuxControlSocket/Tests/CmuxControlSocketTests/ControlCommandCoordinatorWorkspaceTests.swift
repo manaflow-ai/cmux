@@ -62,6 +62,36 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(row["has_custom_title"] == .bool(true))
     }
 
+    @Test func asyncFeedJumpUsesTheAsyncResolutionSeam() async throws {
+        let context = FakeWorkspaceControlCommandContext(feedJumpMatch: true)
+        let result = await ControlCommandCoordinator().handleSocketWorkerFeedAsync(
+            request("feed.jump", ["workstream_id": .string("known")]),
+            context: context
+        )
+
+        guard case .ok(.object(let payload)) = result,
+              payload["workstream_id"] == .string("known"),
+              payload["matched"] == .bool(true) else {
+            Issue.record("unexpected async feed.jump result")
+            return
+        }
+    }
+
+    @Test func syncFeedJumpUsesTheSynchronousResolutionSeam() throws {
+        let context = FakeWorkspaceControlCommandContext(feedJumpMatch: true)
+        let result = ControlCommandCoordinator().handleSocketWorkerFeed(
+            request("feed.jump", ["workstream_id": .string("known")]),
+            context: context
+        )
+
+        guard case .ok(.object(let payload)) = result,
+              payload["workstream_id"] == .string("known"),
+              payload["matched"] == .bool(true) else {
+            Issue.record("unexpected sync feed.jump result")
+            return
+        }
+    }
+
     @Test func workspaceCurrentExposesMissingCustomTitleState() throws {
         let (coordinator, context) = coordinator()
         let workspaceID = UUID()
@@ -100,6 +130,25 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(code == "internal_error")
         #expect(message == "close failed")
         #expect(data["window_id"] == .string(windowID.uuidString))
+        #expect(data["workspace_id"] == .string(workspaceID.uuidString))
+    }
+
+    @Test func workspaceCloseRequiresForceForActiveProcesses() throws {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        context.closeResolution = .confirmationRequired
+
+        guard case .err(let code, let message, .object(let data)) = coordinator.handle(request(
+            "workspace.close",
+            ["workspace_id": .string(workspaceID.uuidString)]
+        )) else {
+            Issue.record("unexpected workspace.close result")
+            return
+        }
+
+        #expect(context.closeForce == false)
+        #expect(code == "confirmation_required")
+        #expect(message == "Workspace has a running process; retry with --force")
         #expect(data["workspace_id"] == .string(workspaceID.uuidString))
     }
 

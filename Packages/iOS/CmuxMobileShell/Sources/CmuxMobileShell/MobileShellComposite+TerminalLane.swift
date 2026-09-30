@@ -4,19 +4,31 @@ import Foundation
 
 extension MobileShellComposite {
     func ensureTerminalLane(surfaceID: String) {
+        // Demo surfaces have no Mac-side lane; without this guard a mounted
+        // demo terminal would open a lane at whatever REAL Mac holds the
+        // foreground ticket, for a surface that Mac has never heard of.
+        guard !locallyServedOwnsSurface(surfaceID) else { return }
         guard let terminalLaneCoordinator,
               connectionState == .connected,
-              terminalOutputTransport != .renderGrid,
               terminalByteContinuationsBySurfaceID[surfaceID] != nil,
               let activeRoute,
               activeRoute.kind == .iroh,
               let activeTicket else {
             return
         }
-        // A lane request can redial the peer session, so it must carry the
-        // same method-pinned allowlist as the control dial or a Direct or
-        // Tailscale Only Computer's lane reconnect could ride relay or
-        // discovered paths the method forbids.
+        let laneMode: MobileTerminalLaneCoordinator.LaneMode
+        if terminalOutputTransport == .renderGrid {
+            // Render-grid owns terminal output. Use a separate input-only
+            // stream so every key bypasses ordered RPC settlement.
+            guard runtime?.terminalInputLaneProvider != nil else { return }
+            laneMode = .inputOnly
+        } else {
+            laneMode = .output
+        }
+        // A Direct lane request can redial the peer session, so it must carry
+        // the same method-pinned allowlist as the control dial or it could
+        // ride relay or discovered paths the method forbids. Tailscale
+        // sessions use their raw route and never enter this Iroh lane.
         let request = CmxByteTransportRequest(
             route: activeRoute,
             expectedPeerDeviceID: activeTicket.macDeviceID,
@@ -32,6 +44,7 @@ extension MobileShellComposite {
         let configuration = MobileTerminalLaneCoordinator.Configuration(
             request: request,
             surfaceID: surfaceID,
+            mode: laneMode,
             cursor: { @MainActor [weak self] in
                 guard let self,
                       self.connectionGeneration == connectionGeneration,
@@ -47,6 +60,9 @@ extension MobileShellComposite {
                 return self.consumeTerminalLaneFrame(frame, surfaceID: surfaceID)
             },
             readinessChanged: { @MainActor [weak self] ready in
+                // Units on a lane that closed are resent whatever replaced it,
+                // so this runs before the lifecycle guard.
+                self?.exactlyOnceInputLaneReadinessChanged(surfaceID: surfaceID, ready: ready)
                 guard let self,
                       self.connectionGeneration == connectionGeneration,
                       self.terminalLaneLifecycleID == lifecycleID else { return }
@@ -58,6 +74,11 @@ extension MobileShellComposite {
                 } else {
                     self.terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
                 }
+            },
+            acknowledged: { @MainActor [weak self] acknowledgement in
+                // A verdict stays valid after the lane or connection that
+                // carried it is gone; the sender matches it by stream.
+                self?.exactlyOnceSender.receive(acknowledgement)
             }
         )
         Task { await terminalLaneCoordinator.ensure(configuration) }
@@ -66,7 +87,7 @@ extension MobileShellComposite {
     func resumeTerminalLaneIfSuspended(surfaceID: String) {
         guard let terminalLaneCoordinator,
               connectionState == .connected,
-              terminalOutputTransport != .renderGrid else { return }
+              terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil else { return }
         Task { await terminalLaneCoordinator.resume(surfaceID: surfaceID) }
     }
 
@@ -101,10 +122,22 @@ extension MobileShellComposite {
     }
 
     func reconcileTerminalLanesForOutputTransport() {
-        if terminalOutputTransport == .renderGrid {
-            deactivateAllTerminalLanes()
-        } else {
-            restartTerminalLanesForMountedSurfaces()
+        // Render-grid keeps its authoritative event stream for output, but
+        // retains an input-only lane for fire-and-forget keystrokes.
+        guard let terminalLaneCoordinator else { return }
+        terminalLaneLifecycleID = UUID()
+        let lifecycleID = terminalLaneLifecycleID
+        terminalLaneOutputReadySurfaceIDs.removeAll()
+        let mountedSurfaceIDs = Array(terminalByteContinuationsBySurfaceID.keys)
+        Task { @MainActor [weak self] in
+            await terminalLaneCoordinator.deactivateAll()
+            guard let self,
+                  self.terminalLaneLifecycleID == lifecycleID,
+                  self.connectionState == .connected else { return }
+            for surfaceID in mountedSurfaceIDs
+            where self.terminalByteContinuationsBySurfaceID[surfaceID] != nil {
+                self.ensureTerminalLane(surfaceID: surfaceID)
+            }
         }
     }
 
@@ -114,6 +147,11 @@ extension MobileShellComposite {
     ) -> MobileTerminalLaneCoordinator.FrameDisposition {
         guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else {
             return .stop
+        }
+        if terminalOutputTransport == .renderGrid {
+            // The input-only lane's baseline only gates readiness. Its output
+            // half is deliberately ignored because render-grid is authoritative.
+            return .accepted(outputReady: true)
         }
         if terminalOutputTransport == .hybrid,
            terminalActiveScreenBySurfaceID[surfaceID] == .alternate {
@@ -127,6 +165,7 @@ extension MobileShellComposite {
             guard frame.sequence <= deliveredSequence else {
                 requestAuthoritativeTerminalResync(
                     surfaceID: surfaceID,
+                    trigger: .byteGap,
                     reason: "iroh_terminal_lane_gap"
                 )
                 return .suspendUntilAuthoritativeOutput
@@ -152,6 +191,7 @@ extension MobileShellComposite {
         guard frame.kind == .replay else {
             requestAuthoritativeTerminalResync(
                 surfaceID: surfaceID,
+                trigger: .missingBaseline,
                 reason: "iroh_terminal_lane_missing_baseline"
             )
             return .suspendUntilAuthoritativeOutput

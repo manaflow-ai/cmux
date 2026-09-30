@@ -27,11 +27,13 @@ public final class MobileDisplaySettings {
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
     private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
+    private static let useLegacyTerminalSizingKey = "cmux.mobile.useLegacyTerminalSizing"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let unreadBadgeDiameterKey = "cmux.mobile.debug.unreadBadgeDiameter.v1"
     #if DEBUG
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
+    private static let taskComposerFullLiquidGlassKey = "cmux.mobile.debug.taskComposerFullLiquidGlass.v1"
     #endif
 
     /// The preview line counts the "Preview Lines" setting offers.
@@ -77,6 +79,14 @@ public final class MobileDisplaySettings {
     /// Mutating this writes through to the injected ``UserDefaults``.
     public var terminalFolderTapEnabled: Bool {
         didSet { defaults.set(terminalFolderTapEnabled, forKey: Self.terminalFolderTapEnabledKey) }
+    }
+
+    /// Whether alternate-screen terminals retain the keyboard-independent
+    /// sizing behavior. Defaults to `false`, so full-screen TUIs receive the
+    /// settled fully visible viewport. Mutating this writes through to the
+    /// injected ``UserDefaults``.
+    public var useLegacyTerminalSizing: Bool {
+        didSet { defaults.set(useLegacyTerminalSizing, forKey: Self.useLegacyTerminalSizingKey) }
     }
 
     /// Whether cmux emits app-owned haptic feedback. Defaults to `true`.
@@ -147,6 +157,17 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// Persisted CMUX Labs switch for comparing the task composer bar with the
+    /// terminal composer’s full Liquid Glass treatment.
+    var taskComposerFullLiquidGlass: Bool {
+        didSet {
+            defaults.set(
+                taskComposerFullLiquidGlass,
+                forKey: Self.taskComposerFullLiquidGlassKey
+            )
+        }
+    }
+
     /// DEBUG-only override forcing the rebuilt keyboard dock path on this
     /// device (iOS ≤26; legacy is the shipping default), exposed in
     /// Settings > Developer for keyboard-pinning A/B dogfood. Terminal hosts
@@ -165,6 +186,8 @@ public final class MobileDisplaySettings {
     #else
     /// Production builds expose only the shipping Shell icon treatment.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
+    /// The Labs-only treatment is unavailable in production builds.
+    var taskComposerFullLiquidGlass: Bool { false }
     #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.
@@ -181,6 +204,7 @@ public final class MobileDisplaySettings {
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
+        self.useLegacyTerminalSizing = defaults.object(forKey: Self.useLegacyTerminalSizingKey) as? Bool ?? false
         self.hapticFeedbackEnabled = haptics.isEnabled
         self.terminalScrollbackRows = MobileTerminalScrollbackPreference.resolve(from: defaults)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
@@ -201,6 +225,9 @@ public final class MobileDisplaySettings {
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        self.taskComposerFullLiquidGlass = defaults.object(
+            forKey: Self.taskComposerFullLiquidGlassKey
+        ) as? Bool ?? false
         self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
         #endif
     }

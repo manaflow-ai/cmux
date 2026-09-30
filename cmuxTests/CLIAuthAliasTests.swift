@@ -319,11 +319,11 @@ struct CLICoderouterAliasTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(
-            result.stdout.contains("インストール済み CodeRouter CLI のエイリアス"),
+            result.stdout.contains("CodeRouter CLI のエイリアス。未インストール時はインストールを提案"),
             Comment(rawValue: result.stdout)
         )
         #expect(
-            !result.stdout.contains("aliases for the installed CodeRouter CLI"),
+            !result.stdout.contains("aliases for the CodeRouter CLI"),
             Comment(rawValue: result.stdout)
         )
     }
@@ -425,44 +425,6 @@ struct CLICoderouterAliasTests {
         #expect(debugLog.contains(executableURL.path))
         #expect(debugLog.contains("errno="))
 #endif
-    }
-
-    @Test("reports an actionable error when neither executable exists")
-    func missingExecutableIsActionable() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(
-            for: BundledCLILinkageTests.self
-        )
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-coderouter-missing-\(UUID().uuidString)", isDirectory: true)
-        let socketPath = makeSocketPath("missing")
-        defer { try? fileManager.removeItem(at: root) }
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-
-        let result = runCLI(
-            cliPath: cliPath,
-            arguments: ["coderouter", "login"],
-            environment: [
-                "PATH": root.path,
-                "CMUX_SOCKET_PATH": socketPath,
-                "CMUX_SOCKET_CAPABILITY": "missing-capability",
-                "CMUX_SOCKET_PASSWORD": "missing-password",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-            ]
-        )
-
-        #expect(!result.timedOut)
-        #expect(result.status == 127, Comment(rawValue: result.stderr))
-        #expect(result.stdout.isEmpty)
-        #expect(result.stderr.contains("Required CLI not found"))
-        #expect(result.stderr.contains("Install the command"))
-        #expect(!result.stderr.contains("CodeRouter"))
-        #expect(!result.stderr.contains("coderouter"))
-        #expect(!result.stderr.contains("PATH"))
-        #expect(!result.stderr.contains(root.path))
-        #expect(!result.stderr.contains(socketPath))
-        #expect(!result.stderr.contains("missing-capability"))
-        #expect(!result.stderr.contains("missing-password"))
     }
 
     private func runCLI(

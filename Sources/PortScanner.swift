@@ -67,6 +67,12 @@ final class PortScanner: @unchecked Sendable {
     /// Whether a burst sequence is currently running.
     private var burstActive = false
 
+    /// Generation invalidates callbacks that were queued before a panel
+    /// lifecycle changed. The queue is the sole owner, so cancellation and
+    /// generation checks are deterministic and race-free.
+    private var burstGeneration: UInt64 = 0
+    private var scheduledBurstTimers: [UUID: DispatchSourceTimer] = [:]
+
     private var coalesceTimer: DispatchSourceTimer?
 
     /// Periodic timer for agent-owned process trees that aren't attached to a TTY.
@@ -74,7 +80,11 @@ final class PortScanner: @unchecked Sendable {
 
     /// Each scan fires at this absolute offset; the recursive scheduler
     /// converts to relative delays between consecutive scans.
-    private static let burstOffsets: [Double] = [0.5, 1.5, 3, 5, 7.5, 10]
+    static let defaultBurstOffsets: [TimeInterval] = [0.5, 1.5, 3, 5, 7.5, 10]
+    /// Quiet window that merges kicks from many shells into one burst.
+    static let defaultCoalesceDelay: TimeInterval = 0.2
+    private let burstOffsets: [TimeInterval]
+    private let coalesceDelay: TimeInterval
     private static let panelMissingPortRetentionLimit = 2
     private static let minimumScansPerKick = panelMissingPortRetentionLimit + 1
     private static let agentRescanInterval: TimeInterval = 2
@@ -91,9 +101,13 @@ final class PortScanner: @unchecked Sendable {
         },
         ttySessionIdentityProvider: @escaping @MainActor @Sendable (String) -> TerminalTTYSessionIdentity? = {
             TerminalTTYSessionIdentity(ttyName: $0)
-        }
+        },
+        burstOffsets: [TimeInterval] = PortScanner.defaultBurstOffsets,
+        coalesceDelay: TimeInterval = PortScanner.defaultCoalesceDelay
     ) {
         self.commandRunner = commandRunner
+        self.burstOffsets = burstOffsets
+        self.coalesceDelay = coalesceDelay
         self.processIdentityProvider = processIdentityProvider
         self.processPresenceProvider = processPresenceProvider
         self.ttySessionIdentityProvider = ttySessionIdentityProvider
@@ -139,6 +153,16 @@ final class PortScanner: @unchecked Sendable {
             }
             panelPortSnapshot.remove(keys: [key])
             panelPortOwnersByKey.removeValue(forKey: key)
+            if ttyNames.isEmpty {
+                burstGeneration &+= 1
+                scheduledBurstTimers.values.forEach { $0.cancel() }
+                scheduledBurstTimers.removeAll()
+                burstActive = false
+                coalesceTimer?.cancel()
+                coalesceTimer = nil
+            } else if !pendingKicks.isEmpty, !burstActive {
+                startCoalesce()
+            }
         }
     }
 
@@ -166,6 +190,7 @@ final class PortScanner: @unchecked Sendable {
             // follow-up burst starts when too few scans remained.
         }
     }
+
     @MainActor
     func refreshAgentPorts(workspaceId: UUID, agentRoots: Set<AgentPortRootIdentity>) {
         let normalizedRoots = Set(agentRoots.filter { $0.pid > 0 })
@@ -210,7 +235,7 @@ final class PortScanner: @unchecked Sendable {
     private func startCoalesce() {
         coalesceTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 0.2)
+        timer.schedule(deadline: .now() + coalesceDelay)
         timer.setEventHandler { [weak self] in
             self?.coalesceTimerFired()
         }
@@ -224,12 +249,13 @@ final class PortScanner: @unchecked Sendable {
 
         guard !pendingKicks.isEmpty else { return }
         burstActive = true
-        runBurst(index: 0)
+        runBurst(index: 0, generation: burstGeneration)
     }
 
-    private func runBurst(index: Int, burstStart: DispatchTime? = nil) {
+    private func runBurst(index: Int, burstStart: DispatchTime? = nil, generation: UInt64) {
         // Already on `queue`.
-        guard index < Self.burstOffsets.count else {
+        guard generation == burstGeneration else { return }
+        guard index < burstOffsets.count else {
             burstActive = false
             // If new kicks arrived during the burst, start a new coalesce cycle.
             if !pendingKicks.isEmpty {
@@ -239,18 +265,30 @@ final class PortScanner: @unchecked Sendable {
         }
 
         let start = burstStart ?? .now()
-        let deadline = start + Self.burstOffsets[index]
-        queue.asyncAfter(deadline: deadline) { [weak self] in
+        let deadline = start + burstOffsets[index]
+        let timerID = UUID()
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: deadline)
+        timer.setEventHandler { [weak self, weak timer] in
             guard let self else { return }
-            self.runScan()
-            self.runBurst(index: index + 1, burstStart: start)
+            guard generation == self.burstGeneration else { return }
+            self.scheduledBurstTimers.removeValue(forKey: timerID)
+            timer?.cancel()
+            self.runScan(generation: generation)
+            self.runBurst(index: index + 1, burstStart: start, generation: generation)
         }
+        scheduledBurstTimers[timerID] = timer
+        timer.resume()
     }
 
     // MARK: - Scan
 
-    private func runScan() {
+    private func runScan(generation requestedGeneration: UInt64? = nil) {
         // Already on `queue`. Snapshot which panels to scan and their TTYs.
+        // Capture the current burst generation at the scheduling boundary. A
+        // default sentinel (such as zero) can accidentally accept a stale
+        // completion when the first burst has been invalidated.
+        let generation = requestedGeneration ?? burstGeneration
         // We scan all registered panels, not just pending ones, since ports can
         // appear/disappear on any panel.
         let panelSnapshot = ttyNames
@@ -280,6 +318,7 @@ final class PortScanner: @unchecked Sendable {
         Task { [weak self] in
             guard let self else { return }
             await self.finishScan(
+                generation: generation,
                 panelSnapshot: panelSnapshot,
                 panelRevisions: panelRevisions,
                 agentRootsByWorkspace: agentRootsByWorkspace,
@@ -291,6 +330,7 @@ final class PortScanner: @unchecked Sendable {
 
     /// Completes one coalesced scan and assembles panel and agent ownership evidence.
     private func finishScan(
+        generation: UInt64,
         panelSnapshot: [PanelKey: String],
         panelRevisions: [PanelKey: UInt64],
         agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
@@ -345,6 +385,7 @@ final class PortScanner: @unchecked Sendable {
             )
             queue.async { [weak self] in
                 self?.completePanelScan(
+                    generation: generation,
                     panelResults,
                     panelTTYs: panelSnapshot,
                     panelRevisions: panelRevisions,
@@ -492,6 +533,7 @@ final class PortScanner: @unchecked Sendable {
 
         queue.async { [weak self] in
             self?.completePanelScan(
+                generation: generation,
                 panelResults,
                 panelTTYs: panelSnapshot,
                 panelRevisions: panelRevisions,
@@ -515,7 +557,8 @@ final class PortScanner: @unchecked Sendable {
     }
 
     /// Applies a completed panel scan on the scanner queue and starts any pending scan.
-    private func completePanelScan(
+    func completePanelScan(
+        generation: UInt64,
         _ panelResults: [(PanelKey, [Int])],
         panelTTYs: [PanelKey: String],
         panelRevisions: [PanelKey: UInt64],
@@ -536,6 +579,7 @@ final class PortScanner: @unchecked Sendable {
         requestID: UInt64
     ) {
         let hasPendingScan = scanCoordination.finishPanelScan()
+        let isCurrentGeneration = generation == burstGeneration
         deliverResults(
             panelResults,
             panelTTYs: panelTTYs,
@@ -554,10 +598,11 @@ final class PortScanner: @unchecked Sendable {
             panelLsofEvidence: panelLsofEvidence,
             agentLsofEvidence: agentLsofEvidence,
             inspectedPIDs: inspectedPIDs,
-            requestID: requestID
+            requestID: requestID,
+            applyPanelResults: isCurrentGeneration
         )
         if hasPendingScan {
-            runScan()
+            runScan(generation: burstGeneration)
         }
     }
 
@@ -818,9 +863,10 @@ final class PortScanner: @unchecked Sendable {
         panelLsofEvidence: PortLsofScanResult,
         agentLsofEvidence: PortLsofScanResult?,
         inspectedPIDs: Set<Int>,
-        requestID: UInt64
+        requestID: UInt64,
+        applyPanelResults: Bool
     ) {
-        if scanCoordination.shouldApplyPanelResult(requestID: requestID) {
+        if applyPanelResults, scanCoordination.shouldApplyPanelResult(requestID: requestID) {
             let scannedPorts = Dictionary(uniqueKeysWithValues: panelResults.filter { key, _ in
                 ttyNames[key] == panelTTYs[key]
                     && panelRevisionByKey[key] == panelRevisions[key]

@@ -136,6 +136,23 @@ public protocol ControlMobileHostContext: AnyObject {
         params: [String: JSONValue]
     ) async -> ControlCallResult
 
+    /// `mobile.chat.send` — types a prompt into an agent session's terminal,
+    /// the same delivery the iOS chat uses.
+    ///
+    /// - Parameter params: The decoded request params (`session_id`, `text`).
+    /// - Returns: The fully-built command result.
+    nonisolated func controlMobileChatSend(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult
+
+    /// `mobile.chat.interrupt` — interrupts an agent session's running turn.
+    ///
+    /// - Parameter params: The decoded request params (`session_id`, `hard`).
+    /// - Returns: The fully-built command result.
+    nonisolated func controlMobileChatInterrupt(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult
+
     /// `chat.sessions.dump` (local debug socket) — the full chat-session registry
     /// dump, for diagnosing inconsistent phone-side chat state.
     ///
@@ -153,5 +170,19 @@ public extension ControlMobileHostContext {
             message: "Task model discovery is unavailable",
             data: nil
         )
+    }
+
+    /// Default for test and partial contexts without agent chat delivery.
+    nonisolated func controlMobileChatSend(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        .err(code: "method_not_found", message: "Agent chat is unavailable", data: nil)
+    }
+
+    /// Default for test and partial contexts without agent chat delivery.
+    nonisolated func controlMobileChatInterrupt(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        .err(code: "method_not_found", message: "Agent chat is unavailable", data: nil)
     }
 }

@@ -52,9 +52,110 @@ struct BrowserURLAllowlistPolicyTests {
         let policy = BrowserURLAllowlistPolicy(managedPatterns: [])
         #expect(policy.isManaged)
         #expect(!policy.allows(try #require(URL(string: "https://example.com"))))
-        #expect(!policy.allows(try #require(URL(string: "file:///tmp/index.html"))))
         #expect(!policy.allows(try #require(URL(string: "data:text/html,blocked"))))
+        // Local documents and loopback are the managed defaults, not exfil
+        // origins: they stay open unless an administrator turns them off.
+        #expect(policy.allows(try #require(URL(string: "file:///tmp/index.html"))))
         #expect(policy.allowsTrustedInternalURL(try #require(URL(string: "file:///tmp/index.html"))))
+        #expect(policy.allows(try #require(URL(string: "http://localhost:3000/app"))))
+    }
+
+    @Test(arguments: [
+        "http://localhost:3000/app",
+        "https://localhost:9443/",
+        "http://127.0.0.1:5173",
+        "http://[::1]:8080/",
+        "http://0.0.0.0:8000",
+        "http://dev.localhost:3000",
+        "http://cmux-loopback.localtest.me:3000",
+    ])
+    func aManagedListAllowsLoopbackWithoutARule(urlString: String) throws {
+        let policy = BrowserURLAllowlistPolicy(managedPatterns: ["internal.example.com"])
+        #expect(policy.isLocalhostImplicitlyAllowed)
+        #expect(policy.allows(try #require(URL(string: urlString))))
+        #expect(!policy.allows(try #require(URL(string: "https://outside.example"))))
+        // A public name that merely resolves to loopback is not loopback.
+        #expect(!policy.allows(try #require(URL(string: "http://app.localtest.me:3000"))))
+    }
+
+    @Test func aManagedListAllowsLocalFilesButNotRemoteFileURLs() throws {
+        let policy = BrowserURLAllowlistPolicy(managedPatterns: ["internal.example.com"])
+        #expect(policy.allows(try #require(URL(string: "file:///Users/me/docs/index.html"))))
+        #expect(policy.allows(try #require(URL(string: "file://localhost/Users/me/docs/page2.html"))))
+        #expect(!policy.allows(try #require(URL(string: "file://fileserver.example/share/index.html"))))
+        #expect(!policy.allows(try #require(URL(string: "file:relative/index.html"))))
+    }
+
+    @Test func forcingLocalhostOffBlocksLoopbackEvenWhenARuleNamesIt() throws {
+        let policy = BrowserURLAllowlistPolicy(
+            managedPatterns: ["localhost", "internal.example.com"],
+            allowsLocalhost: false
+        )
+        #expect(!policy.isLocalhostImplicitlyAllowed)
+        #expect(!policy.allows(try #require(URL(string: "http://localhost:3000/app"))))
+        #expect(!policy.allows(try #require(URL(string: "http://127.0.0.1:5173"))))
+        #expect(policy.allows(try #require(URL(string: "https://internal.example.com"))))
+        #expect(policy.allows(try #require(URL(string: "file:///tmp/index.html"))))
+
+        // The switch is independent of the list: it also blocks loopback for
+        // an unrestricted browser.
+        let unrestricted = BrowserURLAllowlistPolicy(managedPatterns: nil, allowsLocalhost: false)
+        #expect(!unrestricted.isActive)
+        #expect(!unrestricted.allows(try #require(URL(string: "http://localhost:3000"))))
+        #expect(unrestricted.allows(try #require(URL(string: "https://outside.example"))))
+    }
+
+    @Test func forcingLocalFilesOffBlocksEveryLocalDocumentPath() throws {
+        let policy = BrowserURLAllowlistPolicy(
+            managedPatterns: ["internal.example.com"],
+            allowsLocalFiles: false
+        )
+        let file = try #require(URL(string: "file:///tmp/index.html"))
+        #expect(!policy.allows(file))
+        #expect(!policy.allowsTrustedInternalURL(file))
+        #expect(policy.allows(try #require(URL(string: "http://localhost:3000"))))
+
+        let unrestricted = BrowserURLAllowlistPolicy(managedPatterns: nil, allowsLocalFiles: false)
+        #expect(!unrestricted.allows(file))
+        #expect(!unrestricted.allowsTrustedInternalURL(file))
+        #expect(unrestricted.allowsTrustedInternalURL(try #require(URL(string: "about:blank"))))
+    }
+
+    @Test func aUserListKeepsLoopbackExplicit() throws {
+        // The Settings editor pre-fills loopback entries and tells the user
+        // that removing one blocks it, so a user list gets no implicit default.
+        let policy = BrowserURLAllowlistPolicy(managedPatterns: nil, userPatterns: ["example.com"])
+        #expect(policy.source == .user)
+        #expect(!policy.isLocalhostImplicitlyAllowed)
+        #expect(!policy.allows(try #require(URL(string: "http://localhost:3000"))))
+        #expect(policy.allows(try #require(URL(string: "file:///tmp/index.html"))))
+    }
+
+    @Test func allowKeysResolveFromTheForcedPreferenceSuite() throws {
+        let suiteName = "BrowserURLAllowlistPolicyTests.allowKeys.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(["internal.example.com"], forKey: "forced.\(BrowserURLAllowlistPolicy.managedDefaultsKey)")
+        defaults.set(false, forKey: "forced.\(ManagedDevicePolicyKey.browserAllowLocalhost.rawValue)")
+        // A forced non-Boolean is malformed and leaves the capability allowed.
+        defaults.set("no", forKey: "forced.\(ManagedDevicePolicyKey.browserAllowLocalFiles.rawValue)")
+        let probe: ManagedDevicePolicy.ForcedObjectProbe = { defaults, key in
+            defaults.object(forKey: "forced.\(key)")
+        }
+        let resolver = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: probe)
+        let policy = BrowserURLAllowlistPolicy(defaults: defaults, managedDevicePolicy: resolver)
+        #expect(policy.isManaged)
+        #expect(!policy.allowsLocalhost)
+        #expect(policy.allowsLocalFiles)
+        #expect(!policy.allows(try #require(URL(string: "http://localhost:3000"))))
+        #expect(policy.allows(try #require(URL(string: "file:///tmp/index.html"))))
+
+        let unforced = BrowserURLAllowlistPolicy(
+            defaults: defaults,
+            managedDevicePolicy: ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
+        )
+        #expect(unforced.allowsLocalhost)
+        #expect(unforced.allowsLocalFiles)
     }
 
     @Test func userRulesAreOptionalAndEmptyMeansAllowAll() throws {

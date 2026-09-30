@@ -5,11 +5,26 @@ import Foundation
 /// Status 252 has a bounded consecutive-failure budget, statuses 247–250 carry
 /// managed transport/authentication phases, and statuses 251, 254, and 255 use
 /// the general reconnect budget.
-public enum SSHPTYAttachExitCode: Int32 {
+public enum SSHPTYAttachExitCode: Int32, Sendable {
     private static let healthyBridgeUptime: Double = 30
+
+    /// The v2 error code `workspace.remote.pty_bridge` answers with when the
+    /// remote session is parked: automatic recovery has stopped and only an
+    /// explicit reconnect resumes it.
+    ///
+    /// The accompanying message is the app-localized detail the sidebar shows.
+    /// It is user-facing prose, so this code, never the wording, is what makes
+    /// the attach terminal (https://github.com/manaflow-ai/cmux/issues/12813).
+    public static let sessionParkedErrorCode = "remote_session_parked"
 
     /// A non-retryable attach failure.
     case fatal = 1
+
+    /// The app did not acknowledge the SSH launch before the CLI deadline.
+    ///
+    /// This is a local admission timeout, so the wrapper retries the launch
+    /// without treating it as an SSH or lifecycle failure.
+    case launchAcknowledgementTimedOut = 246
 
     /// Temporary daemon-side admission pressure that should retry without reauthentication.
     case retryableWithoutReauthentication = 251
@@ -57,7 +72,8 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// Failures with these statuses keep app-side surface tracking intact
     /// because the wrapper immediately reattaches on the same surface.
     public var isWrapperRetryable: Bool {
-        self == .hostUnreachable ||
+        self == .launchAcknowledgementTimedOut ||
+            self == .hostUnreachable ||
             self == .controlMasterUnavailable ||
             self == .daemonNotReady ||
             self == .authenticationRequired ||
@@ -162,29 +178,6 @@ public enum SSHPTYAttachExitCode: Int32 {
         currentRetry >= 0 && limit > 0 && currentRetry + 1 < limit
     }
 
-    /// Builds the shared persistent-attach retry loop.
-    ///
-    /// This compatibility entry point delegates to
-    /// ``SSHPTYAttachRetryScriptBuilder`` so older package clients keep their
-    /// source compatibility without retaining a second retry implementation.
-    ///
-    /// - Parameters:
-    ///   - command: Shell command that performs one attach attempt.
-    ///   - reauthenticates: Whether foreground authentication is available.
-    /// - Returns: Shell lines implementing the shared retry state machine.
-    @available(
-        *,
-        deprecated,
-        message: "Use SSHPTYAttachRetryScriptBuilder.lines(command:reauthenticates:initialAuthentication:) with initialAuthentication: false"
-    )
-    public static func retryLoopLines(command: String, reauthenticates: Bool) -> [String] {
-        SSHPTYAttachRetryScriptBuilder().lines(
-            command: command,
-            reauthenticates: reauthenticates,
-            initialAuthentication: false
-        )
-    }
-
     /// Builds a bounded no-progress sub-loop for a wrapper that already owns
     /// general reconnect and foreground-authentication policy.
     ///
@@ -268,6 +261,11 @@ public enum SSHPTYAttachExitCode: Int32 {
             return .sessionNotFound
         }
         if normalizedCode == "pty_lifecycle_closed" {
+            return .fatal
+        }
+        if normalizedCode == sessionParkedErrorCode {
+            // The session owner already gave up and said why. Retrying would
+            // only re-park against a session that cannot become ready.
             return .fatal
         }
         if normalizedCode == "unavailable" {

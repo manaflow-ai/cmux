@@ -1,3 +1,4 @@
+@testable import CmuxComputerUse
 import CmuxCore
 import CmuxFoundation
 import Foundation
@@ -216,7 +217,12 @@ struct PortScanPublicationBufferTests {
     @MainActor
     @Test("Changing one TTY enqueues only that panel's empty lifecycle publication")
     func ttyChangePublicationIsPanelScoped() throws {
-        let scanner = PortScanner()
+        // The TTY names below are fixtures, not devices this test owns. The
+        // default identity provider opens `/dev/<name>` on the main actor, and
+        // on a shared CI host `ttys001`...`ttys003` belong to other sessions:
+        // a wedged one blocked that open(2) in the kernel forever. Name
+        // changes alone drive the lifecycle revision this test covers.
+        let scanner = PortScanner(ttySessionIdentityProvider: { _ in nil })
         let workspaceID = UUID()
         let changedPanelID = UUID()
         let unchangedPanelID = UUID()
@@ -415,8 +421,13 @@ struct PortScannerAgentPublicationIntegrationTests {
         #expect(processScanWasReleased == false)
         #expect(removalLifecycleWasActiveAtCallback)
 
-        await withCheckedContinuation { continuation in
-            scanner.queue.async { continuation.resume() }
+        // Queue acknowledgement is followed by a main-actor lifecycle update.
+        // A queue barrier alone can resume this test before that update runs.
+        _ = await AppKitTestEventPump().waitUntil {
+            !scanner.publicationState.isCurrentAgentRevision(
+                removalRevision,
+                workspaceId: workspaceID
+            )
         }
         #expect(scanner.publicationState.isCurrentAgentRevision(
             removalRevision,
@@ -494,23 +505,32 @@ struct PortScannerAgentPortRetirementTests {
             scanner.onAgentPortsUpdated = nil
         }
 
+        scanner.setTrackedAgentScanningPaused(true)
         scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
         let initialPorts = try #require(await iterator.next())
         #expect(initialPorts == [4321])
         let requestedPIDsAfterInitialScan = await runner.lsofRequestedPIDs
         let initialRequestedPIDs = requestedPIDsAfterInitialScan.first
         #expect(initialRequestedPIDs == [100, 101, 102])
-        scanner.setTrackedAgentScanningPaused(true)
+        scanner.queue.sync {}
         await runner.stopListening()
 
         let firstLsofInvocation = await runner.lsofInvocationCount
         for expectedInvocation in (firstLsofInvocation + 1)...(firstLsofInvocation + 3) {
             scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
             try await runner.waitForLsofInvocation(expectedInvocation)
+            scanner.queue.sync {}
         }
-
-        let retiredPorts = try #require(await iterator.next())
-        #expect(retiredPorts.isEmpty)
+        // An unchanged port set is published only while the refresh's force
+        // flag survives, and the previous delivery's acknowledgement hops off
+        // the main actor before it reaches the scanner queue, so it can clear
+        // that flag under a later refresh. Retirement itself is a change and
+        // always publishes: drain until it lands instead of expecting one
+        // publication per refresh.
+        var retiredPorts = initialPorts
+        while !retiredPorts.isEmpty {
+            retiredPorts = try #require(await iterator.next())
+        }
         let postExitRequestedPIDs = (await runner.lsofRequestedPIDs).dropFirst()
         #expect(postExitRequestedPIDs.allSatisfy { $0 == [100] })
 

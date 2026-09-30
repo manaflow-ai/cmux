@@ -720,9 +720,18 @@ with tempfile.NamedTemporaryFile(
 ) as inner_script:
     inner_script.write(inner_osc_query)
     inner_script_path = inner_script.name
+# Host OSC 11 replies are client-local compatibility input. Seed a separate
+# application-authored background before checking that a child query receives
+# the terminal's authoritative response.
+write_all(
+    fd,
+    b"printf '\\033]11;#131415\\033\\\\'; printf 'osc-default-seeded\\n'\r",
+)
+wait_screen_contains(surface_id, "osc-default-seeded")
+print("application OSC 11 background override seeded ok")
 write_all(fd, f"python3 {inner_script_path}\r".encode())
 wait_screen_contains(surface_id, "1313/1414/1515")
-print("inner OSC 11 query receives seeded background ok")
+print("inner OSC 11 query receives application background ok")
 write_all(fd, b"\x03")
 drain(0.4)
 

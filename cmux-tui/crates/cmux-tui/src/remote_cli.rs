@@ -27,9 +27,9 @@ use cmux_remote::identity::{
     MAX_INVITATION_URI_BYTES, credential_free_route_hint, default_state_dir,
 };
 use cmux_remote::provider::{
-    IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
-    RelayCredentialSource, SshProvider, SshProviderConfig, SupportedClientAuthModes,
-    sanitized_route,
+    Dialer, IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
+    RelayCredentialSource, SocksDialer, SshProvider, SshProviderConfig, SupportedClientAuthModes,
+    WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
@@ -54,6 +54,8 @@ use crate::remote_runtime::{
 use crate::session::{RemoteSession, Session};
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
+const WIREGUARD_HUB_START_TIMEOUT: Duration = Duration::from_secs(10);
+const WIREGUARD_HUB_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CLIENT_RELAY_ROUTES: usize = 4;
@@ -91,6 +93,7 @@ fn run_inner(
         Some("connect") => run_connect(&args[1..], None, load_config),
         Some("ssh") => run_ssh(&args[1..], load_config),
         Some("forward") => run_forward(&args[1..]),
+        Some("browser-proxy") => run_browser_proxy(&args[1..]),
         Some("rpc") => run_rpc(&args[1..]),
         Some("enroll") => run_enroll(&args[1..], load_config),
         Some("known-daemons") => run_known_daemons(&args[1..]),
@@ -99,6 +102,7 @@ fn run_inner(
         Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
         Some("remote-stop") => run_remote_stop(&args[1..]),
         Some("install-self") => run_install_self(&args[1..]),
+        Some("wg") => run_wg(&args[1..]),
         Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
         _ => Err(anyhow!("unknown remote command\n\n{usage}")),
     }
@@ -132,6 +136,9 @@ fn remote_help_requested(args: &[String]) -> bool {
         "--ssh-binary",
         "--remote-binary",
         "--remote-state-dir",
+        "--agent-hooks",
+        "--wireguard-config",
+        "--wireguard-hub",
         "--ssh-arg",
         "--workspace-root",
         "--host",
@@ -179,6 +186,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("connect") => client.connect_help,
         Some("ssh") => client.ssh_help,
         Some("forward") => client.forward_help,
+        Some("browser-proxy") => client.browser_proxy_help,
         Some("rpc") => client.rpc_help,
         Some("enroll") => client.enroll_help,
         Some("known-daemons") => client.known_daemons_help,
@@ -186,6 +194,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
         Some("install-self") => client.install_self_help,
+        Some("wg") => client.wg_hub_help,
         Some("remote") => client.remote_lifecycle_help,
         _ => client.command_help,
     }
@@ -208,6 +217,14 @@ struct ConnectFlags {
     relay_credentials: Vec<ClientRelayCredentialArg>,
     routing: BTreeMap<String, String>,
     iroh_path: IrohPathMode,
+    wireguard_config: Option<PathBuf>,
+    wireguard_hub: Option<PathBuf>,
+    /// Dial `ws`/`wss` routes with carrier authentication: no enrollment, no
+    /// invitation. Only a daemon serving a trusted-network listener accepts it.
+    carrier: bool,
+    /// Internal app ownership fence. The helper exits when its direct parent exits,
+    /// including an abort or forced app replacement that cannot run Swift cleanup.
+    exit_with_parent: bool,
     headless: bool,
     json: bool,
     ssh_session: String,
@@ -215,6 +232,8 @@ struct ConnectFlags {
     remote_binary: String,
     remote_state_dir: Option<String>,
     ssh_args: Vec<String>,
+    /// Coding-agent providers whose hooks the SSH host installs on attach.
+    agent_hooks: Vec<String>,
     auto_install: bool,
     upgrade: bool,
     forward_workspace: Option<String>,
@@ -265,6 +284,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 InvitationArg::File(value("--invite-file")?.into()),
             )?,
             "--daemon" => flags.daemon = Some(value("--daemon")?),
+            "--carrier" => flags.carrier = true,
             "--lanes" => {
                 flags.lanes = value("--lanes")?.parse().map_err(|_: String| {
                     anyhow!(
@@ -431,6 +451,19 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                     )
                 })?;
             }
+            "--wireguard-config" => {
+                let path = PathBuf::from(value("--wireguard-config")?);
+                if flags.wireguard_config.replace(path).is_some() {
+                    return Err(anyhow!(catalog().remote_client.option_once("--wireguard-config")));
+                }
+            }
+            "--wireguard-hub" => {
+                let path = PathBuf::from(value("--wireguard-hub")?);
+                if flags.wireguard_hub.replace(path).is_some() {
+                    return Err(anyhow!(catalog().remote_client.option_once("--wireguard-hub")));
+                }
+            }
+            "--exit-with-parent" => flags.exit_with_parent = true,
             "--headless" => flags.headless = true,
             "--json" => flags.json = true,
             "--session" => flags.ssh_session = value("--session")?,
@@ -440,6 +473,9 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 flags.remote_state_dir = Some(value("--remote-state-dir")?);
             }
             "--ssh-arg" => flags.ssh_args.push(value("--ssh-arg")?),
+            "--agent-hooks" => {
+                flags.agent_hooks.extend(agent_hook_providers(&value("--agent-hooks")?));
+            }
             "--no-install" => flags.auto_install = false,
             "--upgrade" => flags.upgrade = true,
             "--workspace-root" => flags.forward_workspace = Some(value("--workspace-root")?),
@@ -488,6 +524,9 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     if flags.json && !flags.headless {
         return Err(anyhow!(catalog().remote_client.json_requires_headless));
     }
+    if flags.wireguard_config.is_some() && flags.wireguard_hub.is_some() {
+        return Err(anyhow!(catalog().remote_client.wireguard_hub_conflict));
+    }
     Ok(flags)
 }
 
@@ -519,6 +558,7 @@ fn connect_with_flags(
 ) -> anyhow::Result<()> {
     let headless = flags.headless;
     let json = flags.json;
+    let owner = flags.exit_with_parent.then(current_parent_process_id);
     let connected = start_connected(flags)?;
     if headless {
         if json {
@@ -526,7 +566,10 @@ fn connect_with_flags(
             runtime.block_on(async {
                 let mut previous = None;
                 let mut finished = connected.runtime.subscribe_finished();
-                while !crate::shutdown_requested() && !connected.runtime.is_finished() {
+                while !crate::shutdown_requested()
+                    && !connected.runtime.is_finished()
+                    && owner.is_none_or(parent_process_is)
+                {
                     let snapshot = connected.runtime.connection_snapshot().await;
                     let mut topology = snapshot.clone();
                     if let Some(path) = topology.transport.selected_path.as_mut() {
@@ -553,7 +596,10 @@ fn connect_with_flags(
             })?;
         } else {
             println!("{}", connected.runtime.info().local_socket.display());
-            while !crate::shutdown_requested() && !connected.runtime.is_finished() {
+            while !crate::shutdown_requested()
+                && !connected.runtime.is_finished()
+                && owner.is_none_or(parent_process_is)
+            {
                 thread::sleep(Duration::from_millis(100));
             }
         }
@@ -593,6 +639,14 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         .join("client");
     let store = ClientIdentityStore::load_or_create(&client_root)?;
     let async_runtime = tokio_runtime()?;
+    let direct_dialer: Option<Arc<dyn Dialer>> =
+        match (flags.wireguard_config.take(), flags.wireguard_hub.take()) {
+            (Some(path), _) => {
+                Some(Arc::new(WireGuardDialer::new(start_wireguard(&async_runtime, &path)?)))
+            }
+            (None, Some(socket)) => Some(Arc::new(SocksDialer::new(socket))),
+            (None, None) => None,
+        };
     let mut relay_routes = client_relay_options(
         flags.route.as_deref(),
         std::mem::take(&mut flags.relay_routes),
@@ -630,9 +684,16 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         remote_state_dir: flags.remote_state_dir.clone(),
         extra_args: flags.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
+        agent_hooks: flags.agent_hooks.clone(),
     };
     let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
-    let providers = Arc::new(client_provider_registry(ssh.clone(), relay_routes, flags.iroh_path)?);
+    let providers = Arc::new(client_provider_registry(
+        ssh.clone(),
+        relay_routes,
+        flags.iroh_path,
+        direct_dialer,
+        flags.carrier,
+    )?);
     let explicit_route = flags.route.take();
     let explicit_route_for_refresh = explicit_route.clone();
     let (route_strings, auth, expected_daemon, known, carrier_auth) = if let Some(invitation) =
@@ -992,11 +1053,25 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
     result.and(shutdown)
 }
 
+#[path = "remote_browser_proxy.rs"]
+mod remote_browser_proxy;
+use remote_browser_proxy::{parse_browser_proxy_args, serve_browser_proxy};
+
 #[derive(Debug, PartialEq, Eq)]
 enum RpcInputEvent {
     Line(String),
     End,
     RuntimeFinished,
+}
+
+fn run_browser_proxy(args: &[String]) -> anyhow::Result<()> {
+    let parsed = parse_browser_proxy_args(args)?;
+    let flags = parse_connect_flags(&parsed.connect)?;
+    let connected = start_connected(flags)?;
+    let runtime = tokio_runtime()?;
+    let result = runtime.block_on(serve_browser_proxy(&connected.runtime, parsed));
+    let shutdown = connected.runtime.shutdown();
+    result.and(shutdown)
 }
 
 fn spawn_rpc_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<io::Result<String>>> {
@@ -1179,6 +1254,7 @@ pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyho
         remote_state_dir: None,
         extra_args: options.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
+        agent_hooks: Vec::new(),
     })?;
     Ok(())
 }
@@ -1621,6 +1697,194 @@ fn read_invitation_ticket_file(path: &Path) -> anyhow::Result<String> {
         .to_string())
 }
 
+struct WgHubFlags {
+    config: PathBuf,
+    socket: PathBuf,
+    exit_with_parent: bool,
+}
+
+fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
+    let mut config = None;
+    let mut socket = None;
+    let mut exit_with_parent = false;
+    let mut index = 0;
+    while index < args.len() {
+        let argument = args[index].as_str();
+        index += 1;
+        let mut value = |name: &str| -> anyhow::Result<PathBuf> {
+            let value = args
+                .get(index)
+                .cloned()
+                .ok_or_else(|| anyhow!(catalog().remote_client.option_needs_value(name)))?;
+            index += 1;
+            Ok(PathBuf::from(value))
+        };
+        match argument {
+            "--config" => {
+                if config.replace(value("--config")?).is_some() {
+                    return Err(anyhow!(catalog().remote_client.option_once("--config")));
+                }
+            }
+            "--socket" => {
+                if socket.replace(value("--socket")?).is_some() {
+                    return Err(anyhow!(catalog().remote_client.option_once("--socket")));
+                }
+            }
+            "--exit-with-parent" => exit_with_parent = true,
+            "-h" | "--help" => return Err(anyhow!(catalog().remote_client.help_invalid_options)),
+            other => return Err(anyhow!(catalog().remote_client.unknown_option(other))),
+        }
+    }
+    Ok(WgHubFlags {
+        config: config
+            .ok_or_else(|| anyhow!(catalog().remote_client.wg_hub_option_required("--config")))?,
+        socket: socket
+            .ok_or_else(|| anyhow!(catalog().remote_client.wg_hub_option_required("--socket")))?,
+        exit_with_parent,
+    })
+}
+
+/// `cmux-tui wg hub --config <wg-quick> --socket <unix path>`: own one
+/// WireGuard tunnel and serve SOCKS5 CONNECT for sidecars on a Unix socket.
+///
+/// Prints one JSON readiness line, then runs until SIGTERM, SIGINT, or the
+/// opted-in parent lifecycle ends. It removes the socket on the way out.
+/// Every error before readiness exits non-zero through the caller.
+fn run_wg(args: &[String]) -> anyhow::Result<()> {
+    match args.first().map(String::as_str) {
+        Some("hub") => {}
+        Some(action) => return Err(anyhow!(catalog().remote_client.unknown_action("wg", action))),
+        None => return Err(anyhow!(catalog().remote_client.wg_hub_help)),
+    }
+    let flags = parse_wg_hub_flags(&args[1..])?;
+    let owner = flags.exit_with_parent.then(current_parent_process_id);
+    let async_runtime = tokio_runtime()?;
+    let net =
+        start_wireguard_with_timeout(&async_runtime, &flags.config, WIREGUARD_HUB_START_TIMEOUT)?;
+    async_runtime.block_on(net.wait_for_handshake(WIREGUARD_HUB_HANDSHAKE_TIMEOUT)).map_err(
+        |error| anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string())),
+    )?;
+    let hub = async_runtime
+        .block_on(cmux_remote::wireguard_hub::serve_wireguard_hub(net, flags.socket))
+        .map_err(|error| {
+            anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
+        })?;
+    let ready = serde_json::json!({
+        "event": "hub-ready",
+        "socket": hub.path().display().to_string(),
+        "routes": hub.routes().iter().map(ToString::to_string).collect::<Vec<_>>(),
+    });
+    println!("{}", serde_json::to_string(&ready)?);
+    let _ = io::stdout().flush();
+    async_runtime
+        .block_on(async {
+            if let Some(owner) = owner {
+                tokio::select! {
+                    result = crate::wait_for_shutdown_signal_async() => result,
+                    _ = wait_for_parent_exit(owner) => Ok(()),
+                }
+            } else {
+                crate::wait_for_shutdown_signal_async().await
+            }
+        })
+        .map_err(|error| {
+            anyhow!(catalog().remote_client.wireguard_hub_signal_failed(&error.to_string()))
+        })?;
+    async_runtime.block_on(hub.shutdown()).map_err(|error| {
+        anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
+    })?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn current_parent_process_id() -> u32 {
+    unsafe { libc::getppid() }.try_into().unwrap_or_default()
+}
+
+#[cfg(not(unix))]
+fn current_parent_process_id() -> u32 {
+    0
+}
+
+#[cfg(unix)]
+fn parent_process_is(expected: u32) -> bool {
+    current_parent_process_id() == expected
+}
+
+#[cfg(not(unix))]
+fn parent_process_is(_: u32) -> bool {
+    true
+}
+
+async fn wait_for_parent_exit(expected: u32) {
+    while parent_process_is(expected) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// A wg-quick file is small; anything larger is not one.
+const MAX_WIREGUARD_CONFIG_BYTES: usize = 16 * 1024;
+
+/// Bring up the in-process WireGuard tunnel named by `--wireguard-config`.
+///
+/// The file holds a private key, so it must be owner-only like an invitation
+/// file. The tunnel lives as long as the provider registry that holds it, which
+/// is the life of this `remote connect` process.
+fn start_wireguard(
+    runtime: &tokio::runtime::Runtime,
+    path: &Path,
+) -> anyhow::Result<Arc<cmux_wg::WgNet>> {
+    start_wireguard_with_timeout_inner(runtime, path, None)
+}
+
+/// Starts a hub tunnel with a deadline around endpoint resolution and UDP setup.
+/// A DNS/network stall must produce a child error so the app can retry, rather
+/// than leaving the Unix socket absent until the app-side readiness timeout.
+fn start_wireguard_with_timeout(
+    runtime: &tokio::runtime::Runtime,
+    path: &Path,
+    timeout: Duration,
+) -> anyhow::Result<Arc<cmux_wg::WgNet>> {
+    start_wireguard_with_timeout_inner(runtime, path, Some(timeout))
+}
+
+fn start_wireguard_with_timeout_inner(
+    runtime: &tokio::runtime::Runtime,
+    path: &Path,
+    timeout: Option<Duration>,
+) -> anyhow::Result<Arc<cmux_wg::WgNet>> {
+    let text = cmux_remote::secret_file::read_owner_only_string(path, MAX_WIREGUARD_CONFIG_BYTES)
+        .map_err(|error| {
+        anyhow!(
+            catalog()
+                .remote_client
+                .wireguard_config_unreadable(&path.display().to_string(), &error.to_string())
+        )
+    })?;
+    let config = cmux_wg::WgConfig::parse_wg_quick(&text).map_err(|error| {
+        anyhow!(catalog().remote_client.wireguard_config_invalid(&error.to_string()))
+    })?;
+    let net = match timeout {
+        // The timeout future must be built inside the runtime: `tokio::time::timeout`
+        // registers its sleep with the current reactor at construction, and there is
+        // none on this thread, so building it as `block_on`'s argument panics.
+        Some(timeout) => runtime
+            .block_on(async {
+                tokio::time::timeout(timeout, cmux_wg::WgNet::start_with_new_socket(config)).await
+            })
+            .map_err(|_| anyhow!("WireGuard startup timed out after {timeout:?}"))?
+            .map_err(|error| {
+                anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string()))
+            })?,
+        None => {
+            runtime.block_on(cmux_wg::WgNet::start_with_new_socket(config)).map_err(|error| {
+                anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string()))
+            })?
+        }
+    };
+    Ok(Arc::new(net))
+}
+
 fn read_invitation_uri(path: &Path) -> anyhow::Result<Zeroizing<String>> {
     if path == Path::new("-") {
         return read_invitation_uri_line(&mut io::stdin().lock());
@@ -1712,7 +1976,12 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 }
 
 /// Advertised by `remote-probe --json` so a control plane can choose routes the client can use.
-pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent"];
+///
+/// `direct-ws-user-agent`: direct WebSocket dials carry a User-Agent, which
+/// hosted ingress on branded machine domains requires.
+/// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
+/// app may reach private-network machines through a shared in-process tunnel.
+pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent", "wireguard-hub", "browser-proxy"];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
@@ -1874,8 +2143,37 @@ fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
     let mux_socket = flag_value(args, "--mux-socket").map(PathBuf::from);
     let (session_state, default_link, _) = daemon_paths(&session, state_dir.as_deref())?;
     let link = flag_value(args, "--link-socket").map(PathBuf::from).unwrap_or(default_link);
+    if let Some(providers) = flag_value(args, "--agent-hooks") {
+        install_agent_hooks(agent_hook_providers(&providers));
+    }
     ensure_daemon(&session, state_dir.as_deref(), &session_state, &link, mux_socket.as_deref())?;
     tokio_runtime()?.block_on(proxy_stdio(&link))
+}
+
+/// `--agent-hooks claude,codex` names providers; empty items are dropped.
+fn agent_hook_providers(value: &str) -> Vec<String> {
+    value.split(',').map(str::trim).filter(|item| !item.is_empty()).map(str::to_owned).collect()
+}
+
+/// Installs the named providers' hooks for this host user before a client
+/// attaches. The install is idempotent and never blocks the link: hooks are
+/// inert outside cmux-tui terminals, and a failure only costs agent status.
+fn install_agent_hooks(providers: Vec<String>) {
+    if providers.is_empty() {
+        return;
+    }
+    let plan = crate::agent_hook_install::Plan {
+        action: crate::agent_hook_install::Action::Install,
+        providers,
+    };
+    let result = crate::agent_hook_install::run(&plan);
+    if result.failed {
+        crate::client_log::stderr_log!(
+            "remote",
+            "cmux-tui: agent hook install failed: {}",
+            result.value["errors"]
+        );
+    }
 }
 
 struct RemoteStopArgs {
@@ -2091,6 +2389,7 @@ fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
             admin_socket: None,
             direct_websocket: None,
             allow_insecure_non_loopback: false,
+            trusted_carrier_websocket: false,
             workspace_http: None,
             relays: Vec::new(),
             iroh: false,
@@ -2140,7 +2439,7 @@ fn ensure_daemon(
     mux_socket_override: Option<&Path>,
 ) -> anyhow::Result<()> {
     let _lock = lock_daemon_start(session_state)?;
-    if UnixStream::connect(link).is_ok() {
+    if connect_same_user_socket(link).is_ok() {
         return Ok(());
     }
 
@@ -2149,17 +2448,23 @@ fn ensure_daemon(
     // exec'ing a "(deleted)" path, and daemon/client builds never skew.
     let executable = cmux_tui_core::platform::self_exe_for_spawn()?;
     let log_path = session_state.join("daemon.log");
-    let mux_socket = mux_socket_override
+    let explicit_mux_socket = mux_socket_override
         .map(Path::to_path_buf)
-        .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
+        .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from));
+    let mux_socket_is_derived = explicit_mux_socket.is_none();
+    let mux_socket = explicit_mux_socket
         .map_or_else(|| cmux_tui_core::server::try_default_socket_path(session), Ok)?;
-    if UnixStream::connect(&mux_socket).is_err() {
+    if mux_socket_is_derived {
+        // A derived path may fall back to a shared /tmp name. Claim or check
+        // its directory the same way the mux owner will before probing it.
+        cmux_tui_core::server::prepare_socket_parent(&mux_socket, true)?;
+    }
+    if connect_same_user_socket(&mux_socket).is_err() {
         let log = open_private_daemon_file(&log_path, true)
             .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
         let mut mux_owner = Command::new(&executable);
         mux_owner
-            .args(["--headless", "--session", session, "--socket"])
-            .arg(&mux_socket)
+            .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
@@ -2192,6 +2497,30 @@ fn ensure_daemon(
     wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
 }
 
+/// Arguments for the headless mux owner `ensure_daemon` starts. A derived
+/// socket path is left for the owner to derive again from the same session,
+/// so it keeps the owner checks it applies to its own runtime directory.
+fn mux_owner_args(session: &str, mux_socket: &Path, mux_socket_is_derived: bool) -> Vec<OsString> {
+    let mut args: Vec<OsString> =
+        ["--headless", "--session", session].into_iter().map(OsString::from).collect();
+    if !mux_socket_is_derived {
+        args.push("--socket".into());
+        args.push(mux_socket.into());
+    }
+    args
+}
+
+/// Connect to a socket this daemon's own user serves. The daemon only starts
+/// and talks to listeners it or an earlier run of it created.
+fn connect_same_user_socket(path: &Path) -> io::Result<UnixStream> {
+    let stream = UnixStream::connect(path)?;
+    cmux_tui_core::platform::require_unix_peer_uid(
+        &stream,
+        cmux_tui_core::platform::effective_uid(),
+    )?;
+    Ok(stream)
+}
+
 fn wait_for_detached_socket(
     child: &mut Child,
     socket: &Path,
@@ -2201,7 +2530,7 @@ fn wait_for_detached_socket(
 ) -> anyhow::Result<()> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if UnixStream::connect(socket).is_ok() {
+        if connect_same_user_socket(socket).is_ok() {
             return Ok(());
         }
         match child.try_wait() {
@@ -2291,7 +2620,7 @@ fn configure_detached_process(command: &mut Command) {
 }
 
 fn open_mux_monitor(path: &Path) -> anyhow::Result<UnixStream> {
-    let stream = UnixStream::connect(path).with_context(|| {
+    let stream = connect_same_user_socket(path).with_context(|| {
         format!("cannot attach remote sidecar to mux socket {}", path.display())
     })?;
     stream.set_read_timeout(Some(Duration::from_millis(250)))?;
@@ -2554,7 +2883,7 @@ mod tests {
         let load_count = std::cell::Cell::new(0);
         let help_args = ["connect", "--help"].map(str::to_string);
         assert!(
-            super::run_inner(&help_args, "usage", || {
+            run_inner(&help_args, "usage", || {
                 load_count.set(load_count.get() + 1);
                 panic!("remote help must not load startup config");
             })
@@ -2563,7 +2892,7 @@ mod tests {
 
         let invalid_args = ["ssh", "--unknown"].map(str::to_string);
         assert!(
-            super::run_inner(&invalid_args, "usage", || {
+            run_inner(&invalid_args, "usage", || {
                 load_count.set(load_count.get() + 1);
                 panic!("remote parse errors must not load startup config");
             })
@@ -2573,8 +2902,82 @@ mod tests {
     }
 
     #[test]
+    fn private_socket_remote_mux_owner_derives_its_own_socket() {
+        let socket = Path::new("/tmp/cmux-tui-501/work.sock");
+        assert_eq!(
+            mux_owner_args("work", socket, true),
+            ["--headless", "--session", "work"].map(OsString::from)
+        );
+        assert_eq!(
+            mux_owner_args("work", socket, false),
+            ["--headless", "--session", "work", "--socket", "/tmp/cmux-tui-501/work.sock"]
+                .map(OsString::from)
+        );
+    }
+
+    #[test]
     fn probe_capabilities_include_direct_ws_user_agent() {
-        assert!(super::PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
+        assert!(PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
+        assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub"));
+    }
+
+    #[test]
+    fn agent_hooks_flag_collects_providers() {
+        let args = ["host", "--agent-hooks", "claude, codex,", "--agent-hooks", "gemini"]
+            .map(str::to_string);
+        assert_eq!(direct_ssh_flags(&args).unwrap().agent_hooks, ["claude", "codex", "gemini"]);
+        let plain = ["host"].map(str::to_string);
+        assert!(direct_ssh_flags(&plain).unwrap().agent_hooks.is_empty());
+    }
+
+    #[test]
+    fn wireguard_config_and_hub_are_mutually_exclusive() {
+        let both = [
+            "ws://[fd00::1]:1337/v1/link",
+            "--wireguard-config",
+            "/tmp/a.conf",
+            "--wireguard-hub",
+            "/tmp/hub.sock",
+        ]
+        .map(str::to_string);
+        let error = parse_connect_flags(&both).err().expect("both flags must be rejected");
+        assert_eq!(error.to_string(), catalog().remote_client.wireguard_hub_conflict);
+        let hub_only =
+            ["ws://[fd00::1]:1337/v1/link", "--wireguard-hub", "/tmp/hub.sock"].map(str::to_string);
+        let flags = parse_connect_flags(&hub_only).unwrap();
+        assert_eq!(flags.wireguard_hub, Some(PathBuf::from("/tmp/hub.sock")));
+        assert!(flags.wireguard_config.is_none());
+        assert!(!flags.exit_with_parent);
+        let owned = ["ws://[fd00::1]:1337/v1/link", "--exit-with-parent"].map(str::to_string);
+        assert!(parse_connect_flags(&owned).unwrap().exit_with_parent);
+    }
+
+    #[test]
+    fn wg_hub_flags_require_config_and_socket() {
+        let full =
+            ["hub", "--config", "/tmp/wg.conf", "--socket", "/tmp/wg.sock"].map(str::to_string);
+        let flags = parse_wg_hub_flags(&full[1..]).unwrap();
+        assert_eq!(flags.config, PathBuf::from("/tmp/wg.conf"));
+        assert_eq!(flags.socket, PathBuf::from("/tmp/wg.sock"));
+        assert!(!flags.exit_with_parent);
+        let owned = ["--config", "/tmp/wg.conf", "--socket", "/tmp/wg.sock", "--exit-with-parent"]
+            .map(str::to_string);
+        assert!(parse_wg_hub_flags(&owned).unwrap().exit_with_parent);
+        let missing = ["--config", "/tmp/wg.conf"].map(str::to_string);
+        assert!(parse_wg_hub_flags(&missing).is_err());
+        let unknown =
+            ["--config", "/tmp/wg.conf", "--socket", "/tmp/s", "--bogus"].map(str::to_string);
+        assert!(parse_wg_hub_flags(&unknown).is_err());
+        let not_hub = ["frobnicate"].map(str::to_string);
+        assert!(run_wg(&not_hub).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parent_lifecycle_fence_tracks_the_direct_parent() {
+        let parent = current_parent_process_id();
+        assert!(parent_process_is(parent));
+        assert!(!parent_process_is(parent.wrapping_add(1)));
     }
 
     use super::*;
@@ -2619,6 +3022,8 @@ mod tests {
                 SshProviderConfig::default(),
                 BTreeMap::new(),
                 IrohPathMode::Auto,
+                None,
+                false,
             )
             .unwrap(),
         )
@@ -2690,6 +3095,7 @@ mod tests {
         assert_eq!(routing[ROUTING_DIRECT_ADDRS], "127.0.0.1:1234");
     }
 
+    #[cfg(feature = "iroh-transport")]
     #[test]
     fn iroh_route_candidates_keep_query_hints_isolated() {
         let routes = [
@@ -2853,6 +3259,29 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn wireguard_hub_start_deadline_is_built_inside_the_runtime() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // `wg hub` runs on a plain thread and hands its runtime to the starter.
+        // The deadline future used to be built as `block_on`'s argument, where no
+        // reactor exists, and every hub start panicked with "there is no reactor
+        // running". A literal endpoint keeps DNS out of the test; the start may
+        // still fail, and any `Result` is the pass condition.
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("hub.conf");
+        fs::write(
+            &config,
+            "[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = 100.64.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\nAllowedIPs = 10.0.0.0/24\nEndpoint = 127.0.0.1:1\n",
+        )
+        .unwrap();
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+        let runtime = tokio_runtime().unwrap();
+        let started = start_wireguard_with_timeout(&runtime, &config, Duration::from_secs(5));
+        drop(started);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn invitation_file_requires_owner_only_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -2881,6 +3310,41 @@ mod tests {
         let error = read_invitation_uri(&fifo).unwrap_err().to_string();
         assert!(started.elapsed() < Duration::from_secs(1));
         assert!(error.contains("regular file"));
+    }
+
+    #[test]
+    fn carrier_flag_is_off_by_default_and_needs_no_value() {
+        let default = parse_connect_flags(&["ws://10.0.0.5:1337/v1/link".into()]).unwrap();
+        assert!(!default.carrier);
+        let carrier =
+            parse_connect_flags(&["ws://10.0.0.5:1337/v1/link".into(), "--carrier".into()])
+                .unwrap();
+        assert!(carrier.carrier);
+        assert_eq!(carrier.route.as_deref(), Some("ws://10.0.0.5:1337/v1/link"));
+        let registry = client_provider_registry(
+            SshProviderConfig::default(),
+            BTreeMap::new(),
+            IrohPathMode::Auto,
+            None,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            registry.supported_client_auth("ws").unwrap(),
+            SupportedClientAuthModes::DeviceOrCarrier
+        );
+        let registry = client_provider_registry(
+            SshProviderConfig::default(),
+            BTreeMap::new(),
+            IrohPathMode::Auto,
+            None,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            registry.supported_client_auth("ws").unwrap(),
+            SupportedClientAuthModes::DeviceOnly
+        );
     }
 
     #[test]
@@ -4207,6 +4671,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -4858,5 +5323,85 @@ mod tests {
         let args = ["create", "--relay-route", "relay+do://worker.example"].map(str::to_string);
         let parsed = parse_enroll_admin_args(&args).unwrap();
         assert!(invitation_relay_access(&parsed).is_err());
+    }
+
+    #[test]
+    fn browser_proxy_accepts_private_ipv4_and_ipv6_authorities() {
+        assert_eq!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("10.42.0.7:8000", false)
+                .unwrap(),
+            ("10.42.0.7".into(), 8000)
+        );
+        assert_eq!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("[fd12::7]:8443", false)
+                .unwrap(),
+            ("fd12::7".into(), 8443)
+        );
+        assert!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("192.0.2.7:8000", false)
+                .is_err()
+        );
+        assert!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("127.0.0.1:8000", false)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn browser_proxy_parser_keeps_connection_flags_and_repeats_allowed_hosts() {
+        let parsed = parse_browser_proxy_args(&[
+            "wss://daemon.example/link".into(),
+            "--allowed-host".into(),
+            "10.0.0.4".into(),
+            "--allowed-host".into(),
+            "10.0.0.5".into(),
+            "--workspace-root".into(),
+            "/".into(),
+            "--wireguard-hub".into(),
+            "/tmp/cmux-wg.sock".into(),
+            "--carrier".into(),
+        ])
+        .unwrap();
+        assert_eq!(parsed.allowed_hosts, ["10.0.0.4", "10.0.0.5"]);
+        assert_eq!(parsed.workspace_root, "/");
+        assert!(
+            parsed.connect.windows(2).any(|pair| pair == ["--wireguard-hub", "/tmp/cmux-wg.sock"])
+        );
+        assert!(parsed.connect.iter().any(|flag| flag == "--carrier"));
+    }
+
+    #[test]
+    fn browser_proxy_loopback_is_opt_in_for_ssh_carriers() {
+        let rejected = parse_browser_proxy_args(&[
+            "ssh://host".into(),
+            "--workspace-root".into(),
+            "/".into(),
+            "--allowed-host".into(),
+            "127.0.0.1".into(),
+        ]);
+        assert!(rejected.is_err());
+
+        let parsed = parse_browser_proxy_args(&[
+            "ssh://host".into(),
+            "--workspace-root".into(),
+            "/".into(),
+            "--allow-loopback".into(),
+            "--allowed-host".into(),
+            "localhost".into(),
+            "--allowed-host".into(),
+            "::1".into(),
+        ])
+        .unwrap();
+        assert!(parsed.allow_loopback);
+        assert_eq!(parsed.allowed_hosts, vec!["127.0.0.1", "::1"]);
+        assert_eq!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("localhost:3000", true)
+                .unwrap(),
+            ("127.0.0.1".into(), 3000)
+        );
+        assert!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("127.0.0.1:3000", false)
+                .is_err()
+        );
     }
 }

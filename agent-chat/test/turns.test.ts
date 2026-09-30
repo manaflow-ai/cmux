@@ -22,6 +22,27 @@ if (summary !== "Edited 2 files, read 1 file, searched code, listed files, and r
 if (/Read 1 File|Searched Code|Listed Files|Ran 3 Commands/.test(summary)) {
   throw new Error(`summary regressed to title case: ${summary}`);
 }
+// Claude Code turn: only Bash calls are shell commands; structured tools are
+// reported by what they did (regression: this read "ran 6 commands").
+const claudeTurn: Block[] = [
+  { kind: "tool", toolId: "g", name: "Grep", detail: "func runExport", status: "ok" },
+  { kind: "tool", toolId: "r", name: "Read", detail: "/work/Export.swift", status: "ok" },
+  { kind: "tool", toolId: "e1", name: "Edit", detail: "/work/Export.swift", status: "ok" },
+  { kind: "tool", toolId: "b1", name: "Bash", detail: "swift test --filter ExportTests", status: "ok" },
+  { kind: "tool", toolId: "e2", name: "Edit", detail: "/work/Row.swift", status: "ok" },
+  { kind: "tool", toolId: "b2", name: "Bash", detail: "swift test --filter ExportTests", status: "ok" },
+  { kind: "tool", toolId: "w", name: "WebFetch", detail: "https://example.com", status: "ok" },
+];
+const claudeSummary = summarizeTurnActivity(claudeTurn);
+if (claudeSummary !== "Edited 2 files, read 1 file, searched code, ran 2 commands, and used 1 tool") {
+  throw new Error(`unexpected Claude summary: ${claudeSummary}`);
+}
+
+const claudeLabels = claudeTurn.map((block) => activityRowLabel(block)).join("|");
+if (claudeLabels !== "Searched func runExport|Read /work/Export.swift|Edited /work/Export.swift|Ran swift test --filter ExportTests|Edited /work/Row.swift|Ran swift test --filter ExportTests|Used WebFetch https://example.com") {
+  throw new Error(`unexpected Claude activity labels: ${claudeLabels}`);
+}
+
 const labels = activity.map((block) => activityRowLabel(block));
 if (labels.join("|") !== "Read AGENTS.md|Searched RepositoryPicker|Listed Sources|Edited 2 files") {
   throw new Error(`unexpected activity labels: ${labels.join("|")}`);

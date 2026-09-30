@@ -10,6 +10,14 @@ send input to an active terminal session from iPhone or iPad.
 
 Official App Store Connect app: Apple ID `6783338052`.
 
+Demonstration mode: the review demo account is server-flagged
+(`cmuxReviewDemoContent: true` in Stack `clientReadOnlyMetadata`, set with
+`web/scripts/set-review-demo-content.ts`). After sign-in the app shows a local
+"Demo Mac" with sample developer workspaces, notifications, and interactive
+canned terminals through the same UI as a live Mac, so the reviewer can
+exercise the full app even if the prepared review Mac or its network route is
+temporarily unreachable. Real computers still appear alongside it.
+
 Reviewer access:
 
 - Use the demo account entered in App Store Connect Review Information. Do not

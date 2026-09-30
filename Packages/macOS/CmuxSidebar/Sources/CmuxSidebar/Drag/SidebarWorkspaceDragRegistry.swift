@@ -11,6 +11,13 @@ public import Foundation
 public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegistering {
     /// Provider used to inspect and clear the process drag pasteboard.
     public typealias DragPasteboardProvider = @MainActor () -> NSPasteboard
+    /// Starts an AppKit session for a prepared dragging item.
+    public typealias NativeDragStarter = @MainActor (
+        _ sourceView: NSView,
+        _ draggingItem: NSDraggingItem,
+        _ event: NSEvent,
+        _ source: any NSDraggingSource
+    ) -> NSDraggingSession
 
     /// The generation-fenced session currently owned by the process.
     private(set) var currentSession: SidebarWorkspaceDragSession?
@@ -21,6 +28,7 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
     private var nativeDragSources: [UUID: SidebarWorkspaceDragSessionSource] = [:]
     private var participants: [SidebarWorkspaceDragParticipantReference] = []
     private let dragPasteboardProvider: DragPasteboardProvider
+    private let nativeDragStarter: NativeDragStarter
 
     deinit {}
 
@@ -30,9 +38,17 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
     public init(
         dragPasteboardProvider: @escaping DragPasteboardProvider = {
             NSPasteboard(name: .drag)
+        },
+        nativeDragStarter: @escaping NativeDragStarter = { sourceView, draggingItem, event, source in
+            sourceView.beginDraggingSession(
+                with: [draggingItem],
+                event: event,
+                source: source
+            )
         }
     ) {
         self.dragPasteboardProvider = dragPasteboardProvider
+        self.nativeDragStarter = nativeDragStarter
     }
 
     /// The workspace represented by the current process-wide drag, if any.
@@ -52,6 +68,23 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
 
     /// Begins a tokenized session, superseding any prior workspace drag.
     public func beginSession(workspaceId: UUID) -> SidebarWorkspaceDragSession {
+        beginSession(workspaceId: workspaceId, reclaimNativeSources: false)
+    }
+
+    /// Begins a session after AppKit has crossed a native pointer boundary.
+    public func beginNativeSession(workspaceId: UUID) -> SidebarWorkspaceDragSession {
+        beginSession(workspaceId: workspaceId, reclaimNativeSources: true)
+    }
+
+    private func beginSession(
+        workspaceId: UUID,
+        reclaimNativeSources: Bool
+    ) -> SidebarWorkspaceDragSession {
+        if reclaimNativeSources {
+            // AppKit cannot start this native session while an older source is
+            // still in its drag loop, so reclaiming superseded holds is safe.
+            reclaimAllNativeSourcesBeforeNewSession()
+        }
         endCurrentSession()
         let session = SidebarWorkspaceDragSession(workspaceId: workspaceId)
         currentSession = session
@@ -102,13 +135,17 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
 
         let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
         draggingItem.setDraggingFrame(draggingFrame, contents: dragImage)
-        let dragSession = sourceView.beginDraggingSession(
-            with: [draggingItem],
-            event: event,
-            source: source
-        )
+        let dragSession = nativeDragStarter(sourceView, draggingItem, event, source)
+        source.bind(sourceView: sourceView)
         dragSession.animatesToStartingPositionsOnCancelOrFail = false
         return true
+    }
+
+    /// Releases source holds other than `excludingSessionId` after a pointer
+    /// boundary. The explicit exclusion keeps a still-live native source owned
+    /// when a table receives a new mouse-down during the same event turn.
+    public func reclaimSupersededNativeSources(excludingSessionId: UUID) {
+        reclaimNativeSources { $0 != excludingSessionId }
     }
 
     /// Handles the terminal callback from a native source or table controller.
@@ -155,5 +192,19 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
         // Do not destroy unrelated values merely because this session ended.
         guard (pasteboard.types ?? []).allSatisfy({ $0 == type }) else { return }
         pasteboard.clearContents()
+    }
+
+    private func reclaimAllNativeSourcesBeforeNewSession() {
+        reclaimNativeSources { _ in true }
+    }
+
+    private func reclaimNativeSources(
+        where shouldReclaim: (UUID) -> Bool
+    ) {
+        let supersededSources = nativeDragSources.filter { shouldReclaim($0.key) }.values
+        for source in supersededSources {
+            nativeDragSources[source.sessionIdentifier] = nil
+            source.finishAfterNativeBoundary()
+        }
     }
 }

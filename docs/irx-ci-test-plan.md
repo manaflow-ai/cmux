@@ -100,9 +100,14 @@ channel. Field-found items name the incident that motivated them.
 ## Not yet covered / future
 
 29. Direct-path upgrade (post-admission NAT traversal authorization + LAN
-    hints) once wired: path migration without session drop.
-30. Radio lifecycle on physical devices: lock/unlock, background/foreground,
+    hints) and explicit numeric Direct/Tailscale-only allowlists: prove path
+    migration without session drop and fail-closed behavior for empty or
+    unusable pinned candidates.
+30. IRX consumption of the existing per-Computer **Private Addresses** store:
+    either wire its provider-bound profiles into the IRX dial plan or hide the
+    legacy settings while IRX is enabled.
+31. Radio lifecycle on physical devices: lock/unlock, background/foreground,
     LTE<->WiFi handoff -> recovery <= 3s, every transition attributed.
-31. Simulator-stream lanes over irx (currently unsupported).
-32. PostHog kill-switch bridge: flag flip reverts to legacy stack on next
+32. Simulator-stream lanes over irx (currently unsupported).
+33. PostHog kill-switch bridge: flag flip reverts to legacy stack on next
     launch without wiping state.
