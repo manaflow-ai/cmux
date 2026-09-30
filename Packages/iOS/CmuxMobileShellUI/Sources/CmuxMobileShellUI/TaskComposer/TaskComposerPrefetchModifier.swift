@@ -10,26 +10,29 @@ struct TaskComposerPrefetchModifier: ViewModifier {
         store.taskModelPrefetchTargets
     }
 
-    private var prefetchTaskID: String {
-        let targetKey = prefetchTargets.map { target in
-            [
-                target.macDeviceID,
-                target.instanceTag ?? "",
-                target.connectionIdentity ?? "",
-            ].joined(separator: "\u{1E}")
-        }.joined(separator: "\u{1F}")
-        [
-            scenePhase == .active ? "active" : "inactive",
-            targetKey,
-        ].joined(separator: "\u{1F}")
+    private func pairingKey(for target: MobileTaskModelPrefetchTarget) -> String {
+        [target.macDeviceID, target.instanceTag ?? ""].joined(separator: "\u{1E}")
     }
 
     func body(content: Content) -> some View {
-        content.task(id: prefetchTaskID) {
+        content.task(id: scenePhase == .active) {
             guard scenePhase == .active else { return }
             // Build the paired-Mac target snapshot once when the task starts.
             // Unrelated SwiftUI body passes never scan or sort the Mac list.
             await store.prefetchTaskModels(for: prefetchTargets)
+        }
+        .onChange(of: prefetchTargets) { oldTargets, newTargets in
+            guard scenePhase == .active else { return }
+            let oldTargetsByPairing = Dictionary(
+                uniqueKeysWithValues: oldTargets.map { (pairingKey(for: $0), $0) }
+            )
+            let changedTargets = newTargets.filter {
+                oldTargetsByPairing[pairingKey(for: $0)] != $0
+            }
+            guard !changedTargets.isEmpty else { return }
+            Task { @MainActor in
+                await store.prefetchTaskModels(for: changedTargets)
+            }
         }
     }
 }
