@@ -53,11 +53,13 @@
     }
   }
 
-  // Runs in the watch page: turns captions on in the muted player and reads
-  // the caption response the player itself receives (its request carries the
-  // player's token), json3 or srv3 XML, as segments. Falls back to fetching
-  // the caption URL the player requested.
-  async function captionsFromPlayer(arg) {
+  // The in-tab transcript path runs as several short page calls (a long
+  // call can lose its completion when YouTube's player reshuffles the page):
+  // captureStart hooks XHR and fetch in the page world and turns captions on
+  // in the muted player; captureRead returns what the player received;
+  // captureStop restores the page and returns the caption URLs it saw.
+  const CAPTURE = "Symbol.for('cmux.sites.youtube.capture')";
+  const captureStart = new Function("arg", `
     const player = document.getElementById("movie_player");
     if (!player || typeof player.getVideoData !== "function") return { error: "the YouTube player did not load" };
     const matches = (name) => {
@@ -68,94 +70,84 @@
         return false;
       }
     };
-    const parse = (body) => {
-      const text = (s) => s.replace(/\s+/g, " ").trim();
-      try {
-        const json = JSON.parse(body);
-        return (json.events || []).map((ev) => ({ start: (ev.tStartMs || 0) / 1000, duration: (ev.dDurationMs || 0) / 1000, text: text((ev.segs || []).map((x) => x.utf8 || "").join("")) })).filter((x) => x.text);
-      } catch (e) {}
-      // XML without DOMParser: YouTube enforces Trusted Types, which blocks it.
-      const decode = (s) => s.replace(/<[^>]*>/g, "").replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (m, e) => (e[0] === "#" ? String.fromCodePoint(e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10)) : { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }[e.toLowerCase()]));
-      const attr = (attrs, name) => { const m = new RegExp("\\b" + name + '="([^"]*)"').exec(attrs); return m ? Number(m[1]) : 0; };
-      const out = [];
-      for (const m of body.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)) out.push({ start: attr(m[1], "t") / 1000, duration: attr(m[1], "d") / 1000, text: text(decode(m[2])) });
-      if (!out.length) for (const m of body.matchAll(/<text\b([^>]*)>([\s\S]*?)<\/text>/g)) out.push({ start: attr(m[1], "start"), duration: attr(m[1], "dur"), text: text(decode(decode(m[2]))) });
-      return out.filter((x) => x.text);
-    };
-    // Capture caption responses the player receives, and note requested URLs
-    // (YouTube clears the resource timing buffer, so observe as they arrive).
-    const bodies = [];
-    const urls = [];
-    const XHR = XMLHttpRequest.prototype;
-    const open = XHR.open;
-    const origFetch = window.fetch;
-    XHR.open = function (method, url) {
+    const state = { bodies: [], urls: [], open: XMLHttpRequest.prototype.open, fetch: window.fetch };
+    window[${CAPTURE}] = state;
+    XMLHttpRequest.prototype.open = function (method, url) {
       if (matches(String(url)))
         this.addEventListener("load", () => {
           try {
             const r = this.response;
             const body = this.responseType === "" || this.responseType === "text" ? this.responseText : r instanceof ArrayBuffer ? new TextDecoder().decode(r) : r && typeof r === "object" ? JSON.stringify(r) : "";
-            if (body) bodies.push(body);
+            if (body) state.bodies.push(body);
           } catch (e) {}
         });
-      return open.apply(this, arguments);
+      return state.open.apply(this, arguments);
     };
     window.fetch = function (input) {
-      const p = origFetch.apply(this, arguments);
+      const p = state.fetch.apply(this, arguments);
       const url = typeof input === "string" ? input : input && input.url;
-      if (url && matches(url)) p.then((r) => r.clone().text()).then((t) => t && bodies.push(t), () => {});
+      if (url && matches(url)) p.then((r) => r.clone().text()).then((t) => t && state.bodies.push(t), () => {});
       return p;
     };
-    const observer = new PerformanceObserver((list) => {
-      for (const e of list.getEntries()) if (matches(e.name)) urls.push(e.name);
+    // YouTube clears the resource timing buffer; observe entries as they arrive.
+    state.observer = new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) if (matches(e.name)) state.urls.push(e.name);
     });
-    observer.observe({ type: "resource", buffered: true });
-    const wait = async (ms) => {
-      const deadline = Date.now() + ms;
-      while (!bodies.length && Date.now() < deadline) await new Promise((r) => setTimeout(r, 150));
-    };
+    state.observer.observe({ type: "resource", buffered: true });
     try {
-      try {
-        if (player.mute) player.mute();
-        if (player.toggleSubtitlesOn) player.toggleSubtitlesOn();
-        else if (player.toggleSubtitles) player.toggleSubtitles();
-        if (arg.lang && player.setOption) player.setOption("captions", "track", { languageCode: arg.lang });
-      } catch (e) {}
-      await wait(Math.min(4000, arg.timeoutMs));
-      // Some players load captions only while playing; play muted briefly.
-      if (!bodies.length && player.playVideo) {
-        player.playVideo();
-        await wait(arg.timeoutMs);
-      }
-    } finally {
-      XHR.open = open;
-      window.fetch = origFetch;
-      observer.disconnect();
-      try {
-        if (player.pauseVideo) player.pauseVideo();
-      } catch (e) {}
-    }
-    for (const body of bodies) {
-      const segments = parse(body);
-      if (segments.length) return { segments };
-    }
-    const url = urls[urls.length - 1] || performance.getEntriesByType("resource").map((e) => e.name).filter(matches).pop();
-    if (!url) return { error: "the player did not request captions" };
-    for (const fmt of ["json3", null]) {
-      const u = new URL(url, location.href);
-      if (fmt) u.searchParams.set("fmt", fmt);
-      const r = await origFetch(u.href, { credentials: "include" });
-      const segments = r.ok ? parse(await r.text()) : [];
-      if (segments.length) return { segments };
-    }
-    return { error: "the caption response was empty" };
+      if (player.mute) player.mute();
+      if (arg.play && player.playVideo) player.playVideo();
+      if (player.toggleSubtitlesOn) player.toggleSubtitlesOn();
+      else if (player.toggleSubtitles) player.toggleSubtitles();
+      if (arg.lang && player.setOption) player.setOption("captions", "track", { languageCode: arg.lang });
+    } catch (e) {}
+    return { ok: true };
+  `);
+  const captureRead = new Function(`const s = window[${CAPTURE}]; return s && s.bodies.length ? s.bodies : null;`);
+  const capturePlay = new Function(`const p = document.getElementById("movie_player"); if (p && p.mute) p.mute(); if (p && p.playVideo) p.playVideo(); return true;`);
+  const captureStop = new Function(`
+    const s = window[${CAPTURE}];
+    const p = document.getElementById("movie_player");
+    try { if (p && p.pauseVideo) p.pauseVideo(); } catch (e) {}
+    if (!s) return { bodies: [], urls: [] };
+    XMLHttpRequest.prototype.open = s.open;
+    window.fetch = s.fetch;
+    s.observer.disconnect();
+    delete window[${CAPTURE}];
+    return { bodies: s.bodies, urls: s.urls };
+  `);
+  // Fetches a caption URL in the page (same origin, the player's cookies).
+  async function fetchInPage(arg) {
+    const r = await fetch(arg.url, { credentials: "include" });
+    return r.ok ? r.text() : "";
+  }
+
+  // json3, srv3 or legacy XML caption text -> [{ start, duration, text }].
+  // Parsed by pattern: YouTube's Trusted Types policy blocks DOMParser there,
+  // and the REPL has no DOM.
+  function parseCaptions(body) {
+    const clean = (x) => x.replace(/\s+/g, " ").trim();
+    try {
+      const json = JSON.parse(body);
+      return (json.events || []).map((ev) => ({ start: (ev.tStartMs || 0) / 1000, duration: (ev.dDurationMs || 0) / 1000, text: clean((ev.segs || []).map((x) => x.utf8 || "").join("")) })).filter((x) => x.text);
+    } catch (e) {}
+    const decode = (x) => S.decodeEntities(x.replace(/<[^>]*>/g, ""));
+    const attr = (attrs, name) => {
+      const m = new RegExp("\\b" + name + '="([^"]*)"').exec(attrs);
+      return m ? Number(m[1]) : 0;
+    };
+    const out = [];
+    for (const m of body.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)) out.push({ start: attr(m[1], "t") / 1000, duration: attr(m[1], "d") / 1000, text: clean(decode(m[2])) });
+    if (!out.length) for (const m of body.matchAll(/<text\b([^>]*)>([\s\S]*?)<\/text>/g)) out.push({ start: attr(m[1], "start"), duration: attr(m[1], "dur"), text: clean(decode(decode(m[2]))) });
+    return out.filter((x) => x.text);
   }
 
   S.register(
     "youtube",
     (t) => {
       async function page(path, name, query = {}) {
-        const q = new URLSearchParams({ hl: "en", ...query });
+        // app=desktop: the REPL's fetch otherwise gets the mobile site.
+        const q = new URLSearchParams({ hl: "en", app: "desktop", persist_app: "1", ...query });
         const url = `${ORIGIN}${path}${path.includes("?") ? "&" : "?"}${q}`;
         const r = await t.fetch(url);
         if (/consent\.(youtube|google)\.com/.test(r.url)) throw new S.SiteError("consent_required", `${name}: YouTube shows a cookie consent page in this browser; open ${ORIGIN} with tabs.open() and let the user answer it`);
@@ -219,20 +211,21 @@
           if (!data) throw new S.SiteError("unexpected", "youtube.search: the results page had no ytInitialData");
           const out = [];
           const seen = new Set();
-          for (const v of walk(data, "videoRenderer")) {
+          const renderers = [...walk(data, "videoRenderer"), ...walk(data, "videoWithContextRenderer"), ...walk(data, "compactVideoRenderer")];
+          for (const v of renderers) {
             if (!v || !v.videoId || seen.has(v.videoId)) continue;
             seen.add(v.videoId);
-            const owner = v.ownerText || v.longBylineText;
+            const owner = v.ownerText || v.longBylineText || v.shortBylineText;
             const nav = owner && owner.runs && owner.runs[0] && owner.runs[0].navigationEndpoint;
             const channelPath = nav && nav.commandMetadata && nav.commandMetadata.webCommandMetadata && nav.commandMetadata.webCommandMetadata.url;
             out.push({
               videoId: v.videoId,
               url: `${ORIGIN}/watch?v=${v.videoId}`,
-              title: text(v.title),
+              title: text(v.title || v.headline),
               channelName: text(owner) || undefined,
               channelUrl: channelPath ? ORIGIN + channelPath : undefined,
               duration: text(v.lengthText) || undefined,
-              views: text(v.viewCountText) || undefined,
+              views: text(v.viewCountText || v.shortViewCountText) || undefined,
               published: text(v.publishedTimeText) || undefined,
               thumbnailUrl: bestThumb(v.thumbnail && v.thumbnail.thumbnails),
             });
@@ -269,12 +262,35 @@
             if (body.trim()) segments = segmentsOf(JSON.parse(body));
           } catch (e) {}
           if (!segments.length) {
-            const got = await t.withTab(`${ORIGIN}/watch?v=${id}`, async (p) => {
-              await t.waitIn(p, () => { const pl = document.getElementById("movie_player"); return !!(pl && typeof pl.getVideoData === "function"); }, undefined, { timeout: 20000, what: "the YouTube player" });
-              return p.evaluate(captionsFromPlayer, { videoId: id, lang: track.lang, timeoutMs: options.timeout || 12000 });
+            const timeout = options.timeout || 12000;
+            segments = await t.withTab(`${ORIGIN}/watch?v=${id}`, async (p) => {
+              await t.waitIn(p, () => { const pl = document.getElementById("movie_player"); return !!(pl && typeof pl.getVideoData === "function"); }, undefined, { timeout: 20000, what: "the YouTube player", name: "youtube.transcript" });
+              const started = await p.evaluate(captureStart, { videoId: id, lang: track.lang });
+              if (started.error) throw new S.SiteError("no_captions", `youtube.transcript: ${started.error}`);
+              let stopped = null;
+              try {
+                // Some players load captions only while playing: play muted after a moment.
+                let got = await t.waitIn(p, captureRead, undefined, { timeout: Math.min(4000, timeout), what: "the player's captions", name: "youtube.transcript" }).catch(() => null);
+                if (!got) {
+                  await p.evaluate(capturePlay);
+                  got = await t.waitIn(p, captureRead, undefined, { timeout, what: "the player's captions", name: "youtube.transcript" }).catch(() => null);
+                }
+              } finally {
+                stopped = await p.evaluate(captureStop).catch(() => ({ bodies: [], urls: [] }));
+              }
+              for (const body of stopped.bodies) {
+                const parsed = parseCaptions(body);
+                if (parsed.length) return parsed;
+              }
+              // Last resort: the caption URL the player requested, as json3, then as sent.
+              const url = stopped.urls[stopped.urls.length - 1];
+              if (!url) throw new S.SiteError("no_captions", `youtube.transcript: the player did not load captions for ${id}`);
+              for (const u of [url.replace(/([?&])fmt=[^&]*/, "$1fmt=json3").replace(/^(?!.*[?&]fmt=)(.*)$/, "$1&fmt=json3"), url]) {
+                const parsed = parseCaptions(await p.evaluate(fetchInPage, { url: u }).catch(() => ""));
+                if (parsed.length) return parsed;
+              }
+              throw new S.SiteError("no_captions", `youtube.transcript: the caption response for ${id} was empty`);
             });
-            if (got.error) throw new S.SiteError("no_captions", `youtube.transcript: could not read captions for ${id}: ${got.error}`);
-            segments = got.segments;
           }
           if (options.format === "segments") return segments;
           if (options.timestamps) return segments.map((s) => `[${clock(s.start)}] ${s.text}`).join("\n");

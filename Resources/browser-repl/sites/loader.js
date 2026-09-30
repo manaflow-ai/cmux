@@ -86,10 +86,39 @@
     return new Function("arg", `${helpers.join("\n")}\nreturn (async () => {\n${body}\n})();`);
   }
 
-  // The value of `name = {...}` or `name({...})` embedded in an HTML page, as JSON.
+  // A JavaScript string literal starting at html[i] (quote included), decoded.
+  function stringLiteral(html, i) {
+    const quote = html[i];
+    let out = "";
+    for (let j = i + 1; j < html.length; j++) {
+      const c = html[j];
+      if (c === quote) return out;
+      if (c !== "\\") {
+        out += c;
+        continue;
+      }
+      const n = html[++j];
+      if (n === "x") (out += String.fromCharCode(parseInt(html.substr(j + 1, 2), 16))), (j += 2);
+      else if (n === "u") (out += String.fromCharCode(parseInt(html.substr(j + 1, 4), 16))), (j += 4);
+      else out += { n: "\n", r: "\r", t: "\t", b: "\b", f: "\f", v: "\v", 0: "\0" }[n] !== undefined ? { n: "\n", r: "\r", t: "\t", b: "\b", f: "\f", v: "\v", 0: "\0" }[n] : n;
+    }
+    return null;
+  }
+
+  // The value of `name = {...}`, `name({...})` or `name = '<escaped JSON>'`
+  // (YouTube's mobile pages) embedded in an HTML page, as JSON.
   function embeddedJSON(html, marker) {
     let at = html.indexOf(marker);
     while (at >= 0) {
+      const lead = /^\s*(['"])/.exec(html.slice(at + marker.length, at + marker.length + 8));
+      if (lead) {
+        const text = stringLiteral(html, at + marker.length + lead[0].length - 1);
+        try {
+          return JSON.parse(text);
+        } catch {}
+        at = html.indexOf(marker, at + marker.length);
+        continue;
+      }
       const start = html.indexOf("{", at + marker.length);
       if (start < 0) return null;
       let depth = 0;
