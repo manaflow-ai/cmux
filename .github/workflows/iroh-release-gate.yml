@@ -276,7 +276,7 @@ jobs:
       max-parallel: 1
       matrix:
         mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","relay-expiry","direct-only","private-path"]' || format('["{0}"]', inputs.mode)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner == 'github-hosted' && 'macos-26' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner == 'github-hosted' && 'macos-15' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     # The real relay rollover probe waits through the 30-minute credential
     # lifetime after the one-hour workload.  Keep enough room for the hosted
     # build, simulator setup, artifact upload, and runner cleanup so a passing
