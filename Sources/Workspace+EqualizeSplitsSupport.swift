@@ -52,8 +52,17 @@ extension Workspace {
         newPaneId: PaneID,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard)
     ) -> Bool {
-        guard settings.value(for: SettingCatalog().app.equalizeSplitsOnCreate),
-              layoutMode != .canvas,
+        guard settings.value(for: SettingCatalog().app.equalizeSplitsOnCreate) else { return false }
+        return equalizeSplitRun(containingNewPane: newPaneId)
+    }
+
+    /// Equalizes the run of same-orientation splits holding a just-created
+    /// pane, then re-derives the new split's provisional pane frames. Shared
+    /// by equalize-on-create and by a split that borrows room from its run
+    /// (`SplitSpaceVerdict.fitsAfterEqualizingRun`).
+    @discardableResult
+    func equalizeSplitRun(containingNewPane newPaneId: PaneID) -> Bool {
+        guard layoutMode != .canvas,
               !isRemoteTmuxMirror else { return false }
         let result = PaneLayoutService().equalizeSplitRun(
             containingPaneId: newPaneId.id.uuidString,

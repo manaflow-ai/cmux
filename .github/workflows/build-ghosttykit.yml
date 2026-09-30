@@ -141,6 +141,17 @@ jobs:
             -Dtest-filter="cloneParsed restores Zig-escaped bytes" \
             --summary all
 
+      - name: Test Ghostty styled blank VT replay rows
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="Page VT preserves a fully styled blank row" \
+            --summary all
+
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false' || inputs.verify_build
         run: |

@@ -45,6 +45,7 @@ struct ConversationSidebarView: View {
     private enum Destination {
         case indexed(SessionEntry)
         case live(workspaceID: UUID, panelID: UUID)
+        case dock(panelID: UUID)
     }
 
     private struct Row: Identifiable {
@@ -391,7 +392,17 @@ struct ConversationSidebarView: View {
                   ) else {
                 continue
             }
-            let workspace = workspaceByID[target.workspaceID]
+            let destination: Destination
+            let isFocused: Bool
+            switch target {
+            case .workspace(let workspaceID, let surfaceID):
+                destination = .live(workspaceID: workspaceID, panelID: surfaceID)
+                isFocused = tabManager.selectedTabId == workspaceID
+                    && workspaceByID[workspaceID]?.focusedPanelId == surfaceID
+            case .dock(let panelID):
+                destination = .dock(panelID: panelID)
+                isFocused = DockSplitStore.liveStore(containingPanel: panelID)?.focusedPanelId == panelID
+            }
             fallbackOpen.append(
                 Row(
                     id: key,
@@ -400,12 +411,8 @@ struct ConversationSidebarView: View {
                     directory: entry.cwd,
                     modified: entry.modified,
                     isOpen: true,
-                    isFocused: tabManager.selectedTabId == target.workspaceID
-                        && workspace?.focusedPanelId == target.surfaceID,
-                    destination: .live(
-                        workspaceID: target.workspaceID,
-                        panelID: target.surfaceID
-                    )
+                    isFocused: isFocused,
+                    destination: destination
                 )
             )
             openIDs.insert(key)
@@ -498,7 +505,6 @@ struct ConversationSidebarView: View {
                 return nil
             }
             guard let panelID = record.surfaceID.flatMap(UUID.init(uuidString:)),
-                  let workspace = workspaceByPanelID[panelID],
                   let agent = projection.presentationAgent(
                     for: record,
                     configuredAgentsByDirectory: livePresentationAgentsByDirectory,
@@ -512,6 +518,19 @@ struct ConversationSidebarView: View {
                 .nilIfEmpty
                 ?? agent.displayName
 
+            let destination: Destination
+            let isFocused: Bool
+            if let workspace = workspaceByPanelID[panelID] {
+                destination = .live(workspaceID: workspace.id, panelID: panelID)
+                isFocused = tabManager.selectedTabId == workspace.id
+                    && workspace.focusedPanelId == panelID
+            } else if let dock = DockSplitStore.liveStore(containingPanel: panelID) {
+                destination = .dock(panelID: panelID)
+                isFocused = dock.focusedPanelId == panelID
+            } else {
+                return nil
+            }
+
             return Row(
                 id: projection.liveSessionKey(for: record),
                 title: title,
@@ -519,9 +538,8 @@ struct ConversationSidebarView: View {
                 directory: record.workingDirectory,
                 modified: record.lastActivityAt,
                 isOpen: true,
-                isFocused: tabManager.selectedTabId == workspace.id
-                    && workspace.focusedPanelId == panelID,
-                destination: .live(workspaceID: workspace.id, panelID: panelID)
+                isFocused: isFocused,
+                destination: destination
             )
         }
     }
@@ -596,6 +614,12 @@ struct ConversationSidebarView: View {
         switch row.destination {
         case .live(let workspaceID, let panelID):
             tabManager.focusTab(workspaceID, surfaceId: panelID)
+        case .dock(let panelID):
+            guard let dock = DockSplitStore.liveStore(containingPanel: panelID),
+                  let owner = AppDelegate.shared?.dockReferenceTabManager(for: dock),
+                  TerminalController.shared.focusAndRevealWindowDock(for: dock, fallback: owner)
+            else { return }
+            dock.focusPanelFromDockInteraction(panelID, window: nil)
         case .indexed(let entry):
             if SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager) {
                 return

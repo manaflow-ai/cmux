@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CoreGraphics
 import CMUXMobileCore
+import CmuxMobileTerminalKit
 import Foundation
 import Testing
 @testable import CmuxMobileTerminal
@@ -95,6 +96,35 @@ struct TerminalAlternateScreenViewportTests {
         view.useLegacyTerminalSizing = false
         view.hostedAltScreenActive = false
         #expect(view.terminalViewportRect.height == fullHeight)
+    }
+
+    /// In a shared-sizing session the phone's viewport counts toward the
+    /// shared grid ("Fit everyone" takes the minimum), so a keyboard-sized
+    /// alternate-screen report would shrink and regrow every other device's
+    /// grid on each keyboard toggle. The reported viewport stays
+    /// keyboard-independent there; the keyboard slide keeps the cursor row
+    /// visible instead.
+    @MainActor
+    @Test("a shared-sizing session keeps alternate-screen keyboard toggles out of the viewport")
+    func sharedSizingSessionIgnoresAlternateScreenKeyboard() throws {
+        let delegate = AlternateScreenViewportDelegate()
+        let view = GhosttySurfaceView(runtime: try GhosttyRuntime.shared(), delegate: delegate, fontSize: 10)
+        defer { view.prepareForDismantle() }
+        view.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        view.setTopContentInset(24)
+        view.hostedAltScreenActive = true
+        let fullHeight = view.terminalViewportRect.height
+        view.sharedSizingDecoration = TerminalSizingBoundsDecoration(
+            gridColumns: 120, gridRows: 40, viewerColumns: 50, viewerRows: 40
+        )
+        view.setHostedKeyboardTransitionActive(true)
+        view.setHostedKeyboardState(height: 300, isVisible: true)
+        view.setHostedKeyboardTransitionActive(false)
+        #expect(view.terminalViewportRect.height == fullHeight)
+
+        // Leaving the session restores keyboard sizing for the TUI.
+        view.sharedSizingDecoration = nil
+        #expect(view.terminalViewportRect.height == fullHeight - 300)
     }
 
     @Test("settled keyboard shortens the grid and keeps its bottom at the dock seam")

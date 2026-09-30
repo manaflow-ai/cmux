@@ -9,6 +9,10 @@ import UniformTypeIdentifiers
 
 @MainActor
 enum SessionEntryResumeCoordinator {
+    enum ActiveTarget {
+        case workspace(workspaceID: UUID, surfaceID: UUID)
+        case dock(panelID: UUID)
+    }
     @discardableResult
     private static func launchInNewWorkspace(
         _ launch: SessionEntryResumeLaunch,
@@ -35,7 +39,7 @@ enum SessionEntryResumeCoordinator {
         for entry: SessionEntry,
         tabManager: TabManager,
         schedulingIndexRefresh: Bool = true
-    ) -> (workspaceID: UUID, surfaceID: UUID)? {
+    ) -> ActiveTarget? {
         // Prefer the tab manager's authoritative surface snapshots. This
         // catches an open-but-idle session even while the process index is
         // between refreshes.
@@ -50,7 +54,7 @@ enum SessionEntryResumeCoordinator {
                         rhs: entry.sessionId
                     )
             }) {
-                return (workspace.id, panel.key)
+                return .workspace(workspaceID: workspace.id, surfaceID: panel.key)
             }
         }
 
@@ -68,13 +72,17 @@ enum SessionEntryResumeCoordinator {
                           lhs: observation.snapshot.sessionId,
                           rhs: entry.sessionId
                       )
-                      && tabManager.tabs.contains(where: { $0.id == panelKey.workspaceId })
-                      && tabManager.tabs.first(where: { $0.id == panelKey.workspaceId })?.panels[panelKey.panelId] != nil
+                      && (tabManager.tabs.contains(where: { $0.id == panelKey.workspaceId })
+                          ? tabManager.tabs.first(where: { $0.id == panelKey.workspaceId })?.panels[panelKey.panelId] != nil
+                          : DockSplitStore.liveStore(containingPanel: panelKey.panelId) != nil)
               }) else {
             return nil
         }
 
-        return (match.0.workspaceId, match.0.panelId)
+        if tabManager.tabs.contains(where: { $0.id == match.0.workspaceId }) {
+            return .workspace(workspaceID: match.0.workspaceId, surfaceID: match.0.panelId)
+        }
+        return .dock(panelID: match.0.panelId)
     }
 
     /// Returns managed-session identities whose agent command is currently
@@ -143,7 +151,15 @@ enum SessionEntryResumeCoordinator {
         guard let target = activeTarget(for: entry, tabManager: tabManager) else {
             return false
         }
-        tabManager.focusTab(target.workspaceID, surfaceId: target.surfaceID)
+        switch target {
+        case .workspace(let workspaceID, let surfaceID):
+            tabManager.focusTab(workspaceID, surfaceId: surfaceID)
+        case .dock(let panelID):
+            guard let dock = DockSplitStore.liveStore(containingPanel: panelID),
+                  TerminalController.shared.focusAndRevealWindowDock(for: dock, fallback: tabManager)
+            else { return false }
+            dock.focusPanelFromDockInteraction(panelID, window: nil)
+        }
         return true
     }
 
@@ -1260,10 +1276,10 @@ struct SessionTranscriptPreviewView: View {
             CmuxSystemSymbolImage(magnified: "xmark", pointSize: 11, weight: .semibold, tint: closeIsHovered ? .primary : .secondary)
                 .frame(width: 20, height: 20)
                 .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                         .fill(closeIsHovered ? Color.primary.opacity(0.08) : Color.clear)
                 )
-                .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous))
                 .onHover { closeIsHovered = $0 }
                 .onTapGesture {
                     onDismiss()

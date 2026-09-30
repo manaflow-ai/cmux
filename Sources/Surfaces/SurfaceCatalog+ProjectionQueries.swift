@@ -23,11 +23,7 @@ extension SurfaceCatalog {
     /// Returns the machines projected into one workspace without scanning or sorting the catalog.
     func projectionMachines(forWorkspace workspaceID: UUID) -> Set<SurfaceMachineID> {
         var machines = projectionMachinesByWorkspace[workspaceID] ?? []
-        machines.formUnion(
-            pendingRestoredProjections.projections
-                .filter { $0.workspaceID == workspaceID }
-                .map { $0.resource.machine }
-        )
+        machines.formUnion(pendingRestoredProjections.machineIDs(forWorkspace: workspaceID))
         return machines
     }
 
