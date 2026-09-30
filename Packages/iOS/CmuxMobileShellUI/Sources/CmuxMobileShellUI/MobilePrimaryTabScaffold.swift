@@ -126,7 +126,13 @@ struct MobilePrimaryTabScaffold<
 
                     if selection == .search || selection.searchScope != nil {
                         Tab(value: MobilePrimaryTab.search, role: .search) {
-                            tabBarPlaceholder
+                            // The searchable navigation stack must remain in
+                            // the native search-role tab. iOS uses the tab's
+                            // content to attach search activation, so keeping
+                            // it in the overlay would leave the Search control
+                            // without a searchable presentation.
+                            search
+                                .environment(\.mobilePrimarySearchDestination, true)
                         }
                         .accessibilityIdentifier("MobilePrimaryTabSearch")
                     }
@@ -159,11 +165,6 @@ struct MobilePrimaryTabScaffold<
                                 .opacity(selection == .notifications ? 1 : 0)
                                 .allowsHitTesting(selection == .notifications)
                                 .accessibilityHidden(selection != .notifications)
-                            search
-                                .environment(\.mobilePrimarySearchDestination, true)
-                                .opacity(selection == .search ? 1 : 0)
-                                .allowsHitTesting(selection == .search)
-                                .accessibilityHidden(selection != .search)
                         }
                         .frame(
                             width: geometry.size.width,
@@ -175,6 +176,7 @@ struct MobilePrimaryTabScaffold<
                         )
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(selection != .search)
                     // The overlay owns only the content region. Leaving the
                     // bottom hit area open keeps the system tab bar's
                     // size-aware hit testing intact.
