@@ -5,9 +5,9 @@ import Foundation
 import Testing
 @testable import CmuxNextBridge
 
-private func context(paneTabs: Int = 3, workspaceTabs: Int = 5, dragged: Int = 1) -> TabDragContext {
+private func context(paneTabs: Int = 3, workspaceTabs: Int = 5, dragged: Int = 1, windowWorkspaces: Int = 1) -> TabDragContext {
     TabDragContext(sourcePaneID: "pane-a", sourcePaneTabCount: paneTabs, sourceWorkspaceID: "ws-1",
-                   sourceWorkspaceTabCount: workspaceTabs, draggedTabCount: dragged)
+                   sourceWorkspaceTabCount: workspaceTabs, draggedTabCount: dragged, sourceWindowWorkspaceCount: windowWorkspaces)
 }
 
 private func proposal(_ kind: TabDropKind, ghost: CGRect? = nil) -> TabDropProposal {
@@ -86,6 +86,25 @@ struct TabDragResolverTests {
         let point = CGPoint(x: 900, y: 300)
         let ctx = context(paneTabs: 1, workspaceTabs: 1)
         #expect(TabDragResolver.outcome(for: nil, insideWindow: false, screenPoint: point, context: ctx) == .moveWindow(screenPoint: point))
+    }
+
+    /// Coordinator decision 2026-09-30: the last tab of the last pane takes
+    /// its workspace along. A window that lists other workspaces keeps them;
+    /// only this workspace moves to the new window.
+    @Test func tearingOffTheWholeWorkspaceOfASharedWindowMovesTheWorkspace() {
+        let point = CGPoint(x: 900, y: 300)
+        let ctx = context(paneTabs: 1, workspaceTabs: 1, windowWorkspaces: 3)
+        #expect(TabDragResolver.outcome(for: nil, insideWindow: false, screenPoint: point, context: ctx)
+            == .moveWorkspaceToNewWindow(screenPoint: point))
+    }
+
+    @Test func droppingTheWholeWorkspaceOnASidebarGapMovesTheWorkspace() {
+        let gap = proposal(.newWorkspace(groupID: "g1", index: 2))
+        #expect(TabDragResolver.outcome(for: gap, insideWindow: true, screenPoint: .zero, context: context(paneTabs: 1, workspaceTabs: 1))
+            == .moveWorkspace(groupID: "g1", index: 2))
+        // With other tabs left behind it is still a new workspace.
+        #expect(TabDragResolver.outcome(for: gap, insideWindow: true, screenPoint: .zero, context: context(paneTabs: 1, workspaceTabs: 2))
+            == .newWorkspace(groupID: "g1", index: 2))
     }
 }
 

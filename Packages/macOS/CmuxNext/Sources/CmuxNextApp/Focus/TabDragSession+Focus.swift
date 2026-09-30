@@ -19,7 +19,7 @@ extension TabDragSession {
         let tabs = sourcePane.map { Self.focusTabs(drag.source.item, pane: $0) } ?? []
         let drop = drag.winner?.window ?? source
         switch outcome {
-        case .cancel, .moveWindow:
+        case .cancel, .moveWindow, .moveWorkspaceToNewWindow, .moveWorkspace:
             source?.focus.send(.dragEnded(.cancelled))
         case .workspace:
             // Into a workspace this window does not show: focus stays here.

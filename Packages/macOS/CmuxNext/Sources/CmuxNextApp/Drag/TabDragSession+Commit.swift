@@ -63,7 +63,7 @@ extension TabDragSession {
                 if let key { focusTornOff(openTornOff(workspace: key, frame: frame), drag: drag) }
                 settle(key != nil)
             }
-        case .moveWindow, .cancel:
+        case .moveWindow, .moveWorkspaceToNewWindow, .moveWorkspace, .cancel:
             settle(false)
         }
     }
@@ -102,7 +102,7 @@ extension TabDragSession {
                 if let key { focusTornOff(openTornOff(workspace: key, frame: frame), drag: drag) }
                 settle(key != nil)
             }
-        case .moveWindow, .cancel:
+        case .moveWindow, .moveWorkspaceToNewWindow, .moveWorkspace, .cancel:
             settle(false)
         }
     }

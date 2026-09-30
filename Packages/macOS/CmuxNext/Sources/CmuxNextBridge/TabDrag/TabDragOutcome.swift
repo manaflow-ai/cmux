@@ -19,9 +19,20 @@ public nonisolated enum TabDragOutcome: Hashable, Sendable {
     /// tab strip sits under `screenPoint`.
     case tearOff(screenPoint: CGPoint)
     /// Released outside every window while dragging everything the source
-    /// workspace holds: the source window moves under the pointer instead
-    /// (Chrome's single-tab window drag). No daemon command.
+    /// workspace holds, the only workspace of its window: the source window
+    /// moves under the pointer instead (Chrome's single-tab window drag).
+    /// No daemon command.
     case moveWindow(screenPoint: CGPoint)
+    /// Released outside every window while dragging everything the source
+    /// workspace holds, whose window lists other workspaces too: the
+    /// workspace itself moves to a new window under the pointer. No daemon
+    /// command (window membership is frontend-local).
+    case moveWorkspaceToNewWindow(screenPoint: CGPoint)
+    /// Dropped on a sidebar gap while dragging everything the source
+    /// workspace holds: the workspace itself moves to that slot (root
+    /// `index`, inside `groupID` when non-nil) in the drop window, instead
+    /// of a new workspace next to an emptied one.
+    case moveWorkspace(groupID: String?, index: Int?)
     /// No valid target: spring back to the origin.
     case cancel
 }
@@ -37,19 +48,25 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
     public var sourceWorkspaceTabCount: Int
     /// Tabs being dragged (1, or a group's member count).
     public var draggedTabCount: Int
+    /// Workspaces the source window lists (1 when it shows only this one).
+    public var sourceWindowWorkspaceCount: Int
 
     public init(sourcePaneID: String, sourcePaneTabCount: Int, sourceWorkspaceID: String,
-                sourceWorkspaceTabCount: Int, draggedTabCount: Int) {
+                sourceWorkspaceTabCount: Int, draggedTabCount: Int, sourceWindowWorkspaceCount: Int = 1) {
         self.sourcePaneID = sourcePaneID
         self.sourcePaneTabCount = sourcePaneTabCount
         self.sourceWorkspaceID = sourceWorkspaceID
         self.sourceWorkspaceTabCount = sourceWorkspaceTabCount
         self.draggedTabCount = draggedTabCount
+        self.sourceWindowWorkspaceCount = sourceWindowWorkspaceCount
     }
 
     /// The drag carries every tab of its pane: the pane closes when they leave.
     var emptiesSourcePane: Bool { draggedTabCount >= sourcePaneTabCount }
-    var emptiesSourceWorkspace: Bool { draggedTabCount >= sourceWorkspaceTabCount }
+    /// The drag carries every tab of its workspace (the last tab of the last
+    /// pane): the workspace moves with it, or closes once they land in
+    /// another workspace (coordinator decision 2026-09-30).
+    public var emptiesSourceWorkspace: Bool { draggedTabCount >= sourceWorkspaceTabCount }
 }
 
 /// Pure outcome resolution from drop-target proposals. The session asks
