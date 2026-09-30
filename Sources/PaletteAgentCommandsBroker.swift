@@ -21,6 +21,16 @@ struct PaletteAgentCommandsReply: Sendable {
     let commands: [CommandPaletteAgentCommand]
 }
 
+/// How one `palette.list` wait ended, apart from the timeout the awaiter
+/// reports as nil.
+enum PaletteAgentCommandsOutcome: Sendable {
+    /// The window projected its rows.
+    case answered(PaletteAgentCommandsReply)
+    /// The target window closed between being resolved and being asked, so
+    /// nothing was ever going to answer this request.
+    case windowClosed
+}
+
 /// Matches `palette.list` requests to the window that answers them.
 ///
 /// `palette.list` has to report the palette as it stands now, and the rules that
@@ -73,6 +83,13 @@ final class PaletteAgentCommandsBroker {
 
     /// Drops a waiter whose caller stopped waiting, so a late answer neither
     /// fires nor keeps the continuation alive.
+    ///
+    /// This cannot arrive before the registration it is meant to drop: both hop
+    /// to this actor from the same socket-worker call at the same priority, the
+    /// registration first and the cancel only after the wait expires, so they
+    /// run in that order even when the main actor was blocked for the whole
+    /// timeout. Cancelling an id that is not pending is therefore a caller that
+    /// never registered one, not a race, and doing nothing is right.
     func cancel(id: UUID) {
         waiters.removeValue(forKey: id)
     }

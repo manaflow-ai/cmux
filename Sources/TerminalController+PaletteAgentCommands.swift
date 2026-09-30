@@ -30,7 +30,11 @@ extension TerminalController {
         let rawWindowId = (params["window_id"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var requestedWindowId: UUID?
-        if let rawWindowId, !rawWindowId.isEmpty {
+        if let rawWindowId {
+            // An empty `window_id` is reported the same way a malformed one is.
+            // It resolves no window either, and answering "no cmux window is
+            // open" to a caller that did name a target sends an agent looking
+            // for a window that is right there.
             guard let parsed = UUID(uuidString: rawWindowId) else {
                 return .err(
                     code: "invalid_params",
@@ -80,28 +84,40 @@ extension TerminalController {
         }
 
         let requestId = UUID()
-        let reply: PaletteAgentCommandsReply? = socketAwaitCallback(
+        let outcome: PaletteAgentCommandsOutcome? = socketAwaitCallback(
             timeout: Self.paletteAgentCommandsTimeoutSeconds
         ) { completion in
             Task { @MainActor in
                 // A window that closes between being resolved and being asked
-                // leaves nothing to answer, so no waiter is registered and the
-                // wait below reports a timeout.
+                // leaves nothing to answer. Say so now: waiting out the timeout
+                // would tell an agent the app was too busy to answer, when the
+                // truth is that its target is gone and retrying the same id
+                // never will.
                 guard let window = AppDelegate.shared?.mainWindow(for: targetWindowId) else {
+                    completion(.windowClosed)
                     return
                 }
                 PaletteAgentCommandsBroker.shared.request(
                     id: requestId,
                     window: window,
-                    completion: completion
+                    completion: { completion(.answered($0)) }
                 )
             }
         }
 
-        guard let reply else {
+        if case .windowClosed? = outcome {
+            return .err(
+                code: "not_found",
+                message: String(
+                    localized: "socket.palette.list.windowNotFound",
+                    defaultValue: "No window with that id."
+                ),
+                data: ["window_id": targetWindowId.uuidString]
+            )
+        }
+        guard case let .answered(reply)? = outcome else {
             // Drop the waiter so a late answer does not fire into a caller that
-            // has already given up. Cancelling an id that was never registered,
-            // which is the closed-window case above, is a no-op.
+            // has already given up.
             Task { @MainActor in
                 PaletteAgentCommandsBroker.shared.cancel(id: requestId)
             }
