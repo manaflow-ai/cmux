@@ -64,6 +64,17 @@ import Testing
         #expect(other.ended == false)
     }
 
+    @Test func closingAfterContinuingPastTheThemeKeepsIt() {
+        let services = MockOnboardingServices()
+        let model = OnboardingModel(services: services)
+        model.theme.select("Vesper")
+        model.next()
+        model.next()
+        model.finish(completed: false)
+        #expect(services.selectedThemeName == "Vesper")
+        #expect(services.ended == false)
+    }
+
     @Test func importDetectsSelectsAndRuns() async {
         let services = MockOnboardingServices()
         let work = profile("Profile 1")
