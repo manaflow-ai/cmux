@@ -4,6 +4,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import Testing
+import UniformTypeIdentifiers
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -406,6 +407,62 @@ import Testing
         writer = nil
 
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+    }
+
+    /// A gif that reaches its staging limit mid-clip keeps the frames it staged
+    /// before the limit. The session's `fail(_:)` promises "whatever was
+    /// captured before the failure", and that promise is only kept if
+    /// `finish()` can drop the one frame it cannot stage.
+    @Test func aGIFThatHitsItsStagingLimitStillFinalizesTheFramesBeforeIt() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-gif-limit-keeps-frames-test-\(UUID().uuidString)"
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("clip.gif")
+        // Every frame is the same image, so every staged png is the same size:
+        // the first one fits the limit exactly and the second cannot start.
+        let frame = Self.image(width: 40, height: 40, gray: 0.25)
+        let writer = try WindowRecordingGIFWriter(
+            url: url,
+            framesPerSecond: 8,
+            stagedByteLimit: try Self.stagedPNGByteCount(of: frame)
+        )
+
+        try await writer.append(frame, atOffsetSeconds: 0)
+        // Staging happens one frame behind, so this call is the one that stages
+        // the first frame and the next is the one that runs out of room.
+        try await writer.append(frame, atOffsetSeconds: 0.125)
+        await #expect(throws: WindowRecordingWriterError.self) {
+            try await writer.append(frame, atOffsetSeconds: 0.25)
+        }
+
+        try await writer.finish()
+
+        let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
+        #expect(CGImageSourceGetCount(source) == 1)
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["clip.gif"]
+        )
+    }
+
+    /// The size the writer will charge against its staging budget for one
+    /// frame, measured the same way the writer stages it.
+    private static func stagedPNGByteCount(of image: CGImage) throws -> Int64 {
+        let url = Self.temporaryURL(extension: "png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let destination = try #require(CGImageDestinationCreateWithURL(
+            url as CFURL,
+            UTType.png.identifier as CFString,
+            1,
+            nil
+        ))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        let size = try #require(
+            FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber
+        )
+        return size.int64Value
     }
 
     private static func gifDelay(_ source: CGImageSource, at index: Int) -> Double? {
