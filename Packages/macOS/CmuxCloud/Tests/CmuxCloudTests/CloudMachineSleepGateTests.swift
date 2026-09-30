@@ -140,15 +140,19 @@ private actor ResumeCalls {
 
 private actor ResumeGate {
     private var continuation: CheckedContinuation<Void, Never>?
+    private var startWaiter: CheckedContinuation<Void, Never>?
     private var didStart = false
     private var released = false
 
     func started() {
         didStart = true
+        startWaiter?.resume()
+        startWaiter = nil
     }
 
     func waitUntilStarted() async {
-        while !didStart { await Task.yield() }
+        guard !didStart else { return }
+        await withCheckedContinuation { startWaiter = $0 }
     }
 
     func wait() async {

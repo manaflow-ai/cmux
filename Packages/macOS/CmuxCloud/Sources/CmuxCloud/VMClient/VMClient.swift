@@ -300,6 +300,26 @@ public struct VMSummary: Sendable {
         self.createdBy = createdBy
     }
 
+    public func withStatus(_ status: String) -> VMSummary {
+        VMSummary(
+            id: id,
+            provider: provider,
+            status: status,
+            image: image,
+            createdAt: createdAt,
+            base: base,
+            kind: kind,
+            capabilities: capabilities,
+            displayName: displayName,
+            slug: slug,
+            freeAccessExpiresAt: freeAccessExpiresAt,
+            addressIPv4: addressIPv4,
+            addressIPv6: addressIPv6,
+            cmuxTuiContract: cmuxTuiContract,
+            createdBy: createdBy
+        )
+    }
+
     public let id: String
     public let provider: String
     public let status: String

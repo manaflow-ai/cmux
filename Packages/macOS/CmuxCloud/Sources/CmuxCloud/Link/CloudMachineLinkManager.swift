@@ -69,7 +69,10 @@ public actor CloudMachineLinkManager {
     private var lastFailure: [String: (at: Date, error: String)] = [:]
     private var machineStatuses: [String: String] = [:]
     private var localStatusChanges: [String: Date] = [:]
-    private var userConnections: Set<String> = []
+    /// Explicit connects share one resume operation per machine. The token lets
+    /// each waiter clean up only the task it joined if a later resume starts.
+    private var resumesInFlight: [String: Task<String, Error>] = [:]
+    private var resumeTokens: [String: UUID] = [:]
     private let resumeMachine: @Sendable (String) async throws -> String
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken. Only background upkeep waits it out
@@ -191,9 +194,25 @@ public actor CloudMachineLinkManager {
             if Self.isBackgroundUpkeep {
                 throw ManagerError.retryLater("Cloud machine is \(status); waiting for it to run.")
             }
-            userConnections.insert(machineID)
-            defer { userConnections.remove(machineID) }
-            let resumed = try await resumeMachine(machineID)
+            let token: UUID
+            let task: Task<String, Error>
+            if let existing = resumesInFlight[machineID], let existingToken = resumeTokens[machineID] {
+                task = existing
+                token = existingToken
+            } else {
+                token = UUID()
+                let resume = resumeMachine
+                task = Task { try await resume(machineID) }
+                resumesInFlight[machineID] = task
+                resumeTokens[machineID] = token
+            }
+            defer {
+                if resumeTokens[machineID] == token {
+                    resumesInFlight[machineID] = nil
+                    resumeTokens[machineID] = nil
+                }
+            }
+            let resumed = try await task.value
             recordLocalMachineStatus(resumed, for: machineID)
         }
         if let link = links[machineID], await link.isConnected, let connected = await link.connected {
@@ -356,7 +375,7 @@ public actor CloudMachineLinkManager {
 
     @discardableResult
     public func setMachineStatus(_ status: String, for machineID: String, observedAt: Date = Date()) -> Bool {
-        guard !userConnections.contains(machineID), localStatusChanges[machineID].map({ $0 <= observedAt }) != false else { return false }
+        guard resumesInFlight[machineID] == nil, localStatusChanges[machineID].map({ $0 <= observedAt }) != false else { return false }
         machineStatuses[machineID] = status
         return true
     }
