@@ -3,6 +3,7 @@ const SIGNED_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 import { describe, expect, test } from "bun:test";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { gzipSync } from "node:zlib";
 import {
   __test,
   openCodeClientConfig,
@@ -104,6 +105,55 @@ describe("coderouter OpenCode Go proxy", () => {
       await expect(response.text()).resolves.toBe("pinned");
       expect(seen).toEqual([`rebind.invalid:${port}`]);
     } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  // fetch decodes compressed bodies; the pinned path must too, or usage
+  // accounting and the client receive gzip bytes as if they were JSON.
+  test("pinned fetch decodes a compressed provider body", async () => {
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json", "content-encoding": "gzip" });
+      response.end(gzipSync('{"usage":{"total_tokens":3}}'));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const response = await __test.pinnedFetch({ address: "127.0.0.1", family: 4 })(
+        `http://provider.invalid:${port}/v1/chat`,
+        { headers: { "accept-encoding": "gzip" } },
+      );
+      expect(response.headers.get("content-encoding")).toBeNull();
+      await expect(response.text()).resolves.toBe('{"usage":{"total_tokens":3}}');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("pinned fetch fails the upload when the client body fails", async () => {
+    let upstreamClosed!: () => void;
+    const closed = new Promise<void>((resolve) => { upstreamClosed = resolve; });
+    const server = createServer((request) => {
+      request.on("close", () => upstreamClosed());
+      request.resume();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("partial"));
+          setTimeout(() => controller.error(new Error("client went away")), 20);
+        },
+      });
+      const request = __test.pinnedFetch({ address: "127.0.0.1", family: 4 })(
+        `http://provider.invalid:${port}/v1/chat`,
+        { method: "POST", body, duplex: "half" } as RequestInit,
+      );
+      await expect(request).rejects.toThrow();
+      await closed;
+    } finally {
+      server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
