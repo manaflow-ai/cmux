@@ -70,6 +70,40 @@ describe("coderouter OpenCode Go proxy", () => {
     ])).resolves.toMatchObject({ hostname: "provider.example" });
   });
 
+  // DNS rebinding: the proxy checked the provider's addresses, then fetch
+  // looked the name up again and could connect to an internal address with
+  // the provider credential. The checked address is pinned for the request.
+  test("pins the checked provider address and connects only to it", async () => {
+    const target = await __test.resolveProviderURL("https://provider.example/v1", async () => [
+      { address: "2001:db8::10", family: 6 },
+    ]);
+    expect(target).toMatchObject({ hostname: "provider.example", pinnedAddress: "2001:db8::10", pinnedFamily: 6 });
+
+    const seen: string[] = [];
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        seen.push(request.headers.get("host") ?? "");
+        return new Response("pinned", { status: 200, headers: { "content-type": "text/plain" } });
+      },
+    });
+    try {
+      // The name does not resolve at all; only the pin makes this connect.
+      const url = `http://rebind.invalid:${server.port}/v1/chat`;
+      const response = await __test.pinnedFetch({ address: "127.0.0.1", family: 4 })(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      expect(response.status).toBe(200);
+      await expect(response.text()).resolves.toBe("pinned");
+      expect(seen).toEqual([`rebind.invalid:${server.port}`]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("routes around an unavailable OpenCode account", async () => {
     const ids = ["busy", "healthy"];
     const selected: string[] = [];
