@@ -487,8 +487,12 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<Jour
             return;
         }
 
+        // A failed scan schedules a retry through the failure backoff below;
+        // the wait has no other deadline that would bring it back.
+        let mut start_failed = false;
         if scan_hooks(&mux, &mut hooks, &mut catch_up_reader, &runtime).is_err() {
             catch_up_reader = None;
+            start_failed = true;
         }
         if runtime.is_cancelled() || mux.daemon_shutdown_requested() {
             continue;
@@ -498,7 +502,6 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<Jour
         // instant was invisible to the query, and its deadline must stay in
         // the future of `now` so the wait below returns for it.
         let now = Instant::now();
-        let mut start_failed = false;
         if active.len() < workers.capacity {
             let capacity = workers.capacity - active.len();
             // The query includes executing rows so a replacement dispatcher
