@@ -119,9 +119,9 @@ private final class NativeSSHCleanupRecorder {
 }
 
 final class WorkspaceRemoteConnectionTests: XCTestCase {
-    private var previousCloudMarker: Any?; private var previousCloudOverride: Bool?
-    override func setUp() { super.setUp(); previousCloudMarker = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey); UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey); previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: CmuxFeatureFlags.cloudMachinesFlag); CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag) }
-    override func tearDown() { if let previousCloudMarker { UserDefaults.standard.set(previousCloudMarker, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) } else { UserDefaults.standard.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }; CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: CmuxFeatureFlags.cloudMachinesFlag); super.tearDown() }
+    private var previousCloudMarker: Any?
+    override func setUp() { super.setUp(); previousCloudMarker = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey); UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }
+    override func tearDown() { if let previousCloudMarker { UserDefaults.standard.set(previousCloudMarker, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) } else { UserDefaults.standard.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }; super.tearDown() }
     /// A control path in the resolved form the broker will claim lifecycle ownership of:
     /// cmux's socket directory followed by 40 hex digits, which is what `ssh -G` expands `%C` into
     /// before a configuration reaches the app. `NativeSSHControlMasterKey` refuses to own a
