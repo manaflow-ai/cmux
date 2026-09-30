@@ -175,6 +175,7 @@ public struct AppCatalogSection: SettingCatalogSection {
         id: "app.installUpdatesAutomatically",
         defaultValue: false,
         userDefaultsKey: "updateInstallAutomatically"
+    )
 
     /// How What's New appears after an update. Quiet by default: an indicator
     /// the user can open, never an automatic window.
