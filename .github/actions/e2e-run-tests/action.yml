@@ -153,7 +153,16 @@ runs:
       if: ${{ inputs.record-video == 'true' }}
       shell: bash
       run: |
-        brew install --quiet ffmpeg
+        # The helper comes from this workflow's revision (checked out into
+        # .e2e-workflow beside this action) when it is there, since the tested
+        # revision may predate it.
+        helper="$GITHUB_WORKSPACE/.e2e-workflow/scripts/ci/brew-ensure.sh"
+        [ -f "$helper" ] || helper=scripts/ci/brew-ensure.sh
+        if [ -f "$helper" ]; then
+          bash "$helper" ffmpeg
+        else
+          brew install --quiet ffmpeg
+        fi
         FFMPEG_PATH=$(which ffmpeg)
         echo "ffmpeg: $FFMPEG_PATH"
         ffmpeg -version | head -1
@@ -235,7 +244,11 @@ runs:
     - name: Install tmux
       shell: bash
       run: |
-        if ! command -v tmux >/dev/null 2>&1; then
+        helper="$GITHUB_WORKSPACE/.e2e-workflow/scripts/ci/brew-ensure.sh"
+        [ -f "$helper" ] || helper=scripts/ci/brew-ensure.sh
+        if [ -f "$helper" ]; then
+          bash "$helper" tmux
+        elif ! command -v tmux >/dev/null 2>&1; then
           brew install --quiet tmux
         fi
         tmux -V
@@ -566,7 +579,13 @@ runs:
           XCTESTRUN_PATH="$CMUX_UI_XCTESTRUN"
           mkdir -p "$RUNNER_TEMP/cmux-app-host-xcresults"
           XCODEBUILD_CMD=(
-            xcodebuild
+            # UI dispatches used to invoke xcodebuild directly, bypassing the
+            # per-machine app-host lock and bounded retries already used by
+            # cmuxTests. Keep UI's existing non-isolated host environment,
+            # while applying the same runner-communication recovery. The
+            # wrapper removes a caller-owned result bundle before each retry.
+            env CMUX_CI_APP_HOST_ISOLATION_REQUIRED=0
+            scripts/ci/run-app-host-xcodebuild.sh
             -xctestrun "$XCTESTRUN_PATH"
             -resultBundlePath "$RUNNER_TEMP/cmux-app-host-xcresults/cmuxUITests.xcresult"
             -destination "platform=macOS"

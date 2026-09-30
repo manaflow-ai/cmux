@@ -228,6 +228,14 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["terminal.showPasswordInputDots"],
                 synonyms: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"
             ),
+            .init(
+                section: .terminal,
+                id: "predictive-local-echo",
+                title: String(localized: "settings.terminal.predictiveLocalEcho", defaultValue: "Predictive Local Echo"),
+                detailText: String(localized: "settings.terminal.predictiveLocalEcho.subtitle", defaultValue: "In terminals on another machine, typed characters appear right away when the connection is slow. They stay underlined until the remote host confirms them. Local terminals, password prompts and full-screen apps are excluded."),
+                paths: ["terminal.predictiveLocalEcho"],
+                synonyms: "terminal.predictiveLocalEcho predictive local echo typing latency lag ssh remote speculative mosh round trip underline"
+            ),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(
                 section: .terminal,
@@ -427,7 +435,6 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "Conversation Sidebar conversations agent sessions Claude Codex OpenCode history beta"
             ),
             .init(section: .betaFeatures, id: "customSidebars", title: String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"), synonyms: "Custom Sidebars custom sidebars swift json interpreted vibe beta unstable"),
-            .init(section: .betaFeatures, id: "predictedEcho", title: String(localized: "settings.betaFeatures.predictedEcho", defaultValue: "Predictive local echo"), synonyms: "Predictive local echo typing latency lag ssh remote speculative mosh round trip beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"), synonyms: "Remote tmux remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
             .init(
                 section: .betaFeatures,

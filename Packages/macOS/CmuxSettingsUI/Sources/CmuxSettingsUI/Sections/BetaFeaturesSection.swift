@@ -12,7 +12,6 @@ public struct BetaFeaturesSection: View {
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
-    @State private var predictedEcho: DefaultsValueModel<Bool>
     @State private var workspaceTodoControls: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
     /// `DisableCloud` (MDM). The opt-in is meaningless while an administrator
@@ -30,7 +29,6 @@ public struct BetaFeaturesSection: View {
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
-        _predictedEcho = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.predictedEcho))
         _workspaceTodoControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodoControls))
         _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
     }
@@ -55,8 +53,6 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 remoteTmuxRow
                 SettingsCardDivider()
-                predictedEchoRow
-                SettingsCardDivider()
                 workspaceTodoControlsRow
                 SettingsCardDivider()
                 workspaceTodosChecklistStyleRow
@@ -80,7 +76,6 @@ public struct BetaFeaturesSection: View {
             extensions,
             customSidebars,
             remoteTmux,
-            predictedEcho,
             workspaceTodoControls,
             workspaceTodosChecklistStyle,
         ]
@@ -206,21 +201,6 @@ public struct BetaFeaturesSection: View {
                 .controlSize(.small)
                 .disabled(customSidebarsManagedByPolicy)
                 .accessibilityIdentifier("SettingsBetaCustomSidebarsToggle")
-        }
-    }
-
-    @ViewBuilder
-    private var predictedEchoRow: some View {
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:betaFeatures:predictedEcho",
-            String(localized: "settings.betaFeatures.predictedEcho", defaultValue: "Predictive local echo"),
-            subtitle: String(localized: "settings.betaFeatures.predictedEcho.subtitle", defaultValue: "Shows typed characters right away on slow remote connections. They stay underlined until the remote host confirms them. Password prompts and full-screen apps are excluded.")
-        ) {
-            Toggle("", isOn: Binding(get: { predictedEcho.current }, set: { predictedEcho.set($0) }))
-                .labelsHidden()
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsBetaPredictedEchoToggle")
         }
     }
 
