@@ -331,7 +331,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let maxPendingSocketInputBytes = 1_048_576
     var backgroundSurfaceStartQueued = false
     var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
-    var runtimeReadinessWaiters: [UUID: TerminalSurfaceRuntimeReadinessWaiter] = [:]
+    let runtimeReadinessStore = TerminalSurfaceRuntimeReadinessStore()
+    var runtimeReadinessEpoch: UInt64 = 0
     var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
     var restoredRuntimeSurfaceStartQueued = false
     var configurationReloadDeferredRuntimeSurfaceCreation = false
@@ -447,7 +448,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         guard portalHostVacancyRetries[hostId]?.instanceSerial == instanceSerial else { return }
         portalHostVacancyRetries.removeValue(forKey: hostId)
     }
-
     /// The live find session, or nil when find is closed. Setting it arms the
     /// debounced needle pipeline; clearing it ends the runtime search.
     /// Main-actor isolated: the observer cancels pane focus requests on the

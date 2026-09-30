@@ -15451,10 +15451,10 @@ class TerminalController {
         }
         let surfaceId = resolved.surfaceID
         let terminalTarget = resolved.target
-        // A remote viewer demands the same runtime as a local visit, without
-        // revealing the source pane. Never acknowledge an empty cold attach.
-        terminalTarget.resumeAgentHibernationForRemoteAttach()
-        guard await terminalTarget.surface.waitForRuntimeSurfaceReady() else {
+        guard !Task.isCancelled else {
+            return .err(code: "not_found", message: String(localized: "socket.surface.error.surfaceNotFound", defaultValue: "Surface not found"), data: nil)
+        }
+        guard resolved.runtimeReady else {
             return Self.readTextTerminalNotRunningResult(workspaceID: resolved.workspace.id,
                 surfaceID: surfaceId, reason: terminalTarget.surface.runtimeUnavailableReason)
         }

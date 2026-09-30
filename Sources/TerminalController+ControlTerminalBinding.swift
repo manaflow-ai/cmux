@@ -189,7 +189,8 @@ extension TerminalController {
     ) async -> (
         workspace: Workspace,
         surfaceID: UUID,
-        target: ControlTerminalSocketTarget
+        target: ControlTerminalSocketTarget,
+        runtimeReady: Bool
     )? {
         guard let resolved = mobileResolveWorkspaceAndSurface(
             params: params,
@@ -200,16 +201,25 @@ extension TerminalController {
         }
         if let target = resolved.workspace.controlSocketTerminalInputTarget(for: surfaceID),
            target.surface.liveSurfaceForGhosttyAccess(reason: "mobile.replay.canonical") != nil {
-            return (resolved.workspace, surfaceID, target)
+            return (resolved.workspace, surfaceID, target, true)
         }
         if resolved.workspace.startupRestorePanelIdsAwaitingFirstVisit.remove(surfaceID) != nil {
             owned.panel.surface.admitStartupRestoreRuntime()
         }
         owned.panel.resumeAgentHibernationForRemoteAttach()
-        guard await owned.panel.surface.waitForRuntimeSurfaceReady() else {
+        var runtimeReady = await owned.panel.surface.waitForRuntimeSurfaceReady()
+        guard !Task.isCancelled else { return nil }
+        guard let canonical = resolved.workspace.controlSocketTerminalInputTarget(for: surfaceID) else {
             return nil
         }
-        return mobileCanonicalTerminalTarget(params: params)
+        if canonical.surface !== owned.panel.surface {
+            runtimeReady = await canonical.surface.waitForRuntimeSurfaceReady()
+        } else if !runtimeReady {
+            runtimeReady = canonical.surface.liveSurfaceForGhosttyAccess(
+                reason: "mobile.replay.final"
+            ) != nil
+        }
+        return (resolved.workspace, surfaceID, canonical, runtimeReady)
     }
 }
 
