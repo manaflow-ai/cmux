@@ -15,6 +15,13 @@ extension cmuxApp {
                 AppDelegate.shared?.showCloudDiagnostics()
             }
 
+            Button(String(
+                localized: "agentPermissions.review.menu",
+                defaultValue: "Agent Permissions…"
+            )) {
+                AgentPermissionGrantReviewPanel.show()
+            }
+
             splitCommandButton(title: String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"), shortcut: menuShortcut(for: .sendFeedback)) {
                 presentFeedbackFromHelpMenu()
             }
