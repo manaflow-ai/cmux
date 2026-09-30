@@ -190,7 +190,9 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
-        ["ensure"] => super::lifecycle::ServerAction::Ensure,
+        ["ensure"] => super::lifecycle::ServerAction::Ensure {
+            terminal_reap_grace: parse_terminal_reap_grace(flags)?,
+        },
         ["stop"] => super::lifecycle::ServerAction::Stop {
             force: flags.boolean("force"),
             end_terminals: flags.boolean("end-terminals"),
@@ -218,6 +220,18 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         }
     };
     Ok(CommandPlan::Server(super::lifecycle::ServerPlan { action, session: None }))
+}
+
+/// `server ensure --terminal-reap-grace-seconds <n>`: the same bounds as the
+/// owner's own startup option, checked before anything is spawned.
+fn parse_terminal_reap_grace(flags: &mut Flags) -> Result<Option<std::time::Duration>, UsageError> {
+    let Some(value) = flags.take("terminal-reap-grace-seconds") else { return Ok(None) };
+    let seconds = value
+        .parse::<u64>()
+        .map_err(|_| UsageError::new("--terminal-reap-grace-seconds must be an integer"))?;
+    cmux_tui_core::validate_terminal_reap_grace(std::time::Duration::from_secs(seconds))
+        .map(Some)
+        .map_err(|error| UsageError::new(error.to_string()))
 }
 
 fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
