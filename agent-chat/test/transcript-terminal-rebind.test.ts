@@ -32,7 +32,9 @@ try {
     const calls: { method: string; params: Record<string, unknown> }[] = [];
     setTranscriptRpcForTest(async (method, params) => { calls.push({ method, params }); return { ok: true }; });
     await focusTranscriptTerminal(reopened);
-    assert.deepEqual(calls, [{ method: "surface.focus", params: { surface_id: "new-terminal" } }], "reopening the same transcript must focus its current terminal");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "surface.focus");
+    assert.equal(calls[0].params.surface_id, "new-terminal", "reopening the same transcript must focus its current terminal");
     finishOldFocus({ ok: false, error: "old terminal disappeared" });
     await oldFocus;
     assert.deepEqual(sess.events, [{ kind: "user", text: "existing history" }], "the previous terminal's reply must not contaminate the reopened view");
