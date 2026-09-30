@@ -606,6 +606,31 @@ untrack_pid "$deleted_stale_pid"
 [ ! -e "$deleted_derived_data" ] \
   || fail "deleted stale verification recreated the missing DerivedData root"
 
+# Recovery verifies receipts an earlier job left, where PID reuse is likeliest:
+# a reused PID reads as a stale receipt there too, and is not signaled.
+reused_runner_root="$TMP_DIR/reused-runner-work"
+reused_receipt_dir="$TMP_DIR/reused-receipts/cmux-ah-$deleted_key-receipts"
+reused_derived_data="$reused_runner_root/old-job/derived-data"
+reused_executable="$reused_derived_data/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
+mkdir -p "$reused_runner_root" "$reused_receipt_dir"
+spawn_process
+recovery_reused_pid="$CMUX_TEST_SPAWNED_PID"
+printf '%s|%s\n' "$recovery_reused_pid" /bin/sleep > "$CMUX_FAKE_LSOF_STATE"
+write_receipt \
+  "$reused_receipt_dir" "$deleted_key" \
+  "$recovery_reused_pid" "$reused_executable"
+export CMUX_FAKE_LSOF_MISSING_RECEIPT_PID="$recovery_reused_pid"
+cmux_terminate_one_verified_app_host \
+  "$reused_receipt_dir/app-host-$recovery_reused_pid.receipt" \
+  "$deleted_key" "$reused_derived_data" "$reused_runner_root" \
+  2> "$TMP_DIR/recovery-reused.err" \
+  || fail "recovery failed on an earlier job's receipt whose PID was reused: $(cat "$TMP_DIR/recovery-reused.err")"
+grep -q "skipping the stale receipt" "$TMP_DIR/recovery-reused.err" \
+  || fail "recovery did not report the reused receipt PID: $(cat "$TMP_DIR/recovery-reused.err")"
+unset CMUX_FAKE_LSOF_MISSING_RECEIPT_PID
+/bin/kill -0 "$recovery_reused_pid" 2>/dev/null \
+  || fail "recovery signaled a reused receipt PID"
+
 make_durable_scope() {
   local scope_name="$1"
   local run_id="$2"
