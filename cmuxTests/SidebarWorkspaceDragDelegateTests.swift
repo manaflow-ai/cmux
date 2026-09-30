@@ -97,6 +97,47 @@ struct SidebarWorkspaceDragDelegateTests {
         }
     }
 
+    @Test
+    func workspaceWriterExportsLiveSurfaceGroupAlongsideReorderPayload() throws {
+        let registry = TabDragTransferRegistry()
+        let group = SurfaceResourceGroup(
+            title: "workspace",
+            resources: [SurfaceResourceID(
+                machine: .local,
+                kind: .terminal,
+                key: UUID().uuidString
+            )],
+            representsWorkspace: true
+        )
+        let controller = SidebarWorkspaceTableController()
+        let table = SidebarWorkspaceTableViewImpl()
+        table.delegate = controller
+        let writer = SidebarWorkspaceDragPasteboardWriter(
+            workspaceId: UUID(),
+            sessionId: nil,
+            sourceView: table,
+            controller: controller,
+            provisionalToken: ProvisionalDragWriterOwnershipToken(onDeallocated: { _ in }),
+            surfaceResourceGroup: group,
+            transferRegistry: registry
+        )
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("workspace-surface-(UUID())"))
+        defer {
+            writer.releaseSourceGraph()
+            pasteboard.clearContents()
+        }
+
+        #expect(writer.write(to: pasteboard))
+        #expect(pasteboard.types?.contains(TabDragTransferRegistry.pasteboardType) == true)
+        #expect(pasteboard.types?.contains(DragOverlayRoutingPolicy.surfaceResourceTransferType) == true)
+        let transfer = try #require(registry.resolve(from: pasteboard))
+        #expect(SurfaceResourceDragRegistry.shared.group(id: transfer.tab.id.uuid) == group)
+
+        writer.releaseSourceGraph()
+        #expect(registry.resolve(from: pasteboard) == nil)
+        #expect(SurfaceResourceDragRegistry.shared.group(id: transfer.tab.id.uuid) == nil)
+    }
+
     private func makeWriter(
         table: SidebarWorkspaceTableViewImpl,
         controller: SidebarWorkspaceTableController
