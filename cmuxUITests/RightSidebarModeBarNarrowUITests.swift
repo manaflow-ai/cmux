@@ -67,6 +67,7 @@ final class RightSidebarModeBarNarrowUITests: XCTestCase {
         for modeID in existingModeIDs {
             let button = app.buttons["RightSidebarModeButton.\(modeID)"]
             XCTAssertTrue(button.exists, "Expected \(modeID) tab to remain accessible at the default width. geometry=\(geometry)")
+            XCTAssertFalse(button.label.isEmpty, "Expected icon-only \(modeID) tab to keep its accessibility label. geometry=\(geometry)")
             print("RightSidebarModeButton.\(modeID) accessibility label: \(button.label)")
         }
     }

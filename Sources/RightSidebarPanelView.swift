@@ -222,7 +222,7 @@ struct RightSidebarPanelView: View {
         return ZStack {
             WindowDragHandleView()
 
-            // Labels are all or nothing because the old bar shrank every label at once when it ran out of width.
+            // With no minimum pill width, the old bar shrank every label at once; keep labels all or nothing.
             ViewThatFits(in: .horizontal) {
                 modeBarRow(showsLabels: true)
                 modeBarRow(showsLabels: false)

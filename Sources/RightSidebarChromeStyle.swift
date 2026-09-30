@@ -370,6 +370,14 @@ struct ModeBarButton: View {
     @State private var isHovered: Bool = false
 
     var body: some View {
+        if showsLabel {
+            modeButton
+        } else {
+            modeButton.accessibilityLabel(item.label)
+        }
+    }
+
+    private var modeButton: some View {
         Button(action: action) {
             HStack(spacing: 4) {
                 CmuxSystemSymbolImage(
