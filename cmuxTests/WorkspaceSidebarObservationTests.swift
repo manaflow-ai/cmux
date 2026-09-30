@@ -420,7 +420,9 @@ struct WorkspaceSidebarObservationTests {
 
     /// Two Claude panes share the `claude_code` key (and its one PID, held by
     /// the pane that started last). The row is a workspace aggregate: the pane
-    /// waiting on the person wins over a pane that reported Running later.
+    /// An active turn wins over a pane waiting on the person, even when its
+    /// status report is newer. Lifecycle urgency is shared with the compact
+    /// glyph: running, background work, then needs input.
     @Test func sharedAgentStatusKeyShowsTheMostUrgentPane() throws {
         let workspace = Workspace()
         let waitingPanelId = try #require(workspace.focusedPanelId)
@@ -444,8 +446,8 @@ struct WorkspaceSidebarObservationTests {
         workspace.setAgentLifecycle(key: "claude_code", panelId: runningPanelId, lifecycle: .running)
 
         #expect(
-            workspace.sidebarStatusEntriesInDisplayOrder().first { $0.key == "claude_code" }?.value == "Needs input",
-            "A later Running report from another pane must not hide the pane waiting on the person."
+            workspace.sidebarStatusEntriesInDisplayOrder().first { $0.key == "claude_code" }?.value == "Running",
+            "An active turn must outrank a pane waiting on the person."
         )
 
         _ = workspace.clearAgentLifecycle(key: "claude_code", panelId: waitingPanelId)
@@ -455,8 +457,8 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
-    /// Across different agents of the same priority, one waiting on the person
-    /// sorts first even when another reported more recently.
+    /// Across different agents, an active turn sorts first even when another
+    /// agent is waiting on the person and reported more recently.
     @Test func needsInputStatusSortsAheadOfNewerEntries() throws {
         let workspace = Workspace()
         let codexPanelId = try #require(workspace.focusedPanelId)
@@ -474,7 +476,7 @@ struct WorkspaceSidebarObservationTests {
         workspace.setAgentLifecycle(key: "claude_code", panelId: claudePanelId, lifecycle: .needsInput)
         workspace.setAgentLifecycle(key: "codex", panelId: codexPanelId, lifecycle: .running)
 
-        #expect(workspace.sidebarStatusEntriesInDisplayOrder().map(\.key) == ["claude_code", "codex"])
+        #expect(workspace.sidebarStatusEntriesInDisplayOrder().map(\.key) == ["codex", "claude_code"])
     }
 }
 

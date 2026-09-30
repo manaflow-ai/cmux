@@ -471,7 +471,7 @@ describe("VM REST auth", () => {
     }]);
     getUser.mockResolvedValue({
       id: "user-1",
-      displayName: null,
+      displayName: "Ada Lovelace",
       primaryEmail: "user@example.com",
       selectedTeam: {
         id: "team-1",
@@ -484,6 +484,7 @@ describe("VM REST auth", () => {
       provider: "freestyle",
       image: "snapshot-test",
       createdAt: 1_777_000_000_000,
+      createdByUserId: "user-1",
       addressIpv4: "10.16.0.9",
       addressIpv6: null,
       cmuxTuiContract: "snapshot-v2",
@@ -516,6 +517,11 @@ describe("VM REST auth", () => {
         persistentHome: false,
         attachTransports: ["cmux-remote"],
       },
+      // The author the list would show for this machine. A client that appends
+      // the create response to its list must not end up with one unattributed
+      // row among attributed ones, and the caller's own name comes from the
+      // session rather than a snapshot read.
+      createdBy: { userId: "user-1", displayName: "Ada Lovelace" },
       // New Machine dials the baked daemon from these two fields instead of
       // re-reading the fleet and calling POST /attach-endpoint.
       address: { ipv4: "10.16.0.9", ipv6: null },
@@ -1326,6 +1332,31 @@ describe("VM REST auth", () => {
     });
   });
 
+  test("every listed machine names the account that made it", async () => {
+    // The point of the field: a team list is scoped by owner team, so without
+    // an author a shared account is a pile of generated three-word names with
+    // no way to tell whose is whose. The caller's own name comes from the
+    // session; a teammate with no recorded name publishes their id and a null
+    // name, never the id in place of a name.
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      id: "user-1",
+      displayName: "Ada Lovelace",
+    });
+    runVmWorkflow.mockResolvedValue([
+      { providerVmId: "mine", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000, createdByUserId: "user-1" },
+      { providerVmId: "theirs", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000, createdByUserId: "user-2" },
+    ]);
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      vms: [
+        { id: "mine", createdBy: { userId: "user-1", displayName: "Ada Lovelace" } },
+        { id: "theirs", createdBy: { userId: "user-2", displayName: null } },
+      ],
+    });
+  });
+
   test("every listed machine carries its provider's capabilities (no driver forks)", async () => {
     // The app hides Checkpoint/Fork when these are false instead of offering verbs
     // that can only answer 502 "not implemented". Freestyle snapshots and
@@ -2061,6 +2092,35 @@ describe("VM REST auth", () => {
     });
   });
 
+  test("the machine detail read carries the author the list showed", async () => {
+    // The app merges a detail read into the row it already listed. Without
+    // this the merge overwrites a named author with nothing and the row flips
+    // to "Unknown" on click, which reads as a client bug.
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      id: "user-1",
+      displayName: "Ada Lovelace",
+    });
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-author",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      status: "running",
+      createdAt: 1_777_000_000_000,
+      createdByUserId: "user-1",
+    });
+    const response = await vmIdRoute.GET(
+      new Request("https://cmux.test/api/vm/provider-vm-author"),
+      { params: Promise.resolve({ id: "provider-vm-author" }) },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      id: "provider-vm-author",
+      createdBy: { userId: "user-1", displayName: "Ada Lovelace" },
+    });
+  });
+
   test("passes the selected Stack team to VM child route workflows", async () => {
     getUser.mockResolvedValue(authedStackUser());
     const context = { params: Promise.resolve({ id: "provider-vm-team-1" }) };
@@ -2077,12 +2137,15 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm/provider-vm-team-1"),
       context,
     );
-    expect(getVm).toHaveBeenCalledWith({
+    // objectContaining, not an exact shape: the route also passes a model-plane
+    // revoker, which is a function and not worth pinning here. The file already
+    // uses this form for createVm.
+    expect(getVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
       billingTeamId: "team-1",
       teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
-    });
+    }));
 
     runVmWorkflow.mockResolvedValue(undefined);
     await DELETE(

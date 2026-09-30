@@ -167,6 +167,11 @@ final class DogfoodScenarioUITests: XCTestCase {
         case .hoverAt(let x, let y, let modifiers):
             let point = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y))
             DogfoodStep.holding(modifiers) { point.hover() }
+        case .dragAt(let from, let to, let duration):
+            let window = app.windows.firstMatch
+            let start = window.coordinate(withNormalizedOffset: CGVector(dx: from.x, dy: from.y))
+            let end = window.coordinate(withNormalizedOffset: CGVector(dx: to.x, dy: to.y))
+            start.press(forDuration: duration, thenDragTo: end)
         case .menu(let path):
             try clickMenu(path, in: app)
         case .socket(let method, let params, let saveAs):
@@ -647,6 +652,7 @@ enum DogfoodStep {
     case hover(DogfoodTarget, XCUIElement.KeyModifierFlags)
     case clickAt(Double, Double, XCUIElement.KeyModifierFlags)
     case hoverAt(Double, Double, XCUIElement.KeyModifierFlags)
+    case dragAt(from: CGPoint, to: CGPoint, duration: TimeInterval)
     case menu([String])
     case socket(method: String, params: Any, saveAs: String?)
     case record(name: String, params: [String: Any], steps: [DogfoodStep])
@@ -674,6 +680,8 @@ enum DogfoodStep {
             return "clickAt \(x),\(y)\(Self.describe(modifiers))"
         case .hoverAt(let x, let y, let modifiers):
             return "hoverAt \(x),\(y)\(Self.describe(modifiers))"
+        case .dragAt(let from, let to, let duration):
+            return "dragAt \(from.x),\(from.y) to \(to.x),\(to.y) over \(duration)s"
         case .menu(let path): return "menu \(path.joined(separator: " > "))"
         case .socket(let method, _, _): return "socket \(method)"
         case .record(let name, _, let steps): return "record \(name) around \(steps.count) steps"
@@ -729,6 +737,14 @@ enum DogfoodStep {
             }
             let modifiers = try Self.modifiers(object["modifiers"])
             self = kind == "clickAt" ? .clickAt(x, y, modifiers) : .hoverAt(x, y, modifiers)
+        case "dragAt":
+            guard let pair = value as? [String: Any],
+                  let from = Self.point(pair["from"]),
+                  let to = Self.point(pair["to"]) else {
+                throw DogfoodError("dragAt takes {\"from\": {x, y}, \"to\": {x, y}} in window space")
+            }
+            let duration = (pair["duration"] as? NSNumber)?.doubleValue ?? 0.2
+            self = .dragAt(from: from, to: to, duration: duration)
         case "menu":
             guard let path = value as? [String], !path.isEmpty else { throw DogfoodError("menu takes a path array") }
             self = .menu(path)
@@ -770,7 +786,7 @@ enum DogfoodStep {
 
     private static let kinds: Set<String> = [
         "shot", "tree", "wait", "type", "key", "click", "doubleClick", "rightClick",
-        "hover", "clickAt", "hoverAt", "menu", "socket", "socketLine", "record",
+        "hover", "clickAt", "hoverAt", "dragAt", "menu", "socket", "socketLine", "record",
         "note", "expect",
     ]
 
@@ -793,6 +809,14 @@ enum DogfoodStep {
             params[name] = value
         }
         return params
+    }
+
+    /// Reads a `{"x": 0-1, "y": 0-1}` window-space point.
+    private static func point(_ json: Any?) -> CGPoint? {
+        guard let object = json as? [String: Any],
+              let x = (object["x"] as? NSNumber)?.doubleValue,
+              let y = (object["y"] as? NSNumber)?.doubleValue else { return nil }
+        return CGPoint(x: x, y: y)
     }
 
     private static func key(named name: String) -> String {

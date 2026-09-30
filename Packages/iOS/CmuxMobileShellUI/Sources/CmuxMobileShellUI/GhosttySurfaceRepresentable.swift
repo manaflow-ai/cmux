@@ -6,6 +6,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import CmuxMobileTerminalKit
 import SwiftUI
 import UIKit
 
@@ -59,10 +60,25 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     var useLegacyTerminalSizing: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
+    /// SSH terminals: show the Files chip regardless of paths on screen; it
+    /// opens the server's file browser (via ``onArtifactFilesRequested``).
+    var sshFilesChipEnabled: Bool = false
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
+    /// Called when the shared-sizing chip on the terminal is tapped.
+    var onSharedSizingChipTapped: @MainActor () -> Void = {}
+
+    /// Who answers terminal queries: the Mac (mirror), the server's
+    /// cmux-tui emulator (input only), or this phone (plain/tmux SSH).
+    static func localEmulation(store: CMUXMobileShellStore, surfaceID: String) -> TerminalLocalEmulation {
+        switch store.sshServerAnswersTerminalQueries(surfaceID: surfaceID) {
+        case nil: .mirror
+        case true?: .inputOnly
+        case false?: .authoritative
+        }
+    }
 
     func makeUIViewController(context: Context) -> UIViewController {
         let runtime: GhosttyRuntime
@@ -95,10 +111,15 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         // Screen-anchored sessions scroll the local mirror's own scrollback
         // immediately (the Mac never repaints for a primary-screen scroll), so
         // they keep the low-latency local authority even under verified replay.
+        // Screen-anchored and SSH (locally emulated) sessions keep the local
+        // authority; SSH output never rides a Mac's verified replay.
+        let locallyEmulated = store.surfaceIsLocallyEmulated(surfaceID)
         view.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
             && !store.usesScreenAnchoredRenderGrid
+            && !locallyEmulated
             ? .verifiedRenderGrid
             : .legacyMirror
+        view.localEmulation = Self.localEmulation(store: store, surfaceID: surfaceID)
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
         // `nil` when no log is wired; every probe is then a no-op.
@@ -172,11 +193,30 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         surfaceView.hostedAltScreenActive = store.isAlternateScreen(surfaceID: surfaceID)
         surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
             && !store.usesScreenAnchoredRenderGrid
+            && !store.surfaceIsLocallyEmulated(surfaceID)
             ? .verifiedRenderGrid
             : .legacyMirror
+        // Shared sizing: the owner-color bounds follow the published size
+        // state (read here so Observation re-runs this on every change), and
+        // a reattach or owner change re-reports the viewport so the surface
+        // learns its new grid through the normal acknowledgement path.
+        let sizing = store.terminalSizing(for: surfaceID)
+        let sizingPresentation = sizing?.attachment.allowsTerminalTraffic == false
+            ? nil
+            : store.terminalSizingPresentation(for: surfaceID)
+        surfaceView.sharedSizingDecoration = sizingPresentation?.boundsDecoration
+        surfaceView.sharedSizingChip = sizingPresentation?.chipContent
+        surfaceView.onSharedSizingChipTap = onSharedSizingChipTapped
+        if let reassert = sizing?.viewportReassertGeneration,
+           reassert != context.coordinator.appliedViewportReassertGeneration {
+            context.coordinator.appliedViewportReassertGeneration = reassert
+            surfaceView.reassertViewportCapacityReport()
+        }
+        surfaceView.localEmulation = Self.localEmulation(store: store, surfaceID: surfaceID)
         if artifactCountModeChanged {
             surfaceView.resetVisibleArtifactCountTracking()
         }
+        context.coordinator.setPersistentFilesChip(sshFilesChipEnabled)
         let projectedArtifactCount = context.coordinator.artifactCountNeedsRefresh
             ? 0
             : visibleArtifactCount
@@ -205,6 +245,8 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         var releaseGateUIProbe: MobileReleaseGateUIProbe?
         var releaseGateSawNonblankFrame = false
         #endif
+        /// The last shared-sizing viewport reassert this surface honored.
+        var appliedViewportReassertGeneration: UInt64 = 0
         let workspaceID: String
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
@@ -302,6 +344,9 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         private var composerController: UIHostingController<TerminalComposerView>?
         var artifactChipController: UIHostingController<TerminalArtifactChipView>?
         var artifactChipVisibility = TerminalArtifactChipVisibilityState()
+        /// The SSH Files chip: mounted for the surface's lifetime, no count.
+        var persistentFilesChip = false
+        var persistentFilesChipMounted = false
         /// Pending debounced chip unmount; cancelled whenever a positive count
         /// arrives so transient zero counts cannot flicker the chip.
         var artifactChipHideTask: Task<Void, Never>?
