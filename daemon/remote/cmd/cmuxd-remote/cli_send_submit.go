@@ -84,10 +84,11 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 		return 1
 	}
 	agent := sendStateAgent(state)
-	if agent {
+	knownAgent := agent && (stateString(state, "agent_kind") == "claude" || stateString(state, "agent_kind") == "codex")
+	if knownAgent {
 		visible := false
 		for probe := 0; probe < sendSubmitAttempts; probe++ {
-			time.Sleep(time.Duration(50*(probe+1)) * time.Millisecond)
+			time.Sleep(time.Duration(100*(probe+1)) * time.Millisecond)
 			state, screen = readSendState(socketPath, target, refreshAddr)
 			if sendStateDialog(state) && !sendScreenShowsSlashPopup(screen) {
 				fmt.Fprintln(os.Stderr, "cmux send: text was pasted but the target opened a dialog; nothing was confirmed as submitted")
@@ -107,6 +108,18 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 	}
 	var lastState map[string]any
 	for attempt := 0; attempt < sendSubmitAttempts; attempt++ {
+		if attempt > 0 {
+			state, screen = readSendState(socketPath, target, refreshAddr)
+			if sendStateConfirmed(state, screen) {
+				return printSendSubmitResult(sendConfirmedStatus(state), jsonOutput)
+			}
+			if sendStateDialog(state) && !boolValue(state, "slash_popup") && !sendScreenShowsSlashPopup(screen) {
+				return sendSubmitUnconfirmed("target opened a dialog; retry was refused", jsonOutput)
+			}
+			if !sendComposerMatches(screen, text) {
+				return sendSubmitUnconfirmed("composer changed or could not be identified; retry was refused to preserve human input", jsonOutput)
+			}
+		}
 		key := sendSubmitKey(state, screen, text)
 		keyParams := cloneParams(target)
 		keyParams["key"] = key
@@ -114,8 +127,11 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 			fmt.Fprintf(os.Stderr, "cmux: submit key failed: %v\n", err)
 			return 1
 		}
-		time.Sleep(time.Duration(50*(attempt+1)) * time.Millisecond)
-		if !agent {
+		time.Sleep(time.Duration(100*(attempt+1)) * time.Millisecond)
+		if !knownAgent {
+			if agent {
+				return printSendSubmitResult("sent", jsonOutput)
+			}
 			return printSendSubmitResult("submitted", jsonOutput)
 		}
 		lastState, screen = readSendState(socketPath, target, refreshAddr)
@@ -124,13 +140,12 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 				screen, _ = readSendScreen(socketPath, target, refreshAddr)
 			}
 			if !sendScreenShowsSlashPopup(screen) {
-				fmt.Fprintln(os.Stderr, "cmux send: target opened a dialog while submitting; nothing was confirmed as submitted")
-				return 1
+				return sendSubmitUnconfirmed("target opened a dialog while submitting", jsonOutput)
 			}
 		}
 		if sendStateConfirmed(lastState, screen) {
 			status := "submitted"
-			if key == "tab" || sendStateQueued(lastState) {
+			if sendStateQueued(lastState) {
 				status = "queued"
 			}
 			return printSendSubmitResult(status, jsonOutput)
@@ -138,12 +153,15 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 		state = lastState
 	}
 
-	if sendStateDialog(lastState) {
-		fmt.Fprintln(os.Stderr, "cmux send: target opened a dialog while submitting; nothing was confirmed as submitted")
-	} else {
-		fmt.Fprintf(os.Stderr, "cmux send: composer still contains the message after %d submit attempts; nothing was confirmed as submitted\n", sendSubmitAttempts)
+	// One final bounded read lets slow renderers show a clear or queued prompt
+	// without sending another key.
+	time.Sleep(200 * time.Millisecond)
+	lastState, screen = readSendState(socketPath, target, refreshAddr)
+	if sendStateConfirmed(lastState, screen) {
+		return printSendSubmitResult(sendConfirmedStatus(lastState), jsonOutput)
 	}
-	return 1
+	return sendSubmitUnconfirmed("submit key was sent but submission was not confirmed after bounded retries", jsonOutput)
+
 }
 
 func splitLeadingSendFlags(args []string) (submit, force bool, remaining []string) {
@@ -246,10 +264,35 @@ func sendSubmitKey(state map[string]any, screen, text string) string {
 	if sendStateLooksLikeBusyCodex(state, screen) {
 		return "tab"
 	}
-	if strings.ContainsAny(text, "\r\n") && strings.Contains(stateString(state, "agent_kind"), "claude") {
-		return "ctrl+enter"
-	}
 	return "return"
+}
+
+func sendConfirmedStatus(state map[string]any) string {
+	if sendStateQueued(state) {
+		return "queued"
+	}
+	return "submitted"
+}
+
+func sendSubmitUnconfirmed(reason string, jsonOutput bool) int {
+	_ = printSendSubmitResult("unconfirmed", jsonOutput)
+	fmt.Fprintf(os.Stderr, "cmux send: %s; text may already be submitted, do not paste it again without checking the target\n", reason)
+	return 1
+}
+
+func sendComposerMatches(screen, text string) bool {
+	lines := strings.Split(sendANSISequence.ReplaceAllString(screen, ""), "\n")
+	body := ""
+	found := false
+	for _, line := range lines {
+		trimmed := trimSendBox(line)
+		if strings.HasPrefix(trimmed, "❯") || strings.HasPrefix(trimmed, "›") {
+			body, found = promptBody(trimmed), true
+		} else if found && strings.HasPrefix(strings.TrimSpace(line), "│") {
+			body += " " + trimmed
+		}
+	}
+	return found && strings.Join(strings.Fields(body), " ") == strings.Join(strings.Fields(text), " ")
 }
 
 func sendStateBlocksText(state map[string]any) bool {
@@ -267,14 +310,21 @@ func sendStateQueued(state map[string]any) bool {
 	return stateString(state, "state") == "queued" || boolValue(state, "queued")
 }
 func sendStateConfirmed(state map[string]any, screen string) bool {
+	if boolValue(state, "slash_popup") || sendScreenShowsSlashPopup(screen) {
+		return false
+	}
 	return sendStateAgent(state) && (stateString(state, "state") == "empty" || sendStateQueued(state))
 }
 
 func sendStateLooksLikeBusyCodex(state map[string]any, screen string) bool {
-	if strings.Contains(strings.ToLower(stateString(state, "agent_kind")), "codex") && (stateString(state, "lifecycle") == "running" || boolValue(state, "busy")) {
-		return true
+	kind := stateString(state, "agent_kind")
+	if kind != "" && kind != "codex" {
+		return false
 	}
-	return sendScreenLooksLikeCodex(screen) && (stateString(state, "lifecycle") == "running" || boolValue(state, "busy"))
+	if kind == "" {
+		kind = stateString(sendStateFromScreen(screen), "agent_kind")
+	}
+	return kind == "codex" && (stateString(state, "lifecycle") == "running" || boolValue(state, "busy"))
 }
 
 var sendANSISequence = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)`)
@@ -285,9 +335,9 @@ func sendStateFromScreen(screen string) map[string]any {
 	lines := strings.Split(clean, "\n")
 	state := map[string]any{"state": "unknown", "agent": false, "blocks_typing": false}
 	kind := ""
-	if strings.Contains(lower, "codex") {
+	if sendScreenBrand(clean) == "codex" {
 		kind = "codex"
-	} else if strings.Contains(lower, "claude") {
+	} else if sendScreenBrand(clean) == "claude" {
 		kind = "claude"
 	}
 	promptIndex := -1
@@ -348,6 +398,19 @@ func sendStateFromScreen(screen string) map[string]any {
 		state["queued"], state["state"] = true, "queued"
 	}
 	return state
+}
+
+func sendScreenBrand(screen string) string {
+	for _, line := range strings.Split(screen, "\n") {
+		trimmed := strings.ToLower(trimSendBox(line))
+		if strings.HasPrefix(trimmed, "openai codex") || trimmed == "codex" || strings.HasPrefix(trimmed, "codex v") {
+			return "codex"
+		}
+		if strings.HasPrefix(trimmed, "claude code") {
+			return "claude"
+		}
+	}
+	return ""
 }
 
 func trimSendBox(line string) string {

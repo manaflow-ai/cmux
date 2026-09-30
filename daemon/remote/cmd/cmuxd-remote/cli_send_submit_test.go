@@ -174,7 +174,8 @@ func TestSendSubmitRetriesAndFailsWhenComposerNeverSubmits(t *testing.T) {
 		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
-	}, nil)
+		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
+	}, []string{"Claude Code\n❯ ", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello"})
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
 		t.Fatal("expected bounded retry failure")
 	}
@@ -209,9 +210,10 @@ func TestSendSubmitSlashPopupSendsExtraSubmit(t *testing.T) {
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
-	}, []string{"❯\n", "❯ /goal\n/goal resume\n", "❯ /goal resume\n", "❯\n"})
-	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
+	}, []string{"❯\n", "❯ /goal\n/goal resume\n", "❯ /goal resume\n", "❯ /goal resume\n", "❯\n"})
+	if code := runCLI([]string{"--socket", socket, "send", "--submit", "/goal resume"}); code != 0 {
 		t.Fatalf("send --submit: exit %d", code)
 	}
 	deadline := time.Now().Add(time.Second)
@@ -255,7 +257,7 @@ func TestSendSubmitFlagsMayFollowTargetOptions(t *testing.T) {
 	}
 }
 
-func TestSendSubmitMultilineClaudeUsesCtrlEnter(t *testing.T) {
+func TestSendSubmitMultilineClaudeUsesEnter(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "agent_kind": "claude"},
@@ -264,8 +266,8 @@ func TestSendSubmitMultilineClaudeUsesCtrlEnter(t *testing.T) {
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "line one\nline two"}); code != 0 {
 		t.Fatalf("multiline send --submit: exit %d", code)
 	}
-	if params(mock.request("surface.send_key"))["key"] != "ctrl+enter" {
-		t.Fatalf("submit key params = %v, want ctrl+enter", params(mock.request("surface.send_key")))
+	if params(mock.request("surface.send_key"))["key"] != "return" {
+		t.Fatalf("submit key params = %v, want return", params(mock.request("surface.send_key")))
 	}
 }
 
@@ -367,8 +369,9 @@ func TestSendSubmitRetryRefreshesBusyCodex(t *testing.T) {
 		{"agent": true, "state": "empty", "agent_kind": "codex"},
 		{"agent": true, "state": "draft", "agent_kind": "codex"},
 		{"agent": true, "state": "draft", "agent_kind": "codex", "busy": true},
+		{"agent": true, "state": "draft", "agent_kind": "codex", "busy": true},
 		{"agent": true, "state": "queued", "agent_kind": "codex", "queued": true},
-	}, nil)
+	}, []string{"OpenAI Codex\n› ", "OpenAI Codex\n› hello", "OpenAI Codex\n› hello", "OpenAI Codex\n› hello", "OpenAI Codex\nQueued messages: 1\n› "})
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -442,5 +445,33 @@ func TestSendSubmitHumanEditPreventsRetry(t *testing.T) {
 	}
 	if !strings.Contains(output, `"status":"unconfirmed"`) {
 		t.Fatalf("output=%q", output)
+	}
+}
+
+func TestSendSubmitFinalReadConfirmsSlowRenderer(t *testing.T) {
+	states := []map[string]any{{"agent": true, "agent_kind": "claude", "state": "empty"}}
+	for i := 0; i < 6; i++ {
+		states = append(states, map[string]any{"agent": true, "agent_kind": "claude", "state": "draft"})
+	}
+	states = append(states, map[string]any{"agent": true, "agent_kind": "claude", "state": "empty"})
+	screens := []string{"Claude Code\n❯ "}
+	for i := 0; i < 6; i++ {
+		screens = append(screens, "Claude Code\n❯ hello")
+	}
+	screens = append(screens, "Claude Code\n❯ ")
+	mock, socket := startSendSubmitMock(t, states, screens)
+	output := captureStdout(t, func() {
+		if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+	})
+	if output != "submitted\n" || len(mock.keys) != 3 {
+		t.Fatalf("output=%q keys=%v", output, mock.keys)
+	}
+}
+
+func TestSendSubmitPopupNotConfirmedUntilClosed(t *testing.T) {
+	if sendStateConfirmed(map[string]any{"agent": true, "state": "empty", "slash_popup": true}, "") {
+		t.Fatal("popup falsely confirmed")
 	}
 }
