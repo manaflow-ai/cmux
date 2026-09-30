@@ -48,9 +48,40 @@ class WrapperResult:
     profile_homes: dict[str, str]
 
 
+# Set only while priming a fixture's first exec; every fixture exits at once.
+PRIME_ENVIRONMENT_KEY = "CMUX_HERMES_TEST_PRIME_EXEC"
+
+
 def make_executable(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
+    shebang, body = content.split("\n", 1)
+    path.write_text(
+        f'{shebang}\nif [ -n "${{{PRIME_ENVIRONMENT_KEY}:-}}" ]; then exit 0; fi\n{body}',
+        encoding="utf-8",
+    )
     path.chmod(0o755)
+
+
+def prime_first_exec(paths: list[Path]) -> None:
+    """Run each fresh executable once before a timed launch.
+
+    macOS assesses a newly written executable on its first exec, one file at a
+    time across the whole machine. On a runner where parallel tests keep
+    writing fixtures, the queue alone can outlast the hang guard. Installed
+    Hermes and the bundled wrapper and CLI were run before, so priming keeps
+    the timed launch to the wrapper's own work.
+    """
+    # Without CMUX_SURFACE_ID or a Hermes on PATH, the wrapper exits 127 at once.
+    environment = {"PATH": "/usr/bin:/bin", PRIME_ENVIRONMENT_KEY: "1"}
+    for path in paths:
+        subprocess.run(
+            [str(path)],
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=120,
+            check=False,
+        )
 
 
 def read_nul_values(path: Path) -> list[str]:
@@ -430,6 +461,18 @@ exit 0
         else:
             env.pop("CMUX_HERMES_AGENT_HOOKS_DISABLED", None)
 
+        prime_first_exec(
+            [
+                wrapper,
+                *(
+                    path
+                    for path in sorted(tmp.rglob("*"))
+                    if path.is_file()
+                    and not path.is_symlink()
+                    and PRIME_ENVIRONMENT_KEY in path.read_text(encoding="utf-8", errors="ignore")
+                ),
+            ]
+        )
         proc = subprocess.Popen(
             [str(wrapper), *argv],
             cwd=tmp,
