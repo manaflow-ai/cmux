@@ -244418,6 +244418,23 @@
         }
       }
     },
+    "menu.help.ohMyPi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oh-my-pi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oh-my-pi"
+          }
+        }
+      }
+    },
     "menu.help.previewNativePricing": {
       "extractionState": "manual",
       "localizations": {

@@ -895,6 +895,7 @@ the expected text without connecting to a cmux socket.
 - `cmux import --help` -> `Usage: cmux import`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`
 - `cmux omx --help` -> `Usage: cmux omx [omx-args...]`
+- `cmux omp --help` -> `Usage: cmux omp [omp-args...]`
 - `cmux omc --help` -> `Usage: cmux omc [omc-args...]`
 - `cmux identify --help` -> `Usage: cmux identify`
 - `cmux list-windows --help` -> `Usage: cmux list-windows`

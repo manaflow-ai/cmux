@@ -377,7 +377,9 @@ extension CMUXCLI {
         return format.contains("#{pane_start_command}") || format.contains("#{pane_current_command}")
     }
 
-    func tmuxLegacyOMXHudStartCommand(
+    /// Reconstructs the HUD start command for panes that predate `tmux_start_command`
+    /// metadata, by matching the HUD banner the provider prints into the pane.
+    func tmuxLegacyManagedHudStartCommand(
         workspaceId: String,
         surfaceId: String,
         client: SocketClient
@@ -391,15 +393,20 @@ extension CMUXCLI {
             return nil
         }
         let lower = text.lowercased()
-        guard lower.contains("[omx#"),
-              lower.contains("turns:"),
+        guard lower.contains("turns:"),
               lower.contains("session:") else {
             return nil
         }
-        return "node omx.js hud --watch"
+        if lower.contains("[omp#") {
+            return "node omp.js hud --watch"
+        }
+        if lower.contains("[omx#") {
+            return "node omx.js hud --watch"
+        }
+        return nil
     }
 
-    func tmuxPaneLooksLikeOMXHud(workspaceId: String, paneId: String, client: SocketClient) -> Bool {
+    func tmuxPaneLooksLikeManagedHud(workspaceId: String, paneId: String, client: SocketClient) -> Bool {
         guard let surfaceId = try? tmuxSelectedSurfaceId(
             workspaceId: workspaceId,
             paneId: paneId,
@@ -420,12 +427,12 @@ extension CMUXCLI {
                 .first { !$0.isEmpty }
 
             if let paneStartCommand,
-               tmuxCommandLooksLikeOMXHud(tmuxShellWords(paneStartCommand)) {
+               tmuxHudProviderForCommand(tmuxShellWords(paneStartCommand)) != nil {
                 return true
             }
         }
 
-        return tmuxLegacyOMXHudStartCommand(
+        return tmuxLegacyManagedHudStartCommand(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             client: client

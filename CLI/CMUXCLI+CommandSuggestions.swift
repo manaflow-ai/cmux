@@ -154,6 +154,7 @@ extension CMUXCLI {
         "notify",
         "omc",
         "omo",
+        "omp",
         "omx",
         "open",
         "open-browser",
