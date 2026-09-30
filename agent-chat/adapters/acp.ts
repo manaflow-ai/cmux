@@ -137,6 +137,13 @@ interface AcpState {
   initialApplied: boolean;
 }
 
+async function reapAcpProcess(proc: AcpState["proc"]): Promise<void> {
+  // A previous SIGTERM may have been ignored; `killed` only records that a
+  // signal was sent. Every unpublished or disposable child must actually exit.
+  if (proc.exitCode === null) proc.kill("SIGKILL");
+  await proc.exited;
+}
+
 function acpFallbackOptions(def: ProviderDef): SessionOption[] {
   const model = def.models?.length
     ? { id: "model", label: "Model", kind: "select" as const, value: def.defaultModel ?? def.models[0]!.value, choices: def.models }
@@ -256,7 +263,7 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState | 
   let startupTimedOut = false;
   const startupTimer = setTimeout(() => {
     startupTimedOut = true;
-    proc.kill();
+    proc.kill("SIGKILL");
   }, 30_000);
   try {
     await request("initialize", {
@@ -265,7 +272,7 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState | 
     });
     const created = await request("session/new", { cwd: sess.cwd, mcpServers: [] });
     if (sess.internal.acpDisposed) {
-      proc.kill();
+      await reapAcpProcess(proc);
       return;
     }
     st.acpSessionId = created.sessionId;
@@ -275,7 +282,10 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState | 
     emitAcpState(sess, st);
     return st;
   } catch (err) {
-    proc.kill();
+    // Reap this unpublished agent before clearing acpStarting so a retry
+    // cannot accumulate children that rejected startup or ignored SIGTERM.
+    clearTimeout(startupTimer);
+    await reapAcpProcess(proc);
     throw startupTimedOut ? new Error(`${def.id} did not finish ACP startup within 30s`) : err;
   } finally {
     clearTimeout(startupTimer);
@@ -652,7 +662,7 @@ async function fetchAcpCommands(def: ProviderDef, cwd: string): Promise<CommandE
       });
     });
   } finally {
-    proc.kill();
+    await reapAcpProcess(proc);
   }
 }
 
@@ -712,6 +722,6 @@ async function fetchAcpOptions(def: ProviderDef, cwd: string, fallback: SessionO
       });
     });
   } finally {
-    proc.kill();
+    await reapAcpProcess(proc);
   }
 }
