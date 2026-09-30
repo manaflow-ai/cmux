@@ -1,7 +1,7 @@
 {
  "meta": {
   "backend": "cmux-dev",
-  "recordedAt": "2026-09-30T10:32:45.860Z"
+  "recordedAt": "2026-09-30T10:49:03.480Z"
  },
  "cases": {
   "page.goto.basic": {
@@ -193,19 +193,19 @@
      "name": "Error"
     },
     "label": {
-     "ok": true,
-     "value": 0
+     "error": "getByLabel: text: expected a string or a RegExp, got 42",
+     "name": "Error"
     },
     "text": {
-     "ok": true,
-     "value": 0
+     "error": "getByText: text: expected a string or a RegExp, got 42",
+     "name": "Error"
     },
     "frame": {
      "error": "Unexpected token \"!\" while parsing css selector \"!!!\". Did you mean to CSS.escape it?",
      "name": "Error"
     }
    },
-   "ms": 194
+   "ms": 665
   },
   "page.frame-locator": {
    "value": {
@@ -1659,27 +1659,27 @@
      "name": "Error"
     },
     "getByLabel": {
-     "ok": true,
-     "value": 0
+     "error": "getByLabel: text: expected a string or a RegExp, got 42",
+     "name": "Error"
     },
     "getByPlaceholder": {
-     "ok": true,
-     "value": 0
+     "error": "getByPlaceholder: text: expected a string or a RegExp, got 42",
+     "name": "Error"
     },
     "getByRole": {
      "error": "Error while parsing selector `notarole!` - unexpected symbol \"!\" at position 8",
      "name": "Error"
     },
     "getByTestId": {
-     "error": "Cannot read properties of null (reading 'unicode')",
-     "name": "TypeError"
+     "error": "getByTestId: text: expected a string or a RegExp, got null",
+     "name": "Error"
     },
     "getByText": {
-     "ok": true,
-     "value": 0
+     "error": "getByText: text: expected a string or a RegExp, got 42",
+     "name": "Error"
     }
    },
-   "ms": 193
+   "ms": 349
   },
   "loc.filter-options": {
    "value": {

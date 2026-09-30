@@ -1,7 +1,7 @@
 {
  "meta": {
   "backend": "aside",
-  "recordedAt": "2026-09-30T10:32:06.961Z",
+  "recordedAt": "2026-09-30T10:51:32.240Z",
   "version": "1.26.916.1741"
  },
  "cases": {
@@ -1948,14 +1948,14 @@
   },
   "loc.screenshot": {
    "value": {
-    "format": "unknown",
+    "format": "webp",
     "matches": false,
     "hidden": {
      "error": "locator.screenshot: element is not visible in the viewport",
      "name": "Error"
     }
    },
-   "ms": 793
+   "ms": 1200
   },
   "loc.reads": {
    "value": {

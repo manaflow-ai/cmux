@@ -98,9 +98,15 @@ export function writeReport(cases) {
   lines.push("## Exclusions", "");
   for (const [r, name, e] of memberRows.filter((m) => m[2].excluded)) lines.push(`- ${r} \`${name}\`: ${e.excluded}`);
   lines.push("");
-  if (failing.length || rows.some((r) => REFERENCES.some((ref) => r.refs[ref].verdict === "cmux-worse"))) {
+  const unverified = cases.filter((c) => c.requiresPerson && !results.cmux.cases[c.id]);
+  if (unverified.length) {
+    lines.push("## Unverified", "");
+    for (const c of unverified) lines.push(`- \`${c.id}\`: needs a person during the run (${c.requiresPerson}); no app result is recorded.`);
+    lines.push("");
+  }
+  if (failing.filter((r) => !unverified.some((c) => c.id === r.id)).length || rows.some((r) => REFERENCES.some((ref) => r.refs[ref].verdict === "cmux-worse"))) {
     lines.push("## Open gaps", "");
-    for (const r of failing) lines.push(`- \`${r.id}\`: ${r.cmuxProblems.join("; ")}`);
+    for (const r of failing.filter((x) => !unverified.some((c) => c.id === x.id))) lines.push(`- \`${r.id}\`: ${r.cmuxProblems.join("; ")}`);
     for (const r of rows) for (const ref of REFERENCES) if (r.refs[ref].verdict === "cmux-worse") lines.push(`- \`${r.id}\` vs ${ref}: ${r.refs[ref].reason}`);
     lines.push("");
   }

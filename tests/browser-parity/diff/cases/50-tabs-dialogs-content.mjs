@@ -254,6 +254,9 @@ return { gsuite: g, yt, bad };`,
 return { gsuite: await E(() => c.exportGsuite("pdf")), yt: await E(() => c.exportYouTubeTranscript()), bad: await E(() => c.exportGsuite("nope")) };`,
     aside: null,
     na: { aside: "Aside's Google Docs and YouTube support are site integrations (excluded)" },
+    better: {
+      chatgpt: errBetter,
+    },
     expect: { gsuite: { error: "invalid-arg" }, yt: { error: "invalid-arg" }, bad: { error: "invalid-arg" } },
   },
   {

@@ -109,6 +109,10 @@ return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, coun
     id: "edge.user-click-while-driving",
     edge: "user-click-while-driving",
     appOnly: true,
+    // Needs a person (or computer use against the tagged app) to click while
+    // it runs; the unit test lists it as unverified until such a run records
+    // a result.
+    requiresPerson: "run with PARITY_USER_CLICK_MARKER and click the lab page's Action button in the tagged app's pane while the case waits",
     // A person clicks the Action button in the pane (computer use against the
     // tagged app) while this session types into the name field; the session
     // sees the trusted user click and its own typing is intact.

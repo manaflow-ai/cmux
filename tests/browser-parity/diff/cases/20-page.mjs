@@ -35,6 +35,9 @@ out.bad = await E(() => $P.goto(U("/diff/next.html"), { waitUntil: "bogus" }));
 return out;`,
     chatgpt: null,
     na: { chatgpt: "Tab.goto takes only a URL; ChatGPT has no waitUntil or timeout option on navigation" },
+    better: {
+      aside: errBetter,
+    },
     expect: { commit: { url: "<primary>/slow" }, load: { url: "<primary>/slow" }, bad: { error: "invalid-arg" } },
   },
   {
@@ -44,6 +47,12 @@ return out;`,
     code: `return { slow: await ms(() => $P.goto(U("/slow?ms=4000"), $T(600))) };`,
     chatgpt: null,
     na: { chatgpt: "Tab.goto has no timeout option" },
+    better: {
+      aside: {
+        reason: "goto honors its timeout; Aside waits its own 30 s readiness limit",
+        check: (c, r, h) => h.classifyError(c.slow.error) === 'timeout' && c.slow.ms < 2000 && (r.slow?.ms ?? 0) > 10000,
+      },
+    },
     expect: { slow: { error: "timeout", ms: "instant" } },
   },
   {
@@ -240,6 +249,7 @@ return {
   invalid: await E(() => $P.locator("!!!").count()),
 };`,
     better: {
+      chatgpt: errBetter,
       aside: {
         reason: "$() of a missing element is null and an invalid selector fails, as in Playwright; Aside returns an object for both",
         check: (c, r, h) => c.none === null && r.none !== null && h.classifyError(c.invalid.error) === 'invalid-arg' && c.count === r.count && JSON.stringify(c.texts) === JSON.stringify(r.texts),
@@ -463,6 +473,10 @@ return { exact: !!exact.ok, glob: !!glob.ok, regex: !!regex.ok, fn: !!fn.ok, opt
         reason: "waitForURL accepts Playwright's glob, RegExp and predicate matchers; ChatGPT accepts only a string",
         check: (c, r) => c.exact && c.glob && c.regex && c.fn && c.opts && (!r.glob || !r.regex || !r.fn),
       },
+      aside: {
+        reason: "waitForURL accepts Playwright's glob and predicate matchers; Aside's matches neither",
+        check: (c, r) => c.exact && c.glob && c.regex && c.fn && c.opts && (!r.glob || !r.fn),
+      },
     },
     expect: { exact: true, glob: true, regex: true, fn: true, opts: true, never: { error: "timeout", ms: "instant" } },
   },
@@ -479,6 +493,9 @@ return { slept: w2.ms >= 280 && w2.ms < 1500 };`,
 const w2 = await ms(() => pause(300));
 return { waited: w1.ms >= 280 && w1.ms < 1500, slept: w2.ms >= 280 && w2.ms < 1500, bad: await E(() => $P.waitForTimeout("soon")) };`,
     compare: { aside: ["slept"], chatgpt: ["waited", "slept", "bad"] },
+    better: {
+      chatgpt: errBetter,
+    },
     expect: { waited: true, slept: true, bad: { error: "invalid-arg" } },
   },
   {

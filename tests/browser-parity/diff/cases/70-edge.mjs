@@ -548,6 +548,12 @@ return { url: page.url(), title: await page.title(), items: await page.locator("
 await $P.waitForURL(U("/diff/spa.html#/users"), { timeoutMs: 5000 });
 await $P.getByRole("heading", { name: "Users" }).waitFor({ state: "visible", timeoutMs: 5000 });
 return { url: await t.url(), title: await t.title(), items: await $P.locator("li").allTextContents() };`,
+    better: {
+      aside: {
+        reason: "page.url() follows a hash route change; Aside's url() keeps the old URL",
+        check: (c, r) => c.url.endsWith('#/users') && !String(r.url).endsWith('#/users') && c.title === r.title && JSON.stringify(c.items) === JSON.stringify(r.items),
+      },
+    },
     expect: { url: "<primary>/diff/spa.html#/users", title: "SPA users", items: ["Ada", "Linus"] },
   },
   {

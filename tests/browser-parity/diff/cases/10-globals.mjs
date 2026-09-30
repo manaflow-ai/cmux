@@ -1,3 +1,4 @@
+import { errorsBetter as errBetter } from "../lib.mjs";
 // REPL globals and tab management: Aside globals (page, tabs, openTab,
 // snapshot, fetch, fs, ...) and ChatGPT's browser, tabs, user and snapshot
 // (AXAPI) members.
@@ -44,6 +45,10 @@ const got = await b.tabs.get(t.id);
 const user = (await b.user.openTabs()).filter((x) => String(x.url).startsWith(ORIGINS.primary));
 return { count: mine.length, keys: Object.keys(mine[0]).sort(), titles: mine.map((x) => x.title).sort(), getTitle: await got.title(), userRows: user.length, missing: await E(() => b.tabs.get("nope")) };`,
     compare: ["count", "titles", "getTitle", "missing"],
+    better: {
+      chatgpt: errBetter,
+      aside: errBetter,
+    },
     expect: { count: 2, titles: ["Diff lab", "Next page"], getTitle: "Diff lab", active: 1, missing: { error: "closed" } },
   },
   {
@@ -78,6 +83,7 @@ return { afterId: await t.url(), byId: byId.value ?? byId, byRow: byRow.value ??
     // the attach-active branch is not compared.
     compare: { aside: ["afterId", "context", "bad"], chatgpt: ["afterId", "bad"] },
     better: {
+      aside: errBetter,
       chatgpt: {
         reason: "tabs.get(id) plus snapshot() reads a tab without switching to it; ChatGPT's Chrome backend has no getTabContext",
         check: (c, r) => c.context === true && typeof r.context === "object",
@@ -97,6 +103,7 @@ const forUrl = await E(() => agent.browsers.getForUrl("not a url"));
 return { bad: await E(() => agent.browsers.get("")), session: typeof chrome.browserId, listed: list.some((x) => x.id === chrome.browserId || x.type === "extension"), forUrl };`,
     compare: ["bad", "session"],
     better: {
+      aside: errBetter,
       chatgpt: {
         reason: "an invalid URL is rejected as such; ChatGPT's browser lookup errors are unrelated to the URL",
         check: (c, r, h) => h.classifyError(c.bad.error) === "invalid-arg" && c.session === r.session,

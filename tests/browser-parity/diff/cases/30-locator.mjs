@@ -276,7 +276,10 @@ const late = await ms(() => $P.locator("#late").waitFor());
 return { done: true, late: late.error ? late : late.ms < 2000, hiddenVisible: await E(() => $P.locator("#hidden").waitFor({ state: "visible", $TO: 300 })), bogus: await E(() => $P.locator("#action").waitFor({ state: "bogus" })) };`,
     better: {
       aside: errBetter,
-      chatgpt: errBetter,
+      chatgpt: {
+        reason: "waitFor finds an element that appears late and says a hidden element is hidden; ChatGPT's waitFor fails on the late element",
+        check: (c, r, h) => c.late === true && r.late !== true && h.classifyError(c.bogus.error) === 'invalid-arg',
+      },
     },
     expect: { done: true, late: true, hiddenVisible: { error: "not-visible" }, bogus: { error: "invalid-arg" } },
   },
@@ -309,6 +312,13 @@ return {
   events: $LOG.filter((r) => r[1] === "name").map((r) => r[0] + ":" + r[2]).slice(0, 3),
 };`,
     compare: { aside: ["name", "area", "rich", "cleared", "events", "inputValueOfDiv"], chatgpt: ["name", "area", "rich", "cleared", "events"] },
+    better: {
+      aside: errBetter,
+      chatgpt: {
+        reason: "fill delivers trusted input and change events; ChatGPT's fill sends an untrusted input event and no change",
+        check: (c, r) => c.name === r.name && c.events.join() === 'focus:true,input:true,change:true' && r.events.some((e) => e.endsWith(':false')),
+      },
+    },
     expect: { name: "new value", area: "multi\nline", rich: "rich text", cleared: "", events: ["focus:true", "input:true", "change:true"], inputValueOfDiv: { error: "invalid-arg" } },
   },
   {
@@ -504,6 +514,10 @@ return { format: r.error ? r : "image" };`,
       chatgpt: {
         reason: "an element screenshot is cropped to the element; ChatGPT's elementScreenshot is not supported by its Chrome backend",
         check: (c, r) => c.format === "png" && c.matches && r.format?.error,
+      },
+      aside: {
+        reason: "locator.screenshot returns a PNG cropped to the element, Playwright's default; Aside's returns WebP",
+        check: (c, r) => c.format === 'png' && c.matches && r.format === 'webp',
       },
     },
     compare: { aside: ["format", "matches", "hidden"], chatgpt: ["format"] },
@@ -705,8 +719,8 @@ return { name: p ? p.split("/").pop() : null, body: null, viaMedia, missing: awa
     compare: { aside: ["name", "body"], chatgpt: ["name", "missing"] },
     better: {
       chatgpt: {
-        reason: "the downloaded file is readable in the REPL (fs.readFileSync(await download.path())); ChatGPT returns a path its sandbox cannot read",
-        check: (c, r) => c.body === "cd body a\n" && r.body == null && (c.name === r.name || /cd-a/.test(String(r.name))),
+        reason: "the download arrives with its name and the file is readable in the REPL; ChatGPT's download event never arrives on Chrome",
+        check: (c, r) => c.name === 'cd-a.txt' && c.body === 'cd body a\n' && r.name == null,
       },
     },
     expect: { name: "cd-a.txt", body: "cd body a\n", missing: { error: "no-element" } },

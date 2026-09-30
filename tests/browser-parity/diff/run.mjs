@@ -258,7 +258,8 @@ async function main() {
   // recorded reference evidence, without writing results.
   if (args.mode === "check") {
     const server = await startDiffServer();
-    const selected = cases.filter((c) => !(c.appOnly && args.backend === "cmux-dev"));
+    // A case that needs a person acting during the run runs only when asked for.
+    const selected = cases.filter((c) => !(c.appOnly && args.backend === "cmux-dev") && !(c.requiresPerson && !process.env.PARITY_USER_CLICK_MARKER));
     let out;
     try {
       out = await runReplBackend(args.backend, selected, server.origins, server);
@@ -287,7 +288,8 @@ async function main() {
   }
   if (args.mode === "run") {
     const server = await startDiffServer();
-    const selected = cases.filter((c) => !(c.appOnly && args.backend === "cmux-dev"));
+    // A case that needs a person acting during the run runs only when asked for.
+    const selected = cases.filter((c) => !(c.appOnly && args.backend === "cmux-dev") && !(c.requiresPerson && !process.env.PARITY_USER_CLICK_MARKER));
     let out;
     try {
       if (args.backend === "aside") out = await runAside(selected, server.origins, server);

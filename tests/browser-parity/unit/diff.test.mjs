@@ -53,9 +53,14 @@ test("every mapped member is same or better than its reference in at least one c
   }
 });
 
+// Cases that need a person to act during the run; without a recorded result
+// they are reported as unverified (docs/browser-repl/parity-report.md).
+const personOnly = new Set(cases.filter((c) => c.requiresPerson).map((c) => c.id));
+
 test("no case is cmux-worse and cmux meets every expectation", () => {
   const worse = [];
   for (const row of rows) {
+    if (personOnly.has(row.id) && row.cmuxProblems.join() === "not run") continue;
     if (row.cmuxProblems.length) worse.push(`${row.id}: ${row.cmuxProblems.join("; ")}`);
     for (const ref of REFERENCES) if (row.refs[ref].verdict === "cmux-worse") worse.push(`${row.id} vs ${ref}: ${row.refs[ref].reason}`);
   }
