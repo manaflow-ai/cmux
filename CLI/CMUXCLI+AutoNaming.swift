@@ -167,9 +167,11 @@ struct AutoNamingEnvironmentPolicy: Sendable {
 ///
 /// `--ignore-user-config` keeps tools, MCP servers, and rules out of the
 /// summarizer, but it also removes the user's model provider. Re-apply only
-/// the provider selection, its provider table, and the selected model.
+/// the provider selection, its non-secret provider settings, and the selected
+/// model. When the caller supplies a temporary `CODEX_HOME`, the provider
+/// credentials remain in its mode-restricted config file instead of argv.
 struct CodexAutoNamingArguments: Sendable {
-    static func build(configToml: String?) -> [String] {
+    static func build(configToml: String?, usesTemporaryConfig: Bool = false) -> [String] {
         var arguments = [
             "exec",
             "-c", "default_tools_enabled=false",
@@ -180,10 +182,12 @@ struct CodexAutoNamingArguments: Sendable {
             "-c", "shell_environment_policy.inherit=none",
             "--skip-git-repo-check",
             "--ephemeral",
-            "--ignore-user-config",
             "--ignore-rules",
             "--sandbox", "read-only"
         ]
+        if !usesTemporaryConfig {
+            arguments.insert("--ignore-user-config", at: arguments.firstIndex(of: "--ignore-rules")!)
+        }
         guard let configToml else { return arguments }
         let overrides = providerOverrides(from: configToml)
         for override in overrides.reversed() {
@@ -223,6 +227,7 @@ struct CodexAutoNamingArguments: Sendable {
         if let model { result.append("model=\(model)") }
         result.append(contentsOf: providerEntries
             .filter { $0.section.hasPrefix("model_providers.\(providerName)") }
+            .filter { !isCredentialBearingKey($0.key) }
             .map {
                 let prefix = "model_providers.\(providerName)"
                 let nestedPath = String($0.section.dropFirst(prefix.count))
@@ -231,6 +236,19 @@ struct CodexAutoNamingArguments: Sendable {
                 return "model_providers.\(providerName).\(keyPath)=\($0.value)"
             })
         return result
+    }
+
+    private static func isCredentialBearingKey(_ key: String) -> Bool {
+        let normalized = key.lowercased().replacingOccurrences(of: "-", with: "_")
+        return normalized.contains("token")
+            || normalized.contains("secret")
+            || normalized.contains("password")
+            || normalized.contains("credential")
+            || normalized.contains("auth")
+            || normalized.contains("api_key")
+            || normalized.contains("apikey")
+            || normalized.hasSuffix("_key")
+            || normalized == "key"
     }
 
     private static func providerNameFromValue(_ value: String) -> String? {
