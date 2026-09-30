@@ -120,7 +120,8 @@ def launch():
         stop(signal.SIGKILL)
         sys.exit("the no-activate app took the keyboard; stopped it (report this as a bug): "
                  f"app_active={focus.get('app_active')} key_window={focus.get('key_window')}")
-    print(f"launched pid {app.pid}")
+    given = (focus.get("keyboard_given_back") or {}).get("count") or 0
+    print(f"launched pid {app.pid}" + (f" (no-activate guard gave the keyboard back {given}x)" if given else ""))
 
 
 def stop(sig):
