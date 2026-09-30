@@ -5,12 +5,6 @@ import SwiftUI
 struct OnboardingSceneFooter: View {
     let primaryTitle: String?
     let secondaryTitle: String?
-    /// Whether a missing secondary action still occupies its slot. The demo
-    /// pages reserve it so the page viewport, and therefore the device-frame
-    /// visual, keeps one size whether a page pairs Continue with a secondary
-    /// choice or not; Connect keeps its fully dynamic footer. Compact height
-    /// lays the actions side by side, so there is nothing to reserve there.
-    let reservesSecondarySlot: Bool
     let onPrimary: () -> Void
     let onSecondary: () -> Void
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -49,9 +43,10 @@ struct OnboardingSceneFooter: View {
             .accessibilityIdentifier("MobileOnboardingPrimaryButton")
         }
 
-        if secondaryTitle != nil || (reservesSecondarySlot && verticalSizeClass != .compact) {
+        if secondaryTitle != nil || (primaryTitle != nil && verticalSizeClass != .compact) {
             // Reserve the actual control's size, including system button
-            // padding, so Enable Notifications stays aligned with Continue.
+            // padding, to keep primary actions aligned across every page.
+            // Compact height places actions side by side and needs no slot.
             Button(
                 secondaryTitle ?? L10n.string(
                     "mobile.onboarding.push.notNow", defaultValue: "Not Now"
