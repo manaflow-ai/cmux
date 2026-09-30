@@ -251,9 +251,23 @@ page is `browserReload`, not `renameTab`), then the tier decides whether it may 
 A Ghostty keybind that collides with a tier 1 or tier 2 action loses, unless the user
 unbinds the action (`shortcuts.bindings.<id>: null`) or moves it to a lower tier in
 `cmux.json`. `focusBrowserAddressBar` (Cmd-L) is tier 1 although it needs a browser tab.
-Residual: when the router declines a chord (focus mode, text field), AppKit still offers
-it to the main menu after the view, so a menu item with the same key equivalent can run
-if the page or field does not consume it. The palette panel and
+Main-menu key equivalents run the same check: `ActionRegistry.menuKeyEquivalentGate`
+(the App's `KeyRouter`) refuses a menu item's chord during a key-down when its tier may
+not take the key from the key window's focus, so a chord the router gave to a page in
+focus mode or to a text field cannot fire the menu item afterwards. A panel or sheet
+over the window (palette, rename sheet) counts as a text field. Clicks in an open menu
+are not gated.
+
+Sidebar inline rename: Return, Escape or Tab ends it and gives the keyboard back to the
+focused content through the coordinator; a click elsewhere keeps the clicked target.
+Closing the find bar or ending address bar editing also goes through the coordinator
+(`BrowserChromeView.onReturnFocusToPage`), so a Chromium page gets focus back and no
+field editor keeps a caret in the parent window while the page window has the keys.
+
+DEBUG builds add `debug.key` (a key-down dispatched into one of the app's own windows
+like `NSApplication.sendEvent`: window key equivalents, then the main menu, then the
+responder chain) and `debug.sidebar_rename`, for verification on windows that are
+never key. The palette panel and
 sheets are other windows: their own key handling runs, and the published context has no
 content bits while they are open.
 

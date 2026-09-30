@@ -60,6 +60,7 @@ final class AppServices {
         keyRouter = KeyRouter(registry: registry)
         keyRouter.services = self
         cache.keyRouter = keyRouter
+        cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
         surfaceInvariant.services = self
         cache.onPresentationChange = { [weak self] in self?.surfaceInvariant.noteChange() }

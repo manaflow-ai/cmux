@@ -45,6 +45,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
             },
+            .mainActor("debug.sidebar_rename") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugKey.beginSidebarRename(call.params, services: services))
+            },
             .mainActor("debug.stall") { call in
                 let milliseconds = min(max(call.params["ms"]?.intValue ?? 100, 1), 1_000)
                 let end = ContinuousClock.now + .milliseconds(milliseconds)

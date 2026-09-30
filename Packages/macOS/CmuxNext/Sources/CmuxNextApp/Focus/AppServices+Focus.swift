@@ -23,6 +23,16 @@ extension AppServices {
         }
     }
 
+    /// The chrome of page `key` gives the keyboard back to the page: its
+    /// window's coordinator targets the page content (WebKit or Chromium).
+    func returnFocusToPage(_ key: String) {
+        for controller in windows.controllers {
+            guard let pane = controller.content?.panes.values.first(where: { $0.currentTabKey == key }) else { continue }
+            controller.focus.send(.focusPane(pane.paneKey, source: .intent))
+            return
+        }
+    }
+
     /// The window whose content shows `pane`.
     func windowController(showing pane: PaneController) -> WindowController? {
         windows.controllers.first { $0.content === pane.workspace }

@@ -35,6 +35,10 @@ final class TabContentCache {
     /// Routes app shortcuts before a Chromium page window sees them (a CEF
     /// page window is key, so `ShellWindow` never gets the key).
     weak var keyRouter: KeyRouter?
+    /// A page's chrome hands the keyboard back to page `key` (find bar
+    /// closed, address bar editing ended); the App routes it through the
+    /// window's focus coordinator.
+    var onPageFocusRequest: ((String) -> Void)?
 
     init(daemon: DaemonService) {
         self.daemon = daemon
@@ -95,6 +99,7 @@ final class TabContentCache {
         if let entry = browsers[key] { return entry }
         let tab = webKit.makeWebKitTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
         let entry = BrowserEntry(tab: tab, suggestionEngine: suggestionEngine, history: history)
+        entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         browsers[key] = entry
         return entry
     }
@@ -119,7 +124,9 @@ final class TabContentCache {
             defer { pendingBrowsers.remove(key) }
             guard let page = try? await cef.makeTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url)) else { return }
             page.keyRouter = keyRouter
-            browsers[key] = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
+            let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
+            entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
+            browsers[key] = entry
             if let tab { browserTabs.track(page, for: tab) }
             onBrowserReady?(key)
         }

@@ -116,11 +116,11 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .childWindow:
             // Chromium's page is a child window. Its focus is sticky: while
             // this window is key because of a click, the click decides.
+            // The page window has the keys: nothing in this window keeps a
+            // responder (a field editor or the sidebar would show a caret).
+            if window.firstResponder !== window { window.makeFirstResponder(nil) }
             guard focusedChildWindowPage !== page else { return }
             blurChildWindowPage()
-            if let view = window.firstResponder as? NSView, controller.content?.panes.values.contains(where: { view.isDescendant(of: $0.view) }) == true {
-                window.makeFirstResponder(nil)
-            }
             page.setFocused(true)
             focusedChildWindowPage = page
         }
@@ -147,6 +147,7 @@ final class FocusEffectApplier: FocusEffectApplying {
               let pane = paneShowingChildWindowPage(at: child.frame) else { return }
         focusedChildWindowPage = pane.page
         controller.focus.responderDidChange(.content(pane: pane.key), source: .mouse)
+        if window.firstResponder !== window { window.makeFirstResponder(nil) }
     }
 
     private func paneShowingChildWindowPage(at frame: NSRect) -> (key: String, page: any BrowserTab)? {

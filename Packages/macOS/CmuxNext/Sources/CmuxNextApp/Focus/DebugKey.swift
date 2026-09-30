@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextSettings
+import CmuxNextBridge
 
 /// `debug.key` (DEBUG builds): a key-down synthesized into one of this
 /// process's own windows and dispatched like `NSApplication.sendEvent`
@@ -47,6 +48,17 @@ enum DebugKey {
             window.sendEvent(event)
         }
         return .object(["handled_by": .string(handledBy)])
+    }
+
+    /// `debug.sidebar_rename`: begins the inline rename of the window's
+    /// workspace, as a double-click on its row does (the palette asks for a
+    /// name instead when `renameWorkspace` runs without one).
+    static func beginSidebarRename(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        let windowID = params["window"]?.stringValue
+        guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
+              let workspace = controller.state.workspaceID else { return .object(["error": .string("no window")]) }
+        controller.sidebar.container.sidebarView.beginRename(workspace: SidebarWorkspaceID(workspace))
+        return .object(["workspace": .string(workspace)])
     }
 }
 #endif
