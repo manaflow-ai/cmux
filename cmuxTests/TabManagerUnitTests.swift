@@ -4190,7 +4190,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
             return
         }
 
-        var closedSnapshot: ClosedBrowserPanelRestoreSnapshot?
+        var closedSnapshot: LegacyClosedBrowserPanelRestoreSnapshot?
         workspace.onClosedBrowserPanel = { snapshot in
             closedSnapshot = snapshot
         }
@@ -4198,9 +4198,9 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(workspace.splitTabBar(workspace.bonsplitController, shouldCloseTab: tab, inPane: paneId))
         workspace.splitTabBar(workspace.bonsplitController, didCloseTab: tabId, fromPane: paneId)
 
-        XCTAssertEqual(closedSnapshot?.workspaceId, workspace.id)
-        XCTAssertEqual(closedSnapshot?.url, expectedURL)
-        XCTAssertEqual(closedSnapshot?.originalPaneId, paneId.id)
+        XCTAssertEqual(closedSnapshot?.fallbackSnapshot.workspaceId, workspace.id)
+        XCTAssertEqual(closedSnapshot?.fallbackSnapshot.url, expectedURL)
+        XCTAssertEqual(closedSnapshot?.fallbackSnapshot.originalPaneId, paneId.id)
     }
 
     func testTemporaryDiffViewerTabCloseDoesNotStageRestoreSnapshot() throws {
@@ -4214,7 +4214,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
             return
         }
 
-        var closedSnapshot: ClosedBrowserPanelRestoreSnapshot?
+        var closedSnapshot: LegacyClosedBrowserPanelRestoreSnapshot?
         workspace.onClosedBrowserPanel = { snapshot in
             closedSnapshot = snapshot
         }
