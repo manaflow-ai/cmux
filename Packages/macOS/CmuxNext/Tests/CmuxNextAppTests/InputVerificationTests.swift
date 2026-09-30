@@ -147,4 +147,35 @@ struct InputVerificationTests {
         #expect(result.firstDivergence == nil)
         #expect(result.attachEvents == script.count)
     }
+
+    // MARK: Reports and world invariants
+
+    @Test func desyncReportRoundTrips() throws {
+        let observation = InputFuzzerSupport.observation()
+        let report = DesyncReport(id: "desync-1", sequence: 1, createdAt: Date(timeIntervalSince1970: 1_000), uptimeNanos: 5, tag: "t",
+                                  violations: [InputViolation(invariant: .responderMatches, window: "W0", detail: "x")],
+                                  observation: observation, journal: Self.journaled(Self.events),
+                                  journalStats: InputJournal(capacity: 16).stats)
+        let data = try DesyncReport.encoder.encode(report)
+        #expect(try DesyncReport.decoder.decode(DesyncReport.self, from: data) == report)
+    }
+
+    @Test func worldCatchesAResponderAndKeyWindowDesync() {
+        var observation = InputFuzzerSupport.observation()
+        #expect(InputInvariants.world(observation).violations.isEmpty)
+        observation.windows[0].responder = .sidebar
+        observation.keyWindow = .childPage(window: "W0")
+        observation.windows[0].isKey = false
+        let ids = Set(InputInvariants.world(observation).violations.map(\.invariant))
+        #expect(ids.isSuperset(of: [.responderMatches, .keyWindowOwned, .ghosttyMatches]))
+    }
+}
+
+/// A consistent one-window observation built by the composed model.
+enum InputFuzzerSupport {
+    static func observation() -> InputObservation {
+        let world = InputWorld(windows: 1, reportsRemoval: false)
+        world.frame()
+        return world.observation()
+    }
 }

@@ -88,7 +88,7 @@ struct FocusStressTests {
         if let expectation = state.expectation {
             #expect(expectation.generation == state.generation, "stale expectation survived, \(context)")
         }
-        #expect(state.browserFocusMode.isSubset(of: state.topology.allTabIDs) || !isTopology(event), "\(context)")
+        #expect(state.browserFocusMode.isSubset(of: state.topology.allTabIDs), "\(context)")
         switch resolved {
         case .addressBar(let pane, _), .findBar(let pane, _), .browserPage(let pane, _):
             #expect(state.topology.pane(pane)?.selectedTab?.kind == .browser, "\(context)")
@@ -97,10 +97,6 @@ struct FocusStressTests {
         default:
             break
         }
-    }
-
-    static func isTopology(_ event: FocusEvent) -> Bool {
-        if case .topology = event { true } else { false }
     }
 
     @Test(arguments: [1, 2, 3, 4, 5, 6, 7, 8] as [UInt64])
@@ -113,7 +109,6 @@ struct FocusStressTests {
             Self.checkInvariants(next, after: event, step: step)
             // Every select effect names a tab of its pane when the pane is shown.
             for case .select(let pane, let tab) in effects where next.topology.contains(pane: pane) && next.topology.workspace == state.topology.workspace {
-                if case .selectTab = event { continue }
                 #expect(next.topology.pane(pane)?.tab(tab) != nil, "select names a missing tab, step \(step)")
             }
             // Reducing is deterministic.

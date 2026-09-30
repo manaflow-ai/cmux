@@ -154,7 +154,31 @@ mouse entries into a tagged app through `debug.key` and `debug.mouse` and compar
 after each input with the next recorded digest. It is best effort: the live layout differs from
 the recorded one unless the tagged app was prepared with the same topology.
 
-## 6. Limits and follow-ups
+## 6. Model-based fuzzing
+
+`InputWorld` composes the real `FocusCoordinator` per window (its queue and echo suppression),
+the real omnibar reducer per browser tab, a real `TerminalAttachMachine` per terminal view with
+`AttachOracle`, and the `KeyRouter` tier rules, around a simulated daemon tree and AppKit:
+first responders, key window, frame-deferred presentation, Chromium page windows, the palette,
+sheets and the group editor. `SimWindow` follows `FocusEffectApplier`, `PaneController` and
+`WorkspaceContentController` step by step; `InputWorld.setKey` follows AppKit's resign-then-become
+order and the app's key notifications.
+
+`FuzzAction` covers daemon tab/pane create, close and move; deltas and command responses
+delivered in any order or rejected; user splits, new tabs, closes and moves; clicks in panes,
+tabs, pages, the sidebar and fields; keyboard navigation, Cmd-L, find, Escape, Enter and typing;
+CLI focus and (stale) tab selection; key window and app activation changes; the palette,
+sheets and the group editor; workspace switches; drags with every outcome; browser focus mode;
+frames; and attach opens, failures, replays, overflows, late opens and ends. Parameters are
+indices resolved at run time, so any subsequence is a valid run: a failure is shrunk by delta
+debugging to a minimal sequence that still breaks the same invariant.
+
+CI (`swift test`) runs seeds 1-24, 500 steps each, alternating 1-3 windows and silent or reported
+responder removal. Locally: `CMUX_NEXT_FUZZ_RUNS=1000 CMUX_NEXT_FUZZ_STEPS=1500 swift test --filter
+InputModelFuzzTests/longRandomRun` (`CMUX_NEXT_FUZZ_SEED` picks the first seed). 1,000 seeds of
+1,500 steps passed at landing.
+
+## 7. Limits and follow-ups
 
 - The model assumes Chromium's `SetFocus` does not make the page window key (the fork's
   "counts as active while the parent is key", browser.md). If the page window does become key,
