@@ -37,6 +37,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Owns the optimistic create projection so a later create cannot clear
     /// it when the earlier coordinator request has already finished.
     var pendingTeamCreateRequestID: UUID?
+    /// Invitations addressed to the signed-in user, refreshed on sign-in, by
+    /// the poll and after every invitation action. Empty while signed out.
+    var receivedInvitations: [CloudReceivedInvitation] = []
+    @ObservationIgnored var receivedInvitationsPoll: Task<Void, Never>?
+    @ObservationIgnored var receivedInvitationsLoaded = false
     var isCreatingTeam: Bool { coordinator.isCreatingTeam }
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
