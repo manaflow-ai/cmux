@@ -285,6 +285,7 @@ final class TabContentCache {
     }
 
     private func applyRendering(_ key: String, _ render: Bool) {
+        InputJournal.shared.append(window: nil, .content(tab: key, event: "render(\(render))"))
         if let entry = terminals[key] {
             entry.session.isRenderingSuspended = !render
             entry.io.setVisible(render)

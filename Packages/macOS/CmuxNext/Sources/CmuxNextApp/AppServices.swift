@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextPalette
@@ -105,6 +106,7 @@ final class AppServices {
         let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
         self.updateSheet = updateSheet
         updater.presentUpdateUI = { [weak self] in updateSheet.present(in: self?.windows.active?.window) }
+        BrowserLifecycleTrace.sink = { tab, event in InputJournal.shared.append(window: nil, .content(tab: tab, event: event)) }
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }

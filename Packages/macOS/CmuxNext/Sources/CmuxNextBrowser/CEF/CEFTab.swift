@@ -94,6 +94,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         isCreationPending = false
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
+        BrowserLifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(host.visibleTab === self)")
         if pendingFocus { runtime.shim?.setFocus(browser, 1) }
         refreshExtensionActions()
     }
@@ -235,17 +236,23 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     public func setFocused(_ focused: Bool) {
+        BrowserLifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(host.visibleTab === self)")
         pendingFocus = focused
         browserID.map { runtime.shim?.setFocus($0, focused ? 1 : 0) }
     }
 
     public func setOccluded(_ occluded: Bool) async {
+        BrowserLifecycleTrace.record(id, "occlude(\(occluded)) was=\(isOccluded) shown=\(host.visibleTab === self)")
         guard occluded != isOccluded else { return }
         isOccluded = occluded
         if occluded {
             let image = try? await snapshot()
-            guard isOccluded else { return }
+            guard isOccluded else {
+                BrowserLifecycleTrace.record(id, "occlude-snapshot-late dropped")
+                return
+            }
             container.showSnapshot(image)
+            BrowserLifecycleTrace.record(id, "occlude-snapshot-late apply shown=\(host.visibleTab === self) hide=\(host.visibleTab === self)")
             if host.visibleTab === self { host.hostView.isHidden = true }
             devToolsViews?.host.isHidden = true
         } else {

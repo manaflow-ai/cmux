@@ -40,6 +40,9 @@ nonisolated struct InputJournalEntry: Hashable, Sendable, Codable {
         case desync([String])
         /// Free text from automation (`debug.journal` with `marker`).
         case marker(String)
+        /// A tab content lifecycle step (show, hide, page window shown or
+        /// hidden, a late completion dropped), plans/cmux-next/tab-lifecycle.md.
+        case content(tab: String, event: String)
     }
 
     enum KeyPhase: String, Hashable, Sendable, Codable {

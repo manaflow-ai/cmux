@@ -180,8 +180,10 @@ extension CEFRuntime {
             // forbids re-entrant tab strip changes (cmux_tab_activate); the
             // host selects the tab on the next main-actor turn.
             if let tab = tabsByBrowser[browser], tab.host.visibleTab !== tab {
+                BrowserLifecycleTrace.record(tab.id, "chromium-activated while hidden")
                 Task { @MainActor [weak tab] in
                     guard let tab, tab.host.visibleTab !== tab else { return }
+                    BrowserLifecycleTrace.record(tab.id, "chromium-activated selects tab")
                     tab.emit(.activate)
                 }
             }

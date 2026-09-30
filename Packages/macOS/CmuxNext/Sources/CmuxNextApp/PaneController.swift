@@ -158,6 +158,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     func showSelected() {
         let key = stripModel.selectedID?.rawValue
+        if key != currentTabKey {
+            InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
+        }
         if let currentTabKey, currentTabKey != key { services.cache.withdraw(currentTabKey, by: self) }
         // May replace a stale surface, displacing the view shown here.
         let content = key.flatMap(content(for:))

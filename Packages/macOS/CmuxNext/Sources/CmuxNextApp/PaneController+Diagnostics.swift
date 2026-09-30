@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextTerminal
@@ -18,6 +19,11 @@ struct PaneSurfaceStatus {
     var terminal: TerminalSurfaceDiagnostics?
     /// Hover in the pane's tab strip (trailing buttons, tab x).
     var strip: TabStripHoverState?
+    /// For a page: whether it draws over the pane (nil for terminals).
+    var page: BrowserContentVisibility?
+    /// Visible page windows over the pane that are not the shown tab's own
+    /// page (another tab's page left on screen).
+    var foreignPages: Int = 0
 
     /// The layout gave the pane no room below its tab strip (a split tree
     /// deeper than the window allows). A layout sizing problem, not a
@@ -32,7 +38,8 @@ struct PaneSurfaceStatus {
         guard isVisible, selectedTab != nil, !isCollapsed else { return false }
         guard selectedTab == shownTab, contentInstalled, contentInWindow else { return true }
         if let terminal { return !terminal.isPresentable }
-        return false
+        if let page, !page.isVisible { return true }
+        return foreignPages > 0
     }
 
     /// An off-screen pane in the keep-alive band whose selected tab has no
@@ -59,6 +66,8 @@ struct PaneSurfaceStatus {
             "content_size": .string("\(Int(contentSize.width))x\(Int(contentSize.height))"),
             "blank": .bool(isBlank),
             "collapsed": .bool(isCollapsed),
+            "content_visible": .bool(page?.isVisible ?? (terminal?.isPresentable ?? contentInstalled)),
+            "foreign_pages": JSONValue(foreignPages),
         ]
         if let strip {
             object["strip"] = [
@@ -67,6 +76,7 @@ struct PaneSurfaceStatus {
                 "close_shown": .array(strip.closeShown.map(JSONValue.string)),
             ]
         }
+        if let reason = page?.reason { object["content_reason"] = .string(reason) }
         if let terminal {
             object["surface"] = [
                 "exists": .bool(terminal.hasSurface),
@@ -91,13 +101,22 @@ extension PaneController {
         let content = currentTabKey.flatMap(existingContent(for:))
         let view = content?.view
         var terminal: TerminalSurfaceDiagnostics?
+        var page: BrowserContentVisibility?
+        var ownPages = 0
         var kind = "none"
         switch content {
         case .terminal(let entry):
             kind = "terminal"
             terminal = entry.session.diagnostics
-        case .browser:
+        case .browser(let entry):
             kind = "browser"
+            if let reporting = entry.tab as? any BrowserContentVisibilityReporting {
+                page = reporting.contentVisibility
+                if page?.isVisible == true { ownPages = 1 }
+            } else {
+                page = entry.tab.contentView.window == nil || entry.tab.contentView.isHiddenOrHasHiddenAncestor
+                    ? .hidden("not_in_window") : .visible
+            }
         case nil:
             break
         }
@@ -118,7 +137,27 @@ extension PaneController {
             contentInWindow: view?.window != nil,
             contentSize: view?.bounds.size ?? .zero,
             terminal: terminal,
-            strip: self.view.stripView.hoverState
+            strip: self.view.stripView.hoverState,
+            page: page,
+            foreignPages: isVisible ? max(0, visiblePageWindowsOverContent - ownPages) : 0
         )
+    }
+}
+
+extension PaneController {
+    /// Visible app windows other than panels, the pane's window and docked
+    /// DevTools that cover most of this pane's content area: Chromium page
+    /// windows over the pane (child windows or ones Chromium ordered front
+    /// on its own).
+    var visiblePageWindowsOverContent: Int {
+        guard let window = view.window else { return 0 }
+        let content = view.convert(view.bounds, to: nil)
+        let rect = window.convertToScreen(content)
+        let devTools = (currentContent.flatMap { if case .browser(let entry) = $0 { entry.tab } else { nil } }) as? any BrowserDevToolsHosting
+        return NSApp.windows.filter { other in
+            guard other !== window, other.isVisible, !(other is NSPanel), devTools?.devToolsContains(window: other) != true else { return false }
+            let overlap = other.frame.intersection(rect)
+            return !overlap.isNull && overlap.width * overlap.height > 0.5 * rect.width * rect.height
+        }.count
     }
 }
