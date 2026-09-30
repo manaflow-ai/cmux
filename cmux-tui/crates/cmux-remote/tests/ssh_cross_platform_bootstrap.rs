@@ -209,6 +209,9 @@ struct NonPosixLoginShellFixture {
     rejected: std::path::PathBuf,
 }
 
+/// What `npm` prints when a newer npm is published.
+const NPM_NOTICE: &str = "echo 'npm notice New major version of npm available! 10.9.2 -> 11.6.1'";
+
 /// The npm platform package and pinned-manifest target for the platform the
 /// stand-in remote reports. That is what `uname` prints, which can differ
 /// from the test binary's own target (for example under Rosetta).
@@ -229,6 +232,13 @@ fn host_release_target() -> Option<(&'static str, &'static str)> {
 
 impl NonPosixLoginShellFixture {
     fn new(npm: bool) -> Option<Self> {
+        Self::with_notice(npm, false)
+    }
+
+    /// With `notice`, npm and the remote shell both print a notice on
+    /// stdout while the package is fetched, as npm's update notifier or a
+    /// login-shell message can.
+    fn with_notice(npm: bool, notice: bool) -> Option<Self> {
         let (npm_package, target) = host_release_target()?;
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();
@@ -276,9 +286,11 @@ impl NonPosixLoginShellFixture {
             format!(
                 r#"#!/bin/sh
 [ "$1 $2 $3 $4" = 'pack --ignore-scripts --silent {npm_package}@9.9.9' ] || exit 9
+{notice}
 tar -czf '{npm_package}-9.9.9.tgz' -C '{registry}' package
 "#,
                 registry = registry.display(),
+                notice = if notice { NPM_NOTICE } else { "" },
             ),
         )
         .unwrap();
@@ -297,6 +309,9 @@ done
 command_line="$*"
 PATH='{fake_bin}':$PATH; export PATH
 case "$command_line" in
+  *"npm pack "*) {notice} ;;
+esac
+case "$command_line" in
   *[!A-Za-z0-9_./~:@+\ -]*) ;;
   *) exec sh -c "$command_line" ;;
 esac
@@ -311,6 +326,7 @@ exit 127
 "#,
                 fake_bin = fake_bin.display(),
                 rejected = rejected.display(),
+                notice = if notice { NPM_NOTICE } else { ":" },
             ),
         )
         .unwrap();
@@ -345,6 +361,14 @@ exit 127
 #[tokio::test]
 async fn ssh_npm_bootstrap_works_when_the_remote_login_shell_is_not_posix() {
     if let Some(fixture) = NonPosixLoginShellFixture::new(true) {
+        fixture.install().await;
+    }
+}
+
+/// A notice on stdout ahead of the digest is not a tampered package.
+#[tokio::test]
+async fn ssh_npm_bootstrap_ignores_a_notice_printed_before_the_digest() {
+    if let Some(fixture) = NonPosixLoginShellFixture::with_notice(true, true) {
         fixture.install().await;
     }
 }
