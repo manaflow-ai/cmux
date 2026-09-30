@@ -219,8 +219,8 @@ Rules, and how they improve on the references:
   bare `@@` hunks. The diff anchors on lines that occur once in both trees
   (refs make most element lines unique) and runs a bounded Myers diff
   between anchors, so it is near-linear: a 100,000-line tree with one change
-  diffs in milliseconds, and a full rewrite of 50,000 lines in about a
-  second, where a plain Myers diff ran out of memory.
+  diffs in about 50 ms and a full rewrite of 50,000 lines in about 150 ms,
+  where a plain Myers diff ran out of memory.
 
 ## Large output
 

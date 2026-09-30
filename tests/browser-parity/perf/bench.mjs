@@ -316,6 +316,7 @@ console.log(${JSON.stringify(MARK)} + JSON.stringify(__out));`;
   return {
     async page(p) {
       const r = await runProcess("aside", ["repl", program(p)], { timeoutMs: 900_000 });
+      if (!r.out.includes(MARK)) throw new Error(`aside exit ${r.code} after ${r.ms}ms: ${(r.err || r.out).slice(-400)}`);
       return parseMarked(r.out);
     },
     async overhead() {

@@ -34,8 +34,17 @@ equivalent.
   `27-corpus` checks recall (every Chrome interactive element, same role and
   name), leaks (no unrendered text) and size (within 10% of Aside) per page.
   Re-capture only on purpose: it changes the pages under test.
+- `fixtures/stress/`: synthetic large pages (`stress.html?kind=cards|table|list|deep|iframes|shadow|text|select|virtual&n=N`),
+  built by script so the same query gives the same DOM. Scenario `30-stress`
+  checks Playwright behavior on them against the oracle and the print budget.
+- `perf/`: `bench.mjs` times snapshots, diffs and ref resolution per page for
+  cmux (dev driver or a tagged app), Aside, Playwright MCP and ChatGPT's AX
+  renderer; `report.mjs` renders `perf/results/*.json` as the tables in
+  [performance.md](../../docs/browser-repl/performance.md).
 - `reference/`: API surfaces captured from Aside and ChatGPT for Chrome.
-- `unit/`: `node --test` tests for the runtime and for capabilities.json.
+- `unit/`: `node --test` tests for the runtime and for capabilities.json,
+  including `budget.test.mjs` (print budget, diff bounds, output spill) and
+  `perf.test.mjs` (scaling and bounded-output guards on the stress pages).
 
 ## Backends
 

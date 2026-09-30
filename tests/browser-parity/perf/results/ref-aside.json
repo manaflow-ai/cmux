@@ -1,0 +1,808 @@
+{
+ "backend": "aside",
+ "label": "ref",
+ "runs": 3,
+ "date": "2026-09-30T08:55:04.859Z",
+ "host": "mac.lan",
+ "pages": {
+  "cards-50k": {
+   "name": "cards-50k",
+   "runs": [
+    {
+     "snapMs": 12042,
+     "treeChars": 1655559
+    },
+    {
+     "snapMs": 3232,
+     "treeChars": 1655559
+    },
+    {
+     "snapMs": 7374,
+     "treeChars": 1655559
+    }
+   ],
+   "diff": {
+    "snapMs": 2636,
+    "diffChars": 92,
+    "printed": "@@ -1 +1 @@\n-- heading \"Stress page\" [level=1]\n+- heading \"Stress page (changed)\" [level=1]\n"
+   },
+   "refCount": 16668,
+   "locatorMs": 7,
+   "p50": 7374,
+   "p95": 12042,
+   "firstMs": 12042,
+   "treeBytes": 1655559,
+   "printedBytes": 1655559,
+   "printedChars": 1655559,
+   "treeChars": 1655559,
+   "printedTokens": 628432,
+   "treeTokens": 628432,
+   "breakdown": null
+  },
+  "cards-200k": {
+   "name": "cards-200k",
+   "error": "aside exit 1 after 51893ms: fetch failed: other side closed\nAside isn't running on this machine.\n  - Start Aside Browser and retry, or\n  - control another machine / Aside Cloud instead: run 'aside login' once, then 'aside exec --host <host>' (see 'aside host list').\n"
+  },
+  "table-10k": {
+   "name": "table-10k",
+   "runs": [
+    {
+     "snapMs": 1156,
+     "treeChars": 299755
+    },
+    {
+     "snapMs": 1202,
+     "treeChars": 299755
+    },
+    {
+     "snapMs": 1320,
+     "treeChars": 299755
+    }
+   ],
+   "diff": {
+    "snapMs": 1445,
+    "diffChars": 92,
+    "printed": "@@ -1 +1 @@\n-- heading \"Stress page\" [level=1]\n+- heading \"Stress page (changed)\" [level=1]\n"
+   },
+   "refCount": 1000,
+   "locatorMs": 586,
+   "p50": 1202,
+   "p95": 1320,
+   "firstMs": 1156,
+   "treeBytes": 299755,
+   "printedBytes": 299755,
+   "printedChars": 299755,
+   "treeChars": 299755,
+   "printedTokens": 124464,
+   "treeTokens": 124464,
+   "breakdown": null
+  },
+  "list-5k": {
+   "name": "list-5k",
+   "runs": [
+    {
+     "snapMs": 1863,
+     "treeChars": 554357
+    },
+    {
+     "snapMs": 3997,
+     "treeChars": 554357
+    },
+    {
+     "snapMs": 1133,
+     "treeChars": 554357
+    }
+   ],
+   "diff": {
+    "snapMs": 1227,
+    "diffChars": 92,
+    "printed": "@@ -1 +1 @@\n-- heading \"Stress page\" [level=1]\n+- heading \"Stress page (changed)\" [level=1]\n"
+   },
+   "refCount": 10001,
+   "locatorMs": 1068,
+   "p50": 1863,
+   "p95": 3997,
+   "firstMs": 1863,
+   "treeBytes": 554357,
+   "printedBytes": 554357,
+   "printedChars": 554357,
+   "treeChars": 554357,
+   "printedTokens": 197063,
+   "treeTokens": 197063,
+   "breakdown": null
+  },
+  "deep-500": {
+   "name": "deep-500",
+   "runs": [
+    {
+     "snapMs": 293,
+     "treeChars": 543
+    },
+    {
+     "snapMs": 442,
+     "treeChars": 543
+    },
+    {
+     "snapMs": 1247,
+     "treeChars": 543
+    }
+   ],
+   "diff": {
+    "snapMs": 1099,
+    "diffChars": 92,
+    "printed": "@@ -1 +1 @@\n-- heading \"Stress page\" [level=1]\n+- heading \"Stress page (changed)\" [level=1]\n"
+   },
+   "refCount": 1,
+   "locatorMs": 2373,
+   "p50": 442,
+   "p95": 1247,
+   "firstMs": 293,
+   "treeBytes": 543,
+   "printedBytes": 543,
+   "printedChars": 543,
+   "treeChars": 543,
+   "printedTokens": 145,
+   "treeTokens": 145,
+   "breakdown": null
+  },
+  "deep-1k": {
+   "name": "deep-1k",
+   "runs": [
+    {
+     "snapMs": 4249,
+     "treeChars": 1105
+    },
+    {
+     "snapMs": 2380,
+     "treeChars": 1105
+    },
+    {
+     "snapMs": 3899,
+     "treeChars": 1105
+    }
+   ],
+   "diff": {
+    "snapMs": 1018,
+    "diffChars": 92,
+    "printed": "@@ -1 +1 @@\n-- heading \"Stress page\" [level=1]\n+- heading \"Stress page (changed)\" [level=1]\n"
+   },
+   "refCount": 1,
+   "locatorMs": 3,
+   "p50": 3899,
+   "p95": 4249,
+   "firstMs": 4249,
+   "treeBytes": 1105,
+   "printedBytes": 1105,
+   "printedChars": 1105,
+   "treeChars": 1105,
+   "printedTokens": 227,
+   "treeTokens": 227,
+   "breakdown": null
+  },
+  "iframes-300": {
+   "name": "iframes-300",
+   "runs": [
+    {
+     "snapMs": 1830,
+     "treeChars": 29791
+    },
+    {
+     "snapMs": 3494,
+     "treeChars": 29791
+    },
+    {
+     "snapMs": 3498,
+     "treeChars": 29791
+    }
+   ],
+   "diff": {
+    "snapMs": 3505,
+    "diffChars": 92,
+    "printed": "@@ -1 +1 @@\n-- heading \"Stress page\" [level=1]\n+- heading \"Stress page (changed)\" [level=1]\n"
+   },
+   "refCount": 300,
+   "locatorMs": 4520,
+   "p50": 3494,
+   "p95": 3498,
+   "firstMs": 1830,
+   "treeBytes": 29791,
+   "printedBytes": 29791,
+   "printedChars": 29791,
+   "treeChars": 29791,
+   "printedTokens": 11772,
+   "treeTokens": 11772,
+   "breakdown": null
+  },
+  "shadow-2k": {
+   "name": "shadow-2k",
+   "runs": [
+    {
+     "snapMs": 335,
+     "treeChars": 116811
+    },
+    {
+     "snapMs": 561,
+     "treeChars": 116811
+    },
+    {
+     "snapMs": 1174,
+     "treeChars": 116811
+    }
+   ],
+   "diff": {
+    "snapMs": 1025,
+    "diffChars": 92,
+    "printed": "@@ -1 +1 @@\n-- heading \"Stress page\" [level=1]\n+- heading \"Stress page (changed)\" [level=1]\n"
+   },
+   "refCount": 2000,
+   "locatorMs": 2916,
+   "p50": 561,
+   "p95": 1174,
+   "firstMs": 335,
+   "treeBytes": 116811,
+   "printedBytes": 116811,
+   "printedChars": 116811,
+   "treeChars": 116811,
+   "printedTokens": 47048,
+   "treeTokens": 47048,
+   "breakdown": null
+  },
+  "text-2m": {
+   "name": "text-2m",
+   "runs": [
+    {
+     "snapMs": 747,
+     "treeChars": 2000186
+    },
+    {
+     "snapMs": 992,
+     "treeChars": 2000186
+    },
+    {
+     "snapMs": 1264,
+     "treeChars": 2000186
+    }
+   ],
+   "diff": {
+    "snapMs": 1041,
+    "diffChars": 92,
+    "printed": "@@ -1 +1 @@\n-- heading \"Stress page\" [level=1]\n+- heading \"Stress page (changed)\" [level=1]\n"
+   },
+   "refCount": 1,
+   "locatorMs": 1141,
+   "p50": 992,
+   "p95": 1264,
+   "firstMs": 747,
+   "treeBytes": 2000186,
+   "printedBytes": 2000186,
+   "printedChars": 2000186,
+   "treeChars": 2000186,
+   "printedTokens": 370438,
+   "treeTokens": 370438,
+   "breakdown": null
+  },
+  "select-5k": {
+   "name": "select-5k",
+   "runs": [
+    {
+     "snapMs": 2346,
+     "treeChars": 474752
+    },
+    {
+     "snapMs": 1903,
+     "treeChars": 474752
+    },
+    {
+     "snapMs": 2382,
+     "treeChars": 474752
+    }
+   ],
+   "diff": {
+    "snapMs": 1386,
+    "diffChars": 92,
+    "printed": "@@ -1 +1 @@\n-- heading \"Stress page\" [level=1]\n+- heading \"Stress page (changed)\" [level=1]\n"
+   },
+   "refCount": 2,
+   "locatorMs": 3169,
+   "p50": 2346,
+   "p95": 2382,
+   "firstMs": 2346,
+   "treeBytes": 474752,
+   "printedBytes": 474752,
+   "printedChars": 474752,
+   "treeChars": 474752,
+   "printedTokens": 155106,
+   "treeTokens": 155106,
+   "breakdown": null
+  },
+  "virtual-100k": {
+   "name": "virtual-100k",
+   "runs": [
+    {
+     "snapMs": 2007,
+     "treeChars": 2267
+    },
+    {
+     "snapMs": 325,
+     "treeChars": 2267
+    },
+    {
+     "snapMs": 44,
+     "treeChars": 2267
+    }
+   ],
+   "diff": {
+    "snapMs": 13,
+    "diffChars": 92,
+    "printed": "@@ -1 +1 @@\n-- heading \"Stress page\" [level=1]\n+- heading \"Stress page (changed)\" [level=1]\n"
+   },
+   "refCount": 45,
+   "locatorMs": 805,
+   "p50": 325,
+   "p95": 2007,
+   "firstMs": 2007,
+   "treeBytes": 2267,
+   "printedBytes": 2267,
+   "printedChars": 2267,
+   "treeChars": 2267,
+   "printedTokens": 856,
+   "treeTokens": 856,
+   "breakdown": null
+  },
+  "wikipedia": {
+   "name": "wikipedia",
+   "runs": [
+    {
+     "snapMs": 667,
+     "treeChars": 68532
+    },
+    {
+     "snapMs": 1537,
+     "treeChars": 68532
+    },
+    {
+     "snapMs": 2375,
+     "treeChars": 68532
+    }
+   ],
+   "diff": {
+    "snapMs": 1158,
+    "diffChars": 20,
+    "printed": "No changes detected\n"
+   },
+   "refCount": 778,
+   "locatorMs": 2266,
+   "p50": 1537,
+   "p95": 2375,
+   "firstMs": 667,
+   "treeBytes": 68641,
+   "printedBytes": 68641,
+   "printedChars": 68532,
+   "treeChars": 68532,
+   "printedTokens": 19728,
+   "treeTokens": 19728,
+   "breakdown": null
+  },
+  "hackernews": {
+   "name": "hackernews",
+   "runs": [
+    {
+     "snapMs": 261,
+     "treeChars": 11869
+    },
+    {
+     "snapMs": 1115,
+     "treeChars": 11869
+    },
+    {
+     "snapMs": 1058,
+     "treeChars": 11869
+    }
+   ],
+   "diff": {
+    "snapMs": 1018,
+    "diffChars": 37,
+    "printed": "@@ -1,0 +1 @@\n+- text: \"perf change\"\n"
+   },
+   "refCount": 229,
+   "locatorMs": 2135,
+   "p50": 1058,
+   "p95": 1115,
+   "firstMs": 261,
+   "treeBytes": 11879,
+   "printedBytes": 11879,
+   "printedChars": 11869,
+   "treeChars": 11869,
+   "printedTokens": 4263,
+   "treeTokens": 4263,
+   "breakdown": null
+  },
+  "github": {
+   "name": "github",
+   "runs": [
+    {
+     "snapMs": 597,
+     "treeChars": 61270
+    },
+    {
+     "snapMs": 1794,
+     "treeChars": 61270
+    },
+    {
+     "snapMs": 624,
+     "treeChars": 61270
+    }
+   ],
+   "diff": {
+    "snapMs": 3988,
+    "diffChars": 104,
+    "printed": "@@ -3 +3 @@\n-  - heading \"Navigation Menu\" [level=2]\n+  - heading \"Navigation Menu (changed)\" [level=2]\n"
+   },
+   "refCount": 611,
+   "locatorMs": 599,
+   "p50": 624,
+   "p95": 1794,
+   "firstMs": 597,
+   "treeBytes": 61636,
+   "printedBytes": 61636,
+   "printedChars": 61270,
+   "treeChars": 61270,
+   "printedTokens": 17682,
+   "treeTokens": 17682,
+   "breakdown": null
+  },
+  "mdn": {
+   "name": "mdn",
+   "runs": [
+    {
+     "snapMs": 201,
+     "treeChars": 28338
+    },
+    {
+     "snapMs": 520,
+     "treeChars": 28338
+    },
+    {
+     "snapMs": 135,
+     "treeChars": 28338
+    }
+   ],
+   "diff": {
+    "snapMs": 69,
+    "diffChars": 20,
+    "printed": "No changes detected\n"
+   },
+   "refCount": 398,
+   "locatorMs": 268,
+   "p50": 201,
+   "p95": 520,
+   "firstMs": 201,
+   "treeBytes": 28434,
+   "printedBytes": 28434,
+   "printedChars": 28338,
+   "treeChars": 28338,
+   "printedTokens": 7706,
+   "treeTokens": 7706,
+   "breakdown": null
+  },
+  "mdn-iframe": {
+   "name": "mdn-iframe",
+   "runs": [
+    {
+     "snapMs": 672,
+     "treeChars": 56261
+    },
+    {
+     "snapMs": 490,
+     "treeChars": 56261
+    },
+    {
+     "snapMs": 87,
+     "treeChars": 56261
+    }
+   ],
+   "diff": {
+    "snapMs": 439,
+    "diffChars": 20,
+    "printed": "No changes detected\n"
+   },
+   "refCount": 633,
+   "locatorMs": 5,
+   "p50": 490,
+   "p95": 672,
+   "firstMs": 672,
+   "treeBytes": 56366,
+   "printedBytes": 56366,
+   "printedChars": 56261,
+   "treeChars": 56261,
+   "printedTokens": 14640,
+   "treeTokens": 14640,
+   "breakdown": null
+  },
+  "npr": {
+   "name": "npr",
+   "runs": [
+    {
+     "snapMs": 21,
+     "treeChars": 4835
+    },
+    {
+     "snapMs": 179,
+     "treeChars": 4835
+    },
+    {
+     "snapMs": 89,
+     "treeChars": 4835
+    }
+   ],
+   "diff": {
+    "snapMs": 20,
+    "diffChars": 128,
+    "printed": "@@ -6 +6 @@\n-  - heading \"NPR : National Public Radio\" [level=1]\n+  - heading \"NPR : National Public Radio (changed)\" [level=1]\n"
+   },
+   "refCount": 55,
+   "locatorMs": 109,
+   "p50": 89,
+   "p95": 179,
+   "firstMs": 21,
+   "treeBytes": 4836,
+   "printedBytes": 4836,
+   "printedChars": 4835,
+   "treeChars": 4835,
+   "printedTokens": 1289,
+   "treeTokens": 1289,
+   "breakdown": null
+  },
+  "bbc": {
+   "name": "bbc",
+   "runs": [
+    {
+     "snapMs": 1405,
+     "treeChars": 16126
+    },
+    {
+     "snapMs": 399,
+     "treeChars": 16126
+    },
+    {
+     "snapMs": 522,
+     "treeChars": 16126
+    }
+   ],
+   "diff": {
+    "snapMs": 45,
+    "diffChars": 91,
+    "printed": "@@ -3 +3 @@\n-  - button \"Open menu\" [ref=e2]\n+  - button \"Open menu\" [ref=e2]: \"(changed)\"\n"
+   },
+   "refCount": 124,
+   "locatorMs": 10,
+   "p50": 522,
+   "p95": 1405,
+   "firstMs": 1405,
+   "treeBytes": 16140,
+   "printedBytes": 16140,
+   "printedChars": 16126,
+   "treeChars": 16126,
+   "printedTokens": 4030,
+   "treeTokens": 4030,
+   "breakdown": null
+  },
+  "books": {
+   "name": "books",
+   "runs": [
+    {
+     "snapMs": 71,
+     "treeChars": 14715
+    },
+    {
+     "snapMs": 49,
+     "treeChars": 14715
+    },
+    {
+     "snapMs": 21,
+     "treeChars": 14715
+    }
+   ],
+   "diff": {
+    "snapMs": 21,
+    "diffChars": 98,
+    "printed": "@@ -113 +113 @@\n-- heading \"All products\" [level=1]\n+- heading \"All products (changed)\" [level=1]\n"
+   },
+   "refCount": 169,
+   "locatorMs": 4,
+   "p50": 49,
+   "p95": 71,
+   "firstMs": 71,
+   "treeBytes": 14975,
+   "printedBytes": 14975,
+   "printedChars": 14715,
+   "treeChars": 14715,
+   "printedTokens": 4351,
+   "treeTokens": 4351,
+   "breakdown": null
+  },
+  "vercel": {
+   "name": "vercel",
+   "runs": [
+    {
+     "snapMs": 36,
+     "treeChars": 10399
+    },
+    {
+     "snapMs": 42,
+     "treeChars": 10399
+    },
+    {
+     "snapMs": 67,
+     "treeChars": 10399
+    }
+   ],
+   "diff": {
+    "snapMs": 22,
+    "diffChars": 20,
+    "printed": "No changes detected\n"
+   },
+   "refCount": 202,
+   "locatorMs": 15,
+   "p50": 42,
+   "p95": 67,
+   "firstMs": 36,
+   "treeBytes": 10399,
+   "printedBytes": 10399,
+   "printedChars": 10399,
+   "treeChars": 10399,
+   "printedTokens": 3204,
+   "treeTokens": 3204,
+   "breakdown": null
+  },
+  "live-wikipedia-cities": {
+   "name": "live-wikipedia-cities",
+   "runs": [
+    {
+     "snapMs": 667,
+     "treeChars": 91977
+    },
+    {
+     "snapMs": 317,
+     "treeChars": 91977
+    },
+    {
+     "snapMs": 273,
+     "treeChars": 91977
+    }
+   ],
+   "diff": {
+    "snapMs": 400,
+    "diffChars": 20,
+    "printed": "No changes detected\n"
+   },
+   "refCount": 1123,
+   "locatorMs": 36,
+   "p50": 317,
+   "p95": 667,
+   "firstMs": 667,
+   "treeBytes": 92214,
+   "printedBytes": 92214,
+   "printedChars": 91977,
+   "treeChars": 91977,
+   "printedTokens": 29061,
+   "treeTokens": 29061,
+   "breakdown": null
+  },
+  "live-github-pr-files": {
+   "name": "live-github-pr-files",
+   "runs": [
+    {
+     "snapMs": 689,
+     "treeChars": 80053
+    },
+    {
+     "snapMs": 664,
+     "treeChars": 80053
+    },
+    {
+     "snapMs": 658,
+     "treeChars": 80053
+    }
+   ],
+   "diff": {
+    "snapMs": 634,
+    "diffChars": 91,
+    "printed": "@@ -3 +3 @@\n-  - button \"Open menu\" [ref=e2]\n+  - button \"Open menu\" [ref=e2]: \"(changed)\"\n"
+   },
+   "refCount": 1169,
+   "locatorMs": 2,
+   "p50": 664,
+   "p95": 689,
+   "firstMs": 689,
+   "treeBytes": 80075,
+   "printedBytes": 80075,
+   "printedChars": 80053,
+   "treeChars": 80053,
+   "printedTokens": 21670,
+   "treeTokens": 21670,
+   "breakdown": null
+  },
+  "live-amazon-search": {
+   "name": "live-amazon-search",
+   "runs": [
+    {
+     "snapMs": 336,
+     "treeChars": 68811
+    },
+    {
+     "snapMs": 353,
+     "treeChars": 68811
+    },
+    {
+     "snapMs": 484,
+     "treeChars": 68811
+    }
+   ],
+   "diff": {
+    "snapMs": 288,
+    "diffChars": 248,
+    "printed": "@@ -3,2 +3,2 @@\n-  - heading \"Skip to\" [level=2]\n-  - list \"Skip to\":\n+  - heading \"Skip to (changed)\" [level=2]\n+  - list \"Skip to (changed)\":\n@@ -590 +590 @@\n-      - link \"Ends in 21:59:52\" [ref=e361]\n+      - link \"Ends in 21:59:50\" [ref=e361]\n"
+   },
+   "refCount": 744,
+   "locatorMs": 3,
+   "p50": 353,
+   "p95": 484,
+   "firstMs": 336,
+   "treeBytes": 68824,
+   "printedBytes": 68824,
+   "printedChars": 68811,
+   "treeChars": 68811,
+   "printedTokens": 20938,
+   "treeTokens": 20938,
+   "breakdown": null
+  },
+  "live-hn-thread": {
+   "name": "live-hn-thread",
+   "runs": [
+    {
+     "snapMs": 1131,
+     "treeChars": 399015
+    },
+    {
+     "snapMs": 1229,
+     "treeChars": 399015
+    },
+    {
+     "snapMs": 1261,
+     "treeChars": 399015
+    }
+   ],
+   "diff": {
+    "snapMs": 1833,
+    "diffChars": 37,
+    "printed": "@@ -1,0 +1 @@\n+- text: \"perf change\"\n"
+   },
+   "refCount": 4149,
+   "locatorMs": 1181,
+   "p50": 1229,
+   "p95": 1261,
+   "firstMs": 1131,
+   "treeBytes": 401026,
+   "printedBytes": 401026,
+   "printedChars": 399015,
+   "treeChars": 399015,
+   "printedTokens": 116150,
+   "treeTokens": 116150,
+   "breakdown": null
+  }
+ },
+ "overhead": [
+  577,
+  674,
+  641,
+  479,
+  559,
+  273,
+  341,
+  415,
+  301,
+  397
+ ],
+ "note": "table-10k rerun (the first run returned no output); cards-200k: aside repl failed after 52 s with \"fetch failed: other side closed\""
+}

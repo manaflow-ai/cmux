@@ -20,7 +20,9 @@ for (const { name, data } of runs) {
       tools.get(tool)[page] = v;
     }
   }
-  for (const [tool, pages] of tools) columns.push({ label: `${tool} (${name.replace(/-[^-]+$/, "").replace(/-cmux$/, "")})`, pages });
+  const names = { cmux: "cmux app", "cmux-dev": "cmux dev", "pw-mcp": "Playwright MCP", "chatgpt-ax": "ChatGPT AX", aside: "Aside" };
+  const when = name.split("-")[0];
+  for (const [tool, pages] of tools) columns.push({ label: `${names[tool] || tool}${when === "ref" ? "" : ` ${when}`}`, pages });
 }
 const pages = [...new Set(runs.flatMap((r) => Object.keys(r.data.pages)))];
 const n = (v) => (v === undefined || v === null || Number.isNaN(v) ? "" : Math.round(v).toLocaleString("en-US"));

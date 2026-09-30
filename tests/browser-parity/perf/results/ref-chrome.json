@@ -1,0 +1,1937 @@
+{
+ "backend": "chrome",
+ "label": "ref",
+ "runs": 5,
+ "date": "2026-09-30T07:31:36.308Z",
+ "host": "lawrences-MacBook-Pro-2.local",
+ "pages": {
+  "cards-50k": {
+   "name": "cards-50k",
+   "tools": {
+    "pw-mcp": {
+     "name": "cards-50k",
+     "runs": [
+      {
+       "snapMs": 3125,
+       "treeChars": 2679497
+      },
+      {
+       "snapMs": 586,
+       "treeChars": 2679497
+      },
+      {
+       "snapMs": 669,
+       "treeChars": 2679497
+      },
+      {
+       "snapMs": 631,
+       "treeChars": 2679497
+      },
+      {
+       "snapMs": 518,
+       "treeChars": 2679497
+      }
+     ],
+     "diff": {
+      "snapMs": 577,
+      "diffChars": 120,
+      "printed": "- <changed> generic [active] [ref=e1]:\n  - heading \"Stress page (changed)\" [level=1] [ref=e41674]\n  - ref=e3 [unchanged]"
+     },
+     "refCount": 41673,
+     "locatorMs": 56,
+     "p50": 631,
+     "p95": 3125,
+     "firstMs": 3125,
+     "treeBytes": 2679497,
+     "printedBytes": 2679497,
+     "printedTokens": 900361,
+     "treeTokens": 900361,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "cards-50k",
+     "runs": [
+      {
+       "snapMs": 18561,
+       "treeChars": 28989
+      },
+      {
+       "snapMs": 22084,
+       "treeChars": 28989
+      },
+      {
+       "snapMs": 25811,
+       "treeChars": 28989
+      },
+      {
+       "snapMs": 21897,
+       "treeChars": 28989
+      },
+      {
+       "snapMs": 16947,
+       "treeChars": 28989
+      }
+     ],
+     "diff": {
+      "snapMs": 8285,
+      "diffChars": 517,
+      "printed": "Browser tab: 1, Title: \"Stress cards 50000\", URL: \"http://localhost:65052/stress/stress.html?kind=cards&n=50000\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 2\n~\t1 heading Stress page (changed), Value: 1, ID: title\n+\t\t1004 text Stress page (changed)\nThe focused UI element is 0 AXWebArea Stress cards 50000, URL: localhost:65052/stress/stress.html?kind=cards&n=50000"
+     },
+     "p50": 21897,
+     "p95": 25811,
+     "firstMs": 18561,
+     "treeBytes": 28989,
+     "printedBytes": 28989,
+     "printedTokens": 9992,
+     "treeTokens": 9992,
+     "breakdown": null
+    }
+   }
+  },
+  "cards-200k": {
+   "name": "cards-200k",
+   "tools": {
+    "pw-mcp": {
+     "name": "cards-200k",
+     "runs": [],
+     "error": "page._snapshotForAI: Timeout 30000ms exceeded."
+    },
+    "chatgpt-ax": {
+     "name": "cards-200k",
+     "runs": [],
+     "treeBytes": 0,
+     "printedBytes": 0,
+     "printedTokens": 0,
+     "treeTokens": 0,
+     "breakdown": null
+    }
+   }
+  },
+  "table-10k": {
+   "name": "table-10k",
+   "tools": {
+    "pw-mcp": {
+     "name": "table-10k",
+     "runs": [
+      {
+       "snapMs": 927,
+       "treeChars": 2543522
+      },
+      {
+       "snapMs": 889,
+       "treeChars": 2543522
+      },
+      {
+       "snapMs": 859,
+       "treeChars": 2543522
+      },
+      {
+       "snapMs": 855,
+       "treeChars": 2543522
+      },
+      {
+       "snapMs": 875,
+       "treeChars": 2543522
+      }
+     ],
+     "diff": {
+      "snapMs": 896,
+      "diffChars": 120,
+      "printed": "- <changed> generic [active] [ref=e1]:\n  - heading \"Stress page (changed)\" [level=1] [ref=e61014]\n  - ref=e3 [unchanged]"
+     },
+     "refCount": 61013,
+     "locatorMs": 94,
+     "p50": 875,
+     "p95": 927,
+     "firstMs": 927,
+     "treeBytes": 2543522,
+     "printedBytes": 2543522,
+     "printedTokens": 874763,
+     "treeTokens": 874763,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "table-10k",
+     "runs": [
+      {
+       "snapMs": 10889,
+       "treeChars": 92749
+      },
+      {
+       "snapMs": 10580,
+       "treeChars": 92749
+      },
+      {
+       "snapMs": 9464,
+       "treeChars": 92749
+      },
+      {
+       "snapMs": 18244,
+       "treeChars": 92749
+      },
+      {
+       "snapMs": 20514,
+       "treeChars": 92749
+      }
+     ],
+     "diff": {
+      "snapMs": 15150,
+      "diffChars": 517,
+      "printed": "Browser tab: 1, Title: \"Stress table 10000\", URL: \"http://localhost:65052/stress/stress.html?kind=table&n=10000\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 2\n~\t1 heading Stress page (changed), Value: 1, ID: title\n+\t\t5495 text Stress page (changed)\nThe focused UI element is 0 AXWebArea Stress table 10000, URL: localhost:65052/stress/stress.html?kind=table&n=10000"
+     },
+     "p50": 10889,
+     "p95": 20514,
+     "firstMs": 10889,
+     "treeBytes": 92749,
+     "printedBytes": 92749,
+     "printedTokens": 37259,
+     "treeTokens": 37259,
+     "breakdown": null
+    }
+   }
+  },
+  "list-5k": {
+   "name": "list-5k",
+   "tools": {
+    "pw-mcp": {
+     "name": "list-5k",
+     "runs": [
+      {
+       "snapMs": 128,
+       "treeChars": 713094
+      },
+      {
+       "snapMs": 134,
+       "treeChars": 713094
+      },
+      {
+       "snapMs": 117,
+       "treeChars": 713094
+      },
+      {
+       "snapMs": 117,
+       "treeChars": 713094
+      },
+      {
+       "snapMs": 201,
+       "treeChars": 713094
+      }
+     ],
+     "diff": {
+      "snapMs": 120,
+      "diffChars": 120,
+      "printed": "- <changed> generic [active] [ref=e1]:\n  - heading \"Stress page (changed)\" [level=1] [ref=e10006]\n  - ref=e3 [unchanged]"
+     },
+     "refCount": 10005,
+     "locatorMs": 4,
+     "p50": 128,
+     "p95": 201,
+     "firstMs": 128,
+     "treeBytes": 713094,
+     "printedBytes": 713094,
+     "printedTokens": 233934,
+     "treeTokens": 233934,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "list-5k",
+     "runs": [
+      {
+       "snapMs": 3892,
+       "treeChars": 58090
+      },
+      {
+       "snapMs": 3034,
+       "treeChars": 58090
+      },
+      {
+       "snapMs": 3363,
+       "treeChars": 58090
+      },
+      {
+       "snapMs": 3835,
+       "treeChars": 58090
+      },
+      {
+       "snapMs": 6075,
+       "treeChars": 58090
+      }
+     ],
+     "diff": {
+      "snapMs": 6869,
+      "diffChars": 478,
+      "printed": "Browser tab: 1, Title: \"Stress list 5000\", URL: \"http://localhost:65052/stress/stress.html?kind=list&n=5000\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 2\n~\t1 heading Stress page (changed), Value: 1, ID: title\n+\t\t2005 text Stress page (changed)\nThe focused UI element is 0 AXWebArea Stress list 5000, URL: localhost:65052/str\u2026"
+     },
+     "p50": 3835,
+     "p95": 6075,
+     "firstMs": 3892,
+     "treeBytes": 59894,
+     "printedBytes": 59894,
+     "printedTokens": 19219,
+     "treeTokens": 19219,
+     "breakdown": null
+    }
+   }
+  },
+  "deep-500": {
+   "name": "deep-500",
+   "tools": {
+    "pw-mcp": {
+     "name": "deep-500",
+     "runs": [
+      {
+       "snapMs": 28,
+       "treeChars": 684
+      },
+      {
+       "snapMs": 14,
+       "treeChars": 684
+      },
+      {
+       "snapMs": 14,
+       "treeChars": 684
+      },
+      {
+       "snapMs": 13,
+       "treeChars": 684
+      },
+      {
+       "snapMs": 11,
+       "treeChars": 684
+      }
+     ],
+     "diff": {
+      "snapMs": 11,
+      "diffChars": 118,
+      "printed": "- <changed> generic [active] [ref=e1]:\n  - heading \"Stress page (changed)\" [level=1] [ref=e505]\n  - ref=e3 [unchanged]"
+     },
+     "refCount": 15,
+     "locatorMs": 5,
+     "p50": 14,
+     "p95": 28,
+     "firstMs": 28,
+     "treeBytes": 684,
+     "printedBytes": 684,
+     "printedTokens": 191,
+     "treeTokens": 191,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "deep-500",
+     "runs": [
+      {
+       "snapMs": 30,
+       "treeChars": 730
+      },
+      {
+       "snapMs": 14,
+       "treeChars": 730
+      },
+      {
+       "snapMs": 12,
+       "treeChars": 730
+      },
+      {
+       "snapMs": 14,
+       "treeChars": 730
+      },
+      {
+       "snapMs": 18,
+       "treeChars": 730
+      }
+     ],
+     "diff": {
+      "snapMs": 14,
+      "diffChars": 751,
+      "printed": "Browser tab: 1, Title: \"Stress deep 500\", URL: \"http://localhost:65052/stress/stress.html?kind=deep&n=500\".\n0 AXWebArea Stress deep 500, URL: localhost:65052/stress/stress.html?kind=deep&n=500\n\t1 heading Stress page (changed), Value: 1, ID: title\n\t\t16 text Stress page (changed)\n\t3 container level 0\n\t\t4 container level 50\n\t\t\t5 container level 100\n\t\t\t\t6 container level 150\n\t\t\t\t\t7 container level 200\n\t\t\t\t\t\t8 container level 250\n\t\t\t\t\t\t\t9 container level 300\n\t\t\t\t\t\t\t\t10 container level 350\n\t\t\t\t\t\t\t\t\t11 container level 400\n\t\t\t\t\t\t\t\t\t\t12 container level 450\n\t\t\t\t\t\t\t\t\t\t\t13 container\n\t\t\t\t\t\t\t\t\t\t\t\t14 button Deepest\n\t\t\t\t\t\t\t\t\t\t\t\t15 text bottom text\n\nThe focused UI element is 0 AXWebArea Stress deep 500, URL: localhost:65052/stress/stress.html?kind=deep&n=500"
+     },
+     "p50": 14,
+     "p95": 30,
+     "firstMs": 30,
+     "treeBytes": 730,
+     "printedBytes": 730,
+     "printedTokens": 220,
+     "treeTokens": 220,
+     "breakdown": null
+    }
+   }
+  },
+  "deep-1k": {
+   "name": "deep-1k",
+   "tools": {
+    "pw-mcp": {
+     "name": "deep-1k",
+     "runs": [
+      {
+       "snapMs": 152,
+       "treeChars": 1396
+      },
+      {
+       "snapMs": 35,
+       "treeChars": 1396
+      },
+      {
+       "snapMs": 33,
+       "treeChars": 1396
+      },
+      {
+       "snapMs": 31,
+       "treeChars": 1396
+      },
+      {
+       "snapMs": 30,
+       "treeChars": 1396
+      }
+     ],
+     "diff": {
+      "snapMs": 30,
+      "diffChars": 119,
+      "printed": "- <changed> generic [active] [ref=e1]:\n  - heading \"Stress page (changed)\" [level=1] [ref=e1005]\n  - ref=e3 [unchanged]"
+     },
+     "refCount": 25,
+     "locatorMs": 2,
+     "p50": 33,
+     "p95": 152,
+     "firstMs": 152,
+     "treeBytes": 1396,
+     "printedBytes": 1396,
+     "printedTokens": 323,
+     "treeTokens": 323,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "deep-1k",
+     "runs": [
+      {
+       "snapMs": 102,
+       "treeChars": 1151
+      },
+      {
+       "snapMs": 24,
+       "treeChars": 1151
+      },
+      {
+       "snapMs": 33,
+       "treeChars": 1151
+      },
+      {
+       "snapMs": 24,
+       "treeChars": 1151
+      },
+      {
+       "snapMs": 22,
+       "treeChars": 1151
+      }
+     ],
+     "diff": {
+      "snapMs": 44,
+      "diffChars": 1172,
+      "printed": "Browser tab: 1, Title: \"Stress deep 1000\", URL: \"http://localhost:65052/stress/stress.html?kind=deep&n=1000\".\n0 AXWebArea Stress deep 1000, URL: localhost:65052/stress/stress.html?kind=deep&n=1000\n\t1 heading Stress page (changed), Value: 1, ID: title\n\t\t26 text Stress page (changed)\n\t3 container level 0\n\t\t4 container level 50\n\t\t\t5 container level 100\n\t\t\t\t6 container level 150\n\t\t\t\t\t7 container level 200\n\t\t\t\t\t\t8 container level 250\n\t\t\t\t\t\t\t9 container level 300\n\t\t\t\t\t\t\t\t10 container level 350\n\t\t\t\t\t\t\t\t\t11 container level 400\n\t\t\t\t\t\t\t\t\t\t12 container level 450\n\t\t\t\t\t\t\t\t\t\t\t13 container level 500\n\t\t\t\t\t\t\t\t\t\t\t\t14 container level 550\n\t\t\t\t\t\t\t\t\t\t\t\t\t15 container level 600\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t16 container level 650\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t17 container level 700\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t18 container level 750\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t19 container level 800\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t20 container level 850\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t21 container level 900\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t22 container level 950\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t23 container\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t24 button Deepest\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t25 text bottom text\n\nThe focused UI element is 0 AXWebArea Stress deep 1000, URL: localhost:65052/stress/stress.html?kind=deep&n=1000"
+     },
+     "p50": 24,
+     "p95": 102,
+     "firstMs": 102,
+     "treeBytes": 1151,
+     "printedBytes": 1151,
+     "printedTokens": 308,
+     "treeTokens": 308,
+     "breakdown": null
+    }
+   }
+  },
+  "iframes-300": {
+   "name": "iframes-300",
+   "tools": {
+    "pw-mcp": {
+     "name": "iframes-300",
+     "runs": [
+      {
+       "snapMs": 4446,
+       "treeChars": 30964
+      },
+      {
+       "snapMs": 531,
+       "treeChars": 30964
+      },
+      {
+       "snapMs": 663,
+       "treeChars": 30964
+      },
+      {
+       "snapMs": 465,
+       "treeChars": 30964
+      },
+      {
+       "snapMs": 954,
+       "treeChars": 30964
+      }
+     ],
+     "diff": {
+      "snapMs": 500,
+      "diffChars": 518,
+      "printed": "- <changed> generic [active] [ref=e1]:\n  - heading \"Stress page (changed)\" [level=1] [ref=e304]\n  - ref=e3 [unchanged]\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
+     },
+     "refCount": 303,
+     "locatorMs": 27,
+     "p50": 663,
+     "p95": 4446,
+     "firstMs": 4446,
+     "treeBytes": 30964,
+     "printedBytes": 30964,
+     "printedTokens": 10935,
+     "treeTokens": 10935,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "iframes-300",
+     "runs": [
+      {
+       "snapMs": 4026,
+       "treeChars": 40917
+      },
+      {
+       "snapMs": 5609,
+       "treeChars": 40917
+      },
+      {
+       "snapMs": 4745,
+       "treeChars": 40917
+      },
+      {
+       "snapMs": 4189,
+       "treeChars": 40917
+      },
+      {
+       "snapMs": 7220,
+       "treeChars": 40917
+      }
+     ],
+     "diff": {
+      "snapMs": 4469,
+      "diffChars": 501,
+      "printed": "Browser tab: 1, Title: \"Stress iframes 300\", URL: \"http://localhost:65052/stress/stress.html?kind=iframes&n=300&peer=http%3A%2F%2F127.0.0.1%3A65053\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 2\n~\t1 heading Stress page (changed), Value: 1, ID: title\n+\t\t1304 text Stress page (changed)\nThe focused UI element is 0 AXWebArea Stress iframes 300, URL: \u2026"
+     },
+     "p50": 4745,
+     "p95": 7220,
+     "firstMs": 4026,
+     "treeBytes": 41609,
+     "printedBytes": 41609,
+     "printedTokens": 13919,
+     "treeTokens": 13919,
+     "breakdown": null
+    }
+   }
+  },
+  "shadow-2k": {
+   "name": "shadow-2k",
+   "tools": {
+    "pw-mcp": {
+     "name": "shadow-2k",
+     "runs": [
+      {
+       "snapMs": 143,
+       "treeChars": 189140
+      },
+      {
+       "snapMs": 106,
+       "treeChars": 189140
+      },
+      {
+       "snapMs": 86,
+       "treeChars": 189140
+      },
+      {
+       "snapMs": 142,
+       "treeChars": 189140
+      },
+      {
+       "snapMs": 93,
+       "treeChars": 189140
+      }
+     ],
+     "diff": {
+      "snapMs": 94,
+      "diffChars": 119,
+      "printed": "- <changed> generic [active] [ref=e1]:\n  - heading \"Stress page (changed)\" [level=1] [ref=e6004]\n  - ref=e3 [unchanged]"
+     },
+     "refCount": 4003,
+     "locatorMs": 34,
+     "p50": 106,
+     "p95": 143,
+     "firstMs": 143,
+     "treeBytes": 189140,
+     "printedBytes": 189140,
+     "printedTokens": 63370,
+     "treeTokens": 63370,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "shadow-2k",
+     "runs": [
+      {
+       "snapMs": 1592,
+       "treeChars": 32117
+      },
+      {
+       "snapMs": 1936,
+       "treeChars": 32117
+      },
+      {
+       "snapMs": 1965,
+       "treeChars": 32117
+      },
+      {
+       "snapMs": 2027,
+       "treeChars": 32117
+      },
+      {
+       "snapMs": 1744,
+       "treeChars": 32117
+      }
+     ],
+     "diff": {
+      "snapMs": 1965,
+      "diffChars": 517,
+      "printed": "Browser tab: 1, Title: \"Stress shadow 2000\", URL: \"http://localhost:65052/stress/stress.html?kind=shadow&n=2000\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 2\n~\t1 heading Stress page (changed), Value: 1, ID: title\n+\t\t1504 text Stress page (changed)\nThe focused UI element is 0 AXWebArea Stress shadow 2000, URL: localhost:65052/stress/stress.html?kind=shadow&n=2000"
+     },
+     "p50": 1936,
+     "p95": 2027,
+     "firstMs": 1592,
+     "treeBytes": 32117,
+     "printedBytes": 32117,
+     "printedTokens": 11149,
+     "treeTokens": 11149,
+     "breakdown": null
+    }
+   }
+  },
+  "text-2m": {
+   "name": "text-2m",
+   "tools": {
+    "pw-mcp": {
+     "name": "text-2m",
+     "runs": [
+      {
+       "snapMs": 56,
+       "treeChars": 2000154
+      },
+      {
+       "snapMs": 43,
+       "treeChars": 2000154
+      },
+      {
+       "snapMs": 291,
+       "treeChars": 2000154
+      },
+      {
+       "snapMs": 76,
+       "treeChars": 2000154
+      },
+      {
+       "snapMs": 189,
+       "treeChars": 2000154
+      }
+     ],
+     "diff": {
+      "snapMs": 116,
+      "diffChars": 116,
+      "printed": "- <changed> generic [active] [ref=e1]:\n  - heading \"Stress page (changed)\" [level=1] [ref=e6]\n  - ref=e3 [unchanged]"
+     },
+     "refCount": 5,
+     "locatorMs": 49,
+     "p50": 76,
+     "p95": 291,
+     "firstMs": 56,
+     "treeBytes": 2000154,
+     "printedBytes": 2000154,
+     "printedTokens": 370427,
+     "treeTokens": 370427,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "text-2m",
+     "runs": [
+      {
+       "snapMs": 1816,
+       "treeChars": 2000443
+      },
+      {
+       "snapMs": 1948,
+       "treeChars": 2000443
+      },
+      {
+       "snapMs": 2059,
+       "treeChars": 2000443
+      },
+      {
+       "snapMs": 2643,
+       "treeChars": 2000443
+      },
+      {
+       "snapMs": 2872,
+       "treeChars": 2000443
+      }
+     ],
+     "diff": {
+      "snapMs": 3520,
+      "diffChars": 518,
+      "printed": "Browser tab: 1, Title: \"Stress text 2000000\", URL: \"http://localhost:65052/stress/stress.html?kind=text&n=2000000\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 2\n~\t1 heading Stress page (changed), Value: 1, ID: title\n+\t\t6 text Stress page (changed)\nThe focused UI element is 0 AXWebArea Stress text 2000000, URL: localhost:65052/stress/stress.html?kind=text&n=2000000"
+     },
+     "p50": 2059,
+     "p95": 2872,
+     "firstMs": 1816,
+     "treeBytes": 2000443,
+     "printedBytes": 2000443,
+     "printedTokens": 370519,
+     "treeTokens": 370519,
+     "breakdown": null
+    }
+   }
+  },
+  "select-5k": {
+   "name": "select-5k",
+   "tools": {
+    "pw-mcp": {
+     "name": "select-5k",
+     "runs": [
+      {
+       "snapMs": 142,
+       "treeChars": 366950
+      },
+      {
+       "snapMs": 138,
+       "treeChars": 366950
+      },
+      {
+       "snapMs": 153,
+       "treeChars": 366950
+      },
+      {
+       "snapMs": 169,
+       "treeChars": 366950
+      },
+      {
+       "snapMs": 93,
+       "treeChars": 366950
+      }
+     ],
+     "diff": {
+      "snapMs": 98,
+      "diffChars": 119,
+      "printed": "- <changed> generic [active] [ref=e1]:\n  - heading \"Stress page (changed)\" [level=1] [ref=e5008]\n  - ref=e3 [unchanged]"
+     },
+     "refCount": 5007,
+     "locatorMs": 12,
+     "p50": 142,
+     "p95": 169,
+     "firstMs": 142,
+     "treeBytes": 366950,
+     "printedBytes": 366950,
+     "printedTokens": 117098,
+     "treeTokens": 117098,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "select-5k",
+     "runs": [
+      {
+       "snapMs": 2343,
+       "treeChars": 19875
+      },
+      {
+       "snapMs": 2334,
+       "treeChars": 19875
+      },
+      {
+       "snapMs": 2400,
+       "treeChars": 19875
+      },
+      {
+       "snapMs": 1679,
+       "treeChars": 19875
+      },
+      {
+       "snapMs": 1814,
+       "treeChars": 19875
+      }
+     ],
+     "diff": {
+      "snapMs": 1612,
+      "diffChars": 517,
+      "printed": "Browser tab: 1, Title: \"Stress select 5000\", URL: \"http://localhost:65052/stress/stress.html?kind=select&n=5000\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 2\n~\t1 heading Stress page (changed), Value: 1, ID: title\n+\t\t1011 text Stress page (changed)\nThe focused UI element is 0 AXWebArea Stress select 5000, URL: localhost:65052/stress/stress.html?kind=select&n=5000"
+     },
+     "p50": 2334,
+     "p95": 2400,
+     "firstMs": 2343,
+     "treeBytes": 19875,
+     "printedBytes": 19875,
+     "printedTokens": 7237,
+     "treeTokens": 7237,
+     "breakdown": null
+    }
+   }
+  },
+  "virtual-100k": {
+   "name": "virtual-100k",
+   "tools": {
+    "pw-mcp": {
+     "name": "virtual-100k",
+     "runs": [
+      {
+       "snapMs": 11,
+       "treeChars": 3085
+      },
+      {
+       "snapMs": 4,
+       "treeChars": 3085
+      },
+      {
+       "snapMs": 2,
+       "treeChars": 3085
+      },
+      {
+       "snapMs": 2,
+       "treeChars": 3085
+      },
+      {
+       "snapMs": 19,
+       "treeChars": 3085
+      }
+     ],
+     "diff": {
+      "snapMs": 1,
+      "diffChars": 117,
+      "printed": "- <changed> generic [active] [ref=e1]:\n  - heading \"Stress page (changed)\" [level=1] [ref=e50]\n  - ref=e3 [unchanged]"
+     },
+     "refCount": 49,
+     "locatorMs": 2,
+     "p50": 4,
+     "p95": 19,
+     "firstMs": 11,
+     "treeBytes": 3085,
+     "printedBytes": 3085,
+     "printedTokens": 1009,
+     "treeTokens": 1009,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "virtual-100k",
+     "runs": [
+      {
+       "snapMs": 15,
+       "treeChars": 2576
+      },
+      {
+       "snapMs": 12,
+       "treeChars": 2576
+      },
+      {
+       "snapMs": 18,
+       "treeChars": 2576
+      },
+      {
+       "snapMs": 19,
+       "treeChars": 2576
+      },
+      {
+       "snapMs": 15,
+       "treeChars": 2576
+      }
+     ],
+     "diff": {
+      "snapMs": 25,
+      "diffChars": 527,
+      "printed": "Browser tab: 1, Title: \"Stress virtual 100000\", URL: \"http://localhost:65052/stress/stress.html?kind=virtual&n=100000\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 2\n~\t1 heading Stress page (changed), Value: 1, ID: title\n+\t\t71 text Stress page (changed)\nThe focused UI element is 0 AXWebArea Stress virtual 100000, URL: localhost:65052/stress/stress.html?kind=virtual&n=100000"
+     },
+     "p50": 15,
+     "p95": 19,
+     "firstMs": 15,
+     "treeBytes": 2576,
+     "printedBytes": 2576,
+     "printedTokens": 860,
+     "treeTokens": 860,
+     "breakdown": null
+    }
+   }
+  },
+  "wikipedia": {
+   "name": "wikipedia",
+   "tools": {
+    "pw-mcp": {
+     "name": "wikipedia",
+     "runs": [
+      {
+       "snapMs": 79,
+       "treeChars": 197896
+      },
+      {
+       "snapMs": 58,
+       "treeChars": 197896
+      },
+      {
+       "snapMs": 160,
+       "treeChars": 197896
+      },
+      {
+       "snapMs": 51,
+       "treeChars": 197896
+      },
+      {
+       "snapMs": 48,
+       "treeChars": 197896
+      }
+     ],
+     "diff": {
+      "snapMs": 49,
+      "diffChars": 0,
+      "printed": ""
+     },
+     "refCount": 1397,
+     "locatorMs": 63,
+     "p50": 58,
+     "p95": 160,
+     "firstMs": 79,
+     "treeBytes": 198392,
+     "printedBytes": 198392,
+     "printedTokens": 53381,
+     "treeTokens": 53381,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "wikipedia",
+     "runs": [
+      {
+       "snapMs": 1643,
+       "treeChars": 116946
+      },
+      {
+       "snapMs": 1436,
+       "treeChars": 116946
+      },
+      {
+       "snapMs": 2120,
+       "treeChars": 116946
+      },
+      {
+       "snapMs": 1524,
+       "treeChars": 116946
+      },
+      {
+       "snapMs": 1515,
+       "treeChars": 116946
+      }
+     ],
+     "diff": {
+      "snapMs": 1420,
+      "diffChars": 233,
+      "printed": "Browser tab: 1, Title: \"WebKit - Wikipedia\", URL: \"http://localhost:65052/corpus/wikipedia.html\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 0 AXWebArea WebKit - Wikipedia, URL: localhost:65052/cor\u2026"
+     },
+     "p50": 1524,
+     "p95": 2120,
+     "firstMs": 1643,
+     "treeBytes": 118416,
+     "printedBytes": 118416,
+     "printedTokens": 33384,
+     "treeTokens": 33384,
+     "breakdown": null
+    }
+   }
+  },
+  "hackernews": {
+   "name": "hackernews",
+   "tools": {
+    "pw-mcp": {
+     "name": "hackernews",
+     "runs": [
+      {
+       "snapMs": 38,
+       "treeChars": 57509
+      },
+      {
+       "snapMs": 54,
+       "treeChars": 57509
+      },
+      {
+       "snapMs": 95,
+       "treeChars": 57509
+      },
+      {
+       "snapMs": 39,
+       "treeChars": 57509
+      },
+      {
+       "snapMs": 36,
+       "treeChars": 57509
+      }
+     ],
+     "diff": {
+      "snapMs": 50,
+      "diffChars": 99,
+      "printed": "- <changed> generic [active] [ref=e1]:\n  - paragraph [ref=e683]: perf change\n  - ref=e3 [unchanged]"
+     },
+     "refCount": 647,
+     "locatorMs": 49,
+     "p50": 39,
+     "p95": 95,
+     "firstMs": 38,
+     "treeBytes": 57539,
+     "printedBytes": 57539,
+     "printedTokens": 15381,
+     "treeTokens": 15381,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "hackernews",
+     "runs": [
+      {
+       "snapMs": 293,
+       "treeChars": 22017
+      },
+      {
+       "snapMs": 376,
+       "treeChars": 22017
+      },
+      {
+       "snapMs": 541,
+       "treeChars": 22017
+      },
+      {
+       "snapMs": 561,
+       "treeChars": 22017
+      },
+      {
+       "snapMs": 540,
+       "treeChars": 22017
+      }
+     ],
+     "diff": {
+      "snapMs": 425,
+      "diffChars": 365,
+      "printed": "Browser tab: 1, Title: \"Hacker News\", URL: \"http://localhost:65052/corpus/hackernews.html\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\n+\t643 text perf change\nThe focused UI element is 0 AXWebArea Hacker News, URL: localhost:65052/cor\u2026"
+     },
+     "p50": 540,
+     "p95": 561,
+     "firstMs": 293,
+     "treeBytes": 22214,
+     "printedBytes": 22214,
+     "printedTokens": 6863,
+     "treeTokens": 6863,
+     "breakdown": null
+    }
+   }
+  },
+  "github": {
+   "name": "github",
+   "tools": {
+    "pw-mcp": {
+     "name": "github",
+     "runs": [
+      {
+       "snapMs": 94,
+       "treeChars": 217559
+      },
+      {
+       "snapMs": 139,
+       "treeChars": 217559
+      },
+      {
+       "snapMs": 61,
+       "treeChars": 217559
+      },
+      {
+       "snapMs": 56,
+       "treeChars": 217559
+      },
+      {
+       "snapMs": 134,
+       "treeChars": 217559
+      }
+     ],
+     "diff": {
+      "snapMs": 64,
+      "diffChars": 114,
+      "printed": "- <changed> banner [ref=e9]:\n  - heading \"Navigation Menu (changed)\" [level=2] [ref=e2786]\n  - ref=e11 [unchanged]"
+     },
+     "refCount": 2236,
+     "locatorMs": 6,
+     "p50": 94,
+     "p95": 139,
+     "firstMs": 94,
+     "treeBytes": 218184,
+     "printedBytes": 218184,
+     "printedTokens": 55931,
+     "treeTokens": 55931,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "github",
+     "runs": [
+      {
+       "snapMs": 1303,
+       "treeChars": 141706
+      },
+      {
+       "snapMs": 1239,
+       "treeChars": 141706
+      },
+      {
+       "snapMs": 1198,
+       "treeChars": 141706
+      },
+      {
+       "snapMs": 1454,
+       "treeChars": 141706
+      },
+      {
+       "snapMs": 1964,
+       "treeChars": 141706
+      }
+     ],
+     "diff": {
+      "snapMs": 1512,
+      "diffChars": 816,
+      "printed": "Browser tab: 1, Title: \"GitHub - manaflow-ai/cmux: Open source Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents. Built for multitasking, organization, and programmability. \u00b7 GitHub\", URL: \"http://localhost:65052/corpus/github.html\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 4\n~\t\t3 heading Navigation Menu (changed), Value: 2\n+\t\t\t2096 text Navigation Menu (changed)\nThe focused UI element is 0 AXWebArea URL: localhost:65052/cor\u2026, GitHub - manaflow-ai/cmux: Open source Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents. Built for multitasking, organization, and programmability. \u00b7 GitHub"
+     },
+     "p50": 1303,
+     "p95": 1964,
+     "firstMs": 1303,
+     "treeBytes": 143301,
+     "printedBytes": 143301,
+     "printedTokens": 37727,
+     "treeTokens": 37727,
+     "breakdown": null
+    }
+   }
+  },
+  "mdn": {
+   "name": "mdn",
+   "tools": {
+    "pw-mcp": {
+     "name": "mdn",
+     "runs": [
+      {
+       "snapMs": 38,
+       "treeChars": 66991
+      },
+      {
+       "snapMs": 19,
+       "treeChars": 66991
+      },
+      {
+       "snapMs": 15,
+       "treeChars": 66991
+      },
+      {
+       "snapMs": 89,
+       "treeChars": 66991
+      },
+      {
+       "snapMs": 19,
+       "treeChars": 66991
+      }
+     ],
+     "diff": {
+      "snapMs": 15,
+      "diffChars": 0,
+      "printed": ""
+     },
+     "refCount": 829,
+     "locatorMs": 14,
+     "p50": 19,
+     "p95": 89,
+     "firstMs": 38,
+     "treeBytes": 67022,
+     "printedBytes": 67022,
+     "printedTokens": 16608,
+     "treeTokens": 16608,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "mdn",
+     "runs": [
+      {
+       "snapMs": 267,
+       "treeChars": 29890
+      },
+      {
+       "snapMs": 362,
+       "treeChars": 29890
+      },
+      {
+       "snapMs": 457,
+       "treeChars": 29890
+      },
+      {
+       "snapMs": 467,
+       "treeChars": 29890
+      },
+      {
+       "snapMs": 812,
+       "treeChars": 29890
+      }
+     ],
+     "diff": {
+      "snapMs": 584,
+      "diffChars": 271,
+      "printed": "Browser tab: 1, Title: \"Array.prototype.map() - JavaScript | MDN\", URL: \"http://localhost:65052/corpus/mdn.html\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 0 AXWebArea Array.prototype.map() - JavaScript | MDN, URL: localhost:65052/cor\u2026"
+     },
+     "p50": 457,
+     "p95": 812,
+     "firstMs": 267,
+     "treeBytes": 30385,
+     "printedBytes": 30385,
+     "printedTokens": 7689,
+     "treeTokens": 7689,
+     "breakdown": null
+    }
+   }
+  },
+  "mdn-iframe": {
+   "name": "mdn-iframe",
+   "tools": {
+    "pw-mcp": {
+     "name": "mdn-iframe",
+     "runs": [
+      {
+       "snapMs": 52,
+       "treeChars": 134276
+      },
+      {
+       "snapMs": 36,
+       "treeChars": 134276
+      },
+      {
+       "snapMs": 32,
+       "treeChars": 134276
+      },
+      {
+       "snapMs": 35,
+       "treeChars": 134276
+      },
+      {
+       "snapMs": 72,
+       "treeChars": 134276
+      }
+     ],
+     "diff": {
+      "snapMs": 63,
+      "diffChars": 0,
+      "printed": ""
+     },
+     "refCount": 1561,
+     "locatorMs": 13,
+     "p50": 36,
+     "p95": 72,
+     "firstMs": 52,
+     "treeBytes": 134323,
+     "printedBytes": 134323,
+     "printedTokens": 32652,
+     "treeTokens": 32652,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "mdn-iframe",
+     "runs": [
+      {
+       "snapMs": 806,
+       "treeChars": 57487
+      },
+      {
+       "snapMs": 1066,
+       "treeChars": 57487
+      },
+      {
+       "snapMs": 921,
+       "treeChars": 57487
+      },
+      {
+       "snapMs": 866,
+       "treeChars": 57487
+      },
+      {
+       "snapMs": 684,
+       "treeChars": 57487
+      }
+     ],
+     "diff": {
+      "snapMs": 1265,
+      "diffChars": 292,
+      "printed": "Browser tab: 1, Title: \"<iframe> HTML inline frame element - HTML | MDN\", URL: \"http://localhost:65052/corpus/mdn-iframe.html\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 0 AXWebArea <iframe> HTML inline frame element - HTML | MDN, URL: localhost:65052/cor\u2026"
+     },
+     "p50": 866,
+     "p95": 1066,
+     "firstMs": 806,
+     "treeBytes": 58422,
+     "printedBytes": 58422,
+     "printedTokens": 14413,
+     "treeTokens": 14413,
+     "breakdown": null
+    }
+   }
+  },
+  "npr": {
+   "name": "npr",
+   "tools": {
+    "pw-mcp": {
+     "name": "npr",
+     "runs": [
+      {
+       "snapMs": 13,
+       "treeChars": 5020
+      },
+      {
+       "snapMs": 3,
+       "treeChars": 5020
+      },
+      {
+       "snapMs": 3,
+       "treeChars": 5020
+      },
+      {
+       "snapMs": 3,
+       "treeChars": 5020
+      },
+      {
+       "snapMs": 3,
+       "treeChars": 5020
+      }
+     ],
+     "diff": {
+      "snapMs": 25,
+      "diffChars": 150,
+      "printed": "- <changed> generic [ref=e6]:\n  - 'heading \"NPR : National Public Radio (changed)\" [level=1] [ref=e72]'\n  - ref=e9 [unchanged]\n  - ref=e10 [unchanged]"
+     },
+     "refCount": 69,
+     "locatorMs": 3,
+     "p50": 3,
+     "p95": 13,
+     "firstMs": 13,
+     "treeBytes": 5021,
+     "printedBytes": 5021,
+     "printedTokens": 1470,
+     "treeTokens": 1470,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "npr",
+     "runs": [
+      {
+       "snapMs": 29,
+       "treeChars": 3854
+      },
+      {
+       "snapMs": 12,
+       "treeChars": 3854
+      },
+      {
+       "snapMs": 12,
+       "treeChars": 3854
+      },
+      {
+       "snapMs": 13,
+       "treeChars": 3854
+      },
+      {
+       "snapMs": 15,
+       "treeChars": 3854
+      }
+     ],
+     "diff": {
+      "snapMs": 26,
+      "diffChars": 512,
+      "printed": "Browser tab: 1, Title: \"NPR : National Public Radio\", URL: \"http://localhost:65052/corpus/npr.html\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 6\n~\t\t5 heading NPR : National Public Radio (changed), Value: 1\n+\t\t\t47 text NPR : National Public Radio (changed)\nThe focused UI element is 0 AXWebArea NPR : National Public Radio, URL: localhost:65052/corpus/npr.html"
+     },
+     "p50": 13,
+     "p95": 29,
+     "firstMs": 29,
+     "treeBytes": 3861,
+     "printedBytes": 3861,
+     "printedTokens": 1063,
+     "treeTokens": 1063,
+     "breakdown": null
+    }
+   }
+  },
+  "bbc": {
+   "name": "bbc",
+   "tools": {
+    "pw-mcp": {
+     "name": "bbc",
+     "runs": [
+      {
+       "snapMs": 41,
+       "treeChars": 48935
+      },
+      {
+       "snapMs": 81,
+       "treeChars": 48935
+      },
+      {
+       "snapMs": 93,
+       "treeChars": 48935
+      },
+      {
+       "snapMs": 110,
+       "treeChars": 48935
+      },
+      {
+       "snapMs": 22,
+       "treeChars": 48935
+      }
+     ],
+     "diff": {
+      "snapMs": 15,
+      "diffChars": 68,
+      "printed": "- <changed> button \"Open menu\" [ref=e8] [cursor=pointer]: (changed)\n"
+     },
+     "refCount": 504,
+     "locatorMs": 60,
+     "p50": 81,
+     "p95": 110,
+     "firstMs": 41,
+     "treeBytes": 48959,
+     "printedBytes": 48959,
+     "printedTokens": 11839,
+     "treeTokens": 11839,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "bbc",
+     "runs": [
+      {
+       "snapMs": 237,
+       "treeChars": 21243
+      },
+      {
+       "snapMs": 240,
+       "treeChars": 21243
+      },
+      {
+       "snapMs": 169,
+       "treeChars": 21243
+      },
+      {
+       "snapMs": 339,
+       "treeChars": 21243
+      },
+      {
+       "snapMs": 324,
+       "treeChars": 21243
+      }
+     ],
+     "diff": {
+      "snapMs": 263,
+      "diffChars": 533,
+      "printed": "Browser tab: 1, Title: \"BBC News - Breaking news, video and the latest top stories from the U.S. and around the world\", URL: \"http://localhost:65052/corpus/bbc.html\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 5\nThe focused UI element is 0 AXWebArea BBC News - Breaking news, video and the latest top stories from the U.S. and around the world, URL: localhost:65052/corpus/bbc.html"
+     },
+     "p50": 240,
+     "p95": 339,
+     "firstMs": 237,
+     "treeBytes": 21272,
+     "printedBytes": 21272,
+     "printedTokens": 5298,
+     "treeTokens": 5298,
+     "breakdown": null
+    }
+   }
+  },
+  "books": {
+   "name": "books",
+   "tools": {
+    "pw-mcp": {
+     "name": "books",
+     "runs": [
+      {
+       "snapMs": 32,
+       "treeChars": 32973
+      },
+      {
+       "snapMs": 24,
+       "treeChars": 32973
+      },
+      {
+       "snapMs": 12,
+       "treeChars": 32973
+      },
+      {
+       "snapMs": 69,
+       "treeChars": 32973
+      },
+      {
+       "snapMs": 30,
+       "treeChars": 32973
+      }
+     ],
+     "diff": {
+      "snapMs": 19,
+      "diffChars": 139,
+      "printed": "- <changed> generic [ref=e120]:\n  - heading \"All products (changed)\" [level=1] [ref=e516]\n  - ref=e123 [unchanged]\n  - ref=e127 [unchanged]"
+     },
+     "refCount": 469,
+     "locatorMs": 52,
+     "p50": 30,
+     "p95": 69,
+     "firstMs": 32,
+     "treeBytes": 33233,
+     "printedBytes": 33233,
+     "printedTokens": 8218,
+     "treeTokens": 8218,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "books",
+     "runs": [
+      {
+       "snapMs": 576,
+       "treeChars": 17924
+      },
+      {
+       "snapMs": 739,
+       "treeChars": 17924
+      },
+      {
+       "snapMs": 548,
+       "treeChars": 17924
+      },
+      {
+       "snapMs": 393,
+       "treeChars": 17924
+      },
+      {
+       "snapMs": 450,
+       "treeChars": 17924
+      }
+     ],
+     "diff": {
+      "snapMs": 469,
+      "diffChars": 519,
+      "printed": "Browser tab: 1, Title: \"All products | Books to Scrape - Sandbox\", URL: \"http://localhost:65052/corpus/books.html\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 166\n~\t\t\t165 heading All products (changed), Value: 1\n+\t\t\t\t439 text All products (changed)\nThe focused UI element is 0 AXWebArea All products | Books to Scrape - Sandbox, URL: localhost:65052/corpus/books.html"
+     },
+     "p50": 548,
+     "p95": 739,
+     "firstMs": 576,
+     "treeBytes": 18345,
+     "printedBytes": 18345,
+     "printedTokens": 5195,
+     "treeTokens": 5195,
+     "breakdown": null
+    }
+   }
+  },
+  "vercel": {
+   "name": "vercel",
+   "tools": {
+    "pw-mcp": {
+     "name": "vercel",
+     "runs": [
+      {
+       "snapMs": 48,
+       "treeChars": 24862
+      },
+      {
+       "snapMs": 17,
+       "treeChars": 24862
+      },
+      {
+       "snapMs": 11,
+       "treeChars": 24862
+      },
+      {
+       "snapMs": 12,
+       "treeChars": 24862
+      },
+      {
+       "snapMs": 15,
+       "treeChars": 24862
+      }
+     ],
+     "diff": {
+      "snapMs": 17,
+      "diffChars": 0,
+      "printed": ""
+     },
+     "refCount": 356,
+     "locatorMs": 2,
+     "p50": 15,
+     "p95": 48,
+     "firstMs": 48,
+     "treeBytes": 24880,
+     "printedBytes": 24880,
+     "printedTokens": 5780,
+     "treeTokens": 5780,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "vercel",
+     "runs": [
+      {
+       "snapMs": 23,
+       "treeChars": 2185
+      },
+      {
+       "snapMs": 19,
+       "treeChars": 2185
+      },
+      {
+       "snapMs": 18,
+       "treeChars": 2185
+      },
+      {
+       "snapMs": 22,
+       "treeChars": 2185
+      },
+      {
+       "snapMs": 58,
+       "treeChars": 2185
+      }
+     ],
+     "diff": {
+      "snapMs": 19,
+      "diffChars": 270,
+      "printed": "Browser tab: 1, Title: \"Agentic Infrastructure - Vercel\", URL: \"http://localhost:65052/corpus/vercel.html\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 0 AXWebArea Agentic Infrastructure - Vercel, URL: localhost:65052/corpus/vercel.html"
+     },
+     "p50": 22,
+     "p95": 58,
+     "firstMs": 23,
+     "treeBytes": 2185,
+     "printedBytes": 2185,
+     "printedTokens": 574,
+     "treeTokens": 574,
+     "breakdown": null
+    }
+   }
+  },
+  "live-wikipedia-cities": {
+   "name": "live-wikipedia-cities",
+   "tools": {
+    "pw-mcp": {
+     "name": "live-wikipedia-cities",
+     "runs": [
+      {
+       "snapMs": 139,
+       "treeChars": 364023
+      },
+      {
+       "snapMs": 169,
+       "treeChars": 364023
+      },
+      {
+       "snapMs": 165,
+       "treeChars": 364023
+      },
+      {
+       "snapMs": 93,
+       "treeChars": 364023
+      },
+      {
+       "snapMs": 97,
+       "treeChars": 364023
+      }
+     ],
+     "diff": {
+      "snapMs": 103,
+      "diffChars": 0,
+      "printed": ""
+     },
+     "refCount": 3329,
+     "locatorMs": 19,
+     "p50": 139,
+     "p95": 169,
+     "firstMs": 139,
+     "treeBytes": 364721,
+     "printedBytes": 364721,
+     "printedTokens": 99767,
+     "treeTokens": 99767,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "live-wikipedia-cities",
+     "runs": [
+      {
+       "snapMs": 5055,
+       "treeChars": 200064
+      },
+      {
+       "snapMs": 5811,
+       "treeChars": 200064
+      },
+      {
+       "snapMs": 6065,
+       "treeChars": 200064
+      },
+      {
+       "snapMs": 6191,
+       "treeChars": 200064
+      },
+      {
+       "snapMs": 5737,
+       "treeChars": 200064
+      }
+     ],
+     "diff": {
+      "snapMs": 4508,
+      "diffChars": 273,
+      "printed": "Browser tab: 1, Title: \"List of largest cities - Wikipedia\", URL: \"https://en.wikipedia.org/wiki/List_of_largest_cities\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 0 AXWebArea List of largest cities - Wikipedia, URL: en.wikipedia.org/wi\u2026"
+     },
+     "p50": 5811,
+     "p95": 6191,
+     "firstMs": 5055,
+     "treeBytes": 202327,
+     "printedBytes": 202327,
+     "printedTokens": 61087,
+     "treeTokens": 61087,
+     "breakdown": null
+    }
+   }
+  },
+  "live-github-pr-files": {
+   "name": "live-github-pr-files",
+   "tools": {
+    "pw-mcp": {
+     "name": "live-github-pr-files",
+     "runs": [
+      {
+       "snapMs": 787,
+       "treeChars": 1381252
+      },
+      {
+       "snapMs": 2951,
+       "treeChars": 2790283
+      },
+      {
+       "snapMs": 1670,
+       "treeChars": 2790283
+      },
+      {
+       "snapMs": 1687,
+       "treeChars": 2790283
+      },
+      {
+       "snapMs": 1645,
+       "treeChars": 2790283
+      }
+     ],
+     "diff": {
+      "snapMs": 1613,
+      "diffChars": 115,
+      "printed": "- <changed> banner [ref=e9]:\n  - heading \"Navigation Menu (changed)\" [level=2] [ref=e42968]\n  - ref=e11 [unchanged]"
+     },
+     "refCount": 15275,
+     "locatorMs": 31,
+     "p50": 1670,
+     "p95": 2951,
+     "firstMs": 787,
+     "treeBytes": 1381261,
+     "printedBytes": 1381261,
+     "printedTokens": 321339,
+     "treeTokens": 321339,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "live-github-pr-files",
+     "runs": [
+      {
+       "snapMs": 14586,
+       "treeChars": 757803
+      },
+      {
+       "snapMs": 40306,
+       "treeChars": 1521606
+      },
+      {
+       "snapMs": 38242,
+       "treeChars": 1521606
+      },
+      {
+       "snapMs": 43319,
+       "treeChars": 1521606
+      },
+      {
+       "snapMs": 29705,
+       "treeChars": 1521606
+      }
+     ],
+     "diff": {
+      "snapMs": 38444,
+      "diffChars": 698,
+      "printed": "Browser tab: 1, Title: \"Add cmux browser repl: one Playwright-based agent browser API by lawrencecchen \u00b7 Pull Request #15570 \u00b7 manaflow-ai/cmux \u00b7 GitHub\", URL: \"https://github.com/manaflow-ai/cmux/pull/15570/files\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 5\n~\t\t\t4 heading Navigation Menu (changed), Value: 2\n+\t\t\t\t34503 text Navigation Menu (changed)\nThe focused UI element is 0 AXWebArea URL: github.com/manaflow\u2026, Add cmux browser repl: one Playwright-based agent browser API by lawrencecchen \u00b7 Pull Request #15570 \u00b7 manaflow-ai/cmux \u00b7 GitHub"
+     },
+     "p50": 38242,
+     "p95": 43319,
+     "firstMs": 14586,
+     "treeBytes": 758856,
+     "printedBytes": 758856,
+     "printedTokens": 284490,
+     "treeTokens": 284490,
+     "breakdown": null
+    }
+   }
+  },
+  "live-amazon-search": {
+   "name": "live-amazon-search",
+   "tools": {
+    "pw-mcp": {
+     "name": "live-amazon-search",
+     "runs": [
+      {
+       "snapMs": 157,
+       "treeChars": 413105
+      },
+      {
+       "snapMs": 155,
+       "treeChars": 413105
+      },
+      {
+       "snapMs": 110,
+       "treeChars": 413105
+      },
+      {
+       "snapMs": 191,
+       "treeChars": 413105
+      },
+      {
+       "snapMs": 118,
+       "treeChars": 413105
+      }
+     ],
+     "diff": {
+      "snapMs": 116,
+      "diffChars": 797,
+      "printed": "- <changed> navigation \"Shortcuts menu\" [ref=e3]:\n  - heading \"Skip to (changed)\" [level=2] [ref=e4840]\n  - list \"Skip to (changed)\" [ref=e4841]:\n    - ref=e6 [unchanged]\n    - ref=e8 [unchanged]\n    - ref=e10 [unchanged]\n  - ref=e12 [unchanged]\n  - ref=e13 [unchanged]\n  - ref=e14 [unchanged]\n  - ref=e68 [unchanged]\n- <changed> navigation \"Primary\" [ref=e70]:\n  - ref=e71 [unchanged]\n  - ref=e138 [unchanged]\n  - ref=e245 [unchanged]\n- <changed> generic [ref=e1011]:\n  - link \"Ends in 23:14:54\" [ref=e4842] [cursor=pointer]:\n    - /url: /deals\n    - generic [ref=e1017]: Ends in 23:14:54\n  - ref=e1019 [unchanged]\n- <changed> generic [ref=e3475]:\n  - link \"Ends in 23:14:54\" [ref=e4843] [cursor=pointer]:\n    - /url: /deals\n    - generic [ref=e3481]: Ends in 23:14:54\n  - ref=e3483 [unchanged]\n\n"
+     },
+     "refCount": 2528,
+     "locatorMs": 4,
+     "p50": 155,
+     "p95": 191,
+     "firstMs": 157,
+     "treeBytes": 413126,
+     "printedBytes": 413126,
+     "printedTokens": 167872,
+     "treeTokens": 167872,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "live-amazon-search",
+     "runs": [
+      {
+       "snapMs": 1292,
+       "treeChars": 86954
+      },
+      {
+       "snapMs": 1411,
+       "treeChars": 86954
+      },
+      {
+       "snapMs": 1273,
+       "treeChars": 86954
+      },
+      {
+       "snapMs": 1469,
+       "treeChars": 86954
+      },
+      {
+       "snapMs": 1055,
+       "treeChars": 86954
+      }
+     ],
+     "diff": {
+      "snapMs": 874,
+      "diffChars": 848,
+      "printed": "Browser tab: 1, Title: \"Amazon.com : usb c cable\", URL: \"https://www.amazon.com/s?k=usb+c+cable\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 5, 107-112\n~\t\t\t\t4 heading Skip to (changed), Value: 2, ID: nav-assistant-links-heading\n+\t\t\t\t\t1410 text Skip to (changed)\n~\t\t\t\t6 content list Skip to (changed)\n~\t\t\t\t\t\t\t\t329 link Description: Ends in 23:14:54, Value: amazon.com/deals\n~\t\t\t\t\t\t\t\t896 link Description: Ends in 23:14:54, Value: amazon.com/deals\n~\t\t\t\t\t\t\t936 link Description: 10 Feet, Value: amazon.com/s\n~\t\t\t\t\t\t\t937 link Description: 6ft, Value: amazon.com/s\n~\t\t\t\t\t\t\t938 link Description: 3ft, Value: amazon.com/s\nThe focused UI element is 0 AXWebArea Amazon.com : usb c cable, URL: amazon.com/s"
+     },
+     "p50": 1292,
+     "p95": 1469,
+     "firstMs": 1292,
+     "treeBytes": 87723,
+     "printedBytes": 87723,
+     "printedTokens": 24300,
+     "treeTokens": 24300,
+     "breakdown": null
+    }
+   }
+  },
+  "live-hn-thread": {
+   "name": "live-hn-thread",
+   "tools": {
+    "pw-mcp": {
+     "name": "live-hn-thread",
+     "runs": [
+      {
+       "snapMs": 702,
+       "treeChars": 2683021
+      },
+      {
+       "snapMs": 629,
+       "treeChars": 2683021
+      },
+      {
+       "snapMs": 627,
+       "treeChars": 2683021
+      },
+      {
+       "snapMs": 605,
+       "treeChars": 2683021
+      },
+      {
+       "snapMs": 629,
+       "treeChars": 2683021
+      }
+     ],
+     "diff": {
+      "snapMs": 610,
+      "diffChars": 101,
+      "printed": "- <changed> generic [active] [ref=e1]:\n  - paragraph [ref=e23902]: perf change\n  - ref=e3 [unchanged]"
+     },
+     "refCount": 19876,
+     "locatorMs": 6,
+     "p50": 629,
+     "p95": 702,
+     "firstMs": 702,
+     "treeBytes": 2692570,
+     "printedBytes": 2692570,
+     "printedTokens": 622139,
+     "treeTokens": 622139,
+     "breakdown": null
+    },
+    "chatgpt-ax": {
+     "name": "live-hn-thread",
+     "runs": [
+      {
+       "snapMs": 4770,
+       "treeChars": 498066
+      },
+      {
+       "snapMs": 4837,
+       "treeChars": 498066
+      },
+      {
+       "snapMs": 7526,
+       "treeChars": 498066
+      },
+      {
+       "snapMs": 6264,
+       "treeChars": 498066
+      },
+      {
+       "snapMs": 5506,
+       "treeChars": 498066
+      }
+     ],
+     "diff": {
+      "snapMs": 9136,
+      "diffChars": 494,
+      "printed": "Browser tab: 1, Title: \"GPT 6.1 Sol: Near-Astra intelligence for a fifth of the price | Hacker News\", URL: \"https://news.ycombinator.com/item?id=49896586\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\n+\t6955 text perf change\nThe focused UI element is 0 AXWebArea GPT 6.1 Sol: Near-Astra intelligence for a fifth of the price | Hacker News, URL: news.ycombinator.co\u2026"
+     },
+     "p50": 5506,
+     "p95": 7526,
+     "firstMs": 4770,
+     "treeBytes": 505687,
+     "printedBytes": 505687,
+     "printedTokens": 134824,
+     "treeTokens": 134824,
+     "breakdown": null
+    }
+   }
+  }
+ }
+}
