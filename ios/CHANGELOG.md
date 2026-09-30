@@ -42,6 +42,21 @@ The top entry's version MUST equal the checked-in
 for a different version), so bump the beta version with
 `ios/scripts/bump-ios-version.sh` in the SAME change that adds the top entry.
 
+## [1.0.7] - 2026-09-30
+
+### Internal
+
+- Add faster Mac startup and background recovery, a stable computer picker during refresh, and browser access from the iPhone for paired Macs that advertise browser support.
+- Add the current terminal tab overview and close actions, plus the latest iOS auth and onboarding fixes from `main`.
+- Require Mac 0.64.25 or NIGHTLY 0.64.25-nightly.3522337919701 for BETA and INTERNAL 1.0.7 core connections.
+- Show one BETA and INTERNAL 1.0.7 What's New notice with the exact Mac requirements, update hints, and the Settings > Mobile pairing action.
+
+### External
+
+- Improve Mac reconnects after launch and backgrounding, and add browser access from the iPhone when a paired Mac supports it.
+- Requires cmux 0.64.25 or later, or NIGHTLY 0.64.25-nightly.3522337919701 or later. Enable iOS pairing in Settings > Mobile on each Mac.
+- Update any Mac that shows an in-app update hint before using the feature that requires it.
+
 ## [1.0.6] - 2026-09-23
 
 ### Internal

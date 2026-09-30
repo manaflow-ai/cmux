@@ -144,6 +144,50 @@ describe("whats-new route channel targeting", () => {
     });
   });
 
+  test("ships the 1.0.7 iOS changes and required actions only to beta and internal", () => {
+    const notice = whatsNewList.announcements.find(
+      (entry) => entry.id === "ios-1.0.7-ios-changes",
+    );
+    expect(notice).toEqual({
+      id: "ios-1.0.7-ios-changes",
+      minVersion: "1.0.7",
+      maxVersion: "1.0.7",
+      title: "What's New in 1.0.7",
+      releaseLabel: "1.0.7 · September 2026",
+      channels: ["beta", "internal"],
+      localizations: {
+        en: expect.objectContaining({ title: "What's New in 1.0.7" }),
+      },
+      features: expect.arrayContaining([
+        expect.objectContaining({ title: "More reliable Mac connections" }),
+        expect.objectContaining({ title: "Browse from your iPhone" }),
+        expect.objectContaining({
+          detail: expect.stringContaining("cmux 0.64.25 or later"),
+        }),
+        expect.objectContaining({
+          detail: expect.stringContaining(
+            "NIGHTLY 0.64.25-nightly.3522337919701 or later",
+          ),
+        }),
+        expect.objectContaining({ title: "Enable iOS pairing" }),
+      ]),
+    });
+  });
+
+  test("keeps every 1.0.7 required action in the served English fallback", async () => {
+    const response = await GET(new Request("https://cmux.test/api/whats-new"));
+    const payload = await response.json() as WhatsNewList;
+    const notice = payload.announcements.find(
+      (entry) => entry.id === "ios-1.0.7-ios-changes",
+    );
+    expect(notice).toBeDefined();
+    const copy = JSON.stringify(notice);
+    expect(copy).toContain("0.64.25");
+    expect(copy).toContain("0.64.25-nightly.3522337919701");
+    expect(copy).toContain("Settings > Mobile");
+    expect(copy).toContain("update hint");
+  });
+
   test("serves translated release instructions with exact compatibility values", async () => {
     const response = await GET(new Request("https://cmux.test/api/whats-new"));
     const payload = await response.json() as WhatsNewList;

@@ -1,4 +1,4 @@
-import { ios106Localizations } from "./whats-new-localizations";
+import { ios106Localizations, ios107Localizations } from "./whats-new-localizations";
 
 /**
  * The remote What's New list served by GET /api/whats-new.
@@ -101,6 +101,14 @@ export const whatsNewList: WhatsNewList = {
       channels: ["beta", "internal"],
       ...ios106Localizations.en,
       localizations: ios106Localizations,
+    },
+    {
+      id: "ios-1.0.7-ios-changes",
+      minVersion: "1.0.7",
+      maxVersion: "1.0.7",
+      channels: ["beta", "internal"],
+      ...ios107Localizations.en,
+      localizations: ios107Localizations,
     },
   ],
 };

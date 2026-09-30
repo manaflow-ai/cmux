@@ -62,3 +62,37 @@ export const ios106Localizations: Record<string, WhatsNewAnnouncementContent> = 
     ],
   }]),
 );
+
+// 1.0.7 is prepared before its translation batch lands. Keep the base copy
+// complete so every supported locale still receives the announcement through
+// the client's English fallback instead of silently losing required actions.
+const ios107English: WhatsNewAnnouncementContent = {
+  title: "What's New in 1.0.7",
+  releaseLabel: "1.0.7 · September 2026",
+  features: [
+    {
+      symbol: "arrow.triangle.2.circlepath",
+      title: "More reliable Mac connections",
+      detail: "Startup and background recovery now move past an unresponsive Mac sooner, and the computer list stays stable while it refreshes.",
+    },
+    {
+      symbol: "safari",
+      title: "Browse from your iPhone",
+      detail: "Open a paired Mac browser on this iPhone when that Mac advertises browser support. Older Macs show an update hint for this feature.",
+    },
+    {
+      symbol: "arrow.down.circle",
+      title: "Update cmux on your Mac",
+      detail: `Core connections require cmux ${ios106MacRequirement.stableMinVersion} or later, or NIGHTLY ${ios106MacRequirement.nightly.minBaseVersion}-nightly.${ios106MacRequirement.nightly.minBuild} or later. Update any Mac that shows an update hint.`,
+    },
+    {
+      symbol: "gearshape",
+      title: "Enable iOS pairing",
+      detail: "On every Mac you want to use, open Settings > Mobile and turn on Enable iOS pairing.",
+    },
+  ],
+};
+
+export const ios107Localizations: Record<string, WhatsNewAnnouncementContent> = {
+  en: ios107English,
+};
