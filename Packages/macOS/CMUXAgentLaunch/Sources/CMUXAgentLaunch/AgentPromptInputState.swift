@@ -279,8 +279,11 @@ private extension AgentPromptSubmissionSnapshot {
         bottomRows: [String]
     ) -> Bool {
         guard let promptRow else { return false }
-        let promptBody = plainRows[promptRow]
+        var promptBody = plainRows[promptRow]
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        if promptBody.hasPrefix("\u{2502}") {
+            promptBody = String(promptBody.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         let promptText = String(promptBody.dropFirst(promptPrefix(in: plainRows[promptRow])?.count ?? 0))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let hasSlashOption = plainRows.enumerated().contains { index, row in
