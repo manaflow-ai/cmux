@@ -280,7 +280,8 @@ public struct VMSummary: Sendable {
         freeAccessExpiresAt: Int64? = nil,
         addressIPv4: String? = nil,
         addressIPv6: String? = nil,
-        cmuxTuiContract: String? = nil
+        cmuxTuiContract: String? = nil,
+        createdBy: VMCreator? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -296,6 +297,7 @@ public struct VMSummary: Sendable {
         self.addressIPv4 = addressIPv4
         self.addressIPv6 = addressIPv6
         self.cmuxTuiContract = cmuxTuiContract
+        self.createdBy = createdBy
     }
 
     public let id: String
@@ -310,6 +312,9 @@ public struct VMSummary: Sendable {
     public var capabilities: VMCapabilities = .all
     /// User-chosen label; the id stays the machine's address.
     public var displayName: String?
+    /// Who made this machine (`GET /api/vm` → `createdBy`). Nil when the
+    /// control plane does not send one. Display only; see ``VMCreator``.
+    public var createdBy: VMCreator?
     /// Server-generated three-word name (`sleepy-teal-otter`), fixed for the
     /// machine's life and unique among the owner's live machines. Nil on
     /// machines created before the backend assigned names.
@@ -1120,6 +1125,83 @@ public actor VMClient {
         await readRequests.networkChanges()
     }
 
+    public func listPage() async throws -> VMListPage {
+        let (retentionToken, listIdentity, listTeamID) = await MainActor.run { [auth, resourceStats] in
+            (resourceStats.beginRetention(), auth.authenticatedSessionIdentity, auth.resolvedTeamID)
+        }
+        return try await withOperation(.list, foreground: false) {
+            let (data, http) = try await request("GET", path: "/api/vm", timeoutSeconds: 15)
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let items = obj["vms"] as? [[String: Any]] else {
+                throw VMClientError.malformedResponse("missing `vms` array")
+            }
+            var limits: VMPlanLimits?
+            if let rawLimits = obj["limits"] as? [String: Any],
+               let planId = rawLimits["planId"] as? String {
+                // Absent or null means the plan has no active-machine cap.
+                let maxActiveVms = (rawLimits["maxActiveVms"] as? Int) ?? (rawLimits["maxActiveVms"] as? NSNumber)?.intValue
+                let freeAccessWindowDays = (rawLimits["freeAccessWindowDays"] as? Int)
+                    ?? (rawLimits["freeAccessWindowDays"] as? NSNumber)?.intValue
+                    ?? 0
+                limits = VMPlanLimits(
+                    maxActiveVms: maxActiveVms,
+                    planId: planId,
+                    freeAccessWindowDays: freeAccessWindowDays,
+                    freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
+                    memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
+                    lockedMemoryOptionsMb: (rawLimits["lockedMemoryOptionsMb"] as? [Any]).map { Self.decodeIntArray($0) },
+                    memoryUpgradePlanId: (rawLimits["memoryUpgradePlanId"] as? String)
+                        .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
+                    memoryUpgradePlansByMb: rawLimits["memoryUpgradePlansByMb"] as? [String: String],
+                    activeVmCount: rawLimits["activeVmCount"] as? Int,
+                    imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
+                )
+            }
+            let vms = try items.enumerated().map { index, dict -> VMSummary in
+                guard let id = dict["id"] as? String, !id.isEmpty else {
+                    throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
+                }
+                guard let provider = dict["provider"] as? String, !provider.isEmpty else {
+                    throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
+                }
+                guard let image = dict["image"] as? String, !image.isEmpty else {
+                    throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
+                }
+                let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
+                let createdAt = (dict["createdAt"] as? Int64)
+                    ?? Int64((dict["createdAt"] as? Double) ?? 0)
+                var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
+                summary.kind = Self.decodeKind(dict["kind"])
+                summary.capabilities = VMCapabilities(vmResponse: dict)
+                if let label = dict["displayName"] as? String, !label.isEmpty {
+                    summary.displayName = label
+                }
+                summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                summary.createdBy = VMCreator(vmResponse: dict)
+                summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
+                if let address = dict["address"] as? [String: Any] {
+                    summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                }
+                return summary
+            }
+            machineCache.record(hasAnyMachine: !vms.isEmpty)
+            // Background discovery also reads resource stats. Register its
+            // complete fleet before returning, but only when the auth account
+            // and team are still the ones that produced this response. The
+            // store token fences reset and out-of-order list responses.
+            let machineIDs = Set(vms.map(\.id))
+            await MainActor.run { [auth, resourceStats] in
+                guard !Task.isCancelled, let listIdentity,
+                      auth.authenticatedSessionIdentity == listIdentity,
+                      auth.resolvedTeamID == listTeamID else { return }
+                resourceStats.retain(machineIDs: machineIDs, token: retentionToken)
+            }
+            return VMListPage(vms: vms, limits: limits)
+        }
+    }
     public func listPublications() async throws -> [VMPublication] {
         return try await withOperation(.publication, foreground: true) {
             let (data, http) = try await request("GET", path: "/api/vm/publications")
@@ -1526,6 +1608,14 @@ public actor VMClient {
             summary.capabilities = VMCapabilities(vmResponse: obj)
             summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            // `create` has one caller today, the `vm.create` socket method, so
+            // this is what `cmux vm new --json` prints. The sidebar does not
+            // read it: the panel only ever assigns a whole `listPage()` result,
+            // so a created machine shows its author on the next list refresh
+            // and not before. Decoded here anyway because the field is in the
+            // response and a client that did merge this into the row it already
+            // listed would otherwise blank the author out.
+            summary.createdBy = VMCreator(vmResponse: obj)
             // The create receipt names the new machine's private address and
             // attach contract, so the app can register and dial it without a
             // fleet re-read or an attach request (see createdMachineAttach).
@@ -1607,6 +1697,11 @@ public actor VMClient {
                 summary.displayName = label
             }
             summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            // Same as the create site: `status(id:)`'s one caller is the
+            // `vm.status` socket method, so this feeds `cmux vm status --json`.
+            // The panel's per-machine refresh goes through `SurfaceCatalog`,
+            // not through here.
+            summary.createdBy = VMCreator(vmResponse: obj)
             if let address = obj["address"] as? [String: Any] {
                 summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
