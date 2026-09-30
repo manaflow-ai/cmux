@@ -143,12 +143,15 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `e1b8bf5f4`, the OSC 133;A prompt
-line fix (section 15, manaflow-ai/ghostty#245) on top of `9d8d40319`, which
-corrects the styled blank row test. Artifact
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e1b8bf5f478c6aadbf70e51cdbb41930e92fda10-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-has SHA-256 `d18c7ddcc9f503cf2b03dff07b7001f4fc04f60d3d22bf84b2b4d5d5ce9ec885`,
-pinned in `scripts/ghosttykit-checksums.txt`. The previous pin was `9961d09be`,
+The submodule pinned by this branch is `51c8da0ce`, the VT replay blank-cell
+style fix (manaflow-ai/ghostty#246) on top of `e1b8bf5f4`. Artifact
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-51c8da0cede775b8599c18bcfbe33c2ec6aaac88-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `16705a02949161a1e04ae7933bf2344b59c2f0756689c356cb893474fb18a664`,
+pinned in `scripts/ghosttykit-checksums.txt`. The previous pin was `e1b8bf5f4`,
+the OSC 133;A prompt line fix (section 15, manaflow-ai/ghostty#245) on top of
+`9d8d40319`, which corrects the styled blank row test (artifact SHA-256
+`d18c7ddcc9f503cf2b03dff07b7001f4fc04f60d3d22bf84b2b4d5d5ce9ec885`). The pin
+before that was `9961d09be`,
 the Cloud VT replay
 styled-blank-row fix on top of fork `main`, Ghostty #241's carried trailing
 row state, and the exact #239 startup-input commits. The previous pin was
