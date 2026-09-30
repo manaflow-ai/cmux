@@ -295,8 +295,22 @@ step_done
 
 step "replay-after-reconnect"
 "$AXE" button home --udid "$SIM_UDID"
-# Keep simctl's answer (the pid) so a failed relaunch is visible in the log.
-echo "relaunch: $(xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" 2>&1)"
+# `simctl launch` on a backgrounded app sometimes returns its pid without
+# activating it (runs 36684173770, 36711345629: no foreground event, home
+# screen for 45 s). Confirm the terminal view is on screen and ask again,
+# so this step measures replay, not simctl.
+foregrounded=0
+for attempt in 1 2 3; do
+  echo "relaunch $attempt: $(xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" 2>&1)"
+  for _ in $(seq 1 10); do
+    if "$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null | grep -q MobileTerminalSurface; then
+      foregrounded=1
+      break 2
+    fi
+    sleep 1
+  done
+done
+(( foregrounded == 1 )) || fail "harness: app never returned to the foreground after 3 launch requests"
 wait_phone "$MARKC"   # session replay re-renders the pre-background history
 # Relaunch resets first responder exactly like a cold boot; re-establish
 # input with the same tap + typed self-check used in preflight.

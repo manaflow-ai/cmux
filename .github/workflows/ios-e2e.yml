@@ -451,10 +451,11 @@ jobs:
     # The Mac and simulator share one runner. That removes the runner-to-runner
     # network shortcut while relay-only policy keeps terminal traffic on the
     # same Iroh path the gate is meant to exercise.
-    # Deliberately not `needs: backend`: the backend holds until this job
-    # releases it, so waiting for its completion would deadlock. It does wait
-    # for the two app builds, then compiles nothing.
-    needs: [route, build-mac, build-ios]
+    # Starts with the builds and the backend, so its runner queue and setup
+    # overlap them; it waits for the two builds just before installing
+    # (scripts/e2e/wait-for-jobs.sh) and compiles nothing. Not `needs: backend`:
+    # the backend holds until this job releases it.
+    needs: route
     if: >-
       success()
       && needs.route.outputs.run_clients == 'true'
@@ -463,6 +464,7 @@ jobs:
     timeout-minutes: 120
     environment: ios-e2e
     permissions:
+      actions: read
       contents: read
       id-token: write
     env:
@@ -485,13 +487,6 @@ jobs:
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
-
-      - name: Download prebuilt apps
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          pattern: ios-e2e-*-app-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/prebuilt
-          merge-multiple: true
 
       - name: Install build prerequisites
         run: |
@@ -573,6 +568,19 @@ jobs:
           set -euo pipefail
           udid="$(./scripts/e2e/boot-simulator.sh "cmux-e2e-${GITHUB_RUN_ID}")"
           echo "CMUX_E2E_SIM_UDID=$udid" >> "$GITHUB_ENV"
+
+      - name: Wait for the app builds
+        timeout-minutes: 75
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/e2e/wait-for-jobs.sh 4200 build-mac build-ios
+
+      - name: Download prebuilt apps
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: ios-e2e-*-app-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/prebuilt
+          merge-multiple: true
 
       # The builds baked every per-commit value; only the credentials path is
       # this machine's. mobile-dev-launch.sh --ensure-mac launches the Mac app.
