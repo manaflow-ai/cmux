@@ -28,6 +28,10 @@ final class AppControl {
         let probe = frameProbe
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
+            .mainActor("debug.surfaces") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(SurfaceDiagnosticsReport.make(services))
+            },
         ])
         #if DEBUG
         // Deliberately blocks the main thread (watchdog and bench self-test).

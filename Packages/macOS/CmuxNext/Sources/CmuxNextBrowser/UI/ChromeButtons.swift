@@ -9,7 +9,12 @@ final class ChromeIconButton: NSButton {
     private var isHovering = false { didSet { updateFill() } }
     private var tracking: NSTrackingArea?
 
-    init(symbol: String, label: String, action: Selector?, target: AnyObject?) {
+    /// Toolbar buttons use Helium's geometry (`OmnibarStyle`); others the
+    /// compact overlay size.
+    private let isToolbar: Bool
+
+    init(symbol: String, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false) {
+        isToolbar = toolbar
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
@@ -24,11 +29,12 @@ final class ChromeIconButton: NSButton {
         setAccessibilityLabel(label)
         wantsLayer = true
         NSLayoutConstraint.activate([
-            density.bind(widthAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight },
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight },
+            density.bind(widthAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
         ])
+        if toolbar { contentTintColor = Palette.textPrimary }
         density.update { [unowned self] in
-            layer?.cornerRadius = BrowserMetrics.controlCornerRadius
+            layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
             applySymbol()
         }
         density.start()
@@ -46,7 +52,9 @@ final class ChromeIconButton: NSButton {
     private func applySymbol() {
         let symbol = symbolName
         let label = symbolLabel
-        let configuration = NSImage.SymbolConfiguration(pointSize: BrowserMetrics.symbolPointSize, weight: .medium)
+        let configuration = isToolbar
+            ? NSImage.SymbolConfiguration(pointSize: OmnibarStyle.buttonSymbolSize, weight: .regular)
+            : NSImage.SymbolConfiguration(pointSize: BrowserMetrics.symbolPointSize, weight: .medium)
         image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
             .withSymbolConfiguration(configuration)
         toolTip = label

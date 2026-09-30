@@ -52,13 +52,15 @@ public enum ActionMenuContext: String, CaseIterable, Sendable, Hashable, Codable
     case link
     /// A Cloud machine's sidebar section header.
     case cloudMachine
+    /// A tab strip's new tab (+) button: which kind of tab to open.
+    case newTab
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
         switch self {
         case .tab: .tab
         case .tabGroup: .tabGroup
-        case .pane, .terminalSelection, .browserPage, .link: .pane
+        case .pane, .terminalSelection, .browserPage, .link, .newTab: .pane
         case .column: .column
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup

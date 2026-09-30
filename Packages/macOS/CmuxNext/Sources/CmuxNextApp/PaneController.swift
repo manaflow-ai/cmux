@@ -9,7 +9,7 @@ import Observation
 /// Mirrors one daemon pane into a tab strip and shows the selected tab's
 /// content. Tab selection is client-local (`WindowState.selection`); every
 /// other change is a daemon command (PaneController+Intents).
-final class PaneController {
+final class PaneController: SurfacePresenter {
     let paneKey: String
     let layoutPaneID: LayoutPaneID
     let pane: PaneModel
@@ -56,6 +56,7 @@ final class PaneController {
         view.stripView.previewProvider = services.previews
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.onFocus = { [weak self] in self?.didFocus() }
+        view.onResize = { [weak services] in services?.surfaceInvariant.noteChange() }
         view.onWindow = { [weak self] in
             guard let self, self.workspace?.layoutModel.focusedPane == self.layoutPaneID else { return }
             self.focusContent()
@@ -67,9 +68,11 @@ final class PaneController {
         observation?.cancel()
         buttonsObservation?.cancel()
         services.presentation.cancel(self)
-        if let currentTabKey { services.cache.setVisible(currentTabKey, false) }
+        // No-op for a tab that moved to another pane: its new pane owns it.
+        services.cache.removePresenter(self)
         currentTabKey = nil
-        view.show(nil)
+        view.detachContent()
+        services.surfaceInvariant.noteChange()
     }
 
     // MARK: Sync
@@ -154,18 +157,28 @@ final class PaneController {
 
     func showSelected() {
         let key = stripModel.selectedID?.rawValue
+        if let currentTabKey, currentTabKey != key { services.cache.withdraw(currentTabKey, by: self) }
+        // May replace a stale surface, displacing the view shown here.
         let content = key.flatMap(content(for:))
-        if key != currentTabKey {
-            if let currentTabKey { services.cache.setVisible(currentTabKey, false) }
-            currentTabKey = key
-            if let key { services.cache.setVisible(key, isVisible) }
-        }
+        currentTabKey = key
+        if let key, content != nil { services.cache.present(key, by: self, visible: isVisible) }
         view.show(content?.view)
         if let pending = pendingAddressBarFocus, case .browser(let entry) = content, selectedTab?.surface == pending {
             pendingAddressBarFocus = nil
             entry.chrome.perform(.focusAddressBar)
         }
         if isFocusedInWorkspace { workspace?.publishContext() }
+        services.surfaceInvariant.noteChange()
+    }
+
+    /// Another pane took `key`'s view (the tab moved there) or its surface
+    /// was destroyed. Let the view go without pausing it; re-present when
+    /// this pane shows the tab again.
+    func surfaceWasDisplaced(_ key: String) {
+        guard currentTabKey == key else { return }
+        currentTabKey = nil
+        view.detachContent()
+        services.surfaceInvariant.noteChange()
     }
 
     /// This pane is its workspace's focused pane.
@@ -189,19 +202,31 @@ final class PaneController {
         }
     }
 
-    var currentContent: TabContent? { currentTabKey.flatMap(content(for:)) }
+    /// The shown tab's live content. Never creates a surface.
+    var currentContent: TabContent? { currentTabKey.flatMap(existingContent(for:)) }
+
+    /// `key`'s live content, if its surface or page exists.
+    func existingContent(for key: String) -> TabContent? {
+        if let entry = services.cache.existingTerminal(key) { return .terminal(entry) }
+        return services.cache.existingBrowser(key).map(TabContent.browser)
+    }
 
     /// True when showing the selection needs no new surface or page.
     var selectedContentIsAlive: Bool {
         guard let key = stripModel.selectedID?.rawValue else { return true }
-        return key == currentTabKey || services.cache.hasContent(for: key)
+        return (key == currentTabKey && view.hostsContent) || services.cache.hasContent(for: key)
     }
 
     /// The layout reported this pane on or off screen.
     func setVisible(_ visible: Bool) {
         guard isVisible != visible else { return }
         isVisible = visible
-        if let currentTabKey { services.cache.setVisible(currentTabKey, visible) }
+        services.cache.setVisible(visible, presenter: self)
+        // Content destroyed while off screen re-attaches (daemon replay).
+        if visible, stripModel.selectedID != nil, currentTabKey == nil || !view.hostsContent {
+            services.presentation.setNeedsShowSelected(self)
+        }
+        services.surfaceInvariant.noteChange()
     }
 
     /// Makes the selected content first responder.
