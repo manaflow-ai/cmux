@@ -59,7 +59,7 @@ struct WorkspaceBlueprintBuilder: Sendable {
                     // The pane's first terminal is the one it was made with.
                     if index == 0 { continue }
                     try await connection.newTab(in: pane, options: SpawnOptions(cwd: cwd, workspace: key))
-                case .browser(let url, let engine):
+                case .browser(let url, let engine, _):
                     guard browsers else { continue }
                     try await connection.newFrontendBrowserTab(url: url, engine: engine ?? defaultEngine, in: pane)
                     if index == 0 { closeInitial = true }

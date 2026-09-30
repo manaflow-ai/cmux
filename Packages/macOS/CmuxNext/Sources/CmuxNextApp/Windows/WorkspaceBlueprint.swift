@@ -31,7 +31,9 @@ struct WorkspaceBlueprint: Hashable, Sendable, Codable {
 
     enum Tab: Hashable, Sendable, Codable {
         case terminal(cwd: String?)
-        case browser(url: String, engine: BrowserEngine?)
+        /// `profile`: the tab's browser profile (nil: `default`); a
+        /// duplicate reopens the page in the same profile.
+        case browser(url: String, engine: BrowserEngine?, profile: String? = nil)
 
         var isTerminal: Bool {
             if case .terminal = self { return true }
