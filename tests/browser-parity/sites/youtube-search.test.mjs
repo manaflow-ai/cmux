@@ -44,6 +44,20 @@ test("youtube.transcript: a track that needs the player's token is read in a mut
   assert.equal(await s.value("(await tabs.list()).length"), before);
 });
 
+test("youtube.transcript: InnerTube native clients through the session, in order, with no tab (IOS refused, ANDROID_VR answers)", async () => {
+  const before = env.state.requests.length;
+  assert.equal(await s.value('sites.youtube.transcript("vidNative03")'), "Hello world from Native Captions");
+  const reqs = env.state.requests.slice(before).map((r) => r.url);
+  assert.ok(reqs.some((u) => /youtubei\/v1\/player/.test(u)), "asked the player endpoint");
+  assert.ok(reqs.some((u) => /api\/timedtext\?v=vidNative03.*c=ANDROID_VR.*fmt=json3/.test(u)), "read the ANDROID_VR track as json3");
+  assert.ok(!reqs.some((u) => /\/watch\?v=vidNative03/.test(u)), "no watch page and no tab were needed");
+});
+
+test("youtube.transcript: a video without captions fails clearly", async () => {
+  assert.match(await s.error('sites.youtube.transcript("vidNoCaps04")'), /no_captions|has no captions/);
+  assert.match(await s.error('sites.youtube.transcript("vidNoCaps04")'), /video vidNoCaps04 has no captions/);
+});
+
 test("youtube.comments: entity-payload and legacy comment formats, following continuations", async () => {
   const r = await s.value('sites.youtube.comments("vidDirect01", { limit: 10 })');
   assert.deepEqual(r.comments.map((c) => [c.author, c.text, c.likes || null]), [["@alice", "First!", "12"], ["@bob", "Nice video", "3"], ["@carol", "Old format", "7"]]);

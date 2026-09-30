@@ -271,12 +271,20 @@ function calendar(req, url, body, state) {
 // ---------------------------------------------------------------------------
 // YouTube
 
+// clients: which InnerTube player clients return playable captions (native
+// clients' caption URLs need no player token, per YouTube's behavior that
+// yt-dlp's PO-token guide documents); none: the video has no captions.
 const VIDEOS = {
   // Captions fetch directly from the track URL.
   vidDirect01: { title: "Direct Captions", pot: false },
   // Captions need the player's token (the "pot" parameter), as on YouTube today.
-  vidPlayer02: { title: "Player Captions", pot: true },
+  vidPlayer02: { title: "Player Captions", pot: true, clients: [] },
+  // Web tracks need the player's token; the IOS client is refused, ANDROID_VR answers.
+  vidNative03: { title: "Native Captions", pot: true, clients: ["ANDROID_VR"] },
+  vidNoCaps04: { title: "No Captions", pot: false, none: true },
 };
+
+const captionsFor = (id, client) => ({ playerCaptionsTracklistRenderer: { captionTracks: [{ baseUrl: `https://www.youtube.com/api/timedtext?v=${id}&lang=en&c=${client}`, languageCode: "en", name: { simpleText: "English" } }, { baseUrl: `https://www.youtube.com/api/timedtext?v=${id}&lang=en&kind=asr&c=${client}`, languageCode: "en", kind: "asr", name: { simpleText: "English (auto-generated)" } }] } });
 
 function watchPage(id) {
   const v = VIDEOS[id];
@@ -284,7 +292,7 @@ function watchPage(id) {
     playabilityStatus: { status: "OK" },
     videoDetails: { videoId: id, title: v.title, author: "Mock Channel", channelId: "UCmock", lengthSeconds: "213", viewCount: "12345", shortDescription: "A mock video.", isLiveContent: false, keywords: ["mock"], thumbnail: { thumbnails: [{ url: "https://i.ytimg.com/s.jpg", width: 120 }, { url: "https://i.ytimg.com/l.jpg", width: 1280 }] } },
     microformat: { playerMicroformatRenderer: { publishDate: "2020-01-02T00:00:00-08:00", category: "Education", ownerProfileUrl: "http://www.youtube.com/@mock" } },
-    captions: { playerCaptionsTracklistRenderer: { captionTracks: [{ baseUrl: `https://www.youtube.com/api/timedtext?v=${id}&lang=en`, languageCode: "en", name: { simpleText: "English" } }, { baseUrl: `https://www.youtube.com/api/timedtext?v=${id}&lang=en&kind=asr`, languageCode: "en", kind: "asr", name: { simpleText: "English (auto-generated)" } }] } },
+    ...(v.none ? {} : { captions: captionsFor(id, "WEB") }),
   };
   const data = { contents: { twoColumnWatchNextResults: { results: { results: { contents: [{ itemSectionRenderer: { sectionIdentifier: "comment-item-section", contents: [{ continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token: "CMT1", request: "CONTINUATION_REQUEST_TYPE_WATCH_NEXT" } } } }] } }] } } } } };
   return html(
@@ -318,7 +326,8 @@ function youtube(req, url, body) {
   const id = url.searchParams.get("v");
   if (url.pathname === "/watch" && VIDEOS[id]) return { html: watchPage(id) };
   if (url.pathname === "/api/timedtext" && VIDEOS[id]) {
-    if (VIDEOS[id].pot && !url.searchParams.get("pot")) return { status: 200, headers: { "content-type": "application/json" }, body: "" };
+    const native = ["IOS", "ANDROID_VR"].includes(url.searchParams.get("c"));
+    if (VIDEOS[id].pot && !native && !url.searchParams.get("pot")) return { status: 200, headers: { "content-type": "application/json" }, body: "" };
     if (url.searchParams.get("fmt") === "srv3") return { status: 200, headers: { "content-type": "text/xml" }, body: `<?xml version="1.0" encoding="utf-8" ?><timedtext format="3"><body><p t="0" d="1500">Hello <s>world</s></p><p t="61000" d="2000">from ${VIDEOS[id].title}</p></body></timedtext>` };
     if (url.searchParams.get("fmt") !== "json3") return { status: 200, headers: { "content-type": "text/xml" }, body: "<transcript/>" };
     return { json: { events: [{ tStartMs: 0, dDurationMs: 1500, segs: [{ utf8: "Hello" }, { utf8: " world" }] }, { tStartMs: 1500 }, { tStartMs: 61000, dDurationMs: 2000, segs: [{ utf8: "from " + VIDEOS[id].title }] }] } };
@@ -327,6 +336,15 @@ function youtube(req, url, body) {
     const vr = (vid, title) => ({ videoRenderer: { videoId: vid, title: { runs: [{ text: title }] }, ownerText: { runs: [{ text: "Mock Channel", navigationEndpoint: { commandMetadata: { webCommandMetadata: { url: "/@mock" } } } }] }, lengthText: { simpleText: "3:33" }, viewCountText: { simpleText: "12,345 views" }, publishedTimeText: { simpleText: "5 years ago" }, thumbnail: { thumbnails: [{ url: "https://i.ytimg.com/x.jpg", width: 360 }] } } });
     const data = { contents: { twoColumnSearchResultsRenderer: { primaryContents: { sectionListRenderer: { contents: [{ itemSectionRenderer: { contents: [vr("vidDirect01", "Direct Captions"), { shelfRenderer: { content: { verticalListRenderer: { items: [vr("vidPlayer02", "Player Captions"), vr("vidDirect01", "dup")] } } } }, { channelRenderer: { channelId: "UCx" } }] } }] } } } } };
     return { html: html(`<script>var ytInitialData = ${JSON.stringify(data)};</script>`, `${url.searchParams.get("search_query")} - YouTube`) };
+  }
+  if (url.pathname === "/youtubei/v1/player" && req.method === "POST") {
+    const b = JSON.parse(body);
+    const client = b.context && b.context.client && b.context.client.clientName;
+    const video = VIDEOS[b.videoId];
+    if (!video) return { json: { playabilityStatus: { status: "ERROR", reason: "Video unavailable" } } };
+    const allowed = video.clients || ["IOS", "ANDROID_VR"];
+    if (!allowed.includes(client)) return { json: { playabilityStatus: { status: "UNPLAYABLE", reason: "This video is not available on this app" } } };
+    return { json: { playabilityStatus: { status: "OK" }, videoDetails: { videoId: b.videoId, title: video.title }, ...(video.none ? {} : { captions: captionsFor(b.videoId, client) }) } };
   }
   if (url.pathname === "/youtubei/v1/next" && req.method === "POST") {
     const { continuation } = JSON.parse(body);
