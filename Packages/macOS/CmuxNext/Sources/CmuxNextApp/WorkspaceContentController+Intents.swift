@@ -51,7 +51,10 @@ extension WorkspaceContentController {
             case .split:
                 spawnPane("split") { try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd, workspace: key)) }
             case .newColumn(_, let anchor):
-                spawnPane("new-pane-right") { try await $0.newColumn(rightOf: anchor, options: SpawnOptions(cwd: cwd, workspace: key)) }
+                let width = layoutModel.prepareNewColumn(nextTo: pane)
+                spawnPane("new-pane-right") {
+                    try await $0.newColumn(rightOf: anchor, width: width, options: SpawnOptions(cwd: cwd, workspace: key))
+                }
             case .refused(let reason):
                 services.registry.refuse(reason)
             }

@@ -18,8 +18,26 @@ public nonisolated struct NewColumnPlan: Hashable, Sendable {
 
 /// Width rules for new columns (plans/cmux-next/niri.md, "Column widths").
 public nonisolated enum NewColumnWidth {
-    // Failing-test stub: the rules land in the next commit.
+    /// A lone column at least this wide counts as full width.
+    static let fullWidth = 0.999
+
+    /// The plan for a new column of `width` (a viewport fraction) on a
+    /// screen with `columns`. `removing` is a pane that leaves in the same
+    /// step (a dragged tab's only pane), so its column may disappear.
+    ///
+    /// niri keeps every existing width. cmux adds one rule: a lone
+    /// full-width column (a workspace that has not scrolled yet) takes the
+    /// rest of the viewport, `1 - width`, so both columns are fully
+    /// visible. niri proportions include the gaps, so `p + q = 1` fits exactly.
     public static func plan(columns: [LayoutColumn], width: Double, removing: PaneID? = nil) -> NewColumnPlan {
-        NewColumnPlan(width: width, resize: nil)
+        let range = ColumnWidthPreset.widthRange
+        let width = min(max(width, range.lowerBound), range.upperBound)
+        guard columns.count == 1, let lone = columns.first, lone.width >= fullWidth,
+              lone.root.panes.contains(where: { $0 != removing }) else {
+            return NewColumnPlan(width: width, resize: nil)
+        }
+        let rest = 1 - width
+        guard rest >= range.lowerBound else { return NewColumnPlan(width: width, resize: nil) }
+        return NewColumnPlan(width: width, resize: ColumnResize(column: lone.id, width: rest))
     }
 }

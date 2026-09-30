@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextLayout
 
 /// What a requested split of a shown pane does, decided from the live layout
@@ -46,5 +47,18 @@ extension AppServices {
             }
             return .newColumn(afterColumn: content.handles.columns[columns[index].id], spawnAnchor: pane.handle)
         }
+    }
+
+    /// The width to send with a new column next to `pane`, from every path
+    /// that opens one. On a shown workspace it also shrinks a lone
+    /// full-width column so both fit (`LayoutModel.prepareNewColumn`, an
+    /// optimistic width intent). `source` is the pane a moved tab leaves.
+    func newColumnWidth(nextTo pane: PaneModel, movingFrom source: PaneModel? = nil) -> Double {
+        guard let controller = paneController(for: pane), let content = controller.workspace else {
+            return DesignSettings.shared.defaultColumnWidth
+        }
+        // A pane whose only tab moves out closes, even the anchor itself.
+        let removing = source.flatMap { $0.tabs.count == 1 ? content.handles.paneIDs[$0.handle] : nil }
+        return content.layoutModel.prepareNewColumn(nextTo: controller.layoutPaneID, removing: removing)
     }
 }
