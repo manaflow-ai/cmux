@@ -1,131 +1,103 @@
 # cmux next: the `cmux` CLI in Rust
 
 Plan for replacing the Swift CLI (`CLI/`, about 106k lines, target `cmux-cli`) and the
-app-side compat layer (`CmuxNextControl/Compat/`, see cli-compat.md) with one Rust
-binary. Decisions by the user on 2026-09-30 unless marked (agent).
+app-side compat layer (`CmuxNextControl/Compat/`, see cli-compat.md) with the Rust
+cmux-tui binary. Decisions by the user on 2026-09-30 unless marked (agent).
 
 ## Decisions
 
 - C1. The CLI is Rust. No Swift code ships in the CLI.
-- C2. One multicall binary, `cmux`. It links the CLI, acpmux (as a library) and cmux-tui
-  (as a library once it has one). `argv[0]` of `acpmux` or `cmux-tui` runs that program's
-  main, so the app bundle ships one Mach-O plus symlinks and every piece has one version.
+- C2. One binary. The cmux-tui binary ships as `Contents/Resources/bin/cmux`, with
+  `cmux-tui` and `acpmux` as symlinks to it; `argv[0]` of `acpmux` runs acpmux. Every
+  piece has one version. acpmux is linked into it as a library.
+- C2a (user, revised). The base is cmux-tui's existing resource CLI (`cli.rs`,
+  `cli/command.rs`), not a new crate: it already is the noun-first grammar over
+  `cmux.protocol/2`, localized, with public-id selectors (spec/resource-api-v2.md "CLI").
+  A new crate would have duplicated it and forced a change to the 42 places where
+  cmux-tui, cmux-tui-core, cmux-remote and cmux-pty start their own executable.
 - C3. No compatibility with the old CLI. Old verbs, flags, `workspace:N` style refs and the
-  v1 text protocol are gone. Old verbs fail with `unknown command`, and where a clear
-  replacement exists the error names it. `CmuxNextControl/Compat/` is deleted at cutover.
+  v1 text protocol are gone. `CmuxNextControl/Compat/` is deleted at cutover.
 - C4. `cmux acp` has three parts: the acpmux session verbs, an ACP agent on stdio for
   editors, and `cmux acp open` to show a session in the app.
 - C5. acpmux reaches cmux-next by merging PR 15512 into a branch off `feat-cmux-next`,
-  not through `main`. The legacy app never ships acpmux. The native chat pane prototype
-  (PR 15521) targets deleted legacy code and is rebuilt for cmux-next separately.
-- C6 (agent). The crate is `cmux-tui/crates/cmux-cli`, in the cmux-tui workspace, so it
-  shares the protocol crates, the lockfile and the Linux build. The same binary runs
-  inside Cloud VMs.
-- C7 (agent). Object ids on the command line are the daemon resource ids (`ws_…`,
-  `pane_…`, `tab_…`, `term_…`), qualified with the session for non-home sessions
-  (data-model.md 1.2). Any unique prefix is accepted. No per-process numeric refs.
-- C8 (agent). Old Swift ACP host (`CMUXAgentLaunch/ACPHost`, PR 15976, no caller) is
-  deleted. acpmux already speaks ACP to its clients, so `cmux acp` bridges to it.
+  not through `main` (PR 15512 closed). The native chat pane prototype (PR 15521)
+  targets deleted legacy code and is rebuilt for cmux-next separately.
+- C6. Bare `cmux` opens the TUI (attach or start the session), as cmux-tui does now.
+- C7 (user). Every object has a unique, stable identifier that survives app and daemon
+  restarts, terminals included. The CLI uses the daemon's public ids (`ws_`, `screen_`,
+  `pane_`, `tab_`, `term_`, `browser_`, `split_`, `notification_`, `agent_`), all
+  persisted in the resource store, and speaks only `cmux.protocol/2`, whose selectors
+  take them. Raw v12 per-boot numeric handles never reach the CLI.
+- C8 (user). The Swift ACP host (`CMUXAgentLaunch/ACPHost`, PR 15976) is deleted at
+  cutover; its author was told on the PR. acpmux already speaks ACP.
+- C9 (agent). Route by the owner of each object, not by the frontend. Windows exist only
+  in the app. A cmux-tui browser (`browser_…`) is daemon-owned; a Swift-app browser tab is
+  frontend-owned (the daemon holds its placement, the app holds the page).
 
 ## Owners and routing
 
-Every verb has exactly one owner. The CLI talks to the owner directly; nothing is
-forwarded through a second process.
-
-| Owner | Verbs | Works with the app closed |
+| Owner | Scopes | Works with the app closed |
 | --- | --- | --- |
-| cmux-tui daemon | workspace, tab, pane, terminal (send, key, read), notify, agent reports, groups, pins | yes |
-| app control socket | window, focus and selection, browser page operations, `action`, `events`, `identify` focus fields | no |
-| acpmux daemon | `cmux acp …` | yes (started on demand) |
+| cmux-tui daemon (`cmux.protocol/2`) | machine, session, client, workspace, screen, pane, tab, terminal, browser (daemon-owned), notification, agent, sidebar, projection | yes |
+| app control socket (JSON lines, `{"id","method","params"}`) | `app`, `window`, `action`, `settings`, `events`, and any `<noun> <verb>` that is an app action's CLI name | no |
+| acpmux daemon | `acp` | yes (started on demand) |
 
-Discovery, first match wins:
+Discovery (`app_identity.rs`):
 
-- App socket: `--socket`, `CMUX_SOCKET_PATH`, `CMUX_TAG` (tag path rules from
-  `ControlSocketPath`), then the channel default. The Rust function mirrors the Swift
-  one; both are tested against one shared fixture table in `cmux-tui/spec/`.
-- Daemon socket: `--tui-socket`, `CMUX_TUI_SOCKET`, then `system.identify` on the app
-  socket (the app reports the home session and its socket), then the cmux-tui default
-  path for the channel's session name.
-- acpmux: the acpmux client resolution, with the state dir derived from the channel and
-  tag so tagged builds never share an acpmux daemon with the user's release app.
+- App socket: `--app-socket`, then `CMUX_SOCKET_PATH`/`CMUX_BUNDLE_ID`/`CMUX_TAG` (set in
+  the app's terminals), then the app bundle that contains the executable (Info.plist
+  `CFBundleIdentifier` and `LSEnvironment.CMUX_TAG`). The path table mirrors
+  `ControlSocketPath`; the Rust tests pin it.
+- Daemon socket: `--socket`/`--session`, `CMUX_TUI_SOCKET`, then (macOS) the app's session
+  `cmux-app[-tag]` under the Darwin per-user temp directory the app starts it with, then
+  cmux-tui's `main`.
+- acpmux: `ACPMUX_HOME`, else `~/.acpmux/tags/<tag>` under `CMUX_TAG`, else `~/.acpmux`
+  (shared with a standalone acpmux). The home is passed to the daemon it starts.
 
-Terminals started by cmux-next get `CMUX_SOCKET_PATH`, `CMUX_TUI_SOCKET`,
-`CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` (the daemon ids), so a CLI call from inside a
-terminal targets its own workspace and tab without flags.
-
-## Command surface
-
-Noun first, then verb. `--json` on every read; human output by default.
-
-```
-cmux identify | tree | ping | version
-cmux workspace ls|new|close|rename|select|move
-cmux tab ls|new|close|rename|move|pin|unpin
-cmux pane ls|split|focus|swap|close
-cmux terminal send|key|read|clear
-cmux window ls|new|focus|close
-cmux browser open|goto|eval|snapshot|click|fill|url
-cmux notify [--title] [--body]      cmux notifications ls|ack
-cmux action ls|describe|run <id> [--arg k=v] [--target id]
-cmux events [--filter …]            (JSON lines, streaming)
-cmux hook <agent> <event>           (called by agent hook configs; reads stdin)
-cmux hooks install|uninstall|status [agent]
-cmux acp …                          (below)
-cmux tui …                          (the cmux-tui frontend)
-```
-
-`cmux action run` is the escape hatch for every registered action (REWRITE.md action
-contract). The CLI does not copy the registry: `cmux action ls` and shell completion read
-`action.list` at run time. A noun verb exists only when it has an owner outside the app
-(the daemon) or needs typed arguments beyond `--arg`.
-
-All user-facing CLI text is localized (English and Japanese) through the cmux-tui
-localization module.
+The app's action registry is the list of app verbs: `cmux app new-window` and
+`cmux workspace move-to-window --target ws_…` run the action with that CLI name. The mux
+grammar is tried first; only words it rejects and the app reports as an action run there.
 
 ## `cmux acp`
 
-- Session verbs: `cmux acp ls|new|send|attach|wait|stop|rm|fork|web|tui|daemon`. These
-  call the acpmux library; behavior matches the acpmux CLI. `cmux acp` with no verb opens
-  the acpmux TUI, like `acpmux` does now.
-- `cmux acp stdio [--session NAME | --agent HARNESS [--cwd DIR]]`: an ACP agent on
-  stdin/stdout for Zed and other editors. It connects to the acpmux daemon (starting it if
-  needed), binds or creates the session, and relays JSON-RPC. `session/new` from the
-  editor creates an acpmux session; `session/load` attaches to one, so the editor sees
-  sessions started from the TUI, the web dashboard or the app.
-- `cmux acp open NAME`: runs the app action that shows an agent session in a tab of the
-  current pane. Needs the cmux-next chat pane (separate work item; the React pane from
-  PR 16042 is the starting point).
+- Session verbs: every acpmux command (`ls`, `new`, `send`, `attach`, `wait`, `session …`,
+  `daemon …`, `web`). Bare `cmux acp` opens the acpmux TUI. acpmux's CLI moved from its
+  binary into `acpmux::cli::entry` for this; a started daemon reports readiness through
+  its `--ready-fd` pipe (no connect retry loop).
+- `cmux acp stdio [-m HARNESS[/MODEL]] [--policy P] [--effort E] [--preset P]`: an ACP
+  agent on stdin/stdout for editors (Zed: `"command": "cmux", "args": ["acp", "stdio",
+  "-m", "claude"]`). It relays newline-delimited JSON-RPC to the daemon, which speaks
+  plain ACP, and adds the flags as defaults to each `session/new`.
+- `cmux acp open NAME [--pane ID]`: runs `cmux acp attach NAME` in a new tab of the pane
+  (`pane <id|current> run`). Switches to the native chat pane when the app has one.
 
 ## Agent hooks
 
-`cmux hook <agent> <event>` replaces the Swift hook machinery. It reads the agent's JSON
-payload on stdin and sends one `report-agent` to the daemon for the calling terminal
-(`CMUX_SURFACE_ID`). The daemon owns agent state (status, needs-input, unread), so the
-sidebar, iOS and the TUI read the same value. `cmux hooks install` writes the hook
-entries into each agent's config and replaces entries that call old verbs
-(`claude-hook`, `codex-hook`, …). Agents that run through acpmux need no hooks.
+cmux-tui already installs and runs agent hooks (`agent hooks`, `agent_hook_install.rs`,
+`report-agent` into the daemon's durable agent projection). The Swift hook machinery is
+not ported. Agents that run through acpmux need no hooks.
 
-## Phases
+## Status
 
-1. acpmux on the cmux-next line (merge of PR 15512), this plan. Done in
-   feat-cmux-next-acpmux.
-2. `cmux-cli` crate: multicall dispatch, socket discovery with the shared fixture,
-   `identify`, `tree`, `ping`, `action`, and the full `cmux acp` session verbs.
-3. Daemon verbs (workspace, tab, pane, terminal, notify) and terminal env ids.
-4. `cmux acp stdio`, hooks and `hooks install`.
-5. App verbs (window, browser, events) and `cmux acp open`.
-6. Cutover: bundle the Rust `cmux` at `Contents/Resources/bin/cmux` with `acpmux` and
-   `cmux-tui` symlinks; delete `CLI/`, `cmuxCLITests/`, the `cmux-cli` target,
-   `CmuxNextControl/Compat/` and `CMUXAgentLaunch/ACPHost`; rewrite the skills and docs
-   that name old verbs; replace `cli-compat-e2e.py` with an e2e suite for the new
-   surface.
+Done on `feat-cmux-next-acpmux` (PR 16174): acpmux in the workspace; `cmux acp` (all
+three parts); app scopes and action verbs; app and daemon discovery. Build, 1762 cmux-tui
+unit tests, the acpmux suite and clippy pass on a Linux Testbox; macOS-only discovery
+code compiles only in macOS CI. `terminal_host_recovery::closing_one_hundred_terminals…`
+misses its 15 s budget on the Testbox at the base commit too (timing flake, not this
+change).
 
-## Risks
+## Remaining
 
-- C3 breaks every user's existing agent hook config and scripts at the first update.
-  `hooks install` runs on first launch of cmux-next to repair hook configs; scripts are
-  not repaired.
-- Shipped skills (`skills/`) and docs describe old verbs. They must change in the same
-  cutover PR, or agents will call commands that do not exist.
-- cmux-tui is a binary crate. C2 needs a `lib.rs` split first.
-- Rust builds and tests run on a Blacksmith Testbox or CI, never on the local Mac.
+1. Cutover: bundle the cmux-tui binary as `cmux` with `cmux-tui` and `acpmux` symlinks;
+   delete `CLI/`, `cmuxCLITests/`, the `cmux-cli` target, `CmuxNextControl/Compat/` and
+   `CMUXAgentLaunch/ACPHost`; replace `cli-compat-e2e.py` with an e2e suite for the new
+   surface; rewrite the skills and docs that name old verbs in the same change.
+2. Frontend browser routing: resolve a browser tab through the daemon; page commands
+   (navigate, eval, snapshot, click, fill) for a frontend-owned tab go to its app. Later
+   the daemon can forward them, so a CLI on another machine reaches the app too.
+3. App windows get typed ids (`win_<32 hex>`) in the control surface; today they are
+   bare lowercase UUIDs (stable, but not typed like every other id).
+4. Nightly and release apps both use daemon session `cmux-app` when untagged
+   (`DaemonLauncher.sessionName`), so a nightly and a release running together share one
+   session. Give each channel its own session.
+5. acpmux CLI output is English only; the rest of `cmux` is English and Japanese.
