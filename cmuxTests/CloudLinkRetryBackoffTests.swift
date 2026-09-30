@@ -27,4 +27,12 @@ struct CloudLinkRetryBackoffTests {
         }
         #expect(inherited)
     }
+
+    @Test("background upkeep never connects a non-running machine")
+    func pausedMachineStaysDisconnectedDuringUpkeep() {
+        #expect(CloudMachineLinkManager.backgroundUpkeepShouldConnect(status: "running"))
+        #expect(!CloudMachineLinkManager.backgroundUpkeepShouldConnect(status: "paused"))
+        #expect(!CloudMachineLinkManager.backgroundUpkeepShouldConnect(status: "stopped"))
+        #expect(!CloudMachineLinkManager.backgroundUpkeepShouldConnect(status: "suspended"))
+    }
 }
