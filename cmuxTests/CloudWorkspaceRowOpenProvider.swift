@@ -15,6 +15,9 @@ final class CloudWorkspaceRowOpenProvider: SurfaceProvider {
     let info: SurfaceMachineInfo
     var gate: CloudLinkFirstValue<Bool>?
     let started = CloudLinkFirstValue<Bool>()
+    /// Resolved as the first successful attachment returns to its caller, which
+    /// then finishes on the main actor before any waiter resumes.
+    let answered = CloudLinkFirstValue<Bool>()
     var materializations = 0
     var failAt: Int?
     var remoteCloses = 0
@@ -60,6 +63,7 @@ final class CloudWorkspaceRowOpenProvider: SurfaceProvider {
             pane = try SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
         }
         let view = remoteView ?? resource.remoteViews?.first
+        answered.resolve(true)
         return SurfaceProjection(resource: resource.id, workspaceID: pane.workspaceID, panelID: pane.panelID,
             remoteWorkspaceID: view?.workspace.id, remoteTabID: answeredTabID ?? view?.tabID)
     }

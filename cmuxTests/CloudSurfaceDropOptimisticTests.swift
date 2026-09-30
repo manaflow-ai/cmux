@@ -106,7 +106,8 @@ struct CloudSurfaceDropOptimisticTests {
             d.expectOriginalLayout()
 
             d.f.provider.gate?.resolve(true)
-            for _ in 0..<50 { await Task.yield() }
+            // The late answer has been handed back to the rolled-back drop.
+            #expect(await d.f.provider.answered.result == true)
             d.expectOriginalLayout()
             #expect(d.catalog.projections.isEmpty)
         }
