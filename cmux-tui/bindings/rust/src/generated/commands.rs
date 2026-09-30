@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b794ed0edf9e69c25274ac3ffbdd79dfa9ca531385e4b94f254f9dc7b55d5952.
+// cmux-tui mux protocol 12, IR 16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -427,6 +427,52 @@ pub struct CopyRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreatePersonalGroupRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub collapsed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub color: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub group: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub profile: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type CreatePersonalGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreateProfileRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub browser_profile_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub color: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub default_session_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub defaults: Optional<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub follows: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub profile: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub theme: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type CreateProfileResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateSurfaceWithReceiptRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub argv: Optional<Vec<String>>,
@@ -553,6 +599,26 @@ pub type CreateWorkspaceGroupResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeletePersonalGroupRequest {
+    pub group: String,
+}
+
+#[rustfmt::skip]
+pub type DeletePersonalGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeleteProfileRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub move_to: Optional<String>,
+    pub profile: String,
+}
+
+#[rustfmt::skip]
+pub type DeleteProfileResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteSavedTabGroupRequest {
     pub saved: String,
 }
@@ -618,6 +684,17 @@ pub struct FocusPaneRequest {
 pub type FocusPaneResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ForgetSessionRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub force: Option<bool>,
+    pub session_id: String,
+}
+
+#[rustfmt::skip]
+pub type ForgetSessionResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct GetBrowserProviderRequest {
 }
@@ -674,6 +751,19 @@ pub struct IdsRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImportSessionOrganizationRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub groups: Option<Vec<T::JsonValue>>,
+    pub session_id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub workspaces: Option<Vec<T::JsonValue>>,
+}
+
+#[rustfmt::skip]
+pub type ImportSessionOrganizationResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JournalFrontendEventRequest {
     pub event: T::FrontendJournalEvent,
 }
@@ -710,6 +800,14 @@ pub struct ListNotificationsRequest {
 
 #[rustfmt::skip]
 pub type ListNotificationsResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ListPersonalRequest {
+}
+
+#[rustfmt::skip]
+pub type ListPersonalResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -785,6 +883,26 @@ pub struct MintTerminalRendererByTerminalRequest {
 
 #[rustfmt::skip]
 pub type MintTerminalRendererByTerminalResult = T::MintTerminalRendererResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MovePersonalGroupRequest {
+    pub group: String,
+    pub index: u64,
+}
+
+#[rustfmt::skip]
+pub type MovePersonalGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveProfileRequest {
+    pub index: u64,
+    pub profile: String,
+}
+
+#[rustfmt::skip]
+pub type MoveProfileResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1189,6 +1307,17 @@ pub struct PasteImageResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PinWorkspaceRequest {
+    pub profile: String,
+    pub session_id: String,
+    pub workspace_key: String,
+}
+
+#[rustfmt::skip]
+pub type PinWorkspaceResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PingRequest {
 }
@@ -1223,6 +1352,24 @@ pub struct PutFrontendProjectionRequest {
 
 #[rustfmt::skip]
 pub type PutFrontendProjectionResult = T::FrontendProjection;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PutSessionRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub capabilities: Optional<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub follow_with: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub machine_name: Optional<String>,
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub session_name: Optional<String>,
+    pub transport: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type PutSessionResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1607,6 +1754,34 @@ pub type SetDefaultColorsResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetPersonalWorkspaceRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub browser_profile_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub group: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub theme: Optional<String>,
+    pub workspace_key: String,
+}
+
+#[rustfmt::skip]
+pub type SetPersonalWorkspaceResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetProfileFollowsRequest {
+    pub profile: String,
+    pub session_ids: Vec<String>,
+}
+
+#[rustfmt::skip]
+pub type SetProfileFollowsResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetRatioRequest {
     pub dir: T::SplitDirection,
     pub pane: T::Id,
@@ -1846,6 +2021,16 @@ pub struct UngroupTabGroupRequest {
 pub type UngroupTabGroupResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UnpinWorkspaceRequest {
+    pub session_id: String,
+    pub workspace_key: String,
+}
+
+#[rustfmt::skip]
+pub type UnpinWorkspaceResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct UnregisterBrowserProviderRequest {
 }
@@ -1876,6 +2061,46 @@ pub struct UpdateFrontendBrowserTabRequest {
 
 #[rustfmt::skip]
 pub type UpdateFrontendBrowserTabResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdatePersonalGroupRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub collapsed: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub color: Optional<String>,
+    pub group: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub profile: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type UpdatePersonalGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateProfileRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub browser_profile_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub color: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub default_session_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub defaults: Optional<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    pub profile: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub theme: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type UpdateProfileResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2149,6 +2374,14 @@ impl CmuxClient {
         self.execute(&COPY_METADATA, &request)
     }
 
+    pub fn create_personal_group(&mut self, request: CreatePersonalGroupRequest) -> Result<CreatePersonalGroupResult> {
+        self.execute(&CREATE_PERSONAL_GROUP_METADATA, &request)
+    }
+
+    pub fn create_profile(&mut self, request: CreateProfileRequest) -> Result<CreateProfileResult> {
+        self.execute(&CREATE_PROFILE_METADATA, &request)
+    }
+
     pub fn create_surface_with_receipt(&mut self, request: CreateSurfaceWithReceiptRequest) -> Result<CreateSurfaceWithReceiptResult> {
         if !request.idempotency_key.is_missing() {
             self.require_capability_field("create-surface-with-receipt", "creation-attempt-keys-v1")?;
@@ -2181,6 +2414,14 @@ impl CmuxClient {
 
     pub fn create_workspace_group(&mut self, request: CreateWorkspaceGroupRequest) -> Result<CreateWorkspaceGroupResult> {
         self.execute(&CREATE_WORKSPACE_GROUP_METADATA, &request)
+    }
+
+    pub fn delete_personal_group(&mut self, request: DeletePersonalGroupRequest) -> Result<DeletePersonalGroupResult> {
+        self.execute(&DELETE_PERSONAL_GROUP_METADATA, &request)
+    }
+
+    pub fn delete_profile(&mut self, request: DeleteProfileRequest) -> Result<DeleteProfileResult> {
+        self.execute(&DELETE_PROFILE_METADATA, &request)
     }
 
     pub fn delete_saved_tab_group(&mut self, request: DeleteSavedTabGroupRequest) -> Result<DeleteSavedTabGroupResult> {
@@ -2219,6 +2460,10 @@ impl CmuxClient {
         self.execute(&FOCUS_PANE_METADATA, &request)
     }
 
+    pub fn forget_session(&mut self, request: ForgetSessionRequest) -> Result<ForgetSessionResult> {
+        self.execute(&FORGET_SESSION_METADATA, &request)
+    }
+
     pub fn get_browser_provider(&mut self, request: GetBrowserProviderRequest) -> Result<GetBrowserProviderResult> {
         self.execute(&GET_BROWSER_PROVIDER_METADATA, &request)
     }
@@ -2243,6 +2488,10 @@ impl CmuxClient {
         self.execute(&IDS_METADATA, &request)
     }
 
+    pub fn import_session_organization(&mut self, request: ImportSessionOrganizationRequest) -> Result<ImportSessionOrganizationResult> {
+        self.execute(&IMPORT_SESSION_ORGANIZATION_METADATA, &request)
+    }
+
     pub fn journal_frontend_event(&mut self, request: JournalFrontendEventRequest) -> Result<JournalFrontendEventResult> {
         self.execute(&JOURNAL_FRONTEND_EVENT_METADATA, &request)
     }
@@ -2257,6 +2506,10 @@ impl CmuxClient {
 
     pub fn list_notifications(&mut self, request: ListNotificationsRequest) -> Result<ListNotificationsResult> {
         self.execute(&LIST_NOTIFICATIONS_METADATA, &request)
+    }
+
+    pub fn list_personal(&mut self, request: ListPersonalRequest) -> Result<ListPersonalResult> {
+        self.execute(&LIST_PERSONAL_METADATA, &request)
     }
 
     pub fn list_saved_tab_groups(&mut self, request: ListSavedTabGroupsRequest) -> Result<ListSavedTabGroupsResult> {
@@ -2297,6 +2550,14 @@ impl CmuxClient {
 
     pub fn mint_terminal_renderer_by_terminal(&mut self, request: MintTerminalRendererByTerminalRequest) -> Result<MintTerminalRendererByTerminalResult> {
         self.execute(&MINT_TERMINAL_RENDERER_BY_TERMINAL_METADATA, &request)
+    }
+
+    pub fn move_personal_group(&mut self, request: MovePersonalGroupRequest) -> Result<MovePersonalGroupResult> {
+        self.execute(&MOVE_PERSONAL_GROUP_METADATA, &request)
+    }
+
+    pub fn move_profile(&mut self, request: MoveProfileRequest) -> Result<MoveProfileResult> {
+        self.execute(&MOVE_PROFILE_METADATA, &request)
     }
 
     pub fn move_tab(&mut self, request: MoveTabRequest) -> Result<MoveTabResult> {
@@ -2467,6 +2728,10 @@ impl CmuxClient {
         self.execute(&PASTE_IMAGE_METADATA, &request)
     }
 
+    pub fn pin_workspace(&mut self, request: PinWorkspaceRequest) -> Result<PinWorkspaceResult> {
+        self.execute(&PIN_WORKSPACE_METADATA, &request)
+    }
+
     pub fn ping(&mut self, request: PingRequest) -> Result<T::PingResult> {
         self.execute(&PING_METADATA, &request)
     }
@@ -2477,6 +2742,10 @@ impl CmuxClient {
 
     pub fn put_frontend_projection(&mut self, request: PutFrontendProjectionRequest) -> Result<PutFrontendProjectionResult> {
         self.execute(&PUT_FRONTEND_PROJECTION_METADATA, &request)
+    }
+
+    pub fn put_session(&mut self, request: PutSessionRequest) -> Result<PutSessionResult> {
+        self.execute(&PUT_SESSION_METADATA, &request)
     }
 
     pub fn read_screen(&mut self, request: ReadScreenRequest) -> Result<T::ReadScreenResult> {
@@ -2674,6 +2943,14 @@ impl CmuxClient {
         self.execute(&SET_DEFAULT_COLORS_METADATA, &request)
     }
 
+    pub fn set_personal_workspace(&mut self, request: SetPersonalWorkspaceRequest) -> Result<SetPersonalWorkspaceResult> {
+        self.execute(&SET_PERSONAL_WORKSPACE_METADATA, &request)
+    }
+
+    pub fn set_profile_follows(&mut self, request: SetProfileFollowsRequest) -> Result<SetProfileFollowsResult> {
+        self.execute(&SET_PROFILE_FOLLOWS_METADATA, &request)
+    }
+
     pub fn set_ratio(&mut self, request: SetRatioRequest) -> Result<SetRatioResult> {
         self.execute(&SET_RATIO_METADATA, &request)
     }
@@ -2789,6 +3066,10 @@ impl CmuxClient {
         self.execute(&UNGROUP_TAB_GROUP_METADATA, &request)
     }
 
+    pub fn unpin_workspace(&mut self, request: UnpinWorkspaceRequest) -> Result<UnpinWorkspaceResult> {
+        self.execute(&UNPIN_WORKSPACE_METADATA, &request)
+    }
+
     pub fn unregister_browser_provider(&mut self, request: UnregisterBrowserProviderRequest) -> Result<UnregisterBrowserProviderResult> {
         self.execute(&UNREGISTER_BROWSER_PROVIDER_METADATA, &request)
     }
@@ -2799,6 +3080,14 @@ impl CmuxClient {
 
     pub fn update_frontend_browser_tab(&mut self, request: UpdateFrontendBrowserTabRequest) -> Result<UpdateFrontendBrowserTabResult> {
         self.execute(&UPDATE_FRONTEND_BROWSER_TAB_METADATA, &request)
+    }
+
+    pub fn update_personal_group(&mut self, request: UpdatePersonalGroupRequest) -> Result<UpdatePersonalGroupResult> {
+        self.execute(&UPDATE_PERSONAL_GROUP_METADATA, &request)
+    }
+
+    pub fn update_profile(&mut self, request: UpdateProfileRequest) -> Result<UpdateProfileResult> {
+        self.execute(&UPDATE_PROFILE_METADATA, &request)
     }
 
     pub fn update_tab_group(&mut self, request: UpdateTabGroupRequest) -> Result<UpdateTabGroupResult> {

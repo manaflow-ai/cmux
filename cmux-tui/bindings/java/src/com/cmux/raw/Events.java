@@ -35,6 +35,7 @@ public final class Events {
     public static final EventMetadata PAIRING_RESOLVED = new EventMetadata("pairing-resolved", 7, null, List.of("subscribe"), true);
     public static final EventMetadata PANE_ADDED = new EventMetadata("pane-added", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata PANE_CLOSED = new EventMetadata("pane-closed", 7, null, List.of("subscribe-deltas"), true);
+    public static final EventMetadata PERSONAL_CHANGED = new EventMetadata("personal-changed", 12, "profiles-v1", List.of("subscribe"), true);
     public static final EventMetadata RENDER_DELTA = new EventMetadata("render-delta", 7, null, List.of("attach-render"), true);
     public static final EventMetadata RENDER_STATE = new EventMetadata("render-state", 7, null, List.of("attach-render"), true);
     public static final EventMetadata RESIZED = new EventMetadata("resized", 6, null, List.of("attach-byte"), true);
@@ -92,6 +93,7 @@ public final class Events {
         values.put("pairing-resolved", PAIRING_RESOLVED);
         values.put("pane-added", PANE_ADDED);
         values.put("pane-closed", PANE_CLOSED);
+        values.put("personal-changed", PERSONAL_CHANGED);
         values.put("render-delta", RENDER_DELTA);
         values.put("render-state", RENDER_STATE);
         values.put("resized", RESIZED);

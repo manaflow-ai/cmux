@@ -284,7 +284,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period, `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters).
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period, `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters). `profiles-v1` advertises the home session's personal state: `list-personal`, the `*-profile` room commands, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `import-session-organization`, the `*-personal-group` commands, `set-personal-workspace`, and the `personal-changed` event.
 
 Errors:
 
@@ -4165,6 +4165,308 @@ Result:
 ```text
 object{workspace:Id,key:string,index:usize,group:string|null,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string}
 ```
+
+### list-personal
+
+| Field | Value |
+| --- | --- |
+| name | `list-personal` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Personal-state commands (plans/cmux-next/data-model.md section 3) store the
+home session's organization: rooms (wire name `profile`), the sessions they
+follow, workspaces pinned to one room, the session registry, personal groups,
+and the personal order and overrides of every qualified workspace
+`{session_id, workspace_key}`. Every daemon serves them; the app writes them
+only on its home session. Each change bumps `personal_revision` and emits
+`personal-changed`; an unchanged retry emits nothing.
+
+Shapes:
+
+```text
+Room = object{id:string, name:string, color:string|null, icon:string|null, theme:string|null, index:usize, browser_profile_id:string|null, default_session_id:string|null, defaults:object{cwd?:string, env?:object}|null, follows:[string]}
+Session = object{session_id:string, machine_name:string|null, session_name:string|null, transport:object, last_seen_ms:uint64|null, capabilities:json|null, migrated:bool}
+Pin = object{session_id:string, workspace_key:string, profile:string}
+PersonalGroup = object{id:string, profile:string, name:string, color:string|null, collapsed:bool, index:usize}
+PersonalWorkspace = object{session_id:string, workspace_key:string, index:usize, group:string|null, browser_profile_id:string|null, theme:string|null}
+```
+
+Room ids are `default` or 1-64 ASCII letters, digits, `_`, `-`, `.`, `:`
+(generated `prof_<32 hex>`). Colors are palette tokens or `#RRGGBB[AA]`; icons
+are an SF Symbol name or one emoji; `theme` is 1-256 characters without
+control characters; `browser_profile_id` is `default` or a lowercase UUID;
+`transport` and `capabilities` are JSON of at most 4 KiB; `defaults.env`
+follows the per-terminal `env` rules. On first open the daemon creates the
+`default` room, its own session row (`transport {"kind":"local"}`,
+`migrated:true`) followed by `default`, and copies its shared workspace groups
+and registry order into personal rows, once.
+`list-personal` returns every personal record in order.
+
+Result:
+
+```text
+object{personal_revision:uint64, sessions:[Session], profiles:[Room], pins:[Pin], groups:[PersonalGroup], workspaces:[PersonalWorkspace]}
+```
+
+### create-profile
+
+| Field | Value |
+| --- | --- |
+| name | `create-profile` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Creates a room. A caller-chosen `profile` id makes a retry idempotent: the
+same id and name return the stored room with `changed:false`.
+
+Params: `name` (required), `profile`, `color`, `icon`, `theme`, `index`
+(insertion index, default last), `browser_profile_id`, `default_session_id`,
+`defaults`, `follows` (session ids).
+
+Result:
+
+```text
+object{profile:Room, changed:bool}
+```
+
+### update-profile
+
+| Field | Value |
+| --- | --- |
+| name | `update-profile` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Updates a room. An absent field is unchanged; JSON null clears `color`,
+`icon`, `theme`, `browser_profile_id`, `default_session_id`, or `defaults`.
+
+Params: `profile` (required), `name`, `color`, `icon`, `theme`,
+`browser_profile_id`, `default_session_id`, `defaults`.
+
+Result:
+
+```text
+object{profile:Room, changed:bool}
+```
+
+### move-profile
+
+| Field | Value |
+| --- | --- |
+| name | `move-profile` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Moves a room to an insertion index among rooms (the `move-workspace` rule).
+
+Params: `profile`, `index` (both required).
+
+Result:
+
+```text
+object{profile:Room, changed:bool}
+```
+
+### delete-profile
+
+| Field | Value |
+| --- | --- |
+| name | `delete-profile` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Deletes a room. `default` is refused. With `move_to`, its pins and groups move
+to that room; without it, its pins are removed (the workspaces return to the
+rooms that follow their sessions) and its groups are deleted, their members
+ungrouped. Its follows are removed.
+
+Params: `profile` (required), `move_to`.
+
+Result:
+
+```text
+object{profile:string, moved_to:string|null, unpinned:[object{session_id:string, workspace_key:string}]}
+```
+
+### set-profile-follows
+
+| Field | Value |
+| --- | --- |
+| name | `set-profile-follows` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Replaces the sessions a room follows.
+
+Params: `profile`, `session_ids` (both required).
+
+Result:
+
+```text
+object{profile:Room, changed:bool}
+```
+
+### pin-workspace
+
+| Field | Value |
+| --- | --- |
+| name | `pin-workspace` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Pins a qualified workspace to one room, replacing any pin. The workspace key
+need not exist on any session yet. A personal group of another room is
+cleared from the workspace.
+
+Params: `session_id`, `workspace_key`, `profile` (all required).
+
+Result: `object{changed:bool}`
+
+### unpin-workspace
+
+| Field | Value |
+| --- | --- |
+| name | `unpin-workspace` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Removes a workspace's pin; it returns to the rooms that follow its session.
+
+Params: `session_id`, `workspace_key` (both required).
+
+Result: `object{changed:bool}`
+
+### put-session
+
+| Field | Value |
+| --- | --- |
+| name | `put-session` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Records or refreshes a session in the home session registry and stamps
+`last_seen_ms`. Absent `machine_name`, `session_name`, and `capabilities` keep
+stored values. A new session is followed by `default` and by `follow_with`.
+
+Params: `session_id` and `transport` (required object), `machine_name`,
+`session_name`, `capabilities`, `follow_with`.
+
+Result: `object{session:Session, created:bool}`
+
+### forget-session
+
+| Field | Value |
+| --- | --- |
+| name | `forget-session` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Forgets a session: its registry row, follows, and personal workspace rows.
+Refused while a room pins one of its workspaces unless `force`, which also
+removes those pins.
+
+Params: `session_id` (required), `force` (default false).
+
+Result: `object{changed:bool}`
+
+### import-session-organization
+
+| Field | Value |
+| --- | --- |
+| name | `import-session-organization` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+The app's one-time copy of a remote session's shared groups and sidebar
+order. When the session is already `migrated` it does nothing and returns
+`imported:false`. Otherwise, in one transaction, it adds the groups as
+personal groups of room `default` (an id that collides gets a session prefix),
+appends the workspaces in the given order with their mapped groups, and marks
+the session migrated. The session must be known (`put-session`).
+
+Params: `session_id` (required), `groups` (`[object{id, name, color?,
+collapsed?}]`), `workspaces` (`[object{workspace_key, group?}]`).
+
+Result: `object{imported:bool}`
+
+### create-personal-group
+
+| Field | Value |
+| --- | --- |
+| name | `create-personal-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Creates a personal group in a room (default `default`) at an insertion index
+among all personal groups. A caller-chosen `group` id with the same name is an
+idempotent retry.
+
+Params: `name` (required), `group`, `profile`, `color`, `collapsed`, `index`.
+
+Result: `object{group:PersonalGroup, changed:bool}`
+
+### update-personal-group
+
+| Field | Value |
+| --- | --- |
+| name | `update-personal-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Renames, recolors (null clears), collapses, or moves a group to another room.
+Moving it pins every member workspace to that room in the same transaction.
+
+Params: `group` (required), `name`, `color`, `collapsed`, `profile`.
+
+Result: `object{group:PersonalGroup, changed:bool}`
+
+### delete-personal-group
+
+| Field | Value |
+| --- | --- |
+| name | `delete-personal-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Deletes a personal group; its workspaces become ungrouped.
+
+Params: `group` (required).
+
+Result: `object{group:string, ungrouped:[object{session_id:string, workspace_key:string}]}`
+
+### move-personal-group
+
+| Field | Value |
+| --- | --- |
+| name | `move-personal-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Moves a personal group to an insertion index among personal groups.
+
+Params: `group`, `index` (both required).
+
+Result: `object{group:PersonalGroup, changed:bool}`
+
+### set-personal-workspace
+
+| Field | Value |
+| --- | --- |
+| name | `set-personal-workspace` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Creates or updates the personal row of a qualified workspace. A new row is
+appended last unless `index` is given; `index` is the final position in the
+personal order. JSON null clears `group`, `browser_profile_id`, or `theme`.
+The daemon does not check that the group belongs to the room showing the
+workspace; the app evaluates membership.
+
+Params: `session_id`, `workspace_key` (required), `index`, `group`,
+`browser_profile_id`, `theme`.
+
+Result: `object{workspace:PersonalWorkspace, changed:bool}`
 
 ### scroll-surface
 

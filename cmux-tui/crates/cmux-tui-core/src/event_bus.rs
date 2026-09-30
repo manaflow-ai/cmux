@@ -194,6 +194,7 @@ impl SurfaceSessionScope {
             | MuxEvent::ConfigReloadRequested
             | MuxEvent::WindowTitleRequested(_)
             | MuxEvent::FrontendProjectionChanged { .. }
+            | MuxEvent::PersonalChanged { .. }
             | MuxEvent::TerminalRegistryChanged { .. }
             | MuxEvent::TerminalReaped { .. }
             | MuxEvent::PairingRequested(_)

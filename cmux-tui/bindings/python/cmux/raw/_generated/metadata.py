@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'b794ed0edf9e69c25274ac3ffbdd79dfa9ca531385e4b94f254f9dc7b55d5952'
+IR_SHA256 = '16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474'
 
 
 @dataclass(frozen=True)
@@ -425,6 +425,42 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'create-personal-group': CommandMetadata(
+        'create-personal-group',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'collapsed': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'group': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'profile': CommandFieldMetadata(None, None),
+        },
+    ),
+    'create-profile': CommandMetadata(
+        'create-profile',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile_id': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'default_session_id': CommandFieldMetadata(None, None),
+            'defaults': CommandFieldMetadata(None, None),
+            'follows': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'profile': CommandFieldMetadata(None, None),
+            'theme': CommandFieldMetadata(None, None),
+        },
+    ),
     'create-surface-with-receipt': CommandMetadata(
         'create-surface-with-receipt',
         'control',
@@ -520,6 +556,29 @@ COMMANDS = {
             'name': CommandFieldMetadata(None, None),
         },
     ),
+    'delete-personal-group': CommandMetadata(
+        'delete-personal-group',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
+        },
+    ),
+    'delete-profile': CommandMetadata(
+        'delete-profile',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'move_to': CommandFieldMetadata(None, None),
+            'profile': CommandFieldMetadata(None, None),
+        },
+    ),
     'delete-saved-tab-group': CommandMetadata(
         'delete-saved-tab-group',
         'control',
@@ -601,6 +660,18 @@ COMMANDS = {
             'pane': CommandFieldMetadata(None, None),
         },
     ),
+    'forget-session': CommandMetadata(
+        'forget-session',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'force': CommandFieldMetadata(None, None),
+            'session_id': CommandFieldMetadata(None, None),
+        },
+    ),
     'get-browser-provider': CommandMetadata(
         'get-browser-provider',
         'local-admin',
@@ -666,6 +737,19 @@ COMMANDS = {
             'kind': CommandFieldMetadata(None, None),
         },
     ),
+    'import-session-organization': CommandMetadata(
+        'import-session-organization',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'groups': CommandFieldMetadata(None, None),
+            'session_id': CommandFieldMetadata(None, None),
+            'workspaces': CommandFieldMetadata(None, None),
+        },
+    ),
     'journal-frontend-event': CommandMetadata(
         'journal-frontend-event',
         'control',
@@ -708,6 +792,16 @@ COMMANDS = {
         None,
         {
             'limit': CommandFieldMetadata(None, None),
+        },
+    ),
+    'list-personal': CommandMetadata(
+        'list-personal',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
         },
     ),
     'list-saved-tab-groups': CommandMetadata(
@@ -813,6 +907,30 @@ COMMANDS = {
         {
             'terminal': CommandFieldMetadata(None, None),
             'ttl_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-personal-group': CommandMetadata(
+        'move-personal-group',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-profile': CommandMetadata(
+        'move-profile',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'index': CommandFieldMetadata(None, None),
+            'profile': CommandFieldMetadata(None, None),
         },
     ),
     'move-tab': CommandMetadata(
@@ -1189,6 +1307,19 @@ COMMANDS = {
             'upload_id': CommandFieldMetadata(None, None),
         },
     ),
+    'pin-workspace': CommandMetadata(
+        'pin-workspace',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'profile': CommandFieldMetadata(None, None),
+            'session_id': CommandFieldMetadata(None, None),
+            'workspace_key': CommandFieldMetadata(None, None),
+        },
+    ),
     'ping': CommandMetadata(
         'ping',
         'control',
@@ -1228,6 +1359,22 @@ COMMANDS = {
             'schema_version': CommandFieldMetadata(None, None),
             'scope': CommandFieldMetadata(None, None),
             'subject_key': CommandFieldMetadata(None, None),
+        },
+    ),
+    'put-session': CommandMetadata(
+        'put-session',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'capabilities': CommandFieldMetadata(None, None),
+            'follow_with': CommandFieldMetadata(None, None),
+            'machine_name': CommandFieldMetadata(None, None),
+            'session_id': CommandFieldMetadata(None, None),
+            'session_name': CommandFieldMetadata(None, None),
+            'transport': CommandFieldMetadata(None, None),
         },
     ),
     'read-screen': CommandMetadata(
@@ -1639,6 +1786,34 @@ COMMANDS = {
             'selection_fg': CommandFieldMetadata(9, None),
         },
     ),
+    'set-personal-workspace': CommandMetadata(
+        'set-personal-workspace',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile_id': CommandFieldMetadata(None, None),
+            'group': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'session_id': CommandFieldMetadata(None, None),
+            'theme': CommandFieldMetadata(None, None),
+            'workspace_key': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-profile-follows': CommandMetadata(
+        'set-profile-follows',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'profile': CommandFieldMetadata(None, None),
+            'session_ids': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-ratio': CommandMetadata(
         'set-ratio',
         'control',
@@ -1891,6 +2066,18 @@ COMMANDS = {
             'group': CommandFieldMetadata(None, None),
         },
     ),
+    'unpin-workspace': CommandMetadata(
+        'unpin-workspace',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'session_id': CommandFieldMetadata(None, None),
+            'workspace_key': CommandFieldMetadata(None, None),
+        },
+    ),
     'unregister-browser-provider': CommandMetadata(
         'unregister-browser-provider',
         'local-admin',
@@ -1924,6 +2111,39 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
             'title': CommandFieldMetadata(None, None),
             'url': CommandFieldMetadata(None, None),
+        },
+    ),
+    'update-personal-group': CommandMetadata(
+        'update-personal-group',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'collapsed': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'group': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'profile': CommandFieldMetadata(None, None),
+        },
+    ),
+    'update-profile': CommandMetadata(
+        'update-profile',
+        'control',
+        12,
+        'profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile_id': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'default_session_id': CommandFieldMetadata(None, None),
+            'defaults': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'profile': CommandFieldMetadata(None, None),
+            'theme': CommandFieldMetadata(None, None),
         },
     ),
     'update-tab-group': CommandMetadata(
@@ -2063,6 +2283,7 @@ EVENTS = {
     'pairing-resolved': EventMetadata('pairing-resolved', 7, None, ('subscribe',), 'emitted'),
     'pane-added': EventMetadata('pane-added', 7, None, ('subscribe-deltas',), 'emitted'),
     'pane-closed': EventMetadata('pane-closed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'personal-changed': EventMetadata('personal-changed', 12, 'profiles-v1', ('subscribe',), 'emitted'),
     'render-delta': EventMetadata('render-delta', 7, None, ('attach-render',), 'emitted'),
     'render-state': EventMetadata('render-state', 7, None, ('attach-render',), 'emitted'),
     'resized': EventMetadata('resized', 6, None, ('attach-byte',), 'emitted'),

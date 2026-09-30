@@ -99,6 +99,12 @@ class GeneratedClientMixin:
     def copy(self, surface: Id, mode: Literal['screen', 'selection', 'scrollback']) -> CopyResult:
         return self._invoke_command('copy', CopyRequest(surface=surface, mode=mode))
 
+    def create_personal_group(self, name: str, *, collapsed: Union[bool, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, profile: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('create-personal-group', CreatePersonalGroupRequest(name=name, collapsed=collapsed, color=color, group=group, index=index, profile=profile))
+
+    def create_profile(self, name: str, *, browser_profile_id: Union[str, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, default_session_id: Union[str, None, MissingType] = MISSING, defaults: Union[JsonValue, None, MissingType] = MISSING, follows: Union[List[str], None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, profile: Union[str, None, MissingType] = MISSING, theme: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('create-profile', CreateProfileRequest(name=name, browser_profile_id=browser_profile_id, color=color, default_session_id=default_session_id, defaults=defaults, follows=follows, icon=icon, index=index, profile=profile, theme=theme))
+
     def create_surface_with_receipt(self, operation: str, origin: str, receipt: str, *, pane: Union[Id, None, MissingType] = MISSING, workspace: Union[Id, None, MissingType] = MISSING, argv: Union[List[str], None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, idempotency_key: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, selector_fallbacks: Union[List[ResourceSelectors], MissingType] = MISSING, selectors: Union[ResourceSelectors, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-surface-with-receipt', CreateSurfaceWithReceiptRequest(operation=operation, origin=origin, receipt=receipt, pane=pane, workspace=workspace, argv=argv, cols=cols, cwd=cwd, idempotency_key=idempotency_key, rows=rows, selector_fallbacks=selector_fallbacks, selectors=selectors, url=url, width=width))
 
@@ -113,6 +119,12 @@ class GeneratedClientMixin:
 
     def create_workspace_group(self, name: str, *, collapsed: Union[bool, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-workspace-group', CreateWorkspaceGroupRequest(name=name, collapsed=collapsed, color=color, group=group, index=index))
+
+    def delete_personal_group(self, group: str) -> JsonValue:
+        return self._invoke_command('delete-personal-group', DeletePersonalGroupRequest(group=group))
+
+    def delete_profile(self, profile: str, *, move_to: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('delete-profile', DeleteProfileRequest(profile=profile, move_to=move_to))
 
     def delete_saved_tab_group(self, saved: str) -> JsonValue:
         return self._invoke_command('delete-saved-tab-group', DeleteSavedTabGroupRequest(saved=saved))
@@ -135,6 +147,9 @@ class GeneratedClientMixin:
     def focus_pane(self, pane: Id) -> EmptyResult:
         return self._invoke_command('focus-pane', FocusPaneRequest(pane=pane))
 
+    def forget_session(self, session_id: str, *, force: Union[bool, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('forget-session', ForgetSessionRequest(session_id=session_id, force=force))
+
     def get_browser_provider(self) -> BrowserProviderSnapshot:
         return self._invoke_command('get-browser-provider', GetBrowserProviderRequest())
 
@@ -153,6 +168,9 @@ class GeneratedClientMixin:
     def ids(self, *, kind: Union[Literal['workspace', 'screen', 'pane', 'surface'], None, MissingType] = MISSING) -> IdsResult:
         return self._invoke_command('ids', IdsRequest(kind=kind))
 
+    def import_session_organization(self, session_id: str, *, groups: Union[List[JsonValue], MissingType] = MISSING, workspaces: Union[List[JsonValue], MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('import-session-organization', ImportSessionOrganizationRequest(session_id=session_id, groups=groups, workspaces=workspaces))
+
     def journal_frontend_event(self, event: FrontendJournalEvent) -> JournalFrontendEventResult:
         return self._invoke_command('journal-frontend-event', JournalFrontendEventRequest(event=event))
 
@@ -164,6 +182,9 @@ class GeneratedClientMixin:
 
     def list_notifications(self, *, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('list-notifications', ListNotificationsRequest(limit=limit))
+
+    def list_personal(self) -> JsonValue:
+        return self._invoke_command('list-personal', ListPersonalRequest())
 
     def list_saved_tab_groups(self) -> JsonValue:
         return self._invoke_command('list-saved-tab-groups', ListSavedTabGroupsRequest())
@@ -194,6 +215,12 @@ class GeneratedClientMixin:
 
     def mint_terminal_renderer_by_terminal(self, terminal: str, *, ttl_ms: Union[int, MissingType] = MISSING) -> MintTerminalRendererResult:
         return self._invoke_command('mint-terminal-renderer-by-terminal', MintTerminalRendererByTerminalRequest(terminal=terminal, ttl_ms=ttl_ms))
+
+    def move_personal_group(self, group: str, index: int) -> JsonValue:
+        return self._invoke_command('move-personal-group', MovePersonalGroupRequest(group=group, index=index))
+
+    def move_profile(self, index: int, profile: str) -> JsonValue:
+        return self._invoke_command('move-profile', MoveProfileRequest(index=index, profile=profile))
 
     def move_tab(self, surface: Id, pane: Id, index: int, *, transaction: Union[str, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('move-tab', MoveTabRequest(surface=surface, pane=pane, index=index, transaction=transaction))
@@ -270,6 +297,9 @@ class GeneratedClientMixin:
     def paste_image(self, surface: Id, terminal_id: str, lease: str, op: str, upload_id: str, *, data: Union[str, None, MissingType] = MISSING, mime: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, size: Union[int, None, MissingType] = MISSING) -> PasteImageResult:
         return self._invoke_command('paste-image', PasteImageRequest(surface=surface, terminal_id=terminal_id, lease=lease, op=op, upload_id=upload_id, data=data, mime=mime, offset=offset, size=size))
 
+    def pin_workspace(self, profile: str, session_id: str, workspace_key: str) -> JsonValue:
+        return self._invoke_command('pin-workspace', PinWorkspaceRequest(profile=profile, session_id=session_id, workspace_key=workspace_key))
+
     def ping(self) -> PingResult:
         return self._invoke_command('ping', PingRequest())
 
@@ -278,6 +308,9 @@ class GeneratedClientMixin:
 
     def put_frontend_projection(self, frontend: str, scope: str, subject_key: str, schema_version: int, projection: Union[JsonValue, None], *, expected_projection_revision: Union[int, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> FrontendProjection:
         return self._invoke_command('put-frontend-projection', PutFrontendProjectionRequest(frontend=frontend, scope=scope, subject_key=subject_key, schema_version=schema_version, projection=projection, expected_projection_revision=expected_projection_revision, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
+
+    def put_session(self, session_id: str, transport: Union[JsonValue, None], *, capabilities: Union[JsonValue, None, MissingType] = MISSING, follow_with: Union[str, None, MissingType] = MISSING, machine_name: Union[str, None, MissingType] = MISSING, session_name: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('put-session', PutSessionRequest(session_id=session_id, transport=transport, capabilities=capabilities, follow_with=follow_with, machine_name=machine_name, session_name=session_name))
 
     def read_screen(self, surface: Id) -> ReadScreenResult:
         return self._invoke_command('read-screen', ReadScreenRequest(surface=surface))
@@ -372,6 +405,12 @@ class GeneratedClientMixin:
     def set_default_colors(self, fg: Union[ColorHex, None, MissingType] = MISSING, *, bg: Union[ColorHex, None, MissingType] = MISSING, cursor: Union[ColorHex, None, MissingType] = MISSING, selection_bg: Union[ColorHex, None, MissingType] = MISSING, selection_fg: Union[ColorHex, None, MissingType] = MISSING, cursor_style: Union[CursorStyle, None, MissingType] = MISSING, cursor_blink: Union[bool, None, MissingType] = MISSING, palette: Union[Dict[str, ColorHex], None, MissingType] = MISSING, complete: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-default-colors', SetDefaultColorsRequest(fg=fg, bg=bg, cursor=cursor, selection_bg=selection_bg, selection_fg=selection_fg, cursor_style=cursor_style, cursor_blink=cursor_blink, palette=palette, complete=complete))
 
+    def set_personal_workspace(self, session_id: str, workspace_key: str, *, browser_profile_id: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, theme: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('set-personal-workspace', SetPersonalWorkspaceRequest(session_id=session_id, workspace_key=workspace_key, browser_profile_id=browser_profile_id, group=group, index=index, theme=theme))
+
+    def set_profile_follows(self, profile: str, session_ids: List[str]) -> JsonValue:
+        return self._invoke_command('set-profile-follows', SetProfileFollowsRequest(profile=profile, session_ids=session_ids))
+
     def set_ratio(self, pane: Id, dir: SplitDirection, ratio: float) -> EmptyResult:
         return self._invoke_command('set-ratio', SetRatioRequest(pane=pane, dir=dir, ratio=ratio))
 
@@ -429,6 +468,9 @@ class GeneratedClientMixin:
     def ungroup_tab_group(self, group: str) -> JsonValue:
         return self._invoke_command('ungroup-tab-group', UngroupTabGroupRequest(group=group))
 
+    def unpin_workspace(self, session_id: str, workspace_key: str) -> JsonValue:
+        return self._invoke_command('unpin-workspace', UnpinWorkspaceRequest(session_id=session_id, workspace_key=workspace_key))
+
     def unregister_browser_provider(self) -> BrowserProviderUnregisterResult:
         return self._invoke_command('unregister-browser-provider', UnregisterBrowserProviderRequest())
 
@@ -437,6 +479,12 @@ class GeneratedClientMixin:
 
     def update_frontend_browser_tab(self, surface: Id, *, favicon_url: Union[str, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-frontend-browser-tab', UpdateFrontendBrowserTabRequest(surface=surface, favicon_url=favicon_url, title=title, url=url))
+
+    def update_personal_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, profile: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('update-personal-group', UpdatePersonalGroupRequest(group=group, collapsed=collapsed, color=color, name=name, profile=profile))
+
+    def update_profile(self, profile: str, *, browser_profile_id: Union[str, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, default_session_id: Union[str, None, MissingType] = MISSING, defaults: Union[JsonValue, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, theme: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('update-profile', UpdateProfileRequest(profile=profile, browser_profile_id=browser_profile_id, color=color, default_session_id=default_session_id, defaults=defaults, icon=icon, name=name, theme=theme))
 
     def update_tab_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-tab-group', UpdateTabGroupRequest(group=group, collapsed=collapsed, color=color, name=name))
@@ -495,11 +543,15 @@ GeneratedClientMixin.close_tabs.__cmux_command__ = COMMANDS['close-tabs']
 GeneratedClientMixin.close_terminal.__cmux_command__ = COMMANDS['close-terminal']
 GeneratedClientMixin.close_workspace.__cmux_command__ = COMMANDS['close-workspace']
 GeneratedClientMixin.copy.__cmux_command__ = COMMANDS['copy']
+GeneratedClientMixin.create_personal_group.__cmux_command__ = COMMANDS['create-personal-group']
+GeneratedClientMixin.create_profile.__cmux_command__ = COMMANDS['create-profile']
 GeneratedClientMixin.create_surface_with_receipt.__cmux_command__ = COMMANDS['create-surface-with-receipt']
 GeneratedClientMixin.create_tab_group.__cmux_command__ = COMMANDS['create-tab-group']
 GeneratedClientMixin.create_terminal.__cmux_command__ = COMMANDS['create-terminal']
 GeneratedClientMixin.create_workspace.__cmux_command__ = COMMANDS['create-workspace']
 GeneratedClientMixin.create_workspace_group.__cmux_command__ = COMMANDS['create-workspace-group']
+GeneratedClientMixin.delete_personal_group.__cmux_command__ = COMMANDS['delete-personal-group']
+GeneratedClientMixin.delete_profile.__cmux_command__ = COMMANDS['delete-profile']
 GeneratedClientMixin.delete_saved_tab_group.__cmux_command__ = COMMANDS['delete-saved-tab-group']
 GeneratedClientMixin.delete_workspace_group.__cmux_command__ = COMMANDS['delete-workspace-group']
 GeneratedClientMixin.detach_attached_view.__cmux_command__ = COMMANDS['detach-attached-view']
@@ -507,16 +559,19 @@ GeneratedClientMixin.detach_client.__cmux_command__ = COMMANDS['detach-client']
 GeneratedClientMixin.export_layout.__cmux_command__ = COMMANDS['export-layout']
 GeneratedClientMixin.focus_direction.__cmux_command__ = COMMANDS['focus-direction']
 GeneratedClientMixin.focus_pane.__cmux_command__ = COMMANDS['focus-pane']
+GeneratedClientMixin.forget_session.__cmux_command__ = COMMANDS['forget-session']
 GeneratedClientMixin.get_browser_provider.__cmux_command__ = COMMANDS['get-browser-provider']
 GeneratedClientMixin.get_cell_pixels.__cmux_command__ = COMMANDS['get-cell-pixels']
 GeneratedClientMixin.get_frontend_projection.__cmux_command__ = COMMANDS['get-frontend-projection']
 GeneratedClientMixin.get_size_state.__cmux_command__ = COMMANDS['get-size-state']
 GeneratedClientMixin.identify.__cmux_command__ = COMMANDS['identify']
 GeneratedClientMixin.ids.__cmux_command__ = COMMANDS['ids']
+GeneratedClientMixin.import_session_organization.__cmux_command__ = COMMANDS['import-session-organization']
 GeneratedClientMixin.journal_frontend_event.__cmux_command__ = COMMANDS['journal-frontend-event']
 GeneratedClientMixin.list_agents.__cmux_command__ = COMMANDS['list-agents']
 GeneratedClientMixin.list_clients.__cmux_command__ = COMMANDS['list-clients']
 GeneratedClientMixin.list_notifications.__cmux_command__ = COMMANDS['list-notifications']
+GeneratedClientMixin.list_personal.__cmux_command__ = COMMANDS['list-personal']
 GeneratedClientMixin.list_saved_tab_groups.__cmux_command__ = COMMANDS['list-saved-tab-groups']
 GeneratedClientMixin.list_tab_groups.__cmux_command__ = COMMANDS['list-tab-groups']
 GeneratedClientMixin.list_terminals.__cmux_command__ = COMMANDS['list-terminals']
@@ -527,6 +582,8 @@ GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
+GeneratedClientMixin.move_personal_group.__cmux_command__ = COMMANDS['move-personal-group']
+GeneratedClientMixin.move_profile.__cmux_command__ = COMMANDS['move-profile']
 GeneratedClientMixin.move_tab.__cmux_command__ = COMMANDS['move-tab']
 GeneratedClientMixin.move_tab_group.__cmux_command__ = COMMANDS['move-tab-group']
 GeneratedClientMixin.move_tab_group_to_column.__cmux_command__ = COMMANDS['move-tab-group-to-column']
@@ -552,9 +609,11 @@ GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']
 GeneratedClientMixin.paste_image.__cmux_command__ = COMMANDS['paste-image']
+GeneratedClientMixin.pin_workspace.__cmux_command__ = COMMANDS['pin-workspace']
 GeneratedClientMixin.ping.__cmux_command__ = COMMANDS['ping']
 GeneratedClientMixin.process_info.__cmux_command__ = COMMANDS['process-info']
 GeneratedClientMixin.put_frontend_projection.__cmux_command__ = COMMANDS['put-frontend-projection']
+GeneratedClientMixin.put_session.__cmux_command__ = COMMANDS['put-session']
 GeneratedClientMixin.read_screen.__cmux_command__ = COMMANDS['read-screen']
 GeneratedClientMixin.read_scrollback.__cmux_command__ = COMMANDS['read-scrollback']
 GeneratedClientMixin.register_browser_provider.__cmux_command__ = COMMANDS['register-browser-provider']
@@ -586,6 +645,8 @@ GeneratedClientMixin.set_cell_pixels.__cmux_command__ = COMMANDS['set-cell-pixel
 GeneratedClientMixin.set_client_info.__cmux_command__ = COMMANDS['set-client-info']
 GeneratedClientMixin.set_client_sizing.__cmux_command__ = COMMANDS['set-client-sizing']
 GeneratedClientMixin.set_default_colors.__cmux_command__ = COMMANDS['set-default-colors']
+GeneratedClientMixin.set_personal_workspace.__cmux_command__ = COMMANDS['set-personal-workspace']
+GeneratedClientMixin.set_profile_follows.__cmux_command__ = COMMANDS['set-profile-follows']
 GeneratedClientMixin.set_ratio.__cmux_command__ = COMMANDS['set-ratio']
 GeneratedClientMixin.set_size_counts.__cmux_command__ = COMMANDS['set-size-counts']
 GeneratedClientMixin.set_size_policy.__cmux_command__ = COMMANDS['set-size-policy']
@@ -605,9 +666,12 @@ GeneratedClientMixin.terminal_events.__cmux_command__ = COMMANDS['terminal-event
 GeneratedClientMixin.terminal_resources.__cmux_command__ = COMMANDS['terminal-resources']
 GeneratedClientMixin.undo_layout.__cmux_command__ = COMMANDS['undo-layout']
 GeneratedClientMixin.ungroup_tab_group.__cmux_command__ = COMMANDS['ungroup-tab-group']
+GeneratedClientMixin.unpin_workspace.__cmux_command__ = COMMANDS['unpin-workspace']
 GeneratedClientMixin.unregister_browser_provider.__cmux_command__ = COMMANDS['unregister-browser-provider']
 GeneratedClientMixin.unsave_tab_group.__cmux_command__ = COMMANDS['unsave-tab-group']
 GeneratedClientMixin.update_frontend_browser_tab.__cmux_command__ = COMMANDS['update-frontend-browser-tab']
+GeneratedClientMixin.update_personal_group.__cmux_command__ = COMMANDS['update-personal-group']
+GeneratedClientMixin.update_profile.__cmux_command__ = COMMANDS['update-profile']
 GeneratedClientMixin.update_tab_group.__cmux_command__ = COMMANDS['update-tab-group']
 GeneratedClientMixin.update_workspace_group.__cmux_command__ = COMMANDS['update-workspace-group']
 GeneratedClientMixin.url_open.__cmux_command__ = COMMANDS['url-open']

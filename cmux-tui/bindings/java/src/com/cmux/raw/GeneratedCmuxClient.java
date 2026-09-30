@@ -158,6 +158,16 @@ public abstract class GeneratedCmuxClient {
         return CopyResult.fromWire(result);
     }
 
+    public final Object createPersonalGroup(CreatePersonalGroupRequest request) throws CmuxException {
+        Object result = execute(Commands.CREATE_PERSONAL_GROUP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object createProfile(CreateProfileRequest request) throws CmuxException {
+        Object result = execute(Commands.CREATE_PROFILE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object createSurfaceWithReceipt(CreateSurfaceWithReceiptRequest request) throws CmuxException {
         Object result = execute(Commands.CREATE_SURFACE_WITH_RECEIPT, request.toWire());
         return Wire.immutableJson(result);
@@ -180,6 +190,16 @@ public abstract class GeneratedCmuxClient {
 
     public final Object createWorkspaceGroup(CreateWorkspaceGroupRequest request) throws CmuxException {
         Object result = execute(Commands.CREATE_WORKSPACE_GROUP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object deletePersonalGroup(DeletePersonalGroupRequest request) throws CmuxException {
+        Object result = execute(Commands.DELETE_PERSONAL_GROUP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object deleteProfile(DeleteProfileRequest request) throws CmuxException {
+        Object result = execute(Commands.DELETE_PROFILE, request.toWire());
         return Wire.immutableJson(result);
     }
 
@@ -218,6 +238,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object forgetSession(ForgetSessionRequest request) throws CmuxException {
+        Object result = execute(Commands.FORGET_SESSION, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final BrowserProviderSnapshot getBrowserProvider() throws CmuxException {
         Object result = execute(Commands.GET_BROWSER_PROVIDER, Map.of());
         return BrowserProviderSnapshot.fromWire(result);
@@ -248,6 +273,11 @@ public abstract class GeneratedCmuxClient {
         return IdsResult.fromWire(result);
     }
 
+    public final Object importSessionOrganization(ImportSessionOrganizationRequest request) throws CmuxException {
+        Object result = execute(Commands.IMPORT_SESSION_ORGANIZATION, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final JournalFrontendEventResult journalFrontendEvent(JournalFrontendEventRequest request) throws CmuxException {
         Object result = execute(Commands.JOURNAL_FRONTEND_EVENT, request.toWire());
         return JournalFrontendEventResult.fromWire(result);
@@ -265,6 +295,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object listNotifications(ListNotificationsRequest request) throws CmuxException {
         Object result = execute(Commands.LIST_NOTIFICATIONS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object listPersonal() throws CmuxException {
+        Object result = execute(Commands.LIST_PERSONAL, Map.of());
         return Wire.immutableJson(result);
     }
 
@@ -316,6 +351,16 @@ public abstract class GeneratedCmuxClient {
     public final MintTerminalRendererResult mintTerminalRendererByTerminal(MintTerminalRendererByTerminalRequest request) throws CmuxException {
         Object result = execute(Commands.MINT_TERMINAL_RENDERER_BY_TERMINAL, request.toWire());
         return MintTerminalRendererResult.fromWire(result);
+    }
+
+    public final Object movePersonalGroup(MovePersonalGroupRequest request) throws CmuxException {
+        Object result = execute(Commands.MOVE_PERSONAL_GROUP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object moveProfile(MoveProfileRequest request) throws CmuxException {
+        Object result = execute(Commands.MOVE_PROFILE, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final EmptyResult moveTab(MoveTabRequest request) throws CmuxException {
@@ -443,6 +488,11 @@ public abstract class GeneratedCmuxClient {
         return PasteImageResult.fromWire(result);
     }
 
+    public final Object pinWorkspace(PinWorkspaceRequest request) throws CmuxException {
+        Object result = execute(Commands.PIN_WORKSPACE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final PingResult ping() throws CmuxException {
         Object result = execute(Commands.PING, Map.of());
         return PingResult.fromWire(result);
@@ -456,6 +506,11 @@ public abstract class GeneratedCmuxClient {
     public final FrontendProjection putFrontendProjection(PutFrontendProjectionRequest request) throws CmuxException {
         Object result = execute(Commands.PUT_FRONTEND_PROJECTION, request.toWire());
         return FrontendProjection.fromWire(result);
+    }
+
+    public final Object putSession(PutSessionRequest request) throws CmuxException {
+        Object result = execute(Commands.PUT_SESSION, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final ReadScreenResult readScreen(ReadScreenRequest request) throws CmuxException {
@@ -613,6 +668,16 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object setPersonalWorkspace(SetPersonalWorkspaceRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_PERSONAL_WORKSPACE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object setProfileFollows(SetProfileFollowsRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_PROFILE_FOLLOWS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final EmptyResult setRatio(SetRatioRequest request) throws CmuxException {
         Object result = execute(Commands.SET_RATIO, request.toWire());
         return EmptyResult.fromWire(result);
@@ -707,6 +772,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object unpinWorkspace(UnpinWorkspaceRequest request) throws CmuxException {
+        Object result = execute(Commands.UNPIN_WORKSPACE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final BrowserProviderUnregisterResult unregisterBrowserProvider() throws CmuxException {
         Object result = execute(Commands.UNREGISTER_BROWSER_PROVIDER, Map.of());
         return BrowserProviderUnregisterResult.fromWire(result);
@@ -719,6 +789,16 @@ public abstract class GeneratedCmuxClient {
 
     public final Object updateFrontendBrowserTab(UpdateFrontendBrowserTabRequest request) throws CmuxException {
         Object result = execute(Commands.UPDATE_FRONTEND_BROWSER_TAB, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object updatePersonalGroup(UpdatePersonalGroupRequest request) throws CmuxException {
+        Object result = execute(Commands.UPDATE_PERSONAL_GROUP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object updateProfile(UpdateProfileRequest request) throws CmuxException {
+        Object result = execute(Commands.UPDATE_PROFILE, request.toWire());
         return Wire.immutableJson(result);
     }
 

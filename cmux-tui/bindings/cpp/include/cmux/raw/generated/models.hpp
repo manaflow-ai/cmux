@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b794ed0edf9e69c25274ac3ffbdd79dfa9ca531385e4b94f254f9dc7b55d5952";
+inline constexpr std::string_view kProtocolIrSha256 = "16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -187,11 +187,15 @@ struct CloseTabsRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
 struct CopyRequest;
+struct CreatePersonalGroupRequest;
+struct CreateProfileRequest;
 struct CreateSurfaceWithReceiptRequest;
 struct CreateTabGroupRequest;
 struct CreateTerminalRequest;
 struct CreateWorkspaceRequest;
 struct CreateWorkspaceGroupRequest;
+struct DeletePersonalGroupRequest;
+struct DeleteProfileRequest;
 struct DeleteSavedTabGroupRequest;
 struct DeleteWorkspaceGroupRequest;
 struct DetachAttachedViewRequest;
@@ -199,18 +203,21 @@ struct DetachClientRequest;
 struct ExportLayoutRequest;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
+struct ForgetSessionRequest;
 struct GetBrowserProviderRequest;
 struct GetCellPixelsRequest;
 struct GetFrontendProjectionRequest;
 struct GetSizeStateRequest;
 struct IdentifyRequest;
 struct IdsRequest;
+struct ImportSessionOrganizationRequest;
 struct JournalFrontendEventRequest;
 struct JournalFrontendEventResult;
 struct ListAgentsRequest;
 struct ListClientsRequest;
 struct ListClientsResult;
 struct ListNotificationsRequest;
+struct ListPersonalRequest;
 struct ListSavedTabGroupsRequest;
 struct ListTabGroupsRequest;
 struct ListTerminalsRequest;
@@ -221,6 +228,8 @@ struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
+struct MovePersonalGroupRequest;
+struct MoveProfileRequest;
 struct MoveTabRequest;
 struct MoveTabGroupRequest;
 struct MoveTabGroupToColumnRequest;
@@ -247,9 +256,11 @@ struct PairingResponseRequest;
 struct PaneNeighborRequest;
 struct PasteImageRequest;
 struct PasteImageResult;
+struct PinWorkspaceRequest;
 struct PingRequest;
 struct ProcessInfoRequest;
 struct PutFrontendProjectionRequest;
+struct PutSessionRequest;
 struct ReadScreenRequest;
 struct ReadScrollbackRequest;
 struct RegisterBrowserProviderRequest;
@@ -282,6 +293,8 @@ struct SetCellPixelsRequest;
 struct SetClientInfoRequest;
 struct SetClientSizingRequest;
 struct SetDefaultColorsRequest;
+struct SetPersonalWorkspaceRequest;
+struct SetProfileFollowsRequest;
 struct SetRatioRequest;
 struct SetSizeCountsRequest;
 struct SetSizePolicyRequest;
@@ -301,9 +314,12 @@ struct TerminalEventsRequest;
 struct TerminalResourcesRequest;
 struct UndoLayoutRequest;
 struct UngroupTabGroupRequest;
+struct UnpinWorkspaceRequest;
 struct UnregisterBrowserProviderRequest;
 struct UnsaveTabGroupRequest;
 struct UpdateFrontendBrowserTabRequest;
+struct UpdatePersonalGroupRequest;
+struct UpdateProfileRequest;
 struct UpdateTabGroupRequest;
 struct UpdateWorkspaceGroupRequest;
 struct UrlOpenRequest;
@@ -337,6 +353,7 @@ struct PairingRequestedEvent;
 struct PairingResolvedEvent;
 struct PaneAddedEvent;
 struct PaneClosedEvent;
+struct PersonalChangedEvent;
 struct RenderDeltaEvent;
 struct RenderStateEvent;
 struct ResizedEvent;
@@ -1098,6 +1115,35 @@ struct CopyResult {
     friend bool operator==(const CopyResult&, const CopyResult&) = default;
 };
 
+struct CreatePersonalGroupRequest {
+    std::optional<bool> collapsed{};
+    Field<std::string> color{};
+    Field<std::string> group{};
+    Field<std::uint64_t> index{};
+    std::string name{};
+    Field<std::string> profile{};
+    friend bool operator==(const CreatePersonalGroupRequest&, const CreatePersonalGroupRequest&) = default;
+};
+
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct CreateProfileRequest {
+    Field<std::string> browser_profile_id{};
+    Field<std::string> color{};
+    Field<std::string> default_session_id{};
+    Field<JsonValue> defaults{};
+    Field<std::vector<std::string>> follows{};
+    Field<std::string> icon{};
+    Field<std::uint64_t> index{};
+    std::string name{};
+    Field<std::string> profile{};
+    Field<std::string> theme{};
+    friend bool operator==(const CreateProfileRequest&, const CreateProfileRequest&) = default;
+};
+
 struct ResourceSelectors {
     Field<std::string> agent{};
     Field<std::string> browser{};
@@ -1190,6 +1236,17 @@ struct DaemonShutdownEvent {
 struct DeadPane {
     Id id{};
     friend bool operator==(const DeadPane&, const DeadPane&) = default;
+};
+
+struct DeletePersonalGroupRequest {
+    std::string group{};
+    friend bool operator==(const DeletePersonalGroupRequest&, const DeletePersonalGroupRequest&) = default;
+};
+
+struct DeleteProfileRequest {
+    Field<std::string> move_to{};
+    std::string profile{};
+    friend bool operator==(const DeleteProfileRequest&, const DeleteProfileRequest&) = default;
 };
 
 struct DeleteSavedTabGroupRequest {
@@ -1316,6 +1373,12 @@ struct FocusPaneRequest {
     friend bool operator==(const FocusPaneRequest&, const FocusPaneRequest&) = default;
 };
 
+struct ForgetSessionRequest {
+    std::optional<bool> force{};
+    std::string session_id{};
+    friend bool operator==(const ForgetSessionRequest&, const ForgetSessionRequest&) = default;
+};
+
 struct FrameEvent {
     Base64 data{};
     std::uint32_t height{};
@@ -1372,11 +1435,6 @@ struct FrontendJournalEvent {
     using Variant = std::variant<FrontendJournalEventFocus, FrontendJournalEventResize, FrontendJournalEventViewport>;
     Variant value{};
     friend bool operator==(const FrontendJournalEvent&, const FrontendJournalEvent&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct FrontendProjection {
@@ -1589,6 +1647,13 @@ struct IdsResult {
     friend bool operator==(const IdsResult&, const IdsResult&) = default;
 };
 
+struct ImportSessionOrganizationRequest {
+    std::optional<std::vector<JsonValue>> groups{};
+    std::string session_id{};
+    std::optional<std::vector<JsonValue>> workspaces{};
+    friend bool operator==(const ImportSessionOrganizationRequest&, const ImportSessionOrganizationRequest&) = default;
+};
+
 struct JournalFrontendEventRequest {
     FrontendJournalEvent event{};
     friend bool operator==(const JournalFrontendEventRequest&, const JournalFrontendEventRequest&) = default;
@@ -1665,6 +1730,10 @@ struct ListClientsResult {
 struct ListNotificationsRequest {
     Field<std::uint64_t> limit{};
     friend bool operator==(const ListNotificationsRequest&, const ListNotificationsRequest&) = default;
+};
+
+struct ListPersonalRequest {
+    friend bool operator==(const ListPersonalRequest&, const ListPersonalRequest&) = default;
 };
 
 struct ListSavedTabGroupsRequest {
@@ -1858,6 +1927,18 @@ struct MintTerminalRendererResult {
     std::string token{};
     std::uint64_t ttl_ms{};
     friend bool operator==(const MintTerminalRendererResult&, const MintTerminalRendererResult&) = default;
+};
+
+struct MovePersonalGroupRequest {
+    std::string group{};
+    std::uint64_t index{};
+    friend bool operator==(const MovePersonalGroupRequest&, const MovePersonalGroupRequest&) = default;
+};
+
+struct MoveProfileRequest {
+    std::uint64_t index{};
+    std::string profile{};
+    friend bool operator==(const MoveProfileRequest&, const MoveProfileRequest&) = default;
 };
 
 struct PaneRef {
@@ -2200,6 +2281,18 @@ struct PasteImageResult {
     friend bool operator==(const PasteImageResult&, const PasteImageResult&) = default;
 };
 
+struct PersonalChangedEvent {
+    std::uint64_t personal_revision{};
+    friend bool operator==(const PersonalChangedEvent&, const PersonalChangedEvent&) = default;
+};
+
+struct PinWorkspaceRequest {
+    std::string profile{};
+    std::string session_id{};
+    std::string workspace_key{};
+    friend bool operator==(const PinWorkspaceRequest&, const PinWorkspaceRequest&) = default;
+};
+
 struct PingRequest {
     friend bool operator==(const PingRequest&, const PingRequest&) = default;
 };
@@ -2245,6 +2338,16 @@ struct PutFrontendProjectionRequest {
     std::string scope{};
     std::string subject_key{};
     friend bool operator==(const PutFrontendProjectionRequest&, const PutFrontendProjectionRequest&) = default;
+};
+
+struct PutSessionRequest {
+    Field<JsonValue> capabilities{};
+    Field<std::string> follow_with{};
+    Field<std::string> machine_name{};
+    std::string session_id{};
+    Field<std::string> session_name{};
+    std::optional<JsonValue> transport{};
+    friend bool operator==(const PutSessionRequest&, const PutSessionRequest&) = default;
 };
 
 struct ReadScreenRequest {
@@ -2798,6 +2901,22 @@ struct SetDefaultColorsRequest {
     friend bool operator==(const SetDefaultColorsRequest&, const SetDefaultColorsRequest&) = default;
 };
 
+struct SetPersonalWorkspaceRequest {
+    Field<std::string> browser_profile_id{};
+    Field<std::string> group{};
+    Field<std::uint64_t> index{};
+    std::string session_id{};
+    Field<std::string> theme{};
+    std::string workspace_key{};
+    friend bool operator==(const SetPersonalWorkspaceRequest&, const SetPersonalWorkspaceRequest&) = default;
+};
+
+struct SetProfileFollowsRequest {
+    std::string profile{};
+    std::vector<std::string> session_ids{};
+    friend bool operator==(const SetProfileFollowsRequest&, const SetProfileFollowsRequest&) = default;
+};
+
 struct SetRatioRequest {
     SplitDirection dir{};
     Id pane{};
@@ -3180,6 +3299,12 @@ struct UngroupTabGroupRequest {
     friend bool operator==(const UngroupTabGroupRequest&, const UngroupTabGroupRequest&) = default;
 };
 
+struct UnpinWorkspaceRequest {
+    std::string session_id{};
+    std::string workspace_key{};
+    friend bool operator==(const UnpinWorkspaceRequest&, const UnpinWorkspaceRequest&) = default;
+};
+
 struct UnregisterBrowserProviderRequest {
     friend bool operator==(const UnregisterBrowserProviderRequest&, const UnregisterBrowserProviderRequest&) = default;
 };
@@ -3195,6 +3320,27 @@ struct UpdateFrontendBrowserTabRequest {
     Field<std::string> title{};
     Field<std::string> url{};
     friend bool operator==(const UpdateFrontendBrowserTabRequest&, const UpdateFrontendBrowserTabRequest&) = default;
+};
+
+struct UpdatePersonalGroupRequest {
+    Field<bool> collapsed{};
+    Field<std::string> color{};
+    std::string group{};
+    Field<std::string> name{};
+    Field<std::string> profile{};
+    friend bool operator==(const UpdatePersonalGroupRequest&, const UpdatePersonalGroupRequest&) = default;
+};
+
+struct UpdateProfileRequest {
+    Field<std::string> browser_profile_id{};
+    Field<std::string> color{};
+    Field<std::string> default_session_id{};
+    Field<JsonValue> defaults{};
+    Field<std::string> icon{};
+    Field<std::string> name{};
+    std::string profile{};
+    Field<std::string> theme{};
+    friend bool operator==(const UpdateProfileRequest&, const UpdateProfileRequest&) = default;
 };
 
 struct UpdateTabGroupRequest {
@@ -4402,6 +4548,18 @@ struct Codec<CopyRequest> {
 };
 
 template <>
+struct Codec<CreatePersonalGroupRequest> {
+    static Result<Json> encode(const CreatePersonalGroupRequest& value);
+    static Result<CreatePersonalGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CreateProfileRequest> {
+    static Result<Json> encode(const CreateProfileRequest& value);
+    static Result<CreateProfileRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CreateSurfaceWithReceiptRequest> {
     static Result<Json> encode(const CreateSurfaceWithReceiptRequest& value);
     static Result<CreateSurfaceWithReceiptRequest> decode(const Json& value);
@@ -4429,6 +4587,18 @@ template <>
 struct Codec<CreateWorkspaceGroupRequest> {
     static Result<Json> encode(const CreateWorkspaceGroupRequest& value);
     static Result<CreateWorkspaceGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<DeletePersonalGroupRequest> {
+    static Result<Json> encode(const DeletePersonalGroupRequest& value);
+    static Result<DeletePersonalGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<DeleteProfileRequest> {
+    static Result<Json> encode(const DeleteProfileRequest& value);
+    static Result<DeleteProfileRequest> decode(const Json& value);
 };
 
 template <>
@@ -4474,6 +4644,12 @@ struct Codec<FocusPaneRequest> {
 };
 
 template <>
+struct Codec<ForgetSessionRequest> {
+    static Result<Json> encode(const ForgetSessionRequest& value);
+    static Result<ForgetSessionRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<GetBrowserProviderRequest> {
     static Result<Json> encode(const GetBrowserProviderRequest& value);
     static Result<GetBrowserProviderRequest> decode(const Json& value);
@@ -4510,6 +4686,12 @@ struct Codec<IdsRequest> {
 };
 
 template <>
+struct Codec<ImportSessionOrganizationRequest> {
+    static Result<Json> encode(const ImportSessionOrganizationRequest& value);
+    static Result<ImportSessionOrganizationRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<JournalFrontendEventRequest> {
     static Result<Json> encode(const JournalFrontendEventRequest& value);
     static Result<JournalFrontendEventRequest> decode(const Json& value);
@@ -4543,6 +4725,12 @@ template <>
 struct Codec<ListNotificationsRequest> {
     static Result<Json> encode(const ListNotificationsRequest& value);
     static Result<ListNotificationsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ListPersonalRequest> {
+    static Result<Json> encode(const ListPersonalRequest& value);
+    static Result<ListPersonalRequest> decode(const Json& value);
 };
 
 template <>
@@ -4603,6 +4791,18 @@ template <>
 struct Codec<MintTerminalRendererByTerminalRequest> {
     static Result<Json> encode(const MintTerminalRendererByTerminalRequest& value);
     static Result<MintTerminalRendererByTerminalRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MovePersonalGroupRequest> {
+    static Result<Json> encode(const MovePersonalGroupRequest& value);
+    static Result<MovePersonalGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveProfileRequest> {
+    static Result<Json> encode(const MoveProfileRequest& value);
+    static Result<MoveProfileRequest> decode(const Json& value);
 };
 
 template <>
@@ -4762,6 +4962,12 @@ struct Codec<PasteImageResult> {
 };
 
 template <>
+struct Codec<PinWorkspaceRequest> {
+    static Result<Json> encode(const PinWorkspaceRequest& value);
+    static Result<PinWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<PingRequest> {
     static Result<Json> encode(const PingRequest& value);
     static Result<PingRequest> decode(const Json& value);
@@ -4777,6 +4983,12 @@ template <>
 struct Codec<PutFrontendProjectionRequest> {
     static Result<Json> encode(const PutFrontendProjectionRequest& value);
     static Result<PutFrontendProjectionRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<PutSessionRequest> {
+    static Result<Json> encode(const PutSessionRequest& value);
+    static Result<PutSessionRequest> decode(const Json& value);
 };
 
 template <>
@@ -4972,6 +5184,18 @@ struct Codec<SetDefaultColorsRequest> {
 };
 
 template <>
+struct Codec<SetPersonalWorkspaceRequest> {
+    static Result<Json> encode(const SetPersonalWorkspaceRequest& value);
+    static Result<SetPersonalWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetProfileFollowsRequest> {
+    static Result<Json> encode(const SetProfileFollowsRequest& value);
+    static Result<SetProfileFollowsRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetRatioRequest> {
     static Result<Json> encode(const SetRatioRequest& value);
     static Result<SetRatioRequest> decode(const Json& value);
@@ -5086,6 +5310,12 @@ struct Codec<UngroupTabGroupRequest> {
 };
 
 template <>
+struct Codec<UnpinWorkspaceRequest> {
+    static Result<Json> encode(const UnpinWorkspaceRequest& value);
+    static Result<UnpinWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<UnregisterBrowserProviderRequest> {
     static Result<Json> encode(const UnregisterBrowserProviderRequest& value);
     static Result<UnregisterBrowserProviderRequest> decode(const Json& value);
@@ -5101,6 +5331,18 @@ template <>
 struct Codec<UpdateFrontendBrowserTabRequest> {
     static Result<Json> encode(const UpdateFrontendBrowserTabRequest& value);
     static Result<UpdateFrontendBrowserTabRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UpdatePersonalGroupRequest> {
+    static Result<Json> encode(const UpdatePersonalGroupRequest& value);
+    static Result<UpdatePersonalGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UpdateProfileRequest> {
+    static Result<Json> encode(const UpdateProfileRequest& value);
+    static Result<UpdateProfileRequest> decode(const Json& value);
 };
 
 template <>
@@ -5299,6 +5541,12 @@ template <>
 struct Codec<PaneClosedEvent> {
     static Result<Json> encode(const PaneClosedEvent& value);
     static Result<PaneClosedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<PersonalChangedEvent> {
+    static Result<Json> encode(const PersonalChangedEvent& value);
+    static Result<PersonalChangedEvent> decode(const Json& value);
 };
 
 template <>

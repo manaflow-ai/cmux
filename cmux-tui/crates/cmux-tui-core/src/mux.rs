@@ -3,6 +3,7 @@
 
 mod host_close;
 mod idle_close;
+mod personal;
 mod presentation;
 mod public_projections;
 mod resource_content;
@@ -964,6 +965,11 @@ pub enum MuxEvent {
         projection_revision: u64,
         origin: String,
         mutation_id: String,
+    },
+    /// The home session's personal state (rooms, sessions, personal groups
+    /// and order; `profiles-v1`) changed. Consumers refetch `list-personal`.
+    PersonalChanged {
+        personal_revision: u64,
     },
     /// A durable terminal-registry mutation committed. Consumers use this as
     /// a barrier, then fetch `terminal-events` or a fresh snapshot.

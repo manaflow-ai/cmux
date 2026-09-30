@@ -153,25 +153,32 @@
       "close-terminal",
       "close-workspace",
       "copy",
+      "create-personal-group",
+      "create-profile",
       "create-surface-with-receipt",
       "create-tab-group",
       "create-terminal",
       "create-workspace",
       "create-workspace-group",
+      "delete-personal-group",
+      "delete-profile",
       "delete-saved-tab-group",
       "delete-workspace-group",
       "detach-client",
       "export-layout",
       "focus-direction",
       "focus-pane",
+      "forget-session",
       "get-frontend-projection",
       "get-size-state",
       "identify",
       "ids",
+      "import-session-organization",
       "journal-frontend-event",
       "list-agents",
       "list-clients",
       "list-notifications",
+      "list-personal",
       "list-saved-tab-groups",
       "list-tab-groups",
       "list-terminals",
@@ -179,6 +186,8 @@
       "list-workspaces",
       "machine-listening-tcp",
       "machine-usage",
+      "move-personal-group",
+      "move-profile",
       "move-tab",
       "move-tab-group",
       "move-tab-group-to-column",
@@ -203,9 +212,11 @@
       "notify",
       "pane-neighbor",
       "paste-image",
+      "pin-workspace",
       "ping",
       "process-info",
       "put-frontend-projection",
+      "put-session",
       "read-screen",
       "read-scrollback",
       "release-surface-size",
@@ -231,6 +242,8 @@
       "set-client-info",
       "set-client-sizing",
       "set-default-colors",
+      "set-personal-workspace",
+      "set-profile-follows",
       "set-ratio",
       "set-size-counts",
       "set-size-policy",
@@ -247,8 +260,11 @@
       "terminal-resources",
       "undo-layout",
       "ungroup-tab-group",
+      "unpin-workspace",
       "unsave-tab-group",
       "update-frontend-browser-tab",
+      "update-personal-group",
+      "update-profile",
       "update-tab-group",
       "update-workspace-group",
       "vt-state",
@@ -452,6 +468,12 @@
       ]
     },
     {
+      "name": "personal-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "render-delta",
       "streams": [
         "attach-render"
@@ -559,13 +581,13 @@
       ]
     },
     {
-      "name": "terminal-registry-changed",
+      "name": "terminal-reaped",
       "streams": [
         "subscribe"
       ]
     },
     {
-      "name": "terminal-reaped",
+      "name": "terminal-registry-changed",
       "streams": [
         "subscribe"
       ]
@@ -580,6 +602,12 @@
       "name": "tree-changed",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "url-open",
+      "streams": [
+        "control"
       ]
     },
     {
@@ -622,12 +650,6 @@
       "name": "workspace-renamed",
       "streams": [
         "subscribe-deltas"
-      ]
-    },
-    {
-      "name": "url-open",
-      "streams": [
-        "control"
       ]
     }
   ],

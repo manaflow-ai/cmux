@@ -33,6 +33,8 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
+mod personal_mutations;
+mod personal_store;
 mod presentation_store;
 mod public_fold;
 mod public_projection_store;
@@ -62,6 +64,8 @@ pub(crate) use journal_extensions::{
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
+pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
+pub use personal_store::PersonalSnapshot;
 pub use presentation_store::{
     FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
     TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
@@ -2722,6 +2726,7 @@ impl WorkspaceRegistry {
         let registry_id = required_meta(&connection, "registry_id")?;
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
+        personal_store::migrate_personal_v1(&connection, &registry_id, &session_name)?;
         let quick_check: String =
             connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
         if quick_check != "ok" {

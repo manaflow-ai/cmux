@@ -94,6 +94,7 @@ mod loopback_forward;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
+mod personal;
 mod terminal_create;
 mod terminal_resources;
 mod url_open;
@@ -199,6 +200,10 @@ pub const TERMINAL_ENV_CAPABILITY: &str = "terminal-env-v1";
 /// `identify` carries `session_id` (the durable registry id) and
 /// `machine_name` (plans/cmux-next/data-model.md section 2).
 pub const SESSION_IDENTITY_CAPABILITY: &str = "session-identity-v1";
+/// Personal state of the home session: rooms (`*-profile`), follows, pins,
+/// the session registry, personal groups and order, `list-personal`, and the
+/// `personal-changed` event (plans/cmux-next/data-model.md section 3).
+pub const PROFILES_CAPABILITY: &str = "profiles-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -330,6 +335,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         TERMINAL_ENV_CAPABILITY,
         LOOPBACK_FORWARD_CAPABILITY,
         SESSION_IDENTITY_CAPABILITY,
+        PROFILES_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1762,6 +1768,144 @@ enum Command {
         title: Option<Option<String>>,
         #[serde(flatten)]
         mutation: MutationRequest,
+    },
+    /// Every personal record of the home session (`profiles-v1`).
+    ListPersonal,
+    /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
+    CreateProfile {
+        name: String,
+        #[serde(default)]
+        profile: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        icon: Option<String>,
+        #[serde(default)]
+        theme: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        browser_profile_id: Option<String>,
+        #[serde(default)]
+        default_session_id: Option<String>,
+        #[serde(default)]
+        defaults: Option<Value>,
+        #[serde(default)]
+        follows: Option<Vec<String>>,
+    },
+    /// Update a room. An absent field is unchanged; JSON null clears it.
+    UpdateProfile {
+        profile: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        theme: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        browser_profile_id: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        default_session_id: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        defaults: Option<Option<Value>>,
+    },
+    /// Move a room to an insertion index among rooms.
+    MoveProfile {
+        profile: String,
+        index: usize,
+    },
+    /// Delete a room; its pins and groups move to `move_to` or are removed.
+    DeleteProfile {
+        profile: String,
+        #[serde(default)]
+        move_to: Option<String>,
+    },
+    /// Replace the sessions a room follows.
+    SetProfileFollows {
+        profile: String,
+        session_ids: Vec<String>,
+    },
+    /// Pin a qualified workspace to one room (exclusive).
+    PinWorkspace {
+        session_id: String,
+        workspace_key: String,
+        profile: String,
+    },
+    UnpinWorkspace {
+        session_id: String,
+        workspace_key: String,
+    },
+    /// Record or refresh a session in the home session registry.
+    PutSession {
+        session_id: String,
+        #[serde(default)]
+        machine_name: Option<String>,
+        #[serde(default)]
+        session_name: Option<String>,
+        transport: Value,
+        #[serde(default)]
+        capabilities: Option<Value>,
+        #[serde(default)]
+        follow_with: Option<String>,
+    },
+    ForgetSession {
+        session_id: String,
+        #[serde(default)]
+        force: bool,
+    },
+    /// One-time copy of a remote session's shared groups and order.
+    ImportSessionOrganization {
+        session_id: String,
+        #[serde(default)]
+        groups: Vec<Value>,
+        #[serde(default)]
+        workspaces: Vec<Value>,
+    },
+    CreatePersonalGroup {
+        name: String,
+        #[serde(default)]
+        group: Option<String>,
+        #[serde(default)]
+        profile: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        collapsed: bool,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+    UpdatePersonalGroup {
+        group: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default)]
+        collapsed: Option<bool>,
+        #[serde(default)]
+        profile: Option<String>,
+    },
+    DeletePersonalGroup {
+        group: String,
+    },
+    MovePersonalGroup {
+        group: String,
+        index: usize,
+    },
+    /// Create or update the personal row of a qualified workspace.
+    SetPersonalWorkspace {
+        session_id: String,
+        workspace_key: String,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        group: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        browser_profile_id: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        theme: Option<Option<String>>,
     },
     /// List sidebar workspace groups in order.
     ListWorkspaceGroups,
@@ -14315,6 +14459,131 @@ fn handle_command_with_cancellation(
                 "generation": generation,
             }))
         }
+        Command::ListPersonal => personal::list(mux),
+        Command::CreateProfile {
+            name,
+            profile,
+            color,
+            icon,
+            theme,
+            index,
+            browser_profile_id,
+            default_session_id,
+            defaults,
+            follows,
+        } => personal::create_profile(
+            mux,
+            crate::workspace_registry::ProfileInput {
+                id: profile,
+                name,
+                color,
+                icon,
+                theme,
+                index,
+                browser_profile_id,
+                default_session_id,
+                defaults,
+                follows,
+            },
+        ),
+        Command::UpdateProfile {
+            profile,
+            name,
+            color,
+            icon,
+            theme,
+            browser_profile_id,
+            default_session_id,
+            defaults,
+        } => personal::update_profile(
+            mux,
+            &profile,
+            crate::workspace_registry::ProfileUpdate {
+                name,
+                color,
+                icon,
+                theme,
+                browser_profile_id,
+                default_session_id,
+                defaults,
+            },
+        ),
+        Command::MoveProfile { profile, index } => personal::move_profile(mux, &profile, index),
+        Command::DeleteProfile { profile, move_to } => {
+            personal::delete_profile(mux, &profile, move_to.as_deref())
+        }
+        Command::SetProfileFollows { profile, session_ids } => {
+            personal::set_profile_follows(mux, &profile, &session_ids)
+        }
+        Command::PinWorkspace { session_id, workspace_key, profile } => {
+            personal::pin_workspace(mux, &session_id, &workspace_key, &profile)
+        }
+        Command::UnpinWorkspace { session_id, workspace_key } => {
+            personal::unpin_workspace(mux, &session_id, &workspace_key)
+        }
+        Command::PutSession {
+            session_id,
+            machine_name,
+            session_name,
+            transport,
+            capabilities,
+            follow_with,
+        } => personal::put_session(
+            mux,
+            &session_id,
+            machine_name.as_deref(),
+            session_name.as_deref(),
+            &transport,
+            capabilities.as_ref(),
+            follow_with.as_deref(),
+        ),
+        Command::ForgetSession { session_id, force } => {
+            personal::forget_session(mux, &session_id, force)
+        }
+        Command::ImportSessionOrganization { session_id, groups, workspaces } => {
+            personal::import_session_organization(mux, &session_id, groups, workspaces)
+        }
+        Command::CreatePersonalGroup { name, group, profile, color, collapsed, index } => {
+            personal::create_group(
+                mux,
+                group,
+                profile.as_deref(),
+                &name,
+                color.as_deref(),
+                collapsed,
+                index,
+            )
+        }
+        Command::UpdatePersonalGroup { group, name, color, collapsed, profile } => {
+            personal::update_group(
+                mux,
+                &group,
+                name.as_deref(),
+                color,
+                collapsed,
+                profile.as_deref(),
+            )
+        }
+        Command::DeletePersonalGroup { group } => personal::delete_group(mux, &group),
+        Command::MovePersonalGroup { group, index } => personal::move_group(mux, &group, index),
+        Command::SetPersonalWorkspace {
+            session_id,
+            workspace_key,
+            index,
+            group,
+            browser_profile_id,
+            theme,
+        } => personal::set_workspace(
+            mux,
+            &session_id,
+            &workspace_key,
+            crate::workspace_registry::PersonalWorkspaceUpdate {
+                index,
+                group,
+                browser_profile_id,
+                theme,
+            },
+        ),
         Command::ListWorkspaceGroups => {
             Ok(json!({ "groups": workspace_groups_json(&mux.presentation_snapshot()) }))
         }
@@ -15587,6 +15856,10 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "projection_revision": projection_revision,
             "origin": origin,
             "mutation_id": mutation_id,
+        }),
+        MuxEvent::PersonalChanged { personal_revision } => json!({
+            "event": "personal-changed",
+            "personal_revision": personal_revision,
         }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",
