@@ -10239,6 +10239,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
+    lazy var terminalImagePastePreviewController = TerminalImagePastePreviewController(host: self)
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlayRoot>?
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
@@ -11039,6 +11040,7 @@ final class GhosttySurfaceScrollView: NSView {
         )
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
+        terminalImagePastePreviewController.updateLayout()
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
     }
 
