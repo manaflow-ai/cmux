@@ -82,6 +82,20 @@ final class FeedCoordinator: @unchecked Sendable {
 
     private init() {}
 
+    /// Combines the two durable inputs to the mobile Feed into one monotonic
+    /// revision. The high and low 32-bit lanes preserve independent changes,
+    /// so a notification update cannot be hidden behind a larger workstream
+    /// revision (or vice versa).
+    static func combinedMobileFeedRevision(
+        workstream: Int,
+        notifications: Int
+    ) -> Int {
+        guard notifications > 0 else { return max(0, workstream) }
+        let high = UInt64(max(0, workstream)) & 0xFFFF_FFFF
+        let low = UInt64(max(0, notifications)) & 0xFFFF_FFFF
+        return Int(truncatingIfNeeded: (high << 32) | low)
+    }
+
     /// Must be called once at app launch to install the store.
     @MainActor
     func install(
@@ -96,6 +110,22 @@ final class FeedCoordinator: @unchecked Sendable {
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
             ?? TerminalNotificationStore.shared.userNotificationCenter
+        // Mirror of the notification feed's `notification.feed.changed`
+        // contract: a revision-only invalidation tells subscribed phones to
+        // re-list the workstream feed (`feed.list`). Emission is a no-op
+        // without subscribers.
+        store.onRevisionChange = { revision in
+            MobileHostService.emitEvent(
+                topic: "feed.changed",
+                payload: [
+                    "revision": Self.combinedMobileFeedRevision(
+                        workstream: revision,
+                        notifications: TerminalNotificationStore.shared
+                            .notificationFeedHistory.revision
+                    )
+                ]
+            )
+        }
         NotificationCenter.default.post(name: Self.storeInstalledNotification, object: self)
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
@@ -1682,6 +1712,50 @@ private func normalizedFeedNotificationCWD(_ cwd: String?) -> String? {
 enum FeedSocketEncoding {
     private static let primaryTextLimit = 8_000
     private static let secondaryTextLimit = 2_000
+
+    /// The mobile Feed is a rendered event stream, so an item must carry at
+    /// least one field the phone can display or act on before it enters the
+    /// response. This gate keeps sparse persistence records from becoming
+    /// blank rows after the client maps them into a presentation model.
+    static func isMobileFeedRenderable(_ item: WorkstreamItem) -> Bool {
+        switch item.payload {
+        case .permissionRequest(let requestID, let toolName, _, _):
+            return hasText(requestID) && hasText(toolName)
+        case .exitPlan(let requestID, _, _):
+            return hasText(requestID)
+        case .question(let requestID, let questions):
+            guard hasText(requestID) else { return false }
+            return questions.contains { question in
+                hasText(question.header)
+                    || hasText(question.prompt)
+                    || question.options.contains { option in
+                        hasText(option.label) || hasText(option.description)
+                    }
+            }
+        case .toolUse, .userPrompt, .sessionStart, .sessionEnd:
+            return false
+        case .toolResult(let toolName, let result, let isError):
+            return isError && (hasText(toolName) || hasText(result))
+        case .assistantMessage(let text):
+            return hasText(text)
+        case .stop(let reason):
+            return hasText(reason)
+                || item.context.map { context in
+                    hasText(context.lastUserMessage)
+                        || hasText(context.assistantPreamble)
+                        || hasText(context.planSummary)
+                        || hasText(context.toolSummary)
+                } == true
+                || hasText(item.reply?.text)
+        case .todos(let todos):
+            return todos.contains { hasText($0.content) }
+        }
+    }
+
+    private static func hasText(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     static func payload(for result: FeedCoordinator.IngestBlockingResult) -> [String: Any] {
         switch result {

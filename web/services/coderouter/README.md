@@ -132,9 +132,23 @@ constraints; custom pool management UI is not part of this change.
 session and the selected team. Account administration requires Stack's
 `$manage_api_keys` permission, or the user's own personal scope. A private
 account additionally belongs to its importer. The dashboard exposes **Share
-with team** and **Make private**. A VM token cannot administer accounts or mint
-an organization session. The organization catalog returned to a VM contains
-only its own team and `fixed: true`.
+with team** and **Make private**. A VM token cannot change sharing or mint an
+organization session. The organization catalog returned to a VM contains only
+its own team and `fixed: true`.
+
+A VM-bound route token (`resolveCoderouterControlContext`) does manage provider
+accounts, so `cmux coderouter` inside a managed machine can add and remove
+them: it may list, import (`POST /api/coderouter/accounts`, `POST
+/api/coderouter/claude-upstream`), update (`PATCH
+/api/coderouter/claude-upstream/:id`) and remove (`DELETE` on the same routes)
+accounts. Its scope is fixed by the token: the VM's own team (it cannot choose
+another), only accounts its VM pool grants (`accountAccessPredicate`, `vm`
+access; an organization VM never reaches its creator's private accounts), and
+only while the machine is live. A chatmux machine token cannot manage
+accounts, and a token without a VM id is refused (`vm_bound_token_required`).
+Anything running in the machine can therefore remove or replace the pool's
+accounts; treat a VM token like a team member's account-management
+credential for that pool.
 
 Inside a managed machine, `cmux coderouter accounts --json` returns native and
 Claude account metadata under one team id, and `cmux coderouter org current
