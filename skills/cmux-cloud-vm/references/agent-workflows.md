@@ -176,6 +176,8 @@ delivery by inspecting the target session's next turn and visible terminal
 state, then read its output through `cmux vm terminal read`/`output` or the
 session's normal UI. If the target is currently busy, the message waits for the
 session's queue semantics rather than interrupting an in-flight turn.
+If the target thread is not loaded, the message remains queued until you open or
+resume that thread.
 
 Do not copy `CODEX_HOME`, manually edit `queue_*.sqlite`, or treat a copied
 database's `Queued` response as delivery evidence. Those operations enqueue for
@@ -190,9 +192,10 @@ cmux vm terminal read <id> <term>
 ```
 
 When a remote app-server endpoint is intentionally exposed, use the installed
-CLI's `--remote <ws://…|wss://…>` together with
+CLI's `--remote <wss://…>` together with
 `--remote-auth-token-env <ENV_VAR>` and the endpoint's authenticated token. Do
 not put an app-server token in a terminal command, prompt, or repository file.
+Use `ws://` only for loopback endpoints.
 
 ## 3. Repo with history (private repos, no credentials on the machine)
 
