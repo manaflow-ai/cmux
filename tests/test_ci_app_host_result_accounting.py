@@ -551,9 +551,18 @@ def test_unreadable_json_input_names_the_file() -> None:
         log = root / "batch.log"
         log.write_text("** TEST SUCCEEDED **\n", encoding="utf-8")
 
-        for name, payload in (("empty.tests.json", ""), ("truncated.tests.json", '{"values": [')):
+        # Ends on the first byte of a two-byte character, as a killed write does.
+        cut_mid_character = b'{"values": [{"identifier": "FooTests/testCaf' + "\u00e9".encode("utf-8")[:1]
+        for name, payload in (
+            ("empty.tests.json", b""),
+            ("truncated.tests.json", b'{"values": ['),
+            # The same aborted write, cut one byte into a multi-byte character.
+            # That fails as a decode error before the JSON parser sees anything,
+            # which is a second unnamed path to the same bare last line.
+            ("cut-mid-character.tests.json", cut_mid_character),
+        ):
             tests_json = root / name
-            tests_json.write_text(payload, encoding="utf-8")
+            tests_json.write_bytes(payload)
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
                 status = accounting.main(
@@ -576,7 +585,21 @@ def test_unreadable_json_input_names_the_file() -> None:
             assert status == 2
             reported = stderr.getvalue()
             assert name in reported, reported
-            assert "empty file" in reported or "not valid JSON" in reported, reported
+            assert (
+                "empty file" in reported
+                or "not valid JSON" in reported
+                or "not valid UTF-8" in reported
+            ), reported
+
+        # Selectors are read the same way and name themselves the same way.
+        bad_selectors = root / "bad-selectors.txt"
+        bad_selectors.write_bytes(b"FooTests/testCaf\xe9()\n")
+        try:
+            accounting.load_selectors(bad_selectors)
+        except ValueError as error:
+            assert "bad-selectors.txt" in str(error), str(error)
+        else:
+            raise AssertionError("expected load_selectors to reject non-UTF-8 bytes")
 
 
 if __name__ == "__main__":
