@@ -1,0 +1,58 @@
+import CmuxNextActions
+import CmuxNextDesign
+@testable import CmuxNextSettings
+import Foundation
+import Testing
+
+/// Settings window writes: validated against the schema, atomic, and a
+/// reset removes the key plus the objects it leaves empty.
+@MainActor
+@Suite struct SettingsWriteTests {
+    func controller(_ text: String) throws -> (SettingsController, URL) {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-settings-write-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "cmux.json")
+        try Data(text.utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url)
+        return (settings, url)
+    }
+
+    func document(_ url: URL) throws -> JSONValue { try JSONC.parse(String(contentsOf: url, encoding: .utf8)) }
+
+    @Test func writesValidValuesAndRemovesEmptiedObjects() async throws {
+        let (settings, url) = try controller("{\n  // mine\n  \"actions\": {}\n}\n")
+        let padding = try #require(SettingsSchema.descriptor(for: ["layout", "panePadding"]))
+        try await settings.setSetting(padding, to: 8)
+        #expect(try document(url).value(at: ["layout", "panePadding"]) == 8)
+        try await settings.setSetting(padding, to: nil)
+        #expect(try document(url)["layout"] == nil)
+        #expect(try String(contentsOf: url, encoding: .utf8).contains("// mine"))
+    }
+
+    @Test func refusesValuesTheSchemaRefuses() async throws {
+        let (settings, url) = try controller("{}")
+        let speed = try #require(SettingsSchema.descriptor(for: ["ui", "animationSpeed"]))
+        await #expect(throws: SettingRefused.self) { try await settings.setSetting(speed, to: "warp") }
+        #expect(try document(url)["ui"] == nil)
+    }
+
+    @Test func resetAllKeepsWhatTheSchemaDoesNotOwn() async throws {
+        let (settings, url) = try controller("""
+        {
+          "ui": { "animationSpeed": "off", "surfaceTabBar": { "buttons": [] } },
+          "layout": { "paneBorder": "none" },
+          "shortcuts": { "showModifierHoldHints": false, "bindings": { "newTab": "cmd+t" }, "splitRight": "cmd+\\\\" },
+          "actions": { "hello": { "command": "echo hi" } }
+        }
+        """)
+        try await settings.resetAllSettings()
+        let root = try document(url)
+        #expect(root.value(at: ["ui", "animationSpeed"]) == nil)
+        #expect(root.value(at: ["ui", "surfaceTabBar"]) != nil)
+        #expect(root["layout"] == nil)
+        #expect(root.value(at: ["shortcuts", "bindings"]) == nil)
+        #expect(root.value(at: ["shortcuts", "splitRight"]) == nil)
+        #expect(root.value(at: ["shortcuts", "showModifierHoldHints"]) == false)
+        #expect(root["actions"] != nil)
+    }
+}

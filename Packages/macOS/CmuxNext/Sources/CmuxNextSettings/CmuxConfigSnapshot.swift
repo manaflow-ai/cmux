@@ -55,6 +55,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var commandActions: [ConfigCommandAction] = []
     /// `browser.defaultEngine`; Chromium when unset or invalid.
     public var browserDefaultEngine: BrowserDefaultEngine = .fallback
+    /// `browser.newTabPage`; nil opens a blank page.
+    public var browserNewTabPage: URL?
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
@@ -100,6 +102,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (engine, engineDiagnostic) = BrowserDefaultEngine.parse(root)
         snapshot.browserDefaultEngine = engine
         if let engineDiagnostic { snapshot.diagnostics.append(engineDiagnostic) }
+        let (newTabPage, newTabPageDiagnostic) = BrowserNewTabPage.parse(root)
+        snapshot.browserNewTabPage = newTabPage
+        if let newTabPageDiagnostic { snapshot.diagnostics.append(newTabPageDiagnostic) }
         let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
         snapshot.browserHibernation = hibernation
         snapshot.diagnostics += hibernationDiagnostics
