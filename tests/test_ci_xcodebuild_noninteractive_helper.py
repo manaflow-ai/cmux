@@ -80,11 +80,12 @@ def test_sigterm_cleans_up_detached_test_descendant() -> None:
         child.write_text(
             textwrap.dedent(
                 f"""
-                import json, os, signal, subprocess, sys
+                import json, os, signal, subprocess, sys, time
                 helper = subprocess.Popen(
-                    [sys.executable, "-c", "import signal; signal.pause()"],
+                    [sys.executable, "-c", "import pathlib,signal; signal.signal(signal.SIGTERM,signal.SIG_IGN); pathlib.Path({str(record) + '.ready'!r}).touch(); signal.pause()"],
                     start_new_session=True,
                 )
+                while not os.path.exists({str(record) + '.ready'!r}): time.sleep(0.01)
                 with open({str(record)!r} + ".tmp", "w") as handle:
                     json.dump({{"helper": helper.pid}}, handle)
                 os.rename({str(record)!r} + ".tmp", {str(record)!r})
@@ -158,6 +159,7 @@ def test_compiler_timeout_evidence() -> None:
 
 
 def main() -> int:
+    test_sigterm_cleans_up_detached_test_descendant()
     test_compiler_timeout_evidence()
     test_startup_deadline()
     child = textwrap.dedent(

@@ -77,15 +77,63 @@ class RunWithTimeoutProcessTreeTests(unittest.TestCase):
                 self.assertTrue(record.exists(), "child did not start")
                 helper = json.loads(record.read_text())["helper"]
                 os.kill(runner.pid, signal.SIGTERM)
-                self.assertEqual(runner.wait(timeout=10), 143)
+                returncode = runner.wait(timeout=10)
                 self.assertTrue(
                     wait_for_exit(helper),
                     "SIGTERM to run_with_timeout orphaned its detached helper",
                 )
+                self.assertEqual(returncode, 143)
             finally:
                 if runner.poll() is None:
                     runner.kill()
                     runner.wait()
+                if helper is not None and pid_alive(helper):
+                    os.kill(helper, signal.SIGKILL)
+
+    def test_sigint_kills_signal_ignoring_tree_before_actions_escalates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            record = pathlib.Path(directory) / "tree.json"
+            child = pathlib.Path(directory) / "child.py"
+            child.write_text(textwrap.dedent(f"""
+                import json, os, signal, subprocess, sys, time
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                helper = subprocess.Popen(
+                    [sys.executable, "-c", "import pathlib,signal; signal.signal(signal.SIGINT,signal.SIG_IGN); signal.signal(signal.SIGTERM,signal.SIG_IGN); pathlib.Path({str(record) + '.ready'!r}).touch(); signal.pause()"],
+                    start_new_session=True,
+                )
+                while not os.path.exists({str(record) + '.ready'!r}): time.sleep(0.01)
+                with open({str(record)!r} + ".tmp", "w") as handle:
+                    json.dump({{"helper": helper.pid}}, handle)
+                os.rename({str(record)!r} + ".tmp", {str(record)!r})
+                signal.pause()
+            """))
+            runner = subprocess.Popen(
+                [sys.executable, str(RUNNER), "--timeout-seconds", "60", "--", sys.executable, str(child)],
+                cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            unrelated = subprocess.Popen([sys.executable, "-c", "import signal; signal.pause()"])
+            helper = None
+            try:
+                deadline = time.monotonic() + 5
+                while not record.exists() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(record.exists(), "child did not start")
+                helper = json.loads(record.read_text())["helper"]
+                started = time.monotonic()
+                os.kill(runner.pid, signal.SIGINT)
+                # A repeated cancellation signal must not recurse into cleanup.
+                time.sleep(0.1)
+                os.kill(runner.pid, signal.SIGTERM)
+                self.assertEqual(runner.wait(timeout=7), 130)
+                self.assertLess(time.monotonic() - started, 7.5)
+                self.assertTrue(wait_for_exit(helper))
+                self.assertIsNone(unrelated.poll(), "cleanup killed an unrelated process")
+            finally:
+                for process in (runner, unrelated):
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait()
                 if helper is not None and pid_alive(helper):
                     os.kill(helper, signal.SIGKILL)
 
