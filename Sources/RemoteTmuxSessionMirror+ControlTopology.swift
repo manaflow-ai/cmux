@@ -175,6 +175,11 @@ extension RemoteTmuxSessionMirror {
         return sendInputBytes(data, toPane: tmuxPaneID)
     }
 
+    func sendPaste(toPane tmuxPaneID: Int, text: String) -> Bool {
+        guard controlPaneIdByPane[tmuxPaneID] != nil else { return false }
+        return connection.pastePane(paneId: tmuxPaneID, text: text)
+    }
+
     func sendKey(
         toPane tmuxPaneID: Int,
         name: String

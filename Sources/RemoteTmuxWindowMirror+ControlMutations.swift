@@ -102,6 +102,11 @@ extension RemoteTmuxWindowMirror {
         return connectionSendKeys(paneID: tmuxPaneID, data: data)
     }
 
+    func sendPaste(toPane tmuxPaneID: Int, text: String) -> Bool {
+        guard let connection, panelsByPaneId[tmuxPaneID] != nil else { return false }
+        return connection.pastePane(paneId: tmuxPaneID, text: text)
+    }
+
     func sendKey(toPane tmuxPaneID: Int, name: String) -> RemoteTmuxControlKeySendResult {
         guard let key = RemoteTmuxKeyName(rawName: name) else { return .unknownKey }
         guard let connection else { return .rejected }

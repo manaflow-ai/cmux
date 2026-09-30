@@ -530,17 +530,31 @@ extension RemoteTmuxControlConnection {
     /// genuine paste, so the remote app recognizes it (e.g. claude → `[Image #N]`)
     /// instead of seeing the plain keystrokes that ``sendKeys(paneId:data:)`` would
     /// deliver. Uses a dedicated, immediately-deleted (`-d`) per-pane buffer so
-    /// there's no buffer-name collision. `text` must be a single line (callers route
-    /// only single-line content — e.g. file/image paths — here).
+    /// there's no buffer-name collision. Carriage returns are rejected because
+    /// they would terminate a control-mode command; line breaks are appended as
+    /// separate tmux commands so the control stream remains line-oriented.
     func pastePane(paneId: Int, text: String) -> Bool {
-        guard let commands = Self.pastePaneCommands(paneId: paneId, text: text) else { return false }
-        return send(commands.setBuffer) && send(commands.pasteBuffer)
+        guard !text.isEmpty else { return false }
+        let normalizedText = text.replacingOccurrences(of: "\r\n", with: "\n")
+        guard !normalizedText.contains("\r") else { return false }
+        let lines = normalizedText.components(separatedBy: "\n")
+        let buffer = "cmux-paste-\(paneId)"
+        guard let first = lines.first else { return false }
+        guard send("set-buffer -b \(buffer) -- \(RemoteTmuxHost.shellSingleQuoted(first))") else {
+            return false
+        }
+        for line in lines.dropFirst() {
+            guard send("set-buffer -a -b \(buffer) -- \(RemoteTmuxHost.shellSingleQuoted(line))") else {
+                return false
+            }
+        }
+        return send("paste-buffer -p -d -b \(buffer) -t %\(paneId)")
     }
 
     nonisolated static func pastePaneCommands(paneId: Int, text: String)
         -> (setBuffer: String, pasteBuffer: String)?
     {
-        guard !text.isEmpty else { return nil }
+        guard !text.isEmpty, !text.contains(where: { $0 == "\r" || $0 == "\n" }) else { return nil }
         let buffer = "cmux-paste-\(paneId)"
         return (
             setBuffer: "set-buffer -b \(buffer) -- \(RemoteTmuxHost.shellSingleQuoted(text))",

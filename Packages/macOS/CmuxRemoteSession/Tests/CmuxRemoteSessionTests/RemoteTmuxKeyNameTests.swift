@@ -9,6 +9,8 @@ import Testing
             ("shift-ctrl-arrow_up", "C-S-Up"),
             ("option-page_down", "M-NPage"),
             ("ctrl+alt+f12", "C-M-F12"),
+            ("ctrl-enter", "C-Enter"),
+            ("ctrl+return", "C-Enter"),
         ]
 
         for (rawName, expected) in cases {
