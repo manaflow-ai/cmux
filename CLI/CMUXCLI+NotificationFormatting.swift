@@ -1,6 +1,99 @@
 import Foundation
 
 extension CMUXCLI {
+    func validateNotificationCommandArguments(
+        command: String,
+        args: [String]
+    ) throws {
+        let valueOptions: Set<String>
+        let flagOptions: Set<String>
+
+        switch command {
+        case "notify":
+            valueOptions = ["--title", "--subtitle", "--body", "--workspace", "--surface", "--window"]
+            flagOptions = ["--reply", "--clear"]
+        case "list-notifications":
+            valueOptions = []
+            flagOptions = []
+        case "dismiss-notification":
+            valueOptions = ["--id"]
+            flagOptions = ["--all-read"]
+        case "mark-notification-read":
+            valueOptions = ["--id", "--workspace", "--surface", "--window"]
+            flagOptions = ["--all"]
+        case "open-notification":
+            valueOptions = ["--id"]
+            flagOptions = []
+        case "clear-notifications":
+            valueOptions = ["--workspace", "--surface", "--window"]
+            flagOptions = []
+        default:
+            return
+        }
+
+        var index = 0
+        while index < args.count {
+            let argument = args[index]
+            if argument == "--" {
+                guard index + 1 == args.count else {
+                    throw notificationArgumentError(command: command, detail: args[index + 1])
+                }
+                return
+            }
+            guard argument.hasPrefix("--") else {
+                throw notificationArgumentError(command: command, detail: argument)
+            }
+
+            let parts = argument.split(
+                separator: "=",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            )
+            let option = String(parts[0])
+
+            if flagOptions.contains(option) {
+                guard parts.count == 1 else {
+                    throw notificationArgumentError(command: command, detail: argument)
+                }
+                index += 1
+                continue
+            }
+
+            guard valueOptions.contains(option) else {
+                throw notificationArgumentError(command: command, detail: argument)
+            }
+
+            if parts.count == 2 {
+                guard !parts[1].isEmpty else {
+                    throw notificationArgumentError(command: command, detail: argument)
+                }
+                index += 1
+                continue
+            }
+
+            let valueIndex = index + 1
+            guard valueIndex < args.count else {
+                throw notificationArgumentError(command: command, detail: option)
+            }
+            let value = args[valueIndex]
+            guard value != "--", !value.hasPrefix("--") else {
+                throw notificationArgumentError(command: command, detail: option)
+            }
+            index += 2
+        }
+    }
+
+    private func notificationArgumentError(command: String, detail: String) -> CLIError {
+        CLIError(message: String(
+            format: String(
+                localized: "cli.readSelection.error.unexpectedArguments",
+                defaultValue: "%@: unexpected arguments: %@"
+            ),
+            command,
+            detail
+        ))
+    }
+
     func sanitizeNotificationField(_ value: String) -> String {
         return normalizedSingleLine(value)
             .replacingOccurrences(of: "|", with: "¦")
