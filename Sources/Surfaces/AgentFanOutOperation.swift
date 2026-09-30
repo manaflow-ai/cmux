@@ -269,10 +269,18 @@ actor AgentFanOutOperationStore {
                 }
                 if current.state == .failed,
                    candidate.state == .starting || candidate.state == .running {
-                    return current
+                    var failed = current
+                    failed.remoteWorkspaceID = candidate.remoteWorkspaceID
+                    failed.localWorkspaceID = candidate.localWorkspaceID
+                    failed.projectionErrorCode = candidate.projectionErrorCode
+                    return failed
                 }
                 if current.terminalID != nil && candidate.terminalID == nil {
-                    return current
+                    var receipted = current
+                    receipted.remoteWorkspaceID = candidate.remoteWorkspaceID
+                    receipted.localWorkspaceID = candidate.localWorkspaceID
+                    receipted.projectionErrorCode = candidate.projectionErrorCode
+                    return receipted
                 }
                 return candidate
             }
