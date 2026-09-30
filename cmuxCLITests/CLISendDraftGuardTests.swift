@@ -197,6 +197,23 @@ struct CLISendDraftGuardTests {
         #expect(!run.requests.contains { $0["method"] as? String == "surface.send_key" })
     }
 
+    @Test func sendSubmitDoesNotTreatUnmatchedPlainScreenDraftAsVisiblePaste() throws {
+        let empty: [String: Any] = [
+            "state": "empty", "agent": true, "terminal": true,
+            "agent_kind": "claude", "blocks_typing": false,
+        ]
+        let placeholder = "Claude Code\n❯\u{00A0}Try \"fix lint errors\""
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [empty, empty, empty, empty],
+            screenTexts: [placeholder, placeholder, placeholder, placeholder]
+        )
+
+        #expect(run.result.status != 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout.contains("unconfirmed"), Comment(rawValue: run.result.stdout))
+        #expect(run.requests.contains { $0["method"] as? String == "surface.send_key" } == false)
+    }
+
     @Test func sendSubmitQueuesBusyCodexWithTab() throws {
         let busyCodex: [String: Any] = [
             "state": "empty", "agent": true, "terminal": true,
