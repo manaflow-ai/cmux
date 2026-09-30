@@ -1475,7 +1475,7 @@ extension CMUXCLI {
 
         let signature = "kind=\(VMMachineKind.base.rawValue)\u{1f}memory=\(memoryMb.map(String.init) ?? "default")"
         let now = Date().timeIntervalSince1970
-        var store = Self.loadVMRunCreateIdempotencyStore(from: url)
+        var store = try Self.loadVMRunCreateIdempotencyStore(from: url)
         store.records = store.records.mapValues { records in
             records.filter { !$0.key.isEmpty && now - $0.createdAt < Self.vmRunCreateIdempotencyTTLSeconds }
         }.filter { !$0.value.isEmpty }
@@ -1526,7 +1526,7 @@ extension CMUXCLI {
         defer { close(lockFD) }
         guard flock(lockFD, LOCK_EX) == 0 else { return }
         defer { _ = flock(lockFD, LOCK_UN) }
-        var store = loadVMRunCreateIdempotencyStore(from: url)
+        guard var store = try? loadVMRunCreateIdempotencyStore(from: url) else { return }
         guard var records = store.records[active.signature],
               let index = records.firstIndex(where: { $0.key == active.key }) else { return }
         if !mutate(&records[index]) {
@@ -1546,17 +1546,21 @@ extension CMUXCLI {
     }
 
     private static func vmRunCreateIdempotencyStoreURL() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        URL(fileURLWithPath: vmRunStateHomeDirectory(), isDirectory: true)
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("vm-run-create-idempotency.json", isDirectory: false)
     }
 
-    private static func loadVMRunCreateIdempotencyStore(from url: URL) -> VMRunCreateIdempotencyStore {
-        guard let data = try? Data(contentsOf: url),
-              let store = try? JSONDecoder().decode(VMRunCreateIdempotencyStore.self, from: data) else {
+    private static func loadVMRunCreateIdempotencyStore(from url: URL) throws -> VMRunCreateIdempotencyStore {
+        guard FileManager.default.fileExists(atPath: url.path) else {
             return VMRunCreateIdempotencyStore()
         }
-        return store
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(VMRunCreateIdempotencyStore.self, from: data)
+        } catch {
+            throw CLIError(message: "vm run: could not read the create idempotency store")
+        }
     }
 
     private static func saveVMRunCreateIdempotencyStore(_ store: VMRunCreateIdempotencyStore, to url: URL) throws {
