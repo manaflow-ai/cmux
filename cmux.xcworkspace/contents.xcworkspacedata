@@ -199,6 +199,12 @@
          location = "group:CmuxFilePreviewCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxFileSearch">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxFileTree">
+      </FileRef>
+      <FileRef
          location = "group:CmuxFoundation">
       </FileRef>
       <FileRef

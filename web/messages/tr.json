@@ -1344,7 +1344,10 @@
       "metaTitle": "Yapılandırma",
       "schemaDescriptions": {
         "root": "cmux yapılandırması. Genel cmux.json; uygulama ayarlarını, kısayolları, eylemleri, özel komutları, bildirim hook'larını ve çalışma alanı düzenlerini destekler. Projeye özel .cmux/cmux.json veya cmux.json; eylemleri, komutları, bildirim hook'larını, UI eylem bağlantılarını, Agent Chat geçersiz kılmalarını, vault ajanlarını, çalışma alanı grubu geçersiz kılmalarını ve çalışma alanı başlatma ile düğme yapılandırmasını destekler.",
-        "rightSidebar": "cmux.json içinde korunan eski ve uzantılara ait sağ kenar çubuğu yapılandırması.",
+        "rightSidebar": {
+          "description": "Sağ kenar çubuğu denetim ayarları. Nesne ayrıca eski ve uzantılara ait sağ kenar çubuğu yapılandırmasını korur.",
+          "toggleButton": "Sağ kenar çubuğunu gösterme/gizleme düğmesinin kalıcı konumu. `titlebar` düğmeyi pencerenin sağ üst köşesine koyar; kenar çubuğu gösterilse de gizlense de aynı konumda kalır. `paneTabBar` düğmeyi sağ üst bölmenin sekme çubuğunun sonuna koyar. `sidebarFooter` düğmeyi sol kenar çubuğunun alt kısmına koyar. `hidden` düğmeyi kaldırır; mod çubuğu düğmesi ve geçiş kısayolu çalışmaya devam eder."
+        },
         "packs": {
           "description": "Bu yapılandırmadan önce yüklenen yerel cmux paket dosyaları veya dizinleri. Dizinler cmux.pack.json olarak çözümlenir. Bir yol dizesi veya path alanı olan bir nesne kullanın.",
           "path": "Mutlak değilse bu yapılandırma dosyasına göre belirlenen yerel dosya veya dizin yolu."
@@ -1433,6 +1436,7 @@
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
       "exampleFileExplorerDoubleClickAction": "Bir dosyaya çift tıklama: preview (varsayılan), defaultEditor (macOS varsayılan uygulaması) veya preferredEditor (app.preferredEditor komutu).",
+      "exampleRightSidebarToggleButton": "Sağ kenar çubuğu düğmesi: titlebar (varsayılan), paneTabBar, sidebarFooter veya hidden.",
       "shortcutsWhenIntro": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı when koşulları), cmux eylem kimliğiyle anahtarlanır. Bir atama yalnızca koşulu sağlandığında tetiklenir ve aynı tuş vuruşundaki başka bir atamayla yalnızca o zaman çakışır. Eylemin yerleşik bağlamını korumak için koşulu atlayın. Koşul söz varlığı:",
       "shortcutsWhenBooleanKeys": "boolean anahtarlar. Bilinmeyen veya bulunmayan bir anahtar false kabul edilir; true ve false sabitleri de kabul edilir.",
       "shortcutsWhenTypedKeys": "karşılaştırmalar için türlü anahtarlar: sağ kenar çubuğunun etkin modu (dize) ile bölme ve çalışma alanı sayıları (tamsayılar).",

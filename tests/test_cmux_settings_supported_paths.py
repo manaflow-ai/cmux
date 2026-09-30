@@ -23,7 +23,7 @@ SKILL_ROOT = REPO_ROOT / "skills" / "cmux-settings"
 SETTINGS_SECTIONS = (
     "app", "terminal", "notifications", "sidebar", "sidebarAppearance",
     "workspaceColors", "automation", "browser", "markdown", "fileEditor",
-    "fileExplorer", "diffViewer", "shortcuts",
+    "fileExplorer", "diffViewer", "rightSidebar", "shortcuts",
 )
 
 

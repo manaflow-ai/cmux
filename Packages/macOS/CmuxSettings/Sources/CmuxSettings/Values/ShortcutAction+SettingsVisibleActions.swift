@@ -16,6 +16,10 @@ private extension ShortcutAction {
             .findInDirectory,
             .fileExplorerOpenSelection,
             .fileExplorerOpenSelectionFinderAlias,
+            .fileExplorerQuickLook,
+            .fileExplorerRenameSelection,
+            .fileExplorerToggleHiddenFiles,
+            .fileExplorerSelectParent,
         ].filter(actions.contains)
         let actionSet = Set(colocatedSidebarActions)
         let baseActions = actions.filter { !actionSet.contains($0) }

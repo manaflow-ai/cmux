@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -12,6 +13,25 @@ import Testing
     private let minimumTextContrast: CGFloat = 4.5
     private let minimumIconContrast: CGFloat = 3
     private let statuses: [GitFileStatus] = [.modified, .added, .deleted, .renamed, .untracked]
+
+    @Test func focusedSelectionFollowsCustomCmuxAccent() throws {
+        let accent = CmuxAccentColor(mode: .custom, customHex: "#FF6A00")
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = try #require(NSAppearance(named: name))
+            let fill = try #require(
+                FileExplorerRowView.selectionFillColor(isFocused: true, accent: accent, appearance: appearance)
+                    .usingColorSpace(.sRGB)
+            )
+            let expected = try #require(accent.nsColor(for: appearance).usingColorSpace(.sRGB))
+            #expect(abs(fill.redComponent - expected.redComponent) < 0.01)
+            #expect(abs(fill.greenComponent - expected.greenComponent) < 0.01)
+            #expect(abs(fill.blueComponent - expected.blueComponent) < 0.01)
+            #expect(abs(fill.alphaComponent - 0.20) < 0.01)
+            #expect(abs(expected.redComponent - 1.0) < 0.02)
+            #expect(abs(expected.greenComponent - 106.0 / 255.0) < 0.02)
+            #expect(expected.blueComponent < 0.02)
+        }
+    }
 
     @Test func filenameColorsMeetContrastInEveryAppearanceAndRowState() throws {
         try forEachAppearance { appearance, baseBackground in
@@ -131,11 +151,19 @@ import Testing
     ) throws -> [(String, NSColor)] {
         let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let focusedSelection = try resolved(
-            NSColor.controlAccentColor.withAlphaComponent(0.20),
+            FileExplorerRowView.selectionFillColor(
+                isFocused: true,
+                accent: CmuxAccentColor(),
+                appearance: appearance
+            ),
             in: appearance
         )
         let unfocusedSelection = try resolved(
-            NSColor.labelColor.withAlphaComponent(0.08),
+            FileExplorerRowView.selectionFillColor(
+                isFocused: false,
+                accent: CmuxAccentColor(),
+                appearance: appearance
+            ),
             in: appearance
         )
 

@@ -1,17 +1,33 @@
+import CmuxFileSearch
 import Foundation
+
+/// One Cloud search's matches and how it ended.
+struct CloudFileSearchResult: Sendable {
+    let groups: [FileSearchFileMatches]
+    let completion: FileSearchCompletion
+}
+
+/// One queued Cloud search and its waiting UI continuation.
+struct CloudFileExplorerSearchRequest {
+    typealias Operation = @Sendable () async throws -> CloudFileSearchResult
+
+    let id: UUID
+    let operation: Operation
+    var continuation: CheckedContinuation<CloudFileSearchResult, Error>?
+}
 
 /// One guest command remains active until its result arrives. Only the newest
 /// pending query is retained; cancellation cannot turn into overlapping VM execs.
 actor CloudFileExplorerSearchQueue {
-    typealias Operation = @Sendable () async throws -> FileSearchSnapshot
+    typealias Operation = @Sendable () async throws -> CloudFileSearchResult
     private var active: CloudFileExplorerSearchRequest?
     private var pending: CloudFileExplorerSearchRequest?
 
-    func submit(_ operation: @escaping Operation) async throws -> FileSearchSnapshot {
+    func submit(_ operation: @escaping Operation) async throws -> CloudFileSearchResult {
         let id = UUID()
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
-            let result: FileSearchSnapshot = try await withCheckedThrowingContinuation { continuation in
+            let result: CloudFileSearchResult = try await withCheckedThrowingContinuation { continuation in
                 // Register and observe cancellation without suspending between them.
                 guard !Task.isCancelled else {
                     continuation.resume(throwing: CancellationError())
@@ -47,14 +63,14 @@ actor CloudFileExplorerSearchQueue {
         // This task intentionally outlives cancellation of its UI caller: VM
         // exec has no cancel RPC. Holding the slot until completion bounds work.
         Task {
-            let result: Result<FileSearchSnapshot, Error>
+            let result: Result<CloudFileSearchResult, Error>
             do { result = .success(try await next.operation()) }
             catch { result = .failure(error) }
             finish(next.id, result: result)
         }
     }
 
-    private func finish(_ id: UUID, result: Result<FileSearchSnapshot, Error>) {
+    private func finish(_ id: UUID, result: Result<CloudFileSearchResult, Error>) {
         guard active?.id == id else { return }
         let continuation = active?.continuation
         active = nil

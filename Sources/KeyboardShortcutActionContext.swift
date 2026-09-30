@@ -16,7 +16,11 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerNextFile,
              .diffViewerPreviousFile,
              .fileExplorerOpenSelection,
-             .fileExplorerOpenSelectionFinderAlias:
+             .fileExplorerOpenSelectionFinderAlias,
+             .fileExplorerQuickLook,
+             .fileExplorerRenameSelection,
+             .fileExplorerToggleHiddenFiles,
+             .fileExplorerSelectParent:
             return true
         default:
             return false
@@ -253,7 +257,7 @@ extension KeyboardShortcutSettings.Action {
             return .commandPaletteVisible
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions,
              .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToMachines, .fileExplorerOpenSelection,
-             .fileExplorerOpenSelectionFinderAlias:
+             .fileExplorerOpenSelectionFinderAlias, .fileExplorerQuickLook, .fileExplorerRenameSelection, .fileExplorerToggleHiddenFiles, .fileExplorerSelectParent:
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .pasteLastScreenshot, .clearScreenKeepScrollback:
             return .nonBrowserPanel

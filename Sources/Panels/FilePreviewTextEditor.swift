@@ -11,6 +11,8 @@ protocol FilePreviewTextEditingPanel: AnyObject {
     var textContentRevision: Int { get }
 
     func attachTextView(_ textView: NSTextView)
+    /// Called after the editor shows the panel's current text.
+    func textEditorDidApplyContent()
     func retryPendingFocus()
     func updateTextContent(_ nextContent: String)
     @discardableResult
@@ -19,6 +21,7 @@ protocol FilePreviewTextEditingPanel: AnyObject {
 
 extension FilePreviewTextEditingPanel {
     var textContentRevision: Int { 0 }
+    func textEditorDidApplyContent() {}
 }
 
 struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
@@ -71,6 +74,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         context.coordinator.lastAppliedContentRevision = panel.textContentRevision
         context.coordinator.isHighlightingVisible = isVisibleInUI
         panel.attachTextView(textView)
+        panel.textEditorDidApplyContent()
 
         scrollView.documentView = textView
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
@@ -155,6 +159,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             )
             clipView.scroll(to: constrained.origin)
             scrollView.reflectScrolledClipView(clipView)
+            panel.textEditorDidApplyContent()
         }
         if isVisibleInUI {
             context.coordinator.scheduleHighlight(

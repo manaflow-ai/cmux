@@ -718,7 +718,6 @@
 		CFSF00000000000000000011 /* CloudFileExplorerBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000011 /* CloudFileExplorerBehaviorTests.swift */; };
 		CFSF00000000000000000001 /* CloudFileExplorerCommandRunning.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000001 /* CloudFileExplorerCommandRunning.swift */; };
 		F434C13ADFB45B7DD70B2191 /* CloudFileExplorerSearchQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = CED37B4AE84C8DC6ECAC892D /* CloudFileExplorerSearchQueue.swift */; };
-		CF87F1FC8930F903B0EA4831 /* CloudFileExplorerSearchRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91DC369A91EBE2EE27E5231 /* CloudFileExplorerSearchRequest.swift */; };
 		CFSF00000000000000000002 /* CloudFileExplorerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000002 /* CloudFileExplorerService.swift */; };
 		6DE7B4A186F6DDBA66F41265 /* CloudFileExplorerTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3D41B42C83E82AE426C0F6A /* CloudFileExplorerTarget.swift */; };
 		F1B3A871EE6D2EB7BEFB9566 /* CloudFileExplorerTargetIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D9C29302A2C3C40E58D68C9 /* CloudFileExplorerTargetIdentity.swift */; };
@@ -1281,6 +1280,10 @@
 		C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2C00000000000000000C2 /* CmuxFeedback */; };
 		D0F1A0000000000000000003 /* CmuxFilePreviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F1A0000000000000000002 /* CmuxFilePreviewCore */; };
 		D0F1A0000000000000000004 /* CmuxFilePreviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F1A0000000000000000002 /* CmuxFilePreviewCore */; };
+		F5EA5C000000000000000003 /* CmuxFileSearch in Frameworks */ = {isa = PBXBuildFile; productRef = F5EA5C000000000000000002 /* CmuxFileSearch */; };
+		F5EA5C000000000000000004 /* CmuxFileSearch in Frameworks */ = {isa = PBXBuildFile; productRef = F5EA5C000000000000000002 /* CmuxFileSearch */; };
+		F17E7EE00000000000000003 /* CmuxFileTree in Frameworks */ = {isa = PBXBuildFile; productRef = F17E7EE00000000000000002 /* CmuxFileTree */; };
+		F17E7EE00000000000000004 /* CmuxFileTree in Frameworks */ = {isa = PBXBuildFile; productRef = F17E7EE00000000000000002 /* CmuxFileTree */; };
 		5E2701040000000000000004 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000002 /* CmuxFoundation */; };
 		C1175700000000000000004F /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000002 /* CmuxFoundation */; };
 		CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CF00F00000000000000000A2 /* CmuxFoundation */; };
@@ -1603,9 +1606,11 @@
 		137DEBC7453F4ABBBCB8D39A /* ContentView+PaneResizeCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4CD684C40FC4F36BD3A91EE /* ContentView+PaneResizeCommands.swift */; };
 		C0DEA7710000000000000003 /* ContentView+ProCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000004 /* ContentView+ProCommandPalette.swift */; };
 		C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */; };
+		0062869AB92118E33B888C4B /* ContentView+RightSidebarToggleButtonCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99390BF73AAED6823A1A9C4E /* ContentView+RightSidebarToggleButtonCommandPalette.swift */; };
 		C0DE1A010000000000000001 /* ContentView+SavedLayoutCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A010000000000000002 /* ContentView+SavedLayoutCommands.swift */; };
 		C51A740000000000000000B1 /* ContentView+SidebarSurfaceKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A740000000000000000B2 /* ContentView+SidebarSurfaceKind.swift */; };
 		875200000000000000000011 /* ContentView+SurfaceNavigationCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875200000000000000000001 /* ContentView+SurfaceNavigationCommands.swift */; };
+		9B59873D8D9DDE2C7B27E0B8 /* ContentView+TitlebarLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B07C195A1DEB7CACC608DB /* ContentView+TitlebarLayout.swift */; };
 		C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */; };
 		A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
 		C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */; };
@@ -1853,38 +1858,46 @@
 		D12925020000000000000001 /* FileDropPaneTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12925020000000000000002 /* FileDropPaneTarget.swift */; };
 		F12748000000000000000001 /* FileEditorWordWrapShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12748000000000000000002 /* FileEditorWordWrapShortcutTests.swift */; };
 		FE5996010000000000000002 /* FileExplorerCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996010000000000000001 /* FileExplorerCellView.swift */; };
-		58577BB461FB6F36BB3ACF86 /* FileExplorerContainerView+SearchStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BF8AA8182149D0EC033A391 /* FileExplorerContainerView+SearchStatus.swift */; };
-		12914C0112914C0112914C01 /* FileExplorerContextMenuReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12914C0212914C0212914C02 /* FileExplorerContextMenuReloadTests.swift */; };
 		C40410010000000000000021 /* FileExplorerDoubleClickActionSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40410010000000000000020 /* FileExplorerDoubleClickActionSettings.swift */; };
 		FE002110 /* FileExplorerDoubleClickActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002010 /* FileExplorerDoubleClickActionTests.swift */; };
+		7869DCB9CE202E7947CE637D /* FileExplorerError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3439CC32BC4C409E09FBAB8 /* FileExplorerError.swift */; };
 		FE5996080000000000000002 /* FileExplorerExternalOpenMenuItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996080000000000000001 /* FileExplorerExternalOpenMenuItems.swift */; };
 		FE5996090000000000000002 /* FileExplorerExternalOpenRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996090000000000000001 /* FileExplorerExternalOpenRequest.swift */; };
 		FE002112 /* FileExplorerGitStatusProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002012 /* FileExplorerGitStatusProviderTests.swift */; };
 		FE5996020000000000000002 /* FileExplorerHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996020000000000000001 /* FileExplorerHeaderView.swift */; };
+		022C59309BAFD67929AAB2DE /* FileExplorerIconCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86A8804E821D4A3685630368 /* FileExplorerIconCache.swift */; };
 		FE001105 /* FileExplorerKeyboardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001005 /* FileExplorerKeyboardShortcuts.swift */; };
 		9860F0029860F0029860F002 /* FileExplorerNativeDragOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9860F0039860F0039860F003 /* FileExplorerNativeDragOwnershipTests.swift */; };
+		F1E105ABC59DA3E3B22B6916 /* FileExplorerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C0E07C02531FD94280568F4 /* FileExplorerNode.swift */; };
 		FE5996030000000000000002 /* FileExplorerNSOutlineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996030000000000000001 /* FileExplorerNSOutlineView.swift */; };
 		A2CFBE5869E987D3E306CB7A /* FileExplorerOpenedTabDragSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06880917B87678F2857EC8FB /* FileExplorerOpenedTabDragSourceTests.swift */; };
+		680D35D804D563334F7E349A /* FileExplorerOutlineCoordinator+Actions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB9F8690F1BEB0138117720F /* FileExplorerOutlineCoordinator+Actions.swift */; };
+		514330CBD7895F34FA2A7747 /* FileExplorerOutlineCoordinator+NativeDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8938ECDB8A2AE0574A820794 /* FileExplorerOutlineCoordinator+NativeDrag.swift */; };
+		3EE641F77CEFE6F574FC0E8C /* FileExplorerOutlineCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 083ADECE934653D44E4C6E0F /* FileExplorerOutlineCoordinator.swift */; };
+		16E60C59736DA24774375BDD /* FileExplorerOutlinePerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D34D4D31913FC450BEABECF /* FileExplorerOutlinePerformanceTests.swift */; };
 		828800020000000000000002 /* FileExplorerPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 828800020000000000000001 /* FileExplorerPalette.swift */; };
 		D38ACA7DC265E9BC23C08CBE /* FileExplorerPreviewCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE752CEBF4A6BCFA11FDD35 /* FileExplorerPreviewCoordinator.swift */; };
+		436A0AF017A4FE7A86E7BD39 /* FileExplorerProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 519A42D07870E8092F0A62EC /* FileExplorerProvider.swift */; };
 		FE002101 /* FileExplorerRootResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002001 /* FileExplorerRootResolverTests.swift */; };
 		9F8A6669D6F54F0EA8E8BEB8 /* FileExplorerRootSyncPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */; };
 		FE5996040000000000000002 /* FileExplorerRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996040000000000000001 /* FileExplorerRowView.swift */; };
-		CFSF00000000000000000009 /* FileExplorerSearchController+Cloud.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000009 /* FileExplorerSearchController+Cloud.swift */; };
-		CFSF00000000000000000010 /* FileExplorerSearchController+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000010 /* FileExplorerSearchController+Lifecycle.swift */; };
-		FE001103 /* FileExplorerSearchController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001003 /* FileExplorerSearchController.swift */; };
 		FE5996050000000000000002 /* FileExplorerSearchField.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996050000000000000001 /* FileExplorerSearchField.swift */; };
-		FE5996060000000000000002 /* FileExplorerSearchResultCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996060000000000000001 /* FileExplorerSearchResultCellView.swift */; };
 		FE5996070000000000000002 /* FileExplorerSearchResultsTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996070000000000000001 /* FileExplorerSearchResultsTableView.swift */; };
 		F5996002A1B2C3D4E5F60001 /* FileExplorerShortcutSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5996002A1B2C3D4E5F60002 /* FileExplorerShortcutSettingsTests.swift */; };
 		B37A00000000000000000009 /* FileExplorerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000A /* FileExplorerState.swift */; };
 		B37A0000000000000000000B /* FileExplorerStateModePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */; };
+		33BFF8C6D4B16B81AB1ECFA3 /* FileExplorerStore+FileOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 454D482891C52C14A71A0F2F /* FileExplorerStore+FileOperations.swift */; };
 		CFSF00000000000000000008 /* FileExplorerStore+RemoteRoots.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000008 /* FileExplorerStore+RemoteRoots.swift */; };
+		1C170BB507A87700625758E7 /* FileExplorerStore+Tree.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92041DCF484E48B561094239 /* FileExplorerStore+Tree.swift */; };
+		85432FD8D54A7D5F6F522F93 /* FileExplorerStore+ViewState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9405FE466C045627A7CB4875 /* FileExplorerStore+ViewState.swift */; };
 		ECAF5D9819531E51EA9DB681 /* FileExplorerStore+Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4C45C476EFD93642E069F38 /* FileExplorerStore+Workspace.swift */; };
 		FE001101 /* FileExplorerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001001 /* FileExplorerStore.swift */; };
 		FE002102 /* FileExplorerStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002002 /* FileExplorerStoreTests.swift */; };
+		2A47829EFEF7D0764C78D404 /* FileExplorerStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D2BC1015551E2B99A4E22F /* FileExplorerStyle.swift */; };
 		828800010000000000000002 /* FileExplorerStyleContrastTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 828800010000000000000001 /* FileExplorerStyleContrastTests.swift */; };
 		FE001104 /* FileExplorerTerminalPathInsertion.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001004 /* FileExplorerTerminalPathInsertion.swift */; };
+		0A1492C7CE9D4983BCBD97A8 /* FileExplorerTreeObserving.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CA1B2C9A033E98007D1BAF4 /* FileExplorerTreeObserving.swift */; };
+		5A8A8FD1C8B1E82C34F6BB71 /* FileExplorerTreeStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791A30627EA4A4B750BDE768 /* FileExplorerTreeStoreTests.swift */; };
 		FE001102 /* FileExplorerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001002 /* FileExplorerView.swift */; };
 		633D33A30709BEB9EB0E0962 /* FileExplorerWorkspaceObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8B194E800BD6F9561D6AFB9 /* FileExplorerWorkspaceObservation.swift */; };
 		CFSF00000000000000000004 /* FileExplorerWorkspaceRootResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000004 /* FileExplorerWorkspaceRootResolver.swift */; };
@@ -1935,6 +1948,7 @@
 		C0DE8652000000000000010F /* FilePreviewQuickLookViewCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000110 /* FilePreviewQuickLookViewCoordinator.swift */; };
 		C0DE86520000000000000012 /* FilePreviewReloadCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000011 /* FilePreviewReloadCompletionTests.swift */; };
 		C0DE86520000000000000001 /* FilePreviewReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000002 /* FilePreviewReloadTests.swift */; };
+		D5B454F07E129E2078036643 /* FilePreviewRevealCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3DB9527CFA6EA13754A2677 /* FilePreviewRevealCenter.swift */; };
 		C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */; };
 		C0DE86520000000000000111 /* FilePreviewRevision.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000112 /* FilePreviewRevision.swift */; };
 		C01E00040000000000000001 /* FilePreviewSyntaxStyler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01E00040000000000000002 /* FilePreviewSyntaxStyler.swift */; };
@@ -1949,8 +1963,18 @@
 		F12748000000000000000007 /* FilePreviewWordWrapMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12748000000000000000008 /* FilePreviewWordWrapMenu.swift */; };
 		F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */; };
 		A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001444A5001444A5001444 /* FilePreviewWorkspaceOpenSupport.swift */; };
-		FE002103 /* FileSearchRipgrepParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002003 /* FileSearchRipgrepParserTests.swift */; };
+		536709C72094B211CF91B8BB /* FileSearchAccent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59919FEDFF84353D871E911B /* FileSearchAccent.swift */; };
+		AA5A057E54DC862E292E727F /* FileSearchBackends.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4718F7134F2A60A5E4C2E64E /* FileSearchBackends.swift */; };
+		3DC94C2EA97909FCCAB58301 /* FileSearchPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E08B3C48BC68B9327ADCC527 /* FileSearchPanelTests.swift */; };
+		2B540C3ABD827F7A5B1933E2 /* FileSearchPanelView+Actions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD756272D40EB5AA60C82B3 /* FileSearchPanelView+Actions.swift */; };
+		60D45107C76543FA17F808C4 /* FileSearchPanelView+Drag.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9CC79B537A88C7220DC7CE2 /* FileSearchPanelView+Drag.swift */; };
+		1309360778F13FFE6D577890 /* FileSearchPanelView+Table.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05782075866E06FFA59A33F7 /* FileSearchPanelView+Table.swift */; };
+		8ADAD942273D30375C20DA3E /* FileSearchPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3C8C7EF2D92B9AB6289CE86 /* FileSearchPanelView.swift */; };
+		0C57822B7F73433B0C26C106 /* FileSearchQueryBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F49D8560C36295E12EC62F /* FileSearchQueryBar.swift */; };
+		91A299D86E9F064D5C5AE888 /* FileSearchResultCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53490A0C384EBE6A13A87FAA /* FileSearchResultCells.swift */; };
 		CFSF00000000000000000005 /* FileSearchScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000005 /* FileSearchScope.swift */; };
+		64151958064D41960AC9DA43 /* FileSearchSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 090958DB9503AA905F18A5D3 /* FileSearchSession.swift */; };
+		0257CD23F1ED6A664AB3974C /* FileSearchStatusText.swift in Sources */ = {isa = PBXBuildFile; fileRef = B545039772E2B29C4F5A0000 /* FileSearchStatusText.swift */; };
 		C35610000000000000000001 /* FinderFileDropRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C35610000000000000000002 /* FinderFileDropRegressionTests.swift */; };
 		D0E0F0B4A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */; };
 		F1A0C0DE0000000000000002 /* FindTextFieldSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */; };
@@ -2158,6 +2182,7 @@
 		A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
 		A50012F8 /* KeyboardShortcutSettingsControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F9 /* KeyboardShortcutSettingsControls.swift */; };
 		E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */; };
+		E1FDA9C9467B36CF2C82CC40 /* KeyboardShortcutSettingsFileStore+RightSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5B0E56D88BD23D43E9404B5 /* KeyboardShortcutSettingsFileStore+RightSidebar.swift */; };
 		F7216003000000000000001 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7216003000000000000002 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift */; };
 		A6AC73030000000000000001 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73030000000000000002 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift */; };
 		A5F10013A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */; };
@@ -2184,6 +2209,7 @@
 		CFSF00000000000000000006 /* LiveCloudFileExplorerCommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000006 /* LiveCloudFileExplorerCommandRunner.swift */; };
 		D10799020000000000000001 /* LiveTabDragCapabilityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10799010000000000000001 /* LiveTabDragCapabilityResolver.swift */; };
 		DB326399C791DD70E9D6997A /* LiveWorkspaceFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B507A66B0F521925687F2ED /* LiveWorkspaceFixture.swift */; };
+		88E0AF727A802855E0879746 /* LocalFileExplorerProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = DADBD5BF684D78CAB15CC2A3 /* LocalFileExplorerProvider.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
 		8F3CFE9C065FF1BD53D150CF /* LocalSurfaceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EDD243C7C87A2AB78B12BAD /* LocalSurfaceProvider.swift */; };
 		540A9F26DCDFD0C16B257D6F /* LocalSurfaceProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */; };
@@ -2596,6 +2622,7 @@
 		C11757000000000000000063 /* ProcessExitWait.swift in Sources */ = {isa = PBXBuildFile; fileRef = E06E7588C05AC6A8659CFA51 /* ProcessExitWait.swift */; };
 		C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */; };
 		0A327C88E531C7E407CEF58C /* ProcessSnapshotMeasurement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4587EDAC6B63EF4846FB24A6 /* ProcessSnapshotMeasurement.swift */; };
+		5E1DC792142D30F962530D35 /* ProcessSSHFileExplorerTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 616A5453B9F88497A9E0F6BD /* ProcessSSHFileExplorerTransport.swift */; };
 		D75280010000000000000001 /* ProfilingSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280010000000000000002 /* ProfilingSignposts.swift */; };
 		A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */; };
 		A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */; };
@@ -2794,6 +2821,7 @@
 		A9126000C5E7F90123456789 /* ReopenLastClosedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9126001C5E7F90123456789 /* ReopenLastClosedTests.swift */; };
 		804100000000000000000003 /* ReorderShortcutActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 804100000000000000000004 /* ReorderShortcutActionTests.swift */; };
 		B7F100070000000000000001 /* ResolvedNotificationSoundPlaybackSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100070000000000000002 /* ResolvedNotificationSoundPlaybackSelection.swift */; };
+		23732B2A9DBB6A3592EB66FC /* ResolvedSettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D400986E4B512CC29AF89908 /* ResolvedSettingsSnapshot.swift */; };
 		F5410004A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */; };
 		F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */; };
 		C6711A040000000000000001 /* RestorableAgentHookSessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B040000000000000001 /* RestorableAgentHookSessionRecord.swift */; };
@@ -2828,14 +2856,21 @@
 		AD1258D161734BE094CD8BEF /* RightSidebarModeDragPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEEB5E400E684891ABF90AE6 /* RightSidebarModeDragPayload.swift */; };
 		46814000000000000000000D /* RightSidebarModeShortcutEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */; };
 		468110000000000000000005 /* RightSidebarModeShortcutMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */; };
+		6DE8953FA0BEB127374F8C5D /* RightSidebarOpenAsPaneButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0825C1132020B05C2C130D82 /* RightSidebarOpenAsPaneButton.swift */; };
 		FE003103 /* RightSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003003 /* RightSidebarPanelView.swift */; };
 		C57570010000000000000002 /* RightSidebarPanelViewTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */; };
 		B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */; };
 		5F5553CB5553CB5553CB0001 /* RightSidebarRemoteCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F5553CB5553CB5553CB0002 /* RightSidebarRemoteCommandTests.swift */; };
 		07EB8695682FE486A366F22E /* RightSidebarTabCustomizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2217672A4FBF3048C6C17EA3 /* RightSidebarTabCustomizationTests.swift */; };
 		1C0259F302A2495DC4CF701E /* RightSidebarTabPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477466F318D44362449A491B /* RightSidebarTabPreferences.swift */; };
+		880D885C4CF34717B74D8F06 /* RightSidebarToggleButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE2EFC4C5ECAD20EE7B6557 /* RightSidebarToggleButton.swift */; };
+		7553FB28E182A851A9C0CF6D /* RightSidebarToggleButtonDebugMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67AE58CDAC28D73789CBB744 /* RightSidebarToggleButtonDebugMenu.swift */; };
+		76290497F7AF9C87B3BA89A3 /* RightSidebarToggleButtonHosts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CEF8FE1D5256B7DFB5D5B2 /* RightSidebarToggleButtonHosts.swift */; };
+		D26D655515B8C9490AB19CBB /* RightSidebarToggleButtonLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA05B42546D4B593B9A72A50 /* RightSidebarToggleButtonLayout.swift */; };
+		BBC17DC38EF5B4C632183F62 /* RightSidebarToggleButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B08F603114A4D1DC45D653B5 /* RightSidebarToggleButtonTests.swift */; };
 		C4CAF70131EA4AB1ABB78678 /* RightSidebarToolDragPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DC68FE25B9640288A48D4E9 /* RightSidebarToolDragPayload.swift */; };
 		FE0031A3 /* RightSidebarToolPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0030A3 /* RightSidebarToolPanel.swift */; };
+		83B41CAC0C5F0FDF0F8ED875 /* RipgrepExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8BADA0EB7DC1A626D8A6A5A /* RipgrepExecutableResolver.swift */; };
 		C46790000000000000000005 /* RosettaNativeRelaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C46790000000000000000006 /* RosettaNativeRelaunch.swift */; };
 		C46790000000000000000007 /* RosettaNativeRelaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C46790000000000000000008 /* RosettaNativeRelaunchTests.swift */; };
 		FE003105 /* RovoDevIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003005 /* RovoDevIndex.swift */; };
@@ -3015,6 +3050,7 @@
 		B8624C060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */; };
 		A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */; };
 		8175A0010000000000000001 /* SidebarGitProcessCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */; };
+		767F4BEAEC79BBF6ADB10ED8 /* SidebarGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4E7376615BAFC47253E78FF /* SidebarGlyph.swift */; };
 		F10753000000000000000001 /* SidebarGroupHeaderRowActions+NotificationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10753000000000000000002 /* SidebarGroupHeaderRowActions+NotificationState.swift */; };
 		B804A0200000000000000020 /* SidebarGroupHeaderRowModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0200000000000000020 /* SidebarGroupHeaderRowModel.swift */; };
 		B804A0210000000000000021 /* SidebarGroupHeaderRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0210000000000000021 /* SidebarGroupHeaderRowView.swift */; };
@@ -3249,6 +3285,7 @@
 		BB778780CAC943B89A7D904E /* SSHConfiguredRemoteCommandHostTests+Harness.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */; };
 		F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */; };
 		797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800040000000000000002 /* SSHDeepSleepReattachTests.swift */; };
+		D4BD86BDF290AAD2927AAA96 /* SSHFileExplorerProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F29A78D10B8105C664DD5C6 /* SSHFileExplorerProvider.swift */; };
 		8410A0020000000000000002 /* SSHForegroundAuthenticationMarkerCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8410A0010000000000000001 /* SSHForegroundAuthenticationMarkerCleanupTests.swift */; };
 		797800050000000000000001 /* SSHPersistentPTYRetryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800050000000000000002 /* SSHPersistentPTYRetryLifecycleTests.swift */; };
 		A87500010000000000000001 /* SSHPTYAttachNoProgressRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87500010000000000000002 /* SSHPTYAttachNoProgressRetryTests.swift */; };
@@ -3399,6 +3436,7 @@
 		C548600B0000000000000001 /* TabManager+SessionRestoreIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C548600B0000000000000002 /* TabManager+SessionRestoreIdentity.swift */; };
 		A905DFE00000000000000001 /* TabManager+SessionRestorePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A905DFE00000000000000002 /* TabManager+SessionRestorePolicy.swift */; };
 		C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */; };
+		01DF97B1255899F3C2CC1CA1 /* TabManager+TabBarInsets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDFE81440D48DCE0E45156D /* TabManager+TabBarInsets.swift */; };
 		C12537000000000000000301 /* TabManager+TerminalSplitAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000302 /* TabManager+TerminalSplitAction.swift */; };
 		604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000008 /* TabManager+WindowTitle.swift */; };
 		CDC71D88CCED9EEEE0D83FE5 /* TabManager+WorkspaceCustomizationPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA1B7598E85578423ADBE3F /* TabManager+WorkspaceCustomizationPersistence.swift */; };
@@ -4983,7 +5021,6 @@
 		CFSR00000000000000000011 /* CloudFileExplorerBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudFileExplorerBehaviorTests.swift; sourceTree = "<group>"; };
 		CFSR00000000000000000001 /* CloudFileExplorerCommandRunning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudFileExplorerCommandRunning.swift; sourceTree = "<group>"; };
 		CED37B4AE84C8DC6ECAC892D /* CloudFileExplorerSearchQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFileExplorerSearchQueue.swift"; sourceTree = "<group>"; };
-		B91DC369A91EBE2EE27E5231 /* CloudFileExplorerSearchRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFileExplorerSearchRequest.swift"; sourceTree = "<group>"; };
 		CFSR00000000000000000002 /* CloudFileExplorerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudFileExplorerService.swift; sourceTree = "<group>"; };
 		A3D41B42C83E82AE426C0F6A /* CloudFileExplorerTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFileExplorerTarget.swift"; sourceTree = "<group>"; };
 		6D9C29302A2C3C40E58D68C9 /* CloudFileExplorerTargetIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFileExplorerTargetIdentity.swift"; sourceTree = "<group>"; };
@@ -5744,9 +5781,11 @@
 		B4CD684C40FC4F36BD3A91EE /* ContentView+PaneResizeCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+PaneResizeCommands.swift"; sourceTree = "<group>"; };
 		C0DEA7710000000000000004 /* ContentView+ProCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ProCommandPalette.swift"; sourceTree = "<group>"; };
 		C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+RightSidebarCommandPalette.swift"; sourceTree = "<group>"; };
+		99390BF73AAED6823A1A9C4E /* ContentView+RightSidebarToggleButtonCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+RightSidebarToggleButtonCommandPalette.swift"; sourceTree = "<group>"; };
 		C0DE1A010000000000000002 /* ContentView+SavedLayoutCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+SavedLayoutCommands.swift"; sourceTree = "<group>"; };
 		C51A740000000000000000B2 /* ContentView+SidebarSurfaceKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+SidebarSurfaceKind.swift"; sourceTree = "<group>"; };
 		875200000000000000000001 /* ContentView+SurfaceNavigationCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+SurfaceNavigationCommands.swift"; sourceTree = "<group>"; };
+		45B07C195A1DEB7CACC608DB /* ContentView+TitlebarLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+TitlebarLayout.swift"; sourceTree = "<group>"; };
 		C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ViewCommandPalette.swift"; sourceTree = "<group>"; };
 		A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewIdentifierCopyCommands.swift; sourceTree = "<group>"; };
@@ -5994,38 +6033,46 @@
 		D12925020000000000000002 /* FileDropPaneTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropPaneTarget.swift; sourceTree = "<group>"; };
 		F12748000000000000000002 /* FileEditorWordWrapShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileEditorWordWrapShortcutTests.swift; sourceTree = "<group>"; };
 		FE5996010000000000000001 /* FileExplorerCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerCellView.swift; sourceTree = "<group>"; };
-		5BF8AA8182149D0EC033A391 /* FileExplorerContainerView+SearchStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerContainerView+SearchStatus.swift"; sourceTree = "<group>"; };
-		12914C0212914C0212914C02 /* FileExplorerContextMenuReloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerContextMenuReloadTests.swift; sourceTree = "<group>"; };
 		C40410010000000000000020 /* FileExplorerDoubleClickActionSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerDoubleClickActionSettings.swift; sourceTree = "<group>"; };
 		FE002010 /* FileExplorerDoubleClickActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerDoubleClickActionTests.swift; sourceTree = "<group>"; };
+		C3439CC32BC4C409E09FBAB8 /* FileExplorerError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerError.swift; sourceTree = "<group>"; };
 		FE5996080000000000000001 /* FileExplorerExternalOpenMenuItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerExternalOpenMenuItems.swift; sourceTree = "<group>"; };
 		FE5996090000000000000001 /* FileExplorerExternalOpenRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerExternalOpenRequest.swift; sourceTree = "<group>"; };
 		FE002012 /* FileExplorerGitStatusProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerGitStatusProviderTests.swift; sourceTree = "<group>"; };
 		FE5996020000000000000001 /* FileExplorerHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerHeaderView.swift; sourceTree = "<group>"; };
+		86A8804E821D4A3685630368 /* FileExplorerIconCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerIconCache.swift; sourceTree = "<group>"; };
 		FE001005 /* FileExplorerKeyboardShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerKeyboardShortcuts.swift; sourceTree = "<group>"; };
 		9860F0039860F0039860F003 /* FileExplorerNativeDragOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerNativeDragOwnershipTests.swift; sourceTree = "<group>"; };
+		0C0E07C02531FD94280568F4 /* FileExplorerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerNode.swift; sourceTree = "<group>"; };
 		FE5996030000000000000001 /* FileExplorerNSOutlineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerNSOutlineView.swift; sourceTree = "<group>"; };
 		06880917B87678F2857EC8FB /* FileExplorerOpenedTabDragSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerOpenedTabDragSourceTests.swift; sourceTree = "<group>"; };
+		CB9F8690F1BEB0138117720F /* FileExplorerOutlineCoordinator+Actions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerOutlineCoordinator+Actions.swift"; sourceTree = "<group>"; };
+		8938ECDB8A2AE0574A820794 /* FileExplorerOutlineCoordinator+NativeDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerOutlineCoordinator+NativeDrag.swift"; sourceTree = "<group>"; };
+		083ADECE934653D44E4C6E0F /* FileExplorerOutlineCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerOutlineCoordinator.swift; sourceTree = "<group>"; };
+		8D34D4D31913FC450BEABECF /* FileExplorerOutlinePerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerOutlinePerformanceTests.swift"; sourceTree = "<group>"; };
 		828800020000000000000001 /* FileExplorerPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerPalette.swift; sourceTree = "<group>"; };
 		1DE752CEBF4A6BCFA11FDD35 /* FileExplorerPreviewCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerPreviewCoordinator.swift"; sourceTree = "<group>"; };
+		519A42D07870E8092F0A62EC /* FileExplorerProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerProvider.swift; sourceTree = "<group>"; };
 		FE002001 /* FileExplorerRootResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootResolverTests.swift; sourceTree = "<group>"; };
 		120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootSyncPolicyTests.swift; sourceTree = "<group>"; };
 		FE5996040000000000000001 /* FileExplorerRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRowView.swift; sourceTree = "<group>"; };
-		CFSR00000000000000000009 /* FileExplorerSearchController+Cloud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerSearchController+Cloud.swift"; sourceTree = "<group>"; };
-		CFSR00000000000000000010 /* FileExplorerSearchController+Lifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerSearchController+Lifecycle.swift"; sourceTree = "<group>"; };
-		FE001003 /* FileExplorerSearchController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerSearchController.swift; sourceTree = "<group>"; };
 		FE5996050000000000000001 /* FileExplorerSearchField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerSearchField.swift; sourceTree = "<group>"; };
-		FE5996060000000000000001 /* FileExplorerSearchResultCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerSearchResultCellView.swift; sourceTree = "<group>"; };
 		FE5996070000000000000001 /* FileExplorerSearchResultsTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerSearchResultsTableView.swift; sourceTree = "<group>"; };
 		F5996002A1B2C3D4E5F60002 /* FileExplorerShortcutSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerShortcutSettingsTests.swift; sourceTree = "<group>"; };
 		B37A0000000000000000000A /* FileExplorerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerState.swift; sourceTree = "<group>"; };
 		B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerStateModePersistenceTests.swift; sourceTree = "<group>"; };
+		454D482891C52C14A71A0F2F /* FileExplorerStore+FileOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerStore+FileOperations.swift"; sourceTree = "<group>"; };
 		CFSR00000000000000000008 /* FileExplorerStore+RemoteRoots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerStore+RemoteRoots.swift"; sourceTree = "<group>"; };
+		92041DCF484E48B561094239 /* FileExplorerStore+Tree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerStore+Tree.swift"; sourceTree = "<group>"; };
+		9405FE466C045627A7CB4875 /* FileExplorerStore+ViewState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerStore+ViewState.swift"; sourceTree = "<group>"; };
 		B4C45C476EFD93642E069F38 /* FileExplorerStore+Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerStore+Workspace.swift"; sourceTree = "<group>"; };
 		FE001001 /* FileExplorerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerStore.swift; sourceTree = "<group>"; };
 		FE002002 /* FileExplorerStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerStoreTests.swift; sourceTree = "<group>"; };
+		20D2BC1015551E2B99A4E22F /* FileExplorerStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerStyle.swift; sourceTree = "<group>"; };
 		828800010000000000000001 /* FileExplorerStyleContrastTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerStyleContrastTests.swift; sourceTree = "<group>"; };
 		FE001004 /* FileExplorerTerminalPathInsertion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerTerminalPathInsertion.swift; sourceTree = "<group>"; };
+		7CA1B2C9A033E98007D1BAF4 /* FileExplorerTreeObserving.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerTreeObserving.swift; sourceTree = "<group>"; };
+		791A30627EA4A4B750BDE768 /* FileExplorerTreeStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerTreeStoreTests.swift"; sourceTree = "<group>"; };
 		FE001002 /* FileExplorerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerView.swift; sourceTree = "<group>"; };
 		F8B194E800BD6F9561D6AFB9 /* FileExplorerWorkspaceObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerWorkspaceObservation.swift"; sourceTree = "<group>"; };
 		CFSR00000000000000000004 /* FileExplorerWorkspaceRootResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerWorkspaceRootResolver.swift; sourceTree = "<group>"; };
@@ -6076,6 +6123,7 @@
 		C0DE86520000000000000110 /* FilePreviewQuickLookViewCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookViewCoordinator.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000011 /* FilePreviewReloadCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewReloadCompletionTests.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000002 /* FilePreviewReloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewReloadTests.swift; sourceTree = "<group>"; };
+		E3DB9527CFA6EA13754A2677 /* FilePreviewRevealCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewRevealCenter.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewReviewFeedbackTests.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000112 /* FilePreviewRevision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewRevision.swift; sourceTree = "<group>"; };
 		C01E00040000000000000002 /* FilePreviewSyntaxStyler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxStyler.swift; sourceTree = "<group>"; };
@@ -6090,8 +6138,18 @@
 		F12748000000000000000008 /* FilePreviewWordWrapMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/FilePreviewWordWrapMenu.swift"; sourceTree = "<group>"; };
 		F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewWordWrapSettings.swift; sourceTree = "<group>"; };
 		A5001444A5001444A5001444 /* FilePreviewWorkspaceOpenSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewWorkspaceOpenSupport.swift; sourceTree = "<group>"; };
-		FE002003 /* FileSearchRipgrepParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchRipgrepParserTests.swift; sourceTree = "<group>"; };
+		59919FEDFF84353D871E911B /* FileSearchAccent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearch/FileSearchAccent.swift; sourceTree = "<group>"; };
+		4718F7134F2A60A5E4C2E64E /* FileSearchBackends.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearch/FileSearchBackends.swift; sourceTree = "<group>"; };
+		E08B3C48BC68B9327ADCC527 /* FileSearchPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileSearchPanelTests.swift"; sourceTree = "<group>"; };
+		5BD756272D40EB5AA60C82B3 /* FileSearchPanelView+Actions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileSearch/FileSearchPanelView+Actions.swift"; sourceTree = "<group>"; };
+		F9CC79B537A88C7220DC7CE2 /* FileSearchPanelView+Drag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileSearch/FileSearchPanelView+Drag.swift"; sourceTree = "<group>"; };
+		05782075866E06FFA59A33F7 /* FileSearchPanelView+Table.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileSearch/FileSearchPanelView+Table.swift"; sourceTree = "<group>"; };
+		A3C8C7EF2D92B9AB6289CE86 /* FileSearchPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearch/FileSearchPanelView.swift; sourceTree = "<group>"; };
+		A5F49D8560C36295E12EC62F /* FileSearchQueryBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearch/FileSearchQueryBar.swift; sourceTree = "<group>"; };
+		53490A0C384EBE6A13A87FAA /* FileSearchResultCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearch/FileSearchResultCells.swift; sourceTree = "<group>"; };
 		CFSR00000000000000000005 /* FileSearchScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchScope.swift; sourceTree = "<group>"; };
+		090958DB9503AA905F18A5D3 /* FileSearchSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearch/FileSearchSession.swift; sourceTree = "<group>"; };
+		B545039772E2B29C4F5A0000 /* FileSearchStatusText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearch/FileSearchStatusText.swift; sourceTree = "<group>"; };
 		C35610000000000000000002 /* FinderFileDropRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderFileDropRegressionTests.swift; sourceTree = "<group>"; };
 		D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindSelectionShortcutUITests.swift; sourceTree = "<group>"; };
 		F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/FindTextFieldSupport.swift; sourceTree = "<group>"; };
@@ -6296,6 +6354,7 @@
 		A50012F2 /* KeyboardShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettings.swift; sourceTree = "<group>"; };
 		A50012F9 /* KeyboardShortcutSettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsControls.swift; sourceTree = "<group>"; };
 		E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsEqualizeSplitsTests.swift; sourceTree = "<group>"; };
+		E5B0E56D88BD23D43E9404B5 /* KeyboardShortcutSettingsFileStore+RightSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Settings/KeyboardShortcutSettingsFileStore+RightSidebar.swift"; sourceTree = "<group>"; };
 		F7216003000000000000002 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettingsFileStore+SectionParsers.swift"; sourceTree = "<group>"; };
 		A6AC73030000000000000002 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Settings/KeyboardShortcutSettingsFileStore+SidebarIndicators.swift"; sourceTree = "<group>"; };
 		A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettingsFileStore+Template.swift"; sourceTree = "<group>"; };
@@ -6322,6 +6381,7 @@
 		CFSR00000000000000000006 /* LiveCloudFileExplorerCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveCloudFileExplorerCommandRunner.swift; sourceTree = "<group>"; };
 		D10799010000000000000001 /* LiveTabDragCapabilityResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTabDragCapabilityResolver.swift; sourceTree = "<group>"; };
 		7B507A66B0F521925687F2ED /* LiveWorkspaceFixture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveWorkspaceFixture.swift; sourceTree = "<group>"; };
+		DADBD5BF684D78CAB15CC2A3 /* LocalFileExplorerProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFileExplorerProvider.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		1EDD243C7C87A2AB78B12BAD /* LocalSurfaceProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalSurfaceProvider.swift; sourceTree = "<group>"; };
 		64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalSurfaceProviderTests.swift; sourceTree = "<group>"; };
@@ -6726,6 +6786,7 @@
 		E06E7588C05AC6A8659CFA51 /* ProcessExitWait.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessExitWait.swift; sourceTree = "<group>"; };
 		C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReadCrashRegressionTests.swift; sourceTree = "<group>"; };
 		4587EDAC6B63EF4846FB24A6 /* ProcessSnapshotMeasurement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProcessSnapshotMeasurement.swift"; sourceTree = "<group>"; };
+		616A5453B9F88497A9E0F6BD /* ProcessSSHFileExplorerTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessSSHFileExplorerTransport.swift; sourceTree = "<group>"; };
 		D75280010000000000000002 /* ProfilingSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilingSignposts.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectBuildSettingsTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectFilesTabView.swift; sourceTree = "<group>"; };
@@ -6919,6 +6980,7 @@
 		A9126001C5E7F90123456789 /* ReopenLastClosedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReopenLastClosedTests.swift; sourceTree = "<group>"; };
 		804100000000000000000004 /* ReorderShortcutActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReorderShortcutActionTests.swift; sourceTree = "<group>"; };
 		B7F100070000000000000002 /* ResolvedNotificationSoundPlaybackSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResolvedNotificationSoundPlaybackSelection.swift; sourceTree = "<group>"; };
+		D400986E4B512CC29AF89908 /* ResolvedSettingsSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResolvedSettingsSnapshot.swift; sourceTree = "<group>"; };
 		F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderHermesTests.swift; sourceTree = "<group>"; };
 		F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderResumeTests.swift; sourceTree = "<group>"; };
 		C6711B040000000000000001 /* RestorableAgentHookSessionRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookSessionRecord.swift; sourceTree = "<group>"; };
@@ -6953,14 +7015,21 @@
 		AEEB5E400E684891ABF90AE6 /* RightSidebarModeDragPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeDragPayload.swift; sourceTree = "<group>"; };
 		46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeShortcutEntry.swift; sourceTree = "<group>"; };
 		468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeShortcutMatcher.swift; sourceTree = "<group>"; };
+		0825C1132020B05C2C130D82 /* RightSidebarOpenAsPaneButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarOpenAsPaneButton.swift; sourceTree = "<group>"; };
 		FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
 		C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelViewTestSupport.swift; sourceTree = "<group>"; };
 		B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommand.swift; sourceTree = "<group>"; };
 		5F5553CB5553CB5553CB0002 /* RightSidebarRemoteCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommandTests.swift; sourceTree = "<group>"; };
 		2217672A4FBF3048C6C17EA3 /* RightSidebarTabCustomizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarTabCustomizationTests.swift; sourceTree = "<group>"; };
 		477466F318D44362449A491B /* RightSidebarTabPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarTabPreferences.swift; sourceTree = "<group>"; };
+		9FE2EFC4C5ECAD20EE7B6557 /* RightSidebarToggleButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarToggleButton.swift; sourceTree = "<group>"; };
+		67AE58CDAC28D73789CBB744 /* RightSidebarToggleButtonDebugMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarToggleButtonDebugMenu.swift; sourceTree = "<group>"; };
+		A4CEF8FE1D5256B7DFB5D5B2 /* RightSidebarToggleButtonHosts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarToggleButtonHosts.swift; sourceTree = "<group>"; };
+		EA05B42546D4B593B9A72A50 /* RightSidebarToggleButtonLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarToggleButtonLayout.swift; sourceTree = "<group>"; };
+		B08F603114A4D1DC45D653B5 /* RightSidebarToggleButtonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarToggleButtonTests.swift"; sourceTree = "<group>"; };
 		9DC68FE25B9640288A48D4E9 /* RightSidebarToolDragPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarToolDragPayload.swift; sourceTree = "<group>"; };
 		FE0030A3 /* RightSidebarToolPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarToolPanel.swift; sourceTree = "<group>"; };
+		A8BADA0EB7DC1A626D8A6A5A /* RipgrepExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RipgrepExecutableResolver.swift; sourceTree = "<group>"; };
 		C46790000000000000000006 /* RosettaNativeRelaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RosettaNativeRelaunch.swift; sourceTree = "<group>"; };
 		C46790000000000000000008 /* RosettaNativeRelaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosettaNativeRelaunchTests.swift; sourceTree = "<group>"; };
 		FE003005 /* RovoDevIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevIndex.swift; sourceTree = "<group>"; };
@@ -7140,6 +7209,7 @@
 		B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFocusBoundaryLifecycleTests.swift; sourceTree = "<group>"; };
 		A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarFocusBoundaryReference.swift; sourceTree = "<group>"; };
 		8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarGitProcessCompositionTests.swift; sourceTree = "<group>"; };
+		F4E7376615BAFC47253E78FF /* SidebarGlyph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarGlyph.swift; sourceTree = "<group>"; };
 		F10753000000000000000002 /* SidebarGroupHeaderRowActions+NotificationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AppKitList/Cells/SidebarGroupHeaderRowActions+NotificationState.swift"; sourceTree = "<group>"; };
 		B804B0200000000000000020 /* SidebarGroupHeaderRowModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarGroupHeaderRowModel.swift; sourceTree = "<group>"; };
 		B804B0210000000000000021 /* SidebarGroupHeaderRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarGroupHeaderRowView.swift; sourceTree = "<group>"; };
@@ -7372,6 +7442,7 @@
 		EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHConfiguredRemoteCommandHostTests+Harness.swift"; sourceTree = "<group>"; };
 		F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHConfiguredRemoteCommandHostTests.swift; sourceTree = "<group>"; };
 		797800040000000000000002 /* SSHDeepSleepReattachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHDeepSleepReattachTests.swift; sourceTree = "<group>"; };
+		9F29A78D10B8105C664DD5C6 /* SSHFileExplorerProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHFileExplorerProvider.swift; sourceTree = "<group>"; };
 		8410A0010000000000000001 /* SSHForegroundAuthenticationMarkerCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHForegroundAuthenticationMarkerCleanupTests.swift; sourceTree = "<group>"; };
 		797800050000000000000002 /* SSHPersistentPTYRetryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPersistentPTYRetryLifecycleTests.swift; sourceTree = "<group>"; };
 		A87500010000000000000002 /* SSHPTYAttachNoProgressRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYAttachNoProgressRetryTests.swift; sourceTree = "<group>"; };
@@ -7515,6 +7586,7 @@
 		C548600B0000000000000002 /* TabManager+SessionRestoreIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SessionRestoreIdentity.swift"; sourceTree = "<group>"; };
 		A905DFE00000000000000002 /* TabManager+SessionRestorePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SessionRestorePolicy.swift"; sourceTree = "<group>"; };
 		C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SidebarGitHosting.swift"; sourceTree = "<group>"; };
+		5EDFE81440D48DCE0E45156D /* TabManager+TabBarInsets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+TabBarInsets.swift"; sourceTree = "<group>"; };
 		C12537000000000000000302 /* TabManager+TerminalSplitAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+TerminalSplitAction.swift"; sourceTree = "<group>"; };
 		604500100000000000000008 /* TabManager+WindowTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WindowTitle.swift"; sourceTree = "<group>"; };
 		6FA1B7598E85578423ADBE3F /* TabManager+WorkspaceCustomizationPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceCustomizationPersistence.swift"; sourceTree = "<group>"; };
@@ -8346,6 +8418,8 @@
 				C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */,
 				C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */,
 				D0F1A0000000000000000003 /* CmuxFilePreviewCore in Frameworks */,
+				F5EA5C000000000000000003 /* CmuxFileSearch in Frameworks */,
+				F17E7EE00000000000000003 /* CmuxFileTree in Frameworks */,
 				CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */,
 				C617000000000000000000A3 /* CmuxGit in Frameworks */,
 				800100000000000000000201 /* CmuxHive in Frameworks */,
@@ -8460,6 +8534,8 @@
 				A500D015A1B2C3D4E5F60718 /* CMUXDebugLog in Frameworks */,
 				CC0033E15A1B2C3D4E5F0012 /* CmuxDiffComments in Frameworks */,
 				D0F1A0000000000000000004 /* CmuxFilePreviewCore in Frameworks */,
+				F5EA5C000000000000000004 /* CmuxFileSearch in Frameworks */,
+				F17E7EE00000000000000004 /* CmuxFileTree in Frameworks */,
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
 				800100000000000000000203 /* CmuxHive in Frameworks */,
 				1A0B0C0D0E0F101112132014 /* CmuxIrohTransport in Frameworks */,
@@ -9633,6 +9709,7 @@
 				A7984AC10000000000000002 /* CmuxSettingsFileStore+Live.swift */,
 				F7216003000000000000002 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift */,
 				A6AC73030000000000000002 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift */,
+				E5B0E56D88BD23D43E9404B5 /* KeyboardShortcutSettingsFileStore+RightSidebar.swift */,
 				D5671302D5671302D5671302 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift */,
 				A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */,
 				C0DEF0B10000000000000002 /* JSONCParser.swift */,
@@ -10923,13 +11000,11 @@
 				FE001005 /* FileExplorerKeyboardShortcuts.swift */,
 				FE5996030000000000000001 /* FileExplorerNSOutlineView.swift */,
 				FE5996040000000000000001 /* FileExplorerRowView.swift */,
-				FE001003 /* FileExplorerSearchController.swift */,
 				FE5996050000000000000001 /* FileExplorerSearchField.swift */,
 				A01600A90E464973B8D8122C /* SidebarSearchFieldCoordinator.swift */,
 				C31DD7A6E10E483D915E7F2B /* SidebarSearchFieldView.swift */,
 				D7F7A04753B142F99676430C /* SidebarSearchField.swift */,
 				83D7A3195B154F739BFC5B6C /* SidebarSearchFieldCell.swift */,
-				FE5996060000000000000001 /* FileExplorerSearchResultCellView.swift */,
 				FE5996070000000000000001 /* FileExplorerSearchResultsTableView.swift */,
 				B37A0000000000000000000A /* FileExplorerState.swift */,
 				CFSR00000000000000000001 /* CloudFileExplorerCommandRunning.swift */,
@@ -10940,8 +11015,6 @@
 				CFSR00000000000000000006 /* LiveCloudFileExplorerCommandRunner.swift */,
 				CFSR00000000000000000007 /* RemoteFileExplorerProvider.swift */,
 				CFSR00000000000000000008 /* FileExplorerStore+RemoteRoots.swift */,
-				CFSR00000000000000000009 /* FileExplorerSearchController+Cloud.swift */,
-				CFSR00000000000000000010 /* FileExplorerSearchController+Lifecycle.swift */,
 				A3D41B42C83E82AE426C0F6A /* CloudFileExplorerTarget.swift */,
 				CED37B4AE84C8DC6ECAC892D /* CloudFileExplorerSearchQueue.swift */,
 				42F77A3BC50BBFAB2127492E /* CloudFilePreviewCache.swift */,
@@ -10950,9 +11023,7 @@
 				BC7E1431CCC54BD49EA9BBBF /* FilePreviewTextSaver.swift */,
 				F8B194E800BD6F9561D6AFB9 /* FileExplorerWorkspaceObservation.swift */,
 				B4C45C476EFD93642E069F38 /* FileExplorerStore+Workspace.swift */,
-				5BF8AA8182149D0EC033A391 /* FileExplorerContainerView+SearchStatus.swift */,
 				6D9C29302A2C3C40E58D68C9 /* CloudFileExplorerTargetIdentity.swift */,
-				B91DC369A91EBE2EE27E5231 /* CloudFileExplorerSearchRequest.swift */,
 				AEE3A9C376EE11475D83C4D5 /* FilePreviewTextSaveResult.swift */,
 				FE001001 /* FileExplorerStore.swift */,
 				FE001004 /* FileExplorerTerminalPathInsertion.swift */,
@@ -11031,6 +11102,16 @@
 				FE00300C /* SessionTranscriptPopoverSizeModel.swift */,
 				B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */,
 				B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */,
+				0825C1132020B05C2C130D82 /* RightSidebarOpenAsPaneButton.swift */,
+				45B07C195A1DEB7CACC608DB /* ContentView+TitlebarLayout.swift */,
+				5EDFE81440D48DCE0E45156D /* TabManager+TabBarInsets.swift */,
+				D400986E4B512CC29AF89908 /* ResolvedSettingsSnapshot.swift */,
+				99390BF73AAED6823A1A9C4E /* ContentView+RightSidebarToggleButtonCommandPalette.swift */,
+				67AE58CDAC28D73789CBB744 /* RightSidebarToggleButtonDebugMenu.swift */,
+				A4CEF8FE1D5256B7DFB5D5B2 /* RightSidebarToggleButtonHosts.swift */,
+				EA05B42546D4B593B9A72A50 /* RightSidebarToggleButtonLayout.swift */,
+				9FE2EFC4C5ECAD20EE7B6557 /* RightSidebarToggleButton.swift */,
+				F4E7376615BAFC47253E78FF /* SidebarGlyph.swift */,
 				B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */,
 				B37A00000000000000000004 /* RightSidebarMode+Availability.swift */,
 				B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */,
@@ -11172,9 +11253,36 @@
 				01AFEB5B2588D6391DC94892 /* WorkspaceActivityReorderController.swift */,
 				FFFCEC5E783F29C91BC6A8EE /* Workspace+SplitSpace.swift */,
 				F2A8C8F36CBB9D59049A238F /* SidebarResizerAccessibilityModifier.swift */,
+				C3439CC32BC4C409E09FBAB8 /* FileExplorerError.swift */,
+				86A8804E821D4A3685630368 /* FileExplorerIconCache.swift */,
+				0C0E07C02531FD94280568F4 /* FileExplorerNode.swift */,
+				CB9F8690F1BEB0138117720F /* FileExplorerOutlineCoordinator+Actions.swift */,
+				8938ECDB8A2AE0574A820794 /* FileExplorerOutlineCoordinator+NativeDrag.swift */,
+				083ADECE934653D44E4C6E0F /* FileExplorerOutlineCoordinator.swift */,
+				519A42D07870E8092F0A62EC /* FileExplorerProvider.swift */,
+				454D482891C52C14A71A0F2F /* FileExplorerStore+FileOperations.swift */,
+				92041DCF484E48B561094239 /* FileExplorerStore+Tree.swift */,
+				9405FE466C045627A7CB4875 /* FileExplorerStore+ViewState.swift */,
+				20D2BC1015551E2B99A4E22F /* FileExplorerStyle.swift */,
+				7CA1B2C9A033E98007D1BAF4 /* FileExplorerTreeObserving.swift */,
+				DADBD5BF684D78CAB15CC2A3 /* LocalFileExplorerProvider.swift */,
+				616A5453B9F88497A9E0F6BD /* ProcessSSHFileExplorerTransport.swift */,
+				9F29A78D10B8105C664DD5C6 /* SSHFileExplorerProvider.swift */,
+				4718F7134F2A60A5E4C2E64E /* FileSearchBackends.swift */,
+				5BD756272D40EB5AA60C82B3 /* FileSearchPanelView+Actions.swift */,
+				F9CC79B537A88C7220DC7CE2 /* FileSearchPanelView+Drag.swift */,
+				05782075866E06FFA59A33F7 /* FileSearchPanelView+Table.swift */,
+				A3C8C7EF2D92B9AB6289CE86 /* FileSearchPanelView.swift */,
+				A5F49D8560C36295E12EC62F /* FileSearchQueryBar.swift */,
+				53490A0C384EBE6A13A87FAA /* FileSearchResultCells.swift */,
+				090958DB9503AA905F18A5D3 /* FileSearchSession.swift */,
+				B545039772E2B29C4F5A0000 /* FileSearchStatusText.swift */,
+				E3DB9527CFA6EA13754A2677 /* FilePreviewRevealCenter.swift */,
+				A8BADA0EB7DC1A626D8A6A5A /* RipgrepExecutableResolver.swift */,
 				E9E08FF3907FC5F144872BDF /* DeviceDiscoverabilityConfirmation.swift */,
 				4845BF2DCEA4B76EC0EBC410 /* BrowserWindowSlotView+PaneDropOverlay.swift */,
 				E7E4D51BF3365A4CB3A658E4 /* GhosttySurfaceScrollView+PaneDropOverlay.swift */,
+				59919FEDFF84353D871E911B /* FileSearchAccent.swift */,
 				2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */,
 			);
 			path = Sources;
@@ -12417,7 +12525,6 @@
 				2C859FBBF795C3F290CEE905 /* CloudFileRootOwnershipTests.swift */,
 				FE002002 /* FileExplorerStoreTests.swift */,
 				9860F0039860F0039860F003 /* FileExplorerNativeDragOwnershipTests.swift */,
-				12914C0212914C0212914C02 /* FileExplorerContextMenuReloadTests.swift */,
 				C986A0040000000000000001 /* CloudTreeNativeDragOwnershipTests.swift */,
 				4131D7D8B63047F39B5069DC /* CloudSidebarNotificationTests.swift */,
 				DAA597EF5D62E0147E16DCAF /* CloudGuestURLTestContainer.swift */,
@@ -12433,7 +12540,6 @@
 				D853971C8DC24A10B8A923D6 /* CloudTerminalNavigationTests.swift */,
 				ADC9BE77DF3A402B8EC51665 /* CloudTreeMachineMenuTests.swift */,
 				FE002010 /* FileExplorerDoubleClickActionTests.swift */,
-				FE002003 /* FileSearchRipgrepParserTests.swift */,
 				9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */,
 				D1B800000000000000000015 /* MobileTaskDirectoryListServiceTests.swift */,
 				D1A700000000000000000006 /* MobileTaskDirectorySearchServiceTests.swift */,
@@ -12596,8 +12702,12 @@
 				6426F864486E91FB202B0ED6 /* CloudTeamPickerTestMenu.swift */,
 				C51DB22258B5393E2AB9104C /* ClaudeHookSessionLivenessTests.swift */,
 				A43345B5B3C60929B9F661CB /* ExitingProcessCensusReader.swift */,
+				8D34D4D31913FC450BEABECF /* FileExplorerOutlinePerformanceTests.swift */,
+				791A30627EA4A4B750BDE768 /* FileExplorerTreeStoreTests.swift */,
+				E08B3C48BC68B9327ADCC527 /* FileSearchPanelTests.swift */,
 				09DC7DE176A93C580A263ADD /* PaneDropTargetIdentityTests.swift */,
 				08202CA6A24B08873B5CC6FD /* GhosttyDialogThemeTests.swift */,
+				B08F603114A4D1DC45D653B5 /* RightSidebarToggleButtonTests.swift */,
 				4AD84F07ADB08D5E8EBAA10D /* DeviceDiscoverabilityGatingTests.swift */,
 			);
 			path = cmuxTests;
@@ -12783,6 +12893,8 @@
 				CF00F00000000000000000A2 /* CmuxFoundation */,
 				C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */,
 				D0F1A0000000000000000002 /* CmuxFilePreviewCore */,
+				F17E7EE00000000000000002 /* CmuxFileTree */,
+				F5EA5C000000000000000002 /* CmuxFileSearch */,
 				D0F2A0000000000000000002 /* CmuxCloudBannerCore */,
 				CE57E10000000000000000B2 /* CmuxSentryReporting */,
 				CE57E10000000000000000A2 /* CmuxSentryScrubbing */,
@@ -12918,6 +13030,8 @@
 				CC0DE00000000000000000A2 /* CmuxCore */,
 				C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */,
 				D0F1A0000000000000000002 /* CmuxFilePreviewCore */,
+				F17E7EE00000000000000002 /* CmuxFileTree */,
+				F5EA5C000000000000000002 /* CmuxFileSearch */,
 				D0F2A0000000000000000002 /* CmuxCloudBannerCore */,
 				D0F4A0000000000000000002 /* CmuxCloudTunnelCore */,
 				A5001262 /* Bonsplit */,
@@ -13049,6 +13163,8 @@
 				CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */,
 				C01E00AA00000000000000A1 /* XCLocalSwiftPackageReference "CmuxSyntaxHighlighting" */,
 				D0F1A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxFilePreviewCore" */,
+				F17E7EE00000000000000001 /* XCLocalSwiftPackageReference "CmuxFileTree" */,
+				F5EA5C000000000000000001 /* XCLocalSwiftPackageReference "CmuxFileSearch" */,
 				D0F2A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudBannerCore" */,
 				D0F4A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTunnelCore" */,
 				CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */,
@@ -13764,7 +13880,6 @@
 				5EDE6BFD28BE4BD58EF84889 /* CloudFeatureAvailabilityObserver.swift in Sources */,
 				CFSF00000000000000000001 /* CloudFileExplorerCommandRunning.swift in Sources */,
 				F434C13ADFB45B7DD70B2191 /* CloudFileExplorerSearchQueue.swift in Sources */,
-				CF87F1FC8930F903B0EA4831 /* CloudFileExplorerSearchRequest.swift in Sources */,
 				CFSF00000000000000000002 /* CloudFileExplorerService.swift in Sources */,
 				6DE7B4A186F6DDBA66F41265 /* CloudFileExplorerTarget.swift in Sources */,
 				F1B3A871EE6D2EB7BEFB9566 /* CloudFileExplorerTargetIdentity.swift in Sources */,
@@ -14084,9 +14199,11 @@
 				137DEBC7453F4ABBBCB8D39A /* ContentView+PaneResizeCommands.swift in Sources */,
 				C0DEA7710000000000000003 /* ContentView+ProCommandPalette.swift in Sources */,
 				C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */,
+				0062869AB92118E33B888C4B /* ContentView+RightSidebarToggleButtonCommandPalette.swift in Sources */,
 				C0DE1A010000000000000001 /* ContentView+SavedLayoutCommands.swift in Sources */,
 				C51A740000000000000000B1 /* ContentView+SidebarSurfaceKind.swift in Sources */,
 				875200000000000000000011 /* ContentView+SurfaceNavigationCommands.swift in Sources */,
+				9B59873D8D9DDE2C7B27E0B8 /* ContentView+TitlebarLayout.swift in Sources */,
 				C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */,
 				A5001002 /* ContentView.swift in Sources */,
 				C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */,
@@ -14261,27 +14378,34 @@
 				D0B10022A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift in Sources */,
 				D12925020000000000000001 /* FileDropPaneTarget.swift in Sources */,
 				FE5996010000000000000002 /* FileExplorerCellView.swift in Sources */,
-				58577BB461FB6F36BB3ACF86 /* FileExplorerContainerView+SearchStatus.swift in Sources */,
 				C40410010000000000000021 /* FileExplorerDoubleClickActionSettings.swift in Sources */,
+				7869DCB9CE202E7947CE637D /* FileExplorerError.swift in Sources */,
 				FE5996080000000000000002 /* FileExplorerExternalOpenMenuItems.swift in Sources */,
 				FE5996090000000000000002 /* FileExplorerExternalOpenRequest.swift in Sources */,
 				FE5996020000000000000002 /* FileExplorerHeaderView.swift in Sources */,
+				022C59309BAFD67929AAB2DE /* FileExplorerIconCache.swift in Sources */,
 				FE001105 /* FileExplorerKeyboardShortcuts.swift in Sources */,
+				F1E105ABC59DA3E3B22B6916 /* FileExplorerNode.swift in Sources */,
 				FE5996030000000000000002 /* FileExplorerNSOutlineView.swift in Sources */,
+				680D35D804D563334F7E349A /* FileExplorerOutlineCoordinator+Actions.swift in Sources */,
+				514330CBD7895F34FA2A7747 /* FileExplorerOutlineCoordinator+NativeDrag.swift in Sources */,
+				3EE641F77CEFE6F574FC0E8C /* FileExplorerOutlineCoordinator.swift in Sources */,
 				828800020000000000000002 /* FileExplorerPalette.swift in Sources */,
 				D38ACA7DC265E9BC23C08CBE /* FileExplorerPreviewCoordinator.swift in Sources */,
+				436A0AF017A4FE7A86E7BD39 /* FileExplorerProvider.swift in Sources */,
 				FE5996040000000000000002 /* FileExplorerRowView.swift in Sources */,
-				CFSF00000000000000000009 /* FileExplorerSearchController+Cloud.swift in Sources */,
-				CFSF00000000000000000010 /* FileExplorerSearchController+Lifecycle.swift in Sources */,
-				FE001103 /* FileExplorerSearchController.swift in Sources */,
 				FE5996050000000000000002 /* FileExplorerSearchField.swift in Sources */,
-				FE5996060000000000000002 /* FileExplorerSearchResultCellView.swift in Sources */,
 				FE5996070000000000000002 /* FileExplorerSearchResultsTableView.swift in Sources */,
 				B37A00000000000000000009 /* FileExplorerState.swift in Sources */,
+				33BFF8C6D4B16B81AB1ECFA3 /* FileExplorerStore+FileOperations.swift in Sources */,
 				CFSF00000000000000000008 /* FileExplorerStore+RemoteRoots.swift in Sources */,
+				1C170BB507A87700625758E7 /* FileExplorerStore+Tree.swift in Sources */,
+				85432FD8D54A7D5F6F522F93 /* FileExplorerStore+ViewState.swift in Sources */,
 				ECAF5D9819531E51EA9DB681 /* FileExplorerStore+Workspace.swift in Sources */,
 				FE001101 /* FileExplorerStore.swift in Sources */,
+				2A47829EFEF7D0764C78D404 /* FileExplorerStyle.swift in Sources */,
 				FE001104 /* FileExplorerTerminalPathInsertion.swift in Sources */,
+				0A1492C7CE9D4983BCBD97A8 /* FileExplorerTreeObserving.swift in Sources */,
 				FE001102 /* FileExplorerView.swift in Sources */,
 				633D33A30709BEB9EB0E0962 /* FileExplorerWorkspaceObservation.swift in Sources */,
 				CFSF00000000000000000004 /* FileExplorerWorkspaceRootResolver.swift in Sources */,
@@ -14325,6 +14449,7 @@
 				C0DE64020000000000001002 /* FilePreviewQuickLookContainerView.swift in Sources */,
 				DD62AFF1D95A1D5D1850AC10 /* FilePreviewQuickLookSession.swift in Sources */,
 				C0DE8652000000000000010F /* FilePreviewQuickLookViewCoordinator.swift in Sources */,
+				D5B454F07E129E2078036643 /* FilePreviewRevealCenter.swift in Sources */,
 				C0DE86520000000000000111 /* FilePreviewRevision.swift in Sources */,
 					C01E00040000000000000001 /* FilePreviewSyntaxStyler.swift in Sources */,
 				C0DE97470000000000000001 /* FilePreviewTabMetadata.swift in Sources */,
@@ -14336,7 +14461,17 @@
 				F12748000000000000000007 /* FilePreviewWordWrapMenu.swift in Sources */,
 					F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */,
 				A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */,
+				536709C72094B211CF91B8BB /* FileSearchAccent.swift in Sources */,
+				AA5A057E54DC862E292E727F /* FileSearchBackends.swift in Sources */,
+				2B540C3ABD827F7A5B1933E2 /* FileSearchPanelView+Actions.swift in Sources */,
+				60D45107C76543FA17F808C4 /* FileSearchPanelView+Drag.swift in Sources */,
+				1309360778F13FFE6D577890 /* FileSearchPanelView+Table.swift in Sources */,
+				8ADAD942273D30375C20DA3E /* FileSearchPanelView.swift in Sources */,
+				0C57822B7F73433B0C26C106 /* FileSearchQueryBar.swift in Sources */,
+				91A299D86E9F064D5C5AE888 /* FileSearchResultCells.swift in Sources */,
 				CFSF00000000000000000005 /* FileSearchScope.swift in Sources */,
+				64151958064D41960AC9DA43 /* FileSearchSession.swift in Sources */,
+				0257CD23F1ED6A664AB3974C /* FileSearchStatusText.swift in Sources */,
 				F1A0C0DE0000000000000002 /* FindTextFieldSupport.swift in Sources */,
 				F0C05170000000000000002 /* FocusHistory.swift in Sources */,
 				5E55400000000000000000D1 /* FocusStealingResponderConformances.swift in Sources */,
@@ -14458,6 +14593,7 @@
 				F7216002000000000000001 /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift in Sources */,
 				A50012F3 /* KeyboardShortcutSettings.swift in Sources */,
 				A50012F8 /* KeyboardShortcutSettingsControls.swift in Sources */,
+				E1FDA9C9467B36CF2C82CC40 /* KeyboardShortcutSettingsFileStore+RightSidebar.swift in Sources */,
 				F7216003000000000000001 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift in Sources */,
 				A6AC73030000000000000001 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift in Sources */,
 				A5F10013A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift in Sources */,
@@ -14471,6 +14607,7 @@
 				110439021104390211043902 /* LiveAgentSessionOwnerSessionKey.swift in Sources */,
 				CFSF00000000000000000006 /* LiveCloudFileExplorerCommandRunner.swift in Sources */,
 				D10799020000000000000001 /* LiveTabDragCapabilityResolver.swift in Sources */,
+				88E0AF727A802855E0879746 /* LocalFileExplorerProvider.swift in Sources */,
 				8F3CFE9C065FF1BD53D150CF /* LocalSurfaceProvider.swift in Sources */,
 				53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */,
 				A11D00000000000000000001 /* MacDevicesComposition.swift in Sources */,
@@ -14733,6 +14870,7 @@
 				C0DEA771000000000000000D /* PricingPlansScreen.swift in Sources */,
 				C0DEA771000000000000000B /* ProBadgeStyle.swift in Sources */,
 				F0ACC0DE000000000000000D /* ProcessDetectedResumeIndexes.swift in Sources */,
+				5E1DC792142D30F962530D35 /* ProcessSSHFileExplorerTransport.swift in Sources */,
 				D75280010000000000000001 /* ProfilingSignposts.swift in Sources */,
 					A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */,
 					A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */,
@@ -14853,6 +14991,7 @@
 				D36A00070000000000000001 /* RendererRealizationReclaimTrigger.swift in Sources */,
 				D36A00080000000000000001 /* RendererRealizationSurface.swift in Sources */,
 				B7F100070000000000000001 /* ResolvedNotificationSoundPlaybackSelection.swift in Sources */,
+				23732B2A9DBB6A3592EB66FC /* ResolvedSettingsSnapshot.swift in Sources */,
 				C6711A040000000000000001 /* RestorableAgentHookSessionRecord.swift in Sources */,
 				C6711A060000000000000001 /* RestorableAgentHookSessionStoreFile.swift in Sources */,
 				842300000000000000000003 /* RestorableAgentProcessLiveness+ProcessIdentity.swift in Sources */,
@@ -14873,11 +15012,17 @@
 				AD1258D161734BE094CD8BEF /* RightSidebarModeDragPayload.swift in Sources */,
 				46814000000000000000000D /* RightSidebarModeShortcutEntry.swift in Sources */,
 				468110000000000000000005 /* RightSidebarModeShortcutMatcher.swift in Sources */,
+				6DE8953FA0BEB127374F8C5D /* RightSidebarOpenAsPaneButton.swift in Sources */,
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
 				B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */,
 				1C0259F302A2495DC4CF701E /* RightSidebarTabPreferences.swift in Sources */,
+				880D885C4CF34717B74D8F06 /* RightSidebarToggleButton.swift in Sources */,
+				7553FB28E182A851A9C0CF6D /* RightSidebarToggleButtonDebugMenu.swift in Sources */,
+				76290497F7AF9C87B3BA89A3 /* RightSidebarToggleButtonHosts.swift in Sources */,
+				D26D655515B8C9490AB19CBB /* RightSidebarToggleButtonLayout.swift in Sources */,
 				C4CAF70131EA4AB1ABB78678 /* RightSidebarToolDragPayload.swift in Sources */,
 				FE0031A3 /* RightSidebarToolPanel.swift in Sources */,
+				83B41CAC0C5F0FDF0F8ED875 /* RipgrepExecutableResolver.swift in Sources */,
 				C46790000000000000000005 /* RosettaNativeRelaunch.swift in Sources */,
 				FE003105 /* RovoDevIndex.swift in Sources */,
 				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
@@ -14996,6 +15141,7 @@
 				9212A0049212A0049212A004 /* SidebarEmptyAreaWindowDragOutcome.swift in Sources */,
 				9212A0059212A0059212A005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift in Sources */,
 				A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */,
+				767F4BEAEC79BBF6ADB10ED8 /* SidebarGlyph.swift in Sources */,
 				F10753000000000000000001 /* SidebarGroupHeaderRowActions+NotificationState.swift in Sources */,
 				B804A0200000000000000020 /* SidebarGroupHeaderRowModel.swift in Sources */,
 				B804A0210000000000000021 /* SidebarGroupHeaderRowView.swift in Sources */,
@@ -15167,6 +15313,7 @@
 					A6AC72060000000000000001 /* SpinnerGalleryRootView.swift in Sources */,
 					A6AC72070000000000000001 /* SpinnerSpec.swift in Sources */,
 				A13387000000000000000005 /* SplitPaneGeometryProjection.swift in Sources */,
+				D4BD86BDF290AAD2927AAA96 /* SSHFileExplorerProvider.swift in Sources */,
 					E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
 				C5CEF76F24FA34BD48C15272 /* SSHTuiAgentStatusProjector.swift in Sources */,
 				C7BB9987974451FAD2D5F467 /* SSHTuiLinkManager.swift in Sources */,
@@ -15263,6 +15410,7 @@
 				C548600B0000000000000001 /* TabManager+SessionRestoreIdentity.swift in Sources */,
 				A905DFE00000000000000001 /* TabManager+SessionRestorePolicy.swift in Sources */,
 				C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */,
+				01DF97B1255899F3C2CC1CA1 /* TabManager+TabBarInsets.swift in Sources */,
 				C12537000000000000000301 /* TabManager+TerminalSplitAction.swift in Sources */,
 				604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */,
 				CDC71D88CCED9EEEE0D83FE5 /* TabManager+WorkspaceCustomizationPersistence.swift in Sources */,
@@ -16745,17 +16893,18 @@
 				C82094EE9C3CFA5BE97C4833 /* FileDropOverlayViewLifecycleTests.swift in Sources */,
 				D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */,
 				F12748000000000000000001 /* FileEditorWordWrapShortcutTests.swift in Sources */,
-				12914C0112914C0112914C01 /* FileExplorerContextMenuReloadTests.swift in Sources */,
 				FE002110 /* FileExplorerDoubleClickActionTests.swift in Sources */,
 				FE002112 /* FileExplorerGitStatusProviderTests.swift in Sources */,
 				9860F0029860F0029860F002 /* FileExplorerNativeDragOwnershipTests.swift in Sources */,
 				A2CFBE5869E987D3E306CB7A /* FileExplorerOpenedTabDragSourceTests.swift in Sources */,
+				16E60C59736DA24774375BDD /* FileExplorerOutlinePerformanceTests.swift in Sources */,
 				FE002101 /* FileExplorerRootResolverTests.swift in Sources */,
 				9F8A6669D6F54F0EA8E8BEB8 /* FileExplorerRootSyncPolicyTests.swift in Sources */,
 				F5996002A1B2C3D4E5F60001 /* FileExplorerShortcutSettingsTests.swift in Sources */,
 				B37A0000000000000000000B /* FileExplorerStateModePersistenceTests.swift in Sources */,
 				FE002102 /* FileExplorerStoreTests.swift in Sources */,
 				828800010000000000000002 /* FileExplorerStyleContrastTests.swift in Sources */,
+				5A8A8FD1C8B1E82C34F6BB71 /* FileExplorerTreeStoreTests.swift in Sources */,
 				C01E00070000000000000001 /* FilePreviewCodeViewTests.swift in Sources */,
 				C0DE49950000000000000001 /* FilePreviewKindResolverTests.swift in Sources */,
 				C0DE86520000000000000117 /* FilePreviewNativeRefreshStateTests.swift in Sources */,
@@ -16766,7 +16915,7 @@
 				C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */,
 				C01E00090000000000000001 /* FilePreviewSyntaxTestSupport.swift in Sources */,
 				C0DEFC100000000000000001 /* FilePreviewTextEditorTextKitTests.swift in Sources */,
-				FE002103 /* FileSearchRipgrepParserTests.swift in Sources */,
+				3DC94C2EA97909FCCAB58301 /* FileSearchPanelTests.swift in Sources */,
 				C35610000000000000000001 /* FinderFileDropRegressionTests.swift in Sources */,
 				C0F15A000000000000000001 /* FishShellIntegrationTests.swift in Sources */,
 				F17A5F010000000000000001 /* FocusedPanelFlashShortcutTests.swift in Sources */,
@@ -17055,6 +17204,7 @@
 				C57570010000000000000002 /* RightSidebarPanelViewTestSupport.swift in Sources */,
 				5F5553CB5553CB5553CB0001 /* RightSidebarRemoteCommandTests.swift in Sources */,
 				07EB8695682FE486A366F22E /* RightSidebarTabCustomizationTests.swift in Sources */,
+				BBC17DC38EF5B4C632183F62 /* RightSidebarToggleButtonTests.swift in Sources */,
 				C46790000000000000000007 /* RosettaNativeRelaunchTests.swift in Sources */,
 				F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */,
 				F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */,
@@ -18172,6 +18322,14 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxFilePreviewCore;
 		};
+		F17E7EE00000000000000001 /* XCLocalSwiftPackageReference "CmuxFileTree" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxFileTree;
+		};
+		F5EA5C000000000000000001 /* XCLocalSwiftPackageReference "CmuxFileSearch" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxFileSearch;
+		};
 		D0F2A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudBannerCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCloudBannerCore;
@@ -18541,6 +18699,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D0F1A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxFilePreviewCore" */;
 			productName = CmuxFilePreviewCore;
+		};
+		F17E7EE00000000000000002 /* CmuxFileTree */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F17E7EE00000000000000001 /* XCLocalSwiftPackageReference "CmuxFileTree" */;
+			productName = CmuxFileTree;
+		};
+		F5EA5C000000000000000002 /* CmuxFileSearch */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F5EA5C000000000000000001 /* XCLocalSwiftPackageReference "CmuxFileSearch" */;
+			productName = CmuxFileSearch;
 		};
 		D0F2A0000000000000000002 /* CmuxCloudBannerCore */ = {
 			isa = XCSwiftPackageProductDependency;

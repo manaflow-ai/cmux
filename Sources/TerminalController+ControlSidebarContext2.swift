@@ -486,6 +486,17 @@ extension TerminalController {
             return .ok
         case .state(let state):
             return .state(visible: state.visible, modeRawValue: state.modeRawValue)
+        case .findStatus(let status):
+            return .findStatus(ControlSidebarFindStatus(
+                query: status.query.pattern,
+                isRegex: status.query.isRegex,
+                isCaseSensitive: status.query.isCaseSensitive,
+                matchesWholeWord: status.query.matchesWholeWord,
+                phase: status.phase,
+                results: status.results,
+                files: status.files,
+                message: status.message
+            ))
         case .failure(let message):
             return .failure(message: message)
         }

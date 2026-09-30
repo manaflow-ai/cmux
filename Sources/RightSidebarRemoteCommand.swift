@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFileSearch
 import Foundation
 
 struct RightSidebarRemoteTarget: Equatable, Sendable {
@@ -25,7 +26,12 @@ enum RightSidebarRemoteCommand: Equatable, Sendable {
     /// Switch to the Custom mode, optionally selecting which sidebar file
     /// (`right_sidebar set custom [name]`). A nil name keeps the persisted one.
     case setCustomSidebar(name: String?, focus: Bool)
+    /// Switch to Find and search for `query` through the same path as typing
+    /// in the Find field (`right_sidebar set find --query <text>`).
+    case setFindQuery(FileSearchQuery, focus: Bool)
     case getState
+    /// The Find query, phase and totals (`right_sidebar find_status`).
+    case getFindStatus
 }
 
 struct RightSidebarRemoteRequest: Equatable, Sendable {
@@ -42,9 +48,21 @@ struct RightSidebarRemoteState: Equatable, Sendable {
     let modeRawValue: String
 }
 
+/// What `right_sidebar find_status` reports so a script can assert results.
+struct RightSidebarFindStatus: Equatable, Sendable {
+    let query: FileSearchQuery
+    /// `idle`, `searching`, `completed`, `limited` or `failed`.
+    let phase: String
+    let results: Int
+    let files: Int
+    /// The status line as shown, or nil when hidden.
+    let message: String?
+}
+
 enum RightSidebarRemoteApplyResult: Equatable, Sendable {
     case ok
     case state(RightSidebarRemoteState)
+    case findStatus(RightSidebarFindStatus)
     case failure(String)
 }
 
@@ -53,12 +71,36 @@ extension RightSidebarRemoteRequest {
         var positional: [String] = []
         var target = RightSidebarRemoteTarget()
         var noFocus = false
+        var findPattern: String?
+        var findFlags = (regex: false, caseSensitive: false, wholeWord: false)
         var index = 0
 
         while index < tokens.count {
             let token = tokens[index]
             if token == "--no-focus" {
                 noFocus = true
+                index += 1
+                continue
+            }
+            if token == "--query" {
+                guard index + 1 < tokens.count else {
+                    return .failure(.init(message: String(localized: "rightSidebar.remote.error.queryRequiresValue", defaultValue: "ERROR: --query requires text")))
+                }
+                findPattern = tokens[index + 1]
+                index += 2
+                continue
+            }
+            if token.hasPrefix("--query=") {
+                findPattern = String(token.dropFirst("--query=".count))
+                index += 1
+                continue
+            }
+            if token == "--regex" || token == "--case-sensitive" || token == "--whole-word" {
+                switch token {
+                case "--regex": findFlags.regex = true
+                case "--case-sensitive": findFlags.caseSensitive = true
+                default: findFlags.wholeWord = true
+                }
                 index += 1
                 continue
             }
@@ -106,6 +148,31 @@ extension RightSidebarRemoteRequest {
 
         guard let action = positional.first?.lowercased() else {
             return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage", defaultValue: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]")))
+        }
+
+        let hasFindOptions = findPattern != nil || findFlags.regex || findFlags.caseSensitive || findFlags.wholeWord
+        if action == "find_status" || action == "find-status" {
+            guard positional.count == 1, !noFocus, !hasFindOptions else {
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.findStatus", defaultValue: "ERROR: Usage: right_sidebar find_status [--workspace=<workspace-id>] [--window=<window-id>]")))
+            }
+            return .success(.init(command: .getFindStatus, target: target))
+        }
+        if hasFindOptions {
+            let targetsFind = (action == "set" && positional.count == 2 && RightSidebarMode.from(cliArgument: positional[1]) == .find)
+                || (positional.count == 1 && RightSidebarMode.from(cliArgument: action) == .find)
+            guard targetsFind, let findPattern else {
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.findQuery", defaultValue: "ERROR: Usage: right_sidebar set find --query <text> [--regex] [--case-sensitive] [--whole-word] [--no-focus]")))
+            }
+            guard action == "set" || !noFocus else {
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.noFocusOnlySet", defaultValue: "ERROR: --no-focus is only valid with right_sidebar set")))
+            }
+            let query = FileSearchQuery(
+                pattern: findPattern,
+                isCaseSensitive: findFlags.caseSensitive,
+                matchesWholeWord: findFlags.wholeWord,
+                isRegex: findFlags.regex
+            )
+            return .success(.init(command: .setFindQuery(query, focus: !noFocus), target: target))
         }
 
         switch action {

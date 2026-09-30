@@ -53,6 +53,10 @@ enum KeyboardShortcutSettings {
             .findInDirectory,
             .fileExplorerOpenSelection,
             .fileExplorerOpenSelectionFinderAlias,
+            .fileExplorerQuickLook,
+            .fileExplorerRenameSelection,
+            .fileExplorerToggleHiddenFiles,
+            .fileExplorerSelectParent,
         ].filter(actions.contains)
         let actionSet = Set(colocatedSidebarActions)
         let baseActions = actions.filter { !actionSet.contains($0) }
@@ -196,6 +200,10 @@ enum KeyboardShortcutSettings {
         case toggleRightSidebar = "toggleFileExplorer"
         case fileExplorerOpenSelection
         case fileExplorerOpenSelectionFinderAlias
+        case fileExplorerQuickLook
+        case fileExplorerRenameSelection
+        case fileExplorerToggleHiddenFiles
+        case fileExplorerSelectParent
 
         // Panels
         case saveFilePreview, toggleFileEditorWordWrap
@@ -368,6 +376,10 @@ enum KeyboardShortcutSettings {
             case .toggleRightSidebar: return String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar")
             case .fileExplorerOpenSelection: return String(localized: "shortcut.fileExplorerOpenSelection.label", defaultValue: "File Explorer: Open Selection")
             case .fileExplorerOpenSelectionFinderAlias: return String(localized: "shortcut.fileExplorerOpenSelectionFinderAlias.label", defaultValue: "File Explorer: Open Selection (Finder Alias)")
+            case .fileExplorerQuickLook: return String(localized: "shortcut.fileExplorerQuickLook.label", defaultValue: "File Explorer: Quick Look")
+            case .fileExplorerRenameSelection: return String(localized: "shortcut.fileExplorerRenameSelection.label", defaultValue: "File Explorer: Rename")
+            case .fileExplorerToggleHiddenFiles: return String(localized: "shortcut.fileExplorerToggleHiddenFiles.label", defaultValue: "File Explorer: Show Hidden Files")
+            case .fileExplorerSelectParent: return String(localized: "shortcut.fileExplorerSelectParent.label", defaultValue: "File Explorer: Enclosing Folder")
             case .saveFilePreview: return String(localized: "shortcut.saveFilePreview.label", defaultValue: "Save File Preview")
             case .toggleFileEditorWordWrap: return String(localized: "shortcut.toggleFileEditorWordWrap.label", defaultValue: "Toggle File Editor Word Wrap")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
@@ -654,6 +666,14 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "\r", command: false, shift: false, option: false, control: false)
             case .fileExplorerOpenSelectionFinderAlias:
                 return StoredShortcut(key: "↓", command: true, shift: false, option: false, control: false)
+            case .fileExplorerQuickLook:
+                return StoredShortcut(key: "space", command: false, shift: false, option: false, control: false)
+            case .fileExplorerRenameSelection:
+                return StoredShortcut(key: "f2", command: false, shift: false, option: false, control: false)
+            case .fileExplorerToggleHiddenFiles:
+                return StoredShortcut(key: ".", command: true, shift: true, option: false, control: false)
+            case .fileExplorerSelectParent:
+                return StoredShortcut(key: "↑", command: true, shift: false, option: false, control: false)
             case .saveFilePreview:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: false)
             case .toggleFileEditorWordWrap: return StoredShortcut(key: "z", command: false, shift: false, option: true, control: false)

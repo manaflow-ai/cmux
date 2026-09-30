@@ -1344,7 +1344,10 @@
       "metaTitle": "Konfiguracija",
       "schemaDescriptions": {
         "root": "Konfiguracija za cmux. Globalni cmux.json podržava postavke aplikacije, prečice, radnje, prilagođene komande, hookove obavijesti i rasporede radnih prostora. Projektni .cmux/cmux.json ili cmux.json podržava radnje, komande, hookove obavijesti, povezivanje UI radnji, Agent Chat izmjene, vault agente, izmjene grupa radnih prostora te konfiguraciju pokretanja i dugmadi radnog prostora.",
-        "rightSidebar": "Naslijeđena konfiguracija desne bočne trake kojom upravljaju ekstenzije i koja se čuva u cmux.json.",
+        "rightSidebar": {
+          "description": "Postavke kontrola desne bočne trake. Objekat čuva i naslijeđenu konfiguraciju desne bočne trake i konfiguraciju proširenja.",
+          "toggleButton": "Gdje se nalazi stalno dugme za prikaz i skrivanje desne bočne trake. `titlebar` ga stavlja u gornji desni ugao prozora, na isto mjesto bez obzira da li je traka prikazana ili skrivena. `paneTabBar` ga stavlja na kraj trake kartica gornjeg desnog okna. `sidebarFooter` ga stavlja u podnožje lijeve bočne trake. `hidden` ga uklanja; dugme na traci načina i prečica za prebacivanje i dalje rade."
+        },
         "packs": {
           "description": "Lokalne datoteke ili direktoriji cmux paketa koji se učitavaju prije ove konfiguracije. Direktoriji upućuju na cmux.pack.json. Koristite tekstualnu putanju ili objekt s poljem path.",
           "path": "Putanja lokalne datoteke ili direktorija, relativna u odnosu na ovu konfiguracijsku datoteku ako nije apsolutna."
@@ -1433,6 +1436,7 @@
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
       "exampleFileExplorerDoubleClickAction": "Dvaput klik na datoteku: preview (zadano), defaultEditor (zadana macOS aplikacija) ili preferredEditor (komanda app.preferredEditor).",
+      "exampleRightSidebarToggleButton": "Dugme desne bočne trake: titlebar (zadano), paneTabBar, sidebarFooter ili hidden.",
       "shortcutsWhenIntro": "Opcionalni kontekstni predikati po radnji (when klauzule u VS Code stilu), indeksirani cmux ID-jem radnje. Vezivanje se pokreće — i sukobljava s drugim vezivanjem na istom pritisku — samo kada je njegova klauzula ispunjena. Izostavite klauzulu da radnja zadrži ugrađeni kontekst. Rječnik klauzula:",
       "shortcutsWhenBooleanKeys": "Booleovi ključevi. Nepoznat ili odsutan ključ čita se kao false; prihvataju se i literali true i false.",
       "shortcutsWhenTypedKeys": "tipizirani ključevi za poređenja: aktivni način desne bočne trake (string) te broj okana i radnih prostora (cijeli brojevi).",

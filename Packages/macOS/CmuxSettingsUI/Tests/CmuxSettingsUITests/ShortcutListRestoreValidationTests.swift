@@ -21,8 +21,13 @@ import Testing
         let store = JSONConfigStore(fileURL: directory.appendingPathComponent("cmux.json"))
         let catalog = SettingCatalog()
         let shortcut = StoredShortcut(first: ShortcutStroke(key: "space"))
+        // Files Quick Look defaults to bare Space in the sidebar; a user who
+        // kept a legacy app-wide Space binding has unbound it.
         try await store.set(
-            [ShortcutAction.openSettings.rawValue: shortcut],
+            [
+                ShortcutAction.openSettings.rawValue: shortcut,
+                ShortcutAction.fileExplorerQuickLook.rawValue: .unbound,
+            ],
             for: catalog.shortcuts.bindings
         )
         let model = ShortcutListModel(

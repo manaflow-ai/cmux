@@ -115,21 +115,6 @@ extension NSMenu {
 
 extension FileExplorerPanelView.Coordinator {
     @MainActor
-    private func contextMenuNodes(clicked node: FileExplorerNode) -> [FileExplorerNode] {
-        guard let outlineView else { return [node] }
-        let clickedRow = outlineView.clickedRow
-        let selectedRows = outlineView.selectedRowIndexes
-        guard clickedRow >= 0, selectedRows.contains(clickedRow) else {
-            return [node]
-        }
-        let nodes = selectedRows.compactMap { row -> FileExplorerNode? in
-            guard row >= 0, row < outlineView.numberOfRows else { return nil }
-            return outlineView.item(atRow: row) as? FileExplorerNode
-        }
-        return nodes.isEmpty ? [node] : nodes
-    }
-
-    @MainActor
     @objc func contextMenuInsertPath(_ sender: NSMenuItem) {
         guard let node = sender.representedObject as? FileExplorerNode else { return }
         FileExplorerTerminalPathInsertion.insert(
@@ -145,42 +130,6 @@ extension FileExplorerPanelView.Coordinator {
             paths: contextMenuNodes(clicked: node).map(\.path),
             relativeToRootPath: store.rootPath,
             intoTerminalFor: outlineView?.window ?? containerView?.window
-        )
-    }
-}
-
-extension FileExplorerContainerView {
-    @MainActor
-    private func searchResultsForContextMenu(row: Int) -> [FileSearchResult] {
-        guard row >= 0, row < searchSnapshot.results.count else { return [] }
-        let selectedRows = searchResultsView.selectedRowIndexes
-        guard selectedRows.contains(row) else {
-            return [searchSnapshot.results[row]]
-        }
-        let results = selectedRows.compactMap { selectedRow -> FileSearchResult? in
-            guard selectedRow >= 0, selectedRow < searchSnapshot.results.count else { return nil }
-            return searchSnapshot.results[selectedRow]
-        }
-        return results.isEmpty ? [searchSnapshot.results[row]] : results
-    }
-
-    @MainActor
-    @objc func contextMenuInsertSearchResultPath(_ sender: NSMenuItem) {
-        guard currentResourceContextID == coordinator.store.resourceContextID,
-              let row = (sender.representedObject as? NSNumber)?.intValue else { return }
-        FileExplorerTerminalPathInsertion.insert(
-            paths: searchResultsForContextMenu(row: row).map(\.path),
-            intoTerminalFor: window
-        )
-    }
-
-    @MainActor
-    @objc func contextMenuInsertSearchResultRelativePath(_ sender: NSMenuItem) {
-        guard currentResourceContextID == coordinator.store.resourceContextID,
-              let row = (sender.representedObject as? NSNumber)?.intValue else { return }
-        FileExplorerTerminalPathInsertion.insert(
-            paths: searchResultsForContextMenu(row: row).map(\.relativePath),
-            intoTerminalFor: window
         )
     }
 }

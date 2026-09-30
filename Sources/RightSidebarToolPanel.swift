@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFileTree
 import Combine
 import CmuxAppKitSupportUI
 import CmuxCloudMachines
@@ -35,8 +36,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     var fileExplorerStore: FileExplorerStore {
         if let store = fileExplorerStoreStorage { return store }
-        let store = FileExplorerStore()
-        store.showHiddenFiles = true
+        let store = FileExplorerStore(viewStateRepository: AppDelegate.shared?.fileExplorerViewStateRepository)
+        store.showHiddenFiles = fileExplorerState.showHiddenFiles
+        store.sortOrder = fileExplorerState.sortOrder
         fileExplorerStoreStorage = store
         if let workspace {
             syncFileExplorerRoot(from: workspace, store: store)
@@ -186,7 +188,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
-        store.showHiddenFiles = true
+        store.showHiddenFiles = fileExplorerState.showHiddenFiles
+        store.sortOrder = fileExplorerState.sortOrder
         store.syncWorkspaceRoot(from: workspace)
     }
 

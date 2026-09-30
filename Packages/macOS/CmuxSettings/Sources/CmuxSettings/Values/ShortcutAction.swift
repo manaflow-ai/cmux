@@ -150,6 +150,14 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case fileExplorerOpenSelection
     /// Mirrors Finder's Command-Down open-selection shortcut from File Explorer focus.
     case fileExplorerOpenSelectionFinderAlias
+    /// Previews the selected File Explorer items with Quick Look.
+    case fileExplorerQuickLook
+    /// Renames the selected File Explorer item inline.
+    case fileExplorerRenameSelection
+    /// Shows or hides hidden files in the File Explorer.
+    case fileExplorerToggleHiddenFiles
+    /// Selects the enclosing folder of the File Explorer selection.
+    case fileExplorerSelectParent
 
     // MARK: Canvas
     case toggleCanvasLayout
@@ -273,7 +281,11 @@ extension ShortcutAction {
              .diffViewerNextFile,
              .diffViewerPreviousFile,
              .fileExplorerOpenSelection,
-             .fileExplorerOpenSelectionFinderAlias:
+             .fileExplorerOpenSelectionFinderAlias,
+             .fileExplorerQuickLook,
+             .fileExplorerRenameSelection,
+             .fileExplorerToggleHiddenFiles,
+             .fileExplorerSelectParent:
             return true
         default:
             return false
@@ -285,6 +297,10 @@ extension ShortcutAction {
         self != .showHideAllWindows
             && self != .fileExplorerOpenSelection
             && self != .fileExplorerOpenSelectionFinderAlias
+            && self != .fileExplorerQuickLook
+            && self != .fileExplorerRenameSelection
+            && self != .fileExplorerToggleHiddenFiles
+            && self != .fileExplorerSelectParent
             && self != .cycleTextBoxSubmitAction
     }
 
@@ -301,7 +317,7 @@ extension ShortcutAction {
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
              .switchRightSidebarToMachines:
             return .atom(.sidebarFocus)
-        case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
+        case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias, .fileExplorerQuickLook, .fileExplorerRenameSelection, .fileExplorerToggleHiddenFiles, .fileExplorerSelectParent:
             return .atom(.sidebarFocus)
         case .commandPaletteNext, .commandPalettePrevious:
             return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)

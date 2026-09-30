@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFileSearch
 import CmuxFoundation
 import CmuxTerminal
 
@@ -55,6 +56,10 @@ final class MainWindowFocusController {
     private weak var rightSidebarHost: RightSidebarKeyboardFocusView?
     private weak var fileExplorerHost: FileExplorerContainerView?
     private weak var fileSearchHost: FileExplorerContainerView?
+    /// Text selected where Find was invoked, applied when the Find field focuses.
+    private var pendingFileSearchSeed: String?
+    /// A query sent through `right_sidebar set find --query` before Find mounted.
+    private var pendingFileSearchQuery: FileSearchQuery?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
 
@@ -127,6 +132,10 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .find:
             fileSearchHost = host
+            if let query = pendingFileSearchQuery {
+                pendingFileSearchQuery = nil
+                host.findPanel.applyRemoteQuery(query)
+            }
         case .sessions, .feed, .dock, .machines, .customSidebar:
             break
         }
@@ -545,8 +554,26 @@ final class MainWindowFocusController {
         return result
     }
 
+    /// Searches `query` in Find through the same path as typing in its
+    /// field. Waits for Find to register when it is not mounted yet.
+    func applyFileSearchQuery(_ query: FileSearchQuery) {
+        if let fileSearchHost, fileSearchHost.window != nil {
+            pendingFileSearchQuery = nil
+            fileSearchHost.findPanel.applyRemoteQuery(query)
+        } else {
+            pendingFileSearchQuery = query
+        }
+    }
+
+    /// Find's current query and totals, or nil when Find is not mounted.
+    func fileSearchStatus() -> RightSidebarFindStatus? {
+        guard let fileSearchHost, fileSearchHost.window != nil else { return nil }
+        return fileSearchHost.findPanel.remoteStatus()
+    }
+
     @discardableResult
     func focusFileSearch() -> Bool {
+        pendingFileSearchSeed = fileSearchSeed(from: window?.firstResponder)
         return focusRightSidebar(
             mode: .find,
             target: .searchField,
@@ -764,7 +791,10 @@ final class MainWindowFocusController {
         case .files:
             return fileExplorerHost?.focusOutline() == true
         case .find:
-            return fileSearchHost?.focusSearchField() == true
+            guard let fileSearchHost else { return false }
+            let seed = pendingFileSearchSeed
+            pendingFileSearchSeed = nil
+            return fileSearchHost.focusSearchField(seed: seed)
         case .sessions, .customSidebar:
             return mode == .customSidebar ? focusFallbackRightSidebarHost() : false
         case .machines:
@@ -780,6 +810,26 @@ final class MainWindowFocusController {
             }
             return dockHost?.focusHostFromCoordinator() == true
         }
+    }
+
+    /// The selection to seed Find with, as VS Code does: a single line of
+    /// selected text in a terminal or text view. Selections inside Find
+    /// itself, multi-line selections and very long ones do not seed.
+    private func fileSearchSeed(from responder: NSResponder?) -> String? {
+        guard let responder else { return nil }
+        if fileSearchHost?.ownsKeyboardFocus(responder) == true { return nil }
+        let selected: String?
+        if let textView = responder as? NSTextView {
+            let range = textView.selectedRange()
+            selected = range.length > 0 ? (textView.string as NSString).substring(with: range) : nil
+        } else if let view = responder as? NSView {
+            selected = view.accessibilitySelectedText()
+        } else {
+            selected = nil
+        }
+        guard let selected, !selected.isEmpty, selected.count <= 500,
+              !selected.contains(where: \.isNewline) else { return nil }
+        return selected
     }
 
     private func focusFallbackRightSidebarHost() -> Bool {

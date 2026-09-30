@@ -1344,7 +1344,10 @@
       "metaTitle": "Konfiguration",
       "schemaDescriptions": {
         "root": "cmux-Konfiguration. Die globale cmux.json unterstützt App-Einstellungen, Tastenkürzel, Aktionen, benutzerdefinierte Befehle, Benachrichtigungs-Hooks und Workspace-Layouts. Eine projektlokale .cmux/cmux.json oder cmux.json unterstützt Aktionen, Befehle, Benachrichtigungs-Hooks, die Verknüpfung von UI-Aktionen, Agent-Chat-Überschreibungen, Vault-Agenten, Workspace-Gruppen-Überschreibungen sowie die Konfiguration von Workspace-Starts und -Schaltflächen.",
-        "rightSidebar": "Veraltete und von Erweiterungen verwaltete Konfiguration der rechten Seitenleiste, die in cmux.json beibehalten wird.",
+        "rightSidebar": {
+          "description": "Einstellungen für die Bedienelemente der rechten Seitenleiste. Das Objekt enthält außerdem veraltete und von Erweiterungen verwaltete Konfiguration der rechten Seitenleiste.",
+          "toggleButton": "Wo die dauerhafte Schaltfläche zum Ein- und Ausblenden der rechten Seitenleiste liegt. `titlebar` setzt sie in die rechte obere Fensterecke, wo sie bei ein- und ausgeblendeter Seitenleiste an derselben Stelle bleibt. `paneTabBar` setzt sie an das Ende der Tab-Leiste des Bereichs oben rechts. `sidebarFooter` setzt sie in die Fußzeile der linken Seitenleiste. `hidden` entfernt sie; die Schaltfläche in der Modusleiste und das Tastenkürzel zum Umschalten funktionieren weiterhin."
+        },
         "packs": {
           "description": "Lokale cmux-Paketdateien oder Verzeichnisse, die vor dieser Konfiguration geladen werden. Verzeichnisse verweisen auf cmux.pack.json. Verwenden Sie eine Pfadzeichenfolge oder ein Objekt mit einem path-Feld.",
           "path": "Lokaler Datei- oder Verzeichnispfad, relativ zu dieser Konfigurationsdatei, sofern nicht absolut."
@@ -1433,6 +1436,7 @@
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
       "exampleFileExplorerDoubleClickAction": "Doppelklick auf eine Datei: preview (Standard), defaultEditor (macOS-Standard-App) oder preferredEditor (der app.preferredEditor-Befehl).",
+      "exampleRightSidebarToggleButton": "Schaltfläche der rechten Seitenleiste: titlebar (Standard), paneTabBar, sidebarFooter oder hidden.",
       "shortcutsWhenIntro": "Optionale Kontextprädikate pro Aktion (VS-Code-artige when-Klauseln), nach cmux-Aktions-ID indiziert. Eine Belegung wird nur ausgelöst — und kollidiert nur mit einer anderen Belegung auf demselben Tastendruck — wenn ihre Klausel erfüllt ist. Ohne Klausel behält die Aktion ihren eingebauten Kontext. Das Klausel-Vokabular:",
       "shortcutsWhenBooleanKeys": "boolesche Schlüssel. Ein unbekannter oder fehlender Schlüssel gilt als false; die Literale true und false werden ebenfalls akzeptiert.",
       "shortcutsWhenTypedKeys": "typisierte Schlüssel für Vergleiche: der aktive Modus der rechten Seitenleiste (Zeichenkette) sowie Pane- und Workspace-Anzahl (Ganzzahlen).",

@@ -1344,7 +1344,10 @@
       "metaTitle": "Configuration",
       "schemaDescriptions": {
         "root": "Configuration de cmux. Le fichier global cmux.json prend en charge les réglages de l’application, les raccourcis, les actions, les commandes personnalisées, les hooks de notification et les dispositions d’espaces de travail. Un fichier .cmux/cmux.json ou cmux.json local au projet prend en charge les actions, les commandes, les hooks de notification, le câblage des actions d’interface, les surcharges d’Agent Chat, les agents du coffre, les surcharges de groupes d’espaces de travail ainsi que la configuration du lancement et des boutons des espaces de travail.",
-        "rightSidebar": "Configuration héritée et appartenant aux extensions de la barre latérale droite, conservée dans cmux.json.",
+        "rightSidebar": {
+          "description": "Réglages des commandes de la barre latérale droite. L’objet conserve aussi la configuration héritée et celle des extensions pour la barre latérale droite.",
+          "toggleButton": "Emplacement du bouton permanent qui affiche ou masque la barre latérale droite. `titlebar` le place dans le coin supérieur droit de la fenêtre, à la même position que la barre soit affichée ou masquée. `paneTabBar` le place à la fin de la barre d’onglets du panneau en haut à droite. `sidebarFooter` le place dans le pied de la barre latérale gauche. `hidden` le supprime ; le bouton de la barre de modes et le raccourci de bascule restent disponibles."
+        },
         "packs": {
           "description": "Fichiers ou dossiers de packs cmux locaux chargés avant cette configuration. Les dossiers sont résolus en cmux.pack.json. Utilisez une chaîne de chemin ou un objet avec un champ path.",
           "path": "Chemin de fichier ou de dossier local, relatif à ce fichier de configuration sauf s’il est absolu."
@@ -1433,6 +1436,7 @@
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
       "exampleFileExplorerDoubleClickAction": "Double-clic sur un fichier : preview (par défaut), defaultEditor (app macOS par défaut) ou preferredEditor (commande app.preferredEditor).",
+      "exampleRightSidebarToggleButton": "Bouton d’affichage de la barre latérale droite : titlebar (par défaut), paneTabBar, sidebarFooter ou hidden.",
       "shortcutsWhenIntro": "Prédicats de contexte facultatifs par action (clauses when de style VS Code), indexés par identifiant d'action cmux. Une liaison ne se déclenche — et n'entre en conflit avec une autre liaison sur la même frappe — que lorsque sa clause est vraie. Omettez la clause pour conserver le contexte intégré de l'action. Le vocabulaire des clauses :",
       "shortcutsWhenBooleanKeys": "clés booléennes. Une clé inconnue ou absente vaut false ; les littéraux true et false sont également acceptés.",
       "shortcutsWhenTypedKeys": "clés typées pour les comparaisons : le mode actif de la barre latérale droite (chaîne) ainsi que le nombre de panneaux et d'espaces de travail (entiers).",

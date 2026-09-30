@@ -1,6 +1,32 @@
 import AppKit
+import CmuxFoundation
 
 final class FileExplorerRowView: NSTableRowView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        observeAccentColor()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        observeAccentColor()
+    }
+
+    private func observeAccentColor() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cmuxAccentColorDidChange(_:)),
+            name: CmuxAccentColor.didChangeNotification,
+            object: nil
+        )
+    }
+
+    /// Redraws a selected row when `app.accentColor` changes, so the
+    /// selection follows the setting without a relaunch.
+    @objc private func cmuxAccentColorDidChange(_ notification: Notification) {
+        if isSelected { needsDisplay = true }
+    }
+
     override func drawSelection(in dirtyRect: NSRect) {
         guard isSelected else { return }
         let style = FileExplorerStyle.current
@@ -34,8 +60,22 @@ final class FileExplorerRowView: NSTableRowView {
     }
 
     private func selectionFillColor(isFocused: Bool) -> NSColor {
+        Self.selectionFillColor(
+            isFocused: isFocused,
+            accent: AppDelegate.shared?.accentColor ?? CmuxAccentColor(),
+            appearance: effectiveAppearance
+        )
+    }
+
+    /// Focused selection uses the cmux accent (`app.accentColor`), like the
+    /// rest of the right sidebar chrome; an unfocused selection stays neutral.
+    static func selectionFillColor(
+        isFocused: Bool,
+        accent: CmuxAccentColor,
+        appearance: NSAppearance?
+    ) -> NSColor {
         if isFocused {
-            return .controlAccentColor.withAlphaComponent(0.20)
+            return accent.nsColor(for: appearance).withAlphaComponent(0.20)
         }
         return .labelColor.withAlphaComponent(0.08)
     }
