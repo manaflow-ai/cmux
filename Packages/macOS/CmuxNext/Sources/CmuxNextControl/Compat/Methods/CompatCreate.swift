@@ -17,6 +17,15 @@ enum CompatCreate {
         }
     }
 
+    /// Whether a creation request's `type` starts a terminal (a browser
+    /// tab does not; an unknown type fails before it starts anything).
+    static func startsTerminal(_ params: [String: JSON]) -> Bool {
+        switch params["type"]?.stringValue?.lowercased().trimmingCharacters(in: .whitespaces) {
+        case "browser", "web": false
+        default: true
+        }
+    }
+
     static func edge(_ raw: String?, method: String) throws -> PaneEdge {
         switch raw?.lowercased().trimmingCharacters(in: .whitespaces) {
         case "right", "r": return .right

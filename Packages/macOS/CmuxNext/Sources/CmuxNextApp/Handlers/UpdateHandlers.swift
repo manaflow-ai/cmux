@@ -17,7 +17,8 @@ enum UpdateHandlers {
         }
         registry.bind("palette.switchAppChannel", unavailable: { updater.channelSwitchUnavailableReason }, invoke: { [weak registry] invocation in
             do {
-                registry?.track(try updater.switchChannel(named: invocation["channel"]?.stringValue))
+                let work = try updater.switchChannel(named: invocation["channel"]?.stringValue)
+                registry?.track(Task { await work.value.map { ActionWorkFailure($0) } })
             } catch {
                 registry?.refuse(String(describing: error))
             }

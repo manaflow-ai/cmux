@@ -93,7 +93,7 @@ extension PaneController {
                 return nil
             } catch {
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
-                return "new-tab: \(error)"
+                return ActionWorkFailure("new-tab", error)
             }
         })
     }

@@ -1049,6 +1049,137 @@
         }
       }
     },
+    "control.error.terminalStartTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ did not finish within %2$@; the terminal may still appear"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم ينتهِ %1$@ خلال %2$@؛ قد تظهر الطرفية لاحقًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nije završeno u roku od %2$@; terminal se ipak može pojaviti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ blev ikke færdig inden for %2$@; terminalen kan stadig dukke op"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ wurde nicht innerhalb von %2$@ abgeschlossen; das Terminal kann trotzdem noch erscheinen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ no terminó en %2$@; es posible que la terminal aún aparezca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ne s'est pas terminé en %2$@; le terminal peut encore apparaître"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ non è terminato entro %2$@; il terminale potrebbe comparire comunque"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ は %2$@ 以内に完了しませんでした。ターミナルは後で表示される場合があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ មិនបានបញ្ចប់ក្នុងរយៈពេល %2$@ ទេ; ស្ថានីយ​អាច​នៅ​តែ​បង្ហាញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@이(가) %2$@ 안에 완료되지 않았습니다. 터미널이 나중에 나타날 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ble ikke ferdig innen %2$@; terminalen kan fortsatt dukke opp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nie zakończyło się w ciągu %2$@; terminal może jeszcze się pojawić"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ não terminou em %2$@; o terminal ainda pode aparecer"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не завершилось за %2$@; терминал ещё может появиться"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ไม่เสร็จภายใน %2$@ เทอร์มินัลอาจยังปรากฏขึ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ işlemi %2$@ içinde bitmedi; terminal yine de görünebilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не завершилося протягом %2$@; термінал ще може з’явитися"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ chưa hoàn tất trong %2$@; terminal vẫn có thể xuất hiện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 未在 %2$@ 内完成；终端仍可能出现"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 未在 %2$@ 內完成；終端機仍可能出現"
+          }
+        }
+      }
+    },
     "control.error.timeout": {
       "extractionState": "manual",
       "localizations": {

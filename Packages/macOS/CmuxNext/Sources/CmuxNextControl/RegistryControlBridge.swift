@@ -156,6 +156,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         // Snapshot for `action.list`; `action.run` re-reads it live.
         info.unavailableReason = registry.unavailableReason(for: descriptor.id)
         info.isDestructive = descriptor.isDestructive
+        info.startsTerminal = descriptor.startsTerminal
         return info
     }
 

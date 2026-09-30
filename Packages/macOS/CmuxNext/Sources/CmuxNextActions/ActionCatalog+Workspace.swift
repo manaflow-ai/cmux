@@ -11,7 +11,7 @@ extension ActionCatalog {
                 arguments: [CatalogArgument.nameString.optional, CatalogArgument.cwdString.optional, CatalogArgument.commandString.optional,
                             CatalogArgument.envString.optional, CatalogArgument.focusBool.optional, CatalogArgument.keepBool.optional],
                 targets: [.workspace], cliName: "workspace new",
-                mainMenu: .file
+                mainMenu: .file, startsTerminal: true
             ),
             ActionDescriptor(
                 id: "newBrowserWorkspace",

@@ -39,13 +39,10 @@ extension CompatService {
         case .confirmationRequired:
             throw ControlRouter.confirmationRequired(id)
         }
-        var failure: String?
-        for task in run.work {
-            if let error = await task.value { failure = failure ?? error }
-        }
+        let failure = await ControlRouter.firstFailure(of: run.work)
         // The handler's daemon replies are in: later reads wait for their events.
         await noteWrite()
-        if let failure { throw ControlError(code: "daemon_error", message: failure, data: ["action": .string(id)]) }
+        if let failure { throw ControlRouter.workError(failure, action: id, method: method) }
     }
 }
 

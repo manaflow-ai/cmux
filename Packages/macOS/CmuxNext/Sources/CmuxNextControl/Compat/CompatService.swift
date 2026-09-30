@@ -62,9 +62,13 @@ public final class CompatService: Sendable {
                     return try body(CompatCall(service: self, control: fresh))
                 })
             case .async(let body):
-                methods.append(.async(name) { control in
+                let method = ControlMethod.async(name) { control in
                     try await body(CompatCall(service: self, control: control))
-                })
+                }
+                // Creation verbs wait for the terminal they start.
+                methods.append(Self.terminalCreationMethods.contains(name)
+                    ? method.withDeadline(.perRequest { request, _ in CompatCreate.startsTerminal(request.params) })
+                    : method)
             }
         }
         for name in CompatUnsupported.methods.keys.sorted() where Self.handlers[name] == nil {
@@ -101,6 +105,9 @@ public final class CompatService: Sendable {
     public static func unsupportedError(for method: String) -> ControlError? {
         CompatUnsupported.reason(for: method).map { CompatErrors.unsupported($0, method: method) }
     }
+
+    /// Verbs that can start a terminal and answer after it exists.
+    static let terminalCreationMethods: Set<String> = ["surface.create", "surface.split", "pane.create", "workspace.create"]
 
     static let handlers: [String: CompatHandler] = {
         var all: [String: CompatHandler] = [:]

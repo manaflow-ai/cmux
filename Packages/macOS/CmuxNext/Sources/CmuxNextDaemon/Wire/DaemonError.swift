@@ -19,6 +19,9 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
     case binaryNotFound(searched: [String])
     case launchFailed(String)
     case timedOut(String)
+    /// A command that starts a terminal got no reply within the terminal
+    /// start deadline. cmux-tui may still create the terminal.
+    case terminalStartTimedOut(String)
     case invalidSessionName(String)
 
     public var description: String {
@@ -36,6 +39,7 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
         case .binaryNotFound(let searched): "cmux-tui binary not found (searched \(searched.joined(separator: ", ")))"
         case .launchFailed(let detail): "cmux-tui server ensure failed: \(detail)"
         case .timedOut(let what): "timed out: \(what)"
+        case .terminalStartTimedOut(let what): "timed out: \(what); the terminal may still appear"
         case .invalidSessionName(let name): "invalid cmux-tui session name: \(name)"
         }
     }

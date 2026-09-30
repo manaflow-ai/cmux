@@ -130,16 +130,28 @@ public actor DaemonConnection {
 
     /// Control-plane deadline default: 2 s (architecture.md 5a).
     public static let defaultRequestTimeout: Duration = .seconds(2)
-    /// Terminal host launches: cmux-tui waits up to 2 s for the host
-    /// handshake after a 1 s connect retry window.
+    /// The terminal start deadline: a command that starts a terminal
+    /// answers once its host is up. cmux-tui bounds one host launch by its
+    /// 2 s handshake after a 1 s connect retry window, and starts the hosts
+    /// of a burst of creates in parallel (8 at a time) while committing
+    /// them in order, so 5 s also covers a create queued behind others.
+    /// Control requests that start a terminal use this plus 1 s
+    /// (`ControlRouter.terminalStartDeadline`).
     public static let defaultSpawnTimeout: Duration = .seconds(5)
 
     /// Sends one command and decodes its response. Fails with
     /// `DaemonError.timedOut` after `timeout` (default: the configured
     /// `requestTimeout`) instead of waiting forever.
     public func request<R: DaemonRequest>(_ request: R) async throws -> R.Response {
-        let spawns = R.self is any TerminalSpawningRequest.Type
-        return try await self.request(request, timeout: spawns ? configuration.spawnTimeout : configuration.requestTimeout)
+        guard R.self is any TerminalSpawningRequest.Type else {
+            return try await self.request(request, timeout: configuration.requestTimeout)
+        }
+        do {
+            return try await self.request(request, timeout: configuration.spawnTimeout)
+        } catch DaemonError.timedOut(let what) {
+            // cmux-tui keeps starting the terminal after the client gave up.
+            throw DaemonError.terminalStartTimedOut(what)
+        }
     }
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {

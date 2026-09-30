@@ -52,7 +52,7 @@ extension AppActions {
                 return nil
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
-                return "new workspace: \(error)"
+                return ActionWorkFailure("new workspace", error)
             }
         })
     }

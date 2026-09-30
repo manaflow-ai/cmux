@@ -10,18 +10,30 @@ import Synchronization
 /// answer off the main actor from the published ``ControlSnapshot``;
 /// mutating methods (`action.run`, compat mutations) go through the bounded
 /// ``MainActorWorkQueue``; the rest run off-main under the request deadline.
-/// No request can wait past its deadline (default 2 s).
+/// No request can wait past its deadline (default 2 s; a request that
+/// starts a terminal gets ``Configuration/terminalStartDeadline``).
 public final class ControlRouter: Sendable {
     public struct Configuration: Sendable {
         /// Deadline for every request that is not answered from the snapshot.
         public var requestDeadline: Duration
+        /// Deadline for a request that waits for a terminal to start
+        /// (``ControlMethod/Deadline/terminalStart``).
+        public var terminalStartDeadline: Duration
         public var queueLimits: MainActorWorkQueue.Limits
 
-        public init(requestDeadline: Duration = .seconds(2), queueLimits: MainActorWorkQueue.Limits = MainActorWorkQueue.Limits()) {
+        public init(requestDeadline: Duration = .seconds(2), terminalStartDeadline: Duration = ControlRouter.terminalStartDeadline,
+                    queueLimits: MainActorWorkQueue.Limits = MainActorWorkQueue.Limits()) {
             self.requestDeadline = requestDeadline
+            self.terminalStartDeadline = terminalStartDeadline
             self.queueLimits = queueLimits
         }
     }
+
+    /// Default deadline for a request that starts a terminal: the daemon's
+    /// own terminal start deadline (`DaemonConnection.defaultSpawnTimeout`)
+    /// plus 1 s for the work queue and the compat layer's tree diff, so the
+    /// daemon command answers or fails before the request does.
+    public static let terminalStartDeadline: Duration = TerminalStartDeadline.request
 
     /// Wire protocol version reported by `system.ping` and `system.identify`.
     public static let protocolVersion = 1
@@ -168,8 +180,11 @@ public final class ControlRouter: Sendable {
             return .failure(ControlError(code: "method_not_found", message: ControlStrings.format("control.error.unknownMethod", "Unknown method %@", request.method),
                                          data: ["method": .string(request.method)]))
         }
-        let call = ControlCall(request: request, snapshot: snapshots.current, connection: connection,
-                               deadline: .now + configuration.requestDeadline)
+        let snapshot = snapshots.current
+        let startsTerminal = method.startsTerminal(request, snapshot)
+        let limit = startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline
+        let call = ControlCall(request: request, snapshot: snapshot, connection: connection,
+                               deadline: .now + limit, startsTerminal: startsTerminal)
         do {
             return .success(try await Self.run(method, call, queue: workQueue))
         } catch let error as ControlError {
@@ -184,7 +199,8 @@ public final class ControlRouter: Sendable {
         case .snapshot(let body):
             return try body(call)
         case .async(let body):
-            return try await ControlDeadline.run(method: call.method, deadline: call.deadline) { try await body(call) }
+            return try await ControlDeadline.run(method: call.method, deadline: call.deadline,
+                                                 startsTerminal: call.startsTerminal) { try await body(call) }
         case .mainActor(let body):
             let reply = try await queue.run(connection: call.connection, method: call.method, deadline: call.deadline) {
                 try body(call)
@@ -193,7 +209,8 @@ public final class ControlRouter: Sendable {
             case .value(let value):
                 return value
             case .followUp(let work):
-                return try await ControlDeadline.run(method: call.method, deadline: call.deadline, work)
+                return try await ControlDeadline.run(method: call.method, deadline: call.deadline,
+                                                     startsTerminal: call.startsTerminal, work)
             }
         }
     }

@@ -91,6 +91,9 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// Destructive: `action.run` requires `confirm: true`
     /// (`ActionDescriptor.isDestructive`).
     public var isDestructive = false
+    /// Starts a terminal (`ActionDescriptor.startsTerminal`): `action.run`
+    /// with `wait` uses the terminal start deadline.
+    public var startsTerminal = false
 
     public init(
         id: String, title: String, category: String, categoryTitle: String, cliName: String, symbol: String,
@@ -136,6 +139,7 @@ public struct ControlActionInfo: Sendable, Hashable {
             "bound": .bool(isBound),
             "debug_only": .bool(isDebugOnly),
             "destructive": .bool(isDestructive),
+            "starts_terminal": .bool(startsTerminal),
         ]
         if let mainMenu { members["main_menu"] = .string(mainMenu) }
         if let unavailableReason { members["unavailable_reason"] = .string(unavailableReason) }

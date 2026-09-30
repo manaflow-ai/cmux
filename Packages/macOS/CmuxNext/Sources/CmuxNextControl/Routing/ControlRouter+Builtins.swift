@@ -27,7 +27,11 @@ extension ControlRouter {
             .async("action.run") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 return try await self.runAction(call)
-            },
+            }.withDeadline(.perRequest { request, snapshot in
+                // Only a run that awaits its work waits for the terminal.
+                request.params["wait"]?.boolValue == true
+                    && ((try? Self.resolveAction(request.params, in: snapshot.catalog))?.startsTerminal ?? false)
+            }),
             .async("settings.get") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 return try await self.settingsGet(call)
@@ -123,11 +127,9 @@ extension ControlRouter {
         }
         switch run.outcome {
         case .ran:
-            var failure: String?
-            for task in run.work {
-                if let error = await task.value { failure = failure ?? error }
+            if let failure = await Self.firstFailure(of: run.work) {
+                throw Self.workError(failure, action: action.id, method: call.method)
             }
-            if let failure { throw ControlError(code: "daemon_error", message: failure, data: ["action": .string(action.id)]) }
             var result: [String: JSONValue] = [
                 "action": .string(action.id),
                 "ran": true,
@@ -149,6 +151,31 @@ extension ControlRouter {
         case .confirmationRequired:
             throw Self.confirmationRequired(action.id)
         }
+    }
+
+    /// The first failure among an action's work tasks, after all finished.
+    static func firstFailure(of work: [ActionWork]) async -> ActionWorkFailure? {
+        var failure: ActionWorkFailure?
+        for task in work {
+            if let error = await task.value { failure = failure ?? error }
+        }
+        return failure
+    }
+
+    /// The control error for failed action work. A terminal start that
+    /// missed its deadline is a `timeout` that says the terminal may still
+    /// appear; anything else is a `daemon_error`.
+    static func workError(_ failure: ActionWorkFailure, action: String, method: String) -> ControlError {
+        guard failure.terminalMayAppear else {
+            return ControlError(code: "daemon_error", message: failure.message, data: ["action": .string(action)])
+        }
+        var error = ControlError.terminalStartTimeout(method, after: TerminalStartDeadline.daemon)
+        if case .object(var members) = error.data {
+            members["action"] = .string(action)
+            members["detail"] = .string(failure.message)
+            error.data = .object(members)
+        }
+        return error
     }
 
     /// Typed refusal for a destructive action run without `confirm: true`.

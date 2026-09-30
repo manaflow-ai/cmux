@@ -38,6 +38,14 @@ public struct ControlError: Error, Sendable, Hashable {
                      data: ["method": .string(method), "deadline_ms": JSONValue(duration.wholeMilliseconds)])
     }
 
+    /// A terminal-starting request missed the terminal start deadline. The
+    /// daemon may still create the terminal, so the caller must not simply
+    /// retry (`data.terminal_may_appear`).
+    public static func terminalStartTimeout(_ method: String, after duration: Duration) -> ControlError {
+        ControlError(code: "timeout", message: ControlStrings.format("control.error.terminalStartTimeout", "%1$@ did not finish within %2$@; the terminal may still appear", method, duration.formattedMilliseconds),
+                     data: ["method": .string(method), "deadline_ms": JSONValue(duration.wholeMilliseconds), "terminal_may_appear": true])
+    }
+
     /// The main-actor work queue is full. The request did not run; retry later.
     public static func busy(pending: Int, limit: Int) -> ControlError {
         ControlError(code: "busy", message: ControlStrings.format("control.error.busy", "cmux is busy (%1$lld queued requests, limit %2$lld); retry later", pending, limit),

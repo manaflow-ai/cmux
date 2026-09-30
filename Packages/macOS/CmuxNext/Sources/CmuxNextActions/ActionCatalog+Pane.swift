@@ -8,7 +8,7 @@ extension ActionCatalog {
                 title: String(localized: "action.splitRight", defaultValue: "Split Right", bundle: .module),
                 keywords: ["pane", "vertical"], defaultShortcut: Shortcut("d", modifiers: [.command]), category: .pane,
                 symbol: "rectangle.split.2x1", surfaces: [.palette, .keyboard, .menu, .contextMenu],
-                arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.pane], cliName: "pane split-right", mainMenu: .view
+                arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.pane], cliName: "pane split-right", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(
                 id: "newColumn",
@@ -16,21 +16,21 @@ extension ActionCatalog {
                 keywords: ["niri", "scroll", "column", "pane"],
                 defaultShortcut: Shortcut("n", modifiers: [.shift, .option, .command]), category: .pane,
                 symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
-                cliName: "pane new-column", mainMenu: .view
+                cliName: "pane new-column", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(
                 id: "splitDown",
                 title: String(localized: "action.splitDown", defaultValue: "Split Down", bundle: .module),
                 keywords: ["pane", "horizontal"], defaultShortcut: Shortcut("d", modifiers: [.command, .shift]),
                 category: .pane, symbol: "rectangle.split.1x2", surfaces: [.palette, .keyboard, .menu, .contextMenu],
-                arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.pane], cliName: "pane split-down", mainMenu: .view
+                arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.pane], cliName: "pane split-down", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(
                 id: "newPaneAutoLayout",
                 title: String(localized: "action.newPaneAutoLayout", defaultValue: "New Pane (Auto Layout)", bundle: .module),
                 keywords: ["split", "pane"], defaultShortcut: Shortcut("n", modifiers: [.control, .command]),
                 category: .pane, symbol: "rectangle.badge.plus", surfaces: [.palette, .keyboard, .menu],
-                targets: [.pane], cliName: "pane new-auto-layout", mainMenu: .view
+                targets: [.pane], cliName: "pane new-auto-layout", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(
                 id: "toggleSplitZoom",

@@ -31,8 +31,36 @@ public struct ControlMethod: Sendable {
         case async(@Sendable (ControlCall) async throws -> JSONValue)
     }
 
+    /// Which deadline a request gets (architecture.md 5a).
+    public enum Deadline: Sendable {
+        /// The control-plane deadline (default 2 s).
+        case controlPlane
+        /// The request waits for cmux-tui to start a terminal: the terminal
+        /// start deadline, and a timeout says the terminal may still appear.
+        case terminalStart
+        /// Chosen per request, for example by the action it runs.
+        case perRequest(@Sendable (ControlRequest, ControlSnapshot) -> Bool)
+    }
+
     public let name: String
     let body: Body
+    public private(set) var deadline: Deadline = .controlPlane
+
+    /// This method with `deadline` instead of the control-plane one.
+    public func withDeadline(_ deadline: Deadline) -> ControlMethod {
+        var method = self
+        method.deadline = deadline
+        return method
+    }
+
+    /// Whether `request` waits for a terminal to start.
+    func startsTerminal(_ request: ControlRequest, _ snapshot: ControlSnapshot) -> Bool {
+        switch deadline {
+        case .controlPlane: false
+        case .terminalStart: true
+        case .perRequest(let decide): decide(request, snapshot)
+        }
+    }
 
     public var lane: Lane {
         switch body {
@@ -63,6 +91,18 @@ public struct ControlCall: Sendable {
     public let connection: ControlConnectionID
     /// When the request fails with `timeout` if it has not answered.
     public let deadline: ContinuousClock.Instant
+    /// The request waits for a terminal to start: it has the terminal start
+    /// deadline, and its timeout says the terminal may still appear.
+    public let startsTerminal: Bool
+
+    public init(request: ControlRequest, snapshot: ControlSnapshot, connection: ControlConnectionID,
+                deadline: ContinuousClock.Instant, startsTerminal: Bool = false) {
+        self.request = request
+        self.snapshot = snapshot
+        self.connection = connection
+        self.deadline = deadline
+        self.startsTerminal = startsTerminal
+    }
 
     public var method: String { request.method }
     public var params: [String: JSONValue] { request.params }

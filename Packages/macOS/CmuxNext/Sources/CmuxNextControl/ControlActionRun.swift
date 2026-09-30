@@ -1,12 +1,13 @@
+public import CmuxNextActions
 import Foundation
 
 /// An action run and the asynchronous work its handler started.
 public struct ControlActionRun: Sendable {
     public var outcome: ControlActionOutcome
     /// Each task's value is nil on success, else the failure.
-    public var work: [Task<String?, Never>]
+    public var work: [ActionWork]
 
-    public init(outcome: ControlActionOutcome, work: [Task<String?, Never>] = []) {
+    public init(outcome: ControlActionOutcome, work: [ActionWork] = []) {
         self.outcome = outcome
         self.work = work
     }

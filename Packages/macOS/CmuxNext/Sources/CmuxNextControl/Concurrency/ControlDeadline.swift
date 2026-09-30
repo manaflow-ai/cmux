@@ -10,9 +10,11 @@ public enum ControlDeadline {
     public static func run<T: Sendable>(
         method: String,
         deadline: ContinuousClock.Instant,
+        startsTerminal: Bool = false,
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        let timeout = ControlError.timeout(method, after: max(deadline - .now, .zero))
+        let limit = max(deadline - .now, .zero)
+        let timeout = startsTerminal ? ControlError.terminalStartTimeout(method, after: limit) : ControlError.timeout(method, after: limit)
         let race = Race<T>()
         return try await withCheckedThrowingContinuation { continuation in
             race.begin(continuation)

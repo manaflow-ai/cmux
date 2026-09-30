@@ -9,11 +9,11 @@ extension ActionCatalog {
 
     private static func row(
         _ id: ActionID, _ title: String, _ category: ActionCategory, _ symbol: String, cli: String,
-        keywords: [String], targets: [ActionTargetKind], arguments: [ActionArgument] = []
+        keywords: [String], targets: [ActionTargetKind], arguments: [ActionArgument] = [], startsTerminal: Bool = false
     ) -> ActionDescriptor {
         ActionDescriptor(
             id: id, title: title, keywords: keywords, category: category, symbol: symbol,
-            surfaces: [.palette], arguments: arguments, targets: targets, cliName: cli
+            surfaces: [.palette], arguments: arguments, targets: targets, cliName: cli, startsTerminal: startsTerminal
         )
     }
 
@@ -40,10 +40,10 @@ extension ActionCatalog {
         [
             row("splitLeft", String(localized: "action.splitLeft", defaultValue: "Split Left", table: "LayoutActions", bundle: .module),
                 .pane, "rectangle.lefthalf.inset.filled", cli: "pane split-left", keywords: ["pane", "vertical"], targets: [.pane],
-                arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional]),
+                arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], startsTerminal: true),
             row("splitUp", String(localized: "action.splitUp", defaultValue: "Split Up", table: "LayoutActions", bundle: .module),
                 .pane, "rectangle.tophalf.inset.filled", cli: "pane split-up", keywords: ["pane", "horizontal"], targets: [.pane],
-                arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional]),
+                arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], startsTerminal: true),
             row("swapPaneLeft", String(localized: "action.swapPaneLeft", defaultValue: "Swap Pane Left", table: "LayoutActions", bundle: .module),
                 .pane, "arrow.left.arrow.right", cli: "pane swap-left", keywords: ["pane", "move"], targets: [.pane]),
             row("swapPaneRight", String(localized: "action.swapPaneRight", defaultValue: "Swap Pane Right", table: "LayoutActions", bundle: .module),
@@ -91,7 +91,8 @@ extension ActionCatalog {
     private static func screenActions() -> [ActionDescriptor] {
         [
             row("screen.new", String(localized: "action.screen.new", defaultValue: "New Screen", table: "LayoutActions", bundle: .module),
-                .pane, "rectangle.stack.badge.plus", cli: "screen new", keywords: ["screen", "tmux", "window", "create"], targets: [.screen]),
+                .pane, "rectangle.stack.badge.plus", cli: "screen new", keywords: ["screen", "tmux", "window", "create"], targets: [.screen],
+                startsTerminal: true),
             row("screen.next", String(localized: "action.screen.next", defaultValue: "Next Screen", table: "LayoutActions", bundle: .module),
                 .pane, "chevron.right.2", cli: "screen next", keywords: ["screen", "switch"], targets: [.screen]),
             row("screen.previous", String(localized: "action.screen.previous", defaultValue: "Previous Screen", table: "LayoutActions", bundle: .module),

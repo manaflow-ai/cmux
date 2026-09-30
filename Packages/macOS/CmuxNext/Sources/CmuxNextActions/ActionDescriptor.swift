@@ -49,6 +49,11 @@ public struct ActionDescriptor: Identifiable, Sendable {
     /// `confirmationPresenter` first; a scripted run must pass
     /// `confirm: true` (CLI `--confirm`) or is refused.
     public var isDestructive: Bool
+    /// Starts a terminal: its work waits for cmux-tui to launch a terminal
+    /// host, so a caller that awaits it (`action.run` with `wait`, the CLI
+    /// compat layer) uses the terminal start deadline instead of the
+    /// control-plane one.
+    public var startsTerminal: Bool
 
     public init(
         id: ActionID,
@@ -66,7 +71,8 @@ public struct ActionDescriptor: Identifiable, Sendable {
         cliName: String? = nil,
         mainMenu: ActionMainMenu? = nil,
         isDebugOnly: Bool = false,
-        destructive: Bool = false
+        destructive: Bool = false,
+        startsTerminal: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -83,6 +89,7 @@ public struct ActionDescriptor: Identifiable, Sendable {
             self.arguments.append(CatalogArgument.confirmBool)
         }
         self.isDestructive = destructive
+        self.startsTerminal = startsTerminal
         self.targets = targets
         self.cliName = cliName ?? Self.defaultCLIName(for: id)
         self.mainMenu = mainMenu

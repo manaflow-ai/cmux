@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextDaemon
 @testable import CmuxNextControl
 import CmuxNextSettings
@@ -121,8 +122,8 @@ import Testing
     final class TrackingExecutor: ControlActionExecutor {
         let requests = Mutex<[ControlActionRequest]>([])
         let outcome: ControlActionOutcome
-        let failure: String?
-        init(outcome: ControlActionOutcome = .ran, failure: String? = nil) {
+        let failure: ActionWorkFailure?
+        init(outcome: ControlActionOutcome = .ran, failure: ActionWorkFailure? = nil) {
             self.outcome = outcome
             self.failure = failure
         }

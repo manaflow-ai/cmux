@@ -1,6 +1,26 @@
 /// A task an action handler started. Its value is nil on success, else
 /// the failure (a daemon error) for callers that report it.
-public typealias ActionWork = Task<String?, Never>
+public typealias ActionWork = Task<ActionWorkFailure?, Never>
+
+/// Why the asynchronous work of an action failed. A string literal or
+/// interpolation makes a plain failure.
+public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConvertible, ExpressibleByStringInterpolation {
+    public var message: String
+    /// A command that starts a terminal missed its deadline. The daemon may
+    /// still create the terminal, so a caller must not simply retry.
+    public var terminalMayAppear: Bool
+
+    public init(_ message: String, terminalMayAppear: Bool = false) {
+        self.message = message
+        self.terminalMayAppear = terminalMayAppear
+    }
+
+    public init(stringLiteral value: String) {
+        self.init(value)
+    }
+
+    public var description: String { message }
+}
 
 /// Completion of the asynchronous work an action starts.
 ///

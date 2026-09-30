@@ -47,6 +47,13 @@ enum CompatErrors {
         }
         switch daemon {
         case .notConnected, .connectionClosed: return notConnected
+        case .terminalStartTimedOut:
+            var error = ControlError.terminalStartTimeout(what, after: TerminalStartDeadline.daemon)
+            if case .object(var members) = error.data {
+                members["detail"] = .string(daemon.description)
+                error.data = .object(members)
+            }
+            return error
         case .missingCapabilities(let caps):
             return unsupported(ControlStrings.format("control.error.missingCapabilities", "the bundled cmux-tui lacks %1$@ (needed for %2$@)", caps.joined(separator: ", "), what))
         case .command(_, let message, _):

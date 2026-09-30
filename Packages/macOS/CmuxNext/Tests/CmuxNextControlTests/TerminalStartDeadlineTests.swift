@@ -4,21 +4,25 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// Answers every action with work that finishes after `delay`.
+/// Answers every action with work that finishes after `delay`, failing
+/// with `failure` when one is set.
 private final class SlowWorkExecutor: ControlActionExecutor {
     let delay: Duration
+    let failure: ActionWorkFailure?
 
-    init(delay: Duration) {
+    init(delay: Duration, failure: ActionWorkFailure? = nil) {
         self.delay = delay
+        self.failure = failure
     }
 
     @MainActor func performAction(_ request: ControlActionRequest) -> ControlActionOutcome { .ran }
 
     @MainActor func performActionTracked(_ request: ControlActionRequest) -> ControlActionRun {
         let delay = delay
+        let failure = failure
         return ControlActionRun(outcome: .ran, work: [Task {
             try? await Task.sleep(for: delay)
-            return nil
+            return failure
         }])
     }
 }
@@ -64,5 +68,56 @@ private final class SlowWorkExecutor: ControlActionExecutor {
         }
         #expect(error.code == "timeout")
         #expect(error.data?["terminal_may_appear"] == nil)
+    }
+
+    /// A create that outlives even the terminal start deadline answers a
+    /// timeout that tells the caller the terminal may still appear.
+    @Test func terminalCreatePastItsDeadlineSaysTheTerminalMayAppear() async throws {
+        let registry = ActionRegistry.standard()
+        registry.context = RegistryReachabilityTests.fullContext
+        // The work outlives the test: only the deadline can answer.
+        let router = ControlRouter(identity: testIdentity(), executor: SlowWorkExecutor(delay: .seconds(30)),
+                                   configuration: .init(requestDeadline: .milliseconds(50), terminalStartDeadline: .milliseconds(150)))
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+        let result = await Self.run(router, "newSurface", target: "tab:t1")
+        guard case .failure(let error) = result else {
+            Issue.record("expected a timeout")
+            return
+        }
+        #expect(error.code == "timeout")
+        #expect(error.data?["terminal_may_appear"] == true)
+        #expect(error.message.contains("may still appear"))
+    }
+
+    /// The daemon command's own terminal start timeout reaches the caller
+    /// as the same typed timeout.
+    @Test func daemonTerminalStartTimeoutIsATypedTimeout() async throws {
+        let failure = ActionWorkFailure("new-tab: timed out", terminalMayAppear: true)
+        let router = Self.router(executor: SlowWorkExecutor(delay: .zero, failure: failure))
+        let result = await Self.run(router, "newSurface", target: "tab:t1")
+        guard case .failure(let error) = result else {
+            Issue.record("expected a timeout")
+            return
+        }
+        #expect(error.code == "timeout")
+        #expect(error.data?["terminal_may_appear"] == true)
+        #expect(error.data?["action"] == "newSurface")
+    }
+
+    @Test func compatCreationVerbsUseTheTerminalStartDeadline() {
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let service = CompatService(frontend: HeadlessCompatFrontend()) { nil }
+        service.install(on: router)
+        let snapshot = router.snapshots.current
+        for name in ["surface.create", "surface.split", "pane.create", "workspace.create"] {
+            let method = router.method(named: name)
+            #expect(method != nil, "\(name)")
+            let terminal = ControlRequest(id: "1", method: name, params: ["type": "terminal"])
+            let browser = ControlRequest(id: "1", method: name, params: ["type": "browser"])
+            #expect(method?.startsTerminal(terminal, snapshot) == true, "\(name)")
+            #expect(method?.startsTerminal(browser, snapshot) == false, "\(name)")
+        }
+        #expect(router.method(named: "surface.list")?.startsTerminal(ControlRequest(id: "1", method: "surface.list", params: [:]), snapshot) == false)
+        withExtendedLifetime(service) {}
     }
 }

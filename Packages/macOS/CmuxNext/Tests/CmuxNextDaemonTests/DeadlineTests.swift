@@ -49,6 +49,27 @@ import Testing
         #expect(second.agents.first?.surface.rawValue == UInt64(ids[1]))
         await connection.close()
     }
+    /// A spawn that misses the terminal start deadline says the terminal
+    /// may still appear: cmux-tui keeps starting it after the client gave up.
+    @Test func aSpawnPastTheTerminalStartDeadlineIsATypedTimeout() async throws {
+        let server = try FakeDaemonServer(handler: ConnectionTests.handshake { _, _ in [] })
+        defer { server.stop() }
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path),
+                                          configuration: .init(spawnTimeout: .milliseconds(200)))
+        try await connection.start()
+        do {
+            _ = try await connection.newPaneInColumn(of: PaneID(rawValue: 1))
+            Issue.record("expected a timeout")
+        } catch let error as DaemonError {
+            guard case .terminalStartTimedOut = error else {
+                Issue.record("expected terminalStartTimedOut, got \(error)")
+                return
+            }
+            #expect(error.description.contains("may still appear"))
+        }
+        await connection.close()
+    }
+
     /// A spawn launches a terminal host, which cmux-tui bounds by its own
     /// host handshake (2 s) plus connect retry (1 s) windows. Under load a
     /// placement can take longer than the 2 s control-plane deadline and
