@@ -49,4 +49,27 @@ import Testing
         #expect(second.agents.first?.surface.rawValue == UInt64(ids[1]))
         await connection.close()
     }
+    /// A spawn launches a terminal host, which cmux-tui bounds by its own
+    /// host handshake (2 s) plus connect retry (1 s) windows. Under load a
+    /// placement can take longer than the 2 s control-plane deadline and
+    /// still succeed in the daemon, so the client must not give up first
+    /// (it would report a failure for a tab that then appears).
+    @Test func aSpawnSlowerThanTheControlPlaneDeadlineSucceeds() async throws {
+        let pending = Mutex<Int?>(nil)
+        let server = try FakeDaemonServer(handler: ConnectionTests.handshake { request, id in
+            guard request["cmd"]?.stringValue == "new-pane" else { return [] }
+            pending.withLock { $0 = id }
+            return []
+        })
+        defer { server.stop() }
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path))
+        try await connection.start()
+        async let created = connection.newPaneInColumn(of: PaneID(rawValue: 1))
+        // The host comes up 2.5 s later, inside the daemon's own bound.
+        try await Task.sleep(for: .milliseconds(2500))
+        let id = try #require(pending.withLock { $0 })
+        server.push(#"{"id":\#(id),"ok":true,"data":{"surface":7}}"#)
+        #expect(try await created.surface == SurfaceID(rawValue: 7))
+        await connection.close()
+    }
 }
