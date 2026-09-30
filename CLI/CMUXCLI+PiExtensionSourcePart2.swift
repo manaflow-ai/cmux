@@ -122,8 +122,10 @@ const subagentToolNames = new Set([
   "subagent",
   "team_spawn",
   "superpowers_dispatch",
-  // Claude Code renamed its spawn tool "Task" -> "Agent" in 2.x and both are
-  // still on the wire. The /subagent/i fallback below catches neither.
+  // Mirrors the "Task" entry above: spawn-tool names seen across
+  // Claude-compatible harnesses. Claude Code renamed its own spawn tool
+  // "Task" -> "Agent" in 2.x and both spellings remain in use, and the
+  // /subagent/i fallback below matches neither.
   "Task",
   "Agent",
 ]);
