@@ -18,10 +18,12 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// Chrome every pane draws above its content (the tab strip). Token:
     /// `Metrics.tabStripHeight`, so the minimum pane height follows density.
     public var paneChromeHeight: CGFloat = 28
-    /// Smallest content area a pane keeps below its chrome: about 12 columns
-    /// by 4 rows of a 13 pt terminal cell (8 x 16 pt). Split geometry, divider
-    /// drags, column widths and the split room check all honor it.
-    public var minimumPaneContentSize = CGSize(width: 96, height: 64)
+    /// Smallest content area a pane keeps below its chrome: about 25 columns
+    /// by 4 rows of a 13 pt terminal cell (8 x 16 pt). The width also keeps
+    /// one tab plus the strip's trailing buttons visible (a 96 pt pane showed
+    /// only the buttons). Split geometry, divider drags, column widths and
+    /// the split room check all honor it.
+    public var minimumPaneContentSize = CGSize(width: 200, height: 64)
     /// Focus ring stroke width.
     public var focusRingWidth: CGFloat = 1
     /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
