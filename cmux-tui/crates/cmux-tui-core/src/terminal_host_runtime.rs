@@ -6005,6 +6005,15 @@ mod unix {
                         if !granted_rights.contains(CapabilityRights::TERMINATE) {
                             break;
                         }
+                        // Integration failure-injection seam: a host whose
+                        // termination receipt reaches the daemon late. Bounded
+                        // so an accidental setting cannot wedge a real host.
+                        if let Ok(delay) = std::env::var("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS")
+                            && let Ok(delay) = delay.parse::<u64>()
+                            && delay > 0
+                        {
+                            thread::sleep(Duration::from_millis(delay.min(5_000)));
+                        }
                         if launch_owner_claimed {
                             command_host.mark_launch_owner_stream_ready();
                         }
