@@ -42,6 +42,15 @@ struct TerminalAccessibilityTextTests {
         #expect(text.insertedText(settingValue: older + "git status", now: testNow) == "git status")
     }
 
+    @Test("An exact older read wins over a newer screen that shares most of its text")
+    func exactOlderReadBeatsPartialNewerMatch() {
+        let history = (1...40).map { "build step \($0) done\n" }.joined()
+        let older = history + "$ "
+        let newer = history + "warning: cache miss\n$ "
+        let text = model(vending: [older, newer])
+        #expect(text.insertedText(settingValue: older + "git status", now: testNow + 1) == "git status")
+    }
+
     @Test("A delayed edit survives more than eight newer screen reads")
     func delayedReadSurvivesScreenChurn() {
         let newerScreens = (1...10).map { "new screen \($0)\n$ " }
