@@ -3793,8 +3793,16 @@ when both or neither target is given.
 Result:
 
 ```text
-object{terminal_id:string, keep:bool}
+object{terminal_id:string, terminal_resource_id:string|null, keep:bool}
 ```
+
+`terminal_id` is the host id (32 lowercase hex digits) and
+`terminal_resource_id` the terminal's public `term_` id, a separate random id
+that `attach-surface` identity needs. A frontend that knows only the host id
+(a remote-terminal reference on another session) keeps the terminal by host
+id and attaches with the returned public id and `identify.generation`; a
+kept terminal with no tab placement attaches this way and takes geometry
+like a placed one (`set-client-sizing`, `resize-attached-view`).
 
 ### focus-pane
 

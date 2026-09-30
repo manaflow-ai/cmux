@@ -14066,7 +14066,12 @@ fn handle_command_with_cancellation(
                 _ => anyhow::bail!("bad request: exactly one of surface or terminal_id"),
             };
             mux.set_terminal_keep(&terminal_id, keep)?;
-            Ok(json!({ "terminal_id": terminal_id, "keep": keep }))
+            let terminal_resource_id = mux.terminal_public_id_for_host(&terminal_id)?;
+            Ok(json!({
+                "terminal_id": terminal_id,
+                "terminal_resource_id": terminal_resource_id,
+                "keep": keep,
+            }))
         }
         Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
             let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
