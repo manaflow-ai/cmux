@@ -79,6 +79,12 @@ public final class CEFEngine: BrowserEngine {
     /// Recent renderer and helper process failures (`debug.crashes`).
     public var crashLog: BrowserCrashLog { CEFRuntime.shared.crashLog }
 
+    /// Runs once CEF is initialized in this process (process-wide).
+    public var onReady: (() -> Void)? {
+        get { CEFRuntime.shared.onReady }
+        set { CEFRuntime.shared.onReady = newValue }
+    }
+
     /// How this process started CEF (for `debug.cef`).
     public var startReport: CEFStartReport { CEFRuntime.shared.report }
 

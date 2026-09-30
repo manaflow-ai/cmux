@@ -30,6 +30,12 @@ final class TabContentCache {
     /// Page-originated tab requests (new-tab links, popups, window.close).
     let pageRequests = BrowserPageRequests()
     private var pendingBrowsers: Set<String> = []
+    /// Restored browser tabs start as `DeferredBrowserTab` (nothing loads)
+    /// until the user reloads one: set after cmux quit unexpectedly twice in
+    /// a row (`LaunchRecovery.restartedSafely`).
+    var defersRestoredPages = false
+    /// Tabs whose deferred page the user started.
+    private var startedDeferred: Set<String> = []
     /// Creates a Chromium page (asynchronous; a seam for tests).
     lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
         try await cef.makeTab($0)
@@ -136,6 +142,9 @@ final class TabContentCache {
             return tracked(install(adopted, for: key), tab)
         }
         let url = tab.url.flatMap(URL.init(string:))
+        if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.openedSurfaces.contains(tab.surface) {
+            return deferred(tab, url: url)
+        }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browser(for: key, url: url), tab) }
         if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
         guard pendingBrowsers.insert(key).inserted else { return nil }
@@ -157,6 +166,26 @@ final class TabContentCache {
             onBrowserReady?(key)
         }
         return nil
+    }
+
+    /// A page that loads nothing until the user reloads it; then the real
+    /// page replaces it (same key, same record).
+    private func deferred(_ tab: TabModel, url: URL?) -> BrowserEntry {
+        let key = tab.id
+        let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
+        let page = DeferredBrowserTab(id: BrowserTabID(rawValue: key), engine: engine, url: url, title: tab.title.isEmpty ? nil : tab.title)
+        page.onStart = { [weak self] url in self?.startDeferred(key, url: url) }
+        let entry = install(page, for: key)
+        entry.chrome.showNotice(CrashStrings.deferredPageNotice)
+        return entry
+    }
+
+    private func startDeferred(_ key: String, url: URL?) {
+        startedDeferred.insert(key)
+        browsers.removeValue(forKey: key)?.close()
+        guard let tab = browserTabs.tabModel(key) else { return }
+        if let entry = browser(for: tab), let url, url.absoluteString != tab.url { entry.tab.load(url) }
+        onBrowserReady?(key)
     }
 
     /// A WebKit page for a Chromium record, with the fallback recorded and

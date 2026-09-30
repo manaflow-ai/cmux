@@ -55,6 +55,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugCEF.report(services))
             },
+            // Chromium process failures, restart state, crash reports.
+            .mainActor("debug.crashes") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugCrashes.report(services))
+            },
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -100,6 +105,7 @@ final class AppControl {
             .mainActor("debug.extensions.popup") { [weak services] call in
                 .value(services.map { DebugExtensionToolbar.popup(call.params, $0) } ?? .null)
             },
+            .mainActor("debug.crash.app") { call in DebugCrashes.crashApp(call.params) },
             .mainActor("debug.stall") { call in
                 let milliseconds = min(max(call.params["ms"]?.intValue ?? 100, 1), 1_000)
                 let end = ContinuousClock.now + .milliseconds(milliseconds)

@@ -3799,6 +3799,661 @@
           }
         }
       }
+    },
+    "app.restart.notice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux restarted after a problem. Your windows and terminals are back."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "問題が発生したため cmux を再起動しました。ウインドウとターミナルは元に戻っています。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أُعيد تشغيل cmux بعد حدوث مشكلة. عادت نوافذك ومحطاتك الطرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux je ponovo pokrenut nakon problema. Vaši prozori i terminali su vraćeni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blev genstartet efter et problem. Dine vinduer og terminaler er tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux wurde nach einem Problem neu gestartet. Ihre Fenster und Terminals sind wieder da."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux se ha reiniciado tras un problema. Tus ventanas y terminales se han restaurado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux a redémarré après un problème. Vos fenêtres et terminaux sont de retour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux è stato riavviato dopo un problema. Le finestre e i terminali sono stati ripristinati."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux បានចាប់ផ្ដើមឡើងវិញបន្ទាប់ពីមានបញ្ហា។ បង្អួច និងទែមីណាល់របស់អ្នកបានត្រឡប់មកវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "문제가 발생하여 cmux가 다시 시작되었습니다. 창과 터미널이 복원되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ble startet på nytt etter et problem. Vinduene og terminalene dine er tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux uruchomił się ponownie po problemie. Okna i terminale zostały przywrócone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux foi reiniciado após um problema. Suas janelas e terminais estão de volta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux перезапущен после сбоя. Окна и терминалы восстановлены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux เริ่มใหม่หลังจากเกิดปัญหา หน้าต่างและเทอร์มินัลของคุณกลับมาแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bir sorundan sonra yeniden başlatıldı. Pencereleriniz ve terminalleriniz geri geldi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux перезапущено після збою. Вікна й термінали відновлено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux đã khởi động lại sau khi gặp sự cố. Cửa sổ và terminal của bạn đã được khôi phục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 在出现问题后已重新启动。你的窗口和终端已恢复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 在發生問題後已重新啟動。你的視窗和終端機已恢復。"
+          }
+        }
+      }
+    },
+    "app.restart.noticeSafe": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux restarted after a problem again. Browser pages were not reopened. Reload a tab to open it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "問題が再び発生したため cmux を再起動しました。ブラウザのページは開き直していません。タブを再読み込みすると開きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أُعيد تشغيل cmux مرة أخرى بعد حدوث مشكلة. لم تُفتح صفحات المتصفح. أعد تحميل علامة تبويب لفتحها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux je ponovo pokrenut nakon još jednog problema. Stranice preglednika nisu ponovo otvorene. Ponovo učitajte karticu da biste je otvorili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blev genstartet efter endnu et problem. Browsersider blev ikke genåbnet. Genindlæs en fane for at åbne den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux wurde erneut nach einem Problem neu gestartet. Browserseiten wurden nicht wieder geöffnet. Laden Sie einen Tab neu, um ihn zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux se ha vuelto a reiniciar tras un problema. Las páginas del navegador no se han vuelto a abrir. Vuelve a cargar una pestaña para abrirla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux a de nouveau redémarré après un problème. Les pages du navigateur n’ont pas été rouvertes. Actualisez un onglet pour l’ouvrir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux è stato riavviato di nuovo dopo un problema. Le pagine del browser non sono state riaperte. Ricarica una scheda per aprirla."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux បានចាប់ផ្ដើមឡើងវិញម្ដងទៀតបន្ទាប់ពីមានបញ្ហា។ ទំព័រកម្មវិធីរុករកមិនត្រូវបានបើកឡើងវិញទេ។ ផ្ទុកផ្ទាំងឡើងវិញដើម្បីបើកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "문제가 다시 발생하여 cmux가 다시 시작되었습니다. 브라우저 페이지는 다시 열지 않았습니다. 탭을 새로고침하면 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ble startet på nytt etter enda et problem. Nettlesersider ble ikke åpnet igjen. Last inn en fane på nytt for å åpne den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ponownie uruchomił się po problemie. Strony przeglądarki nie zostały otwarte ponownie. Załaduj kartę ponownie, aby ją otworzyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux foi reiniciado de novo após um problema. As páginas do navegador não foram reabertas. Recarregue uma aba para abri-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux снова перезапущен после сбоя. Страницы браузера не открыты повторно. Перезагрузите вкладку, чтобы открыть её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux เริ่มใหม่อีกครั้งหลังจากเกิดปัญหา ไม่ได้เปิดหน้าเบราว์เซอร์ใหม่ โหลดแท็บซ้ำเพื่อเปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bir sorundan sonra yeniden başlatıldı. Tarayıcı sayfaları yeniden açılmadı. Açmak için bir sekmeyi yeniden yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux знову перезапущено після збою. Сторінки браузера не відкрито повторно. Перезавантажте вкладку, щоб відкрити її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux lại khởi động lại sau khi gặp sự cố. Các trang trình duyệt chưa được mở lại. Tải lại một thẻ để mở trang đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 再次在出现问题后重新启动。浏览器页面未重新打开。重新加载标签页即可打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 再次在發生問題後重新啟動。瀏覽器頁面未重新開啟。重新載入分頁即可開啟。"
+          }
+        }
+      }
+    },
+    "app.restart.showLog": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Crash Log"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "クラッシュログを表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض سجل الأعطال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži zapisnik rušenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis nedbrudslog"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Absturzprotokoll anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar registro de fallos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher le rapport de plantage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra registro arresti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញកំណត់ហេតុគាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "충돌 로그 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis krasjlogg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż dziennik awarii"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar registro de falhas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать журнал сбоя"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงบันทึกข้อขัดข้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çökme Günlüğünü Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати журнал збою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện nhật ký sự cố"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示崩溃日志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示當機記錄"
+          }
+        }
+      }
+    },
+    "app.restart.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "閉じる"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إغلاق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odbaci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schließen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descartar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ignorer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiudi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lukk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknij"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dispensar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "app.restart.deferredPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not reopened after cmux restarted. Reload to open this page."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux の再起動後は開き直していません。再読み込みするとこのページを開きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تُفتح بعد إعادة تشغيل cmux. أعد التحميل لفتح هذه الصفحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije ponovo otvoreno nakon ponovnog pokretanja cmux-a. Ponovo učitajte da otvorite ovu stranicu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke genåbnet efter genstart af cmux. Genindlæs for at åbne siden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nach dem Neustart von cmux nicht wieder geöffnet. Neu laden, um diese Seite zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se ha vuelto a abrir tras reiniciar cmux. Vuelve a cargar para abrir esta página."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non rouverte après le redémarrage de cmux. Actualisez pour ouvrir cette page."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non riaperta dopo il riavvio di cmux. Ricarica per aprire questa pagina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានបើកឡើងវិញបន្ទាប់ពី cmux ចាប់ផ្ដើមឡើងវិញ។ ផ្ទុកឡើងវិញដើម្បីបើកទំព័រនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux를 다시 시작한 후 다시 열지 않았습니다. 새로고침하면 이 페이지가 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke åpnet igjen etter omstart av cmux. Last inn på nytt for å åpne siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie otwarto ponownie po restarcie cmux. Załaduj ponownie, aby otworzyć tę stronę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não reaberta após o reinício do cmux. Recarregue para abrir esta página."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не открыта повторно после перезапуска cmux. Перезагрузите, чтобы открыть страницу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้เปิดใหม่หลัง cmux เริ่มใหม่ โหลดซ้ำเพื่อเปิดหน้านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux yeniden başlatıldıktan sonra yeniden açılmadı. Bu sayfayı açmak için yeniden yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не відкрито повторно після перезапуску cmux. Перезавантажте, щоб відкрити сторінку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa mở lại sau khi cmux khởi động lại. Tải lại để mở trang này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 重新启动后未重新打开。重新加载即可打开此页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 重新啟動後未重新開啟。重新載入即可開啟此頁面。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

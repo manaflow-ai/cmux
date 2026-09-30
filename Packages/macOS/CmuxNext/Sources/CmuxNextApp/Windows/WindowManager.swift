@@ -24,6 +24,8 @@ final class WindowManager {
     /// Per-window state by window id, for every registered window.
     var states: [String: WindowState] = [:]
     private weak var lastActive: WindowController?
+    /// Called after a window is ordered in (the restart notice attaches).
+    var onPresent: ((WindowController) -> Void)?
     private var saveTask: Task<Void, Never>?
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
@@ -247,6 +249,7 @@ final class WindowManager {
         } else {
             controller.showWindow(nil)
         }
+        onPresent?(controller)
     }
 
     /// Brings a window forward (not key and no activation under

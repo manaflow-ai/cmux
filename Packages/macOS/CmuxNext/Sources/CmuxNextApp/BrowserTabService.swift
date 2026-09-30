@@ -29,6 +29,9 @@ final class BrowserTabService {
     var writeBackDelay: Duration = .milliseconds(500)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
     private var writers: [String: BrowserRecordWriter] = [:]
+    /// Surfaces created in this process (`open`): pages the user asked for
+    /// now, as opposed to tabs restored from the daemon.
+    private(set) var openedSurfaces: Set<SurfaceID> = []
 
     init(daemon: DaemonService, cef: CEFEngine) {
         create = { [weak daemon] pane, url, engine in
@@ -74,6 +77,7 @@ final class BrowserTabService {
     /// fallback against the new surface (its page shows the notice).
     func open(_ choice: BrowserEngineChoice, in pane: PaneID, url: String) async throws -> SurfaceID {
         let surface = try await create(pane, url, choice.engine)
+        openedSurfaces.insert(surface)
         if let reason = choice.fallback {
             fallbacks.record(reason, source: choice.inherited ? .recordedTab : .newTab, surface: surface)
         }

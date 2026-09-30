@@ -6,7 +6,11 @@ import CmuxNextSettings
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let environment = AppEnvironment.current()
+    private let environment: AppEnvironment = {
+        var environment = AppEnvironment.current()
+        environment.marksRun = true
+        return environment
+    }()
     private var services: AppServices!
     private var settings: SettingsController?
     private let control = AppControl()
@@ -33,7 +37,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cloudContext = services.startCloud()
         services.updater.start()
         services.windows.restoreWhenLoaded()
-        services.startChromiumWarmup()
+        // After two quick unexpected ends in a row, Chromium starts only
+        // when the user reloads a browser tab.
+        if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
+        services.windows.onPresent = { [weak services] controller in
+            services?.crashRecovery.showRestartNotice(on: controller.window)
+        }
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
     }
@@ -98,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        services?.crashRecovery.applicationWillTerminate()
         cloudContext?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }

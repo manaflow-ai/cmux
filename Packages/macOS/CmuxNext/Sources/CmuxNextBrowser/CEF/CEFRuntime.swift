@@ -58,6 +58,9 @@ final class CEFRuntime {
     let crashLog = BrowserCrashLog()
     /// Watches helper exits (GPU, utility, extension renderers) from start.
     var childMonitor: CEFChildProcessMonitor?
+    /// Runs once CEF is initialized (the App re-installs its crash signal
+    /// handlers, which Chromium resets to the default action).
+    var onReady: (() -> Void)?
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -182,6 +185,7 @@ final class CEFRuntime {
             try initialize(library, environment: environment)
             state = .ready
             startChildMonitor()
+            onReady?()
             self.trigger = trigger
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started

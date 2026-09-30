@@ -13,6 +13,9 @@ struct AppEnvironment: Sendable {
     /// `CMUX_NEXT_TEST_WINDOW_SCREEN` / `CMUX_NEXT_TEST_WINDOW_FRAME` with
     /// no-activate: where windows open for agent screenshots.
     let testWindow: TestWindowPlacement?
+    /// Mark this run for crash recovery (`AppRunMarker`): only the real app
+    /// process, never tests that build `AppServices`.
+    var marksRun = false
 
     var tag: String? { launch.tag }
 

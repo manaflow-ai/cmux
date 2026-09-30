@@ -12,6 +12,8 @@ import CmuxNextUpdater
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
     let environment: AppEnvironment
+    /// Run marker, restart notice, crash reports (`debug.crashes`).
+    let crashRecovery: CrashRecoveryService
     /// The local daemon. Cloud machines are in `machines`; code acting on a
     /// workspace, pane, or tab resolves its daemon through `machines`.
     let daemon = DaemonService()
@@ -56,9 +58,13 @@ final class AppServices {
 
     init(environment: AppEnvironment) {
         self.environment = environment
+        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         machines = MachineRegistry(local: daemon)
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
         cache = TabContentCache(daemon: daemon)
+        cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
+        crashRecovery.observe(cache.cef.crashLog)
+        cache.cef.onReady = { [crashRecovery] in crashRecovery.marker?.installHandlers() }
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
         cache.sessionDelegate = terminalDelegate
         cache.pageRequests.services = self
