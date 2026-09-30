@@ -249,6 +249,10 @@ jobs:
       # reload's standalone-driver shortcut fails while merging opaque SwiftUI
       # return types on Xcode 26.3 before either endpoint can launch.
       CMUX_RELOAD_APP_EMIT_MODULE: "1"
+      # The release gate exercises IROH and does not need the optional Ghostty
+      # CLI helper. Avoid an unrelated network fetch from Ghostty's Zig build
+      # turning a transport verdict into a runner TLS failure.
+      CMUX_SKIP_ZIG_BUILD: "1"
     strategy:
       fail-fast: false
       # The app-backed modes share one temporary account per environment.
