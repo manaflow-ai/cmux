@@ -62,6 +62,26 @@ Cases:
       pipe inside a first cell does not cut the row's verb off mid-backtick.
  (ab) A constant route whose named constant is not a readable string in the
       type's file fails, because a renamed constant is a lost verb.
+ (ac) Spacing around `==` does not hide a route. `command  ==  "x"` and
+      `command=="x"` are both dispatch, and a guard that read only the
+      single-space spelling skipped them while still reporting success.
+ (ad) A qualified receiver (`entry.command == "…"`) is not a route.
+ (ae) An initializer route wrapped over several lines is still a route. Read
+      one line at a time, a reformat silently dropped the verbs it owns.
+ (af) A second `switch command {` in `run()` contributes its verbs, instead of
+      the guard reading the first switch and calling it a day.
+ (ag) An arm indented deeper than its siblings (inside a `#if`) is still an arm.
+ (ah) A constant declared with a type annotation resolves.
+ (ai) Two files declaring the same type with different constants fails, rather
+      than one of them quietly winning.
+ (aj) A comparison the guard cannot read inside an initializer route's own type
+      fails, the same as one at the dispatch.
+ (ak) A type whose name merely contains the route's type name does not stand in
+      for it.
+ (al) `command == Self.someConstant` fails with a message that says why, since
+      no file declares `Self`.
+ (am) An unrelated type in the route type's file is not part of the route, so
+      its own `command ==` comparison neither adds a verb nor fails the guard.
 """
 
 import os
@@ -363,7 +383,7 @@ def case_s_switch_end_shape(tmp):
         "            if true {\n                throw CLIError(message: \"unknown command\")",
     )
     root = make_fixture_root(tmp, "case-s", cli=cli)
-    expect_failure(root, "case s", "does not close `switch command {`")
+    expect_failure(root, "case s", "does not close the `switch command {`")
 
 
 # The two indirect early routes, in the shape `run()` has them: a comparison
@@ -563,6 +583,214 @@ def case_ab_constant_not_resolvable(tmp):
     )
 
 
+MULTILINE_INITIALIZER_ROUTE = """\
+        if let supervisor = try OwnedSupervisor(
+            command: command,
+            arguments: rawCommandArgs
+        ) {
+            exit(try supervisor.run())
+        }
+"""
+
+
+def case_ac_compare_spacing(tmp):
+    """Any spacing around `==` is a route."""
+    root = make_fixture_root(
+        tmp,
+        "case-ac",
+        cli=with_early_route(
+            '        if command  ==  "spaced-compare" {\n'
+            "            try runSpaced()\n"
+            "            return\n"
+            "        }\n"
+            '        if command=="tight-compare" {\n'
+            "            try runTight()\n"
+            "            return\n"
+            "        }\n"
+        ),
+    )
+    expect_failure(
+        root, "case ac", "top-level verb spaced-compare", "top-level verb tight-compare"
+    )
+
+
+def case_ad_qualified_receiver_is_not_a_route(tmp):
+    """`entry.command == "…"` compares something else entirely."""
+    root = make_fixture_root(
+        tmp,
+        "case-ad",
+        cli=with_early_route(
+            '        if entry.command == "not-a-route" {\n'
+            "            try logEntry(entry)\n"
+            "        }\n"
+        ),
+    )
+    expect_pass(root, "case ad", "7 dispatched verbs")
+
+
+def case_ae_multiline_initializer_route(tmp):
+    """The same route wrapped over several lines owns the same verbs."""
+    root = make_fixture_root(
+        tmp,
+        "case-ae",
+        cli=with_early_route(MULTILINE_INITIALIZER_ROUTE),
+        extra={os.path.join("CLI", "OwnedSupervisor.swift"): INITIALIZER_DECLARATION},
+    )
+    expect_failure(root, "case ae", "top-level verb __supervise")
+
+
+def case_af_second_command_switch(tmp):
+    """Dispatch split over two switches needs both read."""
+    anchor = '        }\n    }\n\n    func trailing() throws {'
+    assert anchor in FIXTURE_CLI
+    cli = FIXTURE_CLI.replace(
+        anchor,
+        "        }\n"
+        "        switch command {\n"
+        '        case "second-switch-verb":\n'
+        "            try runSecond()\n"
+        "        default:\n"
+        "            break\n"
+        "        }\n"
+        "    }\n\n    func trailing() throws {",
+        1,
+    )
+    root = make_fixture_root(tmp, "case-af", cli=cli)
+    expect_failure(root, "case af", "top-level verb second-switch-verb")
+
+
+def case_ag_deeper_indented_arm(tmp):
+    """An arm under a `#if` is indented further and is still an arm."""
+    cli = FIXTURE_CLI.replace(
+        '        case "layout":',
+        "        #if os(macOS)\n"
+        '            case "mac-only":\n'
+        "                try runMacOnly()\n"
+        "        #endif\n"
+        '        case "layout":',
+        1,
+    )
+    root = make_fixture_root(tmp, "case-ag", cli=cli)
+    expect_failure(root, "case ag", "top-level verb mac-only")
+
+
+def case_ah_annotated_constant(tmp):
+    """`static let x: String = "…"` is as readable as the bare form."""
+    root = make_fixture_root(
+        tmp,
+        "case-ah",
+        cli=with_early_route(CONSTANT_ROUTE),
+        doc=with_rows(FIXTURE_DOC, "| `__hidden-broker` | Internal broker. |\n"),
+        extra={
+            os.path.join("CLI", "HiddenBroker.swift"): (
+                "public struct HiddenBroker {\n"
+                '    public static let hiddenCommand: String = "__hidden-broker"\n'
+                "}\n"
+            )
+        },
+    )
+    expect_pass(root, "case ah", "8 dispatched verbs")
+
+
+def case_ai_constant_declared_twice(tmp):
+    """Two declarations disagreeing about the verb is not a readable route."""
+    root = make_fixture_root(
+        tmp,
+        "case-ai",
+        cli=with_early_route(CONSTANT_ROUTE),
+        extra={
+            os.path.join("CLI", "HiddenBroker.swift"): CONSTANT_DECLARATION,
+            os.path.join("CLI", "HiddenBrokerShim.swift"): (
+                "extension HiddenBroker {\n"
+                '    static let hiddenCommand = "__hidden-broker-shim"\n'
+                "}\n"
+            ),
+        },
+    )
+    expect_failure(root, "case ai", "resolved to 2 string constant(s)")
+
+
+def case_aj_unreadable_comparison_in_route_type(tmp):
+    """A comparison inside the route's own type fails, like one at dispatch."""
+    root = make_fixture_root(
+        tmp,
+        "case-aj",
+        cli=with_early_route(INITIALIZER_ROUTE),
+        extra={
+            os.path.join("CLI", "OwnedSupervisor.swift"): (
+                "struct OwnedSupervisor {\n"
+                "    init?(command: String, arguments: [String]) throws {\n"
+                "        guard command == expectedSupervisorCommand else {\n"
+                "            return nil\n"
+                "        }\n"
+                "    }\n"
+                "}\n"
+            )
+        },
+    )
+    expect_failure(
+        root, "case aj", "cannot read", "command == expectedSupervisorCommand"
+    )
+
+
+def case_ak_substring_type_name(tmp):
+    """`OwnedSupervisorHelper` does not declare `OwnedSupervisor`."""
+    root = make_fixture_root(
+        tmp,
+        "case-ak",
+        cli=with_early_route(INITIALIZER_ROUTE),
+        extra={
+            os.path.join("CLI", "OwnedSupervisorHelper.swift"): (
+                "struct OwnedSupervisorHelper {\n"
+                '    static let verb = "__supervise"\n'
+                "}\n"
+            )
+        },
+    )
+    expect_failure(root, "case ak", "could not find the file declaring", "OwnedSupervisor")
+
+
+def case_al_implicit_receiver(tmp):
+    """`Self.someConstant` says what to do instead of naming a missing file."""
+    root = make_fixture_root(
+        tmp,
+        "case-al",
+        cli=with_early_route(
+            "        if command == Self.hiddenCommand {\n"
+            "            try runHidden()\n"
+            "            return\n"
+            "        }\n"
+        ),
+    )
+    expect_failure(root, "case al", "implicit receiver", "Spell the type out")
+
+
+def case_am_unrelated_type_in_route_file(tmp):
+    """A neighbour in the route type's file is not part of the route."""
+    root = make_fixture_root(
+        tmp,
+        "case-am",
+        cli=with_early_route(INITIALIZER_ROUTE),
+        doc=with_rows(
+            FIXTURE_DOC,
+            "| `__supervise` | Internal supervisor. |\n",
+            "| `__supervise-app-server` | Internal app server supervisor. |\n",
+            "| `__supervise-legacy` | Internal legacy supervisor. |\n",
+        ),
+        extra={
+            os.path.join("CLI", "OwnedSupervisor.swift"): (
+                INITIALIZER_DECLARATION
+                + "\nstruct OwnedSupervisorLogger {\n"
+                "    func log(command: String) {\n"
+                "        if command == fallbackName { return }\n"
+                "    }\n"
+                "}\n"
+            )
+        },
+    )
+    expect_pass(root, "case am", "10 dispatched verbs")
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="cli-contract-verb-guard-") as tmp:
         case_a_real_repo()
@@ -593,6 +821,17 @@ def main():
         case_z_lowercase_helper_is_not_a_route(tmp)
         case_aa_compact_table_and_escaped_pipe(tmp)
         case_ab_constant_not_resolvable(tmp)
+        case_ac_compare_spacing(tmp)
+        case_ad_qualified_receiver_is_not_a_route(tmp)
+        case_ae_multiline_initializer_route(tmp)
+        case_af_second_command_switch(tmp)
+        case_ag_deeper_indented_arm(tmp)
+        case_ah_annotated_constant(tmp)
+        case_ai_constant_declared_twice(tmp)
+        case_aj_unreadable_comparison_in_route_type(tmp)
+        case_ak_substring_type_name(tmp)
+        case_al_implicit_receiver(tmp)
+        case_am_unrelated_type_in_route_file(tmp)
     print("test_ci_cli_contract_verb_guard: ok")
     return 0
 

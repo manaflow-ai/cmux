@@ -75,34 +75,41 @@ CLI_SOURCE = os.path.join("CLI", "cmux.swift")
 DOC_PATH = os.path.join("docs", "cli-contract.md")
 
 RUN_FUNC = re.compile(r"^    func run\(\) async throws \{")
-COMMAND_SWITCH = re.compile(r"^        switch command \{")
-SWITCH_CLOSE = "        }"
 BLANK = "\x00"
-CASE_ARM = "        case "
-COMMAND_COMPARE = re.compile(r"\bcommand ==[ ]*")
+CASE_ARM = re.compile(r"^(\s*)case\s")
+# Swift accepts any spacing around `==`, and a comparison this pattern misses is
+# a verb the guard never asks about, so the spacing is not assumed. The receiver
+# has to be the bare `command`: `entry.command == expected` in some unrelated
+# helper is not a route.
+COMMAND_COMPARE = re.compile(r"(?<![\w.])command\s*==\s*")
 # `command == SudoExecutionRunner.hiddenCommand`: a verb named once, next to its
 # implementation, instead of spelled out at the comparison.
 MEMBER_REFERENCE = re.compile(r"\A([A-Z]\w*)\.(\w+)")
+# `Self.hiddenCommand` reads as a type reference and is not one: no file
+# declares `Self`, so it gets its own message instead of a puzzling one.
+IMPLICIT_RECEIVERS = frozenset({"Self"})
 # `if let supervisor = try OwnedProcessSupervisor(command: command, …)`: an
 # initializer that returns nil for a verb it does not own, so the verbs live in
 # its own file. Only a capitalized callee is a type; the lowercase helpers taking
 # the same argument label (`runGuideCommand(command:)`) are predicates, not
 # routes.
-COMMAND_INITIALIZER = re.compile(r"\b([A-Z]\w*)\(command: command\b")
-NESTED_SWITCH_COMMAND = re.compile(r"^(\s*)switch command \{\s*$")
+COMMAND_INITIALIZER = re.compile(r"\b([A-Z]\w*)\(")
+COMMAND_ARGUMENT = re.compile(r"(?:\A|,)\s*command:\s*command\b")
+SWITCH_COMMAND = re.compile(r"^(\s*)switch command \{\s*$")
 STATIC_MEMBER = r"\bstatic\s+(?:let|var)\s+{0}\b[^=]*=[ ]*"
 TYPE_DECLARATION = r"\b(?:struct|class|enum|actor|protocol|extension)\s+{0}\b"
 SKIPPED_DIRS = frozenset({
-    ".git", ".build", ".swiftpm", "DerivedData", "build", "node_modules",
-    "Pods", "Carthage", ".venv",
+    ".git", ".build", ".swiftpm", "DerivedData", "build", "Build",
+    "node_modules", "Pods", "Carthage", ".venv",
 })
-# The first cell of a table row. A pipe closes the cell only when it is not
-# escaped: several rows spell an alternation inside their command (`--from
-# <channel\|path>`), and reading the cell only up to the first pipe would cut a
-# row's verb off mid-backtick and silently undocument it. Leading and trailing
-# spaces are optional so a table written compactly (`|Command|Contract|`) counts
+# The first cell of a table row: escaped pipes belong to the cell, an unescaped
+# one closes it. Several rows spell an alternation inside their command (`--from
+# <channel\|path>`), and a cell read only up to the first pipe would cut such a
+# row's verb off mid-backtick. No row in the document needs that today, so this
+# is here to keep the next one from going quietly undocumented. Leading and
+# trailing spaces are optional so a compact table (`|Command|Contract|`) counts
 # too, rather than being skipped without a word.
-ROW_FIRST_CELL = re.compile(r"^\|\s*(.+?)\s*(?<!\\)\|")
+ROW_FIRST_CELL = re.compile(r"^\|\s*((?:\\\||[^|])+?)\s*\|")
 COMMAND_SECTIONS = ("## Top-Level Commands", "## Command Families")
 COMMAND_HEADING = "Command"
 
@@ -221,15 +228,27 @@ def literal_at(line, blanked_line, start):
     return None
 
 
-def parse_case_arms(lines, blanked, switch, end, case_prefix=CASE_ARM):
-    """Returns ({verb: line number}, unreadable patterns) for the switch body."""
+def parse_case_arms(lines, blanked, switch, end):
+    """Returns ({verb: line number}, unreadable patterns) for the switch body.
+
+    An arm is a `case` line sitting directly in the switch's body, which is
+    brace depth one below the `switch` line. Depth decides it rather than the
+    indentation: a `case` inside a nested switch or a closure is deeper and must
+    not be read as a top-level verb, while an arm a formatter pushed right (a
+    `#if` around it, say) is still an arm and must not be skipped.
+    """
     verbs = {}
     unreadable = []
     index = switch + 1
+    depth = 1
     while index < end:
-        if not blanked[index].startswith(case_prefix):
+        opened = depth
+        depth += blanked[index].count("{") - blanked[index].count("}")
+        match = CASE_ARM.match(blanked[index])
+        if opened != 1 or match is None:
             index += 1
             continue
+        case_prefix = match.group(0)
         first = index
         pattern = lines[index][len(case_prefix):]
         masked = blanked[index][len(case_prefix):]
@@ -237,6 +256,7 @@ def parse_case_arms(lines, blanked, switch, end, case_prefix=CASE_ARM):
             index += 1
             if index >= end:
                 raise ValueError("case arm at line {0} has no `:`".format(first + 1))
+            depth += blanked[index].count("{") - blanked[index].count("}")
             pattern += " " + lines[index].strip()
             masked += " " + blanked[index].strip()
         stop = masked.index(":")
@@ -281,9 +301,51 @@ def parse_command_routes(lines, blanked, start, end):
                 constants.append((i + 1, member.group(1), member.group(2)))
                 continue
             unreadable.append((i + 1, lines[i].strip()))
-        for match in COMMAND_INITIALIZER.finditer(blanked[i]):
-            initializers.append((i + 1, match.group(1)))
+    initializers.extend(command_argument_initializers(blanked, start, end))
     return verbs, constants, initializers, unreadable
+
+
+def command_argument_initializers(blanked, start, end):
+    """Returns [(line number, type name)] for `SomeType(command: command, …)`.
+
+    The argument list is walked to its closing parenthesis instead of being
+    matched on one line, because the same route wrapped over several lines is
+    the same route, and a guard that stopped seeing it after a reformat would
+    stop requiring the verbs it owns.
+    """
+    found = []
+    for i in range(start, end + 1):
+        for match in COMMAND_INITIALIZER.finditer(blanked[i]):
+            arguments = argument_list_text(blanked, i, match.end(), end)
+            if arguments is not None and COMMAND_ARGUMENT.search(arguments):
+                found.append((i + 1, match.group(1)))
+    return found
+
+
+def argument_list_text(blanked, line, start, end):
+    """Returns the top-level argument text of the call opened at `start`."""
+    text = []
+    depth = 1
+    index = start
+    while line <= end:
+        body = blanked[line]
+        while index < len(body):
+            character = body[index]
+            if character in "([{":
+                depth += 1
+            elif character in ")]}":
+                depth -= 1
+                if depth == 0:
+                    return "".join(text)
+            if depth == 1 and character not in "([{":
+                text.append(character)
+            elif depth > 1:
+                text.append(" ")
+            index += 1
+        text.append(" ")
+        line += 1
+        index = 0
+    return None
 
 
 def swift_sources(root):
@@ -333,7 +395,25 @@ def static_string_members(path, member):
     return values
 
 
-def command_literals_in_file(path):
+def declaration_ranges(lines, blanked, name):
+    """Returns [(first line, last line)] for each block declaring `name`.
+
+    A type and its extensions in one file all count, because a verb may be
+    recognized in either. Everything else in the file is skipped: a neighbouring
+    helper comparing its own `command` variable is not this type's route, and
+    reading it would either invent a verb or fail the guard for no reason.
+    """
+    pattern = re.compile(TYPE_DECLARATION.format(re.escape(name)))
+    ranges = []
+    for i, masked in enumerate(blanked):
+        if pattern.search(masked) is None:
+            continue
+        end = block_end(blanked, i)
+        ranges.append((i, len(lines) - 1 if end is None else end))
+    return ranges
+
+
+def command_literals_in_file(path, name):
     """Returns ({verb: line number}, unreadable) for one type's own dispatch.
 
     An initializer that owns its verbs recognizes them either by comparison
@@ -344,27 +424,25 @@ def command_literals_in_file(path):
     blanked = blank_noncode(lines)
     verbs = {}
     unreadable = []
-    for i, masked in enumerate(blanked):
-        for match in COMMAND_COMPARE.finditer(masked):
-            value = literal_at(lines[i], masked, match.end())
-            if value is None:
-                unreadable.append((i + 1, lines[i].strip()))
-            else:
-                verbs.setdefault(value, i + 1)
-    for i, line in enumerate(lines):
-        match = NESTED_SWITCH_COMMAND.match(line)
-        if match is None or blanked[i].strip() != line.strip():
-            continue
-        end = block_end(blanked, i)
-        if end is None:
-            unreadable.append((i + 1, "switch command { is never closed"))
-            continue
-        arms, arm_unreadable = parse_case_arms(
-            lines, blanked, i, end, match.group(1) + "case "
-        )
-        for verb, arm_line in arms.items():
-            verbs.setdefault(verb, arm_line)
-        unreadable.extend(arm_unreadable)
+    for start, end in declaration_ranges(lines, blanked, name):
+        for i in range(start, end + 1):
+            masked = blanked[i]
+            for match in COMMAND_COMPARE.finditer(masked):
+                value = literal_at(lines[i], masked, match.end())
+                if value is None:
+                    unreadable.append((i + 1, lines[i].strip()))
+                else:
+                    verbs.setdefault(value, i + 1)
+            if SWITCH_COMMAND.match(masked) is None:
+                continue
+            switch_end = block_end(blanked, i)
+            if switch_end is None:
+                unreadable.append((i + 1, "switch command { is never closed"))
+                continue
+            arms, arm_unreadable = parse_case_arms(lines, blanked, i, switch_end)
+            for verb, arm_line in arms.items():
+                verbs.setdefault(verb, arm_line)
+            unreadable.extend(arm_unreadable)
     return verbs, unreadable
 
 
@@ -377,6 +455,18 @@ def resolve_named_routes(root, constants, initializers):
     """
     if not constants and not initializers:
         return {}
+    implicit = sorted(
+        "`command == {0}.{1}` at {2}:{3}".format(name, member, CLI_SOURCE, line)
+        for line, name, member in constants
+        if name in IMPLICIT_RECEIVERS
+    )
+    if implicit:
+        raise ValueError(
+            "; ".join(implicit) + " names its verb through an implicit receiver. "
+            "This guard resolves `Type.constant` by finding the file that "
+            "declares `Type`, and there is no such file for `Self`. Spell the "
+            "type out so the verb stays readable."
+        )
     names = {name for _, name, _ in constants} | {name for _, name in initializers}
     declaring = files_declaring(root, names)
     missing = sorted(
@@ -413,7 +503,7 @@ def resolve_named_routes(root, constants, initializers):
         found = {}
         unreadable = []
         for path in declaring[name]:
-            owned, path_unreadable = command_literals_in_file(path)
+            owned, path_unreadable = command_literals_in_file(path, name)
             for value, declared in owned.items():
                 found.setdefault(value, (path, declared))
             unreadable.extend(
@@ -440,6 +530,21 @@ def resolve_named_routes(root, constants, initializers):
     return verbs
 
 
+def command_switches(blanked, start, end):
+    """Returns the line of every `switch command {` in the given function body.
+
+    All of them, not the first: today's single switch sits inside a `do` block,
+    tomorrow's may be split in two or moved into a branch, and a guard that read
+    only the first would let a whole set of verbs go undocumented while still
+    reporting success. Nesting is not a reason to skip one, because every switch
+    in here reads the same `command` and its arms are verbs either way.
+    """
+    return [
+        i for i in range(start + 1, end)
+        if SWITCH_COMMAND.match(blanked[i]) is not None
+    ]
+
+
 def parse_dispatch(root):
     """Returns {verb: location} for every top-level verb `run()` routes.
 
@@ -457,22 +562,29 @@ def parse_dispatch(root):
     run_end = block_end(blanked, start)
     if run_end is None:
         raise ValueError("`func run() async throws` is never closed")
-    switch = next(
-        (i for i in range(start, run_end) if COMMAND_SWITCH.match(lines[i])), None
-    )
-    if switch is None:
+    switches = command_switches(blanked, start, run_end)
+    if not switches:
         raise ValueError("could not locate `switch command {` inside `run()`")
-    end = block_end(blanked, switch)
-    if end is None:
-        raise ValueError("`switch command {` is never closed")
-    if lines[end].rstrip() != SWITCH_CLOSE:
-        raise ValueError(
-            "line {0} does not close `switch command {{`: {1!r}. Brace counting "
-            "walked off the switch, so the arms below it were never read."
-            .format(end + 1, lines[end][:60])
-        )
 
-    arms, unreadable = parse_case_arms(lines, blanked, switch, end)
+    arms = {}
+    unreadable = []
+    for switch in switches:
+        end = block_end(blanked, switch)
+        if end is None:
+            raise ValueError(
+                "`switch command {` at line {0} is never closed".format(switch + 1)
+            )
+        closing = SWITCH_COMMAND.match(blanked[switch]).group(1) + "}"
+        if lines[end].rstrip() != closing:
+            raise ValueError(
+                "line {0} does not close the `switch command {{` at line {1}: "
+                "{2!r}. Brace counting walked off the switch, so the arms below "
+                "it were never read.".format(end + 1, switch + 1, lines[end][:60])
+            )
+        switch_arms, switch_unreadable = parse_case_arms(lines, blanked, switch, end)
+        for verb, line in switch_arms.items():
+            arms.setdefault(verb, line)
+        unreadable.extend(switch_unreadable)
     if unreadable:
         raise ValueError(
             "case pattern(s) this guard cannot read: "

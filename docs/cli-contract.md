@@ -88,7 +88,7 @@ Environment:
 | `omo` | Launch OpenCode with oh-my-openagent integration. |
 | `omx` | Launch Oh My Codex with cmux pane integration. |
 | `omc` | Launch Oh My Claude Code with cmux pane integration. |
-| `hooks` | Agent hook integrations under one namespace: `setup` and `uninstall` (both take an optional agent name), `help`, and the per-agent hook actions the installed hooks call back into. |
+| `hooks` | Agent hook integrations under one namespace: `setup` and `uninstall` (both take an optional agent name), `help`, the per-agent `install` and `uninstall` actions (`cmux hooks codex install`), and the per-agent hook actions the installed hooks call back into. |
 | `setup-hooks`, `uninstall-hooks` | Compatibility aliases for `hooks setup` and `hooks uninstall`, kept for hook setup docs and scripts written before `cmux hooks`. |
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
 | `ping` | Check socket connectivity. |
@@ -229,8 +229,8 @@ Environment:
 | `report_pwd`, `report_git_branch`, `report_pr_action` | Internal shell integration entrypoints that forward one piece of sidebar metadata from a terminal's shell hooks and print the app's reply. |
 | `simulate-sidebar-drag` | Internal test helper that replays a sidebar drag; requires `--window`, `--from`, and `--to`, with optional `--duration-ms` and `--steps`. |
 | `vm-tui-connect` | Internal helper that replaces itself with the cmux-tui client for one machine. Requires `--config <file>`, a one-shot JSON config it deletes as it reads. |
-| `__owned-process-supervisor` | Internal supervisor that spawns the executable named by its first argument with the rest of the line as that program's arguments, then terminates the target's process group when the process that launched the supervisor exits. Never run by hand. |
-| `__codex-teams-app-server-supervisor` | Internal supervisor for `codex-teams` app servers. Same target handling as `__owned-process-supervisor`, but the lease is the lifetime of its inherited descriptors rather than its parent process. Never run by hand. |
+| `__owned-process-supervisor` | Internal supervisor that spawns the executable named by its first argument with the rest of the line as that program's arguments, with the supervisor's own stdin inherited by the target. Its lease is the process that launched it: when that process exits, or the supervisor is sent `SIGTERM`, `SIGINT` or `SIGHUP`, it sends `SIGTERM` to the target's process group and `SIGKILL` one second later. Never run by hand. |
+| `__codex-teams-app-server-supervisor` | Internal supervisor for `codex-teams` app servers. Same spawn and group termination as `__owned-process-supervisor`, but the lease is the lifetime of its inherited descriptors rather than its parent process, so it holds its own stdin and opens `/dev/null` as the target's. Never run by hand. |
 | `__codex-teams-watch` | Internal watcher backing `codex-teams` panes. Requires `--workspace-id`, `--surface-id`, and `--app-server-url`; also takes `--codex-path`, `--launch-path`, `--max-auto-depth`, and `--owner-pid` (it exits with that process). |
 | `__sidebar_footer_icon_balance` | Internal debug verb that opens the sidebar footer icon balance window and prints `OK`. Present in debug builds only; a release build reports an unknown command. |
 | `__internal_flags` | Internal debug verb that opens the app's internal flags window and prints `OK`. It does not print the flag state to stdout. |
