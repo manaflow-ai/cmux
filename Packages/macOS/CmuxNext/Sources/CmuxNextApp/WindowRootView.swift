@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextTerminal
 import Observation
 
 /// Window content: the sidebar flush on the leading edge (traffic lights sit
@@ -101,14 +102,19 @@ final class WindowRootView: NSView {
 
     /// Surface color plus window opacity: a translucent Ghostty background
     /// (`background-opacity`) makes the whole window translucent, like
-    /// Ghostty.app, instead of compositing over an opaque backing.
+    /// Ghostty.app, with its `background-blur` radius behind it
+    /// (`WindowBackdrop`).
     func themeDidChange() {
-        let opaque = ThemeStore.shared.tokens.backgroundOpacity >= 1
+        let tokens = ThemeStore.shared.tokens
+        let backdrop = WindowBackdrop(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur)
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.backgroundColor = Palette.windowBackground.cgColor
         }
         guard let window else { return }
-        window.isOpaque = opaque
-        window.backgroundColor = opaque ? Palette.windowBackground : .clear
+        window.isOpaque = backdrop.isOpaque
+        window.backgroundColor = backdrop.isOpaque
+            ? Palette.windowBackground
+            : NSColor.white.withAlphaComponent(backdrop.windowBackgroundAlpha)
+        if backdrop.appliesBlur { GhosttyRuntime.shared.applyBackgroundBlur(to: window) }
     }
 }

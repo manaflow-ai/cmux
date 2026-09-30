@@ -149,6 +149,15 @@ public final class GhosttyRuntime {
         )
     }
 
+    /// Sets the config's `background-blur` radius behind `window`
+    /// (`ghostty_set_window_background_blur`), as Ghostty does for its
+    /// translucent windows. libghostty does nothing while
+    /// `background-opacity` is 1.
+    public func applyBackgroundBlur(to window: NSWindow) {
+        guard let app else { return }
+        ghostty_set_window_background_blur(app, Unmanaged.passUnretained(window).toOpaque())
+    }
+
     /// `background-opacity` from the config, 0...1.
     public var backgroundOpacity: Double {
         var opacity: Double = 1
