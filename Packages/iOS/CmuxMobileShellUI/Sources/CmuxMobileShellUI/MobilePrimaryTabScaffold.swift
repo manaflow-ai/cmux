@@ -98,9 +98,6 @@ struct MobilePrimaryTabScaffold<
                 .tabViewStyle(.tabBarOnly)
                 .accessibilityIdentifier("MobilePrimaryTabs")
                 .animation(nil, value: selection)
-                .transaction { transaction in
-                    transaction.disablesAnimations = true
-                }
                 .onChange(of: selection, initial: true) { _, selection in
                     searchCoordinator.synchronizeSelection(selection)
                 }
