@@ -824,13 +824,13 @@
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.showTextBoxOnNewTerminals",
-          "description": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits."
+          "description": "Show the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits."
         },
         "focusTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.focusTextBoxOnNewTerminals",
-          "description": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
+          "description": "Focus the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
         },
         "agentHibernation": {
           "type": "object",
@@ -1560,7 +1560,7 @@
       "properties": {
         "matchTerminalBackground": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Use the terminal background instead of the sidebar tint."
         },
         "tintColor": {
@@ -2099,6 +2099,7 @@
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
               "pasteLastScreenshot",
+              "sizeTerminalToMyWindow",
               "clearScreenKeepScrollback",
               "simulatorHome",
               "simulatorRotateLeft",

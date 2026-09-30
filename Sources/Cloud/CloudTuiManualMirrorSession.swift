@@ -2,6 +2,8 @@ import CmuxCloud
 import CmuxCloudTui
 import CmuxSurfaceCatalogModel
 import CmuxTerminal
+import CmuxTerminalSharing
+import CmuxTerminalSizing
 import CmuxCore
 import CmuxCloudImagePaste
 import Foundation
@@ -21,6 +23,15 @@ final class CloudTuiManualMirrorSession {
     let machineID: String
     let terminalID: String
     private(set) var remoteSurfaceID: UInt64
+    /// Shared-sizing relay bookkeeping (`shared-sizing-v1` daemons only).
+    var sizingRelay = CloudTerminalSizingRelay()
+    /// Set when someone disconnected this Mac; the pane shows it with Reattach
+    /// and the session does not reconnect by itself.
+    var sharingDetachment: TerminalSharingDetachment?
+    /// Reattach as a viewer: send `counts: false` for this lease after attach.
+    var sharingReattachAsViewerPending = false
+    /// The local surface id this session published sharing state under.
+    var sharingSurfaceID: UUID?
     let inputRouter: CloudTuiManualIOInputRouter
     let imagePaste = CloudImagePasteCoordinator()
     private let operations: CloudOperationRecorder?
@@ -33,14 +44,14 @@ final class CloudTuiManualMirrorSession {
     private var diagnosticReference: String?
     private(set) weak var surface: TerminalSurface?
     private let onNeedsReconnect: @MainActor () -> Void
-    private let commandBuilder: CloudTuiManualIOCommand
+    let commandBuilder: CloudTuiManualIOCommand
     private(set) var connection: CloudTuiManualIOConnection?
     private var eventTask: Task<Void, Never>?
     private var connectTask: Task<Void, Never>?
     private var runtimeSampleTask: Task<Void, Never>?
     private(set) var socketPath: String?
     private var nextRequestID: UInt64 = 1
-    private var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
+    var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
     /// Capabilities belong to the current control connection. They must not
     /// survive a daemon restart because an older generation may not implement
     /// lease-fenced sizing or initial attach dimensions.
@@ -59,7 +70,7 @@ final class CloudTuiManualMirrorSession {
     private var claimUnsupported = false
     /// Retained for diagnostics and for a future targeted detach. Closing the
     /// socket is still the cleanup fence for peers without lease support.
-    private var remoteLease: String?
+    var remoteLease: String?
     /// The last sidecar fed to the local surface; the next one is applied as a delta from it.
     private var appliedRemoteColors = CloudTuiRemoteColors()
     private var hasReceivedRemoteReplay = false
@@ -88,7 +99,7 @@ final class CloudTuiManualMirrorSession {
     private let log: CloudTerminalAttachmentLog
     private var attachAttempts = 0
     private var interruption: CloudTerminalAttachmentInterruption?
-    private var automaticReconnectSuppressed = false
+    var automaticReconnectSuppressed = false
     var allowsAutomaticReconnect: Bool { !automaticReconnectSuppressed }
     var attachmentCorrelationID: String { log.correlationID }
     /// Grace bounds for the connection card; tests inject short ones.
@@ -108,6 +119,8 @@ final class CloudTuiManualMirrorSession {
     /// The card the pane shows for this attachment: nil while it is usable, being
     /// worked on, or still inside the failure grace; the Reconnect card otherwise.
     var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
+        // A disconnected-by detach shows the sharing card with Reattach instead.
+        if sharingDetachment != nil { return nil }
         switch CloudTerminalConnectionPresentationPolicy.outcome(for: presentationInput) {
         case .none:
             return nil
@@ -129,6 +142,10 @@ final class CloudTuiManualMirrorSession {
             automaticReconnectSuppressed = true
         } else {
             automaticReconnectSuppressed = false
+            if sharingDetachment != nil {
+                sharingDetachment = nil
+                publishSharingSnapshot()
+            }
         }
         // Explicit recovery must pass through the provider's fresh resolution,
         // including when the current socket is still attached or connecting.
@@ -194,6 +211,7 @@ final class CloudTuiManualMirrorSession {
             previous.hostedView.cloudTerminalOverlay.unbindSession(self)
         }
         self.surface = surface
+        bindSharing(surfaceID: surface.id)
         surface.hostedView.cloudTerminalOverlay.session = self
         manualMirrorLogger.info("bind terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID)")
         // A color sidecar that arrived before any surface existed reaches this
@@ -429,6 +447,10 @@ final class CloudTuiManualMirrorSession {
     /// is also used by the composed explicit-input callback.
     func claimGeometry() {
         guard surface?.isRendererPortalVisible == true else { return }
+        if sizingRelay.isSupported {
+            sendSharingFocusActivity()
+            return
+        }
         (geometryClaimEligible, geometryClaimBlockedByPeer, explicitGeometryClaimPending, geometryClaimLossPending) = (true, false, true, false)
         geometryClaimed = false
         claimUnsupported = false
@@ -438,6 +460,12 @@ final class CloudTuiManualMirrorSession {
     /// user is typing in must be the authoritative geometry owner. An owner
     /// already confirmed, or a server without claims, sends its keys alone.
     func noteExplicitInput() {
+        if sizingRelay.isSupported {
+            // Activity only matters when it moves ownership to this Mac.
+            if let me = sizingRelay.selfParticipantID, sizingRelay.state?.owners == [me] { return }
+            sendSharingFocusActivity()
+            return
+        }
         guard (!geometryClaimed && !claimUnsupported) || geometryClaimBlockedByPeer else { return }
         claimGeometry()
     }
@@ -446,6 +474,7 @@ final class CloudTuiManualMirrorSession {
     /// servers; newer servers additionally retire the lease with the same close.
     func stop() {
         guard phase != .stopped else { return }
+        unbindSharing()
         let wasAttached = phase == .attached
         transition(to: .stopped)
         endPresentationEpisode()
@@ -531,12 +560,12 @@ final class CloudTuiManualMirrorSession {
         presentationStage = .silent
     }
 
-    private func synchronizePresentation() {
+    func synchronizePresentation() {
         surface?.hostedView.synchronizeCloudTerminalReconnectOverlay()
         surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
     }
 
-    private func finishDiagnostics(error: Error? = nil) {
+    func finishDiagnostics(error: Error? = nil) {
         diagnosticDeadline?.cancel()
         diagnosticDeadline = nil
         if let error, !(error is CancellationError) { diagnosticFailure = .classify(error) }
@@ -588,13 +617,16 @@ final class CloudTuiManualMirrorSession {
         case let .colorsChanged(surfaceID, colors):
             guard surfaceID == remoteSurfaceID else { return }
             applyColors(colors)
-        case let .detached(surfaceID):
+        case let .detached(surfaceID, reason, view):
             guard surfaceID == remoteSurfaceID else { return }
-            transitionToDisconnected(reason: .transportClosed)
+            handleSharingDetached(reason: reason, view: view)
+        case let .sizeState(surfaceID, state):
+            guard surfaceID == remoteSurfaceID else { return }
+            receiveSizeState(state)
         case let .overflow(surfaceID):
             guard surfaceID == nil || surfaceID == remoteSurfaceID else { return }
             transitionToDisconnected(reason: .transportClosed)
-        case let .response(requestID, ok, lease, capabilities, outcome, accepted, error):
+        case let .response(requestID, ok, lease, capabilities, outcome, accepted, error, sizing):
             handleResponse(
                 requestID: requestID,
                 ok: ok,
@@ -602,7 +634,8 @@ final class CloudTuiManualMirrorSession {
                 capabilities: capabilities,
                 outcome: outcome,
                 accepted: accepted,
-                error: error
+                error: error,
+                sizing: sizing
             )
         case .message:
             // Resource responses belong to the per-machine command
@@ -681,6 +714,22 @@ final class CloudTuiManualMirrorSession {
         onNeedsReconnect()
     }
 
+    /// A host `detached` for this Mac: a network drop reconnects as before; a
+    /// person's disconnect (or host shutdown / supersede) stays down until the
+    /// user reattaches from the pane.
+    func disconnectForSharing(reconnect: Bool) {
+        guard !reconnect else {
+            transitionToDisconnected(reason: .transportClosed)
+            return
+        }
+        automaticReconnectSuppressed = true
+        tearDownConnection()
+        guard phase != .stopped else { return }
+        finishDiagnostics(error: CancellationError())
+        transition(to: .disconnected, reason: .rejected("detached by the terminal host"))
+        synchronizePresentation()
+    }
+
     private func fenceAttachment(error: Error, reason: CloudTerminalAttachmentInterruption = .transportClosed) {
         tearDownConnection()
         guard phase != .stopped else { return }
@@ -696,7 +745,7 @@ final class CloudTuiManualMirrorSession {
 
     /// Every phase change goes through here, so the unified log and the pane's
     /// status can never disagree with the session.
-    private func transition(to next: CloudTuiManualMirrorPhase, reason: CloudTerminalAttachmentInterruption? = nil) {
+    func transition(to next: CloudTuiManualMirrorPhase, reason: CloudTerminalAttachmentInterruption? = nil) {
         phase = next
         if let reason { interruption = reason }
         if next == .attached {
@@ -728,7 +777,8 @@ final class CloudTuiManualMirrorSession {
         capabilities: [String],
         outcome: String?,
         accepted: Bool?,
-        error: String?
+        error: String?,
+        sizing: CloudTuiSizingResponse? = nil
     ) {
         guard !imagePaste.receive(requestID: requestID, ok: ok, accepted: accepted, error: error), let kind = pendingRequests.removeValue(forKey: requestID) else { return }
         defer { scheduleFidelityCheck() }
@@ -748,6 +798,7 @@ final class CloudTuiManualMirrorSession {
                 return
             }
             serverCapabilities = Set(capabilities)
+            sizingRelay.connectionStarted(capabilities: serverCapabilities)
             if creationAttachment != nil, !serverCapabilities.contains("attach-identity-v1") {
                 guard let resolveLegacySurfaceID, let currentConnection = connection else {
                     transitionToDisconnected(reason: .rejected("creation attachment identity unsupported"))
@@ -799,6 +850,7 @@ final class CloudTuiManualMirrorSession {
             attachResponseReceived = true
             if diagnosticReplayReceived { finishDiagnostics() }
             remoteLease = lease
+            sharingAttached(selfParticipantID: sizing?.participant)
             transition(to: .attached)
             watchdog.armLiveness(
                 probe: { [weak self] in self?.sendPing() },
@@ -817,6 +869,14 @@ final class CloudTuiManualMirrorSession {
             resumeSizingIfNeeded()
         case .ping:
             watchdog.noteProbeAnswered()
+        case let .relayView(view):
+            if ok, let participant = sizing?.participant {
+                sizingRelay.noteHostParticipant(participant, forView: view)
+                publishSharingSnapshot()
+            }
+            if let state = sizing?.state { receiveSizeState(state) }
+        case .sizing:
+            if let state = sizing?.state { receiveSizeState(state) }
         case let .resize(requestedGrid):
             guard resizeScheduler.inFlight == requestedGrid else {
                 // The request may have been retired by a hide/reveal or a
@@ -907,6 +967,7 @@ final class CloudTuiManualMirrorSession {
             commandBuilder.setClientInfo(
                 name: "cmux cloud terminal",
                 kind: "native-mirror",
+                identity: sizingRelay.isSupported ? sharingSelfIdentity() : nil,
                 requestID: requestID
             )
         )
@@ -975,6 +1036,12 @@ final class CloudTuiManualMirrorSession {
     }
 
     private func sendClaimIfNeeded() {
+        if sizingRelay.isSupported {
+            // The host's policy decides the grid; resizes are plain reports and
+            // explicit claims are sent only as focus activity (claimGeometry).
+            claimUnsupported = true
+            return
+        }
         guard attachResponseReceived,
               surface?.isRendererPortalVisible == true,
               surface?.isNativeViewInRealWindow == true,
@@ -1009,7 +1076,7 @@ final class CloudTuiManualMirrorSession {
         }
     }
 
-    private func takeRequestID() -> UInt64 {
+    func takeRequestID() -> UInt64 {
         defer { nextRequestID = nextRequestID == UInt64.max ? 1 : nextRequestID + 1 }
         return nextRequestID
     }
@@ -1022,7 +1089,7 @@ final class CloudTuiManualMirrorSession {
             switch kind {
             case .resize(_), .claim:
                 return false
-            case .identify, .clientInfo, .attach, .ping:
+            case .identify, .clientInfo, .attach, .ping, .relayView, .sizing:
                 return true
             }
         }
