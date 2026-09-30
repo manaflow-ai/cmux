@@ -598,6 +598,9 @@ jobs:
           security delete-keychain ios-appstore.keychain >/dev/null 2>&1 || true
 
   set-testflight-notes:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     name: Set TestFlight notes
     needs: upload
     # Run alongside tester assignment and even if later steps in the upload
@@ -631,6 +634,9 @@ jobs:
         run: python3 ios/scripts/apply-deferred-testflight-notes.py "${{ runner.temp }}/testflight-notes/testflight-notes.json"
 
   assign-internal:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     name: Make build available to official internal testers
     needs: [decide, upload]
     if: >-
