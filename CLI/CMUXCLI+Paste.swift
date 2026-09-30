@@ -300,6 +300,7 @@ extension CMUXCLI {
 
         let maxAttempts = 3
         var lastState = state
+        var lastKey = "return"
         for attempt in 0..<maxAttempts {
             if attempt > 0 {
                 let current = try? client.sendV2(method: "surface.input_state", params: target)
@@ -313,7 +314,7 @@ extension CMUXCLI {
                 }
                 if sendStateIsConfirmed(lastState, screen: screen) {
                     return printSubmitResult(
-                        status: sendSubmitStatus(lastState),
+                        status: sendSubmitStatus(lastState, key: lastKey),
                         payload: lastState ?? target,
                         jsonOutput: jsonOutput,
                         idFormat: idFormat
@@ -344,6 +345,7 @@ extension CMUXCLI {
                 && ((state?["busy"] as? Bool) == true || (state?["lifecycle"] as? String) == "running")
                 && Self.stateOrScreenLooksLikeCodex(state, screen: screen)
             let key = busyCodex ? "tab" : "return"
+            lastKey = key
             let slashPopupBeforeKey = (state?["slash_command_popup"] as? Bool) == true || Self.screenShowsSlashPopup(screen)
             var keyParams = target
             keyParams["key"] = key
@@ -408,7 +410,7 @@ extension CMUXCLI {
         }
         if sendStateIsConfirmed(lastState, screen: screen) {
             return printSubmitResult(
-                status: sendSubmitStatus(lastState),
+                status: sendSubmitStatus(lastState, key: lastKey),
                 payload: lastState ?? target,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat
