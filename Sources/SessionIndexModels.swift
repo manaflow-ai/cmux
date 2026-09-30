@@ -151,7 +151,7 @@ enum OpenCodeDatabaseSnapshot {
 
     static func make(prefix: String) throws -> Snapshot? {
         let fileManager = FileManager.default
-        let sourceURL = OpenCodePaths.databaseURL(environment: ProcessInfo.processInfo.environment)
+        let sourceURL = OpenCodePaths(environment: ProcessInfo.processInfo.environment).databaseURL
         guard fileManager.fileExists(atPath: sourceURL.path) else { return nil }
 
         let snapshotDir = fileManager.temporaryDirectory.appendingPathComponent(

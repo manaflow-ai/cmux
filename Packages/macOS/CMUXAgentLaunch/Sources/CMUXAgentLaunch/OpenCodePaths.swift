@@ -1,30 +1,34 @@
 import Foundation
 
-/// Resolves the filesystem locations used by OpenCode from its documented
+/// The filesystem locations used by OpenCode, resolved from its documented
 /// environment overrides.
-public enum OpenCodePaths {
-    public static func configDirectory(environment: [String: String]) -> URL {
-        let home = homeURL(environment: environment)
-        if let override = nonEmpty(environment["OPENCODE_CONFIG_DIR"]) {
-            return expandedURL(override, home: home)
-        }
-        if let xdgConfigHome = nonEmpty(environment["XDG_CONFIG_HOME"]) {
-            return expandedURL(xdgConfigHome, home: home)
-                .appendingPathComponent("opencode", isDirectory: true)
-        }
-        return home.appendingPathComponent(".config/opencode", isDirectory: true)
-    }
+public struct OpenCodePaths: Sendable, Equatable {
+    /// OpenCode's configuration directory: `OPENCODE_CONFIG_DIR`, then
+    /// `$XDG_CONFIG_HOME/opencode`, then `~/.config/opencode`.
+    public let configDirectory: URL
+    /// OpenCode's session database: `OPENCODE_DB`, then
+    /// `$XDG_DATA_HOME/opencode/opencode.db`, then
+    /// `~/.local/share/opencode/opencode.db`.
+    public let databaseURL: URL
 
-    public static func databaseURL(environment: [String: String]) -> URL {
-        let home = homeURL(environment: environment)
-        if let override = nonEmpty(environment["OPENCODE_DB"]) {
-            return expandedURL(override, home: home)
+    public init(environment: [String: String]) {
+        let home = Self.homeURL(environment: environment)
+        if let override = Self.nonEmpty(environment["OPENCODE_CONFIG_DIR"]) {
+            configDirectory = Self.expandedURL(override, home: home)
+        } else if let xdgConfigHome = Self.nonEmpty(environment["XDG_CONFIG_HOME"]) {
+            configDirectory = Self.expandedURL(xdgConfigHome, home: home)
+                .appendingPathComponent("opencode", isDirectory: true)
+        } else {
+            configDirectory = home.appendingPathComponent(".config/opencode", isDirectory: true)
         }
-        if let xdgDataHome = nonEmpty(environment["XDG_DATA_HOME"]) {
-            return expandedURL(xdgDataHome, home: home)
+        if let override = Self.nonEmpty(environment["OPENCODE_DB"]) {
+            databaseURL = Self.expandedURL(override, home: home)
+        } else if let xdgDataHome = Self.nonEmpty(environment["XDG_DATA_HOME"]) {
+            databaseURL = Self.expandedURL(xdgDataHome, home: home)
                 .appendingPathComponent("opencode/opencode.db", isDirectory: false)
+        } else {
+            databaseURL = home.appendingPathComponent(".local/share/opencode/opencode.db", isDirectory: false)
         }
-        return home.appendingPathComponent(".local/share/opencode/opencode.db", isDirectory: false)
     }
 
     private static func nonEmpty(_ value: String?) -> String? {
