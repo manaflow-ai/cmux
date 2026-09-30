@@ -200,6 +200,14 @@ import Testing
         #expect(document.windows.isEmpty)
     }
 
+    @Test func pruneDropsEveryWindowWithoutWorkspaces() {
+        // A window exists only while it holds a workspace, so a record that
+        // never listed one (an old empty state, another client) is dropped too.
+        var document = WindowStateDocument(windows: [WindowRecord(id: "empty"), WindowRecord(id: "w1", workspaceKey: "k1")])
+        document.prune(liveWorkspaces: ["k1"])
+        #expect(document.windows.map(\.id) == ["w1"])
+    }
+
     @Test func sidebarHiddenRoundTripsAndLegacyCollapsedMigratesToHidden() throws {
         let record = WindowRecord(id: "w1", sidebarWidth: 230, sidebarHidden: true)
         let data = try JSONEncoder().encode(record)

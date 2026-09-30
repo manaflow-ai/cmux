@@ -8,7 +8,7 @@ import Testing
 /// keep separate selections, sidebars, and screen switchers; an action
 /// aimed at one window never changes another; membership transitions touch
 /// only the windows involved; the last workspace leaving a window closes
-/// it, except the only window, which shows the empty state. Windows are
+/// it, the only window too (a window never shows an empty state). Windows are
 /// created but never put on screen (`ordersWindowsIn = false`).
 @MainActor
 struct WindowStateIsolationTests {
@@ -131,17 +131,38 @@ struct WindowStateIsolationTests {
         a.window?.close()
     }
 
-    @Test func theOnlyWindowShowsTheEmptyStateWhenItsWorkspacesClose() async throws {
+    @Test func theOnlyWindowClosesWhenItsLastWorkspaceCloses() async throws {
         let services = Self.services(workspaces: 1)
         let a = try #require(services.windows.openWindow(workspaces: [Self.id(1)]))
         services.windows.reconcileMembership()
         Self.apply(services, keys: [])
         services.windows.reconcileMembership()
-        #expect(services.windows.controllers.map(\.state.id) == [a.state.id])
-        #expect(services.windows.registry.members(of: a.state.id).isEmpty)
-        #expect(a.state.workspaceID == nil)
-        await Self.settle { a.root.content is EmptyWindowView }
-        #expect(a.root.content is EmptyWindowView)
-        a.window?.close()
+        #expect(services.windows.controllers.isEmpty)
+        #expect(services.windows.registry.value.windows.isEmpty)
+        #expect(services.windows.states[a.state.id] == nil)
+        #expect(a.window?.isVisible != true)
+    }
+
+    @Test func theOnlyWindowClosesWhenItsLastWorkspaceMovesToAnotherWindow() throws {
+        let services = Self.services(workspaces: 2)
+        let a = try #require(services.windows.openWindow(workspaces: [Self.id(1)]))
+        let b = try #require(services.windows.openWindow(workspaces: [Self.id(2)]))
+        services.windows.didActivate(a)
+        Self.run(services, "moveWorkspaceToWindow", ActionInvocation(
+            target: ActionTargetRef(kind: .workspace, id: Self.id(1)),
+            arguments: ["window": .target(ActionTargetRef(kind: .window, id: b.state.id))]))
+        #expect(services.windows.controllers.map(\.state.id) == [b.state.id])
+        #expect(services.windows.registry.members(of: b.state.id) == [Self.id(1), Self.id(2)])
+        #expect(b.state.workspaceID == Self.id(1))
+        b.window?.close()
+    }
+
+    @Test func theLaunchWindowIsNeverRegisteredEmpty() {
+        let services = Self.services(workspaces: 0)
+        services.windows.restoreWhenLoaded()
+        // The launch window shows the connecting state, outside membership.
+        #expect(services.windows.registry.value.windows.allSatisfy { !$0.workspaceIDs.isEmpty })
+        #expect(services.windows.registry.value.violations().isEmpty)
+        for controller in services.windows.controllers { controller.window?.close() }
     }
 }

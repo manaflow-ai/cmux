@@ -4,9 +4,10 @@ import Foundation
 @testable import CmuxNextApp
 import Testing
 
-/// `WindowRegistry`: every workspace in exactly one window, windows that
-/// lose their last workspace close unless they are the only one, closing a
-/// window never drops workspaces, and membership survives a save/restore.
+/// `WindowRegistry`: every workspace in exactly one window, a window exists
+/// only while it owns at least one workspace (the last one leaving closes
+/// it, the only window too), closing a window never drops workspaces, and
+/// membership survives a save/restore.
 struct WindowRegistryTests {
     /// Window a lists w1 w2, window b lists w3 (b most recent).
     private func twoWindows() -> WindowRegistry {
@@ -42,22 +43,57 @@ struct WindowRegistryTests {
         #expect(registry.violations().isEmpty)
     }
 
-    @Test func theOnlyWindowKeepsAnEmptyState() {
+    @Test func theOnlyWindowClosesWhenItsLastWorkspaceIsGone() {
         var registry = WindowRegistry()
         registry.openWindow(id: "a", workspaceIDs: ["w1"])
         let changes = registry.reconcile(live: [], dead: ["w1"], fallbackWindow: "unused")
-        #expect(changes.emptied.isEmpty)
-        #expect(registry.window("a")?.workspaceIDs == [])
-        #expect(registry.window("a")?.isOpen == true)
+        #expect(changes.emptied == ["a"])
+        #expect(registry.windows.isEmpty)
         #expect(registry.violations().isEmpty)
     }
 
-    @Test func whenEveryWindowEmptiesTheMostRecentOneStays() {
+    @Test func whenEveryWindowEmptiesEveryWindowCloses() {
         var registry = twoWindows()
         registry.activate("a")
         let changes = registry.reconcile(live: [], dead: ["w1", "w2", "w3"], fallbackWindow: "unused")
-        #expect(changes.emptied == ["b"])
-        #expect(registry.windows.map(\.id) == ["a"])
+        #expect(Set(changes.emptied) == ["a", "b"])
+        #expect(registry.windows.isEmpty)
+        #expect(registry.recency.isEmpty)
+    }
+
+    @Test func movingTheOnlyWindowsLastWorkspaceAwayClosesIt() {
+        var registry = WindowRegistry()
+        registry.openWindow(id: "a", workspaceIDs: ["w1"])
+        let changes = registry.openWindow(id: "b", workspaceIDs: ["w1"])
+        #expect(changes.emptied == ["a"])
+        #expect(registry.windows.map(\.id) == ["b"])
+        #expect(registry.violations().isEmpty)
+    }
+
+    @Test func aWindowIsNeverRegisteredWithoutAWorkspace() {
+        var registry = WindowRegistry()
+        let changes = registry.openWindow(id: "a")
+        #expect(changes.isEmpty)
+        #expect(registry.windows.isEmpty)
+        // A window that would take only workspaces it cannot own stays out too.
+        registry.openWindow(id: "b", workspaceIDs: [])
+        #expect(registry.window("b") == nil)
+    }
+
+    @Test func aRegisteredEmptyWindowIsAViolation() {
+        let registry = WindowRegistry(windows: [WindowRegistry.Window(id: "a"), WindowRegistry.Window(id: "b", workspaceIDs: ["w1"])])
+        #expect(registry.violations() == ["a has no workspaces"])
+    }
+
+    @Test func aClosedLastWindowIsDroppedWhenItsWorkspacesDie() {
+        var registry = WindowRegistry()
+        registry.openWindow(id: "a", workspaceIDs: ["w1"])
+        registry.close("a")
+        #expect(registry.window("a")?.isOpen == false)
+        let changes = registry.reconcile(live: [], dead: ["w1"], fallbackWindow: "unused")
+        #expect(changes.emptied == ["a"])
+        #expect(registry.windows.isEmpty)
+        #expect(registry.reopen() == nil)
     }
 
     @Test func closingAWindowMovesItsWorkspacesToTheMostRecentOther() {
@@ -162,11 +198,15 @@ struct WindowRegistryTests {
         #expect(registry.violations().isEmpty)
     }
 
-    @Test func emptyOnlyWindowRecordSurvivesPruneAndRestore() {
-        var document = WindowStateDocument(windows: [WindowRecord(id: "solo")])
-        document.prune(liveWorkspaces: [])
-        #expect(document.windows.map(\.id) == ["solo"])
-        #expect(WindowRegistry(records: document.windows).windows.map(\.id) == ["solo"])
+    @Test func emptyWindowRecordsArePrunedAndNeverRestored() {
+        // Older builds saved the only window's empty state as a record with
+        // no workspaces; another client can write one too.
+        var document = WindowStateDocument(windows: [WindowRecord(id: "solo", order: 0), WindowRecord(id: "full", workspaceKey: "w1", order: 1)])
+        document.prune(liveWorkspaces: ["w1"])
+        #expect(document.windows.map(\.id) == ["full"])
+        let restored = WindowRegistry(records: [WindowRecord(id: "solo", order: 0), WindowRecord(id: "full", workspaceKey: "w1", order: 1)])
+        #expect(restored.windows.map(\.id) == ["full"])
+        #expect(WindowRegistry(records: [WindowRecord(id: "solo")]).windows.isEmpty)
     }
 
     // MARK: Sidebar mapping
