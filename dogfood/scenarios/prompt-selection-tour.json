@@ -1,0 +1,31 @@
+{
+  "paths": [
+    "Sources/GhosttyTerminalView.swift",
+    "Packages/macOS/CmuxTerminalCore/*TextEditing/TerminalPromptSelection.swift",
+    "Packages/macOS/CmuxSettings/*"
+  ],
+  "launch": {
+    "args": ["-terminal.promptSelection", "YES"],
+    "zoom": true
+  },
+  "steps": [
+    {"socket": "workspace.create", "params": {"title": "Prompt selection", "initial_input": "clear\n", "focus": true}},
+    {"wait": 3},
+    {"type": "echo hello world"},
+    {"wait": 0.5},
+    {"shot": "01-typed-shell-line"},
+    {"key": "left", "modifiers": ["shift"]},
+    {"key": "left", "modifiers": ["shift"]},
+    {"key": "left", "modifiers": ["shift"]},
+    {"key": "left", "modifiers": ["shift"]},
+    {"key": "left", "modifiers": ["shift"]},
+    {"wait": 0.5},
+    {"shot": "02-shift-left-selection"},
+    {"key": "a", "modifiers": ["command"]},
+    {"wait": 0.5},
+    {"shot": "03-command-a-select-all"},
+    {"type": "x"},
+    {"wait": 0.5},
+    {"shot": "04-typing-replaces-selection"}
+  ]
+}
