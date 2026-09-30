@@ -187,6 +187,13 @@ func splitLeadingSendFlags(args []string) (submit, force bool, remaining []strin
 func inspectSendTarget(socketPath string, target map[string]any, refreshAddr func() string) (map[string]any, string, error) {
 	state, err := readSendInputState(socketPath, target, refreshAddr)
 	if err == nil {
+		if agentValue, hasAgent := state["agent"]; hasAgent {
+			if agent, isBool := agentValue.(bool); isBool && !agent {
+				// Plain shells have no composer; the separate Return key is the
+				// complete submit contract, so avoid an unnecessary screen probe.
+				return state, "", nil
+			}
+		}
 		screen, _ := readSendScreen(socketPath, target, refreshAddr)
 		// A relay may answer input_state without hook metadata. Prefer the
 		// visible prompt classifier when it can identify an agent composer, so a

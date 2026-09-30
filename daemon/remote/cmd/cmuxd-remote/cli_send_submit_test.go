@@ -184,6 +184,11 @@ func TestSendSubmitShellUsesReturnWithoutComposerCheck(t *testing.T) {
 	if params(mock.request("surface.send_key"))["key"] != "return" {
 		t.Fatalf("submit key params = %v", params(mock.request("surface.send_key")))
 	}
+	for _, method := range mock.methods() {
+		if method == "surface.read_text" {
+			t.Fatal("shell submit unexpectedly probed composer screen")
+		}
+	}
 }
 
 func TestSendSubmitSlashPopupSendsExtraSubmit(t *testing.T) {
