@@ -108,6 +108,23 @@ struct WindowLifecycleTests {
         Self.closeAll(services)
     }
 
+    @Test func aRestoredWindowWhoseWorkspacesAreNotMirroredStaysOffScreen() async {
+        // A saved window lists a workspace no machine reports (gone, or its
+        // Cloud machine still connecting): it is kept, but never shown empty.
+        let services = Self.services(workspaces: 1)
+        let windows = services.windows!
+        windows.transition { registry in
+            registry.openWindow(id: "saved", workspaceIDs: ["00000000-dead-4000-8000-000000000000"])
+        }
+        #expect(windows.controller(for: "saved") != nil)
+        #expect(windows.awaitingContent["saved"] != nil)
+        #expect(WindowInvariants.problems(windows).isEmpty)
+        // Presenting it anyway is reported.
+        windows.awaitingContent["saved"] = nil
+        #expect(WindowInvariants.problems(windows) == ["window saved is presented but none of its workspaces is mirrored"])
+        Self.closeAll(services)
+    }
+
     @Test func movingEveryWorkspaceOfAWindowToANewWindowMovesThatWindow() throws {
         let services = Self.services(workspaces: 2)
         let a = try #require(services.windows.openWindow(workspaces: [Self.id(1)]))
