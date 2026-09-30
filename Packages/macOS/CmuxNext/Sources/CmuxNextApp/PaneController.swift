@@ -22,7 +22,9 @@ final class PaneController: SurfacePresenter {
     weak var workspace: WorkspaceContentController?
 
     private(set) var currentTabKey: String?
-    private(set) var isVisible = false
+    /// How near the layout reports this pane to the viewport.
+    private(set) var presence: SurfacePresence = .hidden
+    var isVisible: Bool { presence == .visible }
     /// Tabs closed locally while the daemon confirms (Chrome-speed close).
     var pendingClosed: Set<String> = []
     /// A tab this app just created here; selected once the daemon reports it.
@@ -156,7 +158,7 @@ final class PaneController: SurfacePresenter {
         // May replace a stale surface, displacing the view shown here.
         let content = key.flatMap(content(for:))
         currentTabKey = key
-        if let key, content != nil { services.cache.present(key, by: self, visible: isVisible) }
+        if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
         view.show(content?.view)
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
@@ -210,13 +212,14 @@ final class PaneController: SurfacePresenter {
         return (key == currentTabKey && view.hostsContent) || services.cache.hasContent(for: key)
     }
 
-    /// The layout reported this pane on or off screen.
-    func setVisible(_ visible: Bool) {
-        guard isVisible != visible else { return }
-        isVisible = visible
-        services.cache.setVisible(visible, presenter: self)
-        // Content destroyed while off screen re-attaches (daemon replay).
-        if visible, stripModel.selectedID != nil, currentTabKey == nil || !view.hostsContent {
+    /// The layout reported this pane on screen, in the keep-alive band, or away.
+    func setPresence(_ presence: SurfacePresence) {
+        guard self.presence != presence else { return }
+        self.presence = presence
+        services.cache.setPresence(presence, presenter: self)
+        // Content destroyed while away re-attaches (daemon replay) as soon as
+        // the pane nears the viewport, so it is ready before it scrolls in.
+        if presence != .hidden, stripModel.selectedID != nil, currentTabKey == nil || !view.hostsContent {
             services.presentation.setNeedsShowSelected(self)
         }
         services.surfaceInvariant.noteChange()

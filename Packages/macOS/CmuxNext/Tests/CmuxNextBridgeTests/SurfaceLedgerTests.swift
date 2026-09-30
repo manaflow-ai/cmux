@@ -121,3 +121,73 @@ private struct SplitMix {
         return z ^ (z >> 31)
     }
 }
+
+/// Off-screen columns within one viewport width keep their surfaces, paused
+/// (architecture.md 4), so a scroll back shows content with no re-attach.
+struct SurfaceLedgerKeepAliveTests {
+    typealias Ledger = SurfaceLedger<String, String>
+
+    @Test func keepAliveOwnersArePausedButNeverEvicted() {
+        var ledger = Ledger(capacity: 1)
+        _ = ledger.present("near", by: "N", presence: .visible)
+        let scrolled = ledger.setPresence(.keepAlive, owner: "N")
+        #expect(scrolled.rendering == ["near": false])
+        #expect(scrolled.evicted.isEmpty)
+        // Many hidden tabs churn through a 1-slot LRU.
+        for key in ["x", "y", "z", "w"] {
+            let effects = ledger.present(key, by: "H\(key)", presence: .hidden)
+            #expect(!effects.evicted.contains("near"))
+        }
+        #expect(ledger.isRetained("near"))
+        #expect(ledger.owner(of: "near") == "N")
+        #expect(ledger.setPresence(.visible, owner: "N").rendering == ["near": true])
+    }
+
+    @Test func leavingTheBandReturnsTheSurfaceToTheLRU() {
+        var ledger = Ledger(capacity: 1)
+        _ = ledger.present("far", by: "F", presence: .keepAlive)
+        _ = ledger.present("other", by: "O", presence: .hidden)
+        #expect(ledger.isRetained("far"))
+        let left = ledger.setPresence(.hidden, owner: "F")
+        // "other" was hidden first, so it is the one the 1-slot LRU drops.
+        #expect(left.evicted == ["other"])
+        let churn = ledger.present("third", by: "T", presence: .hidden)
+        #expect(churn.evicted == ["far"])
+        #expect(churn.displaced == [.init(key: "far", owner: "F")])
+    }
+
+    @Test func randomPresenceChangesNeverEvictAKeepAliveOrVisibleKey() {
+        var generator = SeededGenerator(seed: 7)
+        var ledger = Ledger(capacity: 2)
+        let owners = ["A", "B", "C", "D", "E"]
+        var presence: [String: SurfacePresence] = [:]
+        var shown: [String: String] = [:]
+        for step in 0..<400 {
+            let owner = owners.randomElement(using: &generator)!
+            if Bool.random(using: &generator) {
+                let next: SurfacePresence = [.visible, .keepAlive, .hidden].randomElement(using: &generator)!
+                presence[owner] = next
+                _ = ledger.setPresence(next, owner: owner)
+            } else {
+                let key = "k\(Int.random(in: 0..<8, using: &generator))"
+                shown = shown.filter { $0.value != key }
+                shown[owner] = key
+                _ = ledger.present(key, by: owner, presence: presence[owner] ?? .hidden)
+            }
+            for (owner, key) in shown where ledger.owner(of: key) == owner {
+                let state = presence[owner] ?? .hidden
+                #expect(ledger.isRendering(key) == (state == .visible), "step \(step)")
+                if state != .hidden { #expect(ledger.isRetained(key), "step \(step)") }
+            }
+        }
+    }
+}
+
+private struct SeededGenerator: RandomNumberGenerator {
+    var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        return state >> 11 | state << 53
+    }
+}

@@ -21,6 +21,7 @@ public final class LayoutRootView: NSView {
     private var eventMonitor: Any?
     private var lastSnapshot: Snapshot?
     private var reportedVisible: Set<PaneID> = []
+    private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
     var dragTab: TabID?
@@ -83,6 +84,15 @@ public final class LayoutRootView: NSView {
     /// The hosted content view of `pane`, if it has been created.
     public func contentView(for pane: PaneID) -> NSView? {
         context.hosts[pane]?.content
+    }
+
+    /// Where a split of `pane` along `axis` would go given the current
+    /// viewport (`SplitRoom`). `removing` is a pane that disappears in the
+    /// same step (a moved tab's source pane when it was its only tab).
+    /// Returns `.split` for a pane this view does not show or has not measured.
+    public func splitPlacement(splitting pane: PaneID, axis: SplitAxis, removing: PaneID? = nil) -> SplitPlacement {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return .split }
+        return view.splitPlacement(splitting: pane, axis: axis, removing: removing)
     }
 
     /// Displayed frame of `pane` in this view's coordinates (active screen only).
@@ -206,16 +216,26 @@ public final class LayoutRootView: NSView {
 
     func updateVisibility() {
         var visible: Set<PaneID> = []
+        var keepAlive: Set<PaneID> = []
         if window != nil, let active = model.activeScreenID, let view = screenViews[active] {
             visible = view.visiblePanes()
+            keepAlive = view.keepAlivePanes().union(visible)
         }
-        guard visible != reportedVisible else { return }
-        let appeared = visible.subtracting(reportedVisible)
-        let disappeared = reportedVisible.subtracting(visible)
+        guard visible != reportedVisible || keepAlive != reportedKeepAlive else { return }
+        var changes: [(PaneID, PanePresence)] = []
+        for pane in reportedKeepAlive.union(keepAlive) {
+            let before = PanePresence(pane, visible: reportedVisible, keepAlive: reportedKeepAlive)
+            let after = PanePresence(pane, visible: visible, keepAlive: keepAlive)
+            if before != after { changes.append((pane, after)) }
+        }
         reportedVisible = visible
-        model.reportVisiblePanes(visible)
-        for pane in appeared { context.provider?.paneVisibilityDidChange(pane, isVisible: true) }
-        for pane in disappeared { context.provider?.paneVisibilityDidChange(pane, isVisible: false) }
+        reportedKeepAlive = keepAlive
+        model.reportVisiblePanes(visible, keepAlive: keepAlive)
+        // Losses first, so content leaving the band frees room before new
+        // content attaches.
+        for (pane, presence) in changes.sorted(by: { $0.1.rank < $1.1.rank }) {
+            context.provider?.panePresenceDidChange(pane, presence: presence)
+        }
     }
 
     // MARK: Layout and window

@@ -7,7 +7,8 @@ private func style(gap: CGFloat = 8) -> LayoutStyle {
     style.columnGap = gap
     style.dividerThickness = 1
     style.dividerHitThickness = 9
-    style.minimumPaneExtent = 20
+    style.paneChromeHeight = 0
+    style.minimumPaneContentSize = CGSize(width: 20, height: 20)
     return style
 }
 

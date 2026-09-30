@@ -43,7 +43,11 @@ enum PaneHandlers {
         registry.bind("newPaneAutoLayout", invoke: { invocation in
             guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
             let frame = content.layoutView.frame(of: pane.layoutPaneID) ?? .zero
-            split(ctx, invocation, direction: frame.width >= frame.height ? .right : .down)
+            let preferred: PaneDirection = frame.width >= frame.height ? .right : .down
+            let other: PaneDirection = preferred == .right ? .down : .right
+            // The longer side first; the other axis when only it has room.
+            let fitsPreferred = if case .refused = ctx.services.splitRoom(for: pane.pane, edge: edge(preferred)) { false } else { true }
+            split(ctx, invocation, direction: fitsPreferred ? preferred : other)
         })
     }
 
@@ -59,13 +63,32 @@ enum PaneHandlers {
         let cwd = invocation["cwd"]?.stringValue ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
         let keep = invocation["keep"]?.boolValue == true ? true : nil
+        let logger = ctx.services.daemon.logger
+        switch ctx.services.splitRoom(for: pane, edge: edge(direction)) {
+        case .split:
+            break
+        case .refused(let reason):
+            return ctx.refuse(reason)
+        case .newColumn(_, let anchor):
+            let intent = content?.beginFocusIntent()
+            ctx.registry.track(Task {
+                do {
+                    let created = try await connection.newColumn(rightOf: anchor, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
+                    content?.expectFocus(on: created.surface, generation: intent)
+                    return nil
+                } catch {
+                    logger.error("new-pane-right failed: \(String(describing: error), privacy: .public)")
+                    return "new-pane-right: \(error)"
+                }
+            })
+            return
+        }
         let daemonDirection: SplitDirection = direction == .left || direction == .right ? .right : .down
         let swapTowards: PaneDirection? = switch direction {
         case .left: .right
         case .up: .down
         default: nil
         }
-        let logger = ctx.services.daemon.logger
         let intent = content?.beginFocusIntent()
         ctx.registry.track(Task {
             do {
@@ -78,6 +101,15 @@ enum PaneHandlers {
                 return "split: \(error)"
             }
         })
+    }
+
+    static func edge(_ direction: PaneDirection) -> PaneEdge {
+        switch direction {
+        case .left: .left
+        case .right: .right
+        case .up: .top
+        case .down: .bottom
+        }
     }
 
     // MARK: Focus

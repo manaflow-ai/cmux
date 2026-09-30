@@ -35,7 +35,9 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
             return ScreenGeometry(viewport: viewport, panes: result.panes, dividers: result.dividers, contentWidth: viewport.width, isColumns: false)
         case let .columns(columns):
             let gap = style.columnGap
-            let strip = ColumnStripGeometry.frames(widths: columns.map(\.width), viewport: viewport, gap: gap, scale: scale)
+            let minimums = columns.map { SplitGeometry.minimumSize(of: $0.root, style: style).width }
+            let strip = ColumnStripGeometry.frames(widths: columns.map(\.width), viewport: viewport, gap: gap, scale: scale,
+                                                   minimumWidths: minimums)
             var geometry = ScreenGeometry(viewport: viewport, contentWidth: strip.contentWidth, isColumns: true)
             let edgeHit = max(gap, style.dividerHitThickness)
             let dropWidth = max(gap, style.newColumnDropWidth)

@@ -162,7 +162,7 @@ public final class MockLayoutSource {
 
 /// Colored placeholder panes for the demo.
 public final class MockPaneContentProvider: LayoutPaneContentProvider {
-    public private(set) var visibility: [PaneID: Bool] = [:]
+    public private(set) var presence: [PaneID: PanePresence] = [:]
 
     public init() {}
 
@@ -170,8 +170,8 @@ public final class MockPaneContentProvider: LayoutPaneContentProvider {
         MockPaneView(pane: pane)
     }
 
-    public func paneVisibilityDidChange(_ pane: PaneID, isVisible: Bool) {
-        visibility[pane] = isVisible
+    public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {
+        self.presence[pane] = presence
     }
 }
 
