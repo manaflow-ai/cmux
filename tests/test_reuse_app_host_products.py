@@ -10,6 +10,7 @@ from unittest import mock
 import shutil
 import sys
 import tarfile
+import tempfile
 import subprocess
 import unittest
 import zipfile
@@ -753,6 +754,46 @@ class ReuseProducts(TestProductHandoff):
         """Re-seal the producer archive as a run that checked out `revision`."""
         self.identity = {**self.identity, "revision": revision}
         self.seal()
+
+    def test_a_receipt_sealed_under_another_contract_names_the_fields_that_moved(self):
+        """An artifact found by this job's key but sealed with another contract
+        says which contract fields differ, not only product_provenance_invalid.
+
+        On 2026-09-29 PR media tours of #14563 found CI's artifact by name six
+        times and refused it each time with that reason alone (e.g. run
+        36540512350): the producer named its artifact before sealing a
+        receipt whose contract hashes differently, and nothing said why.
+        """
+        sealed = {**self.contract, "tools": {**self.contract["tools"], "zig": "0.16.0"}}
+        root = self.producer / "Build/Products"
+        receipt = json.loads((root / reuse.RECEIPT).read_text())
+        (root / reuse.RECEIPT).write_text(json.dumps({**receipt, "contract": sealed}))
+        self.api.artifact["digest"] = self.package(self.producer, self.api.archive)
+        report = {}
+        output = io.StringIO()
+        with mock.patch("sys.stdout", output):
+            self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("product_provenance_invalid", report["miss_reasons"])
+        self.assertIn("contract mismatch in tools.zig", output.getvalue())
+        self.assertIn(f"artifact {self.api.artifact['id']} of run {self.api.run['id']}", output.getvalue())
+
+    def test_contract_differences_names_nested_fields(self):
+        self.assertEqual(
+            reuse.contract_differences(
+                {"a": 1, "tools": {"zig": "1", "go": "absent"}, "only_sealed": 1},
+                {"a": 1, "tools": {"zig": "2", "go": "absent"}, "only_wanted": 2},
+            ),
+            ["only_sealed", "only_wanted", "tools.zig"],
+        )
+
+    def test_contract_differences_names_missing_field_when_other_value_is_none(self):
+        self.assertEqual(
+            reuse.contract_differences(
+                {"tools": {"zig": None}},
+                {"tools": {}},
+            ),
+            ["tools.zig"],
+        )
 
     def test_pull_request_producer_sealed_at_its_merge_commit_is_reusable(self):
         """A pull request producer seals the merge commit it checked out.
@@ -2017,6 +2058,33 @@ class ContractParity(unittest.TestCase):
             f"CMUX_DERIVED_DATA_PATH={root / 'derived-data-compile-admission'}",
             f"CMUX_E2E_COMPILATION_CACHE={root / 'compile-admission-cas'}",
         ])
+
+    def test_contract_ignores_an_sdkroot_naming_the_default_sdk(self):
+        # Some owned Macs' runner services export SDKROOT, others do not.
+        with tempfile.TemporaryDirectory() as directory:
+            sdk = Path(directory) / "MacOSX26.5.sdk"
+            sdk.mkdir()
+            alias = Path(directory) / "MacOSX.sdk"
+            alias.symlink_to(sdk.name)
+            other = Path(directory) / "MacOSX15.5.sdk"
+            other.mkdir()
+            unset = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"})
+
+            def contract_at(sdkroot):
+                answers = {"xcodebuild": "Xcode 26.6\nBuild version 17F113",
+                           ("xcrun", "--sdk", "macosx", "--show-sdk-build-version"): "25F70",
+                           ("xcrun", "--sdk", "macosx", "--show-sdk-path"): str(sdk)}
+                with mock.patch.dict(os.environ, {"CMUX_SKIP_ZIG_BUILD": "1", "SDKROOT": sdkroot}, clear=True), \
+                        mock.patch.object(reuse, "read", side_effect=lambda *args: answers.get(args, answers.get(args[0]))), \
+                        mock.patch.object(reuse.shutil, "which", return_value=None), \
+                        mock.patch.object(reuse.product_inputs, "local_identity", return_value={"source": "s"}):
+                    return reuse.contract()
+
+            self.assertEqual(unset["environment"]["SDKROOT"], "")
+            for name in (str(alias), str(sdk)):
+                with self.subTest(sdkroot=name):
+                    self.assertEqual(contract_at(name)["environment"]["SDKROOT"], "")
+            self.assertEqual(contract_at(str(other))["environment"]["SDKROOT"], str(other))
 
     def test_contract_names_the_selected_xcode_not_its_selector(self):
         # Admission pins Xcode by path; an E2E dispatch picks the same Xcode by

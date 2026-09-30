@@ -1086,6 +1086,7 @@ struct cmuxApp: App {
         }
         helpCommands
         historyCommands
+        cloudCommands
         CommandGroup(after: .toolbar) {
             splitCommandButton(title: String(localized: "menu.view.toggleLeftSidebar", defaultValue: "Toggle Left Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
                 // The AppKit-hosted Settings window has no SwiftUI
@@ -1705,6 +1706,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.configEditor",
     "cmux.computerUse.onboarding",
     "cmux.defaultTerminalRegistrationError",
+    "cmux.featureFlags",
     "cmux.feedButtonStyleDebug",
     "cmux.feedPreview",
     "cmux.feedTextEditorDebug",
@@ -1732,6 +1734,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.mobilePairingWindow",
     "cmux.sidebarFooterIconBalanceDebug",
     "cmux.cloudPaneCreationFailure.card",
+    "cmux.cloudCreateTeam",
     "cmux.sudo.approval",
 ]
 
@@ -3394,7 +3397,7 @@ private struct SidebarFooterHelpIconReference: View {
 
 private struct SidebarDebugView: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
-    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
+    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = SidebarAppearanceCatalogSection().matchTerminalBackground.defaultValue
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex

@@ -104,7 +104,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         XCTAssertTrue(
             app.staticTexts[
-                "A human will read this! You can also reach us at founders@manaflow.com."
+                "You can also reach us at founders@cmux.com."
             ].waitForExistence(timeout: 2.0)
         )
 
@@ -166,7 +166,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         settingsItem.click()
 
-        let settings = app.windows["Settings"]
+        let settings = app.windows["cmux.settings"]
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 6.0) { settings.exists },
             "Expected Settings to open from the sidebar Help menu"
@@ -197,7 +197,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         reopenedSettingsItem.click()
         XCTAssertTrue(
-            sidebarHelpPollUntil(timeout: 6.0) { app.windows["Settings"].exists },
+            sidebarHelpPollUntil(timeout: 6.0) { app.windows["cmux.settings"].exists },
             "Expected the Help menu to reopen Settings after closing it"
         )
 
@@ -280,6 +280,9 @@ final class SidebarHelpMenuUITests: XCTestCase {
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
+        // Minimal Mode hides the footer's Help button. Pin the standard
+        // layout, since a machine can keep Minimal Mode from an earlier run.
+        app.launchArguments += ["-workspacePresentationMode", "standard"]
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         XCTExpectFailure("Headless CI may launch the app without foreground activation", options: options) {

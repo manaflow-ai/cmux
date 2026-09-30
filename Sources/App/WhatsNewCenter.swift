@@ -37,7 +37,9 @@ final class WhatsNewCenter {
     private(set) var hasUnseenHighlights = false
 
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private let loader: WhatsNewCatalogLoader
+    @ObservationIgnored private let loader: @Sendable () async throws -> WhatsNewCatalog
+    @ObservationIgnored private let buildFlavor: BuildFlavor
+    @ObservationIgnored private let versionOverride: String?
     @ObservationIgnored private var catalog: WhatsNewCatalog?
     @ObservationIgnored private var pendingReleases: [WhatsNewRelease] = []
     /// The one launch check; non-nil once startup restore has settled.
@@ -55,14 +57,21 @@ final class WhatsNewCenter {
     /// the welcome as shown.
     @ObservationIgnored private let launchIsFirstRun: Bool
 
-    init(defaults: UserDefaults = .standard, loader: WhatsNewCatalogLoader = WhatsNewCatalogLoader()) {
+    init(
+        defaults: UserDefaults = .standard,
+        loader: @escaping @Sendable () async throws -> WhatsNewCatalog = { try await WhatsNewCatalogLoader().load() },
+        buildFlavor: BuildFlavor = .current,
+        currentVersion: String? = nil
+    ) {
         self.defaults = defaults
         self.loader = loader
+        self.buildFlavor = buildFlavor
+        versionOverride = currentVersion
         launchIsFirstRun = !defaults.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
     }
 
     private var currentVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        versionOverride ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
     }
 
     private var mode: WhatsNewPresentationMode {
@@ -93,18 +102,22 @@ final class WhatsNewCenter {
         }
     }
 
+    /// Waits for the one launch check to finish, including its catalog load.
+    func waitForLaunchCheck() async {
+        await launchTask?.value
+    }
+
     /// Decides what this launch announces, loads the catalog when it needs
     /// to, and then shows the sheet or the quiet indicator.
     private func runLaunchCheck() async {
         let decision = WhatsNewAutomaticPresentation().decide(
             mode: mode,
-            flavor: BuildFlavor.current,
+            flavor: buildFlavor,
             currentVersion: currentVersion,
             lastSeenVersion: defaults.string(forKey: Self.lastSeenReleaseDefaultsKey),
             isFirstRun: launchIsFirstRun
         )
         let since: String?
-        let presents: Bool
         switch decision {
         case .none:
             return
@@ -113,10 +126,8 @@ final class WhatsNewCenter {
             return
         case .indicate(let lastSeen):
             since = lastSeen
-            presents = false
         case .present(let lastSeen):
             since = lastSeen
-            presents = true
         }
         guard let current = WhatsNewAutomaticPresentation.releaseKey(currentVersion),
               let catalog = try? await loadCatalog() else {
@@ -128,10 +139,15 @@ final class WhatsNewCenter {
         // alone so a later launch can still announce them.
         guard !releases.isEmpty else { return }
         pendingReleases = releases
+        // The setting may have changed while the catalog was loading. Read it
+        // again so a launch that was switched Off never presents or sets the
+        // quiet indicator.
+        let liveMode = mode
+        guard liveMode != .off else { return }
         // The launch recap only ever attaches to a main terminal window and
         // never activates cmux. With no window to attach to (all closed or
         // minimized by the time the catalog arrives), keep the dot instead.
-        if presents, let parent = sheetParentCandidate() {
+        if liveMode == .sheet, let parent = sheetParentCandidate() {
             present(releases: releases, source: "launch", sheetParent: parent)
         } else {
             hasUnseenHighlights = true
@@ -206,7 +222,7 @@ final class WhatsNewCenter {
         if let injected = Self.catalogForUITest() {
             loaded = injected
         } else {
-            loaded = try await loader.load()
+            loaded = try await loader()
         }
         catalog = loaded
         return loaded

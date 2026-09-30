@@ -12,7 +12,7 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # scripts/ci/owned_pool_rescue.py has the rules.
 #
 # One sweeper watches the busy sources (SWEEP=1, owned_pool_rescue.sweep()).
-# The pickers of ci.yml, test-e2e.yml and test-ios.yml upload an
+# The pickers of ci.yml, test-e2e.yml, test-ios.yml and iroh-release-gate.yml upload an
 # `owned-pool-watch` artifact when they place attempt 1 on an owned pool, and
 # ci-macos.yml's late-placement an `owned-pool-watch-late` one when it moves
 # jobs onto one; every minute the sweeper lists both names repository-wide
@@ -161,6 +161,4 @@ jobs:
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
           # 1: wait for ci-macos.yml's late-placement before calling the run ephemeral.
           LATE_PLACEMENT: ${{ inputs.late }}
-          # 1: a stuck run's full re-run may take the light pool; watch it.
-          OWNED_LIGHT_RETRY: ${{ vars.CI_OWNED_LIGHT_RETRY }}
         run: python3 scripts/ci/owned_pool_rescue.py

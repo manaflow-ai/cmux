@@ -54,6 +54,25 @@ Controls which files and folders cmux on iOS may browse after a chat references 
 
 Authorization compares canonical paths after resolving symlinks. A symlink inside an authorized folder cannot grant access to a target outside that folder.
 
+## `mobile.browserTunnel.allowOtherHosts`
+
+Controls where the iOS "On iPhone" browser can reach through this Mac. The browser loads pages on the phone, and connections for this Mac's workspaces leave from this Mac.
+
+```json
+{
+  "mobile": {
+    "browserTunnel": {
+      "allowOtherHosts": false
+    }
+  }
+}
+```
+
+- `false` (default): only this Mac's `localhost` (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`) is reachable through the Mac. Other sites load over the phone's own network.
+- `true`: LAN, VPN, and internet hosts are also reachable through this Mac, with names resolved on this Mac.
+
+Link-local addresses, including the cloud metadata service at `169.254.169.254`, never go through this Mac either way; the phone loads those over its own network, as it does any host this Mac refuses. Only a phone signed in to the same account and admitted to this Mac can open connections, and they end when that phone disconnects. Turning off the embedded browser by configuration profile turns this off too.
+
 ## `paneBorderColor` and `activePaneBorderColor`
 
 Customize split-workspace pane boundaries controlled by cmux.
@@ -88,7 +107,7 @@ Supported placeholders:
 - `{windowToken}`: the first 8 characters of the persisted window UUID.
 - `{activeWorkspace}`: the active workspace title, falling back to the default title when the workspace title is blank.
 - `{activeDirectory}`: the active workspace's current directory.
-- `{defaultTitle}`: the title cmux would have used without a template.
+- `{defaultTitle}`: the title cmux would have used without a template. For `cmux ssh` and Cloud workspaces it ends with the host, as in `build · big-red`.
 - `{appName}`: `cmux`.
 
 For tiling window managers such as AeroSpace or yabai, match on the stable token in the title. For example, the template above gives each restored macOS window a title containing `[cmux:abcd1234]`, so a rule can match `\\[cmux:abcd1234\\]`. The token is stable across relaunches for restored windows because it comes from the persisted window UUID.
@@ -129,8 +148,9 @@ Default: `right`.
 
 Routine Agent Hibernation is opt-in. cmux hibernates idle background agent
 processes to free RAM and CPU, then resumes each one with its saved session
-when you visit its tab. Independently, aggregate memory pressure can offer the
-same lossless hibernation lifecycle even when routine hibernation is disabled.
+when you visit its tab. Independently, memory pressure (critical system pressure,
+or aggregate pressure below) can use the same lossless hibernation lifecycle even
+when routine hibernation is disabled.
 See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full eligibility
 rules, confirmation settle window, and resume behavior.
 
@@ -194,6 +214,61 @@ Shows a loading spinner on sidebar workspace rows that currently have running co
 - `notificationBadgePosition`: which side the unread notification badge sits on, `leading` or `trailing`. Default: `leading`.
 
 The spinner is compositor-driven (a Core Animation transform run by the render server), so it costs no per-frame CPU and pauses automatically while the window is occluded or Reduce Motion is on. Toggle it manually per workspace with `cmux workspace loading <on|off> [--id <name>]`; each `--id` is a separate loader and the command prints the workspace state as `before=ON;after=OFF`.
+
+## `sidebar.compactAgentStatus`
+
+Puts the workspace's own status on one line, like the Claude desktop session list: one small colored glyph, then the title. Agent hooks report each coding agent's state as a status entry (for example Claude Code's "Running" or "Needs input"), and by default every one gets its own row under the workspace title, next to the branch and directory line and the pull request rows. With `compactAgentStatus` on, those rows fold into the glyph, along with the notification preview, the unread count badge and the loading spinner, and a long title stops wrapping. Hover the glyph for the agent, pull request, branch, and directory details, plus the config profile an agent launched under when it isn't the default (`CLAUDE_CONFIG_DIR=~/.claude-outlook` shows as `outlook`).
+
+Lines you added yourself stay where they are: the workspace description, your own `cmux set-status` keys, logs, progress, ports, the checklist, and a remote workspace's connection row with its Reconnect button. So `cmux set-status` under your own key is still the way to keep a line of your own in compact mode.
+
+```json
+{
+  "sidebar": {
+    "compactAgentStatus": true
+  }
+}
+```
+
+The glyph shows the loudest state that applies:
+
+| State | Glyph |
+| --- | --- |
+| An agent reported an error | red warning triangle |
+| An agent needs input | amber dot |
+| An agent is running | pulsing gray dot, in place of the loading spinner |
+| An agent is starting (no state reported yet) | dashed ring |
+| Unread notifications | blue dot, in place of the unread count badge |
+| Open pull request | gray pull request glyph |
+| Merged pull request | purple merge glyph |
+| Closed pull request | gray pull request glyph with a minus badge |
+| Agent idle (done, seen) | gray checkmark |
+| Branch, no pull request | gray branch glyph |
+| Plain terminal | none; the title starts at the row's edge |
+
+cmux does not fetch a pull request's checks or mergeability, so an open pull request is gray whatever CI says. A pull request whose state repeated refresh failures could not confirm does not set the glyph at all.
+
+Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF Symbol](https://developer.apple.com/sf-symbols/) name. The states are `error`, `needsInput`, `running`, `starting`, `unseen`, `pullRequestOpen`, `pullRequestMerged`, `pullRequestClosed`, `idle`, `branch` and `terminal`. Colors stay the same; a configured symbol replaces the badge too, draws at full size, and a name that does not render falls back to the built-in symbol. The built-in pull request and merge glyphs are drawn by cmux, since the SF Symbols ones are too narrow at sidebar size; name them `cmux.pullrequest` and `cmux.merge` to use them for another state.
+
+```json
+{
+  "sidebar": {
+    "compactAgentStatus": true,
+    "compactStatusIcons": {
+      "terminal": "apple.terminal",
+      "needsInput": "hand.raised.fill",
+      "idle": "moon.zzz"
+    }
+  }
+}
+```
+
+- Default: `false`.
+- Only agent-owned status keys lose their rows (`claude_code`, `codex`, and the other built-in agent integrations). Status set with `cmux set-status` under any other key keeps its row.
+- The notification preview moves to the top of the tooltip too. Rows you added yourself (a workspace description, `cmux set-status` under other keys, logs, progress, ports) keep their lines.
+- Workspace group headers show a glyph, after the group name, for the workspaces without a row of their own: the anchor workspace while the group is expanded, and every member once it is collapsed. Only states that ask for attention appear there (error, needs input, running, unread), the loudest first; hover it to see which workspace each comes from. It replaces the header's unread count.
+- The pulse is a Core Animation opacity loop capped at 30 Hz. It stops while the window is hidden or occluded, and Reduce Motion keeps the dot still.
+- A pull request glyph shows whether the pull request is open, merged or closed, and nothing about its checks. cmux does not fetch CI status or mergeability for a pull request, so there is no passing, failing or conflict glyph: adding one would advertise a color no user could see. An open pull request shows gray, merged shows purple, and closed shows gray with a minus badge. See [#12807](https://github.com/manaflow-ai/cmux/issues/12807).
+- Pull request and branch details follow `sidebar.showPullRequests` and the git branch toggle: turn either off and the glyph ignores it. Toggle compact status from **Settings > Sidebar > Compact Agent Status**.
 
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 
