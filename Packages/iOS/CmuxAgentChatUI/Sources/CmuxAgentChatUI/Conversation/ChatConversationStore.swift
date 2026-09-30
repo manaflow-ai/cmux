@@ -158,11 +158,13 @@ public final class ChatConversationStore {
             do {
                 try await source.send(text: text, attachments: attachments, sessionID: sessionID)
                 try Task.checkCancellation()
+                guard sessionID == selectedSessionID else { return }
                 pendingMessageIDs.remove(localID)
                 isSending = false
             } catch is CancellationError {
                 return
             } catch {
+                guard sessionID == selectedSessionID else { return }
                 messages.removeAll { $0.id == localID }
                 pendingMessageIDs.remove(localID)
                 isSending = false
@@ -274,6 +276,8 @@ public final class ChatConversationStore {
         selectedSessionID = sessionID
         messages = []
         streamingMessage = nil
+        isSending = false
+        pendingMessageIDs.removeAll()
         hasMoreHistory = false
         isWorking = false
         errorMessage = nil

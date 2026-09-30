@@ -83,7 +83,7 @@ public struct ChatConversationView: View {
                     } label: {
                         Image(systemName: "xmark")
                     }
-                    .accessibilityLabel(chatString("chat.conversation.close", "Close"))
+                    .accessibilityLabel(String(localized: "chat.conversation.close", defaultValue: "Close", bundle: .module))
                 }
                 ToolbarItem(placement: .principal) {
                     sessionPicker
@@ -104,17 +104,17 @@ public struct ChatConversationView: View {
 
     private var navigationTitle: String {
         guard let selected = store.sessions.first(where: { $0.id == store.selectedSessionID }) else {
-            return chatString("chat.conversation.title", "Chat")
+            return String(localized: "chat.conversation.title", defaultValue: "Chat", bundle: .module)
         }
         return selected.title?.isEmpty == false
             ? selected.title!
-            : chatString("chat.conversation.title", "Chat")
+            : String(localized: "chat.conversation.title", defaultValue: "Chat", bundle: .module)
     }
 
     private var sessionPicker: some View {
         Menu {
             if store.sessions.isEmpty {
-                Text(chatString("chat.conversation.no_sessions", "No conversations"))
+                Text(String(localized: "chat.conversation.no_sessions", defaultValue: "No conversations", bundle: .module))
             } else {
                 ForEach(store.sessions) { session in
                     Button {
@@ -133,7 +133,7 @@ public struct ChatConversationView: View {
                 store.createSession()
             } label: {
                 Label(
-                    chatString("chat.conversation.new", "New conversation"),
+                    String(localized: "chat.conversation.new", defaultValue: "New conversation", bundle: .module),
                     systemImage: "plus"
                 )
             }
@@ -192,7 +192,7 @@ public struct ChatConversationView: View {
 
             HStack(alignment: .bottom, spacing: 8) {
                 TextField(
-                    chatString("chat.conversation.composer.placeholder", "Message"),
+                    String(localized: "chat.conversation.composer.placeholder", defaultValue: "Message", bundle: .module),
                     text: $draft,
                     axis: .vertical
                 )
@@ -213,7 +213,7 @@ public struct ChatConversationView: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(.secondary)
-                    .accessibilityLabel(chatString("chat.conversation.stop", "Stop"))
+                    .accessibilityLabel(String(localized: "chat.conversation.stop", defaultValue: "Stop", bundle: .module))
                     .accessibilityIdentifier("ChatStopButton")
                 }
 
@@ -225,7 +225,7 @@ public struct ChatConversationView: View {
                 .buttonStyle(.borderedProminent)
                 .clipShape(Circle())
                 .disabled(!canSend)
-                .accessibilityLabel(chatString("chat.conversation.send", "Send"))
+                .accessibilityLabel(String(localized: "chat.conversation.send", defaultValue: "Send", bundle: .module))
                 .accessibilityIdentifier("ChatSendButton")
             }
             .padding(.horizontal, 12)
@@ -302,16 +302,16 @@ public struct ChatConversationView: View {
         .overlay {
             if store.visibleMessages.isEmpty, store.connectionState == .connected {
                 ContentUnavailableView(
-                    chatString("chat.conversation.empty.title", "Start a conversation"),
+                    String(localized: "chat.conversation.empty.title", defaultValue: "Start a conversation", bundle: .module),
                     systemImage: "bubble.left.and.bubble.right",
-                    description: Text(chatString("chat.conversation.empty.message", "Send a message to get started."))
+                    description: Text(String(localized: "chat.conversation.empty.message", defaultValue: "Send a message to get started.", bundle: .module))
                 )
                 .padding(.bottom, 48)
             } else if case .failed = store.connectionState, store.visibleMessages.isEmpty {
                 ContentUnavailableView(
-                    chatString("chat.conversation.unavailable.title", "Chat unavailable"),
+                    String(localized: "chat.conversation.unavailable.title", defaultValue: "Chat unavailable", bundle: .module),
                     systemImage: "wifi.exclamationmark",
-                    description: Text(store.errorMessage ?? chatString("chat.conversation.unavailable.message", "Reconnect to try again."))
+                    description: Text(store.errorMessage ?? String(localized: "chat.conversation.unavailable.message", defaultValue: "Reconnect to try again.", bundle: .module))
                 )
                 .padding(.horizontal, 28)
             }
@@ -329,7 +329,7 @@ public struct ChatConversationView: View {
         }
         .buttonStyle(.borderedProminent)
         .clipShape(Circle())
-        .accessibilityLabel(chatString("chat.conversation.jump_latest", "Jump to latest"))
+        .accessibilityLabel(String(localized: "chat.conversation.jump_latest", defaultValue: "Jump to latest", bundle: .module))
         .accessibilityIdentifier("ChatJumpToLatestButton")
     }
 
@@ -348,12 +348,12 @@ public struct ChatConversationView: View {
 
     private var statusLabel: String {
         switch store.connectionState {
-        case .idle: return chatString("chat.conversation.status.idle", "Offline")
-        case .loading: return chatString("chat.conversation.status.loading", "Connecting")
+        case .idle: return String(localized: "chat.conversation.status.idle", defaultValue: "Offline", bundle: .module)
+        case .loading: return String(localized: "chat.conversation.status.loading", defaultValue: "Connecting", bundle: .module)
         case .connected:
-            if store.isWorking { return chatString("chat.conversation.status.working", "Working") }
-            return chatString("chat.conversation.status.ready", "Ready")
-        case .failed: return chatString("chat.conversation.status.failed", "Unavailable")
+            if store.isWorking { return String(localized: "chat.conversation.status.working", defaultValue: "Working", bundle: .module) }
+            return String(localized: "chat.conversation.status.ready", defaultValue: "Ready", bundle: .module)
+        case .failed: return String(localized: "chat.conversation.status.failed", defaultValue: "Unavailable", bundle: .module)
         }
     }
 
@@ -405,7 +405,7 @@ private struct ChatConversationMessageRow: View {
                 ChatConversationMarkdownText(text: prose.text)
             }
         case .thought(let thought):
-            compactCard(title: "Thought", icon: "brain") {
+            compactCard(title: String(localized: "chat.conversation.thought", defaultValue: "Thought", bundle: .module), icon: "brain") {
                 Text(thought.text)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -422,7 +422,12 @@ private struct ChatConversationMessageRow: View {
                 }
             }
         case .terminal(let terminal):
-            compactCard(title: terminal.isRunning ? "Running" : "Terminal", icon: "terminal") {
+            compactCard(
+                title: terminal.isRunning
+                    ? String(localized: "chat.conversation.running", defaultValue: "Running", bundle: .module)
+                    : String(localized: "chat.conversation.terminal", defaultValue: "Terminal", bundle: .module),
+                icon: "terminal"
+            ) {
                 Text(terminal.command)
                     .font(.caption.monospaced())
                 if let output = terminal.output, !output.isEmpty {
@@ -450,12 +455,18 @@ private struct ChatConversationMessageRow: View {
         case .status(let status):
             statusRow(status)
         case .attachment(let attachment):
-            compactCard(title: attachment.displayName ?? "Attachment", icon: "paperclip") {
+            compactCard(
+                title: attachment.displayName ?? String(localized: "chat.conversation.attachment", defaultValue: "Attachment", bundle: .module),
+                icon: "paperclip"
+            ) {
                 Text(attachment.media.rawValue.capitalized)
                     .font(.subheadline)
             }
         case .unsupported(let payload):
-            compactCard(title: "Unsupported message", icon: "questionmark.square") {
+            compactCard(
+                title: String(localized: "chat.conversation.unsupported", defaultValue: "Unsupported message", bundle: .module),
+                icon: "questionmark.square"
+            ) {
                 Text(payload.rawType)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
@@ -466,17 +477,18 @@ private struct ChatConversationMessageRow: View {
     @ViewBuilder
     private func bubble<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .bottom, spacing: 8) {
-            if message.role != .user { Spacer(minLength: 28) }
+            if message.role == .user { Spacer(minLength: 28) }
             content()
+                .frame(maxWidth: 320, alignment: .leading)
                 .foregroundStyle(message.role == .user ? .white : .primary)
                 .padding(.horizontal, 13)
                 .padding(.vertical, 9)
                 .background(message.role == .user ? Color.accentColor : Color.secondary.opacity(0.14))
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .contextMenu {
-                    Button("Copy") { copy(messageText) }
+                    Button(String(localized: "chat.conversation.copy", defaultValue: "Copy", bundle: .module)) { copy(messageText) }
                 }
-            if message.role == .user { Spacer(minLength: 28) }
+            if message.role != .user { Spacer(minLength: 28) }
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
@@ -505,7 +517,7 @@ private struct ChatConversationMessageRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .contextMenu {
-            Button("Copy") { copy(messageText) }
+            Button(String(localized: "chat.conversation.copy", defaultValue: "Copy", bundle: .module)) { copy(messageText) }
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("ChatMessage-\(message.id)")
@@ -523,7 +535,7 @@ private struct ChatConversationMessageRow: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(resolution == .approved ? .green : .secondary)
             } else if request.options.isEmpty {
-                Text("Respond in the composer")
+                Text(String(localized: "chat.conversation.respond_in_composer", defaultValue: "Respond in the composer", bundle: .module))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -619,8 +631,4 @@ private struct ChatConversationMarkdownText: View {
             Text(text)
         }
     }
-}
-
-private func chatString(_ key: StaticString, _ defaultValue: String.LocalizationValue) -> String {
-    String(localized: key, defaultValue: defaultValue, bundle: .module)
 }
