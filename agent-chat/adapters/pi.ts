@@ -195,17 +195,14 @@ async function applyInitialOptions(sess: SessionCtx) {
       await setPiOption(sess, "model", st.model);
       if (stale()) return;
     }
-    if (stale()) return;
     if (!st.modelChoices.length || !st.commands.length) {
       await refreshPi(sess);
       if (stale()) return;
     }
-    if (stale()) return;
     if (requestedThinking) {
       await setPiOption(sess, "thinking", requestedThinking);
       if (stale()) return;
     }
-    if (stale()) return;
     await captureState(sess);
     if (stale()) return;
     st.initialApplied = true;
