@@ -115,6 +115,54 @@ final class cmuxUITests: XCTestCase {
         add(scopedSearch)
     }
 
+    @MainActor
+    func testAgentFeedDecisionPreviewPagesAndScrolls() {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_DECISION_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let questionRow = app.descendants(matching: .any)["MobileAgentFeedRow-question-preview"]
+        XCTAssertTrue(questionRow.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedRow-empty-assistant"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedRow-empty-stop"].exists)
+
+        let firstPage = app.descendants(matching: .any)["MobileAgentFeedQuestionPage-1"]
+        XCTAssertTrue(firstPage.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Question 1 of 2"].exists)
+        firstPage.swipeLeft()
+        XCTAssertTrue(app.staticTexts["Question 2 of 2"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Select all that apply"].exists)
+        app.buttons["MobileAgentFeedQuestionOption-events-build"].tap()
+
+        let secondPage = app.descendants(matching: .any)["MobileAgentFeedQuestionPage-2"]
+        secondPage.swipeRight()
+        XCTAssertTrue(app.staticTexts["Question 1 of 2"].waitForExistence(timeout: 5))
+        app.buttons["MobileAgentFeedQuestionOption-deploy-production"].tap()
+        firstPage.swipeLeft()
+        XCTAssertTrue(app.buttons["MobileAgentFeedQuestionSubmit"].waitForExistence(timeout: 5))
+        app.buttons["MobileAgentFeedQuestionSubmit"].tap()
+        XCTAssertTrue(app.staticTexts["Question reply accepted"].waitForExistence(timeout: 3))
+
+        let allow = app.buttons["MobileAgentFeedPermissionAllow"]
+        let always = app.buttons["MobileAgentFeedPermissionAlways"]
+        let more = app.buttons["MobileAgentFeedPermissionMore"]
+        for _ in 0..<10 where !allow.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(allow.waitForExistence(timeout: 5))
+        XCTAssertTrue(always.exists)
+        XCTAssertTrue(more.exists)
+        XCTAssertEqual(allow.frame.width, more.frame.width, accuracy: 6)
+        XCTAssertEqual(allow.frame.height, more.frame.height, accuracy: 6)
+
+        for _ in 0..<8 { app.swipeDown() }
+        let proof = XCTAttachment(screenshot: app.screenshot())
+        proof.name = "feed-decision-controls-and-scroll"
+        proof.lifetime = .keepAlways
+        add(proof)
+    }
+
     func testForegroundRemovesOnlyReadDeliveredNotifications() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()

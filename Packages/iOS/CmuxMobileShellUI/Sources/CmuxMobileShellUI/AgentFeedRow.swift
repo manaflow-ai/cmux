@@ -53,7 +53,20 @@ enum AgentFeedActionRole: Equatable {
 struct AgentFeedActionButton: View {
     let title: String
     let role: AgentFeedActionRole
+    let accessibilityIdentifier: String?
     let action: @MainActor () -> Void
+
+    init(
+        title: String,
+        role: AgentFeedActionRole,
+        accessibilityIdentifier: String? = nil,
+        action: @escaping @MainActor () -> Void
+    ) {
+        self.title = title
+        self.role = role
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.action = action
+    }
 
     var body: some View {
         Group {
@@ -79,6 +92,7 @@ struct AgentFeedActionButton: View {
                 .frame(height: 44)
         }
         .frame(maxWidth: .infinity, height: 44)
+        .accessibilityIdentifier(accessibilityIdentifier ?? "")
     }
 }
 
@@ -605,7 +619,8 @@ private struct AgentFeedDecisionControls: View {
                     defaultValue: "Allow",
                     bundle: .module
                 ),
-                role: .primary
+                role: .primary,
+                accessibilityIdentifier: "MobileAgentFeedPermissionAllow"
             ) {
                 actions.permissionReply(item, "once")
             }
@@ -616,7 +631,8 @@ private struct AgentFeedDecisionControls: View {
                     defaultValue: "Always",
                     bundle: .module
                 ),
-                role: .neutral
+                role: .neutral,
+                accessibilityIdentifier: "MobileAgentFeedPermissionAlways"
             ) {
                 actions.permissionReply(item, "always")
             }
@@ -627,7 +643,8 @@ private struct AgentFeedDecisionControls: View {
                     defaultValue: "Deny",
                     bundle: .module
                 ),
-                role: .destructive
+                role: .destructive,
+                accessibilityIdentifier: "MobileAgentFeedPermissionDeny"
             ) {
                 actions.permissionReply(item, "deny")
             }
