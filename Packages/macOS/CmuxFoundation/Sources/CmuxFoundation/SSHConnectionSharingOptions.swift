@@ -31,7 +31,17 @@ public struct SSHConnectionSharingOptions: Sendable {
     private static let routeSensitiveMarkerKey = "__cmux_route_sensitive"
     /// Resolved `ssh -G` keys naming the endpoint a route reaches. `proxyjump`
     /// is here because older OpenSSH releases leave it out of `%C`.
-    private static let routeEndpointKeys: Set<String> = ["user", "hostname", "port", "proxyjump"]
+    ///
+    /// `host` is the destination as typed. `ssh -G` prints `ProxyCommand`,
+    /// `IdentityFile`, `CertificateFile`, `LocalCommand` and
+    /// `KnownHostsCommand` without expanding their tokens, and `%n` (and `%k`
+    /// without a `HostKeyAlias`) expand to that destination when the
+    /// connection runs. Two aliases can therefore print identical routes that
+    /// reach different proxies or keys. Scanning values for those tokens would
+    /// have to track `%%` escapes and future tokens, so the alias always joins
+    /// the identity; aliases then never share a route-specific master, which
+    /// only costs an extra connection.
+    private static let routeEndpointKeys: Set<String> = ["host", "user", "hostname", "port", "proxyjump"]
     /// Options that change how a connection reaches or authenticates to its
     /// endpoint, or what a session on the master can do there. `%C` ignores
     /// all of them, so routes that differ in one must not share a master.
@@ -271,10 +281,12 @@ public struct SSHConnectionSharingOptions: Sendable {
 
     /// Returns a stable identity for the complete route `ssh -G` resolved.
     ///
-    /// The identity covers the endpoint (`user`, `hostname`, `port`,
-    /// `proxyjump`) and every security-relevant option in OpenSSH's resolved
-    /// form, so explicit `-o`/`-i` values and ssh_config values count alike.
-    /// Aliases that resolve to the same route share an identity. Pass it as
+    /// The identity covers the destination as typed (`host`), the endpoint
+    /// (`user`, `hostname`, `port`, `proxyjump`) and every security-relevant
+    /// option in OpenSSH's resolved form, so explicit `-o`/`-i` values and
+    /// ssh_config values count alike. Different aliases get different
+    /// identities because `ssh -G` leaves alias-dependent tokens such as `%n`
+    /// unexpanded. Pass it as
     /// `routeIdentifier` to
     /// ``mergingDefaults(into:userConfiguredControlOptions:routeSensitiveOptions:routeIdentifier:)``.
     ///
