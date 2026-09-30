@@ -125,12 +125,20 @@ class GitTrackedInputs(unittest.TestCase):
         (child / ".gitignore").write_text("Sources/generated.swift\n")
         (child / "Sources/App.swift").write_text("let app = 1\n")
 
+        def git_environment():
+            return {
+                name: value
+                for name, value in os.environ.items()
+                if name not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"}
+            }
+
         def git(repository, *arguments):
             subprocess.run(
                 ["git", "-C", str(repository), *arguments],
                 check=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                env=git_environment(),
             )
 
         git(child, "init", "-q")
@@ -151,7 +159,8 @@ class GitTrackedInputs(unittest.TestCase):
         git(workspace, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "init")
         (workspace / "vendor/child/Sources/generated.swift").write_text("let generated = 1\n")
 
-        recorded = warm.record(workspace)
+        with mock.patch.dict(os.environ, {"GIT_INDEX_FILE": str(root / "foreign-index")}, clear=False):
+            recorded = warm.record(workspace)
 
         self.assertIn("vendor/child/Sources/App.swift", recorded)
         self.assertNotIn("vendor/child/.git", recorded)

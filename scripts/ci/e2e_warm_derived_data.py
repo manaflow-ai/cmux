@@ -64,6 +64,15 @@ PREFIX = "e2e-derived-data-v1-"
 # Never walk into build outputs or git metadata: they are not inputs, and
 # DerivedData lives inside the workspace on every runner pool.
 SKIPPED_DIRECTORIES = frozenset({".git", "DerivedData"})
+GIT_LOCATION_VARIABLES = frozenset({"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"})
+
+
+def git_environment() -> dict[str, str]:
+    return {
+        name: value
+        for name, value in os.environ.items()
+        if name not in GIT_LOCATION_VARIABLES
+    }
 
 
 def digest(path: Path) -> str:
@@ -80,6 +89,7 @@ def tracked_paths(workspace: Path) -> set[str] | None:
             ["git", "-C", str(workspace), "rev-parse", "--show-toplevel"],
             check=True,
             capture_output=True,
+            env=git_environment(),
         ).stdout.strip()
         if Path(os.fsdecode(repository)).resolve() != workspace.resolve():
             return None
@@ -87,6 +97,7 @@ def tracked_paths(workspace: Path) -> set[str] | None:
             ["git", "-C", str(workspace), "ls-files", "--cached", "--recurse-submodules", "-z"],
             check=True,
             capture_output=True,
+            env=git_environment(),
         ).stdout
     except (OSError, subprocess.CalledProcessError):
         return None
