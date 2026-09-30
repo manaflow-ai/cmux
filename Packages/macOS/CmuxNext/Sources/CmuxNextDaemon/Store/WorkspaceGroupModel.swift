@@ -36,5 +36,10 @@ public struct SidebarSection: Identifiable {
     public let group: WorkspaceGroupModel?
     public let workspaces: [WorkspaceModel]
 
+    public init(group: WorkspaceGroupModel?, workspaces: [WorkspaceModel]) {
+        self.group = group
+        self.workspaces = workspaces
+    }
+
     public var id: String { group?.id.rawValue ?? "" }
 }

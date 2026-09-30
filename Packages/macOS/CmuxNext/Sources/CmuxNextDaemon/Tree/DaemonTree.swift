@@ -23,6 +23,10 @@ public struct DaemonTree: Sendable, Hashable, Decodable {
     public var workspaces: [WorkspaceSnapshot]
     /// Ordered sidebar groups (`workspace-groups-v1`).
     public var groups: [WorkspaceGroupSnapshot]
+    /// Personal state (`profiles-v1`, home session only). Not part of
+    /// `list-workspaces`: `DaemonConnection.snapshot()` fills it from
+    /// `list-personal`; nil on a daemon without it.
+    public var personal: PersonalState?
     /// Session-wide saved tab groups (`saved-tab-groups-v1`). Not part of
     /// `list-workspaces`: `DaemonConnection.snapshot()` fills it from
     /// `list-saved-tab-groups`.
@@ -45,6 +49,7 @@ public struct DaemonTree: Sendable, Hashable, Decodable {
         self.terminalRevision = terminalRevision
         self.workspaces = workspaces
         self.groups = groups
+        self.personal = nil
         self.savedTabGroups = savedTabGroups
     }
 
@@ -69,6 +74,7 @@ public struct DaemonTree: Sendable, Hashable, Decodable {
         workspaces = try c.decodeIfPresent([WorkspaceSnapshot].self, forKey: .workspaces) ?? []
         groups = try c.decodeIfPresent([WorkspaceGroupSnapshot].self, forKey: .groups) ?? []
         savedTabGroups = try c.decodeIfPresent([SavedTabGroupSnapshot].self, forKey: .savedTabGroups) ?? []
+        personal = nil
     }
 }
 
@@ -98,16 +104,20 @@ public struct WorkspaceGroupSnapshot: Sendable, Hashable, Decodable, Identifiabl
     /// Shared (not per-window) collapsed state.
     public var collapsed: Bool
     public var index: Int
+    /// Room of a personal group (`list-personal`); nil for shared groups.
+    public var profile: ProfileID?
 
-    public init(id: WorkspaceGroupID, name: String, color: String? = nil, collapsed: Bool = false, index: Int = 0) {
+    public init(id: WorkspaceGroupID, name: String, color: String? = nil, collapsed: Bool = false, index: Int = 0,
+                profile: ProfileID? = nil) {
         self.id = id
         self.name = name
         self.color = color
         self.collapsed = collapsed
         self.index = index
+        self.profile = profile
     }
 
-    enum CodingKeys: String, CodingKey { case id, name, color, collapsed, index }
+    enum CodingKeys: String, CodingKey { case id, name, color, collapsed, index, profile }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -116,5 +126,6 @@ public struct WorkspaceGroupSnapshot: Sendable, Hashable, Decodable, Identifiabl
         color = try c.decodeIfPresent(String.self, forKey: .color)
         collapsed = try c.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false
         index = try c.decodeIfPresent(Int.self, forKey: .index) ?? 0
+        profile = try c.decodeIfPresent(ProfileID.self, forKey: .profile)
     }
 }

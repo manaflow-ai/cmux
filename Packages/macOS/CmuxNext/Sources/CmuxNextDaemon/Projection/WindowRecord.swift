@@ -54,11 +54,18 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     public var selectedTabs: [String: String]
     /// Front-to-back order key; lower is further front.
     public var order: Int
+    /// Profile the window shows (plans/cmux-next/data-model.md 4); nil =
+    /// `default` (records from builds without profiles).
+    public var profile: ProfileID?
+    /// The workspace this window last showed in each profile, so switching
+    /// back restores it (profile id -> workspace key).
+    public var profileWorkspaces: [String: WorkspaceKey]
 
     public init(id: String, workspaceKey: WorkspaceKey? = nil, workspaceKeys: [WorkspaceKey] = [], machine: String? = nil,
                 screenID: ResourceID? = nil, frame: WindowFrame? = nil, display: String? = nil, isFullScreen: Bool = false,
                 sidebarWidth: Double? = nil, sidebarHidden: Bool = false, showsScreenSwitcher: Bool = false,
-                selectedTabs: [String: String] = [:], order: Int = 0) {
+                selectedTabs: [String: String] = [:], order: Int = 0, profile: ProfileID? = nil,
+                profileWorkspaces: [String: WorkspaceKey] = [:]) {
         self.id = id
         self.workspaceKey = workspaceKey
         self.workspaceKeys = workspaceKeys
@@ -72,10 +79,13 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         self.showsScreenSwitcher = showsScreenSwitcher
         self.selectedTabs = selectedTabs
         self.order = order
+        self.profile = profile
+        self.profileWorkspaces = profileWorkspaces
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, frame, order, machine, display
+        case id, frame, order, machine, display, profile
+        case profileWorkspaces = "profile_workspaces"
         case workspaceKey = "workspace_key"
         case workspaceKeys = "workspace_keys"
         case showsScreenSwitcher = "shows_screen_switcher"
@@ -111,5 +121,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         }
         selectedTabs = try c.decodeIfPresent([String: String].self, forKey: .selectedTabs) ?? [:]
         order = try c.decodeIfPresent(Int.self, forKey: .order) ?? 0
+        profile = try c.decodeIfPresent(ProfileID.self, forKey: .profile)
+        profileWorkspaces = try c.decodeIfPresent([String: WorkspaceKey].self, forKey: .profileWorkspaces) ?? [:]
     }
 }
