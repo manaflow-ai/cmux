@@ -70,6 +70,10 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
     @MainActor private var pendingAttentionStates: [FeedAttentionTarget: AttentionOverlayState] = [:]
+    /// Codex owns its TUI approval prompt, so its zero-wait PermissionRequest
+    /// telemetry has no Feed waiter to clear the needs-input overlay. Keep one
+    /// transient target per agent session and retire it on the next event.
+    @MainActor private var transientAttentionTargets: [String: FeedAttentionTarget] = [:]
 
     /// Tail of the serialized `CMUXFeedQuestion.` category mutation chain.
     /// `UNUserNotificationCenter` has no atomic category merge, so every
@@ -133,12 +137,16 @@ final class FeedCoordinator: @unchecked Sendable {
 
     @MainActor
     private func acceptOnMainActor(
-        _ event: WorkstreamEvent
+        _ event: WorkstreamEvent,
+        transientAttentionTarget: (ownerId: UUID, surfaceId: UUID?)? = nil
     ) -> FeedEventAcceptance {
         switch resolveDeliveryTarget(for: [event]) {
         case .accepted(let events):
             guard let revalidatedEvent = events.first,
-                  let item = ingestRevalidatedOnMainActor(revalidatedEvent) else {
+                  let item = ingestRevalidatedOnMainActor(
+                      revalidatedEvent,
+                      transientAttentionTarget: transientAttentionTarget
+                  ) else {
                 return .unavailable
             }
             return .accepted(event: revalidatedEvent, item: item)
@@ -151,11 +159,20 @@ final class FeedCoordinator: @unchecked Sendable {
 
     /// Inserts a revalidated event and returns the item the store now holds for it.
     @MainActor
-    func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> WorkstreamItem? {
+    func ingestRevalidatedOnMainActor(
+        _ event: WorkstreamEvent,
+        transientAttentionTarget: (ownerId: UUID, surfaceId: UUID?)? = nil
+    ) -> WorkstreamItem? {
         guard let store else { return nil }
         guard let item = store.ingestReturningItem(event) else { return nil }
+        retireTransientAttention(for: event)
         observeSemanticLifecycle(event)
         retirePendingDecisionsSuperseded(by: event)
+        if let transientAttentionTarget,
+           Self.shouldSurfaceTransientAttention(for: event),
+           let target = surfaceTransientAttention(event: event, resolved: transientAttentionTarget) {
+            transientAttentionTargets[Self.transientAttentionKey(for: event)] = target
+        }
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
@@ -377,6 +394,9 @@ final class FeedCoordinator: @unchecked Sendable {
         onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void,
         onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void
     ) -> Bool {
+        let transientAttentionTarget = Self.shouldSurfaceTransientAttention(for: event)
+            ? Self.resolveAttentionTargetSynchronously(event: event)
+            : nil
         return feedIngressDeliveryLane.enqueueZeroWait(
             metadata: Self.ingressMetadata(
                 for: [event],
@@ -386,7 +406,10 @@ final class FeedCoordinator: @unchecked Sendable {
             let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
                     let accept: () -> WorkstreamEvent? = {
-                        guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(event) else {
+                        guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(
+                            event,
+                            transientAttentionTarget: transientAttentionTarget
+                        ) else {
                             return nil
                         }
                         return event
@@ -590,6 +613,19 @@ extension FeedCoordinator {
         }
     }
 
+    /// Codex keeps its approval prompt in the terminal, so its PermissionRequest
+    /// hook is zero-wait telemetry rather than a Feed waiter. Surface that one
+    /// provider's decision as transient attention until the session emits its
+    /// next lifecycle event. Other providers keep their existing blocking path.
+    static func shouldSurfaceTransientAttention(for event: WorkstreamEvent) -> Bool {
+        event.source.caseInsensitiveCompare("codex") == .orderedSame
+            && isBlockingDecisionEvent(event.hookEventName)
+    }
+
+    private static func transientAttentionKey(for event: WorkstreamEvent) -> String {
+        "\(event.source)\u{0}\(event.sessionId)"
+    }
+
     /// Maps a feed `source` (agent id) to the agent-lifecycle status key the
     /// sidebar reads. Claude reports under `claude_code`; every other agent
     /// keys its status by its own source name. Returning the agent's own key
@@ -747,6 +783,28 @@ extension FeedCoordinator {
         ), key: statusKey, panelId: panelId)
 
         return target
+    }
+
+    @MainActor
+    private func surfaceTransientAttention(
+        event: WorkstreamEvent,
+        resolved: (ownerId: UUID, surfaceId: UUID?)
+    ) -> FeedAttentionTarget? {
+        let tabManager = AppDelegate.shared?.tabManagerFor(tabId: resolved.ownerId)
+            ?? AppDelegate.shared?.tabManagerFor(windowId: resolved.ownerId)
+        return surfaceBlockingDecisionAttention(
+            event: event,
+            resolved: resolved,
+            tabManager: tabManager
+        )
+    }
+
+    @MainActor
+    private func retireTransientAttention(for event: WorkstreamEvent) {
+        guard let target = transientAttentionTargets.removeValue(
+            forKey: Self.transientAttentionKey(for: event)
+        ) else { return }
+        concludeBlockingDecisionAttention(target)
     }
 
     /// Concludes a blocking decision's attention overlay. Decrements the

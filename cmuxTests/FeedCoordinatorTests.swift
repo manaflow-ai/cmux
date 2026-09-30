@@ -599,6 +599,41 @@ struct FeedCoordinatorTests {
         #expect(inserted)
     }
 
+    @Test func zeroWaitCodexPermissionSurfacesTransientNeedsInputAttention() async {
+        defer { Self.resetFeedCoordinatorTestHooks() }
+        let attention = AttentionSurfaceRecorder()
+
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+            FeedCoordinatorTestHooks.attentionSurfaceObserver = { event in
+                attention.record(event)
+            }
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "codex-zero-wait-permission",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"touch /tmp/cmux-codex"}"#,
+            requestId: "codex-zero-wait-permission-request"
+        )
+        let done = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 0)
+            done.signal()
+        }
+
+        #expect(done.wait(timeout: .now() + 2) == .success)
+        #expect(
+            attention.events.count == 1,
+            "Codex TUI approvals must surface needs-input attention even without a Feed waiter"
+        )
+        #expect(attention.events.first?.source == "codex")
+    }
+
     @Test func zeroWaitOneWayTelemetryDoesNotSynchronouslyHopToMainActor() async {
         await MainActor.run {
             let store = WorkstreamStore(ringCapacity: 10)
@@ -863,6 +898,28 @@ struct FeedCoordinatorTests {
         #expect(!FeedCoordinator.isBlockingDecisionEvent(.stop))
         #expect(!FeedCoordinator.isBlockingDecisionEvent(.notification))
         #expect(!FeedCoordinator.isBlockingDecisionEvent(.userPromptSubmit))
+    }
+
+    @Test func transientAttentionIsLimitedToCodexDecisionTelemetry() {
+        let codex = WorkstreamEvent(
+            sessionId: "codex-transient-classifier",
+            hookEventName: .permissionRequest,
+            source: "codex"
+        )
+        let claude = WorkstreamEvent(
+            sessionId: "claude-blocking-classifier",
+            hookEventName: .permissionRequest,
+            source: "claude"
+        )
+        let tool = WorkstreamEvent(
+            sessionId: "codex-tool-classifier",
+            hookEventName: .preToolUse,
+            source: "codex"
+        )
+
+        #expect(FeedCoordinator.shouldSurfaceTransientAttention(for: codex))
+        #expect(!FeedCoordinator.shouldSurfaceTransientAttention(for: claude))
+        #expect(!FeedCoordinator.shouldSurfaceTransientAttention(for: tool))
     }
 
     @Test func lifecycleStatusKeyMatchesAgentReportedKey() {
