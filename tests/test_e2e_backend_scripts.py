@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -41,6 +42,37 @@ class BackendScriptContractTests(unittest.TestCase):
             capture_output=True,
             check=False,
         )
+
+    def run_backend_up_fixture(self, *args: str) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "repo"
+            script = fixture / "scripts/e2e/backend-up.sh"
+            script.parent.mkdir(parents=True)
+            (fixture / "workers/iroh-v2").mkdir(parents=True)
+            (fixture / "workers/presence").mkdir(parents=True)
+            shutil.copy2(BACKEND_UP, script)
+            script.chmod(0o755)
+
+            fake_bin = Path(directory) / "bin"
+            fake_bin.mkdir()
+            for command in ("docker", "sudo"):
+                fake = fake_bin / command
+                fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                fake.chmod(0o755)
+
+            env = os.environ.copy()
+            env.update({
+                "CMUX_E2E_BACKEND_STATE_DIR": str(Path(directory) / "state"),
+                "PATH": f"{fake_bin}:{env['PATH']}",
+            })
+            return subprocess.run(
+                ["bash", str(script), *args],
+                cwd=fixture,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
 
     def test_backend_env_emits_the_four_origins_and_simulator_copies(self) -> None:
         result = self.run_script(BACKEND_ENV, "env", "--simctl", env={
@@ -129,6 +161,11 @@ class BackendScriptContractTests(unittest.TestCase):
         })
         self.assertEqual(result.returncode, 2)
         self.assertRegex(result.stderr, r"usage: .*backend-up\.sh up\|hold\|down")
+
+    def test_backend_up_cleanup_does_not_require_the_backend_name(self) -> None:
+        result = self.run_backend_up_fixture("down")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("stopped processes", result.stdout)
 
 
 if __name__ == "__main__":
