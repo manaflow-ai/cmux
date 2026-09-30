@@ -202,7 +202,7 @@ extension TerminalController {
            target.surface.liveSurfaceForGhosttyAccess(reason: "mobile.replay.canonical") != nil {
             return (resolved.workspace, surfaceID, target)
         }
-        if resolved.workspace.startupRestorePanelIdsAwaitingFirstVisit.remove(surfaceID) {
+        if resolved.workspace.startupRestorePanelIdsAwaitingFirstVisit.remove(surfaceID) != nil {
             owned.panel.surface.admitStartupRestoreRuntime()
         }
         owned.panel.resumeAgentHibernationForRemoteAttach()
