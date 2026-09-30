@@ -153,8 +153,13 @@ runs:
       if: ${{ inputs.record-video == 'true' }}
       shell: bash
       run: |
-        if [ -x scripts/ci/brew-ensure.sh ]; then
-          scripts/ci/brew-ensure.sh ffmpeg
+        # The helper comes from this workflow's revision (checked out into
+        # .e2e-workflow beside this action) when it is there, since the tested
+        # revision may predate it.
+        helper="$GITHUB_WORKSPACE/.e2e-workflow/scripts/ci/brew-ensure.sh"
+        [ -f "$helper" ] || helper=scripts/ci/brew-ensure.sh
+        if [ -f "$helper" ]; then
+          bash "$helper" ffmpeg
         else
           brew install --quiet ffmpeg
         fi
@@ -239,8 +244,10 @@ runs:
     - name: Install tmux
       shell: bash
       run: |
-        if [ -x scripts/ci/brew-ensure.sh ]; then
-          scripts/ci/brew-ensure.sh tmux
+        helper="$GITHUB_WORKSPACE/.e2e-workflow/scripts/ci/brew-ensure.sh"
+        [ -f "$helper" ] || helper=scripts/ci/brew-ensure.sh
+        if [ -f "$helper" ]; then
+          bash "$helper" tmux
         elif ! command -v tmux >/dev/null 2>&1; then
           brew install --quiet tmux
         fi
