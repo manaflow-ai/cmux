@@ -272,16 +272,36 @@ extension CMUXCLI {
                             idFormat: idFormat
                         )
                     }
-                    if observedState == "draft" || observedState == "queued"
-                        || (observed["queued"] as? Bool) == true || slashPopup {
+                    let composerMatches = Self.sendComposerMatches(
+                        observed,
+                        nil,
+                        text: text,
+                        agentKind: state?["agent_kind"] as? String
+                    )
+                    if observedState == "draft" {
+                        pastedVisible = composerMatches
+                    } else if observedState == "queued" || (observed["queued"] as? Bool) == true {
                         pastedVisible = true
+                    } else if slashPopup {
+                        // A picker opened by the pasted slash command still
+                        // belongs to this submission, but only if its composer
+                        // contains the text we just pasted.
+                        pastedVisible = composerMatches
+                    }
+                    if pastedVisible {
                         break
                     }
                 }
                 if let refreshed = try? client.sendV2(method: "surface.read_text", params: target),
                    let refreshedText = refreshed["text"] as? String {
                     screen = refreshedText
-                    if Self.submitInputStateFromScreen(refreshedText)?["state"] as? String == "draft" {
+                    if Self.submitInputStateFromScreen(refreshedText)?["state"] as? String == "draft",
+                       Self.sendComposerMatches(
+                           nil,
+                           refreshedText,
+                           text: text,
+                           agentKind: state?["agent_kind"] as? String
+                       ) {
                         pastedVisible = true
                         break
                     }
