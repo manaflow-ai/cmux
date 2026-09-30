@@ -175,61 +175,143 @@ function closeStreaming(blocks: Block[]): Block[] {
   return blocks;
 }
 
-export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
-  const last = blocks[blocks.length - 1];
-  switch (evt.kind) {
-    case "user":
-      return [...closeStreaming(blocks), { kind: "user", text: evt.text }];
-    case "delta":
-      if (last && last.kind === "assistant" && last.open) {
-        return [...blocks.slice(0, -1), { ...last, text: last.text + evt.text }];
-      }
-      return [...closeStreaming(blocks), { kind: "assistant", text: evt.text, open: true }];
-    case "assistant":
-      if (last && last.kind === "assistant" && last.open) {
-        return [...blocks.slice(0, -1), { ...last, text: evt.text, open: false }];
-      }
-      return [...closeStreaming(blocks), { kind: "assistant", text: evt.text, open: false }];
-    case "thinking":
-      if (last && last.kind === "thinking" && last.open) {
-        return [...blocks.slice(0, -1), { ...last, text: last.text + evt.text }];
-      }
-      return [...closeStreaming(blocks), { kind: "thinking", text: evt.text, open: true }];
-    case "tool-start":
-      return [...closeStreaming(blocks), { kind: "tool", toolId: evt.toolId, name: evt.name || "tool", detail: evt.detail, status: "running" }];
-    case "tool-end":
-      return blocks.map((b) =>
-        b.kind === "tool" && b.toolId === evt.toolId
-          ? { ...b, status: evt.ok === false ? "fail" : "ok", out: evt.detail || b.out }
-          : b,
-      );
-    case "done": {
-      const closed = closeStreaming(blocks);
-      return [...closed, { kind: "footer", text: evt.stats ?? "" }];
+class EventFolder {
+  private owned = false;
+  private tools: Map<string, number[]> | null = null;
+  private filesCount: number | undefined;
+  private planIndex: number | null | undefined;
+
+  constructor(public blocks: Block[], private indexed: boolean) {}
+
+  private writable(): Block[] {
+    if (!this.owned) {
+      this.blocks = this.blocks.slice();
+      this.owned = true;
     }
-    case "files-changed":
-      return [...closeStreaming(blocks), { kind: "files", files: evt.files, revision: nextFilesRevision(blocks) }];
-    case "error":
-      return [...closeStreaming(blocks), { kind: "error", text: evt.message }];
-    case "status":
-      return [...closeStreaming(blocks), { kind: "status", text: evt.text }];
-    case "plan": {
-      const closed = closeStreaming(blocks);
-      let currentTurnStart = 0;
-      for (let index = closed.length - 1; index >= 0; index -= 1) {
-        if (closed[index]?.kind === "user") {
-          currentTurnStart = index + 1;
-          break;
-        }
-      }
-      const existingIndex = closed.findIndex((block, index) => index >= currentTurnStart && block.kind === "plan");
-      const plan = { kind: "plan" as const, entries: evt.entries };
-      if (existingIndex < 0) return [...closed, plan];
-      return closed.map((block, index) => (index === existingIndex ? plan : block));
-    }
-    default:
-      return blocks;
+    return this.blocks;
   }
+
+  private closeStreaming(): void {
+    const last = this.blocks[this.blocks.length - 1];
+    if (last && (last.kind === "assistant" || last.kind === "thinking") && last.open) {
+      this.writable()[this.blocks.length - 1] = { ...last, open: false };
+    }
+  }
+
+  private push(block: Block): void {
+    this.closeStreaming();
+    this.writable().push(block);
+  }
+
+  fold(evt: AgentEvent): void {
+    const last = this.blocks[this.blocks.length - 1];
+    switch (evt.kind) {
+      case "user":
+        this.push({ kind: "user", text: evt.text });
+        this.planIndex = null;
+        break;
+      case "delta":
+      case "assistant":
+      case "thinking": {
+        const kind = evt.kind === "thinking" ? "thinking" : "assistant";
+        if (last && last.kind === kind && last.open) {
+          this.writable()[this.blocks.length - 1] = {
+            ...last, text: evt.kind === "assistant" ? evt.text : last.text + evt.text,
+            open: evt.kind !== "assistant",
+          };
+        } else {
+          this.push({ kind, text: evt.text, open: evt.kind !== "assistant" });
+        }
+        break;
+      }
+      case "tool-start": {
+        const index = this.blocks.length;
+        this.push({ kind: "tool", toolId: evt.toolId, name: evt.name || "tool", detail: evt.detail, status: "running" });
+        if (this.tools) {
+          const indices = this.tools.get(evt.toolId) ?? [];
+          indices.push(index);
+          this.tools.set(evt.toolId, indices);
+        }
+        break;
+      }
+      case "tool-end": {
+        const blocks = this.writable();
+        const complete = (index: number) => {
+          const block = blocks[index] as Extract<Block, { kind: "tool" }>;
+          blocks[index] = { ...block, status: evt.ok === false ? "fail" : "ok", out: evt.detail || block.out };
+        };
+        if (this.indexed) {
+          if (!this.tools) {
+            this.tools = new Map();
+            for (let index = 0; index < blocks.length; index++) {
+              const block = blocks[index];
+              if (block.kind !== "tool") continue;
+              const indices = this.tools.get(block.toolId) ?? [];
+              indices.push(index);
+              this.tools.set(block.toolId, indices);
+            }
+          }
+          for (const index of this.tools.get(evt.toolId) ?? []) complete(index);
+        } else {
+          for (let index = 0; index < blocks.length; index++) {
+            const block = blocks[index];
+            if (block.kind === "tool" && block.toolId === evt.toolId) complete(index);
+          }
+        }
+        break;
+      }
+      case "done":
+        this.push({ kind: "footer", text: evt.stats ?? "" });
+        break;
+      case "files-changed": {
+        let revision: string;
+        if (this.indexed) {
+          this.filesCount ??= this.blocks.reduce((count, block) => count + Number(block.kind === "files"), 0);
+          revision = String(++this.filesCount);
+        } else revision = nextFilesRevision(this.blocks);
+        this.push({ kind: "files", files: evt.files, revision });
+        break;
+      }
+      case "error":
+        this.push({ kind: "error", text: evt.message });
+        break;
+      case "status":
+        this.push({ kind: "status", text: evt.text });
+        break;
+      case "plan": {
+        this.closeStreaming();
+        if (this.planIndex === undefined) {
+          let start = 0;
+          for (let index = this.blocks.length - 1; index >= 0; index--) {
+            if (this.blocks[index].kind === "user") { start = index + 1; break; }
+          }
+          this.planIndex = null;
+          for (let index = start; index < this.blocks.length; index++) {
+            if (this.blocks[index].kind === "plan") { this.planIndex = index; break; }
+          }
+        }
+        const plan = { kind: "plan" as const, entries: evt.entries };
+        if (this.planIndex === null) {
+          this.planIndex = this.blocks.length;
+          this.writable().push(plan);
+        } else this.writable()[this.planIndex] = plan;
+        break;
+      }
+    }
+  }
+}
+
+export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
+  const folder = new EventFolder(blocks, false);
+  folder.fold(evt);
+  return folder.blocks;
+}
+
+/** Replay into one owned array; indexes live only for this batch. */
+export function foldEvents(blocks: Block[], events: AgentEvent[]): Block[] {
+  const folder = new EventFolder(blocks, true);
+  for (const event of events) folder.fold(event);
+  return folder.blocks;
 }
 
 interface Hello { providers: Provider[]; harnesses?: HarnessRecommendation[]; harnessCatalogs?: HarnessCatalogs; defaultCwd: string; keys?: { ctrlJ?: CtrlJMode }; }
@@ -345,6 +427,31 @@ export function useSession(): SessionState {
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [routing, setRouting] = useState<RouteStatus | null>(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
+  const streamEventsRef = useRef<AgentEvent[]>([]);
+  const streamTimerRef = useRef<number | null>(null);
+  const streamGenerationRef = useRef(0);
+  const discardStream = useCallback(() => {
+    if (streamTimerRef.current !== null) window.clearTimeout(streamTimerRef.current);
+    streamTimerRef.current = null;
+    streamEventsRef.current = [];
+    streamGenerationRef.current++;
+  }, []);
+  const flushStream = useCallback((boundary?: AgentEvent) => {
+    const events = streamEventsRef.current;
+    discardStream();
+    if (boundary) events.push(boundary);
+    if (!events.length) return;
+    setBlocks((bs) => events.length === 1 ? foldEvent(bs, events[0]!) : foldEvents(bs, events));
+  }, [discardStream]);
+  const queueStream = useCallback((evt: AgentEvent) => {
+    streamEventsRef.current.push(evt);
+    if (streamTimerRef.current !== null) return;
+    const generation = streamGenerationRef.current;
+    // A timer also runs in background tabs, where animation frames may stop.
+    streamTimerRef.current = window.setTimeout(() => {
+      if (streamGenerationRef.current === generation) flushStream();
+    }, 16);
+  }, [flushStream]);
   const [options, setOptions] = useState<SessionOption[]>([]);
   const [actions, setActions] = useState<SessionActions>({});
   const [commands, setCommands] = useState<CommandGroup[]>([]);
@@ -421,6 +528,7 @@ export function useSession(): SessionState {
   const failPendingStart = useCallback((message: string) => {
     const pending = pendingStartRef.current;
     if (!pending) return;
+    discardStream();
     clearPendingStartTimeout();
     pendingStartRef.current = null;
     restoreComposerDraft(sessionStorage, pending.prompt);
@@ -438,7 +546,7 @@ export function useSession(): SessionState {
     setFileDiffs({});
     setLastError(message);
     setPhase("composer");
-  }, [clearPendingStartTimeout]);
+  }, [clearPendingStartTimeout, discardStream]);
 
   const armPendingStartTimeout = useCallback(() => {
     clearPendingStartTimeout();
@@ -461,6 +569,7 @@ export function useSession(): SessionState {
       createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
       onSocket: (ws) => {
         wsRef.current = ws;
+        if (!ws) flushStream();
       },
       onOpen: () => {
         const pending = pendingStartRef.current;
@@ -505,6 +614,7 @@ export function useSession(): SessionState {
               break;
             }
             if (sessionIdRef.current !== msg.session.id) resetSessionActions();
+            discardStream();
             sessionIdRef.current = msg.session.id;
             history.replaceState(null, "", appPath("/s/" + msg.session.id));
             document.title = msg.session.title || "cmux agent";
@@ -526,13 +636,14 @@ export function useSession(): SessionState {
           }
           case "history":
             if (msg.sessionId !== sessionIdRef.current) break;
+            discardStream();
             if (sessionIdRef.current !== msg.session.id) resetSessionActions();
             sessionIdRef.current = msg.session.id;
             document.title = msg.session.title || "cmux agent";
             serverStatusRef.current = msg.session.status;
             setSession(msg.session);
             setRouting(latestRouteStatus(msg.events as AgentEvent[]));
-            setBlocks((msg.events as AgentEvent[]).reduce(foldEvent, [] as Block[]));
+            setBlocks(foldEvents([], msg.events as AgentEvent[]));
             optimisticUsersRef.current = [];
             setOptions(latestOptions(msg.events as AgentEvent[]));
             setActions(latestActions(msg.events as AgentEvent[]));
@@ -544,6 +655,7 @@ export function useSession(): SessionState {
           case "no-session":
             if (!sessionIdRef.current || msg.sessionId !== sessionIdRef.current) break;
             resetSessionActions();
+            discardStream();
             history.replaceState(null, "", appPath("/"));
             sessionIdRef.current = null;
             setSession(null);
@@ -558,12 +670,14 @@ export function useSession(): SessionState {
             break;
           case "session-status":
             if (msg.sessionId === sessionIdRef.current) {
+              flushStream();
               serverStatusRef.current = msg.status;
               setSession((s) => (s ? { ...s, status: msg.status } : s));
             }
             break;
           case "session-attention":
             if (msg.sessionId === sessionIdRef.current) {
+              flushStream();
               setSession((s) => (s ? { ...s, attention: typeof msg.attention === "string" ? msg.attention : null } : s));
             }
             break;
@@ -578,9 +692,11 @@ export function useSession(): SessionState {
               const evt = msg.evt as AgentEvent;
               if (evt.kind === "routing") setRouting(normalizeRouteStatus(evt));
               if (evt.kind === "user" && consumeOptimisticUserEcho(optimisticUsersRef.current, evt.text)) {
+                flushStream();
                 break;
               }
-              setBlocks((bs) => foldEvent(bs, evt));
+              if (evt.kind === "delta" || evt.kind === "thinking") queueStream(evt);
+              else flushStream(evt);
               if (evt.kind === "options") setOptions(evt.options);
               if (evt.kind === "options") setActions(evt.actions ?? {});
               if (evt.kind === "commands") setCommands((gs) => upsertCommands(gs, evt));
@@ -703,11 +819,12 @@ export function useSession(): SessionState {
       },
     });
     return () => {
+      discardStream();
       disconnect();
       clearPendingStartTimeout();
       resetSessionActions();
     };
-  }, [armPendingStartTimeout, clearPendingStartTimeout, closeForkWindow, closeHandoffWindow, failPendingStart, resetSessionActions, sendRaw]);
+  }, [armPendingStartTimeout, clearPendingStartTimeout, closeForkWindow, closeHandoffWindow, discardStream, failPendingStart, flushStream, queueStream, resetSessionActions, sendRaw]);
 
   const start = useCallback((opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }) => {
     const key = JSON.stringify([opts.provider, opts.cwd, opts.prompt, opts.options ?? {}]);
@@ -716,7 +833,8 @@ export function useSession(): SessionState {
     const requestId = newClientRequestId("start");
     const conversationId = crypto.randomUUID();
     if (!sendRaw({ op: "start", requestId, conversationId, ...opts })) return false;
-    resetSessionActions();
+            resetSessionActions();
+            discardStream();
     pendingStartRef.current = { requestId, conversationId, key, queuedReplies: [], ...opts };
     armPendingStartTimeout();
     optimisticUsersRef.current = [opts.prompt];
@@ -742,8 +860,9 @@ export function useSession(): SessionState {
     setFileDiffs({});
     setPhase("chat");
     return true;
-  }, [armPendingStartTimeout, resetSessionActions, sendRaw]);
+  }, [armPendingStartTimeout, discardStream, resetSessionActions, sendRaw]);
   const compose = useCallback(() => {
+    discardStream();
     clearPendingStartTimeout();
     resetSessionActions();
     pendingStartRef.current = null;
@@ -759,7 +878,7 @@ export function useSession(): SessionState {
     pendingFileDiffKeysRef.current = {};
     setFileDiffs({});
     setPhase("composer");
-  }, [clearPendingStartTimeout, resetSessionActions]);
+  }, [clearPendingStartTimeout, discardStream, resetSessionActions]);
   const reply = useCallback((text: string) => {
     const pending = pendingStartRef.current;
     if (!sessionIdRef.current && pending?.failed) {
@@ -767,6 +886,7 @@ export function useSession(): SessionState {
       return;
     }
     if (!sessionIdRef.current && pending && !pending.failed) {
+      flushStream();
       pending.queuedReplies.push({ requestId: newClientRequestId("turn"), prompt: text });
       optimisticUsersRef.current.push(text);
       setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
@@ -778,18 +898,20 @@ export function useSession(): SessionState {
         // A terminal view's prompt only reaches the event log when the agent's
         // transcript records it; show it now and drop that echo when it lands.
         if (sessionModeRef.current === "transcript") {
+          flushStream();
           optimisticUsersRef.current.push(text);
           setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
         }
       }
     }
-  }, [sendRaw, start]);
+  }, [flushStream, sendRaw, start]);
   const focusTerminal = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });
   }, [sendRaw]);
   const stop = useCallback(() => {
+    flushStream();
     if (sessionIdRef.current) sendRaw({ op: "stop", sessionId: sessionIdRef.current });
-  }, [sendRaw]);
+  }, [flushStream, sendRaw]);
   const setOption = useCallback((id: string, value: OptionValue) => {
     if (sessionIdRef.current) sendRaw({ op: "set-option", sessionId: sessionIdRef.current, id, value });
   }, [sendRaw]);
